@@ -1,0 +1,148 @@
+{
+  // ============================================
+  // WeaveMD — VS Code 工作区设置
+  // ============================================
+
+  // --- 编辑器设置 ---
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "editor.rulers": [100],
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+
+  // --- TypeScript ---
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "typescript.preferences.importModuleSpecifier": "relative",
+
+  // --- TailwindCSS ---
+  "tailwindCSS.experimental.classRegex": [],
+  "tailwindCSS.includeLanguages": {
+    "typescript": "javascript",
+    "typescriptreact": "javascript"
+  },
+
+  // --- 文件排除 ---
+  "files.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/.git": true
+  },
+
+  // ============================================
+  // 任务 Hooks — 编码 → 测试 → 文档 → 提交
+  // ============================================
+  // 这些任务通过 Ctrl+Shift+B 或手动触发，
+  // 确保每次功能完成后执行完整工作流。
+
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      // --------------------------------------------------
+      // Hook 1: 运行测试检查
+      // 每次功能完成后必须先运行此任务
+      // --------------------------------------------------
+      {
+        "label": "🔍 Run Tests & TypeCheck",
+        "type": "shell",
+        "command": "npm run test && npm run typecheck && npm run lint",
+        "group": {
+          "kind": "test",
+          "isDefault": true
+        },
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated",
+          "clear": true
+        },
+        "problemMatcher": [
+          "$tsc",
+          "$eslint-stylish"
+        ]
+      },
+
+      // --------------------------------------------------
+      // Hook 2: 更新文档
+      // 测试通过后，更新 docs/ 下对应设计文档
+      // --------------------------------------------------
+      {
+        "label": "📝 Update Documentation",
+        "type": "shell",
+        "command": "echo 'Remember to update docs/ files for your changes. See .claude/rules/WORKFLOW.md'",
+        "group": "none",
+        "presentation": {
+          "reveal": "never",
+          "panel": "dedicated"
+        }
+      },
+
+      // --------------------------------------------------
+      // Hook 3: Git 提交到 GitHub
+      // 文档更新后，提交代码到 GitHub
+      // --------------------------------------------------
+      {
+        "label": "🚀 Git Commit & Push",
+        "type": "shell",
+        "command": "git add -A && git commit -m \"${input:commitMessage}\" && git push",
+        "group": "none",
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated",
+          "clear": true
+        },
+        "problemMatcher": []
+      },
+
+      // --------------------------------------------------
+      // Hook 4: 完整工作流（一键执行全部）
+      // 测试 → 文档提醒 → 提交
+      // --------------------------------------------------
+      {
+        "label": "✅ Complete Workflow (Test → Doc → Commit)",
+        "type": "shell",
+        "command": "npm run test && npm run typecheck && npm run lint",
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        },
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated",
+          "clear": true
+        },
+        "dependsOn": [],
+        "problemMatcher": [
+          "$tsc",
+          "$eslint-stylish"
+        ]
+      }
+    ],
+
+    // --------------------------------------------------
+    // 输入变量：提交信息
+    // --------------------------------------------------
+    "inputs": [
+      {
+        "id": "commitMessage",
+        "type": "promptString",
+        "description": "Git commit message (format: type(scope): message)",
+        "default": "feat: "
+      }
+    ]
+  },
+
+  // ============================================
+  // 保存时自动触发任务（可选）
+  // 取消注释以在保存时自动运行测试
+  // ============================================
+  // "emeraldwalk.runonsave": {
+  //   "commands": [
+  //     {
+  //       "match": "\\.(ts|tsx)$",
+  //       "cmd": "npm run test -- --findRelatedTests ${file}"
+  //     }
+  //   ]
+  // }
+}

@@ -1,0 +1,22 @@
+appId: com.weavemd.app
+productName: WeaveMD
+directories:
+  output: release
+files:
+  - dist-render/**/*
+  - dist-main/**/*
+  - public/**/*
+win:
+  target:
+    - nsis
+    - msi
+  icon: public/icons/icon.png
+mac:
+  target: dmg
+  icon: public/icons/icon.png
+linux:
+  target: AppImage
+  icon: public/icons/icon.png
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

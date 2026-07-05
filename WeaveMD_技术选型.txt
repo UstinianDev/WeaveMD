@@ -1,0 +1,379 @@
+===============================================
+WeaveMD 技术选型文档 v2.0
+===============================================
+
+【项目技术栈 - 最优方向】
+===============================================
+
+【前端框架】
+✅ React 18 + TypeScript
+   理由：组件化、类型安全、Electron 生态成熟、易维护扩展
+
+【UI 框架】
+✅ TailwindCSS v4 + Shadcn/ui
+   理由：快速构建深色主题、设计系统一致、CareerCompass 风格兼容
+   深色主题配置：<html class="dark"> + darkMode: 'class'
+
+【状态管理】
+✅ Zustand v4
+   理由：轻量 (~2KB)、完全类型安全、中间件支持（持久化、日志）
+   核心 stores：
+   - auth.ts (用户认证状态)
+   - editor.ts (编辑器内容、光标、撤销栈)
+   - ui.ts (主题、菜单、侧边栏状态)
+   - history.ts (文件历史记录)
+
+【编辑器】
+✅ Monaco Editor (@monaco-editor/react)
+   理由：VS Code 同源、功能完善、代码高亮一流、大文件处理优秀
+   特性：搜索替换、Vim 模式、快捷键映射（Ctrl+S 保存）
+
+【代码高亮】
+✅ Prism.js
+   理由：自动语言检测、支持 100+ 语言、可自定义深色主题
+
+【Markdown 处理】
+✅ unified + remark + rehype
+   理由：灵活 AST 处理、支持 GFM（表格、删除线）、易扩展
+   流程：Markdown → AST → 生成目录 + 渲染内容
+
+【本地存储】
+✅ 方案 A（推荐）：SQLite via better-sqlite3 (主进程)
+   架构：render (IPC) ↔ main (db) ↔ SQLite 数据库
+   位置：~userData/weaveMD.db
+   表：users、files、history、settings、edits
+
+   方案 B（备选）：IndexedDB (渲染进程)
+   优点：无依赖、跨域少
+   缺点：Electron 中不如 SQLite 稳定
+
+【文件导出】
+✅ 混合方案：
+   MD 格式：直接保存 .md 文件
+   HTML：rehype-stringify 库
+   Word (.docx)：docx 库 或 Pandoc CLI
+   PDF：Puppeteer/Playwright 截图转 PDF 或 electron-pdf
+
+【桌面框架】
+✅ Electron (最新稳定版)
+   特性：跨平台、渲染进程 + 主进程分离、原生模块支持
+   工具链：
+   - electron-builder (打包、签名、自动更新)
+   - electron-store (本地配置存储)
+   - better-sqlite3 (数据库)
+
+【构建工具】
+✅ Vite 5
+   理由：HMR 极快、生产优化、Electron 集成成熟
+   配置：
+   - vite.config.ts (render 配置)
+   - vite-plugin-electron 插件
+   - 开发：localhost:5173 | 生产：file:// 协议
+
+【打包 & 发布】
+✅ Electron Builder
+   配置文件：electron-builder.yml
+   输出：
+   - dmg (macOS)
+   - exe + msi (Windows)
+   - AppImage (Linux)
+   功能：自动签名、增量更新、便携版
+
+===============================================
+【认证方案】
+===============================================
+
+【推荐：方案 A (纯本地) - MVP】
+实现：
+- 本地账号 (5-15位) + SQLite 数据库
+- 密码加密（bcryptjs），支持密码强度验证
+- JWT Token 本地生成，存储在 localStorage
+- 历史账号本地存储 (localStorage)，支持快速切换
+- 记住密码加密存储
+- 账号验证规则：
+  * 长度 5-15 位
+  * 允许字母(a-z, A-Z)、数字(0-9)、下划线(_)
+  * 不能以数字开头
+  * 不能使用系统保留账号（admin, root, system 等）
+  * 注册时实时检查账号可用性（数据库查询）
+
+优点：
+- 无需后端、完全离线、快速开发
+- 支持一人多账号，避免笔记堆积
+- 账号数据完全隔离
+- 可轻松分享给好友（每人独立数据库）
+
+缺点：
+- 无云同步、无社交登录
+- 数据安全依赖本机
+
+【后续：方案 B (混合) - 升级版】
+- 本地优先 + 可选云同步
+- 支持 OAuth 集成 (Google/GitHub)
+- 云端文件备份
+- 跨设备同步
+
+【数据库 Schema 简要】
+users 表：
+  id | username (UNIQUE, 5-15位, 小写存储) | password_hash | created_at | updated_at | last_login
+  索引：username (快速查询检重)
+
+files 表：
+  id | user_id | name | content | created_at | modified_at | deleted_at
+  索引：user_id + modified_at (快速查询用户的最近文件)
+
+history 表：
+  id | file_id | version | diff | saved_at
+  索引：file_id + saved_at
+
+settings 表：
+  id | user_id | theme | language | custom_colors | key=value
+  索引：user_id
+
+【账号验证规则实现】
+前端验证：
+- 输入框实时验证：长度 5-15
+- 正则表达式：^[a-zA-Z][a-zA-Z0-9_]{4,14}$
+
+后端验证（IPC 调用主进程）：
+- 查询数据库检查账号是否已存在
+- 检查是否为保留账号列表
+- 创建成功后统一转换为小写存储
+
+历史账号快速切换：
+- 登录成功后，将账号存储到 localStorage: recent_accounts = [...]
+- 登录页下拉显示最近 10 个账号
+- 点击快速切换，填充账号名，光标聚焦到密码框
+
+===============================================
+【架构分层】
+===============================================
+
+【展示层 (UI Components)】
+- React 组件库 (Shadcn/ui 基础)
+- 页面级组件 (AuthPage, MainPage)
+- 复用组件 (Button, Input, Modal, Dropdown)
+
+【业务逻辑层 (Hooks & Stores)】
+- Zustand stores (auth, editor, ui, history)
+- 自定义 hooks (useAuth, useEditor, useTheme)
+- 事件处理 (快捷键映射、拖拽排序等)
+
+【数据访问层 (Services & API)】
+- API 调用 (axios)
+- IPC 通信 (main process)
+- 本地存储 (localStorage, IndexedDB)
+
+【主进程层 (Electron Main)】
+- 窗口管理 (BrowserWindow)
+- 数据库操作 (better-sqlite3)
+- IPC 处理器
+- 文件系统操作
+- 导出功能集成
+
+===============================================
+【项目结构】
+===============================================
+
+weaveMD/
+├── src/
+│   ├── main/                       # Electron 主进程
+│   │   ├── index.ts                # 主进程入口
+│   │   ├── window.ts               # 窗口管理
+│   │   ├── ipc-handlers.ts         # IPC 通信
+│   │   ├── db/
+│   │   │   ├── index.ts            # DB 初始化
+│   │   │   ├── users.ts            # 用户操作
+│   │   │   ├── files.ts            # 文件操作
+│   │   │   ├── history.ts          # 历史操作
+│   │   │   └── settings.ts         # 设置操作
+│   │   └── preload.ts              # 预加载脚本
+│   │
+│   ├── render/                     # React 前端
+│   │   ├── components/
+│   │   │   ├── Auth/ (LoginPage, SignupPage, SplashLoader)
+│   │   │   ├── Editor/ (EditorView, OutlinePanel, FloatingToolbar)
+│   │   │   ├── Navbar/ (TopBar, FileMenu, MoreMenu)
+│   │   │   ├── Settings/ (SettingsModal, ThemeSelector)
+│   │   │   └── Common/ (Button, Input, Modal, Dropdown)
+│   │   ├── pages/ (AuthPage, MainPage)
+│   │   ├── hooks/ (useAuth, useEditor, useTheme)
+│   │   ├── stores/ (authStore, editorStore, uiStore)
+│   │   ├── services/ (api.ts, storage.ts, export.ts, markdown.ts)
+│   │   ├── styles/ (globals.css, tailwind.css, dark-theme.css)
+│   │   ├── utils/ (crypto.ts, validators.ts, helpers.ts)
+│   │   └── App.tsx
+│   │
+│   └── shared/
+│       ├── types.ts                # TypeScript 类型定义
+│       └── constants.ts            # 常量
+│
+├── public/ (icons/, images/)
+├── electron-builder.yml
+├── vite.config.ts
+├── tsconfig.json
+├── tailwind.config.ts
+└── package.json
+
+===============================================
+【核心依赖列表】
+===============================================
+
+# 前端框架
+react@^18.3.0
+react-dom@^18.3.0
+typescript@^5.4.0
+
+# 状态管理 & 样式
+zustand@^4.5.0
+tailwindcss@^3.4.0
+postcss@^8.4.0
+@headlessui/react@^2.1.0
+
+# 编辑器 & Markdown
+@monaco-editor/react@^4.6.0
+unified@^10.1.0
+remark-parse@^11.0.0
+remark-gfm@^4.0.0
+rehype-stringify@^10.0.0
+prismjs@^1.29.0
+
+# 本地存储 & 认证
+better-sqlite3@^9.4.0
+bcryptjs@^2.4.3
+jsonwebtoken@^9.1.0
+
+# HTTP & 工具
+axios@^1.7.0
+
+# Electron & 构建
+electron@latest
+electron-builder@latest
+vite@^5.1.0
+vite-plugin-electron@^0.28.0
+
+===============================================
+【开发时间估算】
+===============================================
+
+第 1 周：项目脚手架 + 认证系统 (5 天)
+  - Vite + Electron + TailwindCSS 配置 (2 天)
+  - 登录/注册/加载页 UI 和逻辑 (2 天)
+  - 本地 SQLite 认证集成 (1 天)
+
+第 2 周：编辑器核心功能 (5 天)
+  - Monaco Editor 集成 + 代码高亮 (2 天)
+  - 目录生成 + AST 解析 (2 天)
+  - 浮动工具栏实现 (1 天)
+
+第 3 周：应用界面和导出 (5 天)
+  - 导航栏 + 菜单系统 (1 天)
+  - 设置界面 + 主题自定义 (1.5 天)
+  - 导出功能 (MD/Word/PDF) (1.5 天)
+  - 历史记录 + 版本管理 (1 天)
+
+第 4 周：打包、测试、优化 (4 天)
+  - 跨平台测试 (1 天)
+  - Electron Builder 配置 + 签名 (1 天)
+  - 性能优化 + Bug 修复 (2 天)
+
+总耗时：24-28 工作日（单人开发）
+
+===============================================
+【关键实现细节】
+===============================================
+
+【账号认证流程】
+注册：
+1. 前端：输入账号(5-15位) → 实时格式验证
+2. IPC 调用主进程查询数据库 → 检查重复 + 保留字检查
+3. 前端：输入密码 → 强度检查显示
+4. IPC 调用主进程 → bcryptjs 加密密码 + 插入 users 表
+5. 注册成功 → 自动填充账号 → 跳转登录页
+
+登录：
+1. 账号输入框下拉显示 localStorage 中的历史账号（最近 10 个）
+2. 点击历史账号 → 填充账号名 + 清空密码框
+3. 输入密码
+4. 勾选"记住密码"→ 加密存储到 localStorage (可选 30 天)
+5. 点击登录 → IPC 查询数据库 → bcryptjs compare() 验证
+6. 验证通过 → 生成 JWT Token → localStorage 存储 + 导入应用
+
+账号切换：
+1. 导航栏显示当前账号标签 (点击可打开下拉)
+2. 下拉显示已保存的其他账号 + "新建账号"选项
+3. 点击账号 → 询问是否保存当前账号的修改
+4. 切换 → 清除旧 Token + 加载新账号数据
+5. 该账号的所有 UI 状态、设置、文件列表全部重新加载
+
+数据隔离：
+- 每个文件操作都通过 user_id 过滤（IPC 中携带当前用户 ID）
+- 历史记录、设置按 user_id 分组
+- 删除账号时级联删除所有关联数据
+
+【Markdown 编辑流程】
+输入 → 编辑器监听 → Zustand store → 实时高亮 → 自动生成目录
+
+【目录生成】
+Markdown → remark parse AST → 提取 H1/H2/H3 → 递归生成树 → 渲染
+
+【撤销/重做】
+编辑操作入栈 → Zustand store 维护 undo/redo 栈 → 快捷键触发
+
+【文件保存】
+Ctrl+S → IPC 调用主进程 → better-sqlite3 记录版本 → .md 文件更新
+
+【深色主题切换】
+1. CSS 变量：--bg-primary, --text-primary, --accent
+2. 类切换：document.documentElement.classList.toggle('dark')
+3. Tailwind 自动应用深色类
+4. localStorage 持久化（按账号隔离）
+
+【性能优化方案】
+- 虚拟滚动：大文件编辑时仅渲染可见行
+- 防抖/节流：搜索、输入框防抖
+- 懒加载：目录只在需要时生成完整 AST
+- 分块处理：导出时分页处理大文件
+- 账号切换时的缓存策略：保存前一账号的临时数据，快速恢复
+
+===============================================
+【部署 & 发布】
+===============================================
+
+【开发环境】
+npm run dev
+  → Vite dev server (localhost:5173)
+  → Electron 主进程
+  → HMR 自动刷新
+
+【生产构建】
+npm run build
+  → Vite 生产打包
+  → Electron Builder 打包
+  → 输出：dist/WeaveMD-x.x.x.exe (Windows)
+  → 输出：dist/WeaveMD-x.x.x.dmg (macOS)
+  → 输出：dist/WeaveMD-x.x.x.AppImage (Linux)
+
+【自动更新】
+electron-update 或 GitHub Releases
+  → 版本检查
+  → 增量下载
+  → 后台自动更新
+
+===============================================
+【风险 & 缓解方案】
+===============================================
+
+风险 1：大文件编辑性能
+缓解：虚拟滚动 + 分块渲染 + 懒加载 AST
+
+风险 2：跨平台兼容性
+缓解：充分测试 Win/Mac/Linux、单元测试
+
+风险 3：数据安全
+缓解：bcryptjs 密码加密、本地数据库加密、定期备份
+
+风险 4：Electron 包体积 (~150MB)
+缓解：使用 electron-builder 优化、支持增量更新
+
+===============================================
