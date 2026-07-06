@@ -49,11 +49,11 @@ const api = {
     save: (fileId, content, userId) => electron.ipcRenderer.invoke(IPC_CHANNELS.FILE_SAVE, { fileId, content, userId }),
     delete: (fileId, userId) => electron.ipcRenderer.invoke(IPC_CHANNELS.FILE_DELETE, { fileId, userId }),
     list: (userId) => electron.ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST, userId),
-    get: (fileId) => electron.ipcRenderer.invoke(IPC_CHANNELS.FILE_GET, fileId)
+    get: (fileId, userId) => electron.ipcRenderer.invoke(IPC_CHANNELS.FILE_GET, { fileId, userId })
   },
   history: {
     list: (fileId) => electron.ipcRenderer.invoke(IPC_CHANNELS.HISTORY_LIST, fileId),
-    get: (historyId) => electron.ipcRenderer.invoke(IPC_CHANNELS.HISTORY_GET, historyId)
+    get: (fileId, userId) => electron.ipcRenderer.invoke(IPC_CHANNELS.HISTORY_GET, { fileId, userId })
   },
   settings: {
     get: (userId) => electron.ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET, userId),
