@@ -1,0 +1,64 @@
+{
+  // ============================================
+  // WeaveMD — Electron 调试启动配置
+  // F5 启动 / Ctrl+Shift+D 打开调试面板
+  // ============================================
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "🚀 Launch Electron App",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
+      "runtimeArgs": ["."],
+      "windows": {
+        "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron.cmd"
+      },
+      "env": {
+        "NODE_ENV": "development"
+      },
+      "console": "integratedTerminal",
+      "outputCapture": "std",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "name": "🔒 Verify + Launch Electron",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
+      "runtimeArgs": ["."],
+      "windows": {
+        "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron.cmd"
+      },
+      "env": {
+        "NODE_ENV": "development"
+      },
+      "console": "integratedTerminal",
+      "outputCapture": "std",
+      "preLaunchTask": "✅ Verify All (tsc + vitest + eslint)",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "name": "🧪 Debug Tests (vitest)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/vitest",
+      "runtimeArgs": ["run"],
+      "windows": {
+        "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/vitest.cmd"
+      },
+      "console": "integratedTerminal",
+      "outputCapture": "std",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    }
+  ]
+}

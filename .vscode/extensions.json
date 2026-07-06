@@ -1,0 +1,13 @@
+{
+  // ============================================
+  // WeaveMD — 推荐 VS Code 扩展
+  // 确保团队一致的工具链
+  // ============================================
+  "recommendations": [
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "bradlc.vscode-tailwindcss",
+    "eamodio.gitlens",
+    "github.vscode-github-actions"
+  ]
+}

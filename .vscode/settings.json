@@ -1,6 +1,7 @@
 {
   // ============================================
-  // WeaveMD — VS Code 工作区设置
+  // WeaveMD — Claude 专属 Hooks 配置
+  // 编码 → 测试 → 文档 → 提交（强制顺序）
   // ============================================
 
   // --- 编辑器设置 ---
@@ -9,13 +10,19 @@
   "editor.tabSize": 2,
   "editor.insertSpaces": true,
   "editor.rulers": [100],
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit",
+    "source.organizeImports": "explicit"
+  },
   "files.trimTrailingWhitespace": true,
   "files.insertFinalNewline": true,
+  "files.autoSave": "onFocusChange",
 
   // --- TypeScript ---
   "typescript.tsdk": "node_modules/typescript/lib",
   "typescript.enablePromptUseWorkspaceTsdk": true,
   "typescript.preferences.importModuleSpecifier": "relative",
+  "typescript.tsserver.experimental.enableProjectDiagnostics": true,
 
   // --- TailwindCSS ---
   "tailwindCSS.experimental.classRegex": [],
@@ -28,26 +35,48 @@
   "files.exclude": {
     "**/node_modules": true,
     "**/dist": true,
-    "**/.git": true
+    "**/.git": true,
+    "**/out": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/out": true,
+    "**/package-lock.json": true
   },
 
   // ============================================
   // 任务 Hooks — 编码 → 测试 → 文档 → 提交
+  // Ctrl+Shift+B 构建 / Ctrl+Shift+P "Tasks: Run Task"
   // ============================================
-  // 这些任务通过 Ctrl+Shift+B 或手动触发，
-  // 确保每次功能完成后执行完整工作流。
 
   "tasks": {
     "version": "2.0.0",
     "tasks": [
       // --------------------------------------------------
-      // Hook 1: 运行测试检查
-      // 每次功能完成后必须先运行此任务
+      // Hook 1: 类型检查
       // --------------------------------------------------
       {
-        "label": "🔍 Run Tests & TypeCheck",
+        "label": "🔍 TypeCheck (tsc)",
         "type": "shell",
-        "command": "npm run test && npm run typecheck && npm run lint",
+        "command": "npx tsc --noEmit",
+        "group": "none",
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated",
+          "clear": true,
+          "focus": false
+        },
+        "problemMatcher": ["$tsc"]
+      },
+
+      // --------------------------------------------------
+      // Hook 2: 单元测试
+      // --------------------------------------------------
+      {
+        "label": "🧪 Unit Tests (vitest)",
+        "type": "shell",
+        "command": "npx vitest run",
         "group": {
           "kind": "test",
           "isDefault": true
@@ -55,32 +84,69 @@
         "presentation": {
           "reveal": "always",
           "panel": "dedicated",
-          "clear": true
+          "clear": true,
+          "focus": false
         },
-        "problemMatcher": [
-          "$tsc",
-          "$eslint-stylish"
-        ]
+        "problemMatcher": []
       },
 
       // --------------------------------------------------
-      // Hook 2: 更新文档
-      // 测试通过后，更新 docs/ 下对应设计文档
+      // Hook 3: ESLint 检查
+      // --------------------------------------------------
+      {
+        "label": "📏 Lint Check (eslint)",
+        "type": "shell",
+        "command": "npx eslint . --ext .ts,.tsx",
+        "group": "none",
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated",
+          "clear": true,
+          "focus": false
+        },
+        "problemMatcher": ["$eslint-stylish"]
+      },
+
+      // --------------------------------------------------
+      // Hook 4: 完整验证（类型+测试+Lint）
+      // --------------------------------------------------
+      {
+        "label": "✅ Verify All (tsc + vitest + eslint)",
+        "type": "shell",
+        "command": "npx tsc --noEmit && npx vitest run && npx eslint . --ext .ts,.tsx",
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        },
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated",
+          "clear": true,
+          "focus": false
+        },
+        "problemMatcher": ["$tsc", "$eslint-stylish"],
+        "dependsOrder": "sequence",
+        "dependsOn": []
+      },
+
+      // --------------------------------------------------
+      // Hook 5: 文档更新提醒
       // --------------------------------------------------
       {
         "label": "📝 Update Documentation",
         "type": "shell",
-        "command": "echo 'Remember to update docs/ files for your changes. See .claude/rules/WORKFLOW.md'",
+        "command": "echo '⚠️  REMINDER: Update docs/ files before committing. See .claude/rules/WORKFLOW.md for guidance.'",
         "group": "none",
         "presentation": {
-          "reveal": "never",
-          "panel": "dedicated"
+          "reveal": "silent",
+          "panel": "shared",
+          "clear": false,
+          "focus": false
         }
       },
 
       // --------------------------------------------------
-      // Hook 3: Git 提交到 GitHub
-      // 文档更新后，提交代码到 GitHub
+      // Hook 6: Git 提交 + 推送
       // --------------------------------------------------
       {
         "label": "🚀 Git Commit & Push",
@@ -90,59 +156,120 @@
         "presentation": {
           "reveal": "always",
           "panel": "dedicated",
-          "clear": true
+          "clear": true,
+          "focus": false
         },
         "problemMatcher": []
       },
 
       // --------------------------------------------------
-      // Hook 4: 完整工作流（一键执行全部）
-      // 测试 → 文档提醒 → 提交
+      // Hook 7: 一键完整工作流
+      // Verify All → 文档提醒 → 等待确认 → 提交推送
       // --------------------------------------------------
       {
-        "label": "✅ Complete Workflow (Test → Doc → Commit)",
-        "type": "shell",
-        "command": "npm run test && npm run typecheck && npm run lint",
+        "label": "🎯 Full Workflow (Verify → Doc → Commit)",
+        "dependsOrder": "sequence",
+        "dependsOn": [
+          "✅ Verify All (tsc + vitest + eslint)",
+          "📝 Update Documentation",
+          "🚀 Git Commit & Push"
+        ],
         "group": {
           "kind": "build",
-          "isDefault": true
+          "isDefault": false
+        },
+        "presentation": {
+          "reveal": "always",
+          "panel": "new",
+          "clear": true,
+          "focus": false
+        },
+        "problemMatcher": []
+      },
+
+      // --------------------------------------------------
+      // Hook 8: 启动开发服务器
+      // --------------------------------------------------
+      {
+        "label": "🖥️ Start Dev Server",
+        "type": "shell",
+        "command": "npm run dev",
+        "group": "none",
+        "isBackground": true,
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated",
+          "clear": true,
+          "focus": false
+        },
+        "problemMatcher": []
+      },
+
+      // --------------------------------------------------
+      // Hook 9: 生产构建
+      // --------------------------------------------------
+      {
+        "label": "📦 Production Build",
+        "type": "shell",
+        "command": "npm run build",
+        "group": "none",
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated",
+          "clear": true,
+          "focus": false
+        },
+        "problemMatcher": []
+      },
+
+      // --------------------------------------------------
+      // Hook 10: 数据库迁移
+      // --------------------------------------------------
+      {
+        "label": "🗄️ Run DB Migrations",
+        "type": "shell",
+        "command": "npm run db:migrate",
+        "group": "none",
+        "presentation": {
+          "reveal": "always",
+          "panel": "dedicated",
+          "clear": true,
+          "focus": false
+        },
+        "problemMatcher": []
+      },
+
+      // --------------------------------------------------
+      // Hook 11: 仅运行变更文件相关的测试（快速验证）
+      // --------------------------------------------------
+      {
+        "label": "⚡ Quick Test (related files)",
+        "type": "shell",
+        "command": "npx vitest run --changed",
+        "group": {
+          "kind": "test",
+          "isDefault": false
         },
         "presentation": {
           "reveal": "always",
           "panel": "dedicated",
-          "clear": true
+          "clear": true,
+          "focus": false
         },
-        "dependsOn": [],
-        "problemMatcher": [
-          "$tsc",
-          "$eslint-stylish"
-        ]
+        "problemMatcher": []
       }
     ],
 
     // --------------------------------------------------
-    // 输入变量：提交信息
+    // 输入变量
     // --------------------------------------------------
     "inputs": [
       {
         "id": "commitMessage",
         "type": "promptString",
-        "description": "Git commit message (format: type(scope): message)",
+        "description": "Git commit message — format: type(scope): message (e.g. feat(editor): add syntax highlighting)",
         "default": "feat: "
       }
     ]
-  },
-
-  // ============================================
-  // 保存时自动触发任务（可选）
-  // 取消注释以在保存时自动运行测试
-  // ============================================
-  // "emeraldwalk.runonsave": {
-  //   "commands": [
-  //     {
-  //       "match": "\\.(ts|tsx)$",
-  //       "cmd": "npm run test -- --findRelatedTests ${file}"
-  //     }
-  //   ]
-  // }
+  }
 }
