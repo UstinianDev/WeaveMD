@@ -47,7 +47,6 @@ export interface WeaveMDApi {
   account: {
     info: (userId: string) => Promise<unknown>;
     delete: (userId: string) => Promise<unknown>;
-    export: (userId: string) => Promise<unknown>;
   };
 }
 
@@ -104,7 +103,6 @@ const api: WeaveMDApi = {
   account: {
     info: (userId) => ipcRenderer.invoke(IPC_CHANNELS.ACCOUNT_INFO, userId),
     delete: (userId) => ipcRenderer.invoke(IPC_CHANNELS.ACCOUNT_DELETE, userId),
-    export: (userId) => ipcRenderer.invoke(IPC_CHANNELS.ACCOUNT_EXPORT, userId),
   },
 };
 

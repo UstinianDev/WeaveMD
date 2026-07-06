@@ -3,42 +3,19 @@
 // ============================================
 
 import React from 'react';
-import Dropdown from '../Common/Dropdown';
 import type { DropdownItem as DropdownItemType } from '../Common/Dropdown';
-import type { PageWidth } from '../../../shared/types';
+import Dropdown from '../Common/Dropdown';
 
 interface MoreMenuProps {
-  pageWidth: PageWidth;
-  onSetPageWidth: (width: PageWidth) => void;
   onFindReplace: () => void;
   onEditHistory: () => void;
 }
 
 const MoreMenu: React.FC<MoreMenuProps> = ({
-  pageWidth,
-  onSetPageWidth,
   onFindReplace,
   onEditHistory,
 }) => {
   const items: DropdownItemType[] = [
-    {
-      label: 'Page Width',
-      children: [
-        {
-          label: `Default ${pageWidth === 'default' ? '✓' : ''}`,
-          onClick: () => onSetPageWidth('default'),
-        },
-        {
-          label: `Wide ${pageWidth === 'wide' ? '✓' : ''}`,
-          onClick: () => onSetPageWidth('wide'),
-        },
-        {
-          label: `Full ${pageWidth === 'full' ? '✓' : ''}`,
-          onClick: () => onSetPageWidth('full'),
-        },
-      ],
-    },
-    { type: 'divider' },
     {
       label: 'Find & Replace',
       onClick: onFindReplace,

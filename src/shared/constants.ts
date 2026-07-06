@@ -73,7 +73,6 @@ export const IPC_CHANNELS = {
   // Account
   ACCOUNT_INFO: 'account:info',
   ACCOUNT_DELETE: 'account:delete',
-  ACCOUNT_EXPORT: 'account:export',
 } as const;
 
 // --- Design Tokens ---

@@ -2,13 +2,13 @@
 // WeaveMD — Settings Modal
 // ============================================
 
-import React, { useState, useEffect } from 'react';
-import Modal from '../Common/Modal';
-import Button from '../Common/Button';
-import { useUIStore } from '../../stores/uiStore';
-import { useAuthStore } from '../../stores/authStore';
+import React, { useEffect, useState } from 'react';
+import type { LanguageType, ThemeType } from '../../../shared/types';
 import { useI18n } from '../../i18n';
-import type { ThemeType, LanguageType } from '../../../shared/types';
+import { useAuthStore } from '../../stores/authStore';
+import { useUIStore } from '../../stores/uiStore';
+import Button from '../Common/Button';
+import Modal from '../Common/Modal';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -40,6 +40,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const closeModal = useUIStore((s) => s.closeModal);
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const recentAccounts = useAuthStore((s) => s.recentAccounts);
+  const loadRecentAccounts = useAuthStore((s) => s.loadRecentAccounts);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('system');
   const [selectedTheme, setSelectedTheme] = useState<ThemeType>(theme);
@@ -47,6 +49,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showSwitchAccount, setShowSwitchAccount] = useState(false);
+  const [switchPassword, setSwitchPassword] = useState('');
+  const [switchUsername, setSwitchUsername] = useState('');
+  const [switchError, setSwitchError] = useState('');
+  const [isSwitching, setIsSwitching] = useState(false);
 
   const TABS: { key: SettingsTab; label: string }[] = [
     { key: 'system', label: t('settings.system') },
@@ -58,8 +65,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
       setSelectedTheme(theme);
       setSelectedLanguage(language);
       setShowDeleteConfirm(false);
+      setShowSwitchAccount(false);
+      setSwitchPassword('');
+      setSwitchUsername('');
+      setSwitchError('');
+      loadRecentAccounts();
     }
-  }, [isOpen, theme, language]);
+  }, [isOpen, theme, language, loadRecentAccounts]);
 
   const handleSave = () => {
     setTheme(selectedTheme);
@@ -115,6 +127,58 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
       setIsDeleting(false);
       setShowDeleteConfirm(false);
     }
+  };
+
+  const handleSwitchToAccount = async (username: string) => {
+    // If switching to the same account, just close the switch panel
+    if (username === user?.username) {
+      setShowSwitchAccount(false);
+      return;
+    }
+
+    // Show password input for the selected account
+    setSwitchUsername(username);
+    setSwitchPassword('');
+    setSwitchError('');
+  };
+
+  const handleConfirmSwitch = async () => {
+    if (!switchPassword) {
+      setSwitchError('请输入密码');
+      return;
+    }
+
+    setIsSwitching(true);
+    setSwitchError('');
+
+    try {
+      const result = await window.weaveMD.auth.login(switchUsername, switchPassword, false) as {
+        success: boolean;
+        data?: { token: string; user: { id: string; username: string; createdAt: string; lastLogin: string | null } };
+        message?: string;
+      };
+
+      if (result.success && result.data) {
+        // Logout current user first
+        logout();
+        // Login with new account
+        useAuthStore.getState().login(result.data.user, result.data.token);
+        closeModal();
+      } else {
+        setSwitchError(result.message || '登录失败');
+      }
+    } catch {
+      setSwitchError('无法连接到认证服务');
+    } finally {
+      setIsSwitching(false);
+    }
+  };
+
+  const handleCancelSwitch = () => {
+    setShowSwitchAccount(false);
+    setSwitchUsername('');
+    setSwitchPassword('');
+    setSwitchError('');
   };
 
   return (
@@ -214,55 +278,149 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
             </p>
             <p className="text-xs text-[var(--text-muted)] mt-1">{t('settings.manageAccount')}</p>
           </div>
-          <div className="space-y-2">
-            <Button variant="secondary" fullWidth onClick={() => {}}>
-              {t('settings.switchAccount')}
-            </Button>
-            <Button variant="secondary" fullWidth onClick={() => {}}>
-              {t('settings.exportData')}
-            </Button>
-            {/* Logout Button */}
-            <Button
-              variant="danger"
-              fullWidth
-              onClick={handleLogout}
-              loading={isLoggingOut}
-            >
-              {t('settings.logOut')}
-            </Button>
-            {/* Delete Account Button */}
-            {showDeleteConfirm ? (
-              <div className="p-3 bg-red-600/10 border border-red-600/30 rounded-input">
-                <p className="text-sm text-red-400 mb-3">
-                  {t('settings.confirmDelete')}
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    fullWidth
-                    onClick={() => setShowDeleteConfirm(false)}
-                    disabled={isDeleting}
-                  >
-                    {t('settings.cancel')}
-                  </Button>
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    fullWidth
-                    onClick={handleDeleteAccount}
-                    loading={isDeleting}
-                  >
-                    {t('settings.confirmDeleteBtn')}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <Button variant="danger" fullWidth onClick={() => setShowDeleteConfirm(true)}>
-                {t('settings.deleteAccount')}
+
+          {/* Switch Account Section */}
+          {!showSwitchAccount ? (
+            <div className="space-y-2">
+              <Button variant="secondary" fullWidth onClick={() => setShowSwitchAccount(true)}>
+                {t('settings.switchAccount')}
               </Button>
-            )}
-          </div>
+              {/* Logout Button */}
+              <Button
+                variant="danger"
+                fullWidth
+                onClick={handleLogout}
+                loading={isLoggingOut}
+              >
+                {t('settings.logOut')}
+              </Button>
+              {/* Delete Account Button */}
+              {showDeleteConfirm ? (
+                <div className="p-3 bg-red-600/10 border border-red-600/30 rounded-input">
+                  <p className="text-sm text-red-400 mb-3">
+                    {t('settings.confirmDelete')}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      fullWidth
+                      onClick={() => setShowDeleteConfirm(false)}
+                      disabled={isDeleting}
+                    >
+                      {t('settings.cancel')}
+                    </Button>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      fullWidth
+                      onClick={handleDeleteAccount}
+                      loading={isDeleting}
+                    >
+                      {t('settings.confirmDeleteBtn')}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button variant="danger" fullWidth onClick={() => setShowDeleteConfirm(true)}>
+                  {t('settings.deleteAccount')}
+                </Button>
+              )}
+            </div>
+          ) : (
+            /* Switch Account Panel */
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-[var(--text-primary)]">
+                  {t('auth.recentAccounts')}
+                </h3>
+                <button
+                  onClick={handleCancelSwitch}
+                  className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                >
+                  {t('settings.cancel')}
+                </button>
+              </div>
+
+              {/* Recent accounts list */}
+              {recentAccounts.length === 0 ? (
+                <p className="text-xs text-[var(--text-muted)] text-center py-4">
+                  {t('auth.noRecent')}
+                </p>
+              ) : (
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {recentAccounts.map((account) => (
+                    <button
+                      key={account}
+                      onClick={() => handleSwitchToAccount(account)}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-input text-sm transition-colors text-left ${
+                        account === user?.username
+                          ? 'bg-[var(--accent)]/10 border border-[var(--accent)]/30 text-[var(--text-primary)]'
+                          : 'hover:bg-[var(--bg-tertiary)] text-[var(--text-sub)] border border-transparent'
+                      }`}
+                    >
+                      <span className="w-7 h-7 rounded-full bg-[var(--accent)]/20 flex items-center justify-center text-xs font-semibold text-[var(--accent)]">
+                        {account.charAt(0).toUpperCase()}
+                      </span>
+                      <span className="flex-1">@{account}</span>
+                      {account === user?.username && (
+                        <span className="text-xs text-[var(--accent)]">当前</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Password input for selected account */}
+              {switchUsername && (
+                <div className="p-3 bg-[var(--bg-primary)] rounded-input border border-[var(--border-color)] space-y-2">
+                  <p className="text-xs text-[var(--text-sub)]">
+                    输入 <span className="text-[var(--text-primary)] font-semibold">@{switchUsername}</span> 的密码以切换
+                  </p>
+                  <input
+                    type="password"
+                    value={switchPassword}
+                    onChange={(e) => setSwitchPassword(e.target.value)}
+                    placeholder="输入密码"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleConfirmSwitch();
+                      if (e.key === 'Escape') handleCancelSwitch();
+                    }}
+                    className="w-full border rounded-input px-3 py-1.5 text-sm outline-none focus:border-[var(--accent)]"
+                    style={{
+                      backgroundColor: 'var(--input-bg)',
+                      borderColor: 'var(--border-color)',
+                      color: 'var(--text-primary)',
+                    }}
+                  />
+                  {switchError && (
+                    <p className="text-xs text-red-400">{switchError}</p>
+                  )}
+                  <div className="flex gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      fullWidth
+                      onClick={handleCancelSwitch}
+                      disabled={isSwitching}
+                    >
+                      取消
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      fullWidth
+                      onClick={handleConfirmSwitch}
+                      loading={isSwitching}
+                    >
+                      切换
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </Modal>

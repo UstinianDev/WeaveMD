@@ -2,28 +2,28 @@
 // WeaveMD — IPC Handlers Registration
 // ============================================
 
-import { ipcMain, BrowserWindow, dialog, app } from 'electron';
-import fs from 'fs';
 import crypto from 'crypto';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import fs from 'fs';
 import jwt from 'jsonwebtoken';
-import { IPC_CHANNELS, RESERVED_USERNAMES, USERNAME_REGEX, PASSWORD_MIN_LENGTH } from '../shared/constants';
-import {
-  createUser,
-  validateCredentials,
-  isUsernameTaken,
-  findById,
-  deleteUser,
-  getAccountInfo,
-} from './db/users';
+import { IPC_CHANNELS, PASSWORD_MIN_LENGTH, RESERVED_USERNAMES, USERNAME_REGEX } from '../shared/constants';
 import {
   createFile,
-  getFile,
-  updateFileContent,
   deleteFile,
+  getFile,
   listFiles,
+  updateFileContent,
 } from './db/files';
-import { saveVersion, getHistoryForFile, getLastVersion } from './db/history';
+import { getHistoryForFile, getLastVersion, saveVersion } from './db/history';
 import { getSettings, updateSettings } from './db/settings';
+import {
+  createUser,
+  deleteUser,
+  findById,
+  getAccountInfo,
+  isUsernameTaken,
+  validateCredentials,
+} from './db/users';
 
 // JWT secret derived from user data path (unique per machine, stable across restarts)
 function getJwtSecret(): string {
@@ -245,10 +245,6 @@ export function registerAllIpcHandlers(): void {
     } catch (error) {
       return { success: false, message: 'Failed to delete account' };
     }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.ACCOUNT_EXPORT, async () => {
-    return { success: false, message: 'Export not yet implemented' };
   });
 
   // ========================================

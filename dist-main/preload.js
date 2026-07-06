@@ -33,8 +33,7 @@ const IPC_CHANNELS = {
   DIALOG_SAVE_FILE: "dialog:save-file",
   // Account
   ACCOUNT_INFO: "account:info",
-  ACCOUNT_DELETE: "account:delete",
-  ACCOUNT_EXPORT: "account:export"
+  ACCOUNT_DELETE: "account:delete"
 };
 const api = {
   auth: {
@@ -77,8 +76,7 @@ const api = {
   },
   account: {
     info: (userId) => electron.ipcRenderer.invoke(IPC_CHANNELS.ACCOUNT_INFO, userId),
-    delete: (userId) => electron.ipcRenderer.invoke(IPC_CHANNELS.ACCOUNT_DELETE, userId),
-    export: (userId) => electron.ipcRenderer.invoke(IPC_CHANNELS.ACCOUNT_EXPORT, userId)
+    delete: (userId) => electron.ipcRenderer.invoke(IPC_CHANNELS.ACCOUNT_DELETE, userId)
   }
 };
 electron.contextBridge.exposeInMainWorld("weaveMD", api);
