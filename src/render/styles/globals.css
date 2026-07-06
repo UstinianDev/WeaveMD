@@ -267,3 +267,481 @@ input:focus, textarea:focus, select:focus {
 .modal-content-enter {
   animation: modal-scale-in 150ms ease-out forwards;
 }
+
+/* ============================================ */
+/* Markdown Preview Styles                      */
+/* ============================================ */
+
+.markdown-preview {
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.7;
+  word-wrap: break-word;
+}
+
+/* Headings */
+.markdown-preview h1 {
+  font-size: 2em;
+  font-weight: 700;
+  margin: 1.5em 0 0.75em 0;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.markdown-preview h2 {
+  font-size: 1.5em;
+  font-weight: 700;
+  margin: 1.5em 0 0.75em 0;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.markdown-preview h3 {
+  font-size: 1.25em;
+  font-weight: 700;
+  margin: 1.5em 0 0.75em 0;
+  color: var(--text-primary);
+}
+
+.markdown-preview h4 {
+  font-size: 1em;
+  font-weight: 700;
+  margin: 1.5em 0 0.75em 0;
+  color: var(--text-primary);
+}
+
+.markdown-preview h5 {
+  font-size: 0.875em;
+  font-weight: 700;
+  margin: 1.5em 0 0.75em 0;
+  color: var(--text-primary);
+}
+
+.markdown-preview h6 {
+  font-size: 0.85em;
+  font-weight: 700;
+  margin: 1.5em 0 0.75em 0;
+  color: var(--text-sub);
+}
+
+/* Paragraph */
+.markdown-preview p {
+  margin: 0 0 1em 0;
+}
+
+/* Lists */
+.markdown-preview ul,
+.markdown-preview ol {
+  margin: 0 0 1em 0;
+  padding-left: 2em;
+}
+
+.markdown-preview ul {
+  list-style-type: disc;
+}
+
+.markdown-preview ol {
+  list-style-type: decimal;
+}
+
+.markdown-preview li {
+  margin: 0.25em 0;
+}
+
+.markdown-preview li > p {
+  margin: 0.5em 0;
+}
+
+.markdown-preview ul ul,
+.markdown-preview ul ol,
+.markdown-preview ol ul,
+.markdown-preview ol ol {
+  margin-top: 0.25em;
+  margin-bottom: 0;
+}
+
+/* Task Lists */
+.markdown-preview ul.contains-task-list {
+  list-style-type: none;
+  padding-left: 0;
+}
+
+.markdown-preview .task-list-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+  padding-left: 0;
+}
+
+.markdown-preview .task-list-item-checkbox {
+  margin-top: 0.3em;
+  flex-shrink: 0;
+}
+
+/* Blockquote */
+.markdown-preview blockquote {
+  margin: 0 0 1em 0;
+  padding: 0.5em 1em;
+  border-left: 4px solid var(--accent);
+  background: var(--bg-secondary);
+  color: var(--text-sub);
+}
+
+.markdown-preview blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+/* Code */
+.markdown-preview code {
+  font-family: var(--font-code);
+  font-size: 0.9em;
+  background: var(--bg-secondary);
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  color: var(--accent);
+}
+
+.markdown-preview pre {
+  margin: 0 0 1em 0;
+  padding: 1em;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.markdown-preview pre code {
+  font-family: var(--font-code);
+  font-size: 0.9em;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+/* Links */
+.markdown-preview a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: color var(--transition-duration) var(--transition-timing);
+}
+
+.markdown-preview a:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+/* Tables */
+.markdown-preview table {
+  width: 100%;
+  margin: 0 0 1em 0;
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+.markdown-preview table th,
+.markdown-preview table td {
+  padding: 0.5em 1em;
+  border: 1px solid var(--border-color);
+}
+
+.markdown-preview table th {
+  background: var(--bg-secondary);
+  font-weight: 600;
+  text-align: left;
+}
+
+.markdown-preview table tr:nth-child(even) td {
+  background: var(--bg-secondary);
+}
+
+/* Strikethrough */
+.markdown-preview del {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+/* Images */
+.markdown-preview img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 0.5em 0;
+}
+
+/* Horizontal Rule */
+.markdown-preview hr {
+  border: none;
+  height: 1px;
+  background: var(--border-color);
+  margin: 2em 0;
+}
+
+/* Strong/Emphasis */
+.markdown-preview strong {
+  font-weight: 600;
+}
+
+.markdown-preview em {
+  font-style: italic;
+}
+
+/* ============================================ */
+/* Prism.js Syntax Highlighting Styles          */
+/* ============================================ */
+
+/* Light Theme */
+:root .markdown-preview pre[class*="language-"],
+:root .markdown-preview code[class*="language-"],
+html.light-header .markdown-preview pre[class*="language-"],
+html.light-header .markdown-preview code[class*="language-"],
+html.light .markdown-preview pre[class*="language-"],
+html.light .markdown-preview code[class*="language-"] {
+  color: #111827;
+  text-shadow: none;
+}
+
+:root .markdown-preview .token.comment,
+:root .markdown-preview .token.prolog,
+:root .markdown-preview .token.doctype,
+:root .markdown-preview .token.cdata,
+html.light-header .markdown-preview .token.comment,
+html.light-header .markdown-preview .token.prolog,
+html.light-header .markdown-preview .token.doctype,
+html.light-header .markdown-preview .token.cdata,
+html.light .markdown-preview .token.comment,
+html.light .markdown-preview .token.prolog,
+html.light .markdown-preview .token.doctype,
+html.light .markdown-preview .token.cdata {
+  color: #6B7280;
+}
+
+:root .markdown-preview .token.punctuation,
+html.light-header .markdown-preview .token.punctuation,
+html.light .markdown-preview .token.punctuation {
+  color: #374151;
+}
+
+:root .markdown-preview .token.property,
+:root .markdown-preview .token.tag,
+:root .markdown-preview .token.boolean,
+:root .markdown-preview .token.number,
+:root .markdown-preview .token.constant,
+:root .markdown-preview .token.symbol,
+:root .markdown-preview .token.deleted,
+html.light-header .markdown-preview .token.property,
+html.light-header .markdown-preview .token.tag,
+html.light-header .markdown-preview .token.boolean,
+html.light-header .markdown-preview .token.number,
+html.light-header .markdown-preview .token.constant,
+html.light-header .markdown-preview .token.symbol,
+html.light-header .markdown-preview .token.deleted,
+html.light .markdown-preview .token.property,
+html.light .markdown-preview .token.tag,
+html.light .markdown-preview .token.boolean,
+html.light .markdown-preview .token.number,
+html.light .markdown-preview .token.constant,
+html.light .markdown-preview .token.symbol,
+html.light .markdown-preview .token.deleted {
+  color: #DC2626;
+}
+
+:root .markdown-preview .token.selector,
+:root .markdown-preview .token.attr-name,
+:root .markdown-preview .token.string,
+:root .markdown-preview .token.char,
+:root .markdown-preview .token.builtin,
+:root .markdown-preview .token.inserted,
+html.light-header .markdown-preview .token.selector,
+html.light-header .markdown-preview .token.attr-name,
+html.light-header .markdown-preview .token.string,
+html.light-header .markdown-preview .token.char,
+html.light-header .markdown-preview .token.builtin,
+html.light-header .markdown-preview .token.inserted,
+html.light .markdown-preview .token.selector,
+html.light .markdown-preview .token.attr-name,
+html.light .markdown-preview .token.string,
+html.light .markdown-preview .token.char,
+html.light .markdown-preview .token.builtin,
+html.light .markdown-preview .token.inserted {
+  color: #059669;
+}
+
+:root .markdown-preview .token.operator,
+:root .markdown-preview .token.entity,
+:root .markdown-preview .token.url,
+:root .markdown-preview .language-css .token.string,
+:root .markdown-preview .style .token.string,
+html.light-header .markdown-preview .token.operator,
+html.light-header .markdown-preview .token.entity,
+html.light-header .markdown-preview .token.url,
+html.light-header .markdown-preview .language-css .token.string,
+html.light-header .markdown-preview .style .token.string,
+html.light .markdown-preview .token.operator,
+html.light .markdown-preview .token.entity,
+html.light .markdown-preview .token.url,
+html.light .markdown-preview .language-css .token.string,
+html.light .markdown-preview .style .token.string {
+  color: #D97706;
+}
+
+:root .markdown-preview .token.atrule,
+:root .markdown-preview .token.attr-value,
+:root .markdown-preview .token.keyword,
+html.light-header .markdown-preview .token.atrule,
+html.light-header .markdown-preview .token.attr-value,
+html.light-header .markdown-preview .token.keyword,
+html.light .markdown-preview .token.atrule,
+html.light .markdown-preview .token.attr-value,
+html.light .markdown-preview .token.keyword {
+  color: #7C3AED;
+}
+
+:root .markdown-preview .token.function,
+:root .markdown-preview .token.class-name,
+html.light-header .markdown-preview .token.function,
+html.light-header .markdown-preview .token.class-name,
+html.light .markdown-preview .token.function,
+html.light .markdown-preview .token.class-name {
+  color: #2563EB;
+}
+
+:root .markdown-preview .token.regex,
+:root .markdown-preview .token.important,
+:root .markdown-preview .token.variable,
+html.light-header .markdown-preview .token.regex,
+html.light-header .markdown-preview .token.important,
+html.light-header .markdown-preview .token.variable,
+html.light .markdown-preview .token.regex,
+html.light .markdown-preview .token.important,
+html.light .markdown-preview .token.variable {
+  color: #EA580C;
+}
+
+/* Dark Theme */
+html.dark .markdown-preview pre[class*="language-"],
+html.dark .markdown-preview code[class*="language-"],
+html.custom .markdown-preview pre[class*="language-"],
+html.custom .markdown-preview code[class*="language-"],
+html.high-contrast .markdown-preview pre[class*="language-"],
+html.high-contrast .markdown-preview code[class*="language-"] {
+  color: #E5E7EB;
+  text-shadow: none;
+}
+
+html.dark .markdown-preview .token.comment,
+html.dark .markdown-preview .token.prolog,
+html.dark .markdown-preview .token.doctype,
+html.dark .markdown-preview .token.cdata,
+html.custom .markdown-preview .token.comment,
+html.custom .markdown-preview .token.prolog,
+html.custom .markdown-preview .token.doctype,
+html.custom .markdown-preview .token.cdata,
+html.high-contrast .markdown-preview .token.comment,
+html.high-contrast .markdown-preview .token.prolog,
+html.high-contrast .markdown-preview .token.doctype,
+html.high-contrast .markdown-preview .token.cdata {
+  color: #9CA3AF;
+}
+
+html.dark .markdown-preview .token.punctuation,
+html.custom .markdown-preview .token.punctuation,
+html.high-contrast .markdown-preview .token.punctuation {
+  color: #D1D5DB;
+}
+
+html.dark .markdown-preview .token.property,
+html.dark .markdown-preview .token.tag,
+html.dark .markdown-preview .token.boolean,
+html.dark .markdown-preview .token.number,
+html.dark .markdown-preview .token.constant,
+html.dark .markdown-preview .token.symbol,
+html.dark .markdown-preview .token.deleted,
+html.custom .markdown-preview .token.property,
+html.custom .markdown-preview .token.tag,
+html.custom .markdown-preview .token.boolean,
+html.custom .markdown-preview .token.number,
+html.custom .markdown-preview .token.constant,
+html.custom .markdown-preview .token.symbol,
+html.custom .markdown-preview .token.deleted,
+html.high-contrast .markdown-preview .token.property,
+html.high-contrast .markdown-preview .token.tag,
+html.high-contrast .markdown-preview .token.boolean,
+html.high-contrast .markdown-preview .token.number,
+html.high-contrast .markdown-preview .token.constant,
+html.high-contrast .markdown-preview .token.symbol,
+html.high-contrast .markdown-preview .token.deleted {
+  color: #F87171;
+}
+
+html.dark .markdown-preview .token.selector,
+html.dark .markdown-preview .token.attr-name,
+html.dark .markdown-preview .token.string,
+html.dark .markdown-preview .token.char,
+html.dark .markdown-preview .token.builtin,
+html.dark .markdown-preview .token.inserted,
+html.custom .markdown-preview .token.selector,
+html.custom .markdown-preview .token.attr-name,
+html.custom .markdown-preview .token.string,
+html.custom .markdown-preview .token.char,
+html.custom .markdown-preview .token.builtin,
+html.custom .markdown-preview .token.inserted,
+html.high-contrast .markdown-preview .token.selector,
+html.high-contrast .markdown-preview .token.attr-name,
+html.high-contrast .markdown-preview .token.string,
+html.high-contrast .markdown-preview .token.char,
+html.high-contrast .markdown-preview .token.builtin,
+html.high-contrast .markdown-preview .token.inserted {
+  color: #34D399;
+}
+
+html.dark .markdown-preview .token.operator,
+html.dark .markdown-preview .token.entity,
+html.dark .markdown-preview .token.url,
+html.dark .markdown-preview .language-css .token.string,
+html.dark .markdown-preview .style .token.string,
+html.custom .markdown-preview .token.operator,
+html.custom .markdown-preview .token.entity,
+html.custom .markdown-preview .token.url,
+html.custom .markdown-preview .language-css .token.string,
+html.custom .markdown-preview .style .token.string,
+html.high-contrast .markdown-preview .token.operator,
+html.high-contrast .markdown-preview .token.entity,
+html.high-contrast .markdown-preview .token.url,
+html.high-contrast .markdown-preview .language-css .token.string,
+html.high-contrast .markdown-preview .style .token.string {
+  color: #FBBF24;
+}
+
+html.dark .markdown-preview .token.atrule,
+html.dark .markdown-preview .token.attr-value,
+html.dark .markdown-preview .token.keyword,
+html.custom .markdown-preview .token.atrule,
+html.custom .markdown-preview .token.attr-value,
+html.custom .markdown-preview .token.keyword,
+html.high-contrast .markdown-preview .token.atrule,
+html.high-contrast .markdown-preview .token.attr-value,
+html.high-contrast .markdown-preview .token.keyword {
+  color: #A78BFA;
+}
+
+html.dark .markdown-preview .token.function,
+html.dark .markdown-preview .token.class-name,
+html.custom .markdown-preview .token.function,
+html.custom .markdown-preview .token.class-name,
+html.high-contrast .markdown-preview .token.function,
+html.high-contrast .markdown-preview .token.class-name {
+  color: #60A5FA;
+}
+
+html.dark .markdown-preview .token.regex,
+html.dark .markdown-preview .token.important,
+html.dark .markdown-preview .token.variable,
+html.custom .markdown-preview .token.regex,
+html.custom .markdown-preview .token.important,
+html.custom .markdown-preview .token.variable,
+html.high-contrast .markdown-preview .token.regex,
+html.high-contrast .markdown-preview .token.important,
+html.high-contrast .markdown-preview .token.variable {
+  color: #FB923C;
+}

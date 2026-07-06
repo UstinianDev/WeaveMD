@@ -2,11 +2,11 @@
 // WeaveMD — Document Outline Panel
 // ============================================
 
-import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { OutlineItem } from '../../services/markdown';
+import { extractOutline } from '../../services/markdown';
 import { useEditorStore } from '../../stores/editorStore';
 import { useUIStore } from '../../stores/uiStore';
-import { extractOutline } from '../../services/markdown';
-import type { OutlineItem } from '../../services/markdown';
 
 const INDENT_CLASSES = ['ml-0', 'ml-4', 'ml-8'] as const;
 const FONT_CLASSES = ['text-sm font-semibold', 'text-xs', 'text-xs'] as const;
@@ -25,7 +25,7 @@ const OutlineItemRow: React.FC<{
   const hasChildren = item.children.length > 0;
   const indentClass = INDENT_CLASSES[Math.min(depth - 1, 2)];
   const fontSizeClass = FONT_CLASSES[Math.min(item.level - 1, 2)];
-  const textColorClass = item.level === 1 ? 'text-white' : 'text-text-sub';
+  const textColorClass = 'text-text-sub';
 
   return (
     <div>

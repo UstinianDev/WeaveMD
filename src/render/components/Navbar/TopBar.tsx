@@ -4,6 +4,7 @@
 
 import React, { useState } from 'react';
 import type { IFile } from '../../../shared/types';
+import { useI18n } from '../../i18n';
 import { useAuthStore } from '../../stores/authStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useHistoryStore } from '../../stores/historyStore';
@@ -27,6 +28,9 @@ const TopBar: React.FC = () => {
 
   const openModal = useUIStore((s) => s.openModal);
   const toggleHistoryPanel = useUIStore((s) => s.toggleHistoryPanel);
+  const togglePreviewMode = useUIStore((s) => s.togglePreviewMode);
+  const isPreviewMode = useUIStore((s) => s.isPreviewMode);
+  const { t } = useI18n();
 
   const files = useHistoryStore((s) => s.files);
   const loadHistory = useHistoryStore((s) => s.loadHistory);
@@ -68,7 +72,7 @@ const TopBar: React.FC = () => {
         // Save the opened file to DB first, then open it
         const saveResult = (await window.weaveMD.file.create(
           user.id,
-          result.data.name,
+          result.data.name
         )) as unknown as {
           success: boolean;
           data?: IFile;
@@ -76,11 +80,7 @@ const TopBar: React.FC = () => {
 
         if (saveResult.success && saveResult.data) {
           // Update the file content with the imported content
-          await window.weaveMD.file.save(
-            saveResult.data.id,
-            result.data.content,
-            user.id,
-          );
+          await window.weaveMD.file.save(saveResult.data.id, result.data.content, user.id);
 
           const file: IFile = {
             ...saveResult.data,
@@ -130,10 +130,7 @@ const TopBar: React.FC = () => {
       {/* Left section */}
       <div className="flex items-center gap-1 px-3 h-full no-drag">
         {/* App icon (brand) */}
-        <span
-          className="text-lg mr-1 select-none"
-          title="WeaveMD"
-        >
+        <span className="text-lg mr-1 select-none" title="WeaveMD">
           📔
         </span>
 
@@ -151,10 +148,7 @@ const TopBar: React.FC = () => {
         )}
 
         {/* Separator */}
-        <div
-          className="w-px h-5 mx-1"
-          style={{ backgroundColor: 'var(--border-color)' }}
-        />
+        <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
 
         {/* File menu */}
         <FileMenu
@@ -212,7 +206,14 @@ const TopBar: React.FC = () => {
           style={{ color: 'var(--navbar-text-sub, #999999)' }}
           title="Undo (Ctrl+Z)"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
             <polyline points="1 4 1 10 7 10" />
             <path d="M3.51 15a9 9 0 102.13-9.36L1 10" />
           </svg>
@@ -226,17 +227,21 @@ const TopBar: React.FC = () => {
           style={{ color: 'var(--navbar-text-sub, #999999)' }}
           title="Redo (Ctrl+Y)"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
             <polyline points="23 4 23 10 17 10" />
             <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
           </svg>
         </button>
 
         {/* Separator */}
-        <div
-          className="w-px h-5 mx-1"
-          style={{ backgroundColor: 'var(--border-color)' }}
-        />
+        <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
 
         {/* Export dropdown */}
         <div className="relative inline-block">
@@ -249,17 +254,48 @@ const TopBar: React.FC = () => {
           </button>
         </div>
 
-          {/* More menu */}
-        <MoreMenu
-          onFindReplace={handleFindReplace}
-          onEditHistory={toggleHistoryPanel}
-        />
+        {/* More menu */}
+        <MoreMenu onFindReplace={handleFindReplace} onEditHistory={toggleHistoryPanel} />
 
         {/* Separator */}
-        <div
-          className="w-px h-5 mx-1"
-          style={{ backgroundColor: 'var(--border-color)' }}
-        />
+        <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
+
+        {/* Preview mode toggle */}
+        <button
+          onClick={togglePreviewMode}
+          className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${isPreviewMode ? 'bg-[var(--accent)] text-white' : ''}`}
+          style={{ color: isPreviewMode ? 'white' : 'var(--navbar-text-sub, #999999)' }}
+          title={t('navbar.preview')}
+        >
+          {isPreviewMode ? (
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+              <line x1="1" y1="1" x2="23" y2="23" />
+            </svg>
+          ) : (
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          )}
+        </button>
+
+        {/* Separator */}
+        <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
 
         {/* Window Controls */}
         <WindowControls />
