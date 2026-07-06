@@ -34,7 +34,7 @@ const HistoryMenu: React.FC<HistoryMenuProps> = ({ files, onOpenFile, onManageFi
   return (
     <Dropdown
       trigger={
-        <span className="text-sm text-[#FFFFFF] hover:text-[#7C3AED] transition-colors cursor-pointer select-none">
+        <span className="text-sm text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] transition-colors cursor-pointer select-none">
           History ▾
         </span>
       }

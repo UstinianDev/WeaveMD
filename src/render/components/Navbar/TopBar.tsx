@@ -147,7 +147,7 @@ const TopBar: React.FC = () => {
           <span
             className="text-xs px-2 py-0.5 rounded select-none"
             style={{
-              color: 'var(--text-sub)',
+              color: 'var(--navbar-text-sub, #999999)',
               backgroundColor: 'var(--bg-tertiary)',
             }}
           >
@@ -199,7 +199,7 @@ const TopBar: React.FC = () => {
           onClick={undo}
           disabled={undoStack.length === 0}
           className="w-8 h-8 flex items-center justify-center rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          style={{ color: 'var(--text-sub)' }}
+          style={{ color: 'var(--navbar-text-sub, #999999)' }}
           title="Undo (Ctrl+Z)"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -213,7 +213,7 @@ const TopBar: React.FC = () => {
           onClick={redo}
           disabled={redoStack.length === 0}
           className="w-8 h-8 flex items-center justify-center rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          style={{ color: 'var(--text-sub)' }}
+          style={{ color: 'var(--navbar-text-sub, #999999)' }}
           title="Redo (Ctrl+Y)"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -232,7 +232,7 @@ const TopBar: React.FC = () => {
         <div className="relative inline-block">
           <button
             className="text-sm hover:text-[var(--accent)] transition-colors px-1"
-            style={{ color: 'var(--text-primary)' }}
+            style={{ color: 'var(--navbar-text-primary, #FFFFFF)' }}
             title="Export"
           >
             ⬇️

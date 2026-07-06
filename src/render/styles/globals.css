@@ -6,9 +6,8 @@
 @tailwind components;
 @tailwind utilities;
 
-/* --- Light Theme (Default: Light with Light Header - all white) --- */
+/* --- Light with Light Header Theme (Default: all white) --- */
 :root,
-html.light,
 html.light-header {
   --bg-primary: #FFFFFF;
   --bg-secondary: #F8F9FA;
@@ -25,7 +24,30 @@ html.light-header {
   --transition-duration: 150ms;
   --transition-timing: cubic-bezier(0.4, 0, 0.2, 1);
   --navbar-bg: #FFFFFF;
+  --navbar-text-primary: #111827;
+  --navbar-text-sub: #6B7280;
   --font-code: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+  --input-bg: #F9FAFB;
+  --modal-bg: #FFFFFF;
+  --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.08);
+  --shadow-dropdown: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+/* --- Light Theme (Dark navbar + White content area) --- */
+html.light {
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #F8F9FA;
+  --bg-tertiary: #F0F1F3;
+  --border-color: #E5E7EB;
+  --text-primary: #111827;
+  --text-sub: #6B7280;
+  --text-muted: #9CA3AF;
+  --accent: #7C3AED;
+  --accent-secondary: #6366F1;
+  --accent-hover: #6D28D9;
+  --navbar-bg: #1A1A1A;
+  --navbar-text-primary: #FFFFFF;
+  --navbar-text-sub: #999999;
   --input-bg: #F9FAFB;
   --modal-bg: #FFFFFF;
   --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.08);
@@ -45,6 +67,8 @@ html.dark {
   --accent-secondary: #6366F1;
   --accent-hover: #6D28D9;
   --navbar-bg: #1A1A1A;
+  --navbar-text-primary: #FFFFFF;
+  --navbar-text-sub: #999999;
   --input-bg: #0F0F0F;
   --modal-bg: #1A1A1A;
   --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.4);
@@ -64,6 +88,8 @@ html.high-contrast {
   --accent-secondary: #FFA500;
   --accent-hover: #FFC000;
   --navbar-bg: #000000;
+  --navbar-text-primary: #FFFFFF;
+  --navbar-text-sub: #CCCCCC;
   --input-bg: #000000;
   --modal-bg: #111111;
   --shadow-modal: 0 4px 24px rgba(255, 255, 255, 0.1);

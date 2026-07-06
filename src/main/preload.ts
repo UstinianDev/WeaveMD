@@ -18,11 +18,11 @@ export interface WeaveMDApi {
     save: (fileId: string, content: string, userId: string) => Promise<unknown>;
     delete: (fileId: string, userId: string) => Promise<unknown>;
     list: (userId: string) => Promise<unknown>;
-    get: (fileId: string) => Promise<unknown>;
+    get: (fileId: string, userId: string) => Promise<unknown>;
   };
   history: {
     list: (fileId: string) => Promise<unknown>;
-    get: (historyId: string) => Promise<unknown>;
+    get: (fileId: string, userId: string) => Promise<unknown>;
   };
   settings: {
     get: (userId: string) => Promise<unknown>;
@@ -71,11 +71,11 @@ const api: WeaveMDApi = {
     delete: (fileId, userId) =>
       ipcRenderer.invoke(IPC_CHANNELS.FILE_DELETE, { fileId, userId }),
     list: (userId) => ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST, userId),
-    get: (fileId) => ipcRenderer.invoke(IPC_CHANNELS.FILE_GET, fileId),
+    get: (fileId, userId) => ipcRenderer.invoke(IPC_CHANNELS.FILE_GET, { fileId, userId }),
   },
   history: {
     list: (fileId) => ipcRenderer.invoke(IPC_CHANNELS.HISTORY_LIST, fileId),
-    get: (historyId) => ipcRenderer.invoke(IPC_CHANNELS.HISTORY_GET, historyId),
+    get: (fileId, userId) => ipcRenderer.invoke(IPC_CHANNELS.HISTORY_GET, { fileId, userId }),
   },
   settings: {
     get: (userId) => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET, userId),

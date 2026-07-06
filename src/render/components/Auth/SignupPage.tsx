@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Input from '../Common/Input';
 import Button from '../Common/Button';
+import { useI18n } from '../../i18n';
 import { validateUsername, validatePassword, getPasswordStrength, generateCaptcha, validateCaptcha } from '../../utils/validators';
 import type { PasswordStrength } from '../../utils/validators';
 import type { MascotState } from './InteractiveMascot';
@@ -16,6 +17,7 @@ interface SignupPageProps {
 }
 
 const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateChange }) => {
+  const { t } = useI18n();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [captchaAnswer, setCaptchaAnswer] = useState('');
@@ -123,7 +125,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
     }
 
     if (!validateCaptcha(captchaAnswer, captcha.answer)) {
-      setCaptchaError('Incorrect answer, please try again');
+      setCaptchaError(t('auth.captchaError'));
       regenerateCaptcha();
       return;
     }
@@ -143,11 +145,11 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
           onSwitchToLogin(username.trim());
         }, 2000);
       } else {
-        setGeneralError(result.message || 'Registration failed');
+        setGeneralError(t('auth.regError', result.message || 'Registration failed'));
         onMascotStateChange('error');
       }
     } catch {
-      setGeneralError('Cannot connect to registration service');
+      setGeneralError(t('auth.regConnError'));
       onMascotStateChange('error');
     } finally {
       setLoading(false);
@@ -155,17 +157,17 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
   };
 
   const strengthConfig: Record<PasswordStrength, { color: string; label: string; width: string }> = {
-    weak: { color: 'bg-red-500', label: 'Weak', width: 'w-1/3' },
-    medium: { color: 'bg-yellow-500', label: 'Medium', width: 'w-2/3' },
-    strong: { color: 'bg-green-500', label: 'Strong', width: 'w-full' },
+    weak: { color: 'bg-red-500', label: t('auth.weak'), width: 'w-1/3' },
+    medium: { color: 'bg-yellow-500', label: t('auth.medium'), width: 'w-2/3' },
+    strong: { color: 'bg-green-500', label: t('auth.strong'), width: 'w-full' },
   };
 
   if (registrationSuccess) {
     return (
       <div className="w-full max-w-[380px] text-center">
         <span className="text-5xl">✅</span>
-        <h2 className="text-xl font-bold text-gray-900 mt-4">Registration successful!</h2>
-        <p className="text-sm text-gray-500 mt-2">Redirecting to login...</p>
+        <h2 className="text-xl font-bold text-gray-900 mt-4">{t('auth.regSuccess')}</h2>
+        <p className="text-sm text-gray-500 mt-2">{t('auth.redirecting')}</p>
       </div>
     );
   }
@@ -174,8 +176,8 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
     <div className="w-full max-w-[380px]">
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Create Account</h1>
-        <p className="text-sm text-gray-500 mt-1">Start your note-taking journey</p>
+        <h1 className="text-2xl font-bold text-gray-900">{t('auth.createAccount')}</h1>
+        <p className="text-sm text-gray-500 mt-1">{t('auth.startJourney')}</p>
       </div>
 
       {/* General error */}
@@ -188,37 +190,37 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
       {/* Username */}
       <div className="mb-4">
         <Input
-          label="Username"
+          label={t('auth.username')}
           value={username}
           onChange={(v) => {
             setUsername(v);
             setUsernameAvailable(null);
           }}
-          placeholder="5-15 characters, a-z, 0-9, _"
+          placeholder={t('auth.usernameHint')}
           error={usernameError}
           disabled={loading}
           onFocus={() => setFocusedField('username')}
           onBlur={() => setFocusedField(null)}
         />
         {usernameAvailable === true && (
-          <p className="text-xs text-green-500 mt-1">✓ Username available</p>
+          <p className="text-xs text-green-500 mt-1">{`✓ ${t('auth.available')}`}</p>
         )}
         {usernameAvailable === false && (
-          <p className="text-xs text-red-500 mt-1">✗ This username is taken</p>
+          <p className="text-xs text-red-500 mt-1">{`✗ ${t('auth.taken')}`}</p>
         )}
         {usernameChecking && (
-          <p className="text-xs text-gray-400 mt-1">Checking availability...</p>
+          <p className="text-xs text-gray-400 mt-1">{t('auth.checking')}</p>
         )}
       </div>
 
       {/* Password */}
       <div className="mb-2">
         <Input
-          label="Password"
+          label={t('auth.password')}
           type="password"
           value={password}
           onChange={setPassword}
-          placeholder="At least 8 characters"
+          placeholder={t('auth.passwordHint')}
           showPasswordToggle
           error={passwordError}
           disabled={loading}
@@ -234,7 +236,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
             <div className={`flex-1 rounded-full bg-gray-200 ${strengthConfig[passwordStrength].width} ${strengthConfig[passwordStrength].color}`} />
           </div>
           <p className="text-xs text-gray-400">
-            Strength:{' '}
+            {`${t('auth.strength')}: `}
             <span
               className={
                 passwordStrength === 'weak'
@@ -253,7 +255,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
       {/* Captcha */}
       <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-xs text-gray-600 font-medium">Security check</p>
+          <p className="text-xs text-gray-600 font-medium">{t('auth.securityCheck')}</p>
           <button
             onClick={regenerateCaptcha}
             className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -272,7 +274,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
             setCaptchaAnswer(v);
             setCaptchaError('');
           }}
-          placeholder="Your answer"
+          placeholder={t('auth.captchaPlaceholder')}
           error={captchaError}
           disabled={loading}
         />
@@ -286,7 +288,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
           onChange={(e) => setAgreeTerms(e.target.checked)}
           className="w-4 h-4 rounded border-gray-300 bg-transparent accent-purple-600 cursor-pointer"
         />
-        <span className="text-xs text-gray-500">I have read the Terms</span>
+        <span className="text-xs text-gray-500">{t('auth.terms')}</span>
       </label>
 
       {/* Register button */}
@@ -300,7 +302,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
         onMouseEnter={() => !loading && onMascotStateChange('hover-submit')}
         onMouseLeave={() => !loading && onMascotStateChange('idle')}
       >
-        Register
+        {t('auth.register')}
       </Button>
 
       {/* Sign in link */}
@@ -309,7 +311,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
           onClick={() => onSwitchToLogin()}
           className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
         >
-          Already have an account? Sign In
+          {t('auth.alreadyHave')}
         </button>
       </div>
     </div>

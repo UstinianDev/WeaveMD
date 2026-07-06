@@ -54,7 +54,7 @@ const MoreMenu: React.FC<MoreMenuProps> = ({
   return (
     <Dropdown
       trigger={
-        <span className="text-sm text-[#FFFFFF] hover:text-[#7C3AED] transition-colors cursor-pointer select-none px-1">
+        <span className="text-sm text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] transition-colors cursor-pointer select-none px-1">
           ⋮
         </span>
       }
