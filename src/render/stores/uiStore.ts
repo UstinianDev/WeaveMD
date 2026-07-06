@@ -42,7 +42,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   isLoading: false,
   isSplashComplete: false,
   isHistoryPanelOpen: false,
-  isPreviewMode: false,
+  isPreviewMode: true,
 
   setTheme: (theme) => {
     set({ theme });

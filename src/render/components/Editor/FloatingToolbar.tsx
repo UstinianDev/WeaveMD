@@ -99,7 +99,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({ editor, selection }) 
           const midX = (startCoords.left + endCoords.left) / 2;
           // Position above selection with 10px gap
           setPosition({
-            top: startCoords.top - 20,
+            top: startCoords.top - 10,
             left: midX,
           });
         }
