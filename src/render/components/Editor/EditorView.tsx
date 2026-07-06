@@ -7,6 +7,7 @@ import Editor, { OnMount, BeforeMount } from '@monaco-editor/react';
 import type { editor as monacoEditor } from 'monaco-editor';
 import type * as Monaco from 'monaco-editor';
 import { useEditorStore } from '../../stores/editorStore';
+import { useUIStore } from '../../stores/uiStore';
 
 // Debounce helper
 function useDebouncedCallback(callback: (value: string) => void, delay: number) {
@@ -41,15 +42,19 @@ const EditorView: React.FC<EditorViewProps> = ({ onSelectionChange, onEditorMoun
 
   const content = useEditorStore((s) => s.content);
   const setContent = useEditorStore((s) => s.updateContent);
+  const theme = useUIStore((s) => s.theme);
 
   const debouncedUpdate = useDebouncedCallback((value: string) => {
     setContent(value);
   }, 300);
 
-  // Define custom dark theme before editor mounts
+  const isDarkTheme = theme === 'dark' || theme === 'high-contrast';
+
+  // Define custom themes before editor mounts
   const handleBeforeMount: BeforeMount = (monaco) => {
     monacoRef.current = monaco;
 
+    // Dark theme
     monaco.editor.defineTheme('weaveMD-dark', {
       base: 'vs-dark',
       inherit: true,
@@ -80,6 +85,42 @@ const EditorView: React.FC<EditorViewProps> = ({ onSelectionChange, onEditorMoun
         'input.background': '#0F0F0F',
         'input.border': '#2D2D2D',
         'input.foreground': '#FFFFFF',
+        'editorGutter.background': '#0F0F0F',
+      },
+    });
+
+    // Light theme
+    monaco.editor.defineTheme('weaveMD-light', {
+      base: 'vs',
+      inherit: true,
+      rules: [
+        { token: 'comment', foreground: '6A9955', fontStyle: 'italic' },
+        { token: 'keyword', foreground: '0000FF' },
+        { token: 'string', foreground: 'A31515' },
+        { token: 'number', foreground: '098658' },
+        { token: 'type', foreground: '267F99' },
+        { token: 'function', foreground: '#795E26' },
+        { token: 'variable', foreground: '#001080' },
+        { token: 'heading', foreground: '#7C3AED', fontStyle: 'bold' },
+        { token: 'emphasis', fontStyle: 'italic' },
+        { token: 'strong', fontStyle: 'bold' },
+      ],
+      colors: {
+        'editor.background': '#FFFFFF',
+        'editor.foreground': '#111827',
+        'editor.lineHighlightBackground': '#F3F4F6',
+        'editor.selectionBackground': '#7C3AED20',
+        'editorCursor.foreground': '#7C3AED',
+        'editorLineNumber.foreground': '#9CA3AF',
+        'editorLineNumber.activeForeground': '#111827',
+        'editor.selectionHighlightBackground': '#7C3AED10',
+        'editor.inactiveSelectionBackground': '#7C3AED10',
+        'editorWidget.background': '#FFFFFF',
+        'editorWidget.border': '#E5E7EB',
+        'input.background': '#F9FAFB',
+        'input.border': '#E5E7EB',
+        'input.foreground': '#111827',
+        'editorGutter.background': '#FFFFFF',
       },
     });
   };
@@ -111,7 +152,7 @@ const EditorView: React.FC<EditorViewProps> = ({ onSelectionChange, onEditorMoun
     editor.focus();
   };
 
-  // Handle content changes
+  // Handle content changes from user typing
   const handleChange = useCallback(
     (value: string | undefined) => {
       if (value === undefined || isUpdatingRef.current) return;
@@ -120,7 +161,7 @@ const EditorView: React.FC<EditorViewProps> = ({ onSelectionChange, onEditorMoun
     [debouncedUpdate]
   );
 
-  // Sync external content changes to editor
+  // Sync external content changes to editor (e.g., undo/redo)
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor || isUpdatingRef.current) return;
@@ -133,19 +174,34 @@ const EditorView: React.FC<EditorViewProps> = ({ onSelectionChange, onEditorMoun
     }
   }, [content]);
 
+  // Update editor theme when app theme changes
+  useEffect(() => {
+    if (monacoRef.current && editorRef.current) {
+      const editorTheme = isDarkTheme ? 'weaveMD-dark' : 'weaveMD-light';
+      monacoRef.current.editor.setTheme(editorTheme);
+    }
+  }, [theme, isDarkTheme]);
+
+  const editorTheme = isDarkTheme ? 'weaveMD-dark' : 'weaveMD-light';
+
   return (
     <div className="w-full h-full">
       <Editor
         height="100%"
         defaultLanguage="markdown"
-        theme="weaveMD-dark"
+        theme={editorTheme}
         value={content}
         onChange={handleChange}
         beforeMount={handleBeforeMount}
         onMount={handleEditorMount}
         loading={
           <div className="flex items-center justify-center h-full">
-            <p className="text-text-muted text-sm">Loading editor...</p>
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-8 h-8 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+                Loading editor...
+              </p>
+            </div>
           </div>
         }
         options={{
@@ -156,6 +212,7 @@ const EditorView: React.FC<EditorViewProps> = ({ onSelectionChange, onEditorMoun
           minimap: { enabled: false },
           wordWrap: 'on',
           automaticLayout: true,
+          readOnly: false,
           padding: { top: 16, bottom: 16 },
           scrollBeyondLastLine: false,
           renderLineHighlight: 'line',

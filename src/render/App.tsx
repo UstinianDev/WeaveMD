@@ -17,8 +17,29 @@ const App: React.FC = () => {
   const loadSettings = useUIStore((s) => s.loadSettings);
   const loadRecentAccounts = useAuthStore((s) => s.loadRecentAccounts);
 
+  // Load settings from backend and apply
+  const loadBackendSettings = useCallback(async (userId: string) => {
+    try {
+      const result = (await window.weaveMD.settings.get(userId)) as {
+        success: boolean;
+        data?: { theme?: string; language?: string };
+      };
+      if (result.success && result.data) {
+        const uiStore = useUIStore.getState();
+        if (result.data.theme)
+          uiStore.setTheme(
+            result.data.theme as 'light' | 'dark' | 'light-header' | 'high-contrast' | 'custom'
+          );
+        if (result.data.language)
+          uiStore.setLanguage(result.data.language as 'zh-CN' | 'zh-TW' | 'en');
+      }
+    } catch {
+      // Use localStorage settings as fallback
+    }
+  }, []);
+
   useEffect(() => {
-    // Load persisted UI settings and recent accounts
+    // Load persisted UI settings from localStorage
     loadSettings();
     loadRecentAccounts();
 
@@ -29,26 +50,36 @@ const App: React.FC = () => {
     if (token && userStr) {
       try {
         const user = JSON.parse(userStr);
-        // Validate token with backend before accepting
-        window.weaveMD.auth.validateToken(token).then((result: unknown) => {
-          const r = result as { success: boolean; data?: { id: string; username: string; createdAt: string; lastLogin: string | null } };
-          if (r.success && r.data) {
-            useAuthStore.getState().login(r.data, token);
-          } else {
-            // Token expired or invalid
-            localStorage.removeItem('weavemd_token');
-            localStorage.removeItem('weavemd_user');
-          }
-        }).catch(() => {
-          // Can't reach backend, use stored data anyway for offline
-          useAuthStore.getState().login(user, token);
-        });
+        window.weaveMD.auth
+          .validateToken(token)
+          .then((result: unknown) => {
+            const r = result as {
+              success: boolean;
+              data?: {
+                id: string;
+                username: string;
+                createdAt: string;
+                lastLogin: string | null;
+              };
+            };
+            if (r.success && r.data) {
+              useAuthStore.getState().login(r.data, token);
+              loadBackendSettings(r.data.id);
+            } else {
+              localStorage.removeItem('weavemd_token');
+              localStorage.removeItem('weavemd_user');
+            }
+          })
+          .catch(() => {
+            useAuthStore.getState().login(user, token);
+            loadBackendSettings(user.id);
+          });
       } catch {
         localStorage.removeItem('weavemd_token');
         localStorage.removeItem('weavemd_user');
       }
     }
-  }, [loadSettings, loadRecentAccounts]);
+  }, [loadSettings, loadRecentAccounts, loadBackendSettings]);
 
   // Sync phase with auth state
   useEffect(() => {
@@ -56,16 +87,14 @@ const App: React.FC = () => {
     setPhase(isAuthenticated ? 'main' : 'auth');
   }, [isAuthenticated, phase]);
 
-  // Apply theme class to html element
+  // Apply theme classes to html element
   const theme = useUIStore((s) => s.theme);
   useEffect(() => {
     const html = document.documentElement;
-    html.classList.remove('dark', 'light');
-    if (theme === 'dark' || theme === 'high-contrast') {
-      html.classList.add('dark');
-    } else {
-      html.classList.add('light');
-    }
+    // Remove all theme classes
+    html.classList.remove('dark', 'light', 'light-header', 'high-contrast', 'custom');
+    // Apply current theme class
+    html.classList.add(theme);
   }, [theme]);
 
   const handleSplashComplete = useCallback(() => {

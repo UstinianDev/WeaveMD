@@ -65,7 +65,7 @@ const Input: React.FC<InputProps> = ({
           ${isFocused ? 'border-accent shadow-[0_0_0_2px_rgba(124,58,237,0.2)]' : 'border-border'}
           ${error ? 'border-red-500' : ''}
           ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
-          bg-[#0F0F0F]
+          bg-[var(--input-bg,#0F0F0F)]
         `}
       >
         {leftIcon && (

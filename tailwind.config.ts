@@ -7,24 +7,24 @@ export default {
     extend: {
       colors: {
         accent: {
-          DEFAULT: '#7C3AED',
-          secondary: '#6366F1',
-          hover: '#6D28D9',
+          DEFAULT: 'var(--accent)',
+          secondary: 'var(--accent-secondary)',
+          hover: 'var(--accent-hover)',
         },
         bg: {
-          primary: '#0F0F0F',
-          secondary: '#1A1A1A',
-          tertiary: '#2D2D2D',
+          primary: 'var(--bg-primary)',
+          secondary: 'var(--bg-secondary)',
+          tertiary: 'var(--bg-tertiary)',
         },
         border: {
-          DEFAULT: '#2D2D2D',
-          focus: '#7C3AED',
-          hover: '#6366F1',
+          DEFAULT: 'var(--border-color)',
+          focus: 'var(--accent)',
+          hover: 'var(--accent-secondary)',
         },
         text: {
-          primary: '#FFFFFF',
-          sub: '#999999',
-          muted: '#666666',
+          primary: 'var(--text-primary)',
+          sub: 'var(--text-sub)',
+          muted: 'var(--text-muted)',
         },
       },
       fontFamily: {
@@ -55,8 +55,8 @@ export default {
         DEFAULT: 'cubic-bezier(0.4, 0, 0.2, 1)',
       },
       boxShadow: {
-        dropdown: '0 4px 24px rgba(0, 0, 0, 0.4)',
-        modal: '0 8px 48px rgba(0, 0, 0, 0.6)',
+        dropdown: 'var(--shadow-dropdown)',
+        modal: 'var(--shadow-modal)',
         toolbar: '0 2px 16px rgba(0, 0, 0, 0.3)',
       },
     },

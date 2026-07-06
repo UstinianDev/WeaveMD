@@ -17,8 +17,15 @@ const StatusBar: React.FC = () => {
   }), [content]);
 
   return (
-    <footer className="flex items-center justify-between h-6 bg-[#1A1A1A] border-t border-[#2D2D2D] px-3 flex-shrink-0">
-      <div className="flex items-center gap-3 text-xs text-[#666666]">
+    <footer
+      className="flex items-center justify-between h-6 border-t px-3 flex-shrink-0"
+      style={{
+        backgroundColor: 'var(--bg-secondary)',
+        borderColor: 'var(--border-color)',
+        color: 'var(--text-muted)',
+      }}
+    >
+      <div className="flex items-center gap-3 text-xs">
         {currentFile ? (
           <>
             <span>{currentFile.name}</span>
@@ -32,7 +39,7 @@ const StatusBar: React.FC = () => {
         )}
       </div>
 
-      <div className="flex items-center gap-3 text-xs text-[#666666]">
+      <div className="flex items-center gap-3 text-xs">
         <span>{counts.words} words</span>
         <span>{counts.chars} chars</span>
         <span>Ln {counts.lines}</span>

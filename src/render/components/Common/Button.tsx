@@ -15,6 +15,8 @@ interface ButtonProps {
   loading?: boolean;
   fullWidth?: boolean;
   onClick?: () => void;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
   type?: 'button' | 'submit';
   className?: string;
 }
@@ -23,9 +25,9 @@ const variantStyles: Record<ButtonVariant, string> = {
   primary:
     'bg-[#7C3AED] text-white hover:bg-[#6D28D9] active:bg-[#5B21B6] border-transparent',
   secondary:
-    'bg-[#2D2D2D] text-white hover:bg-[#3D3D3D] active:bg-[#4D4D4D] border-transparent',
+    'bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:brightness-110 active:brightness-125 border-transparent',
   ghost:
-    'bg-transparent text-text-sub hover:text-white hover:bg-[#2D2D2D] active:bg-[#3D3D3D] border-transparent',
+    'bg-transparent text-[var(--text-sub)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] active:brightness-110 border-transparent',
   danger:
     'bg-red-600/20 text-red-400 hover:bg-red-600/30 active:bg-red-600/40 border-red-600/30 hover:border-red-500',
 };
@@ -44,6 +46,8 @@ const Button: React.FC<ButtonProps> = ({
   loading = false,
   fullWidth = false,
   onClick,
+  onMouseEnter,
+  onMouseLeave,
   type = 'button',
   className = '',
 }) => {
@@ -51,6 +55,8 @@ const Button: React.FC<ButtonProps> = ({
     <button
       type={type}
       onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       disabled={disabled || loading}
       className={`
         inline-flex items-center justify-center gap-2

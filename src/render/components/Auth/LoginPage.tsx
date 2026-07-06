@@ -1,5 +1,6 @@
 // ============================================
 // WeaveMD — Login Page Component
+// Right-side form with mascot interaction support
 // ============================================
 
 import React, { useState, useRef, useEffect } from 'react';
@@ -8,17 +9,20 @@ import Button from '../Common/Button';
 import { useAuthStore } from '../../stores/authStore';
 import { getRememberedCredentials, saveRememberedCredentials, clearRememberedCredentials } from '../../utils/crypto';
 import type { IpcResponse, LoginResponse } from '../../../shared/types';
+import type { MascotState } from './InteractiveMascot';
 
 interface LoginPageProps {
   onSwitchToRegister: () => void;
   onCreateNewAccount: () => void;
   prefillUsername?: string;
+  onMascotStateChange: (state: MascotState) => void;
 }
 
 const LoginPage: React.FC<LoginPageProps> = ({
   onSwitchToRegister,
   onCreateNewAccount,
   prefillUsername,
+  onMascotStateChange,
 }) => {
   const [username, setUsername] = useState(prefillUsername || '');
   const [password, setPassword] = useState('');
@@ -26,6 +30,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
   const [showDropdown, setShowDropdown] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [focusedField, setFocusedField] = useState<string | null>(null);
 
   const login = useAuthStore((s) => s.login);
   const recentAccounts = useAuthStore((s) => s.recentAccounts);
@@ -36,7 +41,6 @@ const LoginPage: React.FC<LoginPageProps> = ({
   useEffect(() => {
     loadRecentAccounts();
 
-    // Try to load remembered credentials
     const remembered = getRememberedCredentials();
     if (remembered) {
       setUsername(remembered.username);
@@ -44,6 +48,21 @@ const LoginPage: React.FC<LoginPageProps> = ({
       setRememberMe(true);
     }
   }, [loadRecentAccounts]);
+
+  // Update mascot state based on focus and typing
+  useEffect(() => {
+    if (error) {
+      onMascotStateChange('error');
+    } else if (focusedField === 'username' && username.length > 0) {
+      onMascotStateChange('typing');
+    } else if (focusedField === 'username') {
+      onMascotStateChange('focus-username');
+    } else if (focusedField === 'password') {
+      onMascotStateChange('focus-password');
+    } else {
+      onMascotStateChange('idle');
+    }
+  }, [focusedField, username, error, onMascotStateChange]);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -61,14 +80,17 @@ const LoginPage: React.FC<LoginPageProps> = ({
 
     if (!username.trim()) {
       setError('Please enter your username');
+      onMascotStateChange('error');
       return;
     }
     if (!password) {
       setError('Please enter your password');
+      onMascotStateChange('error');
       return;
     }
 
     setLoading(true);
+    onMascotStateChange('hover-submit');
     try {
       const result = (await window.weaveMD.auth.login(
         username.trim(),
@@ -79,19 +101,23 @@ const LoginPage: React.FC<LoginPageProps> = ({
       if (result.success && result.data) {
         const { token, user } = result.data;
 
-        // Handle remember-me
         if (rememberMe) {
           saveRememberedCredentials(username.trim(), password);
         } else {
           clearRememberedCredentials();
         }
 
+        onMascotStateChange('success');
+        // Brief delay to show success state before navigating
+        await new Promise((r) => setTimeout(r, 600));
         login(user, token);
       } else {
         setError(result.message || 'Login failed');
+        onMascotStateChange('error');
       }
     } catch (err) {
       setError('Cannot connect to authentication service');
+      onMascotStateChange('error');
     } finally {
       setLoading(false);
     }
@@ -102,7 +128,6 @@ const LoginPage: React.FC<LoginPageProps> = ({
     setPassword('');
     setShowDropdown(false);
     setError('');
-    // Focus the password field
     setTimeout(() => {
       const passwordInput = document.querySelector('input[type="password"]') as HTMLInputElement;
       passwordInput?.focus();
@@ -110,153 +135,151 @@ const LoginPage: React.FC<LoginPageProps> = ({
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-bg-primary p-4">
-      <div className="w-full max-w-[420px] bg-bg-secondary rounded-card p-8 shadow-modal">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <span className="text-4xl">📔</span>
-          <h1 className="text-2xl font-bold text-white mt-3">WeaveMD</h1>
-          <p className="text-sm text-text-sub mt-1">Welcome back</p>
-          <p className="text-xs text-text-muted mt-0.5">Sign in to continue your work</p>
+    <div className="w-full max-w-[380px]">
+      {/* Logo & Header */}
+      <div className="mb-8">
+        <span className="text-3xl">📔</span>
+        <h1 className="text-2xl font-bold text-gray-900 mt-3">WeaveMD</h1>
+        <p className="text-sm text-gray-500 mt-1">Welcome back</p>
+        <p className="text-xs text-gray-400 mt-0.5">Sign in to continue your work</p>
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+          {error}
         </div>
+      )}
 
-        {/* Error */}
-        {error && (
-          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-input text-sm text-red-400">
-            {error}
-          </div>
-        )}
+      {/* Username with dropdown */}
+      <div className="relative mb-4" ref={dropdownRef}>
+        <Input
+          label="Username"
+          value={username}
+          onChange={(v) => {
+            setUsername(v);
+            setError('');
+          }}
+          placeholder="Enter your username"
+          autoFocus={!prefillUsername}
+          disabled={loading}
+          onFocus={() => {
+            setFocusedField('username');
+            if (recentAccounts.length > 0) setShowDropdown(true);
+          }}
+          onBlur={() => setFocusedField(null)}
+          rightIcon={
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          }
+          onRightIconClick={() => setShowDropdown(!showDropdown)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSubmit();
+          }}
+        />
 
-        {/* Username with dropdown */}
-        <div className="relative mb-4" ref={dropdownRef}>
-          <Input
-            label="Username"
-            value={username}
-            onChange={(v) => {
-              setUsername(v);
-              setError('');
-            }}
-            placeholder="Enter your username"
-            autoFocus={!prefillUsername}
-            disabled={loading}
-            rightIcon={
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            }
-            onRightIconClick={() => setShowDropdown(!showDropdown)}
-            onFocus={() => {
-              if (recentAccounts.length > 0) setShowDropdown(true);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSubmit();
-            }}
-          />
-
-          {/* Recent accounts dropdown */}
-          {showDropdown && recentAccounts.length > 0 && (
-            <div className="absolute top-full left-0 right-0 mt-1 bg-bg-secondary border border-border rounded-input shadow-dropdown z-20 max-h-48 overflow-y-auto">
-              <p className="text-xs text-text-muted px-3 py-2 border-b border-border">
-                Recent accounts
-              </p>
-              {recentAccounts.map((account) => (
-                <button
-                  key={account}
-                  className="w-full text-left px-3 py-2 text-sm text-text-sub hover:bg-bg-tertiary hover:text-white transition-colors"
-                  onClick={() => handleSelectRecent(account)}
-                >
-                  {account}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {showDropdown && recentAccounts.length === 0 && (
-            <div className="absolute top-full left-0 right-0 mt-1 bg-bg-secondary border border-border rounded-input shadow-dropdown z-20">
-              <p className="text-xs text-text-muted px-3 py-2">No recent accounts</p>
-            </div>
-          )}
-        </div>
-
-        {/* Password */}
-        <div className="mb-2">
-          <Input
-            label="Password"
-            type="password"
-            value={password}
-            onChange={(v) => {
-              setPassword(v);
-              setError('');
-            }}
-            placeholder="Enter your password"
-            showPasswordToggle
-            disabled={loading}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSubmit();
-            }}
-          />
-        </div>
-
-        {/* Remember me */}
-        <label className="flex items-center gap-2 mb-6 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={rememberMe}
-            onChange={(e) => setRememberMe(e.target.checked)}
-            className="w-4 h-4 rounded border-border bg-transparent accent-[#7C3AED] cursor-pointer"
-          />
-          <span className="text-xs text-text-sub">Remember password</span>
-        </label>
-
-        {/* Login button */}
-        <Button
-          variant="primary"
-          size="lg"
-          fullWidth
-          loading={loading}
-          onClick={handleSubmit}
-        >
-          Log in
-        </Button>
-
-        {/* Links */}
-        <div className="mt-6 text-center space-y-2">
-          <p>
-            <button
-              onClick={onCreateNewAccount}
-              className="text-sm text-accent-secondary hover:text-accent transition-colors"
-            >
-              Create New Account
-            </button>
-          </p>
-          <p>
-            <button
-              onClick={onSwitchToRegister}
-              className="text-sm text-text-muted hover:text-text-sub transition-colors"
-            >
-              Don&apos;t have an account? Register
-            </button>
-          </p>
-        </div>
-
-        {/* Quick account switch pills */}
-        {recentAccounts.length > 0 && (
-          <div className="mt-4 pt-4 border-t border-border">
-            <p className="text-xs text-text-muted mb-2">Quick switch</p>
-            <div className="flex flex-wrap gap-2">
-              {recentAccounts.slice(0, 5).map((account) => (
-                <button
-                  key={account}
-                  onClick={() => handleSelectRecent(account)}
-                  className="px-3 py-1 text-xs text-text-sub bg-bg-tertiary rounded-full hover:bg-accent hover:text-white transition-colors"
-                >
-                  {account}
-                </button>
-              ))}
-            </div>
+        {/* Recent accounts dropdown */}
+        {showDropdown && recentAccounts.length > 0 && (
+          <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-48 overflow-y-auto">
+            <p className="text-xs text-gray-400 px-3 py-2 border-b border-gray-100">
+              Recent accounts
+            </p>
+            {recentAccounts.map((account) => (
+              <button
+                key={account}
+                className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:bg-purple-50 hover:text-purple-700 transition-colors"
+                onClick={() => handleSelectRecent(account)}
+              >
+                {account}
+              </button>
+            ))}
           </div>
         )}
       </div>
+
+      {/* Password */}
+      <div className="mb-2">
+        <Input
+          label="Password"
+          type="password"
+          value={password}
+          onChange={(v) => {
+            setPassword(v);
+            setError('');
+          }}
+          placeholder="Enter your password"
+          showPasswordToggle
+          disabled={loading}
+          onFocus={() => setFocusedField('password')}
+          onBlur={() => setFocusedField(null)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSubmit();
+          }}
+        />
+      </div>
+
+      {/* Remember me */}
+      <label className="flex items-center gap-2 mb-6 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={rememberMe}
+          onChange={(e) => setRememberMe(e.target.checked)}
+          className="w-4 h-4 rounded border-gray-300 bg-transparent accent-purple-600 cursor-pointer"
+        />
+        <span className="text-xs text-gray-500">Remember password</span>
+      </label>
+
+      {/* Login button */}
+      <Button
+        variant="primary"
+        size="lg"
+        fullWidth
+        loading={loading}
+        onClick={handleSubmit}
+        onMouseEnter={() => !loading && onMascotStateChange('hover-submit')}
+        onMouseLeave={() => !loading && onMascotStateChange('idle')}
+      >
+        Log in
+      </Button>
+
+      {/* Links */}
+      <div className="mt-6 text-center space-y-2">
+        <p>
+          <button
+            onClick={onCreateNewAccount}
+            className="text-sm text-purple-600 hover:text-purple-800 transition-colors font-medium"
+          >
+            Create New Account
+          </button>
+        </p>
+        <p>
+          <button
+            onClick={onSwitchToRegister}
+            className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            Don&apos;t have an account? Register
+          </button>
+        </p>
+      </div>
+
+      {/* Quick account switch pills */}
+      {recentAccounts.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-gray-100">
+          <p className="text-xs text-gray-400 mb-2">Quick switch</p>
+          <div className="flex flex-wrap gap-2">
+            {recentAccounts.slice(0, 5).map((account) => (
+              <button
+                key={account}
+                onClick={() => handleSelectRecent(account)}
+                className="px-3 py-1 text-xs text-gray-500 bg-gray-100 rounded-full hover:bg-purple-100 hover:text-purple-700 transition-colors"
+              >
+                {account}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
