@@ -8,6 +8,8 @@ import type { editor as monacoEditor } from 'monaco-editor';
 import type * as Monaco from 'monaco-editor';
 import { useEditorStore } from '../../stores/editorStore';
 import { useUIStore } from '../../stores/uiStore';
+// Ensure Monaco loads from local package, not CDN
+import '../../utils/monacoSetup';
 
 // Debounce helper
 function useDebouncedCallback(callback: (value: string) => void, delay: number) {

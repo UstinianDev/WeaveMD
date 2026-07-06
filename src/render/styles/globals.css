@@ -75,6 +75,27 @@ html.dark {
   --shadow-dropdown: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
+/* --- Custom Theme (uses dark theme as base, user-customizable) --- */
+html.custom {
+  --bg-primary: #0F0F0F;
+  --bg-secondary: #1A1A1A;
+  --bg-tertiary: #2D2D2D;
+  --border-color: #2D2D2D;
+  --text-primary: #FFFFFF;
+  --text-sub: #999999;
+  --text-muted: #666666;
+  --accent: #7C3AED;
+  --accent-secondary: #6366F1;
+  --accent-hover: #6D28D9;
+  --navbar-bg: #1A1A1A;
+  --navbar-text-primary: #FFFFFF;
+  --navbar-text-sub: #999999;
+  --input-bg: #0F0F0F;
+  --modal-bg: #1A1A1A;
+  --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.4);
+  --shadow-dropdown: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
 /* --- High Contrast Theme --- */
 html.high-contrast {
   --bg-primary: #000000;
