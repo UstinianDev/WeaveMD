@@ -16,6 +16,7 @@ import type { IFile, PageWidth } from '../../../shared/types';
 
 const TopBar: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const user = useAuthStore((s) => s.user);
   const currentFile = useEditorStore((s) => s.currentFile);
   const saveFile = useEditorStore((s) => s.saveFile);
@@ -40,6 +41,7 @@ const TopBar: React.FC = () => {
   const handleNewFile = async () => {
     if (!user) return;
     setIsLoading(true);
+    setErrorMessage('');
     try {
       const name = `untitled-${Date.now().toString(36)}.md`;
       const result = (await window.weaveMD.file.create(user.id, name)) as unknown as {
@@ -50,9 +52,11 @@ const TopBar: React.FC = () => {
         useEditorStore.getState().openFile(result.data);
         // Refresh file list
         loadHistory(user.id);
+      } else {
+        setErrorMessage('Failed to create new file');
       }
     } catch {
-      // Silent fail - user will see empty state
+      setErrorMessage('Network error: Could not create file');
     } finally {
       setIsLoading(false);
     }
@@ -61,6 +65,7 @@ const TopBar: React.FC = () => {
   const handleOpenFile = async () => {
     if (!user) return;
     setIsLoading(true);
+    setErrorMessage('');
     try {
       const result = (await window.weaveMD.file.open()) as unknown as {
         success: boolean;
@@ -106,7 +111,7 @@ const TopBar: React.FC = () => {
         }
       }
     } catch {
-      // File open failed
+      setErrorMessage('Failed to open file');
     } finally {
       setIsLoading(false);
     }
@@ -184,8 +189,24 @@ const TopBar: React.FC = () => {
 
       {/* Loading indicator */}
       {isLoading && (
-        <div className="flex items-center gap-1 px-2">
+        <div className="flex items-center gap-2 px-2">
           <div className="w-3 h-3 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
+          <span className="text-xs" style={{ color: 'var(--navbar-text-sub, #999999)' }}>
+            Loading...
+          </span>
+        </div>
+      )}
+
+      {/* Error message */}
+      {errorMessage && (
+        <div className="flex items-center gap-1 px-2">
+          <span className="text-xs text-red-400">{errorMessage}</span>
+          <button
+            onClick={() => setErrorMessage('')}
+            className="text-xs text-red-400 hover:text-red-300"
+          >
+            ✕
+          </button>
         </div>
       )}
 
