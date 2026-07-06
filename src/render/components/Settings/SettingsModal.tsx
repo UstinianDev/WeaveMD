@@ -7,6 +7,7 @@ import Modal from '../Common/Modal';
 import Button from '../Common/Button';
 import { useUIStore } from '../../stores/uiStore';
 import { useAuthStore } from '../../stores/authStore';
+import { useI18n } from '../../i18n';
 import type { ThemeType, LanguageType } from '../../../shared/types';
 
 interface SettingsModalProps {
@@ -30,12 +31,8 @@ const THEMES: { value: ThemeType; label: string; preview: string }[] = [
 
 type SettingsTab = 'system' | 'account';
 
-const TABS: { key: SettingsTab; label: string }[] = [
-  { key: 'system', label: 'System' },
-  { key: 'account', label: 'Account' },
-];
-
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+  const { t } = useI18n();
   const theme = useUIStore((s) => s.theme);
   const language = useUIStore((s) => s.language);
   const setTheme = useUIStore((s) => s.setTheme);
@@ -48,11 +45,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [selectedTheme, setSelectedTheme] = useState<ThemeType>(theme);
   const [selectedLanguage, setSelectedLanguage] = useState<LanguageType>(language);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const TABS: { key: SettingsTab; label: string }[] = [
+    { key: 'system', label: t('settings.system') },
+    { key: 'account', label: t('settings.account') },
+  ];
 
   useEffect(() => {
     if (isOpen) {
       setSelectedTheme(theme);
       setSelectedLanguage(language);
+      setShowDeleteConfirm(false);
     }
   }, [isOpen, theme, language]);
 
@@ -90,19 +95,41 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    setIsDeleting(true);
+    try {
+      const result = await window.weaveMD.account.delete(user.id) as {
+        success: boolean;
+        message: string;
+      };
+      if (result.success) {
+        logout();
+        closeModal();
+      }
+    } catch {
+      // Still logout even on IPC error to clear local state
+      logout();
+      closeModal();
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Settings"
+      title={t('settings.title')}
       width={560}
       footer={
         <>
           <Button variant="secondary" onClick={handleCancel}>
-            Cancel
+            {t('settings.cancel')}
           </Button>
           <Button variant="primary" onClick={handleSave}>
-            Save
+            {t('settings.save')}
           </Button>
         </>
       }
@@ -129,7 +156,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
           {/* Language */}
           <div>
             <label className="text-sm text-[var(--text-primary)] font-medium mb-2 block">
-              Language
+              {t('settings.language')}
             </label>
             <div className="space-y-1">
               {LANGUAGES.map((lang) => (
@@ -154,21 +181,21 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
           {/* Theme */}
           <div>
             <label className="text-sm text-[var(--text-primary)] font-medium mb-2 block">
-              Theme
+              {t('settings.theme')}
             </label>
             <div className="grid grid-cols-2 gap-2">
-              {THEMES.map((t) => (
+              {THEMES.map((th) => (
                 <button
-                  key={t.value}
-                  onClick={() => setSelectedTheme(t.value)}
+                  key={th.value}
+                  onClick={() => setSelectedTheme(th.value)}
                   className={`flex items-center gap-3 p-3 rounded-input border transition-colors text-left ${
-                    selectedTheme === t.value
+                    selectedTheme === th.value
                       ? 'border-[var(--accent)] bg-[var(--accent)]/10'
                       : 'border-[var(--border-color)] hover:border-[var(--accent-secondary)]'
                   }`}
                 >
-                  <div className={`w-8 h-8 rounded border border-[var(--border-color)] ${t.preview}`} />
-                  <span className="text-sm text-[var(--text-sub)]">{t.label}</span>
+                  <div className={`w-8 h-8 rounded border border-[var(--border-color)] ${th.preview}`} />
+                  <span className="text-sm text-[var(--text-sub)]">{th.label}</span>
                 </button>
               ))}
             </div>
@@ -180,19 +207,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
         <div className="space-y-4">
           <div className="p-4 bg-[var(--bg-primary)] rounded-input border border-[var(--border-color)]">
             <p className="text-sm text-[var(--text-sub)]">
-              Current account:{' '}
+              {`${t('settings.accountInfo')}: `}
               <span className="text-[var(--text-primary)] font-semibold">
                 @{user?.username}
               </span>
             </p>
-            <p className="text-xs text-[var(--text-muted)] mt-1">Manage your account data</p>
+            <p className="text-xs text-[var(--text-muted)] mt-1">{t('settings.manageAccount')}</p>
           </div>
           <div className="space-y-2">
             <Button variant="secondary" fullWidth onClick={() => {}}>
-              Switch Account
+              {t('settings.switchAccount')}
             </Button>
             <Button variant="secondary" fullWidth onClick={() => {}}>
-              Export Account Data
+              {t('settings.exportData')}
             </Button>
             {/* Logout Button */}
             <Button
@@ -201,11 +228,40 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
               onClick={handleLogout}
               loading={isLoggingOut}
             >
-              Log Out
+              {t('settings.logOut')}
             </Button>
-            <Button variant="danger" fullWidth onClick={() => {}}>
-              Delete Account
-            </Button>
+            {/* Delete Account Button */}
+            {showDeleteConfirm ? (
+              <div className="p-3 bg-red-600/10 border border-red-600/30 rounded-input">
+                <p className="text-sm text-red-400 mb-3">
+                  {t('settings.confirmDelete')}
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    fullWidth
+                    onClick={() => setShowDeleteConfirm(false)}
+                    disabled={isDeleting}
+                  >
+                    {t('settings.cancel')}
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    fullWidth
+                    onClick={handleDeleteAccount}
+                    loading={isDeleting}
+                  >
+                    {t('settings.confirmDeleteBtn')}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button variant="danger" fullWidth onClick={() => setShowDeleteConfirm(true)}>
+                {t('settings.deleteAccount')}
+              </Button>
+            )}
           </div>
         </div>
       )}

@@ -4,6 +4,8 @@
 
 import { create } from 'zustand';
 import type { IUserPublic } from '../../shared/types';
+import { useEditorStore } from './editorStore';
+import { useHistoryStore } from './historyStore';
 
 interface AuthStore {
   user: IUserPublic | null;
@@ -40,6 +42,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   },
 
   logout: () => {
+    // Clear editor and history stores to prevent cross-account data leakage
+    useEditorStore.getState().closeFile();
+    useHistoryStore.getState().clearHistory();
+
     localStorage.removeItem('weavemd_token');
     localStorage.removeItem('weavemd_user');
     set({ user: null, token: null, isAuthenticated: false });

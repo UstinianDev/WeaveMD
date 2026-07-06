@@ -23,7 +23,7 @@ const WindowControls: React.FC = () => {
 
   const btnClass =
     'w-11 h-full flex items-center justify-center transition-colors';
-  const btnStyle = { color: 'var(--text-sub)' };
+  const btnStyle = { color: 'var(--navbar-text-sub, #999999)' };
 
   return (
     <div className="flex items-center h-full no-drag">

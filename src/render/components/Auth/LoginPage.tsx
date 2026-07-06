@@ -7,6 +7,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import Input from '../Common/Input';
 import Button from '../Common/Button';
 import { useAuthStore } from '../../stores/authStore';
+import { useI18n } from '../../i18n';
 import { getRememberedCredentials, saveRememberedCredentials, clearRememberedCredentials } from '../../utils/crypto';
 import type { IpcResponse, LoginResponse } from '../../../shared/types';
 import type { MascotState } from './InteractiveMascot';
@@ -24,6 +25,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
   prefillUsername,
   onMascotStateChange,
 }) => {
+  const { t } = useI18n();
   const [username, setUsername] = useState(prefillUsername || '');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -79,12 +81,12 @@ const LoginPage: React.FC<LoginPageProps> = ({
     setError('');
 
     if (!username.trim()) {
-      setError('Please enter your username');
+      setError(t('auth.enterUsernameRequired'));
       onMascotStateChange('error');
       return;
     }
     if (!password) {
-      setError('Please enter your password');
+      setError(t('auth.enterPasswordRequired'));
       onMascotStateChange('error');
       return;
     }
@@ -112,11 +114,11 @@ const LoginPage: React.FC<LoginPageProps> = ({
         await new Promise((r) => setTimeout(r, 600));
         login(user, token);
       } else {
-        setError(result.message || 'Login failed');
+        setError(t('auth.loginError', result.message || 'Login failed'));
         onMascotStateChange('error');
       }
-    } catch (err) {
-      setError('Cannot connect to authentication service');
+    } catch {
+      setError(t('auth.connectionError'));
       onMascotStateChange('error');
     } finally {
       setLoading(false);
@@ -139,9 +141,9 @@ const LoginPage: React.FC<LoginPageProps> = ({
       {/* Logo & Header */}
       <div className="mb-8">
         <span className="text-3xl">📔</span>
-        <h1 className="text-2xl font-bold text-gray-900 mt-3">WeaveMD</h1>
-        <p className="text-sm text-gray-500 mt-1">Welcome back</p>
-        <p className="text-xs text-gray-400 mt-0.5">Sign in to continue your work</p>
+        <h1 className="text-2xl font-bold text-gray-900 mt-3">{t('app.name')}</h1>
+        <p className="text-sm text-gray-500 mt-1">{t('auth.welcome')}</p>
+        <p className="text-xs text-gray-400 mt-0.5">{t('auth.signInPrompt')}</p>
       </div>
 
       {/* Error */}
@@ -154,13 +156,13 @@ const LoginPage: React.FC<LoginPageProps> = ({
       {/* Username with dropdown */}
       <div className="relative mb-4" ref={dropdownRef}>
         <Input
-          label="Username"
+          label={t('auth.username')}
           value={username}
           onChange={(v) => {
             setUsername(v);
             setError('');
           }}
-          placeholder="Enter your username"
+          placeholder={t('auth.enterUsername')}
           autoFocus={!prefillUsername}
           disabled={loading}
           onFocus={() => {
@@ -183,7 +185,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
         {showDropdown && recentAccounts.length > 0 && (
           <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-48 overflow-y-auto">
             <p className="text-xs text-gray-400 px-3 py-2 border-b border-gray-100">
-              Recent accounts
+              {t('auth.recentAccounts')}
             </p>
             {recentAccounts.map((account) => (
               <button
@@ -201,14 +203,14 @@ const LoginPage: React.FC<LoginPageProps> = ({
       {/* Password */}
       <div className="mb-2">
         <Input
-          label="Password"
+          label={t('auth.password')}
           type="password"
           value={password}
           onChange={(v) => {
             setPassword(v);
             setError('');
           }}
-          placeholder="Enter your password"
+          placeholder={t('auth.enterPassword')}
           showPasswordToggle
           disabled={loading}
           onFocus={() => setFocusedField('password')}
@@ -227,7 +229,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
           onChange={(e) => setRememberMe(e.target.checked)}
           className="w-4 h-4 rounded border-gray-300 bg-transparent accent-purple-600 cursor-pointer"
         />
-        <span className="text-xs text-gray-500">Remember password</span>
+        <span className="text-xs text-gray-500">{t('auth.rememberMe')}</span>
       </label>
 
       {/* Login button */}
@@ -240,7 +242,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
         onMouseEnter={() => !loading && onMascotStateChange('hover-submit')}
         onMouseLeave={() => !loading && onMascotStateChange('idle')}
       >
-        Log in
+        {t('auth.login')}
       </Button>
 
       {/* Links */}
@@ -250,7 +252,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
             onClick={onCreateNewAccount}
             className="text-sm text-purple-600 hover:text-purple-800 transition-colors font-medium"
           >
-            Create New Account
+            {t('auth.createNew')}
           </button>
         </p>
         <p>
@@ -258,7 +260,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
             onClick={onSwitchToRegister}
             className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
           >
-            Don&apos;t have an account? Register
+            {t('auth.noAccount')}
           </button>
         </p>
       </div>
@@ -266,7 +268,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
       {/* Quick account switch pills */}
       {recentAccounts.length > 0 && (
         <div className="mt-4 pt-4 border-t border-gray-100">
-          <p className="text-xs text-gray-400 mb-2">Quick switch</p>
+          <p className="text-xs text-gray-400 mb-2">{t('auth.quickSwitch')}</p>
           <div className="flex flex-wrap gap-2">
             {recentAccounts.slice(0, 5).map((account) => (
               <button

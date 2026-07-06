@@ -2,7 +2,7 @@
 // WeaveMD — Main Page Layout
 // ============================================
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import type * as Monaco from 'monaco-editor';
 import TopBar from '../components/Navbar/TopBar';
 import StatusBar from '../components/Common/StatusBar';
@@ -13,6 +13,8 @@ import HistoryPanel from '../components/Editor/HistoryPanel';
 import SettingsModal from '../components/Settings/SettingsModal';
 import { useEditorStore } from '../stores/editorStore';
 import { useUIStore } from '../stores/uiStore';
+import { useAuthStore } from '../stores/authStore';
+import { useHistoryStore } from '../stores/historyStore';
 
 const MainPage: React.FC = () => {
   const currentFile = useEditorStore((s) => s.currentFile);
@@ -22,6 +24,16 @@ const MainPage: React.FC = () => {
   const toggleHistoryPanel = useUIStore((s) => s.toggleHistoryPanel);
   const activeModal = useUIStore((s) => s.activeModal);
   const closeModal = useUIStore((s) => s.closeModal);
+
+  // Load history for current user on mount
+  const user = useAuthStore((s) => s.user);
+  const loadHistory = useHistoryStore((s) => s.loadHistory);
+
+  useEffect(() => {
+    if (user) {
+      loadHistory(user.id);
+    }
+  }, [user, loadHistory]);
 
   // Monaco editor reference for toolbar and outline navigation
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
