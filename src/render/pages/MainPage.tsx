@@ -21,7 +21,6 @@ const MainPage: React.FC = () => {
   const currentFile = useEditorStore((s) => s.currentFile);
   const content = useEditorStore((s) => s.content);
   const isSidebarOpen = useUIStore((s) => s.isSidebarOpen);
-  const pageWidth = useUIStore((s) => s.pageWidth);
   const isPreviewMode = useUIStore((s) => s.isPreviewMode);
   const isHistoryPanelOpen = useUIStore((s) => s.isHistoryPanelOpen);
   const toggleHistoryPanel = useUIStore((s) => s.toggleHistoryPanel);
@@ -41,13 +40,6 @@ const MainPage: React.FC = () => {
   // Monaco editor reference for toolbar and outline navigation
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const [selection, setSelection] = useState<Monaco.Selection | null>(null);
-
-  const maxWidthClass =
-    pageWidth === 'default'
-      ? 'max-w-[900px]'
-      : pageWidth === 'wide'
-        ? 'max-w-[1200px]'
-        : 'max-w-none';
 
   const handleSelectionChange = useCallback((sel: Monaco.Selection | null) => {
     setSelection(sel);
@@ -72,47 +64,43 @@ const MainPage: React.FC = () => {
 
       {/* Main content area */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Outline Sidebar */}
-        {isSidebarOpen && <OutlinePanel onNavigateToLine={handleNavigateToLine} />}
+        {/* Outline Sidebar - 1/4 width */}
+        {isSidebarOpen && (
+          <div className="w-1/4 flex-shrink-0">
+            <OutlinePanel onNavigateToLine={handleNavigateToLine} />
+          </div>
+        )}
 
-        {/* Editor area */}
+        {/* Editor area - 3/4 width */}
         <main className="flex-1 overflow-hidden relative">
-          {/* 2px gap between outline panel right border and line numbers, keeps fixed even when resizing sidebar */}
-          <div className={`w-full h-full ${maxWidthClass} mx-auto pl-0`}>
-            {currentFile ? (
-              isPreviewMode ? (
-                <div className="flex h-full">
-                  <div className="w-1/2 h-full">
-                    <EditorView
-                      onSelectionChange={handleSelectionChange}
-                      onEditorMount={setEditorRef}
-                    />
-                  </div>
-                  <div className="w-px bg-border" />
-                  <div className="w-1/2 h-full">
-                    <MarkdownPreview content={content} />
-                  </div>
+          {currentFile ? (
+            isPreviewMode ? (
+              <div className="flex h-full">
+                <div className="w-1/2 h-full">
+                  <EditorView
+                    onSelectionChange={handleSelectionChange}
+                    onEditorMount={setEditorRef}
+                  />
                 </div>
-              ) : (
-                <EditorView
-                  onSelectionChange={handleSelectionChange}
-                  onEditorMount={setEditorRef}
-                />
-              )
-            ) : (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center">
-                  <p className="text-4xl mb-4">📝</p>
-                  <p className="text-text-sub text-sm mb-1">
-                    Open or create a file to start editing
-                  </p>
-                  <p className="text-text-muted text-xs">
-                    Use File → New File or File → Open File from the menu
-                  </p>
+                <div className="w-px bg-border" />
+                <div className="w-1/2 h-full">
+                  <MarkdownPreview content={content} />
                 </div>
               </div>
-            )}
-          </div>
+            ) : (
+              <EditorView onSelectionChange={handleSelectionChange} onEditorMount={setEditorRef} />
+            )
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <p className="text-4xl mb-4">📝</p>
+                <p className="text-text-sub text-sm mb-1">Open or create a file to start editing</p>
+                <p className="text-text-muted text-xs">
+                  Use File → New File or File → Open File from the menu
+                </p>
+              </div>
+            </div>
+          )}
         </main>
       </div>
 

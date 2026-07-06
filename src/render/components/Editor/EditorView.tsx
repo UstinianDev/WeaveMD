@@ -207,7 +207,7 @@ const EditorView: React.FC<EditorViewProps> = ({ onSelectionChange, onEditorMoun
           </div>
         }
         options={{
-          fontSize: 14,
+          fontSize: 16,
           fontFamily:
             '"JetBrains Mono", Consolas, "Courier New", monospace, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto',
           lineNumbers: 'on',
