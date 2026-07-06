@@ -61,12 +61,22 @@ const Dropdown: React.FC<DropdownProps> = ({
 
       {isOpen && (
         <div
-          className={`absolute ${positionClass} top-full mt-1 bg-[#1A1A1A] border border-[#2D2D2D] rounded-[8px] shadow-dropdown z-50 py-1 overflow-hidden`}
-          style={{ width: `${width}px` }}
+          className={`absolute ${positionClass} top-full mt-1 border rounded-[8px] shadow-dropdown z-50 py-1 overflow-hidden`}
+          style={{
+            width: `${width}px`,
+            backgroundColor: 'var(--bg-secondary)',
+            borderColor: 'var(--border-color)',
+          }}
         >
           {items.map((item, index) => {
             if (item.type === 'divider') {
-              return <div key={index} className="h-px bg-[#2D2D2D] my-1" />;
+              return (
+                <div
+                  key={index}
+                  className="h-px my-1"
+                  style={{ backgroundColor: 'var(--border-color)' }}
+                />
+              );
             }
 
             return (
@@ -79,20 +89,39 @@ const Dropdown: React.FC<DropdownProps> = ({
                   }
                 }}
                 disabled={item.disabled}
-                className={`
-                  w-full flex items-center gap-3 px-3 py-2 text-sm
-                  transition-colors duration-150
-                  ${item.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
-                  ${item.danger ? 'text-red-400 hover:bg-red-400/10' : 'text-[#FFFFFF] hover:bg-[#2D2D2D]'}
-                `}
+                className="w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors duration-150"
+                style={{
+                  color: item.danger ? '#EF4444' : 'var(--text-primary)',
+                  opacity: item.disabled ? 0.4 : 1,
+                  cursor: item.disabled ? 'not-allowed' : 'pointer',
+                }}
+                onMouseEnter={(e) => {
+                  if (!item.disabled) {
+                    e.currentTarget.style.backgroundColor = item.danger
+                      ? 'rgba(239, 68, 68, 0.1)'
+                      : 'var(--bg-tertiary)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }}
               >
-                {item.icon && <span className="w-4 h-4 flex items-center justify-center text-[#999999]">{item.icon}</span>}
+                {item.icon && (
+                  <span
+                    className="w-4 h-4 flex items-center justify-center"
+                    style={{ color: 'var(--text-sub)' }}
+                  >
+                    {item.icon}
+                  </span>
+                )}
                 <span className="flex-1 text-left">{item.label}</span>
                 {item.shortcut && (
-                  <span className="text-xs text-[#666666]">{item.shortcut}</span>
+                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    {item.shortcut}
+                  </span>
                 )}
                 {item.children && (
-                  <span className="text-[#666666]">
+                  <span style={{ color: 'var(--text-muted)' }}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <polyline points="9 18 15 12 9 6" />
                     </svg>

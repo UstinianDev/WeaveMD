@@ -31,7 +31,7 @@ interface UIStore {
 }
 
 export const useUIStore = create<UIStore>((set, get) => ({
-  theme: 'dark',
+  theme: 'light-header',
   language: 'zh-CN',
   sidebarWidth: 240,
   isSidebarOpen: true,
@@ -84,7 +84,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
       const stored = localStorage.getItem('weavemd_ui');
       if (stored) {
         const { theme, language, sidebarWidth } = JSON.parse(stored);
-        set({ theme: theme || 'dark', language: language || 'zh-CN', sidebarWidth: sidebarWidth || 240 });
+        set({ theme: theme || 'light-header', language: language || 'zh-CN', sidebarWidth: sidebarWidth || 240 });
       }
     } catch {
       // Use defaults

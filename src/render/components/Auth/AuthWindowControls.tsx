@@ -1,10 +1,11 @@
 // ============================================
-// WeaveMD — Window Control Buttons
+// WeaveMD — Auth Page Window Controls
+// Frameless window controls for auth page
 // ============================================
 
 import React, { useState, useEffect } from 'react';
 
-const WindowControls: React.FC = () => {
+const AuthWindowControls: React.FC = () => {
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
@@ -21,17 +22,14 @@ const WindowControls: React.FC = () => {
 
   const handleClose = () => window.weaveMD.window.close();
 
-  const btnClass =
-    'w-11 h-full flex items-center justify-center transition-colors';
-  const btnStyle = { color: 'var(--text-sub)' };
-
   return (
-    <div className="flex items-center h-full no-drag">
+    <div
+      className="flex items-center h-8 no-drag"
+    >
       {/* Minimize */}
       <button
         onClick={handleMinimize}
-        className={btnClass}
-        style={btnStyle}
+        className="w-10 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
         title="Minimize"
       >
         <svg width="12" height="12" viewBox="0 0 12 12">
@@ -42,14 +40,13 @@ const WindowControls: React.FC = () => {
       {/* Maximize / Restore */}
       <button
         onClick={handleMaximize}
-        className={btnClass}
-        style={btnStyle}
+        className="w-10 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
         title={isMaximized ? 'Restore' : 'Maximize'}
       >
         {isMaximized ? (
           <svg width="12" height="12" viewBox="0 0 12 12">
             <rect x="3" y="0.5" width="8" height="8" rx="0.5" stroke="currentColor" fill="none" />
-            <rect x="0.5" y="3" width="8" height="8" rx="0.5" stroke="currentColor" fill="var(--navbar-bg)" />
+            <rect x="0.5" y="3" width="8" height="8" rx="0.5" stroke="currentColor" fill="white" />
           </svg>
         ) : (
           <svg width="12" height="12" viewBox="0 0 12 12">
@@ -61,8 +58,7 @@ const WindowControls: React.FC = () => {
       {/* Close */}
       <button
         onClick={handleClose}
-        className={btnClass}
-        style={btnStyle}
+        className="w-10 h-8 flex items-center justify-center text-gray-400 hover:text-white hover:bg-red-500 transition-colors"
         title="Close"
       >
         <svg width="12" height="12" viewBox="0 0 12 12">
@@ -74,4 +70,4 @@ const WindowControls: React.FC = () => {
   );
 };
 
-export default WindowControls;
+export default AuthWindowControls;

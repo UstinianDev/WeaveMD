@@ -21,9 +21,9 @@ const LANGUAGES: { value: LanguageType; label: string }[] = [
 ];
 
 const THEMES: { value: ThemeType; label: string; preview: string }[] = [
+  { value: 'light-header', label: 'Light with Light Header', preview: 'bg-white border' },
+  { value: 'light', label: 'Light', preview: 'bg-white border' },
   { value: 'dark', label: 'Dark', preview: 'bg-[#0F0F0F]' },
-  { value: 'light', label: 'Light', preview: 'bg-white' },
-  { value: 'light-header', label: 'Light Header', preview: 'bg-gradient-to-b from-white to-[#0F0F0F]' },
   { value: 'high-contrast', label: 'High Contrast', preview: 'bg-black' },
   { value: 'custom', label: 'Custom', preview: 'bg-gradient-to-r from-[#7C3AED] to-[#6366F1]' },
 ];
@@ -42,10 +42,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const setLanguage = useUIStore((s) => s.setLanguage);
   const closeModal = useUIStore((s) => s.closeModal);
   const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
 
-  const [activeTab, setActiveTab] = useState<'system' | 'account'>('system');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('system');
   const [selectedTheme, setSelectedTheme] = useState<ThemeType>(theme);
   const [selectedLanguage, setSelectedLanguage] = useState<LanguageType>(language);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -59,16 +61,33 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     setLanguage(selectedLanguage);
     // Persist to backend
     if (user) {
-      window.weaveMD.settings.update(user.id, {
-        theme: selectedTheme,
-        language: selectedLanguage,
-      }).catch(() => {});
+      window.weaveMD.settings
+        .update(user.id, {
+          theme: selectedTheme,
+          language: selectedLanguage,
+        })
+        .catch(() => {});
     }
     closeModal();
   };
 
   const handleCancel = () => {
     closeModal();
+  };
+
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      // Clear local state
+      logout();
+      closeModal();
+    } catch {
+      // Still logout even if IPC fails
+      logout();
+      closeModal();
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   return (
@@ -79,21 +98,25 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
       width={560}
       footer={
         <>
-          <Button variant="secondary" onClick={handleCancel}>Cancel</Button>
-          <Button variant="primary" onClick={handleSave}>Save</Button>
+          <Button variant="secondary" onClick={handleCancel}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={handleSave}>
+            Save
+          </Button>
         </>
       }
     >
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-bg-primary rounded-input p-0.5">
+      <div className="flex gap-1 mb-6 bg-[var(--bg-primary)] rounded-input p-0.5">
         {TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             className={`flex-1 py-1.5 text-sm rounded-[6px] transition-colors ${
               activeTab === tab.key
-                ? 'bg-accent text-white'
-                : 'text-text-sub hover:text-white'
+                ? 'bg-[var(--accent)] text-white'
+                : 'text-[var(--text-sub)] hover:text-[var(--text-primary)]'
             }`}
           >
             {tab.label}
@@ -105,12 +128,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
         <div className="space-y-6">
           {/* Language */}
           <div>
-            <label className="text-sm text-white font-medium mb-2 block">Language</label>
+            <label className="text-sm text-[var(--text-primary)] font-medium mb-2 block">
+              Language
+            </label>
             <div className="space-y-1">
               {LANGUAGES.map((lang) => (
                 <label
                   key={lang.value}
-                  className="flex items-center gap-3 px-3 py-2 rounded-input hover:bg-bg-tertiary cursor-pointer transition-colors"
+                  className="flex items-center gap-3 px-3 py-2 rounded-input hover:bg-[var(--bg-tertiary)] cursor-pointer transition-colors"
                 >
                   <input
                     type="radio"
@@ -120,7 +145,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                     onChange={() => setSelectedLanguage(lang.value)}
                     className="accent-[#7C3AED]"
                   />
-                  <span className="text-sm text-text-sub">{lang.label}</span>
+                  <span className="text-sm text-[var(--text-sub)]">{lang.label}</span>
                 </label>
               ))}
             </div>
@@ -128,7 +153,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
 
           {/* Theme */}
           <div>
-            <label className="text-sm text-white font-medium mb-2 block">Theme</label>
+            <label className="text-sm text-[var(--text-primary)] font-medium mb-2 block">
+              Theme
+            </label>
             <div className="grid grid-cols-2 gap-2">
               {THEMES.map((t) => (
                 <button
@@ -136,12 +163,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                   onClick={() => setSelectedTheme(t.value)}
                   className={`flex items-center gap-3 p-3 rounded-input border transition-colors text-left ${
                     selectedTheme === t.value
-                      ? 'border-accent bg-accent/10'
-                      : 'border-border hover:border-accent-secondary'
+                      ? 'border-[var(--accent)] bg-[var(--accent)]/10'
+                      : 'border-[var(--border-color)] hover:border-[var(--accent-secondary)]'
                   }`}
                 >
-                  <div className={`w-8 h-8 rounded border border-border ${t.preview}`} />
-                  <span className="text-sm text-text-sub">{t.label}</span>
+                  <div className={`w-8 h-8 rounded border border-[var(--border-color)] ${t.preview}`} />
+                  <span className="text-sm text-[var(--text-sub)]">{t.label}</span>
                 </button>
               ))}
             </div>
@@ -151,9 +178,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
 
       {activeTab === 'account' && (
         <div className="space-y-4">
-          <div className="p-4 bg-bg-primary rounded-input border border-border">
-            <p className="text-sm text-text-sub">Current account: <span className="text-white font-semibold">@{user?.username}</span></p>
-            <p className="text-xs text-text-muted mt-1">Manage your account data</p>
+          <div className="p-4 bg-[var(--bg-primary)] rounded-input border border-[var(--border-color)]">
+            <p className="text-sm text-[var(--text-sub)]">
+              Current account:{' '}
+              <span className="text-[var(--text-primary)] font-semibold">
+                @{user?.username}
+              </span>
+            </p>
+            <p className="text-xs text-[var(--text-muted)] mt-1">Manage your account data</p>
           </div>
           <div className="space-y-2">
             <Button variant="secondary" fullWidth onClick={() => {}}>
@@ -161,6 +193,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
             </Button>
             <Button variant="secondary" fullWidth onClick={() => {}}>
               Export Account Data
+            </Button>
+            {/* Logout Button */}
+            <Button
+              variant="danger"
+              fullWidth
+              onClick={handleLogout}
+              loading={isLoggingOut}
+            >
+              Log Out
             </Button>
             <Button variant="danger" fullWidth onClick={() => {}}>
               Delete Account

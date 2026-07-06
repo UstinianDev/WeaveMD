@@ -1,5 +1,6 @@
 // ============================================
 // WeaveMD — Signup Page Component
+// Right-side form with mascot interaction support
 // ============================================
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -7,12 +8,14 @@ import Input from '../Common/Input';
 import Button from '../Common/Button';
 import { validateUsername, validatePassword, getPasswordStrength, generateCaptcha, validateCaptcha } from '../../utils/validators';
 import type { PasswordStrength } from '../../utils/validators';
+import type { MascotState } from './InteractiveMascot';
 
 interface SignupPageProps {
   onSwitchToLogin: (prefillUsername?: string) => void;
+  onMascotStateChange: (state: MascotState) => void;
 }
 
-const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin }) => {
+const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateChange }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [captchaAnswer, setCaptchaAnswer] = useState('');
@@ -30,13 +33,28 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin }) => {
 
   const [captcha, setCaptcha] = useState(generateCaptcha);
   const [registrationSuccess, setRegistrationSuccess] = useState(false);
+  const [focusedField, setFocusedField] = useState<string | null>(null);
 
-  // Regenerate captcha
   const regenerateCaptcha = useCallback(() => {
     setCaptcha(generateCaptcha());
     setCaptchaAnswer('');
     setCaptchaError('');
   }, []);
+
+  // Update mascot state
+  useEffect(() => {
+    if (registrationSuccess) {
+      onMascotStateChange('success');
+    } else if (generalError) {
+      onMascotStateChange('error');
+    } else if (focusedField === 'username') {
+      onMascotStateChange('focus-username');
+    } else if (focusedField === 'password') {
+      onMascotStateChange('focus-password');
+    } else {
+      onMascotStateChange('idle');
+    }
+  }, [focusedField, generalError, registrationSuccess, onMascotStateChange]);
 
   // Check username availability with debounce
   useEffect(() => {
@@ -68,7 +86,6 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin }) => {
           setUsernameAvailable(true);
         }
       } catch {
-        // Can't reach server — allow to proceed
         setUsernameAvailable(null);
       } finally {
         setUsernameChecking(false);
@@ -93,7 +110,6 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin }) => {
   const handleSubmit = async () => {
     setGeneralError('');
 
-    // Validate all fields
     const usernameValidation = validateUsername(username);
     if (!usernameValidation.valid) {
       setUsernameError(usernameValidation.message);
@@ -113,6 +129,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin }) => {
     }
 
     setLoading(true);
+    onMascotStateChange('hover-submit');
     try {
       const result = (await window.weaveMD.auth.register(username.trim(), password)) as {
         success: boolean;
@@ -121,168 +138,179 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin }) => {
 
       if (result.success) {
         setRegistrationSuccess(true);
+        onMascotStateChange('success');
         setTimeout(() => {
           onSwitchToLogin(username.trim());
         }, 2000);
       } else {
         setGeneralError(result.message || 'Registration failed');
+        onMascotStateChange('error');
       }
     } catch {
       setGeneralError('Cannot connect to registration service');
+      onMascotStateChange('error');
     } finally {
       setLoading(false);
     }
   };
 
   const strengthConfig: Record<PasswordStrength, { color: string; label: string; width: string }> = {
-    weak: { color: 'strength-weak', label: 'Weak', width: 'w-1/3' },
-    medium: { color: 'strength-medium', label: 'Medium', width: 'w-2/3' },
-    strong: { color: 'strength-strong', label: 'Strong', width: 'w-full' },
+    weak: { color: 'bg-red-500', label: 'Weak', width: 'w-1/3' },
+    medium: { color: 'bg-yellow-500', label: 'Medium', width: 'w-2/3' },
+    strong: { color: 'bg-green-500', label: 'Strong', width: 'w-full' },
   };
 
   if (registrationSuccess) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-bg-primary p-4">
-        <div className="w-full max-w-[420px] bg-bg-secondary rounded-card p-8 shadow-modal text-center">
-          <span className="text-5xl">✅</span>
-          <h2 className="text-xl font-bold text-white mt-4">Registration successful!</h2>
-          <p className="text-sm text-text-sub mt-2">Redirecting to login...</p>
-        </div>
+      <div className="w-full max-w-[380px] text-center">
+        <span className="text-5xl">✅</span>
+        <h2 className="text-xl font-bold text-gray-900 mt-4">Registration successful!</h2>
+        <p className="text-sm text-gray-500 mt-2">Redirecting to login...</p>
       </div>
     );
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-bg-primary p-4">
-      <div className="w-full max-w-[420px] bg-bg-secondary rounded-card p-8 shadow-modal">
-        {/* Header */}
-        <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-white">Create Account</h1>
-          <p className="text-sm text-text-sub mt-1">Start your note-taking journey</p>
+    <div className="w-full max-w-[380px]">
+      {/* Header */}
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Create Account</h1>
+        <p className="text-sm text-gray-500 mt-1">Start your note-taking journey</p>
+      </div>
+
+      {/* General error */}
+      {generalError && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+          {generalError}
         </div>
+      )}
 
-        {/* General error */}
-        {generalError && (
-          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-input text-sm text-red-400">
-            {generalError}
-          </div>
+      {/* Username */}
+      <div className="mb-4">
+        <Input
+          label="Username"
+          value={username}
+          onChange={(v) => {
+            setUsername(v);
+            setUsernameAvailable(null);
+          }}
+          placeholder="5-15 characters, a-z, 0-9, _"
+          error={usernameError}
+          disabled={loading}
+          onFocus={() => setFocusedField('username')}
+          onBlur={() => setFocusedField(null)}
+        />
+        {usernameAvailable === true && (
+          <p className="text-xs text-green-500 mt-1">✓ Username available</p>
         )}
+        {usernameAvailable === false && (
+          <p className="text-xs text-red-500 mt-1">✗ This username is taken</p>
+        )}
+        {usernameChecking && (
+          <p className="text-xs text-gray-400 mt-1">Checking availability...</p>
+        )}
+      </div>
 
-        {/* Username */}
+      {/* Password */}
+      <div className="mb-2">
+        <Input
+          label="Password"
+          type="password"
+          value={password}
+          onChange={setPassword}
+          placeholder="At least 8 characters"
+          showPasswordToggle
+          error={passwordError}
+          disabled={loading}
+          onFocus={() => setFocusedField('password')}
+          onBlur={() => setFocusedField(null)}
+        />
+      </div>
+
+      {/* Password strength indicator */}
+      {password && (
         <div className="mb-4">
-          <Input
-            label="Username"
-            value={username}
-            onChange={(v) => {
-              setUsername(v);
-              setUsernameAvailable(null);
-            }}
-            placeholder="5-15 characters, a-z, 0-9, _"
-            error={usernameError}
-            disabled={loading}
-            hint={
-              usernameAvailable === true
-                ? '✓ Username available'
-                : undefined
-            }
-          />
-          {usernameAvailable === true && (
-            <p className="text-xs text-green-400 mt-1">✓ Username available</p>
-          )}
-          {usernameAvailable === false && (
-            <p className="text-xs text-red-400 mt-1">✗ This username is taken</p>
-          )}
-          {usernameChecking && (
-            <p className="text-xs text-text-muted mt-1">Checking availability...</p>
-          )}
-        </div>
-
-        {/* Password */}
-        <div className="mb-2">
-          <Input
-            label="Password"
-            type="password"
-            value={password}
-            onChange={setPassword}
-            placeholder="At least 8 characters"
-            showPasswordToggle
-            error={passwordError}
-            disabled={loading}
-          />
-        </div>
-
-        {/* Password strength indicator */}
-        {password && (
-          <div className="mb-4">
-            <div className="flex gap-1 h-1 mb-1">
-              <div className={`flex-1 rounded-full bg-bg-tertiary ${strengthConfig[passwordStrength].width} ${strengthConfig[passwordStrength].color}`} />
-            </div>
-            <p className="text-xs text-text-muted">
-              Strength: <span className={passwordStrength === 'weak' ? 'text-red-400' : passwordStrength === 'medium' ? 'text-yellow-400' : 'text-green-400'}>{strengthConfig[passwordStrength].label}</span>
-            </p>
+          <div className="flex gap-1 h-1 mb-1">
+            <div className={`flex-1 rounded-full bg-gray-200 ${strengthConfig[passwordStrength].width} ${strengthConfig[passwordStrength].color}`} />
           </div>
-        )}
-
-        {/* Captcha */}
-        <div className="mb-4 p-3 bg-bg-primary rounded-input border border-border">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-xs text-text-sub font-medium">Security check</p>
-            <button
-              onClick={regenerateCaptcha}
-              className="text-text-muted hover:text-white transition-colors"
-              title="Regenerate"
+          <p className="text-xs text-gray-400">
+            Strength:{' '}
+            <span
+              className={
+                passwordStrength === 'weak'
+                  ? 'text-red-500'
+                  : passwordStrength === 'medium'
+                    ? 'text-yellow-500'
+                    : 'text-green-500'
+              }
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="23 4 23 10 17 10" />
-                <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
-              </svg>
-            </button>
-          </div>
-          <p className="text-lg font-bold text-white mb-2 font-code">{captcha.question}</p>
-          <Input
-            value={captchaAnswer}
-            onChange={(v) => {
-              setCaptchaAnswer(v);
-              setCaptchaError('');
-            }}
-            placeholder="Your answer"
-            error={captchaError}
-            disabled={loading}
-          />
+              {strengthConfig[passwordStrength].label}
+            </span>
+          </p>
         </div>
+      )}
 
-        {/* Terms checkbox */}
-        <label className="flex items-center gap-2 mb-6 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={agreeTerms}
-            onChange={(e) => setAgreeTerms(e.target.checked)}
-            className="w-4 h-4 rounded border-border bg-transparent accent-[#7C3AED] cursor-pointer"
-          />
-          <span className="text-xs text-text-sub">I have read the Terms</span>
-        </label>
-
-        {/* Register button */}
-        <Button
-          variant="primary"
-          size="lg"
-          fullWidth
-          loading={loading}
-          disabled={!agreeTerms}
-          onClick={handleSubmit}
-        >
-          Register
-        </Button>
-
-        {/* Sign in link */}
-        <div className="mt-6 text-center">
+      {/* Captcha */}
+      <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs text-gray-600 font-medium">Security check</p>
           <button
-            onClick={() => onSwitchToLogin()}
-            className="text-sm text-text-muted hover:text-text-sub transition-colors"
+            onClick={regenerateCaptcha}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+            title="Regenerate"
           >
-            Already have an account? Sign In
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+            </svg>
           </button>
         </div>
+        <p className="text-lg font-bold text-gray-900 mb-2 font-mono">{captcha.question}</p>
+        <Input
+          value={captchaAnswer}
+          onChange={(v) => {
+            setCaptchaAnswer(v);
+            setCaptchaError('');
+          }}
+          placeholder="Your answer"
+          error={captchaError}
+          disabled={loading}
+        />
+      </div>
+
+      {/* Terms checkbox */}
+      <label className="flex items-center gap-2 mb-6 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={agreeTerms}
+          onChange={(e) => setAgreeTerms(e.target.checked)}
+          className="w-4 h-4 rounded border-gray-300 bg-transparent accent-purple-600 cursor-pointer"
+        />
+        <span className="text-xs text-gray-500">I have read the Terms</span>
+      </label>
+
+      {/* Register button */}
+      <Button
+        variant="primary"
+        size="lg"
+        fullWidth
+        loading={loading}
+        disabled={!agreeTerms}
+        onClick={handleSubmit}
+        onMouseEnter={() => !loading && onMascotStateChange('hover-submit')}
+        onMouseLeave={() => !loading && onMascotStateChange('idle')}
+      >
+        Register
+      </Button>
+
+      {/* Sign in link */}
+      <div className="mt-6 text-center">
+        <button
+          onClick={() => onSwitchToLogin()}
+          className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
+        >
+          Already have an account? Sign In
+        </button>
       </div>
     </div>
   );

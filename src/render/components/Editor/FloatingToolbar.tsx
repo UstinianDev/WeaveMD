@@ -208,7 +208,10 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({ editor, selection }) 
       }}
     >
       {/* Main toolbar */}
-      <div className="flex items-center gap-0.5 px-1 py-1 bg-[#1A1A1A]/95 backdrop-blur-sm border border-[#2D2D2D] rounded-[8px] shadow-toolbar">
+      <div
+        className="flex items-center gap-0.5 px-1 py-1 backdrop-blur-sm border rounded-[8px] shadow-toolbar"
+        style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }}
+      >
         {/* 1. Structure menu */}
         <div className="relative">
           <ToolbarBtn
@@ -223,10 +226,13 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({ editor, selection }) 
           </ToolbarBtn>
 
           {showStructureMenu && (
-            <div className="absolute top-full left-0 mt-1 bg-[#1A1A1A] border border-[#2D2D2D] rounded-[8px] shadow-dropdown py-1 w-40 z-50">
+            <div
+              className="absolute top-full left-0 mt-1 border rounded-[8px] shadow-dropdown py-1 w-40 z-50"
+              style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }}
+            >
               {STRUCTURE_ITEMS.map((item, i) =>
                 'type' in item && item.type === 'divider' ? (
-                  <div key={i} className="h-px bg-[#2D2D2D] my-1" />
+                  <div key={i} className="h-px my-1" style={{ backgroundColor: 'var(--border-color)' }} />
                 ) : (
                   <button
                     key={i}
@@ -242,7 +248,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({ editor, selection }) 
         </div>
 
         {/* Separator */}
-        <div className="w-px h-5 bg-[#2D2D2D] mx-0.5" />
+        <div className="w-px h-5 mx-0.5" style={{ backgroundColor: 'var(--border-color)' }} />
 
         {/* 2-6. Format buttons */}
         <ToolbarBtn onClick={() => executeAction('bold')} title="Bold">
@@ -259,7 +265,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({ editor, selection }) 
         </ToolbarBtn>
 
         {/* Separator */}
-        <div className="w-px h-5 bg-[#2D2D2D] mx-0.5" />
+        <div className="w-px h-5 mx-0.5" style={{ backgroundColor: 'var(--border-color)' }} />
 
         {/* 7-10. More actions */}
         <ToolbarBtn onClick={() => setShowLinkInput(true)} title="Hyperlink">
@@ -283,7 +289,10 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({ editor, selection }) 
 
       {/* Link input popup */}
       {showLinkInput && (
-        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-[#1A1A1A] border border-[#2D2D2D] rounded-[8px] shadow-dropdown p-3 flex items-center gap-2 z-50 w-64">
+        <div
+          className="absolute top-full left-1/2 -translate-x-1/2 mt-2 border rounded-[8px] shadow-dropdown p-3 flex items-center gap-2 z-50 w-64"
+          style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-color)' }}
+        >
           <input
             type="text"
             value={linkUrl}
@@ -294,7 +303,12 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({ editor, selection }) 
               if (e.key === 'Enter') handleLinkSubmit();
               if (e.key === 'Escape') setShowLinkInput(false);
             }}
-            className="flex-1 bg-[#0F0F0F] border border-[#2D2D2D] rounded-input px-2 py-1 text-xs text-white outline-none focus:border-accent"
+            className="flex-1 border rounded-input px-2 py-1 text-xs outline-none focus:border-[var(--accent)]"
+            style={{
+              backgroundColor: 'var(--input-bg)',
+              borderColor: 'var(--border-color)',
+              color: 'var(--text-primary)',
+            }}
           />
           <button
             onClick={handleLinkSubmit}
