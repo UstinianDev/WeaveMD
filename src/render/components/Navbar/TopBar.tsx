@@ -3,40 +3,33 @@
 // ============================================
 
 import React, { useState } from 'react';
-import WindowControls from './WindowControls';
+import type { IFile } from '../../../shared/types';
+import { useAuthStore } from '../../stores/authStore';
+import { useEditorStore } from '../../stores/editorStore';
+import { useHistoryStore } from '../../stores/historyStore';
+import { useUIStore } from '../../stores/uiStore';
 import FileMenu from './FileMenu';
 import HelpMenu from './HelpMenu';
 import HistoryMenu from './HistoryMenu';
 import MoreMenu from './MoreMenu';
-import { useAuthStore } from '../../stores/authStore';
-import { useEditorStore } from '../../stores/editorStore';
-import { useUIStore } from '../../stores/uiStore';
-import { useHistoryStore } from '../../stores/historyStore';
-import type { IFile, PageWidth } from '../../../shared/types';
+import WindowControls from './WindowControls';
 
 const TopBar: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const user = useAuthStore((s) => s.user);
   const currentFile = useEditorStore((s) => s.currentFile);
-  const saveFile = useEditorStore((s) => s.saveFile);
   const closeFile = useEditorStore((s) => s.closeFile);
   const undo = useEditorStore((s) => s.undo);
   const redo = useEditorStore((s) => s.redo);
   const undoStack = useEditorStore((s) => s.undoStack);
   const redoStack = useEditorStore((s) => s.redoStack);
 
-  const pageWidth = useUIStore((s) => s.pageWidth);
-  const setPageWidth = useUIStore((s) => s.setPageWidth);
   const openModal = useUIStore((s) => s.openModal);
   const toggleHistoryPanel = useUIStore((s) => s.toggleHistoryPanel);
 
   const files = useHistoryStore((s) => s.files);
   const loadHistory = useHistoryStore((s) => s.loadHistory);
-
-  const handleSave = () => {
-    if (currentFile) saveFile();
-  };
 
   const handleNewFile = async () => {
     if (!user) return;
@@ -122,8 +115,6 @@ const TopBar: React.FC = () => {
     useEditorStore.getState().closeFile();
   };
 
-  const handleSetPageWidth = (width: PageWidth) => setPageWidth(width);
-
   const handleFindReplace = () => {
     // Will trigger Monaco Editor find widget in Phase 3
   };
@@ -138,14 +129,13 @@ const TopBar: React.FC = () => {
     >
       {/* Left section */}
       <div className="flex items-center gap-1 px-3 h-full no-drag">
-        {/* App icon (click to save) */}
-        <button
-          onClick={handleSave}
-          className="text-lg hover:opacity-80 transition-opacity mr-1"
-          title="Save (Ctrl+S)"
+        {/* App icon (brand) */}
+        <span
+          className="text-lg mr-1 select-none"
+          title="WeaveMD"
         >
           📔
-        </button>
+        </span>
 
         {/* Account badge */}
         {user && (
@@ -171,7 +161,6 @@ const TopBar: React.FC = () => {
           onNewFile={handleNewFile}
           onOpenFile={handleOpenFile}
           onDeleteFile={handleDeleteFile}
-          onSaveFile={handleSave}
           onCloseFile={closeFile}
           hasOpenFile={!!currentFile}
         />
@@ -260,10 +249,8 @@ const TopBar: React.FC = () => {
           </button>
         </div>
 
-        {/* More menu */}
+          {/* More menu */}
         <MoreMenu
-          pageWidth={pageWidth}
-          onSetPageWidth={handleSetPageWidth}
           onFindReplace={handleFindReplace}
           onEditHistory={toggleHistoryPanel}
         />

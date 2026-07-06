@@ -2,19 +2,19 @@
 // WeaveMD — Main Page Layout
 // ============================================
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
 import type * as Monaco from 'monaco-editor';
-import TopBar from '../components/Navbar/TopBar';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import StatusBar from '../components/Common/StatusBar';
 import EditorView from '../components/Editor/EditorView';
-import OutlinePanel from '../components/Editor/OutlinePanel';
 import FloatingToolbar from '../components/Editor/FloatingToolbar';
 import HistoryPanel from '../components/Editor/HistoryPanel';
+import OutlinePanel from '../components/Editor/OutlinePanel';
+import TopBar from '../components/Navbar/TopBar';
 import SettingsModal from '../components/Settings/SettingsModal';
-import { useEditorStore } from '../stores/editorStore';
-import { useUIStore } from '../stores/uiStore';
 import { useAuthStore } from '../stores/authStore';
+import { useEditorStore } from '../stores/editorStore';
 import { useHistoryStore } from '../stores/historyStore';
+import { useUIStore } from '../stores/uiStore';
 
 const MainPage: React.FC = () => {
   const currentFile = useEditorStore((s) => s.currentFile);
@@ -76,7 +76,8 @@ const MainPage: React.FC = () => {
 
         {/* Editor area */}
         <main className="flex-1 overflow-hidden relative">
-          <div className={`w-full h-full ${maxWidthClass} mx-auto`}>
+          {/* Small left padding keeps line numbers at a fixed gap from outline panel's right border, even when resizing */}
+          <div className={`w-full h-full ${maxWidthClass} mx-auto pl-1`}>
             {currentFile ? (
               <EditorView
                 onSelectionChange={handleSelectionChange}

@@ -3,14 +3,13 @@
 // ============================================
 
 import React from 'react';
-import Dropdown from '../Common/Dropdown';
 import type { DropdownItem as DropdownItemType } from '../Common/Dropdown';
+import Dropdown from '../Common/Dropdown';
 
 interface FileMenuProps {
   onNewFile: () => void;
   onOpenFile: () => void;
   onDeleteFile: () => void;
-  onSaveFile: () => void;
   onCloseFile: () => void;
   hasOpenFile: boolean;
 }
@@ -19,7 +18,6 @@ const FileMenu: React.FC<FileMenuProps> = ({
   onNewFile,
   onOpenFile,
   onDeleteFile,
-  onSaveFile,
   onCloseFile,
   hasOpenFile,
 }) => {
@@ -35,12 +33,6 @@ const FileMenu: React.FC<FileMenuProps> = ({
       shortcut: 'Ctrl+O',
     },
     { type: 'divider' },
-    {
-      label: 'Save',
-      onClick: onSaveFile,
-      shortcut: 'Ctrl+S',
-      disabled: !hasOpenFile,
-    },
     {
       label: 'Delete File',
       onClick: onDeleteFile,

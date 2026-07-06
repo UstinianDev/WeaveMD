@@ -2,9 +2,9 @@
 // WeaveMD — Floating Toolbar (appears on text selection)
 // ============================================
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import type { editor as monacoEditor } from 'monaco-editor';
 import type * as Monaco from 'monaco-editor';
+import type { editor as monacoEditor } from 'monaco-editor';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 interface FloatingToolbarProps {
   editor: monacoEditor.IStandaloneCodeEditor | null;
@@ -83,8 +83,10 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({ editor, selection }) 
         const editorDom = editor.getDomNode();
         if (editorDom) {
           const midX = (startCoords.left + endCoords.left) / 2;
+          // Position directly above selection with only half grid space (2px) gap
+          // Toolbar height is ~40px (8 buttons * 32px + padding)
           setPosition({
-            top: startCoords.top - 48, // Above selection + 8px offset from toolbar height
+            top: startCoords.top - 42,
             left: midX,
           });
         }

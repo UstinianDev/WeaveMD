@@ -1,13 +1,13 @@
 "use strict";
 const electron = require("electron");
 const path = require("path");
-const fs = require("fs");
 const require$$1 = require("crypto");
+const fs = require("fs");
 const require$$0 = require("buffer");
 const require$$3 = require("stream");
 const require$$5 = require("util");
-const bcrypt = require("bcryptjs");
 const Database = require("better-sqlite3");
+const bcrypt = require("bcryptjs");
 const isDev = process.env.NODE_ENV === "development" || !electron.app.isPackaged;
 let mainWindow = null;
 function createMainWindow() {
@@ -3518,8 +3518,7 @@ const IPC_CHANNELS = {
   DIALOG_SAVE_FILE: "dialog:save-file",
   // Account
   ACCOUNT_INFO: "account:info",
-  ACCOUNT_DELETE: "account:delete",
-  ACCOUNT_EXPORT: "account:export"
+  ACCOUNT_DELETE: "account:delete"
 };
 let db = null;
 function getDbPath() {
@@ -3592,88 +3591,6 @@ function closeDatabase() {
     db.close();
     db = null;
   }
-}
-const BCRYPT_ROUNDS = 12;
-function createUser(username, password) {
-  const db2 = getDatabase();
-  const normalized = username.toLowerCase();
-  const existing = db2.prepare("SELECT id FROM users WHERE username = ?").get(normalized);
-  if (existing) {
-    return { success: false, message: "Username already taken" };
-  }
-  const passwordHash = bcrypt.hashSync(password, BCRYPT_ROUNDS);
-  const id = require$$1.randomUUID();
-  try {
-    db2.prepare(
-      "INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)"
-    ).run(id, normalized, passwordHash);
-    const settingsId = require$$1.randomUUID();
-    db2.prepare(
-      "INSERT INTO settings (id, user_id, theme, language) VALUES (?, ?, ?, ?)"
-    ).run(settingsId, id, "dark", "zh-CN");
-    return { success: true, message: "Account created successfully", userId: id };
-  } catch (error) {
-    console.error("Failed to create user:", error);
-    return { success: false, message: "Failed to create account" };
-  }
-}
-function findByUsername(username) {
-  const db2 = getDatabase();
-  return db2.prepare("SELECT * FROM users WHERE username = ?").get(username.toLowerCase());
-}
-function findById(userId) {
-  const db2 = getDatabase();
-  return db2.prepare("SELECT * FROM users WHERE id = ?").get(userId);
-}
-function validateCredentials(username, password) {
-  const user = findByUsername(username);
-  if (!user) {
-    return { success: false, message: "Invalid username or password" };
-  }
-  const valid2 = bcrypt.compareSync(password, user.password_hash);
-  if (!valid2) {
-    return { success: false, message: "Invalid username or password" };
-  }
-  const db2 = getDatabase();
-  db2.prepare("UPDATE users SET last_login = datetime(?, ?) WHERE id = ?").run(
-    "now",
-    "localtime",
-    user.id
-  );
-  const { password_hash, ...safeUser } = user;
-  return { success: true, message: "Login successful", user: safeUser };
-}
-function isUsernameTaken(username) {
-  const db2 = getDatabase();
-  const row = db2.prepare("SELECT id FROM users WHERE username = ?").get(username.toLowerCase());
-  return !!row;
-}
-function deleteUser(userId) {
-  const db2 = getDatabase();
-  try {
-    db2.prepare("DELETE FROM settings WHERE user_id = ?").run(userId);
-    db2.prepare(
-      "DELETE FROM history WHERE file_id IN (SELECT id FROM files WHERE user_id = ?)"
-    ).run(userId);
-    db2.prepare("DELETE FROM files WHERE user_id = ?").run(userId);
-    db2.prepare("DELETE FROM users WHERE id = ?").run(userId);
-    return { success: true, message: "Account deleted" };
-  } catch (error) {
-    console.error("Failed to delete user:", error);
-    return { success: false, message: "Failed to delete account" };
-  }
-}
-function getAccountInfo(userId) {
-  const db2 = getDatabase();
-  const user = db2.prepare("SELECT username, created_at, last_login FROM users WHERE id = ?").get(userId);
-  if (!user) return null;
-  const fileCountRow = db2.prepare("SELECT COUNT(*) as count FROM files WHERE user_id = ? AND deleted_at IS NULL").get(userId);
-  return {
-    username: user.username,
-    createdAt: user.created_at,
-    lastLogin: user.last_login,
-    fileCount: fileCountRow.count
-  };
 }
 function createFile(userId, name, content = "") {
   const db2 = getDatabase();
@@ -3786,6 +3703,88 @@ function updateSettings(userId, updates) {
     ).run(id, userId, theme, language, customColors);
   }
   return getSettings(userId);
+}
+const BCRYPT_ROUNDS = 12;
+function createUser(username, password) {
+  const db2 = getDatabase();
+  const normalized = username.toLowerCase();
+  const existing = db2.prepare("SELECT id FROM users WHERE username = ?").get(normalized);
+  if (existing) {
+    return { success: false, message: "Username already taken" };
+  }
+  const passwordHash = bcrypt.hashSync(password, BCRYPT_ROUNDS);
+  const id = require$$1.randomUUID();
+  try {
+    db2.prepare(
+      "INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)"
+    ).run(id, normalized, passwordHash);
+    const settingsId = require$$1.randomUUID();
+    db2.prepare(
+      "INSERT INTO settings (id, user_id, theme, language) VALUES (?, ?, ?, ?)"
+    ).run(settingsId, id, "dark", "zh-CN");
+    return { success: true, message: "Account created successfully", userId: id };
+  } catch (error) {
+    console.error("Failed to create user:", error);
+    return { success: false, message: "Failed to create account" };
+  }
+}
+function findByUsername(username) {
+  const db2 = getDatabase();
+  return db2.prepare("SELECT * FROM users WHERE username = ?").get(username.toLowerCase());
+}
+function findById(userId) {
+  const db2 = getDatabase();
+  return db2.prepare("SELECT * FROM users WHERE id = ?").get(userId);
+}
+function validateCredentials(username, password) {
+  const user = findByUsername(username);
+  if (!user) {
+    return { success: false, message: "Invalid username or password" };
+  }
+  const valid2 = bcrypt.compareSync(password, user.password_hash);
+  if (!valid2) {
+    return { success: false, message: "Invalid username or password" };
+  }
+  const db2 = getDatabase();
+  db2.prepare("UPDATE users SET last_login = datetime(?, ?) WHERE id = ?").run(
+    "now",
+    "localtime",
+    user.id
+  );
+  const { password_hash, ...safeUser } = user;
+  return { success: true, message: "Login successful", user: safeUser };
+}
+function isUsernameTaken(username) {
+  const db2 = getDatabase();
+  const row = db2.prepare("SELECT id FROM users WHERE username = ?").get(username.toLowerCase());
+  return !!row;
+}
+function deleteUser(userId) {
+  const db2 = getDatabase();
+  try {
+    db2.prepare("DELETE FROM settings WHERE user_id = ?").run(userId);
+    db2.prepare(
+      "DELETE FROM history WHERE file_id IN (SELECT id FROM files WHERE user_id = ?)"
+    ).run(userId);
+    db2.prepare("DELETE FROM files WHERE user_id = ?").run(userId);
+    db2.prepare("DELETE FROM users WHERE id = ?").run(userId);
+    return { success: true, message: "Account deleted" };
+  } catch (error) {
+    console.error("Failed to delete user:", error);
+    return { success: false, message: "Failed to delete account" };
+  }
+}
+function getAccountInfo(userId) {
+  const db2 = getDatabase();
+  const user = db2.prepare("SELECT username, created_at, last_login FROM users WHERE id = ?").get(userId);
+  if (!user) return null;
+  const fileCountRow = db2.prepare("SELECT COUNT(*) as count FROM files WHERE user_id = ? AND deleted_at IS NULL").get(userId);
+  return {
+    username: user.username,
+    createdAt: user.created_at,
+    lastLogin: user.last_login,
+    fileCount: fileCountRow.count
+  };
 }
 function getJwtSecret() {
   return require$$1.createHash("sha256").update(electron.app.getPath("userData")).digest("hex");
@@ -3949,9 +3948,6 @@ function registerAllIpcHandlers() {
     } catch (error) {
       return { success: false, message: "Failed to delete account" };
     }
-  });
-  electron.ipcMain.handle(IPC_CHANNELS.ACCOUNT_EXPORT, async () => {
-    return { success: false, message: "Export not yet implemented" };
   });
   electron.ipcMain.handle(IPC_CHANNELS.FILE_CREATE, async (_event, { userId, name }) => {
     try {
