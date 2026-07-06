@@ -8,6 +8,7 @@ import StatusBar from '../components/Common/StatusBar';
 import EditorView from '../components/Editor/EditorView';
 import FloatingToolbar from '../components/Editor/FloatingToolbar';
 import HistoryPanel from '../components/Editor/HistoryPanel';
+import MarkdownPreview from '../components/Editor/MarkdownPreview';
 import OutlinePanel from '../components/Editor/OutlinePanel';
 import TopBar from '../components/Navbar/TopBar';
 import SettingsModal from '../components/Settings/SettingsModal';
@@ -18,8 +19,10 @@ import { useUIStore } from '../stores/uiStore';
 
 const MainPage: React.FC = () => {
   const currentFile = useEditorStore((s) => s.currentFile);
+  const content = useEditorStore((s) => s.content);
   const isSidebarOpen = useUIStore((s) => s.isSidebarOpen);
   const pageWidth = useUIStore((s) => s.pageWidth);
+  const isPreviewMode = useUIStore((s) => s.isPreviewMode);
   const isHistoryPanelOpen = useUIStore((s) => s.isHistoryPanelOpen);
   const toggleHistoryPanel = useUIStore((s) => s.toggleHistoryPanel);
   const activeModal = useUIStore((s) => s.activeModal);
@@ -70,19 +73,32 @@ const MainPage: React.FC = () => {
       {/* Main content area */}
       <div className="flex flex-1 overflow-hidden">
         {/* Outline Sidebar */}
-        {isSidebarOpen && (
-          <OutlinePanel onNavigateToLine={handleNavigateToLine} />
-        )}
+        {isSidebarOpen && <OutlinePanel onNavigateToLine={handleNavigateToLine} />}
 
         {/* Editor area */}
         <main className="flex-1 overflow-hidden relative">
-          {/* Small left padding keeps line numbers at a fixed gap from outline panel's right border, even when resizing */}
-          <div className={`w-full h-full ${maxWidthClass} mx-auto pl-1`}>
+          {/* 2px gap between outline panel right border and line numbers, keeps fixed even when resizing sidebar */}
+          <div className={`w-full h-full ${maxWidthClass} mx-auto pl-0`}>
             {currentFile ? (
-              <EditorView
-                onSelectionChange={handleSelectionChange}
-                onEditorMount={setEditorRef}
-              />
+              isPreviewMode ? (
+                <div className="flex h-full">
+                  <div className="w-1/2 h-full">
+                    <EditorView
+                      onSelectionChange={handleSelectionChange}
+                      onEditorMount={setEditorRef}
+                    />
+                  </div>
+                  <div className="w-px bg-border" />
+                  <div className="w-1/2 h-full">
+                    <MarkdownPreview content={content} />
+                  </div>
+                </div>
+              ) : (
+                <EditorView
+                  onSelectionChange={handleSelectionChange}
+                  onEditorMount={setEditorRef}
+                />
+              )
             ) : (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center">
@@ -101,22 +117,13 @@ const MainPage: React.FC = () => {
       </div>
 
       {/* Floating Toolbar */}
-      <FloatingToolbar
-        editor={editorRef.current}
-        selection={selection}
-      />
+      <FloatingToolbar editor={editorRef.current} selection={selection} />
 
       {/* History Panel (slide-out) */}
-      <HistoryPanel
-        isOpen={isHistoryPanelOpen}
-        onClose={toggleHistoryPanel}
-      />
+      <HistoryPanel isOpen={isHistoryPanelOpen} onClose={toggleHistoryPanel} />
 
       {/* Settings Modal */}
-      <SettingsModal
-        isOpen={activeModal === 'settings'}
-        onClose={closeModal}
-      />
+      <SettingsModal isOpen={activeModal === 'settings'} onClose={closeModal} />
 
       {/* Status Bar */}
       <StatusBar />

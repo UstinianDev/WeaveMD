@@ -2,10 +2,12 @@
 // WeaveMD — Markdown Processing Service
 // ============================================
 
-import { unified } from 'unified';
-import remarkParse from 'remark-parse';
+import type { Heading, Root } from 'mdast';
+import rehypeStringify from 'rehype-stringify';
 import remarkGfm from 'remark-gfm';
-import type { Root, Heading } from 'mdast';
+import remarkParse from 'remark-parse';
+import remarkRehype from 'remark-rehype';
+import { unified } from 'unified';
 
 export interface OutlineItem {
   id: string;
@@ -37,7 +39,12 @@ export function extractOutline(content: string): OutlineItem[] {
 
   // Traverse AST to find headings
   function walk(node: unknown): void {
-    const n = node as { type: string; depth?: number; children?: unknown[]; position?: { start: { line: number } } };
+    const n = node as {
+      type: string;
+      depth?: number;
+      children?: unknown[];
+      position?: { start: { line: number } };
+    };
     if (n.type === 'heading' && n.depth && n.depth >= 1 && n.depth <= 3) {
       const text = extractTextFromNode(node as Heading);
       const lineNumber = n.position?.start?.line ?? 0;
@@ -107,4 +114,15 @@ export function headingToId(text: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9一-鿿]+/g, '-')
     .replace(/^-|-$/g, '');
+}
+
+export async function renderMarkdownToHtml(content: string): Promise<string> {
+  const file = await unified()
+    .use(remarkParse)
+    .use(remarkGfm)
+    .use(remarkRehype)
+    .use(rehypeStringify)
+    .process(content);
+
+  return String(file);
 }
