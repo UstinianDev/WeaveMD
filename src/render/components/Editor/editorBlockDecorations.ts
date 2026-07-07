@@ -51,7 +51,8 @@ export function classifyContentChange(
 export function buildBlockDecorations(
   monaco: DecorationMonacoLike,
   blocks: BlockInfo[],
-  activeBlockId: string | null
+  activeBlockId: string | null,
+  renderedBlockIds: ReadonlySet<string> = new Set()
 ): monacoEditor.IModelDeltaDecoration[] {
   const decorations: monacoEditor.IModelDeltaDecoration[] = [];
 
@@ -63,7 +64,7 @@ export function buildBlockDecorations(
     decorations.push(
       ...block.syntaxMarkers.map((marker) => createMarkerDecoration(monaco, marker))
     );
-    decorations.push(createBlockDecoration(monaco, block));
+    decorations.push(createBlockDecoration(monaco, block, renderedBlockIds.has(block.id)));
   }
 
   return decorations;
@@ -84,18 +85,24 @@ function createMarkerDecoration(
 
 function createBlockDecoration(
   monaco: DecorationMonacoLike,
-  block: BlockInfo
+  block: BlockInfo,
+  isRendered: boolean
 ): monacoEditor.IModelDeltaDecoration {
   const options: monacoEditor.IModelDecorationOptions = {
     isWholeLine: true,
     shouldFillLineOnLineBreak: true,
     className: getBlockClassName(block),
-    ...getBlockTypographyOptions(block),
   };
 
-  const prefix = getInjectedPrefix(block);
-  if (prefix) {
-    options.before = prefix;
+  if (isRendered) {
+    options.inlineClassName = 'markdown-block-source-hidden';
+  } else {
+    Object.assign(options, getBlockTypographyOptions(block));
+
+    const prefix = getInjectedPrefix(block);
+    if (prefix) {
+      options.before = prefix;
+    }
   }
 
   return {

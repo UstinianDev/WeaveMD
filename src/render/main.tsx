@@ -9,11 +9,14 @@ import { I18nProvider } from './i18n';
 import './styles/globals.css';
 // Configure Monaco Editor to load from local package (not CDN)
 import './utils/monacoSetup';
+import { ensureWeaveMDApi } from './utils/weaveMDBridge';
 
 const rootEl = document.getElementById('root');
 if (!rootEl) {
   throw new Error('Root element not found. Ensure index.html has <div id="root">.');
 }
+
+ensureWeaveMDApi();
 
 ReactDOM.createRoot(rootEl).render(
   <React.StrictMode>

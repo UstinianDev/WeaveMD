@@ -877,8 +877,37 @@ html.high-contrast .markdown-preview .token.variable {
     border-color 0.15s ease;
 }
 
+.markdown-block-source-hidden {
+  opacity: 0;
+}
+
 .markdown-block--inactive {
   color: var(--text-primary);
+}
+
+.markdown-block-widget {
+  pointer-events: auto;
+}
+
+.markdown-block-rendered {
+  display: flow-root;
+  color: var(--text-primary);
+}
+
+.markdown-block-rendered > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-block-rendered--table {
+  max-width: min(100%, 960px);
+}
+
+.markdown-block-rendered--code-fence {
+  max-width: min(100%, 960px);
+}
+
+.markdown-block-zone {
+  pointer-events: none;
 }
 
 .markdown-block--paragraph {
@@ -953,4 +982,41 @@ html.high-contrast .markdown-preview .token.variable {
 
 .markdown-injected-prefix--task-unchecked {
   color: var(--text-muted);
+}
+
+.markdown-block-rendered table th[align='center'],
+.markdown-block-rendered table td[align='center'] {
+  text-align: center;
+}
+
+.markdown-block-rendered table th[align='right'],
+.markdown-block-rendered table td[align='right'] {
+  text-align: right;
+}
+
+html.dark .markdown-block-rendered code,
+html.custom .markdown-block-rendered code,
+html.high-contrast .markdown-block-rendered code {
+  color: #f8b4d9;
+}
+
+html.dark .markdown-block-rendered .markdown-highlight,
+html.dark .markdown-block-rendered mark,
+html.custom .markdown-block-rendered .markdown-highlight,
+html.custom .markdown-block-rendered mark,
+html.high-contrast .markdown-block-rendered .markdown-highlight,
+html.high-contrast .markdown-block-rendered mark {
+  background: color-mix(in srgb, #facc15 38%, transparent);
+}
+
+html.dark .markdown-block-rendered .markdown-comment,
+html.custom .markdown-block-rendered .markdown-comment,
+html.high-contrast .markdown-block-rendered .markdown-comment {
+  color: #9ca3af;
+  background: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
+}
+
+html.light-header .markdown-block-rendered code,
+html.light .markdown-block-rendered code {
+  color: #7c2d12;
 }
