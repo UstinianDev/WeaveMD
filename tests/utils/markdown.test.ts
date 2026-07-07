@@ -131,7 +131,7 @@ Tail`);
 describe('renderMarkdownToHtml', () => {
   it('should render Task4 typography features from the cleaned markdown pipeline', async () => {
     const html = await renderMarkdownToHtml(`1 # 标题
-2 正文包含 ==高亮== 和 <!-- 注释 -->
+2 正文包含 ==高亮==、\`片段\`、~~删除线~~、[链接](https://example.com) 和 <!-- 注释 -->
 3 - [x] 已完成
 4 > 引用
 5
@@ -145,6 +145,9 @@ describe('renderMarkdownToHtml', () => {
 
     expect(html).toContain('<h1>标题</h1>');
     expect(html).toContain('<mark class="markdown-highlight">高亮</mark>');
+    expect(html).toContain('<code>片段</code>');
+    expect(html).toContain('<del>删除线</del>');
+    expect(html).toContain('<a href="https://example.com">链接</a>');
     expect(html).toContain('class="markdown-comment"');
     expect(html).toContain('&lt;!-- 注释 --&gt;');
     expect(html).toContain('class="task-list-item"');

@@ -19,6 +19,7 @@ import {
   normalizeCursorSource,
   type CursorActivationSource,
 } from './editorBlockDecorations';
+import { MarkdownRenderedBlocksController } from './markdownBlockWidgets';
 // Ensure Monaco loads from local package, not CDN
 import '../../utils/monacoSetup';
 
@@ -95,6 +96,8 @@ const EditorView: React.FC<EditorViewProps> = ({
   const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
   const isUpdatingRef = useRef(false);
   const decorationsRef = useRef<monacoEditor.IEditorDecorationsCollection | null>(null);
+  const renderedBlocksControllerRef = useRef<MarkdownRenderedBlocksController | null>(null);
+  const renderedBlockIdsRef = useRef<Set<string>>(new Set());
   const pendingEnterRef = useRef(false);
 
   const content = useEditorStore((s) => s.content);
@@ -121,12 +124,13 @@ const EditorView: React.FC<EditorViewProps> = ({
     (
       editor: monacoEditor.IStandaloneCodeEditor,
       blocks: BlockInfo[],
-      activeBlockId: string | null
+      activeBlockId: string | null,
+      renderedBlockIds: ReadonlySet<string> = renderedBlockIdsRef.current
     ) => {
       const monaco = monacoRef.current;
       if (!monaco) return;
 
-      const decorations = buildBlockDecorations(monaco, blocks, activeBlockId);
+      const decorations = buildBlockDecorations(monaco, blocks, activeBlockId, renderedBlockIds);
       if (!decorationsRef.current) {
         decorationsRef.current = editor.createDecorationsCollection(decorations);
       } else {
@@ -134,6 +138,32 @@ const EditorView: React.FC<EditorViewProps> = ({
       }
     },
     []
+  );
+
+  const syncRenderedBlocks = useCallback(
+    async (
+      editor: monacoEditor.IStandaloneCodeEditor,
+      blocks: BlockInfo[],
+      activeBlockId: string | null
+    ) => {
+      const renderedBlocksController = renderedBlocksControllerRef.current;
+      if (!renderedBlocksController) {
+        return;
+      }
+
+      const renderedBlockIds = await renderedBlocksController.sync(
+        editor.getValue(),
+        blocks,
+        activeBlockId
+      );
+      if (!renderedBlockIds) {
+        return;
+      }
+
+      renderedBlockIdsRef.current = new Set(renderedBlockIds);
+      applyDecorations(editor, blocks, activeBlockId, renderedBlockIdsRef.current);
+    },
+    [applyDecorations]
   );
 
   const syncBlockState = useCallback(
@@ -144,8 +174,9 @@ const EditorView: React.FC<EditorViewProps> = ({
       const blocks = detectAllBlocks(model);
       const nextState = transitionBlockState(blocks, event);
       applyDecorations(editor, blocks, nextState.activeBlockId);
+      void syncRenderedBlocks(editor, blocks, nextState.activeBlockId);
     },
-    [applyDecorations, transitionBlockState]
+    [applyDecorations, syncRenderedBlocks, transitionBlockState]
   );
 
   const syncFromCurrentCursor = useCallback(
@@ -241,6 +272,8 @@ const EditorView: React.FC<EditorViewProps> = ({
   const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+    renderedBlocksControllerRef.current = new MarkdownRenderedBlocksController(editor, monaco);
+    renderedBlockIdsRef.current = new Set();
 
     // Initialize decorations collection
     decorationsRef.current = editor.createDecorationsCollection();
@@ -334,6 +367,10 @@ const EditorView: React.FC<EditorViewProps> = ({
     // Initial block sync
     syncFromCurrentCursor(editor, 'keyboard');
 
+    editor.onDidLayoutChange(() => {
+      renderedBlocksControllerRef.current?.relayout();
+    });
+
     // Expose editor to parent
     onEditorMount?.(editor);
     onFocusChange?.(true);
@@ -382,6 +419,7 @@ const EditorView: React.FC<EditorViewProps> = ({
     if (monacoRef.current && editorRef.current) {
       const editorTheme = isDarkTheme ? 'weaveMD-dark' : 'weaveMD-light';
       monacoRef.current.editor.setTheme(editorTheme);
+      renderedBlocksControllerRef.current?.relayout();
     }
   }, [theme, isDarkTheme]);
 
@@ -389,6 +427,9 @@ const EditorView: React.FC<EditorViewProps> = ({
     return () => {
       debouncedUpdate.cancel();
       pendingEnterRef.current = false;
+      renderedBlockIdsRef.current.clear();
+      renderedBlocksControllerRef.current?.dispose();
+      renderedBlocksControllerRef.current = null;
       decorationsRef.current?.clear();
       onSelectionChange?.(null);
       onFocusChange?.(false);

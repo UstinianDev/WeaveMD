@@ -110,4 +110,24 @@ describe('EditorView helpers', () => {
       )
     ).toHaveLength(2);
   });
+
+  it('should hide the raw source once an inactive block has a rendered widget', () => {
+    const blocks: BlockInfo[] = [
+      {
+        id: 'paragraph:1-1',
+        type: 'paragraph',
+        startLine: 1,
+        startColumn: 1,
+        endLine: 1,
+        endColumn: 12,
+        syntaxMarkers: [],
+      },
+    ];
+
+    const decorations = buildBlockDecorations(fakeMonaco, blocks, null, new Set(['paragraph:1-1']));
+
+    expect(decorations).toHaveLength(1);
+    expect(decorations[0].options.inlineClassName).toBe('markdown-block-source-hidden');
+    expect(decorations[0].options.before).toBeUndefined();
+  });
 });
