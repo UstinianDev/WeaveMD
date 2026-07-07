@@ -2,8 +2,15 @@
 // WeaveMD — Markdown Processing Tests
 // ============================================
 
-import { describe, it, expect } from 'vitest';
-import { extractOutline, headingToId, parseMarkdownToAST } from '../../src/render/services/markdown';
+import { describe, expect, it } from 'vitest';
+import {
+  extractOutline,
+  headingToId,
+  parseMarkdownToAST,
+  prepareMarkdownForRendering,
+  renderMarkdownToHtml,
+  stripDocumentLineNumbers,
+} from '../../src/render/services/markdown';
 
 describe('parseMarkdownToAST', () => {
   it('should parse simple markdown', () => {
@@ -79,10 +86,81 @@ describe('headingToId', () => {
   });
 
   it('should handle special characters', () => {
-    expect(headingToId('What\'s New?')).toBe('what-s-new');
+    expect(headingToId("What's New?")).toBe('what-s-new');
   });
 
   it('should handle Chinese characters', () => {
     expect(headingToId('简介说明')).toBe('简介说明');
+  });
+});
+
+describe('stripDocumentLineNumbers', () => {
+  it('should strip ascending bare line numbers from copied documents', () => {
+    const content = `1 # 标题
+2 正文第一段
+3 - [x] 已完成任务
+4 > 引用内容`;
+
+    expect(stripDocumentLineNumbers(content)).toBe(`# 标题
+正文第一段
+- [x] 已完成任务
+> 引用内容`);
+  });
+
+  it('should preserve ordered lists and normal content', () => {
+    const orderedList = `1. 第一项
+2. 第二项`;
+    const plainContent = `2026 roadmap
+still plain text`;
+
+    expect(stripDocumentLineNumbers(orderedList)).toBe(orderedList);
+    expect(stripDocumentLineNumbers(plainContent)).toBe(plainContent);
+  });
+});
+
+describe('prepareMarkdownForRendering', () => {
+  it('should normalize windows line endings before rendering cleanup', () => {
+    const content = '1 Title\r\n2 Body\r\n3 Tail';
+
+    expect(prepareMarkdownForRendering(content)).toBe(`Title
+Body
+Tail`);
+  });
+});
+
+describe('renderMarkdownToHtml', () => {
+  it('should render Task4 typography features from the cleaned markdown pipeline', async () => {
+    const html = await renderMarkdownToHtml(`1 # 标题
+2 正文包含 ==高亮== 和 <!-- 注释 -->
+3 - [x] 已完成
+4 > 引用
+5
+6 \`\`\`ts
+7 const answer = 42;
+8 \`\`\`
+9
+10 | 列1 | 列2 |
+11 | --- | --- |
+12 | A | B |`);
+
+    expect(html).toContain('<h1>标题</h1>');
+    expect(html).toContain('<mark class="markdown-highlight">高亮</mark>');
+    expect(html).toContain('class="markdown-comment"');
+    expect(html).toContain('&lt;!-- 注释 --&gt;');
+    expect(html).toContain('class="task-list-item"');
+    expect(html).toContain('type="checkbox" checked disabled');
+    expect(html).toContain('<blockquote>');
+    expect(html).toContain('class="markdown-code-block"');
+    expect(html).toContain('data-language="typescript"');
+    expect(html).toContain('class="token');
+    expect(html).toContain('class="markdown-table-wrap"');
+    expect(html).not.toContain('>1 # 标题<');
+  });
+
+  it('should keep inline code untouched when parsing highlight syntax', async () => {
+    const html = await renderMarkdownToHtml('`==literal==` and ==styled==');
+
+    expect(html).toContain('<code>==literal==</code>');
+    expect(html).toContain('<mark class="markdown-highlight">styled</mark>');
   });
 });

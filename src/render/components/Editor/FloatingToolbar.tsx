@@ -6,11 +6,26 @@ import type * as Monaco from 'monaco-editor';
 import type { editor as monacoEditor } from 'monaco-editor';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useI18n } from '../../i18n';
+import {
+  detectAllBlocks,
+  findBlockAtPosition,
+  type BlockPosition,
+} from '../../services/markdownBlockDetector';
+import { useUIStore } from '../../stores/uiStore';
 
 interface FloatingToolbarProps {
   editor: monacoEditor.IStandaloneCodeEditor | null;
   selection: Monaco.Selection | null;
+  isEditorFocused: boolean;
 }
+
+type ViewportPosition = { top: number; left: number };
+
+type VisiblePosition = {
+  top: number;
+  left: number;
+  height: number;
+};
 
 type ToolbarAction =
   | 'h1'
@@ -50,6 +65,80 @@ const STRUCTURE_ITEMS: (StructureMenuItem | { type: 'divider' })[] = [
   { labelKey: 'toolbar.highlight', action: 'highlight' },
 ];
 
+const TOOLBAR_VERTICAL_GAP = 12;
+const TOOLBAR_HORIZONTAL_OFFSET = 24;
+const VIEWPORT_MARGIN = 12;
+const DEFAULT_TOOLBAR_HEIGHT = 40;
+const DEFAULT_TOOLBAR_WIDTH = 320;
+
+export const shouldShowFloatingToolbar = (
+  selection: Monaco.Selection | null,
+  isEditorFocused: boolean,
+  isSelectionInActiveBlock = true
+) => Boolean(selection && !selection.isEmpty() && isEditorFocused && isSelectionInActiveBlock);
+
+export const isSelectionWithinActiveBlock = ({
+  model,
+  selection,
+  activeBlockId,
+}: {
+  model: Pick<monacoEditor.ITextModel, 'getLineCount' | 'getLineContent'> | null;
+  selection: Pick<Monaco.Selection, 'getStartPosition' | 'getEndPosition'> | null;
+  activeBlockId: string | null;
+}) => {
+  if (!model || !selection || !activeBlockId) {
+    return false;
+  }
+
+  const blocks = detectAllBlocks(model);
+  const startBlock = findBlockAtPosition(blocks, selection.getStartPosition() as BlockPosition);
+  const endBlock = findBlockAtPosition(blocks, selection.getEndPosition() as BlockPosition);
+
+  return Boolean(
+    startBlock &&
+      endBlock &&
+      startBlock.id === activeBlockId &&
+      endBlock.id === activeBlockId &&
+      startBlock.id === endBlock.id
+  );
+};
+
+export const calculateToolbarViewportPosition = ({
+  editorRect,
+  startCoords,
+  endCoords,
+  toolbarHeight = DEFAULT_TOOLBAR_HEIGHT,
+  toolbarWidth = DEFAULT_TOOLBAR_WIDTH,
+  viewportWidth = window.innerWidth,
+  viewportHeight = window.innerHeight,
+}: {
+  editorRect: Pick<DOMRect, 'top' | 'left' | 'bottom'>;
+  startCoords: VisiblePosition;
+  endCoords: VisiblePosition;
+  toolbarHeight?: number;
+  toolbarWidth?: number;
+  viewportWidth?: number;
+  viewportHeight?: number;
+}): ViewportPosition => {
+  const selectionTop = editorRect.top + Math.min(startCoords.top, endCoords.top);
+  const selectionBottom =
+    editorRect.top +
+    Math.max(startCoords.top + startCoords.height, endCoords.top + endCoords.height);
+  const preferredTop = selectionTop - toolbarHeight - TOOLBAR_VERTICAL_GAP;
+  const fallbackTop = selectionBottom + TOOLBAR_VERTICAL_GAP;
+  const minTop = Math.max(VIEWPORT_MARGIN, editorRect.top + VIEWPORT_MARGIN);
+  const maxTop = Math.max(minTop, viewportHeight - toolbarHeight - VIEWPORT_MARGIN);
+  const top = preferredTop >= minTop ? preferredTop : Math.min(fallbackTop, maxTop);
+
+  const preferredLeft =
+    editorRect.left + Math.max(startCoords.left, endCoords.left) + TOOLBAR_HORIZONTAL_OFFSET;
+  const minLeft = VIEWPORT_MARGIN + toolbarWidth / 2;
+  const maxLeft = Math.max(minLeft, viewportWidth - VIEWPORT_MARGIN - toolbarWidth / 2);
+  const left = Math.min(Math.max(preferredLeft, minLeft), maxLeft);
+
+  return { top, left };
+};
+
 const ToolbarBtn: React.FC<{
   onClick: () => void;
   title: string;
@@ -69,25 +158,42 @@ const ToolbarBtn: React.FC<{
   </button>
 );
 
-const FloatingToolbar: React.FC<FloatingToolbarProps> = ({ editor, selection }) => {
+const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
+  editor,
+  selection,
+  isEditorFocused,
+}) => {
   const { t } = useI18n();
+  const activeBlockId = useUIStore((s) => s.markdownBlockState.activeBlockId);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const [showStructureMenu, setShowStructureMenu] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [showLinkInput, setShowLinkInput] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
 
+  const isSelectionInActiveBlock = isSelectionWithinActiveBlock({
+    model: editor?.getModel() ?? null,
+    selection,
+    activeBlockId,
+  });
+
   useEffect(() => {
-    if (!editor || !selection) {
+    if (!editor || !shouldShowFloatingToolbar(selection, isEditorFocused, isSelectionInActiveBlock)) {
       setPosition(null);
       setShowStructureMenu(false);
       setShowLinkInput(false);
       return;
     }
 
+    const currentSelection = selection;
+    if (!currentSelection) {
+      setPosition(null);
+      return;
+    }
+
     // Get pixel position from Monaco selection
-    const startPos = selection.getStartPosition();
-    const endPos = selection.getEndPosition();
+    const startPos = currentSelection.getStartPosition();
+    const endPos = currentSelection.getEndPosition();
 
     try {
       const startCoords = editor.getScrolledVisiblePosition(startPos);
@@ -96,18 +202,22 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({ editor, selection }) 
       if (startCoords && endCoords) {
         const editorDom = editor.getDomNode();
         if (editorDom) {
-          const midX = (startCoords.left + endCoords.left) / 2;
-          // Position above selection with 10px gap
-          setPosition({
-            top: startCoords.top - 10,
-            left: midX,
-          });
+          const editorRect = editorDom.getBoundingClientRect();
+          setPosition(
+            calculateToolbarViewportPosition({
+              editorRect,
+              startCoords,
+              endCoords,
+              toolbarHeight: toolbarRef.current?.offsetHeight,
+              toolbarWidth: toolbarRef.current?.offsetWidth,
+            })
+          );
         }
       }
     } catch {
       setPosition(null);
     }
-  }, [editor, selection]);
+  }, [editor, selection, isEditorFocused, isSelectionInActiveBlock]);
 
   const applyFormat = useCallback(
     (prefix: string, suffix: string) => {
@@ -210,7 +320,9 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({ editor, selection }) 
     setShowLinkInput(false);
   };
 
-  if (!position || !editor || !selection) return null;
+  if (!position || !editor || !shouldShowFloatingToolbar(selection, isEditorFocused, isSelectionInActiveBlock)) {
+    return null;
+  }
 
   return (
     <div

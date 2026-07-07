@@ -2,9 +2,8 @@
 // WeaveMD — Top Navigation Bar
 // ============================================
 
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import type { IFile } from '../../../shared/types';
-import { useI18n } from '../../i18n';
 import { useAuthStore } from '../../stores/authStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useHistoryStore } from '../../stores/historyStore';
@@ -15,12 +14,60 @@ import HistoryMenu from './HistoryMenu';
 import MoreMenu from './MoreMenu';
 import WindowControls from './WindowControls';
 
+type ShortcutAction = 'new-file' | 'open-file' | 'undo' | 'redo' | null;
+
+export function shouldIgnoreGlobalShortcutTarget(target: EventTarget | null) {
+  const element = target instanceof HTMLElement ? target : null;
+  if (!element) {
+    return false;
+  }
+
+  const tagName = element.tagName;
+  return (
+    element.isContentEditable ||
+    element.getAttribute('contenteditable') === 'true' ||
+    tagName === 'INPUT' ||
+    tagName === 'TEXTAREA' ||
+    tagName === 'SELECT'
+  );
+}
+
+export function getShortcutAction(event: {
+  key: string;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+}): ShortcutAction {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) {
+    return null;
+  }
+
+  const key = event.key.toLowerCase();
+  if (key === 'n' && !event.shiftKey) {
+    return 'new-file';
+  }
+  if (key === 'o' && !event.shiftKey) {
+    return 'open-file';
+  }
+  if (key === 'z' && !event.shiftKey) {
+    return 'undo';
+  }
+  if ((key === 'y' && !event.shiftKey) || (key === 'z' && event.shiftKey)) {
+    return 'redo';
+  }
+
+  return null;
+}
+
 const TopBar: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const user = useAuthStore((s) => s.user);
   const currentFile = useEditorStore((s) => s.currentFile);
+  const openFile = useEditorStore((s) => s.openFile);
   const closeFile = useEditorStore((s) => s.closeFile);
+  const saveFile = useEditorStore((s) => s.saveFile);
   const undo = useEditorStore((s) => s.undo);
   const redo = useEditorStore((s) => s.redo);
   const undoStack = useEditorStore((s) => s.undoStack);
@@ -28,22 +75,42 @@ const TopBar: React.FC = () => {
 
   const openModal = useUIStore((s) => s.openModal);
   const toggleHistoryPanel = useUIStore((s) => s.toggleHistoryPanel);
+  const flushEditorDraft = useUIStore((s) => s.flushEditorDraft);
 
   const files = useHistoryStore((s) => s.files);
   const loadHistory = useHistoryStore((s) => s.loadHistory);
 
-  const handleNewFile = async () => {
+  const saveCurrentDraftIfNeeded = useCallback(async () => {
+    await flushEditorDraft();
+    const { currentFile: latestCurrentFile, isDirty: latestIsDirty } = useEditorStore.getState();
+    if (latestCurrentFile?.id && latestIsDirty) {
+      await saveFile();
+    }
+  }, [flushEditorDraft, saveFile]);
+
+  const handleUndo = useCallback(async () => {
+    await flushEditorDraft();
+    undo();
+  }, [flushEditorDraft, undo]);
+
+  const handleRedo = useCallback(async () => {
+    await flushEditorDraft();
+    redo();
+  }, [flushEditorDraft, redo]);
+
+  const handleNewFile = useCallback(async () => {
     if (!user) return;
     setIsLoading(true);
     setErrorMessage('');
     try {
+      await saveCurrentDraftIfNeeded();
       const name = `untitled-${Date.now().toString(36)}.md`;
       const result = (await window.weaveMD.file.create(user.id, name)) as unknown as {
         success: boolean;
         data?: IFile;
       };
       if (result.success && result.data) {
-        useEditorStore.getState().openFile(result.data);
+        openFile(result.data);
         // Refresh file list
         loadHistory(user.id);
       } else {
@@ -54,13 +121,14 @@ const TopBar: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [user, saveCurrentDraftIfNeeded, openFile, loadHistory]);
 
-  const handleOpenFile = async () => {
+  const handleOpenFile = useCallback(async () => {
     if (!user) return;
     setIsLoading(true);
     setErrorMessage('');
     try {
+      await saveCurrentDraftIfNeeded();
       const result = (await window.weaveMD.file.open()) as unknown as {
         success: boolean;
         data?: { path: string; name: string; content: string };
@@ -83,7 +151,7 @@ const TopBar: React.FC = () => {
             ...saveResult.data,
             content: result.data.content,
           };
-          useEditorStore.getState().openFile(file);
+          openFile(file);
           // Refresh file list
           loadHistory(user.id);
         } else {
@@ -97,7 +165,7 @@ const TopBar: React.FC = () => {
             modifiedAt: new Date().toISOString(),
             deletedAt: null,
           };
-          useEditorStore.getState().openFile(file);
+          openFile(file);
         }
       }
     } catch {
@@ -105,16 +173,61 @@ const TopBar: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [user, saveCurrentDraftIfNeeded, openFile, loadHistory]);
 
-  const handleDeleteFile = () => {
+  const handleDeleteFile = useCallback(async () => {
     if (!currentFile) return;
-    useEditorStore.getState().closeFile();
-  };
+    await saveCurrentDraftIfNeeded();
+    closeFile();
+  }, [currentFile, saveCurrentDraftIfNeeded, closeFile]);
+
+  const handleCloseFile = useCallback(async () => {
+    await saveCurrentDraftIfNeeded();
+    closeFile();
+  }, [saveCurrentDraftIfNeeded, closeFile]);
+
+  const handleHistoryOpenFile = useCallback(
+    async (file: IFile) => {
+      if (currentFile?.id !== file.id) {
+        await saveCurrentDraftIfNeeded();
+      }
+      openFile(file);
+    },
+    [currentFile?.id, saveCurrentDraftIfNeeded, openFile]
+  );
 
   const handleFindReplace = () => {
     // Will trigger Monaco Editor find widget in Phase 3
   };
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || shouldIgnoreGlobalShortcutTarget(event.target)) {
+        return;
+      }
+
+      const action = getShortcutAction(event);
+      if (!action) {
+        return;
+      }
+
+      event.preventDefault();
+      if (action === 'new-file') {
+        void handleNewFile();
+      } else if (action === 'open-file') {
+        void handleOpenFile();
+      } else if (action === 'undo') {
+        void handleUndo();
+      } else if (action === 'redo') {
+        void handleRedo();
+      }
+    };
+
+    document.addEventListener('keydown', handleGlobalKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleGlobalKeyDown);
+    };
+  }, [handleNewFile, handleOpenFile, handleRedo, handleUndo]);
 
   return (
     <header
@@ -152,7 +265,7 @@ const TopBar: React.FC = () => {
           onNewFile={handleNewFile}
           onOpenFile={handleOpenFile}
           onDeleteFile={handleDeleteFile}
-          onCloseFile={closeFile}
+          onCloseFile={handleCloseFile}
           hasOpenFile={!!currentFile}
         />
 
@@ -162,7 +275,9 @@ const TopBar: React.FC = () => {
         {/* History menu */}
         <HistoryMenu
           files={files}
-          onOpenFile={(file) => useEditorStore.getState().openFile(file)}
+          onOpenFile={(file) => {
+            void handleHistoryOpenFile(file);
+          }}
           onManageFiles={toggleHistoryPanel}
         />
       </div>
@@ -197,7 +312,9 @@ const TopBar: React.FC = () => {
       <div className="flex items-center gap-1 px-2 h-full no-drag">
         {/* Undo */}
         <button
-          onClick={undo}
+          onClick={() => {
+            void handleUndo();
+          }}
           disabled={undoStack.length === 0}
           className="w-8 h-8 flex items-center justify-center rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           style={{ color: 'var(--navbar-text-sub, #999999)' }}
@@ -218,7 +335,9 @@ const TopBar: React.FC = () => {
 
         {/* Redo */}
         <button
-          onClick={redo}
+          onClick={() => {
+            void handleRedo();
+          }}
           disabled={redoStack.length === 0}
           className="w-8 h-8 flex items-center justify-center rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           style={{ color: 'var(--navbar-text-sub, #999999)' }}

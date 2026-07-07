@@ -2,7 +2,8 @@
 // WeaveMD — UI Store Tests
 // ============================================
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { initialMarkdownBlockState } from '../../src/render/services/markdownBlockDetector';
 import { useUIStore } from '../../src/render/stores/uiStore';
 
 describe('uiStore', () => {
@@ -17,6 +18,7 @@ describe('uiStore', () => {
       isLoading: false,
       isSplashComplete: false,
       isHistoryPanelOpen: false,
+      markdownBlockState: initialMarkdownBlockState,
     });
     localStorage.clear();
   });
@@ -74,6 +76,7 @@ describe('uiStore', () => {
     expect(stored.theme).toBe('light');
     expect(stored.language).toBe('en');
     expect(stored.sidebarWidth).toBe(300);
+    expect(stored).not.toHaveProperty('isPreviewMode');
   });
 
   it('should load settings from localStorage', () => {
@@ -92,5 +95,83 @@ describe('uiStore', () => {
     expect(useUIStore.getState().isHistoryPanelOpen).toBe(false);
     useUIStore.getState().toggleHistoryPanel();
     expect(useUIStore.getState().isHistoryPanelOpen).toBe(true);
+  });
+
+  it('should set markdown block state directly', () => {
+    const nextState = {
+      activeBlockId: 'heading:1-1',
+      lastExitedBlockId: null,
+      continuousInputBlockId: 'heading:1-1',
+      activeSource: 'input' as const,
+    };
+
+    useUIStore.getState().setMarkdownBlockState(nextState);
+    expect(useUIStore.getState().markdownBlockState).toEqual(nextState);
+  });
+
+  it('should transition markdown block state through the store', () => {
+    const blocks = [
+      {
+        id: 'heading:1-1',
+        type: 'heading' as const,
+        startLine: 1,
+        startColumn: 1,
+        endLine: 1,
+        endColumn: 8,
+        syntaxMarkers: [],
+        metadata: { headingLevel: 1 },
+      },
+      {
+        id: 'paragraph:3-3',
+        type: 'paragraph' as const,
+        startLine: 3,
+        startColumn: 1,
+        endLine: 3,
+        endColumn: 15,
+        syntaxMarkers: [],
+      },
+    ];
+
+    const afterInput = useUIStore.getState().transitionMarkdownBlockState(blocks, {
+      type: 'input',
+      position: { lineNumber: 1, column: 2 },
+    });
+    expect(afterInput.activeBlockId).toBe('heading:1-1');
+    expect(useUIStore.getState().markdownBlockState.continuousInputBlockId).toBe('heading:1-1');
+
+    const afterMouseMove = useUIStore.getState().transitionMarkdownBlockState(blocks, {
+      type: 'cursorMove',
+      source: 'mouse',
+      position: { lineNumber: 3, column: 4 },
+    });
+    expect(afterMouseMove).toEqual({
+      activeBlockId: 'paragraph:3-3',
+      lastExitedBlockId: 'heading:1-1',
+      continuousInputBlockId: null,
+      activeSource: 'mouse',
+    });
+  });
+
+  it('should reset markdown block state', () => {
+    useUIStore.getState().setMarkdownBlockState({
+      activeBlockId: 'paragraph:3-3',
+      lastExitedBlockId: 'heading:1-1',
+      continuousInputBlockId: 'paragraph:3-3',
+      activeSource: 'keyboard',
+    });
+
+    useUIStore.getState().resetMarkdownBlockState();
+    expect(useUIStore.getState().markdownBlockState).toEqual(initialMarkdownBlockState);
+  });
+
+  it('should flush the registered editor draft callback', async () => {
+    const flusher = vi.fn();
+
+    useUIStore.getState().setEditorDraftFlusher(flusher);
+    await useUIStore.getState().flushEditorDraft();
+
+    expect(flusher).toHaveBeenCalledTimes(1);
+    useUIStore.getState().setEditorDraftFlusher(null);
+    await expect(useUIStore.getState().flushEditorDraft()).resolves.toBeUndefined();
   });
 });

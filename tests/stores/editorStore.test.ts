@@ -2,7 +2,7 @@
 // WeaveMD — Editor Store Tests
 // ============================================
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useEditorStore } from '../../src/render/stores/editorStore';
 import type { IFile } from '../../src/shared/types';
 
@@ -25,6 +25,7 @@ describe('editorStore', () => {
       undoStack: [],
       redoStack: [],
     });
+    vi.clearAllMocks();
   });
 
   it('should start with empty state', () => {
@@ -95,5 +96,32 @@ describe('editorStore', () => {
     useEditorStore.getState().updateContent('# Hello World'); // Same content
 
     expect(useEditorStore.getState().undoStack).toHaveLength(0);
+  });
+
+  it('should save the current file and mark it clean', async () => {
+    window.weaveMD.file.save.mockResolvedValue({
+      success: true,
+      data: {
+        ...mockFile,
+        content: '# Saved content',
+        modifiedAt: '2026-07-07T00:00:00.000Z',
+      },
+    });
+
+    useEditorStore.getState().openFile(mockFile);
+    useEditorStore.getState().updateContent('# Saved content');
+
+    await useEditorStore.getState().saveFile();
+
+    const state = useEditorStore.getState();
+    expect(window.weaveMD.file.save).toHaveBeenCalledWith('file-1', '# Saved content', 'user-1');
+    expect(state.isDirty).toBe(false);
+    expect(state.currentFile?.content).toBe('# Saved content');
+    expect(state.currentFile?.modifiedAt).toBe('2026-07-07T00:00:00.000Z');
+  });
+
+  it('should skip saving when no file is open', async () => {
+    await useEditorStore.getState().saveFile();
+    expect(window.weaveMD.file.save).not.toHaveBeenCalled();
   });
 });

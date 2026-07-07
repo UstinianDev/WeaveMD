@@ -5,21 +5,33 @@
 import Editor, { BeforeMount, OnMount } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
 import type { editor as monacoEditor } from 'monaco-editor';
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   detectAllBlocks,
   type BlockInfo,
-  type SyntaxMarker,
+  type MarkdownBlockStateEvent,
 } from '../../services/markdownBlockDetector';
 import { useEditorStore } from '../../stores/editorStore';
 import { useUIStore } from '../../stores/uiStore';
+import {
+  buildBlockDecorations,
+  classifyContentChange,
+  normalizeCursorSource,
+  type CursorActivationSource,
+} from './editorBlockDecorations';
 // Ensure Monaco loads from local package, not CDN
 import '../../utils/monacoSetup';
 
 // Debounce helper
-function useDebouncedCallback(callback: (value: string) => void, delay: number) {
+type DebouncedCallback = ((value: string) => void) & {
+  flush: (value?: string) => void;
+  cancel: () => void;
+};
+
+function useDebouncedCallback(callback: (value: string) => void, delay: number): DebouncedCallback {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const callbackRef = useRef(callback);
+  const pendingValueRef = useRef<string | null>(null);
   callbackRef.current = callback;
 
   useEffect(() => {
@@ -28,30 +40,70 @@ function useDebouncedCallback(callback: (value: string) => void, delay: number) 
     };
   }, []);
 
-  return useCallback(
-    (value: string) => {
+  return useMemo(() => {
+    const debounced = ((value: string) => {
+      pendingValueRef.current = value;
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      timeoutRef.current = setTimeout(() => callbackRef.current(value), delay);
-    },
-    [delay]
-  );
+      timeoutRef.current = setTimeout(() => {
+        if (pendingValueRef.current !== null) {
+          callbackRef.current(pendingValueRef.current);
+          pendingValueRef.current = null;
+        }
+      }, delay);
+    }) as DebouncedCallback;
+
+    debounced.flush = (value?: string) => {
+      if (value !== undefined) {
+        pendingValueRef.current = value;
+      }
+
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+
+      if (pendingValueRef.current !== null) {
+        callbackRef.current(pendingValueRef.current);
+        pendingValueRef.current = null;
+      }
+    };
+
+    debounced.cancel = () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      pendingValueRef.current = null;
+    };
+
+    return debounced;
+  }, [delay]);
 }
 
 interface EditorViewProps {
   onSelectionChange?: (selection: Monaco.Selection | null) => void;
-  onEditorMount?: (editor: monacoEditor.IStandaloneCodeEditor) => void;
+  onEditorMount?: (editor: monacoEditor.IStandaloneCodeEditor | null) => void;
+  onFocusChange?: (isFocused: boolean) => void;
 }
 
-const EditorView: React.FC<EditorViewProps> = ({ onSelectionChange, onEditorMount }) => {
+const EditorView: React.FC<EditorViewProps> = ({
+  onSelectionChange,
+  onEditorMount,
+  onFocusChange,
+}) => {
   const editorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
   const isUpdatingRef = useRef(false);
   const decorationsRef = useRef<monacoEditor.IEditorDecorationsCollection | null>(null);
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingEnterRef = useRef(false);
 
   const content = useEditorStore((s) => s.content);
   const setContent = useEditorStore((s) => s.updateContent);
+  const currentFileId = useEditorStore((s) => s.currentFile?.id ?? null);
   const theme = useUIStore((s) => s.theme);
+  const transitionBlockState = useUIStore((s) => s.transitionMarkdownBlockState);
+  const resetMarkdownBlockState = useUIStore((s) => s.resetMarkdownBlockState);
+  const setEditorDraftFlusher = useUIStore((s) => s.setEditorDraftFlusher);
 
   const debouncedUpdate = useDebouncedCallback((value: string) => {
     setContent(value);
@@ -59,54 +111,22 @@ const EditorView: React.FC<EditorViewProps> = ({ onSelectionChange, onEditorMoun
 
   const isDarkTheme = theme === 'dark' || theme === 'high-contrast';
 
-  // Update decorations based on cursor position
-  const updateDecorations = useCallback(
-    (editor: monacoEditor.IStandaloneCodeEditor, cursorPosition?: Monaco.Position) => {
+  const flushPendingEditorContent = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor || isUpdatingRef.current) return;
+    debouncedUpdate.flush(editor.getValue());
+  }, [debouncedUpdate]);
+
+  const applyDecorations = useCallback(
+    (
+      editor: monacoEditor.IStandaloneCodeEditor,
+      blocks: BlockInfo[],
+      activeBlockId: string | null
+    ) => {
       const monaco = monacoRef.current;
       if (!monaco) return;
 
-      const model = editor.getModel();
-      if (!model) return;
-
-      const position = cursorPosition || editor.getPosition();
-      if (!position) return;
-
-      const allBlocks = detectAllBlocks(model);
-      const cursorLine = position.lineNumber;
-      const cursorColumn = position.column;
-
-      // Find blocks that don't contain the cursor
-      const nonCursorBlocks = allBlocks.filter((block: BlockInfo) => {
-        const isInBlock =
-          (block.startLine < cursorLine ||
-            (block.startLine === cursorLine && block.startColumn <= cursorColumn)) &&
-          (block.endLine > cursorLine ||
-            (block.endLine === cursorLine && block.endColumn >= cursorColumn));
-        return !isInBlock;
-      });
-
-      // Collect all syntax markers from non-cursor blocks
-      const markersToHide: SyntaxMarker[] = [];
-      nonCursorBlocks.forEach((block: BlockInfo) => {
-        markersToHide.push(...block.syntaxMarkers);
-      });
-
-      // Create decorations
-      const decorations: monacoEditor.IModelDeltaDecoration[] = markersToHide.map(
-        (marker: SyntaxMarker) => ({
-          range: new monaco.Range(
-            marker.startLine,
-            marker.startColumn,
-            marker.endLine,
-            marker.endColumn
-          ),
-          options: {
-            inlineClassName: 'hidden-markdown-marker',
-          },
-        })
-      );
-
-      // Update decorations collection
+      const decorations = buildBlockDecorations(monaco, blocks, activeBlockId);
       if (!decorationsRef.current) {
         decorationsRef.current = editor.createDecorationsCollection(decorations);
       } else {
@@ -116,17 +136,30 @@ const EditorView: React.FC<EditorViewProps> = ({ onSelectionChange, onEditorMoun
     []
   );
 
-  // Debounced update decorations
-  const debouncedUpdateDecorations = useCallback(
-    (editor: monacoEditor.IStandaloneCodeEditor) => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-      debounceTimerRef.current = setTimeout(() => {
-        updateDecorations(editor);
-      }, 50);
+  const syncBlockState = useCallback(
+    (editor: monacoEditor.IStandaloneCodeEditor, event: MarkdownBlockStateEvent) => {
+      const model = editor.getModel();
+      if (!model) return;
+
+      const blocks = detectAllBlocks(model);
+      const nextState = transitionBlockState(blocks, event);
+      applyDecorations(editor, blocks, nextState.activeBlockId);
     },
-    [updateDecorations]
+    [applyDecorations, transitionBlockState]
+  );
+
+  const syncFromCurrentCursor = useCallback(
+    (editor: monacoEditor.IStandaloneCodeEditor, source: CursorActivationSource) => {
+      const position = editor.getPosition();
+      if (!position) return;
+
+      syncBlockState(editor, {
+        type: 'cursorMove',
+        source,
+        position,
+      });
+    },
+    [syncBlockState]
   );
 
   // Define custom themes before editor mounts
@@ -218,31 +251,92 @@ const EditorView: React.FC<EditorViewProps> = ({ onSelectionChange, onEditorMoun
       label: 'Save File',
       keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
       run: () => {
+        flushPendingEditorContent();
         useEditorStore.getState().saveFile();
+      },
+    });
+
+    editor.addAction({
+      id: 'weavemd-undo',
+      label: 'Undo Change',
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyZ],
+      run: () => {
+        flushPendingEditorContent();
+        useEditorStore.getState().undo();
+      },
+    });
+
+    editor.addAction({
+      id: 'weavemd-redo',
+      label: 'Redo Change',
+      keybindings: [
+        monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyY,
+        monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyZ,
+      ],
+      run: () => {
+        flushPendingEditorContent();
+        useEditorStore.getState().redo();
       },
     });
 
     // Track selection changes
     editor.onDidChangeCursorSelection((e) => {
       onSelectionChange?.(e.selection.isEmpty() ? null : e.selection);
-      updateDecorations(editor, e.selection.getStartPosition());
     });
 
     // Track cursor position changes
     editor.onDidChangeCursorPosition((e) => {
-      updateDecorations(editor, e.position);
+      if (isUpdatingRef.current) return;
+
+      syncBlockState(editor, {
+        type: 'cursorMove',
+        source: normalizeCursorSource(e.source),
+        position: e.position,
+      });
+    });
+
+    editor.onKeyDown((e) => {
+      if (e.keyCode === monaco.KeyCode.Enter) {
+        pendingEnterRef.current = true;
+      }
+    });
+
+    editor.onDidFocusEditorText(() => {
+      onFocusChange?.(true);
+      syncFromCurrentCursor(editor, 'keyboard');
+    });
+
+    editor.onDidBlurEditorText(() => {
+      flushPendingEditorContent();
+      onFocusChange?.(false);
+      onSelectionChange?.(null);
+      pendingEnterRef.current = false;
+      syncBlockState(editor, { type: 'blur' });
     });
 
     // Track content changes
-    editor.onDidChangeModelContent(() => {
-      debouncedUpdateDecorations(editor);
+    editor.onDidChangeModelContent((e) => {
+      if (isUpdatingRef.current) return;
+
+      const changeType = classifyContentChange(e.changes, pendingEnterRef.current);
+      pendingEnterRef.current = false;
+      if (!changeType) return;
+
+      const position = editor.getPosition();
+      if (!position) return;
+
+      syncBlockState(editor, {
+        type: changeType,
+        position,
+      });
     });
 
-    // Initial decorations update
-    updateDecorations(editor);
+    // Initial block sync
+    syncFromCurrentCursor(editor, 'keyboard');
 
     // Expose editor to parent
     onEditorMount?.(editor);
+    onFocusChange?.(true);
 
     // Focus editor on mount
     editor.focus();
@@ -264,11 +358,24 @@ const EditorView: React.FC<EditorViewProps> = ({ onSelectionChange, onEditorMoun
 
     const currentEditorContent = editor.getValue();
     if (content !== currentEditorContent) {
+      debouncedUpdate.cancel();
       isUpdatingRef.current = true;
       editor.setValue(content);
       isUpdatingRef.current = false;
+      syncFromCurrentCursor(editor, 'keyboard');
     }
-  }, [content]);
+  }, [content, debouncedUpdate, syncFromCurrentCursor]);
+
+  useEffect(() => {
+    debouncedUpdate.cancel();
+  }, [currentFileId, debouncedUpdate]);
+
+  useEffect(() => {
+    setEditorDraftFlusher(flushPendingEditorContent);
+    return () => {
+      setEditorDraftFlusher(null);
+    };
+  }, [flushPendingEditorContent, setEditorDraftFlusher]);
 
   // Update editor theme when app theme changes
   useEffect(() => {
@@ -277,6 +384,26 @@ const EditorView: React.FC<EditorViewProps> = ({ onSelectionChange, onEditorMoun
       monacoRef.current.editor.setTheme(editorTheme);
     }
   }, [theme, isDarkTheme]);
+
+  useEffect(() => {
+    return () => {
+      debouncedUpdate.cancel();
+      pendingEnterRef.current = false;
+      decorationsRef.current?.clear();
+      onSelectionChange?.(null);
+      onFocusChange?.(false);
+      onEditorMount?.(null);
+      setEditorDraftFlusher(null);
+      resetMarkdownBlockState();
+    };
+  }, [
+    debouncedUpdate,
+    onEditorMount,
+    onFocusChange,
+    onSelectionChange,
+    resetMarkdownBlockState,
+    setEditorDraftFlusher,
+  ]);
 
   const editorTheme = isDarkTheme ? 'weaveMD-dark' : 'weaveMD-light';
 

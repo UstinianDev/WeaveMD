@@ -18,6 +18,8 @@ import { useUIStore } from '../stores/uiStore';
 
 const MainPage: React.FC = () => {
   const currentFile = useEditorStore((s) => s.currentFile);
+  const isDirty = useEditorStore((s) => s.isDirty);
+  const saveFile = useEditorStore((s) => s.saveFile);
   const isSidebarOpen = useUIStore((s) => s.isSidebarOpen);
   const isHistoryPanelOpen = useUIStore((s) => s.isHistoryPanelOpen);
   const toggleHistoryPanel = useUIStore((s) => s.toggleHistoryPanel);
@@ -34,9 +36,24 @@ const MainPage: React.FC = () => {
     }
   }, [user, loadHistory]);
 
+  useEffect(() => {
+    if (!currentFile?.id || !isDirty) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      saveFile();
+    }, 1200);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [currentFile?.id, isDirty, saveFile]);
+
   // Monaco editor reference for toolbar and outline navigation
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const [selection, setSelection] = useState<Monaco.Selection | null>(null);
+  const [isEditorFocused, setIsEditorFocused] = useState(false);
 
   const handleSelectionChange = useCallback((sel: Monaco.Selection | null) => {
     setSelection(sel);
@@ -46,10 +63,20 @@ const MainPage: React.FC = () => {
     editorRef.current = editor;
   }, []);
 
+  useEffect(() => {
+    if (currentFile) {
+      return;
+    }
+
+    editorRef.current = null;
+    setSelection(null);
+    setIsEditorFocused(false);
+  }, [currentFile]);
+
   const handleNavigateToLine = useCallback((lineNumber: number) => {
     if (editorRef.current) {
       editorRef.current.revealLineInCenter(lineNumber);
-      editorRef.current.setPosition({ lineNumber, column: 1 });
+      editorRef.current.setPosition({ lineNumber, column: 1 }, 'outline');
       editorRef.current.focus();
     }
   }, []);
@@ -71,7 +98,11 @@ const MainPage: React.FC = () => {
         {/* Editor area - 3/4 width */}
         <main className="flex-1 overflow-hidden relative">
           {currentFile ? (
-            <EditorView onSelectionChange={handleSelectionChange} onEditorMount={setEditorRef} />
+            <EditorView
+              onSelectionChange={handleSelectionChange}
+              onEditorMount={setEditorRef}
+              onFocusChange={setIsEditorFocused}
+            />
           ) : (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
@@ -87,7 +118,11 @@ const MainPage: React.FC = () => {
       </div>
 
       {/* Floating Toolbar */}
-      <FloatingToolbar editor={editorRef.current} selection={selection} />
+      <FloatingToolbar
+        editor={editorRef.current}
+        selection={selection}
+        isEditorFocused={isEditorFocused}
+      />
 
       {/* History Panel (slide-out) */}
       <HistoryPanel isOpen={isHistoryPanelOpen} onClose={toggleHistoryPanel} />
