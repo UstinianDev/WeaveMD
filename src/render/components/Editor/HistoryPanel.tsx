@@ -2,11 +2,12 @@
 // WeaveMD — History Panel (Slide-out)
 // ============================================
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { useHistoryStore } from '../../stores/historyStore';
+import React, { useEffect, useMemo, useState } from 'react';
+import type { IFile } from '../../../shared/types';
 import { useAuthStore } from '../../stores/authStore';
 import { useEditorStore } from '../../stores/editorStore';
-import type { IFile } from '../../../shared/types';
+import { useHistoryStore } from '../../stores/historyStore';
+import { useUIStore } from '../../stores/uiStore';
 
 interface HistoryPanelProps {
   isOpen: boolean;
@@ -21,6 +22,8 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose }) => {
   const deleteHistoryFile = useHistoryStore((s) => s.deleteHistoryFile);
   const user = useAuthStore((s) => s.user);
   const openFile = useEditorStore((s) => s.openFile);
+  const saveFile = useEditorStore((s) => s.saveFile);
+  const flushEditorDraft = useUIStore((s) => s.flushEditorDraft);
 
   const [loading, setLoading] = useState(false);
 
@@ -31,12 +34,19 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose }) => {
     }
   }, [isOpen, user, loadHistory]);
 
-  const filteredFiles = useMemo(() =>
-    files.filter((f) =>
-      !searchQuery || f.name.toLowerCase().includes(searchQuery.toLowerCase())
-    ), [files, searchQuery]);
+  const filteredFiles = useMemo(
+    () =>
+      files.filter((f) => !searchQuery || f.name.toLowerCase().includes(searchQuery.toLowerCase())),
+    [files, searchQuery]
+  );
 
-  const handleOpenFile = (file: IFile) => {
+  const handleOpenFile = async (file: IFile) => {
+    await flushEditorDraft();
+    const { currentFile: latestCurrentFile, isDirty: latestIsDirty } = useEditorStore.getState();
+
+    if (latestCurrentFile?.id && latestCurrentFile.id !== file.id && latestIsDirty) {
+      await saveFile();
+    }
     openFile(file);
     onClose();
   };
@@ -49,7 +59,11 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose }) => {
   const formatDate = (dateStr: string) => {
     try {
       const date = new Date(dateStr);
-      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+      return date.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
     } catch {
       return dateStr;
     }
@@ -67,11 +81,15 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose }) => {
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <h3 className="text-sm font-semibold text-white">History</h3>
-          <button
-            onClick={onClose}
-            className="text-text-muted hover:text-white transition-colors"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <button onClick={onClose} className="text-text-muted hover:text-white transition-colors">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -120,7 +138,9 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose }) => {
               <div
                 key={file.id}
                 className="flex items-center gap-3 px-4 py-2.5 hover:bg-bg-tertiary cursor-pointer transition-colors group"
-                onClick={() => handleOpenFile(file)}
+                onClick={() => {
+                  void handleOpenFile(file);
+                }}
               >
                 <span className="text-sm">📄</span>
                 <div className="flex-1 min-w-0">
@@ -135,7 +155,14 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose }) => {
                   className="text-text-muted hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
                   title="Delete"
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
                     <polyline points="3 6 5 6 21 6" />
                     <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
                   </svg>

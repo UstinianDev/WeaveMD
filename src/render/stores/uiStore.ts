@@ -4,6 +4,13 @@
 
 import { create } from 'zustand';
 import type { LanguageType, PageWidth, ThemeType } from '../../shared/types';
+import {
+  initialMarkdownBlockState,
+  transitionMarkdownBlockState,
+  type BlockInfo,
+  type MarkdownBlockState,
+  type MarkdownBlockStateEvent,
+} from '../services/markdownBlockDetector';
 
 interface UIStore {
   theme: ThemeType;
@@ -15,6 +22,8 @@ interface UIStore {
   isLoading: boolean;
   isSplashComplete: boolean;
   isHistoryPanelOpen: boolean;
+  markdownBlockState: MarkdownBlockState;
+  editorDraftFlusher: (() => void | Promise<void>) | null;
 
   setTheme: (theme: ThemeType) => void;
   setLanguage: (language: LanguageType) => void;
@@ -26,6 +35,14 @@ interface UIStore {
   setLoading: (loading: boolean) => void;
   setSplashComplete: (complete: boolean) => void;
   toggleHistoryPanel: () => void;
+  setMarkdownBlockState: (state: MarkdownBlockState) => void;
+  transitionMarkdownBlockState: (
+    blocks: BlockInfo[],
+    event: MarkdownBlockStateEvent
+  ) => MarkdownBlockState;
+  resetMarkdownBlockState: () => void;
+  setEditorDraftFlusher: (flusher: (() => void | Promise<void>) | null) => void;
+  flushEditorDraft: () => Promise<void>;
   persistSettings: () => void;
   loadSettings: () => void;
 }
@@ -40,6 +57,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
   isLoading: false,
   isSplashComplete: false,
   isHistoryPanelOpen: false,
+  markdownBlockState: initialMarkdownBlockState,
+  editorDraftFlusher: null,
 
   setTheme: (theme) => {
     set({ theme });
@@ -69,6 +88,22 @@ export const useUIStore = create<UIStore>((set, get) => ({
   setSplashComplete: (complete) => set({ isSplashComplete: complete }),
 
   toggleHistoryPanel: () => set((s) => ({ isHistoryPanelOpen: !s.isHistoryPanelOpen })),
+
+  setMarkdownBlockState: (markdownBlockState) => set({ markdownBlockState }),
+
+  transitionMarkdownBlockState: (blocks, event) => {
+    const nextState = transitionMarkdownBlockState(blocks, get().markdownBlockState, event);
+    set({ markdownBlockState: nextState });
+    return nextState;
+  },
+
+  resetMarkdownBlockState: () => set({ markdownBlockState: initialMarkdownBlockState }),
+
+  setEditorDraftFlusher: (editorDraftFlusher) => set({ editorDraftFlusher }),
+
+  flushEditorDraft: async () => {
+    await get().editorDraftFlusher?.();
+  },
 
   persistSettings: () => {
     const { theme, language, sidebarWidth } = get();
