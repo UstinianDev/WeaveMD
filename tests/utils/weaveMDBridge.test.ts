@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { ensureWeaveMDApi } from '../../src/render/utils/weaveMDBridge';
 
 describe('weaveMDBridge', () => {
   const originalBridge = window.weaveMD;
-  let warnSpy: ReturnType<typeof vi.spyOn>;
+  let warnSpy: MockInstance;
 
   beforeEach(() => {
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});

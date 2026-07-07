@@ -3,6 +3,7 @@
 // ============================================
 
 import '@testing-library/jest-dom';
+import { vi } from 'vitest';
 
 // Mock window.weaveMD API
 const mockWeaveMD = {
