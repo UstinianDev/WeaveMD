@@ -99,7 +99,7 @@ describe('editorStore', () => {
   });
 
   it('should save the current file and mark it clean', async () => {
-    window.weaveMD.file.save.mockResolvedValue({
+    vi.mocked(window.weaveMD.file.save).mockResolvedValue({
       success: true,
       data: {
         ...mockFile,
