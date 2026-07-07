@@ -15,7 +15,6 @@ interface UIStore {
   isLoading: boolean;
   isSplashComplete: boolean;
   isHistoryPanelOpen: boolean;
-  isPreviewMode: boolean;
 
   setTheme: (theme: ThemeType) => void;
   setLanguage: (language: LanguageType) => void;
@@ -27,7 +26,6 @@ interface UIStore {
   setLoading: (loading: boolean) => void;
   setSplashComplete: (complete: boolean) => void;
   toggleHistoryPanel: () => void;
-  togglePreviewMode: () => void;
   persistSettings: () => void;
   loadSettings: () => void;
 }
@@ -42,7 +40,6 @@ export const useUIStore = create<UIStore>((set, get) => ({
   isLoading: false,
   isSplashComplete: false,
   isHistoryPanelOpen: false,
-  isPreviewMode: true,
 
   setTheme: (theme) => {
     set({ theme });
@@ -73,29 +70,20 @@ export const useUIStore = create<UIStore>((set, get) => ({
 
   toggleHistoryPanel: () => set((s) => ({ isHistoryPanelOpen: !s.isHistoryPanelOpen })),
 
-  togglePreviewMode: () => {
-    set((s) => ({ isPreviewMode: !s.isPreviewMode }));
-    get().persistSettings();
-  },
-
   persistSettings: () => {
-    const { theme, language, sidebarWidth, isPreviewMode } = get();
-    localStorage.setItem(
-      'weavemd_ui',
-      JSON.stringify({ theme, language, sidebarWidth, isPreviewMode })
-    );
+    const { theme, language, sidebarWidth } = get();
+    localStorage.setItem('weavemd_ui', JSON.stringify({ theme, language, sidebarWidth }));
   },
 
   loadSettings: () => {
     try {
       const stored = localStorage.getItem('weavemd_ui');
       if (stored) {
-        const { theme, language, sidebarWidth, isPreviewMode } = JSON.parse(stored);
+        const { theme, language, sidebarWidth } = JSON.parse(stored);
         set({
           theme: theme || 'light-header',
           language: language || 'zh-CN',
           sidebarWidth: sidebarWidth || 240,
-          isPreviewMode: isPreviewMode || false,
         });
       }
     } catch {

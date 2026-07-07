@@ -8,7 +8,6 @@ import StatusBar from '../components/Common/StatusBar';
 import EditorView from '../components/Editor/EditorView';
 import FloatingToolbar from '../components/Editor/FloatingToolbar';
 import HistoryPanel from '../components/Editor/HistoryPanel';
-import MarkdownPreview from '../components/Editor/MarkdownPreview';
 import OutlinePanel from '../components/Editor/OutlinePanel';
 import TopBar from '../components/Navbar/TopBar';
 import SettingsModal from '../components/Settings/SettingsModal';
@@ -19,9 +18,7 @@ import { useUIStore } from '../stores/uiStore';
 
 const MainPage: React.FC = () => {
   const currentFile = useEditorStore((s) => s.currentFile);
-  const content = useEditorStore((s) => s.content);
   const isSidebarOpen = useUIStore((s) => s.isSidebarOpen);
-  const isPreviewMode = useUIStore((s) => s.isPreviewMode);
   const isHistoryPanelOpen = useUIStore((s) => s.isHistoryPanelOpen);
   const toggleHistoryPanel = useUIStore((s) => s.toggleHistoryPanel);
   const activeModal = useUIStore((s) => s.activeModal);
@@ -74,22 +71,7 @@ const MainPage: React.FC = () => {
         {/* Editor area - 3/4 width */}
         <main className="flex-1 overflow-hidden relative">
           {currentFile ? (
-            isPreviewMode ? (
-              <div className="flex h-full">
-                <div className="w-1/2 h-full">
-                  <EditorView
-                    onSelectionChange={handleSelectionChange}
-                    onEditorMount={setEditorRef}
-                  />
-                </div>
-                <div className="w-px bg-border" />
-                <div className="w-1/2 h-full">
-                  <MarkdownPreview content={content} />
-                </div>
-              </div>
-            ) : (
-              <EditorView onSelectionChange={handleSelectionChange} onEditorMount={setEditorRef} />
-            )
+            <EditorView onSelectionChange={handleSelectionChange} onEditorMount={setEditorRef} />
           ) : (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">

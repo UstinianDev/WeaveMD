@@ -2,10 +2,15 @@
 // WeaveMD — Monaco Editor View
 // ============================================
 
-import React, { useRef, useCallback, useEffect } from 'react';
-import Editor, { OnMount, BeforeMount } from '@monaco-editor/react';
-import type { editor as monacoEditor } from 'monaco-editor';
+import Editor, { BeforeMount, OnMount } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
+import type { editor as monacoEditor } from 'monaco-editor';
+import React, { useCallback, useEffect, useRef } from 'react';
+import {
+  detectAllBlocks,
+  type BlockInfo,
+  type SyntaxMarker,
+} from '../../services/markdownBlockDetector';
 import { useEditorStore } from '../../stores/editorStore';
 import { useUIStore } from '../../stores/uiStore';
 // Ensure Monaco loads from local package, not CDN
@@ -41,6 +46,8 @@ const EditorView: React.FC<EditorViewProps> = ({ onSelectionChange, onEditorMoun
   const editorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
   const isUpdatingRef = useRef(false);
+  const decorationsRef = useRef<monacoEditor.IEditorDecorationsCollection | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const content = useEditorStore((s) => s.content);
   const setContent = useEditorStore((s) => s.updateContent);
@@ -51,6 +58,76 @@ const EditorView: React.FC<EditorViewProps> = ({ onSelectionChange, onEditorMoun
   }, 300);
 
   const isDarkTheme = theme === 'dark' || theme === 'high-contrast';
+
+  // Update decorations based on cursor position
+  const updateDecorations = useCallback(
+    (editor: monacoEditor.IStandaloneCodeEditor, cursorPosition?: Monaco.Position) => {
+      const monaco = monacoRef.current;
+      if (!monaco) return;
+
+      const model = editor.getModel();
+      if (!model) return;
+
+      const position = cursorPosition || editor.getPosition();
+      if (!position) return;
+
+      const allBlocks = detectAllBlocks(model);
+      const cursorLine = position.lineNumber;
+      const cursorColumn = position.column;
+
+      // Find blocks that don't contain the cursor
+      const nonCursorBlocks = allBlocks.filter((block: BlockInfo) => {
+        const isInBlock =
+          (block.startLine < cursorLine ||
+            (block.startLine === cursorLine && block.startColumn <= cursorColumn)) &&
+          (block.endLine > cursorLine ||
+            (block.endLine === cursorLine && block.endColumn >= cursorColumn));
+        return !isInBlock;
+      });
+
+      // Collect all syntax markers from non-cursor blocks
+      const markersToHide: SyntaxMarker[] = [];
+      nonCursorBlocks.forEach((block: BlockInfo) => {
+        markersToHide.push(...block.syntaxMarkers);
+      });
+
+      // Create decorations
+      const decorations: monacoEditor.IModelDeltaDecoration[] = markersToHide.map(
+        (marker: SyntaxMarker) => ({
+          range: new monaco.Range(
+            marker.startLine,
+            marker.startColumn,
+            marker.endLine,
+            marker.endColumn
+          ),
+          options: {
+            inlineClassName: 'hidden-markdown-marker',
+          },
+        })
+      );
+
+      // Update decorations collection
+      if (!decorationsRef.current) {
+        decorationsRef.current = editor.createDecorationsCollection(decorations);
+      } else {
+        decorationsRef.current.set(decorations);
+      }
+    },
+    []
+  );
+
+  // Debounced update decorations
+  const debouncedUpdateDecorations = useCallback(
+    (editor: monacoEditor.IStandaloneCodeEditor) => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      debounceTimerRef.current = setTimeout(() => {
+        updateDecorations(editor);
+      }, 50);
+    },
+    [updateDecorations]
+  );
 
   // Define custom themes before editor mounts
   const handleBeforeMount: BeforeMount = (monaco) => {
@@ -132,6 +209,9 @@ const EditorView: React.FC<EditorViewProps> = ({ onSelectionChange, onEditorMoun
     editorRef.current = editor;
     monacoRef.current = monaco;
 
+    // Initialize decorations collection
+    decorationsRef.current = editor.createDecorationsCollection();
+
     // Ctrl+S save action
     editor.addAction({
       id: 'weavemd-save',
@@ -145,7 +225,21 @@ const EditorView: React.FC<EditorViewProps> = ({ onSelectionChange, onEditorMoun
     // Track selection changes
     editor.onDidChangeCursorSelection((e) => {
       onSelectionChange?.(e.selection.isEmpty() ? null : e.selection);
+      updateDecorations(editor, e.selection.getStartPosition());
     });
+
+    // Track cursor position changes
+    editor.onDidChangeCursorPosition((e) => {
+      updateDecorations(editor, e.position);
+    });
+
+    // Track content changes
+    editor.onDidChangeModelContent(() => {
+      debouncedUpdateDecorations(editor);
+    });
+
+    // Initial decorations update
+    updateDecorations(editor);
 
     // Expose editor to parent
     onEditorMount?.(editor);

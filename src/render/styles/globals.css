@@ -745,3 +745,11 @@ html.high-contrast .markdown-preview .token.important,
 html.high-contrast .markdown-preview .token.variable {
   color: #FB923C;
 }
+
+/* ============================================ */
+/* Hidden Markdown Markers                      */
+/* ============================================ */
+.hidden-markdown-marker {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
