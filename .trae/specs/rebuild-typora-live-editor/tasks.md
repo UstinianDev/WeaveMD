@@ -36,11 +36,11 @@
   - [x] SubTask 6.3: 按要求执行 `npm run dev` 做最终审查，记录环境限制和人工验证结果
   - [x] Validation: 确认关键测试通过且无新增诊断错误
 
-- [x] Task 7: 整理交付并推送仓库
+- [ ] Task 7: 整理交付并推送仓库
   - [x] SubTask 7.1: 复核规格文档与实现状态一致
   - [x] SubTask 7.2: 整理变更说明，准备 Git 提交
-  - [x] SubTask 7.3: 推送到 `pengwenhua59-dev/WeaveMD`
-  - [x] Validation: 确认远程仓库包含本次功能开发结果
+  - [ ] SubTask 7.3: 推送到 `pengwenhua59-dev/WeaveMD`
+  - [ ] Validation: 确认远程仓库包含本次功能开发结果
 
 - [ ] Task 8: 补齐单画布排版态的真实渲染接入
   - [ ] SubTask 8.1: 将现有 `markdown.ts` 渲染结果或等价渲染链路真正接入单画布非激活块显示，而不是只保留未接入的 `.markdown-preview` 样式
