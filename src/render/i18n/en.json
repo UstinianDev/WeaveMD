@@ -100,6 +100,7 @@
   "toolbar.link": "Hyperlink",
   "toolbar.copy": "Copy",
   "toolbar.comment": "Comment",
+  "toolbar.mdSource": "MD Source",
   "splash.loading": "Loading your notes...",
   "splash.clickSkip": "Click anywhere to skip"
 }

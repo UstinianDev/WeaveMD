@@ -103,6 +103,7 @@ describe('uiStore', () => {
       lastExitedBlockId: null,
       continuousInputBlockId: 'heading:1-1',
       activeSource: 'input' as const,
+      mdSourceBlockId: null,
     };
 
     useUIStore.getState().setMarkdownBlockState(nextState);
@@ -149,6 +150,7 @@ describe('uiStore', () => {
       lastExitedBlockId: 'heading:1-1',
       continuousInputBlockId: null,
       activeSource: 'mouse',
+      mdSourceBlockId: null,
     });
   });
 
@@ -158,10 +160,19 @@ describe('uiStore', () => {
       lastExitedBlockId: 'heading:1-1',
       continuousInputBlockId: 'paragraph:3-3',
       activeSource: 'keyboard',
+      mdSourceBlockId: null,
     });
 
     useUIStore.getState().resetMarkdownBlockState();
     expect(useUIStore.getState().markdownBlockState).toEqual(initialMarkdownBlockState);
+  });
+
+  it('should set and clear md source block id', () => {
+    useUIStore.getState().setMdSourceBlockId('paragraph:3-3');
+    expect(useUIStore.getState().markdownBlockState.mdSourceBlockId).toBe('paragraph:3-3');
+
+    useUIStore.getState().clearMdSourceBlockId();
+    expect(useUIStore.getState().markdownBlockState.mdSourceBlockId).toBeNull();
   });
 
   it('should flush the registered editor draft callback', async () => {

@@ -3,6 +3,7 @@ import {
   detectAllBlocks,
   detectCurrentBlock,
   initialMarkdownBlockState,
+  resolveMdSourceBlockFromSelection,
   transitionMarkdownBlockState,
   type TextModelLike,
 } from '../../src/render/services/markdownBlockDetector';
@@ -100,6 +101,7 @@ Paragraph text
       lastExitedBlockId: null,
       continuousInputBlockId: 'heading:1-1',
       activeSource: 'input',
+      mdSourceBlockId: null,
     });
 
     const afterKeyboardMove = transitionMarkdownBlockState(blocks, afterInput, {
@@ -112,6 +114,7 @@ Paragraph text
       lastExitedBlockId: 'heading:1-1',
       continuousInputBlockId: null,
       activeSource: 'keyboard',
+      mdSourceBlockId: null,
     });
 
     const afterParagraphInput = transitionMarkdownBlockState(blocks, afterKeyboardMove, {
@@ -129,6 +132,7 @@ Paragraph text
       lastExitedBlockId: 'paragraph:3-3',
       continuousInputBlockId: 'unordered-list-item:5-5',
       activeSource: 'keyboard',
+      mdSourceBlockId: null,
     });
 
     const afterBlur = transitionMarkdownBlockState(blocks, afterEnter, {
@@ -139,6 +143,7 @@ Paragraph text
       lastExitedBlockId: 'unordered-list-item:5-5',
       continuousInputBlockId: null,
       activeSource: 'blur',
+      mdSourceBlockId: null,
     });
   });
 
@@ -160,5 +165,34 @@ still same paragraph`);
     expect(afterMove.activeBlockId).toBe('paragraph:1-2');
     expect(afterMove.continuousInputBlockId).toBe('paragraph:1-2');
     expect(afterMove.lastExitedBlockId).toBeNull();
+  });
+
+  it('should preserve mdSourceBlockId across block state transitions', () => {
+    const model = createTextModel('Paragraph line one\nParagraph line two');
+    const blocks = detectAllBlocks(model);
+    const withMdSource = {
+      ...initialMarkdownBlockState,
+      activeBlockId: 'paragraph:1-2',
+      mdSourceBlockId: 'paragraph:1-2',
+    };
+
+    const afterMove = transitionMarkdownBlockState(blocks, withMdSource, {
+      type: 'cursorMove',
+      source: 'keyboard',
+      position: { lineNumber: 2, column: 5 },
+    });
+
+    expect(afterMove.mdSourceBlockId).toBe('paragraph:1-2');
+  });
+
+  it('should resolve md source block from a partial selection', () => {
+    const model = createTextModel('Line one\nLine two');
+    const block = resolveMdSourceBlockFromSelection(model, {
+      getStartPosition: () => ({ lineNumber: 1, column: 4 }),
+    });
+
+    expect(block?.id).toBe('paragraph:1-2');
+    expect(block?.startLine).toBe(1);
+    expect(block?.endLine).toBe(2);
   });
 });

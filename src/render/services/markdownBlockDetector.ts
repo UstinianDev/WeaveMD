@@ -51,6 +51,8 @@ export interface MarkdownBlockState {
   lastExitedBlockId: string | null;
   continuousInputBlockId: string | null;
   activeSource: BlockActivationSource | null;
+  /** Block explicitly toggled to MD source view via floating toolbar */
+  mdSourceBlockId: string | null;
 }
 
 export type MarkdownBlockStateEvent =
@@ -64,7 +66,21 @@ export const initialMarkdownBlockState: MarkdownBlockState = {
   lastExitedBlockId: null,
   continuousInputBlockId: null,
   activeSource: null,
+  mdSourceBlockId: null,
 };
+
+export interface SelectionPositionLike {
+  getStartPosition(): BlockPosition;
+}
+
+/** Resolve the full block (paragraph-level) for MD source view from a partial selection. */
+export function resolveMdSourceBlockFromSelection(
+  model: TextModelLike,
+  selection: SelectionPositionLike
+): BlockInfo | null {
+  const blocks = detectAllBlocks(model);
+  return findBlockAtPosition(blocks, selection.getStartPosition());
+}
 
 const HEADING_RE = /^(#{1,6})[ \t]+/;
 const BLOCKQUOTE_RE = /^[ \t]*(?:>[ \t]?)+/;
@@ -170,6 +186,7 @@ export function transitionMarkdownBlockState(
       lastExitedBlockId: previousState.activeBlockId ?? previousState.lastExitedBlockId,
       continuousInputBlockId: null,
       activeSource: 'blur',
+      mdSourceBlockId: previousState.mdSourceBlockId,
     };
   }
 
@@ -186,6 +203,7 @@ export function transitionMarkdownBlockState(
       lastExitedBlockId,
       continuousInputBlockId: targetBlockId,
       activeSource: 'input',
+      mdSourceBlockId: previousState.mdSourceBlockId,
     };
   }
 
@@ -195,6 +213,7 @@ export function transitionMarkdownBlockState(
       lastExitedBlockId,
       continuousInputBlockId: targetBlockId,
       activeSource: 'keyboard',
+      mdSourceBlockId: previousState.mdSourceBlockId,
     };
   }
 
@@ -206,6 +225,7 @@ export function transitionMarkdownBlockState(
     lastExitedBlockId,
     continuousInputBlockId: keepContinuousInput ? previousState.continuousInputBlockId : null,
     activeSource: event.source,
+    mdSourceBlockId: previousState.mdSourceBlockId,
   };
 }
 

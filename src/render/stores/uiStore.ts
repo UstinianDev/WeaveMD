@@ -36,6 +36,8 @@ interface UIStore {
   setSplashComplete: (complete: boolean) => void;
   toggleHistoryPanel: () => void;
   setMarkdownBlockState: (state: MarkdownBlockState) => void;
+  setMdSourceBlockId: (blockId: string | null) => void;
+  clearMdSourceBlockId: () => void;
   transitionMarkdownBlockState: (
     blocks: BlockInfo[],
     event: MarkdownBlockStateEvent
@@ -90,6 +92,22 @@ export const useUIStore = create<UIStore>((set, get) => ({
   toggleHistoryPanel: () => set((s) => ({ isHistoryPanelOpen: !s.isHistoryPanelOpen })),
 
   setMarkdownBlockState: (markdownBlockState) => set({ markdownBlockState }),
+
+  setMdSourceBlockId: (blockId) =>
+    set((state) => ({
+      markdownBlockState: {
+        ...state.markdownBlockState,
+        mdSourceBlockId: blockId,
+      },
+    })),
+
+  clearMdSourceBlockId: () =>
+    set((state) => ({
+      markdownBlockState: {
+        ...state.markdownBlockState,
+        mdSourceBlockId: null,
+      },
+    })),
 
   transitionMarkdownBlockState: (blocks, event) => {
     const nextState = transitionMarkdownBlockState(blocks, get().markdownBlockState, event);

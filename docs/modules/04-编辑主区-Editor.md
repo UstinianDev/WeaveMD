@@ -6,7 +6,14 @@
 
 ## 1. 功能概述
 
-应用的核心编辑区域，包含目录面板、Monaco 编辑器、浮动工具栏和历史面板。支持 Markdown 编辑、实时预览、目录导航、块级渲染、撤销/重做、自动保存等功能。
+应用的核心编辑区域，包含目录面板、Monaco 编辑器、浮动工具栏和历史面板。支持 Markdown 编辑、Typora 式富文本排版、目录导航、按需 MD 原文查看、撤销/重做、自动保存等功能。
+
+**v2.1 编辑区优化（2026-07-08）：**
+
+- 移除编辑器行号，扩大内容可视宽度
+- 富文本块横向铺满可视区域后再换行，减少短句无故拆行
+- 默认点击/编辑均保持富文本排版；仅通过浮动工具栏「MD原文」按钮查看整段 Markdown 源文
+- 点击编辑区其他位置自动恢复富文本显示
 
 ## 2. 架构位置
 
@@ -41,8 +48,8 @@ src/render/stores/
 │  OutlinePanel  │            EditorView                       │
 │  (左侧 1/4)    │     (Monaco Editor)                         │
 │                │                                             │
-│  目录树        │    Markdown 编辑 + 块级渲染                  │
-│  H1/H2/H3      │    行号 / 代码高亮 / 自动缩进               │
+│  目录树        │    Markdown 编辑 + 块级富文本渲染              │
+│  H1/H2/H3      │    无行号 / 代码高亮 / 自动缩进               │
 │  可展开/关闭   │    300ms 防抖更新 / 1200ms 自动保存          │
 │                │                                             │
 ├────────────────┴─────────────────────────────────────────────┤
@@ -176,7 +183,30 @@ editorStore.saveFile()
   └── 触发 EditorView useEffect → editor.setValue(恢复的内容)
 ```
 
-### 3.6 块级渲染流程
+### 3.6 块级渲染与 MD 原文切换流程
+
+```
+编辑器内容变化 / 光标移动
+  ↓
+markdownBlockDetector.detectAllBlocks(model)
+  ↓
+transitionBlockState(blocks, event) — 状态机转换（追踪 activeBlockId）
+  ↓
+mdSourceBlockId 控制源文/富文本切换（与 activeBlockId 解耦）
+  ├── 默认：所有块均渲染富文本（含当前光标所在块）
+  ├── 浮动工具栏「MD原文」→ 选中块整段切换为 MD 源文
+  └── 光标移至其他块 / 失焦 → 清除 mdSourceBlockId，恢复富文本
+  ↓
+applyDecorations(editor, blocks, mdSourceBlockId)
+  ↓
+markdownBlockWidgets.sync(content, blocks, mdSourceBlockId)
+  ├── 非 mdSourceBlockId 的块：创建渲染小部件覆盖源文
+  └── mdSourceBlockId 对应块：移除小部件，显示完整 Markdown 源文
+```
+
+**MD 原文范围规则：** 用户即使只选中段落中的部分内容，「MD原文」也会展示该内容所属**整段块**（paragraph / heading / list-item 等）的完整 Markdown 源文。
+
+### 3.7 块级渲染流程（历史参考，已由 3.6 取代 activeBlockId 控制逻辑）
 
 ```
 编辑器内容变化 / 光标移动
@@ -206,29 +236,17 @@ markdownBlockWidgets.sync(content, blocks, activeBlockId)
 ```typescript
 {
   fontSize: 16,
-  fontFamily: '"JetBrains Mono", Consolas, "Courier New", monospace',
-  lineNumbers: 'on',
+  fontFamily: '"JetBrains Mono", Consolas, "Courier New", monospace, ...',
+  lineNumbers: 'off',
+  glyphMargin: false,
+  lineDecorationsWidth: 0,
+  lineNumbersMinChars: 0,
   minimap: { enabled: false },
   wordWrap: 'on',
+  wordWrapColumn: 120,
+  wrappingStrategy: 'advanced',
   automaticLayout: true,
-  readOnly: false,
-  padding: { top: 16, bottom: 16 },
-  scrollBeyondLastLine: false,
-  renderLineHighlight: 'line',
-  cursorBlinking: 'smooth',
-  cursorSmoothCaretAnimation: 'on',
-  smoothScrolling: true,
-  bracketPairColorization: { enabled: true },
-  guides: { indentation: false },
-  tabSize: 2,
-  insertSpaces: true,
-  overviewRulerBorder: false,
-  hideCursorInOverviewRuler: true,
-  overviewRulerLanes: 0,
-  scrollbar: {
-    verticalScrollbarSize: 6,
-    horizontalScrollbarSize: 6,
-  },
+  ...
 }
 ```
 
@@ -335,31 +353,38 @@ interface EditorStore {
 
 ### 4.6 浮动工具栏
 
-选中文本时在正上方 2px 处显示，包含 10 个按钮：
+选中文本时在正上方显示，包含 11 个按钮：
 
 | #   | 按钮     | 功能                                                  | 实现方式                          |
 | --- | -------- | ----------------------------------------------------- | --------------------------------- |
 | 1   | 结构 Θ   | 下拉选择 Text/H1/H2/H3/List/Task/Code/Quote/Highlight | 替换选中文本格式                  |
-| 2   | 位置     | 左对齐/居中/右对齐/缩进+/-                            | 添加对齐标记                      |
-| 3   | 粗体 B   | **粗体**                                              | 包裹 `**text**`                   |
-| 4   | 斜体 I   | _斜体_                                                | 包裹 `*text*`                     |
-| 5   | 下划线 U | <u>下划线</u>                                         | 包裹 `<u>text</u>`                |
-| 6   | 代码 <>  | `行内代码`                                            | 包裹 `` `text` ``                 |
-| 7   | 颜色 🎨  | 字体色/背景色                                         | 插入颜色标记                      |
-| 8   | 链接 🔗  | 超链接                                                | 插入 `[text](url)`                |
-| 9   | 复制 📋  | 复制选中文本                                          | `navigator.clipboard.writeText()` |
-| 10  | 评论 💬  | 插入注释                                              | 包裹 `<!-- text -->`              |
+| 2   | 粗体 B   | **粗体**                                              | 包裹 `**text**`                   |
+| 3   | 斜体 I   | _斜体_                                                | 包裹 `*text*`                     |
+| 4   | 下划线 U | <u>下划线</u>                                         | 包裹 `<u>text</u>`                |
+| 5   | 代码 <>  | `行内代码`                                            | 包裹 `` `text` ``                 |
+| 6   | 链接 🔗  | 超链接                                                | 插入 `[text](url)`                |
+| 7   | 复制 📋  | 复制选中文本                                          | `navigator.clipboard.writeText()` |
+| 8   | 评论 💬  | 插入注释                                              | 包裹 `<!-- text -->`              |
+| 9   | **MD原文** | 查看整段 Markdown 源文                              | 设置 `mdSourceBlockId` + 选中整段 |
 
-**样式：**
+**MD 原文交互：**
+
+```typescript
+// resolveMdSourceBlockFromSelection — 从部分选区解析整段块
+const block = resolveMdSourceBlockFromSelection(model, selection);
+setMdSourceBlockId(block.id);
+editor.setSelection({ startLineNumber: block.startLine, ... block.endLine });
+// 光标移至其他块或失焦 → clearMdSourceBlockId()
+```
+
+**富文本横向排版 CSS：**
 
 ```css
-.floating-toolbar {
-  background: rgba(26, 26, 26, 0.95);
-  border: 1px solid #2d2d2d;
-  border-radius: 8px;
-  position: absolute;
-  top: -2px; /* 选中文本正上方 2px */
-  animation: toolbar-enter 150ms ease;
+.markdown-block-widget .markdown-preview {
+  max-width: 100%;
+  width: 100%;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 ```
 
@@ -438,9 +463,12 @@ function stripDocumentLineNumbers(content: string): string {
 ## 6. 关键设计决策
 
 1. **Monaco Editor**：选择 VS Code 同源的编辑器，功能完善、大文件处理优秀
-2. **自定义撤销/重做栈**：与 Monaco 内置撤销分离，实现跨会话的撤销历史（最多 50 条）
-3. **双层防抖**：300ms 防抖更新 Store + 1200ms 防抖自动保存，平衡实时性和性能
-4. **块级渲染**：代码块、表格等实时渲染预览，提升 Markdown 可视化体验
-5. **自定义主题**：两套完整 Monaco 主题（深色/浅色），与应用设计系统一致
-6. **Prism.js 代码高亮**：渲染预览中的代码块使用 Prism.js，支持 7+ 编程语言
-7. **文档行号检测**：智能检测粘贴内容中的行号前缀并去除，提升编辑体验
+2. **无行号编辑区**：移除 gutter 行号，内容区横向空间最大化
+3. **富文本优先**：默认所有块（含光标所在块）均显示排版态；MD 源文仅通过工具栏「MD原文」按需开启
+4. **整段 MD 原文**：`mdSourceBlockId` 按块粒度切换，部分选区也会展开至整段块范围
+5. **自定义撤销/重做栈**：与 Monaco 内置撤销分离，实现跨会话的撤销历史（最多 50 条）
+6. **双层防抖**：300ms 防抖更新 Store + 1200ms 防抖自动保存，平衡实时性和性能
+7. **块级渲染**：代码块、表格等实时渲染预览，提升 Markdown 可视化体验
+8. **自定义主题**：两套完整 Monaco 主题（深色/浅色），与应用设计系统一致
+9. **Prism.js 代码高亮**：渲染预览中的代码块使用 Prism.js，支持 7+ 编程语言
+10. **文档行号检测**：智能检测粘贴内容中的行号前缀并去除，提升编辑体验

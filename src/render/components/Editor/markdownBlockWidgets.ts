@@ -53,10 +53,10 @@ export class MarkdownRenderedBlocksController {
   async sync(
     content: string,
     blocks: BlockInfo[],
-    activeBlockId: string | null
+    mdSourceBlockId: string | null
   ): Promise<Set<string> | null> {
     const renderVersion = ++this.renderVersion;
-    const inactiveBlocks = blocks.filter((block) => block.id !== activeBlockId);
+    const inactiveBlocks = blocks.filter((block) => block.id !== mdSourceBlockId);
     const renderedBlocks = await Promise.all(
       inactiveBlocks.map(async (block) => {
         const markdown = extractRenderableBlockMarkdown(content, block);

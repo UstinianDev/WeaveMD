@@ -104,7 +104,9 @@ const EditorView: React.FC<EditorViewProps> = ({
   const setContent = useEditorStore((s) => s.updateContent);
   const currentFileId = useEditorStore((s) => s.currentFile?.id ?? null);
   const theme = useUIStore((s) => s.theme);
+  const mdSourceBlockId = useUIStore((s) => s.markdownBlockState.mdSourceBlockId);
   const transitionBlockState = useUIStore((s) => s.transitionMarkdownBlockState);
+  const clearMdSourceBlockId = useUIStore((s) => s.clearMdSourceBlockId);
   const resetMarkdownBlockState = useUIStore((s) => s.resetMarkdownBlockState);
   const setEditorDraftFlusher = useUIStore((s) => s.setEditorDraftFlusher);
 
@@ -124,13 +126,13 @@ const EditorView: React.FC<EditorViewProps> = ({
     (
       editor: monacoEditor.IStandaloneCodeEditor,
       blocks: BlockInfo[],
-      activeBlockId: string | null,
+      sourceBlockId: string | null,
       renderedBlockIds: ReadonlySet<string> = renderedBlockIdsRef.current
     ) => {
       const monaco = monacoRef.current;
       if (!monaco) return;
 
-      const decorations = buildBlockDecorations(monaco, blocks, activeBlockId, renderedBlockIds);
+      const decorations = buildBlockDecorations(monaco, blocks, sourceBlockId, renderedBlockIds);
       if (!decorationsRef.current) {
         decorationsRef.current = editor.createDecorationsCollection(decorations);
       } else {
@@ -144,7 +146,7 @@ const EditorView: React.FC<EditorViewProps> = ({
     async (
       editor: monacoEditor.IStandaloneCodeEditor,
       blocks: BlockInfo[],
-      activeBlockId: string | null
+      sourceBlockId: string | null
     ) => {
       const renderedBlocksController = renderedBlocksControllerRef.current;
       if (!renderedBlocksController) {
@@ -154,16 +156,29 @@ const EditorView: React.FC<EditorViewProps> = ({
       const renderedBlockIds = await renderedBlocksController.sync(
         editor.getValue(),
         blocks,
-        activeBlockId
+        sourceBlockId
       );
       if (!renderedBlockIds) {
         return;
       }
 
       renderedBlockIdsRef.current = new Set(renderedBlockIds);
-      applyDecorations(editor, blocks, activeBlockId, renderedBlockIdsRef.current);
+      applyDecorations(editor, blocks, sourceBlockId, renderedBlockIdsRef.current);
     },
     [applyDecorations]
+  );
+
+  const resyncBlockPresentation = useCallback(
+    (editor: monacoEditor.IStandaloneCodeEditor) => {
+      const model = editor.getModel();
+      if (!model) return;
+
+      const blocks = detectAllBlocks(model);
+      const sourceBlockId = useUIStore.getState().markdownBlockState.mdSourceBlockId;
+      applyDecorations(editor, blocks, sourceBlockId);
+      void syncRenderedBlocks(editor, blocks, sourceBlockId);
+    },
+    [applyDecorations, syncRenderedBlocks]
   );
 
   const syncBlockState = useCallback(
@@ -173,10 +188,21 @@ const EditorView: React.FC<EditorViewProps> = ({
 
       const blocks = detectAllBlocks(model);
       const nextState = transitionBlockState(blocks, event);
-      applyDecorations(editor, blocks, nextState.activeBlockId);
-      void syncRenderedBlocks(editor, blocks, nextState.activeBlockId);
+
+      if (event.type === 'blur') {
+        clearMdSourceBlockId();
+      } else if (event.type === 'cursorMove') {
+        const currentMdSource = useUIStore.getState().markdownBlockState.mdSourceBlockId;
+        if (currentMdSource && nextState.activeBlockId !== currentMdSource) {
+          clearMdSourceBlockId();
+        }
+      }
+
+      const sourceBlockId = useUIStore.getState().markdownBlockState.mdSourceBlockId;
+      applyDecorations(editor, blocks, sourceBlockId);
+      void syncRenderedBlocks(editor, blocks, sourceBlockId);
     },
-    [applyDecorations, syncRenderedBlocks, transitionBlockState]
+    [applyDecorations, clearMdSourceBlockId, syncRenderedBlocks, transitionBlockState]
   );
 
   const syncFromCurrentCursor = useCallback(
@@ -414,6 +440,12 @@ const EditorView: React.FC<EditorViewProps> = ({
     };
   }, [flushPendingEditorContent, setEditorDraftFlusher]);
 
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    resyncBlockPresentation(editor);
+  }, [mdSourceBlockId, resyncBlockPresentation]);
+
   // Update editor theme when app theme changes
   useEffect(() => {
     if (monacoRef.current && editorRef.current) {
@@ -472,9 +504,14 @@ const EditorView: React.FC<EditorViewProps> = ({
           fontSize: 16,
           fontFamily:
             '"JetBrains Mono", Consolas, "Courier New", monospace, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto',
-          lineNumbers: 'on',
+          lineNumbers: 'off',
+          glyphMargin: false,
+          lineDecorationsWidth: 0,
+          lineNumbersMinChars: 0,
           minimap: { enabled: false },
           wordWrap: 'on',
+          wordWrapColumn: 120,
+          wrappingStrategy: 'advanced',
           automaticLayout: true,
           readOnly: false,
           padding: { top: 16, bottom: 16 },
