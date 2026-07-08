@@ -88,7 +88,7 @@ export const isSelectionWithinActiveBlock = ({
   selection: Pick<Monaco.Selection, 'getStartPosition' | 'getEndPosition'> | null;
   activeBlockId: string | null;
 }) => {
-  if (!model || !selection || !activeBlockId) {
+  if (!model || !selection) {
     return false;
   }
 
@@ -96,13 +96,15 @@ export const isSelectionWithinActiveBlock = ({
   const startBlock = findBlockAtPosition(blocks, selection.getStartPosition() as BlockPosition);
   const endBlock = findBlockAtPosition(blocks, selection.getEndPosition() as BlockPosition);
 
-  return Boolean(
-    startBlock &&
-      endBlock &&
-      startBlock.id === activeBlockId &&
-      endBlock.id === activeBlockId &&
-      startBlock.id === endBlock.id
-  );
+  if (!startBlock || !endBlock || startBlock.id !== endBlock.id) {
+    return false;
+  }
+
+  if (!activeBlockId) {
+    return true;
+  }
+
+  return startBlock.id === activeBlockId;
 };
 
 export const calculateToolbarViewportPosition = ({

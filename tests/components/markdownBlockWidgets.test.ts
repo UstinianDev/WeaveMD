@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildRenderedBlockHtml,
   extractRenderableBlockMarkdown,
+  RENDERED_BLOCK_WIDGET_CLASS,
 } from '../../src/render/components/Editor/markdownBlockWidgets';
 
 describe('markdownBlockWidgets helpers', () => {
@@ -33,5 +34,9 @@ describe('markdownBlockWidgets helpers', () => {
     expect(html).toContain('class="markdown-preview markdown-block-rendered markdown-block-rendered--table"');
     expect(html).toContain('data-block-id="table:4-6"');
     expect(html).toContain('<table>');
+  });
+
+  it('should use pass-through widget class so mouse events reach Monaco for selection', () => {
+    expect(RENDERED_BLOCK_WIDGET_CLASS).toContain('markdown-block-widget--pass-through');
   });
 });
