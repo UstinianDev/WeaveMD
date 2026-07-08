@@ -9,6 +9,7 @@ import { useI18n } from '../../i18n';
 import {
   detectAllBlocks,
   findBlockAtPosition,
+  resolveMdSourceBlockFromSelection,
   type BlockPosition,
 } from '../../services/markdownBlockDetector';
 import { useUIStore } from '../../stores/uiStore';
@@ -43,7 +44,8 @@ type ToolbarAction =
   | 'highlight'
   | 'link'
   | 'copy'
-  | 'comment';
+  | 'comment'
+  | 'md-source';
 
 interface StructureMenuItem {
   labelKey: string;
@@ -165,6 +167,8 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
 }) => {
   const { t } = useI18n();
   const activeBlockId = useUIStore((s) => s.markdownBlockState.activeBlockId);
+  const mdSourceBlockId = useUIStore((s) => s.markdownBlockState.mdSourceBlockId);
+  const setMdSourceBlockId = useUIStore((s) => s.setMdSourceBlockId);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const [showStructureMenu, setShowStructureMenu] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
@@ -176,6 +180,36 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     selection,
     activeBlockId,
   });
+
+  const isMdSourceActive = Boolean(
+    mdSourceBlockId &&
+      selection &&
+      editor?.getModel() &&
+      resolveMdSourceBlockFromSelection(editor.getModel()!, selection)?.id === mdSourceBlockId
+  );
+
+  const showMdSource = useCallback(() => {
+    if (!editor || !selection) return;
+
+    const model = editor.getModel();
+    if (!model) return;
+
+    const block = resolveMdSourceBlockFromSelection(model, selection);
+    if (!block) return;
+
+    setMdSourceBlockId(block.id);
+
+    editor.setSelection({
+      startLineNumber: block.startLine,
+      startColumn: block.startColumn,
+      endLineNumber: block.endLine,
+      endColumn: block.endColumn,
+    });
+
+    editor.focus();
+    setShowStructureMenu(false);
+    setShowLinkInput(false);
+  }, [editor, selection, setMdSourceBlockId]);
 
   useEffect(() => {
     if (!editor || !shouldShowFloatingToolbar(selection, isEditorFocused, isSelectionInActiveBlock)) {
@@ -305,9 +339,12 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         case 'comment':
           applyFormat('<!-- ', ' -->');
           break;
+        case 'md-source':
+          showMdSource();
+          break;
       }
     },
-    [editor, selection, applyFormat]
+    [editor, selection, applyFormat, showMdSource]
   );
 
   const handleLinkSubmit = () => {
@@ -446,6 +483,17 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
           >
             <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
           </svg>
+        </ToolbarBtn>
+
+        {/* Separator */}
+        <div className="w-px h-5 mx-0.5" style={{ backgroundColor: 'var(--border-color)' }} />
+
+        <ToolbarBtn
+          onClick={() => executeAction('md-source')}
+          title={t('toolbar.mdSource')}
+          active={isMdSourceActive}
+        >
+          <span className="font-code text-[10px] leading-none whitespace-nowrap px-0.5">MD</span>
         </ToolbarBtn>
       </div>
 

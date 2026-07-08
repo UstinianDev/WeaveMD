@@ -887,11 +887,31 @@ html.high-contrast .markdown-preview .token.variable {
 
 .markdown-block-widget {
   pointer-events: auto;
+  width: 100%;
+}
+
+.markdown-block-widget .markdown-preview {
+  max-width: 100%;
+  width: 100%;
+  text-wrap: wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .markdown-block-rendered {
   display: flow-root;
   color: var(--text-primary);
+  width: 100%;
+  max-width: 100%;
+}
+
+.markdown-block-rendered--paragraph p,
+.markdown-block-rendered--paragraph li,
+.markdown-block-rendered--blockquote p {
+  text-wrap: wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: none;
 }
 
 .markdown-block-rendered > :last-child {

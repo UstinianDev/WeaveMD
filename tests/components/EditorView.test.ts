@@ -44,7 +44,7 @@ describe('EditorView helpers', () => {
     expect(classifyContentChange([], false)).toBeNull();
   });
 
-  it('should only hide syntax for inactive blocks and inject list/task prefixes', () => {
+  it('should only hide syntax for blocks not in MD source view and inject list/task prefixes', () => {
     const blocks: BlockInfo[] = [
       {
         id: 'heading:1-1',

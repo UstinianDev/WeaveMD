@@ -100,6 +100,7 @@
   "toolbar.link": "超連結",
   "toolbar.copy": "複製",
   "toolbar.comment": "評論",
+  "toolbar.mdSource": "MD原文",
   "splash.loading": "正在載入筆記...",
   "splash.clickSkip": "點選任意位置跳過"
 }

@@ -5,6 +5,10 @@ import {
   isSelectionWithinActiveBlock,
   shouldShowFloatingToolbar,
 } from '../../src/render/components/Editor/FloatingToolbar';
+import {
+  detectAllBlocks,
+  resolveMdSourceBlockFromSelection,
+} from '../../src/render/services/markdownBlockDetector';
 
 describe('FloatingToolbar helpers', () => {
   it('should show toolbar only when editor is focused and selection is not empty', () => {
@@ -104,5 +108,34 @@ describe('FloatingToolbar helpers', () => {
 
     expect(position.left).toBe(868);
     expect(position.top).toBe(148);
+  });
+
+  it('should resolve the full paragraph block for a partial-line MD source selection', () => {
+    const model = {
+      getLineCount: () => 6,
+      getLineContent: (lineNumber: number) =>
+        [
+          '# Title',
+          '',
+          'First paragraph line',
+          'Second paragraph line',
+          '',
+          'Another paragraph',
+        ][lineNumber - 1] ?? '',
+    };
+
+    const partialSelection = {
+      getStartPosition: () => ({ lineNumber: 3, column: 8 }),
+      getEndPosition: () => ({ lineNumber: 3, column: 12 }),
+    } as Monaco.Selection;
+
+    const block = resolveMdSourceBlockFromSelection(model, partialSelection);
+
+    expect(block?.id).toBe('paragraph:3-4');
+    expect(block?.startLine).toBe(3);
+    expect(block?.endLine).toBe(4);
+
+    const blocks = detectAllBlocks(model);
+    expect(blocks.find((item) => item.id === block?.id)?.type).toBe('paragraph');
   });
 });

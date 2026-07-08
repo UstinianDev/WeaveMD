@@ -51,13 +51,13 @@ export function classifyContentChange(
 export function buildBlockDecorations(
   monaco: DecorationMonacoLike,
   blocks: BlockInfo[],
-  activeBlockId: string | null,
+  mdSourceBlockId: string | null,
   renderedBlockIds: ReadonlySet<string> = new Set()
 ): monacoEditor.IModelDeltaDecoration[] {
   const decorations: monacoEditor.IModelDeltaDecoration[] = [];
 
   for (const block of blocks) {
-    if (block.id === activeBlockId) {
+    if (block.id === mdSourceBlockId) {
       continue;
     }
 
