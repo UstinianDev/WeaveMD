@@ -26,6 +26,27 @@ describe('FloatingToolbar helpers', () => {
     expect(shouldShowFloatingToolbar(nonEmptySelection, true, false)).toBe(false);
   });
 
+  it('should allow toolbar when selection stays inside one block even without activeBlockId', () => {
+    const model = {
+      getLineCount: () => 4,
+      getLineContent: (lineNumber: number) =>
+        ['# Title', '', 'Paragraph line', 'Another line'][lineNumber - 1] ?? '',
+    };
+
+    const singleBlockSelection = {
+      getStartPosition: () => ({ lineNumber: 3, column: 1 }),
+      getEndPosition: () => ({ lineNumber: 4, column: 5 }),
+    } as Monaco.Selection;
+
+    expect(
+      isSelectionWithinActiveBlock({
+        model,
+        selection: singleBlockSelection,
+        activeBlockId: null,
+      })
+    ).toBe(true);
+  });
+
   it('should only allow the toolbar for selections fully inside the active block', () => {
     const model = {
       getLineCount: () => 4,

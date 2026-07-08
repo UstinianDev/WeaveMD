@@ -200,7 +200,7 @@ mdSourceBlockId 控制源文/富文本切换（与 activeBlockId 解耦）
 applyDecorations(editor, blocks, mdSourceBlockId)
   ↓
 markdownBlockWidgets.sync(content, blocks, mdSourceBlockId)
-  ├── 非 mdSourceBlockId 的块：创建渲染小部件覆盖源文
+  ├── 非 mdSourceBlockId 的块：创建渲染小部件覆盖源文（pointer-events: none，鼠标穿透）
   └── mdSourceBlockId 对应块：移除小部件，显示完整 Markdown 源文
 ```
 
@@ -377,14 +377,12 @@ editor.setSelection({ startLineNumber: block.startLine, ... block.endLine });
 // 光标移至其他块或失焦 → clearMdSourceBlockId()
 ```
 
-**富文本横向排版 CSS：**
+**富文本 overlay 鼠标穿透：** 渲染小部件使用 `pointer-events: none`，不拦截 mousedown/拖拽，鼠标事件直达下方 Monaco 源文本层，支持正常选区与浮动工具栏弹出。
 
 ```css
-.markdown-block-widget .markdown-preview {
-  max-width: 100%;
-  width: 100%;
-  overflow-wrap: break-word;
-  word-break: normal;
+.markdown-block-widget {
+  pointer-events: none;
+  user-select: none;
 }
 ```
 
@@ -472,3 +470,4 @@ function stripDocumentLineNumbers(content: string): string {
 8. **自定义主题**：两套完整 Monaco 主题（深色/浅色），与应用设计系统一致
 9. **Prism.js 代码高亮**：渲染预览中的代码块使用 Prism.js，支持 7+ 编程语言
 10. **文档行号检测**：智能检测粘贴内容中的行号前缀并去除，提升编辑体验
+11. **富文本鼠标穿透**：渲染 overlay 不拦截指针事件，保证 Monaco 层可正常拖拽选区并触发浮动工具栏

@@ -17,6 +17,8 @@ type WidgetRecord = {
   widget: MonacoEditor.IContentWidget;
 };
 
+export const RENDERED_BLOCK_WIDGET_CLASS = 'markdown-block-widget markdown-block-widget--pass-through';
+
 function normalizeDocumentLines(content: string) {
   return prepareMarkdownForRendering(content).split('\n');
 }
@@ -140,25 +142,13 @@ export class MarkdownRenderedBlocksController {
 
     if (!record) {
       const domNode = document.createElement('div');
-      domNode.className = 'markdown-block-widget';
+      domNode.className = RENDERED_BLOCK_WIDGET_CLASS;
       domNode.dataset.blockId = block.id;
       const nextRecord = {} as WidgetRecord;
-      domNode.addEventListener('mousedown', (event) => {
-        if (event.button !== 0) {
-          return;
-        }
-
-        event.preventDefault();
-        this.editor.focus();
-        this.editor.setPosition({
-          lineNumber: nextRecord.block.startLine,
-          column: nextRecord.block.startColumn,
-        });
-      });
 
       const widget: MonacoEditor.IContentWidget = {
         allowEditorOverflow: false,
-        suppressMouseDown: true,
+        suppressMouseDown: false,
         getId: () => widgetId,
         getDomNode: () => domNode,
         getPosition: () => ({
