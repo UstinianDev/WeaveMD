@@ -150,6 +150,8 @@ const ToolbarBtn: React.FC<{
   active?: boolean;
 }> = ({ onClick, title, children, active }) => (
   <button
+    type="button"
+    onMouseDown={(event) => event.preventDefault()}
     onClick={onClick}
     title={title}
     className={`
@@ -366,6 +368,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   return (
     <div
       ref={toolbarRef}
+      data-floating-toolbar
       className="fixed z-50 toolbar-enter"
       style={{
         top: `${position.top}px`,
@@ -414,6 +417,8 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
                 ) : (
                   <button
                     key={i}
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
                     onClick={() =>
                       executeAction(('action' in item ? item.action : 'paragraph') as ToolbarAction)
                     }

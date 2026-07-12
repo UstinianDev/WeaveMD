@@ -89,14 +89,16 @@ function createBlockDecoration(
   isRendered: boolean
 ): monacoEditor.IModelDeltaDecoration {
   const options: monacoEditor.IModelDecorationOptions = {
-    isWholeLine: true,
-    shouldFillLineOnLineBreak: true,
+    isWholeLine: false,
     className: getBlockClassName(block),
   };
 
   if (isRendered) {
+    // Keep Monaco source metrics compact; the widget is visual-only overlay.
     options.inlineClassName = 'markdown-block-source-hidden';
   } else {
+    options.isWholeLine = true;
+    options.shouldFillLineOnLineBreak = true;
     Object.assign(options, getBlockTypographyOptions(block));
 
     const prefix = getInjectedPrefix(block);

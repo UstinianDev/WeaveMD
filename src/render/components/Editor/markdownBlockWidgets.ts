@@ -12,8 +12,6 @@ type RenderedBlockPayload = {
 type WidgetRecord = {
   block: BlockInfo;
   domNode: HTMLDivElement;
-  zoneId: string | null;
-  zoneDomNode: HTMLDivElement;
   widget: MonacoEditor.IContentWidget;
 };
 
@@ -99,30 +97,6 @@ export class MarkdownRenderedBlocksController {
       record.domNode.style.width = `${contentWidth}px`;
       this.editor.layoutContentWidget(record.widget);
     }
-
-    this.editor.changeViewZones((accessor) => {
-      for (const record of this.widgetRecords.values()) {
-        if (record.zoneId) {
-          accessor.removeZone(record.zoneId);
-          record.zoneId = null;
-        }
-
-        const sourceHeight = this.getBlockSourceHeight(record.block);
-        const renderedHeight = Math.ceil(record.domNode.getBoundingClientRect().height);
-        const extraHeight = Math.max(0, renderedHeight - sourceHeight);
-
-        if (extraHeight <= 0) {
-          continue;
-        }
-
-        record.zoneId = accessor.addZone({
-          afterLineNumber: record.block.endLine,
-          domNode: record.zoneDomNode,
-          heightInPx: extraHeight,
-          showInHiddenAreas: true,
-        });
-      }
-    });
   }
 
   clear() {
@@ -144,17 +118,16 @@ export class MarkdownRenderedBlocksController {
       const domNode = document.createElement('div');
       domNode.className = RENDERED_BLOCK_WIDGET_CLASS;
       domNode.dataset.blockId = block.id;
-      const nextRecord = {} as WidgetRecord;
 
       const widget: MonacoEditor.IContentWidget = {
-        allowEditorOverflow: false,
+        allowEditorOverflow: true,
         suppressMouseDown: false,
         getId: () => widgetId,
         getDomNode: () => domNode,
         getPosition: () => ({
           position: {
-            lineNumber: nextRecord.block.startLine,
-            column: nextRecord.block.startColumn,
+            lineNumber: block.startLine,
+            column: block.startColumn,
           },
           preference: [this.monaco.editor.ContentWidgetPositionPreference.EXACT],
         }),
@@ -163,11 +136,8 @@ export class MarkdownRenderedBlocksController {
       record = {
         block,
         domNode,
-        zoneId: null,
-        zoneDomNode: document.createElement('div'),
         widget,
       };
-      Object.assign(nextRecord, record);
 
       this.widgetRecords.set(block.id, record);
       this.editor.addContentWidget(widget);
@@ -176,32 +146,18 @@ export class MarkdownRenderedBlocksController {
     record.block = block;
     record.domNode.innerHTML = html;
     record.domNode.dataset.blockType = block.type;
-    record.zoneDomNode.className = 'markdown-block-zone';
-    record.zoneDomNode.dataset.blockId = block.id;
     this.editor.layoutContentWidget(record.widget);
   }
 
   private prune(nextIds: Set<string>) {
-    this.editor.changeViewZones((accessor) => {
-      for (const [blockId, record] of this.widgetRecords.entries()) {
-        if (nextIds.has(blockId)) {
-          continue;
-        }
-
-        if (record.zoneId) {
-          accessor.removeZone(record.zoneId);
-        }
-
-        this.editor.removeContentWidget(record.widget);
-        this.widgetRecords.delete(blockId);
+    for (const [blockId, record] of this.widgetRecords.entries()) {
+      if (nextIds.has(blockId)) {
+        continue;
       }
-    });
-  }
 
-  private getBlockSourceHeight(block: BlockInfo) {
-    const rawOptions = this.editor.getRawOptions();
-    const lineHeight = typeof rawOptions.lineHeight === 'number' ? rawOptions.lineHeight : 24;
-    return (block.endLine - block.startLine + 1) * lineHeight;
+      this.editor.removeContentWidget(record.widget);
+      this.widgetRecords.delete(blockId);
+    }
   }
 
   private scheduleRelayout() {

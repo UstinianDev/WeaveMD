@@ -879,6 +879,8 @@ html.high-contrast .markdown-preview .token.variable {
 
 .markdown-block-source-hidden {
   opacity: 0;
+  color: transparent;
+  letter-spacing: 0;
 }
 
 .markdown-block--inactive {
@@ -889,6 +891,7 @@ html.high-contrast .markdown-preview .token.variable {
   pointer-events: none;
   user-select: none;
   width: 100%;
+  z-index: 2;
 }
 
 .markdown-block-widget .markdown-preview {
@@ -906,6 +909,35 @@ html.high-contrast .markdown-preview .token.variable {
   color: var(--text-primary);
   width: 100%;
   max-width: 100%;
+}
+
+.markdown-block-rendered h1,
+.markdown-block-rendered h2,
+.markdown-block-rendered h3,
+.markdown-block-rendered h4,
+.markdown-block-rendered h5,
+.markdown-block-rendered h6 {
+  margin-top: 0;
+  margin-bottom: 0.35em;
+  padding-bottom: 0.2em;
+}
+
+.markdown-block-rendered p,
+.markdown-block-rendered ul,
+.markdown-block-rendered ol,
+.markdown-block-rendered blockquote {
+  margin-top: 0;
+  margin-bottom: 0.35em;
+}
+
+.markdown-block-rendered li {
+  margin-top: 0;
+  margin-bottom: 0.15em;
+}
+
+.markdown-block-rendered blockquote {
+  padding-top: 0.35em;
+  padding-bottom: 0.35em;
 }
 
 .markdown-block-rendered--paragraph p,
