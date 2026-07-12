@@ -200,7 +200,7 @@ mdSourceBlockId 控制源文/富文本切换（与 activeBlockId 解耦）
 applyDecorations(editor, blocks, mdSourceBlockId)
   ↓
 markdownBlockWidgets.sync(content, blocks, mdSourceBlockId)
-  ├── 非 mdSourceBlockId 的块：创建渲染小部件覆盖源文（pointer-events: none，鼠标穿透）
+  ├── 非 mdSourceBlockId 的块：创建渲染小部件视觉叠加（allowEditorOverflow，不插入 view zone）
   └── mdSourceBlockId 对应块：移除小部件，显示完整 Markdown 源文
 ```
 
@@ -375,15 +375,18 @@ const block = resolveMdSourceBlockFromSelection(model, selection);
 setMdSourceBlockId(block.id);
 editor.setSelection({ startLineNumber: block.startLine, ... block.endLine });
 // 光标移至其他块或失焦 → clearMdSourceBlockId()
+// 工具栏按钮 onMouseDown preventDefault，避免点击时编辑器 blur 导致 mdSourceBlockId 被清除
 ```
 
-**富文本 overlay 鼠标穿透：** 渲染小部件使用 `pointer-events: none`，不拦截 mousedown/拖拽，鼠标事件直达下方 Monaco 源文本层，支持正常选区与浮动工具栏弹出。
+**富文本 overlay 与源行分离：**
+
+- 渲染 widget 仅作视觉层（`allowEditorOverflow: true` + `pointer-events: none`），**不再**通过动态 `lineHeight` 或 view zone 撑高 Monaco 源行
+- 源行保持编辑器默认行高，选区按 Markdown 源行/列精确变化，避免「选第一行却覆盖到第三行」
+- 块内渲染样式收紧段前段后间距，避免 widget 与源行双份留白
 
 ```css
-.markdown-block-widget {
-  pointer-events: none;
-  user-select: none;
-}
+.markdown-block-rendered p { margin-top: 0; margin-bottom: 0.35em; }
+.markdown-block-source-hidden { opacity: 0; } /* 源行仅隐藏，不撑高 */
 ```
 
 ### 4.7 代码高亮（Prism.js）
@@ -470,4 +473,5 @@ function stripDocumentLineNumbers(content: string): string {
 8. **自定义主题**：两套完整 Monaco 主题（深色/浅色），与应用设计系统一致
 9. **Prism.js 代码高亮**：渲染预览中的代码块使用 Prism.js，支持 7+ 编程语言
 10. **文档行号检测**：智能检测粘贴内容中的行号前缀并去除，提升编辑体验
-11. **富文本鼠标穿透**：渲染 overlay 不拦截指针事件，保证 Monaco 层可正常拖拽选区并触发浮动工具栏
+11. **源行与渲染层分离**：Monaco 源行保持紧凑默认行高；富文本 widget 纯视觉叠加，不通过 view zone / 动态行高改变布局，保证选区与段间距正确
+12. **MD 原文防 blur 清除**：浮动工具栏 `mousedown.preventDefault()` + `data-floating-toolbar`，避免点击「MD原文」时编辑器失焦导致源文视图被清除

@@ -130,4 +130,25 @@ describe('EditorView helpers', () => {
     expect(decorations[0].options.inlineClassName).toBe('markdown-block-source-hidden');
     expect(decorations[0].options.before).toBeUndefined();
   });
+
+  it('should keep rendered source lines compact without inflated line heights', () => {
+    const blocks: BlockInfo[] = [
+      {
+        id: 'heading:1-1',
+        type: 'heading',
+        startLine: 1,
+        startColumn: 1,
+        endLine: 1,
+        endColumn: 9,
+        syntaxMarkers: [],
+        metadata: { headingLevel: 1 },
+      },
+    ];
+
+    const decorations = buildBlockDecorations(fakeMonaco, blocks, null, new Set(['heading:1-1']));
+
+    expect(decorations[0].options.inlineClassName).toBe('markdown-block-source-hidden');
+    expect(decorations[0].options.lineHeight).toBeUndefined();
+    expect(decorations[0].options.isWholeLine).toBe(false);
+  });
 });

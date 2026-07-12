@@ -175,7 +175,7 @@ const EditorView: React.FC<EditorViewProps> = ({
 
       const blocks = detectAllBlocks(model);
       const sourceBlockId = useUIStore.getState().markdownBlockState.mdSourceBlockId;
-      applyDecorations(editor, blocks, sourceBlockId);
+      applyDecorations(editor, blocks, sourceBlockId, renderedBlockIdsRef.current);
       void syncRenderedBlocks(editor, blocks, sourceBlockId);
     },
     [applyDecorations, syncRenderedBlocks]
@@ -199,7 +199,7 @@ const EditorView: React.FC<EditorViewProps> = ({
       }
 
       const sourceBlockId = useUIStore.getState().markdownBlockState.mdSourceBlockId;
-      applyDecorations(editor, blocks, sourceBlockId);
+      applyDecorations(editor, blocks, sourceBlockId, renderedBlockIdsRef.current);
       void syncRenderedBlocks(editor, blocks, sourceBlockId);
     },
     [applyDecorations, clearMdSourceBlockId, syncRenderedBlocks, transitionBlockState]
@@ -366,6 +366,11 @@ const EditorView: React.FC<EditorViewProps> = ({
     });
 
     editor.onDidBlurEditorText(() => {
+      const activeElement = document.activeElement;
+      if (activeElement?.closest('[data-floating-toolbar]')) {
+        return;
+      }
+
       flushPendingEditorContent();
       onFocusChange?.(false);
       onSelectionChange?.(null);
