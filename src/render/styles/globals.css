@@ -27,6 +27,8 @@ html.light-header {
   --navbar-text-primary: #111827;
   --navbar-text-sub: #6b7280;
   --font-code: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+  --bg-code: #1e1e2e;
+  --text-code: #cdd6f4;
   --input-bg: #f9fafb;
   --modal-bg: #ffffff;
   --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.08);
@@ -48,6 +50,8 @@ html.light {
   --navbar-bg: #1a1a1a;
   --navbar-text-primary: #ffffff;
   --navbar-text-sub: #999999;
+  --bg-code: #1e1e2e;
+  --text-code: #cdd6f4;
   --input-bg: #f9fafb;
   --modal-bg: #ffffff;
   --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.08);
@@ -475,9 +479,9 @@ select:focus {
 .markdown-preview pre {
   margin: 0 0 1.15em 0;
   padding: 1em 1.1em;
-  background: var(--bg-secondary);
+  background: var(--bg-code);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 10px;
   overflow-x: auto;
 }
 
@@ -488,19 +492,22 @@ select:focus {
 .markdown-preview pre code {
   font-family: var(--font-code);
   font-size: 0.9em;
+  line-height: 1.6;
   background: transparent;
   padding: 0;
-  color: inherit;
+  color: var(--text-code);
 }
 
 .markdown-preview pre code[data-language]::before {
   content: attr(data-language);
   display: block;
-  margin-bottom: 0.85em;
+  margin-bottom: 0.75em;
+  padding-bottom: 0.6em;
+  border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 20%, transparent);
   color: var(--text-muted);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
@@ -608,7 +615,7 @@ html.light-header .markdown-preview pre[class*='language-'],
 html.light-header .markdown-preview code[class*='language-'],
 html.light .markdown-preview pre[class*='language-'],
 html.light .markdown-preview code[class*='language-'] {
-  color: #111827;
+  color: var(--text-code);
   text-shadow: none;
 }
 
@@ -736,7 +743,7 @@ html.custom .markdown-preview pre[class*='language-'],
 html.custom .markdown-preview code[class*='language-'],
 html.high-contrast .markdown-preview pre[class*='language-'],
 html.high-contrast .markdown-preview code[class*='language-'] {
-  color: #e5e7eb;
+  color: var(--text-code);
   text-shadow: none;
 }
 
@@ -867,6 +874,9 @@ html.high-contrast .markdown-preview .token.variable {
   min-width: 0 !important;
   overflow: hidden;
   font-size: 0;
+  color: transparent !important;
+  background: transparent !important;
+  background-color: transparent !important;
   transition: opacity 0.15s ease;
 }
 
@@ -879,7 +889,7 @@ html.high-contrast .markdown-preview .token.variable {
 
 .markdown-block-source-hidden {
   opacity: 0;
-  color: transparent;
+  color: transparent !important;
   letter-spacing: 0;
 }
 
@@ -892,16 +902,24 @@ html.high-contrast .markdown-preview .token.variable {
   user-select: none;
   width: 100%;
   z-index: 2;
+  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  box-sizing: border-box;
+  contain: layout style;
 }
 
 .markdown-block-widget .markdown-preview {
   pointer-events: none;
   user-select: none;
-  max-width: 100%;
+  max-width: 100% !important;
   width: 100%;
+  min-width: 0;
   text-wrap: wrap;
-  overflow-wrap: break-word;
-  word-break: normal;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+  white-space: normal !important;
+  overflow-x: hidden;
 }
 
 .markdown-block-rendered {
@@ -909,6 +927,42 @@ html.high-contrast .markdown-preview .token.variable {
   color: var(--text-primary);
   width: 100%;
   max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+}
+
+/* Force all text elements in widgets to wrap */
+.markdown-block-rendered * {
+  max-width: 100%;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* Inline code: allow breaking to prevent horizontal overflow */
+.markdown-block-rendered code {
+  white-space: pre-wrap !important;
+  word-break: break-word;
+}
+
+/* Code blocks: scroll horizontally rather than breaking lines */
+.markdown-block-rendered pre {
+  white-space: pre !important;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.markdown-block-rendered pre code {
+  white-space: pre !important;
+  word-break: normal;
+}
+
+/* Tables: scroll if too wide */
+.markdown-block-rendered .markdown-table-wrap,
+.markdown-block-rendered table {
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .markdown-block-rendered h1,
@@ -920,6 +974,43 @@ html.high-contrast .markdown-preview .token.variable {
   margin-top: 0;
   margin-bottom: 0.35em;
   padding-bottom: 0.2em;
+}
+
+.markdown-block-rendered h1 {
+  font-size: 2rem;
+  line-height: 1.15;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+.markdown-block-rendered h2 {
+  font-size: 1.75rem;
+  line-height: 1.15;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+.markdown-block-rendered h3 {
+  font-size: 1.5rem;
+  line-height: 1.15;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+.markdown-block-rendered h4 {
+  font-size: 1.25rem;
+  line-height: 1.2;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+.markdown-block-rendered h5 {
+  font-size: 1.125rem;
+  line-height: 1.25;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+.markdown-block-rendered h6 {
+  font-size: 1rem;
+  line-height: 1.25;
+  margin-bottom: 0;
+  padding-bottom: 0;
 }
 
 .markdown-block-rendered p,
@@ -944,9 +1035,11 @@ html.high-contrast .markdown-preview .token.variable {
 .markdown-block-rendered--paragraph li,
 .markdown-block-rendered--blockquote p {
   text-wrap: wrap;
-  overflow-wrap: break-word;
-  word-break: normal;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+  white-space: normal !important;
   hyphens: none;
+  max-width: 100%;
 }
 
 .markdown-block-rendered > :last-child {
@@ -959,6 +1052,30 @@ html.high-contrast .markdown-preview .token.variable {
 
 .markdown-block-rendered--code-fence {
   max-width: min(100%, 960px);
+}
+
+.markdown-block-rendered--code-fence .markdown-code-block {
+  background: var(--bg-code);
+  border-radius: 10px;
+  padding: 0.85em 1em;
+  overflow-x: auto;
+}
+
+.markdown-block-rendered--code-fence .markdown-code-block pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+
+.markdown-block-rendered--code-fence .markdown-code-block code {
+  font-family: var(--font-code);
+  font-size: 0.88em;
+  line-height: 1.6;
+  color: var(--text-code);
+  background: transparent;
+  padding: 0;
 }
 
 .markdown-block-zone {
