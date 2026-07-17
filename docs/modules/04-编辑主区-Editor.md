@@ -1,6 +1,6 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 最后更新：2026-07-08
+> 模块编号：04 | 优先级：P0 | 最后更新：2026-07-17
 
 ---
 
@@ -8,8 +8,14 @@
 
 应用的核心编辑区域，包含目录面板、Monaco 编辑器、浮动工具栏和历史面板。支持 Markdown 编辑、Typora 式富文本排版、目录导航、按需 MD 原文查看、撤销/重做、自动保存等功能。
 
-**v2.1 编辑区优化（2026-07-08）：**
+**v2.2 编辑区优化（2026-07-17）：**
+- 修复标题渲染 widget 与正文重叠问题
+- 修复渲染块中出现红色方框 artifacts
+- 修复代码块首行滚出视口后整个 widget 消失的问题
+- 修复代码块 pure-text 样式丑陋问题（Catppuccin Mocha 暗色主题）
+- 尝试修复正文横向溢出不换行问题（CSS !important + JS 即时宽度设置，**仍未完全解决**）
 
+**v2.1 编辑区优化（2026-07-08）：**
 - 移除编辑器行号，扩大内容可视宽度
 - 富文本块横向铺满可视区域后再换行，减少短句无故拆行
 - 默认点击/编辑均保持富文本排版；仅通过浮动工具栏「MD原文」按钮查看整段 Markdown 源文
@@ -451,7 +457,165 @@ function stripDocumentLineNumbers(content: string): string {
 | `- [ ] 任务`    | 复选框 + 删除线                                    | remark-gfm              |
 | `\| 表格 \|`    | HTML `<table>`                                     | remark-gfm + wrap table |
 
-## 5. 与其他模块的交互
+## 5. ContentWidget 富文本叠加层系统
+
+### 5.1 架构概览
+
+采用 Monaco ContentWidget overlay 实现 Typora 风格的所见即所得编辑。源行保持 Monaco 默认行高（被 `markdown-block-source-hidden` 隐藏），渲染后的 HTML 通过 ContentWidget 叠加在源行上方。
+
+```
+编辑内容（Markdown 纯文本）
+  ↓
+markdownBlockDetector.detectAllBlocks(model)
+  ├── 识别 8 种块类型：heading / paragraph / unordered-list-item
+  │   / ordered-list-item / task-list-item / blockquote / code-fence / table
+  └── 返回 BlockInfo[]（块类型、起止行号、语法标记）
+  ↓
+editorBlockDecorations.buildBlockDecorations()
+  ├── 语法标记隐藏（`**`, `#`, `- [ ]` 等）→ inlineClassName: 'hidden-markdown-marker'
+  └── 源行隐藏 → inlineClassName: 'markdown-block-source-hidden'
+  ↓
+MarkdownRenderedBlocksController.sync(content, blocks, mdSourceBlockId)
+  ├── 非 mdSourceBlockId 的块 → extractRenderableBlockMarkdown() → renderMarkdownToHtml()
+  │   └── unified + remark + remark-gfm + remarkRehype + rehypeEnhanceMarkdown + rehypeStringify
+  ├── 创建 ContentWidget (allowEditorOverflow: true, suppressMouseDown: false)
+  └── 挂载到 Monaco overflow widget 层（pointer-events: none 保证点击穿透）
+```
+
+### 5.2 ContentWidget 生命周期控制器
+
+**文件**：`src/render/components/Editor/markdownBlockWidgets.ts`
+
+```typescript
+class MarkdownRenderedBlocksController {
+  // 核心数据结构
+  private widgetRecords: Map<string, WidgetRecord>;  // blockId → {block, domNode, widget}
+  private renderCache:  Map<string, string>;          // 渲染结果缓存（避免重复 remark 处理）
+  private renderVersion: number;                       // 并发控制（过期版本丢弃）
+
+  // 滚动处理
+  private scrollListener: IDisposable;               // editor.onDidScrollChange 监听器
+  private scrollRepositionTimer: ReturnType<typeof setTimeout>;  // 50ms 防抖
+
+  // 布局
+  private relayoutHandle: ReturnType<typeof setTimeout> | number;  // rAF 重排
+
+  async sync(content, blocks, mdSourceBlockId): Promise<Set<string> | null>   // 主入口
+  relayout()                                  // 设置 widget 宽度 = editor.contentWidth - 8
+  dispose()                                   // 清理所有 widget + 监听器
+}
+```
+
+### 5.3 Widget 滚动定位机制
+
+**问题**：Monaco 只渲染其锚点位置在可视区域内的 ContentWidget。当多行代码块的首行滚出视口后，整个 widget 消失。
+
+**方案**—动态锚点 + translateY 偏移（`syncWidgetScrollOffset`）：
+
+```
+block.startLine > firstVisible → 锚点保持 block.startLine，无偏移
+block.startLine < firstVisible ≤ block.endLine
+  → 锚点改为 firstVisible
+  → translateY(-hiddenLines × lineHeight)，将已被滚出的部分上移隐藏
+  → max-height = visibleLines × lineHeight，裁剪可见部分
+```
+
+### 5.4 Widget 高度溢出控制
+
+**问题**：标题 H1 的渲染字体（如 `clamp(2.25rem, 2rem+1vw, 2.9rem)`）远超 Monaco 源行默认 ~24px，widget 内容溢出到相邻块区域。
+
+**方案**—动态 max-height（`upsertWidget`）：
+
+```typescript
+// 标题使用专用行高比例：[42, 38, 34, 30, 28, 26] 对应 H1-H6
+const lineCount = block.endLine - block.startLine + 1;
+record.domNode.style.maxHeight = `${lineCount * lineHeight}px`;
+```
+
+配合 CSS `overflow: hidden` 裁剪溢出部分。
+
+### 5.5 红色方框 Artifacts 修复
+
+**问题**：渲染块中出现红色小方框。根因有三：
+
+| 根因 | 机制 | 修复 |
+|------|------|------|
+| `bracketPairColorization: { enabled: true }` | Monaco 为括号对绘制彩色边框盒子 | 设为 `{ enabled: false }` |
+| `matchBrackets: 'always'`（默认） | 匹配的括号对高亮显示 | 设为 `'never'` |
+| `occurrencesHighlight: 'singleFile'`（默认） | 选中单词的其他出现位置高亮 | 设为 `'off'` |
+| `.hidden-markdown-marker` 无背景色覆盖 | 红色 token（如数字、属性）透过透明 widget 可见 | `color: transparent !important` + `background: transparent !important` |
+
+### 5.6 代码块样式
+
+**问题**：Plain-text 代码块渲染无辨识度，与正文难以区分。
+
+**方案**—Catppuccin Mocha 暗色主题：
+
+```css
+:root {
+  --bg-code: #1e1e2e;    /* Catppuccin Mocha base */
+  --text-code: #cdd6f4;  /* Catppuccin Mocha text */
+}
+.markdown-block-rendered--code-fence .markdown-code-block {
+  background: var(--bg-code);
+  border-radius: 10px;
+  padding: 0.85em 1em;
+}
+```
+
+Prism.js 语法高亮覆盖亮/暗两种主题，语言标签（`data-language`）显示在代码块顶部。
+
+### 5.7 文本换行控制（未完全解决）
+
+**问题**：正文内容（paragraph）渲染 widget 中，文本横向超出编辑区域时不会自动换行。
+
+**已尝试的方案**：
+
+| 方案 | 文件 | 效果 |
+|------|------|------|
+| CSS `overflow-wrap: anywhere` | `globals.css` `.markdown-block-widget .markdown-preview` | 理论上可在任意位置断行 |
+| CSS `word-break: break-word` | `globals.css` 同上 | 长单词/URL 可断行 |
+| CSS `white-space: normal` | `globals.css` 同上 | 覆盖 Monaco 的 `white-space: pre` 泄漏 |
+| CSS `!important` 优先级提升 | `globals.css` 同上 | 防止 Monaco CSS 覆盖 |
+| JS 即时宽度设置 | `markdownBlockWidgets.ts` `upsertWidget()` | widget 创建时立即 `domNode.style.width = contentWidth + 'px'` |
+| CSS `contain: layout style` | `globals.css` `.markdown-block-widget` | 布局隔离，防止外部 CSS 泄漏 |
+| CSS `.markdown-block-rendered *` 通配符 | `globals.css` | 对所有后代元素强制 `max-width: 100%` |
+| CSS `overflow-x: hidden` | `globals.css` widget + preview | 裁剪溢出内容 |
+| `<pre>`/`<code>` 专门处理 | `globals.css` | 代码块横向滚动，内联代码 `pre-wrap` |
+| `<table>` 包裹层 | `globals.css` `.markdown-table-wrap` | `max-width: 100%` + `overflow-x: auto` |
+
+**当前状态**：上述方案通过 `tsc --noEmit`、`eslint`、94/94 vitest、Vite build 验证，CSS 规则在 production build 中确认存在，但用户反馈在某些场景下仍有横向溢出。
+
+**疑点**：
+1. Monaco 的 `.monaco-editor { overflow-wrap: initial }` 可能优先级高于 widget 的 `!important`（需要排查 CSS 层叠上下文）
+2. ContentWidget 的 DOM 节点所在父容器（Monaco overflow widget 层）宽度可能无约束
+3. 浏览器默认 `white-space` 对某些元素的继承可能绕过通配符规则
+
+### 5.8 CSS 规则总览（widget 渲染相关）
+
+```
+.markdown-block-widget                          # 根容器
+├── overflow: hidden; overflow-x/y: hidden      # 裁剪溢出
+├── contain: layout style                       # 布局隔离
+├── box-sizing: border-box                      # 盒模型
+│
+└── .markdown-preview                           # 渲染内容容器
+    ├── max-width: 100% !important              # 强制不超过 widget 宽度
+    ├── overflow-wrap: anywhere !important      # 任意位置断行
+    ├── word-break: break-word !important       # 长单词断行
+    ├── white-space: normal !important          # 覆盖 Monaco pre
+    ├── min-width: 0                            # 防止 flex 溢出
+    ├── overflow-x: hidden                      # 横向裁剪
+    │
+    └── .markdown-block-rendered                # 块级渲染内容
+        ├── min-width: 0; overflow-wrap: anywhere; word-break: break-word
+        ├── * { max-width: 100%; overflow-wrap: anywhere }  # 所有后代
+        ├── code { white-space: pre-wrap !important }        # 内联代码可换行
+        ├── pre { white-space: pre !important; overflow-x: auto }  # 代码块可滚动
+        └── pre code { white-space: pre !important }         # 代码块保持格式
+```
+
+## 6. 与其他模块的交互
 
 | 模块       | 交互方式                                                     |
 | ---------- | ------------------------------------------------------------ |
@@ -461,7 +625,7 @@ function stripDocumentLineNumbers(content: string): string {
 | 设置       | 主题变化时切换 Monaco Editor 主题                            |
 | 导出       | 导出当前编辑器内容为 MD/Word/PDF                             |
 
-## 6. 关键设计决策
+## 7. 关键设计决策
 
 1. **Monaco Editor**：选择 VS Code 同源的编辑器，功能完善、大文件处理优秀
 2. **无行号编辑区**：移除 gutter 行号，内容区横向空间最大化
