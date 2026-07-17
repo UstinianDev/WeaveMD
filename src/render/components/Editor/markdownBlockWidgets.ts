@@ -1,4 +1,4 @@
-import type { editor as MonacoEditor } from 'monaco-editor';
+import type { editor as MonacoEditor, IDisposable } from 'monaco-editor';
 import { prepareMarkdownForRendering, renderMarkdownToHtml } from '../../services/markdown';
 import type { BlockInfo } from '../../services/markdownBlockDetector';
 
@@ -44,11 +44,17 @@ export class MarkdownRenderedBlocksController {
   private renderVersion = 0;
   private disposed = false;
   private relayoutHandle: ReturnType<typeof setTimeout> | number | null = null;
+  private scrollListener: IDisposable | null = null;
+  private scrollRepositionTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly editor: MonacoEditor.IStandaloneCodeEditor,
     private readonly monaco: MonacoModule
-  ) {}
+  ) {
+    this.scrollListener = editor.onDidScrollChange(() => {
+      this.onScroll();
+    });
+  }
 
   async sync(
     content: string,
@@ -107,6 +113,12 @@ export class MarkdownRenderedBlocksController {
 
   dispose() {
     this.disposed = true;
+    this.scrollListener?.dispose();
+    this.scrollListener = null;
+    if (this.scrollRepositionTimer) {
+      clearTimeout(this.scrollRepositionTimer);
+      this.scrollRepositionTimer = null;
+    }
     this.clear();
   }
 
@@ -119,18 +131,45 @@ export class MarkdownRenderedBlocksController {
       domNode.className = RENDERED_BLOCK_WIDGET_CLASS;
       domNode.dataset.blockId = block.id;
 
+      // Set width immediately to constrain text wrapping — don't wait for
+      // the async relayout(). Without this, width:100% in CSS refers to an
+      // unconstrained parent and long lines won't wrap.
+      try {
+        const contentWidth = Math.max(this.editor.getLayoutInfo().contentWidth - 8, 160);
+        domNode.style.width = `${contentWidth}px`;
+      } catch {
+        // editor not fully initialized yet — relayout() will fix it later
+      }
+
       const widget: MonacoEditor.IContentWidget = {
         allowEditorOverflow: true,
         suppressMouseDown: false,
         getId: () => widgetId,
         getDomNode: () => domNode,
-        getPosition: () => ({
-          position: {
-            lineNumber: block.startLine,
-            column: block.startColumn,
-          },
-          preference: [this.monaco.editor.ContentWidgetPositionPreference.EXACT],
-        }),
+        getPosition: () => {
+          let anchorLine = block.startLine;
+
+          // For multi-line blocks, keep the widget alive when the first
+          // source line scrolls above the viewport by re-anchoring to the
+          // first visible line.
+          if (block.endLine > block.startLine) {
+            const visibleRanges = this.editor.getVisibleRanges();
+            if (visibleRanges.length > 0) {
+              const firstVisible = visibleRanges[0].startLineNumber;
+              if (block.startLine < firstVisible && block.endLine >= firstVisible) {
+                anchorLine = firstVisible;
+              }
+            }
+          }
+
+          return {
+            position: {
+              lineNumber: anchorLine,
+              column: block.startColumn,
+            },
+            preference: [this.monaco.editor.ContentWidgetPositionPreference.EXACT],
+          };
+        },
       };
 
       record = {
@@ -146,7 +185,80 @@ export class MarkdownRenderedBlocksController {
     record.block = block;
     record.domNode.innerHTML = html;
     record.domNode.dataset.blockType = block.type;
+
+    // Constrain rendered height to source-line extent, preventing overflow
+    // into adjacent blocks. Heading line heights match the decoration typography
+    // scale so the rendered heading fits within its source-line budget.
+    const defaultLineHeight = this.editor.getOption(
+      this.monaco.editor.EditorOption.lineHeight
+    );
+    const lineCount = block.endLine - block.startLine + 1;
+    let lineHeight = defaultLineHeight;
+    if (block.type === 'heading') {
+      const headingLineHeights = [42, 38, 34, 30, 28, 26];
+      const level = (block.metadata?.headingLevel ?? 1) - 1;
+      lineHeight = headingLineHeights[Math.min(level, headingLineHeights.length - 1)];
+    }
+    record.domNode.style.maxHeight = `${lineCount * lineHeight}px`;
+
     this.editor.layoutContentWidget(record.widget);
+  }
+
+  private onScroll() {
+    if (this.disposed) return;
+
+    // Debounce rapid scroll events so we only re-layout once per frame.
+    if (this.scrollRepositionTimer) clearTimeout(this.scrollRepositionTimer);
+    this.scrollRepositionTimer = setTimeout(() => {
+      this.scrollRepositionTimer = null;
+      if (this.disposed) return;
+
+      for (const record of this.widgetRecords.values()) {
+        // Only multi-line blocks benefit from scroll-aware repositioning.
+        if (record.block.endLine > record.block.startLine) {
+          this.syncWidgetScrollOffset(record);
+          this.editor.layoutContentWidget(record.widget);
+        }
+      }
+    }, 50);
+  }
+
+  /**
+   * When a multi-line block's first line scrolls above the viewport,
+   * shift the rendered content upward with translateY and clamp the
+   * widget height to only the visible portion.  This keeps the rendered
+   * overlay aligned with the visible source lines.
+   */
+  private syncWidgetScrollOffset(record: WidgetRecord) {
+    const block = record.block;
+    const visibleRanges = this.editor.getVisibleRanges();
+
+    if (visibleRanges.length === 0) {
+      record.domNode.style.transform = '';
+      return;
+    }
+
+    const firstVisible = visibleRanges[0].startLineNumber;
+    const lineHeight = this.editor.getOption(this.monaco.editor.EditorOption.lineHeight);
+    const totalLines = block.endLine - block.startLine + 1;
+
+    if (block.startLine < firstVisible && block.endLine >= firstVisible) {
+      const hiddenLines = firstVisible - block.startLine;
+      const visibleLines = block.endLine - firstVisible + 1;
+      const offset = hiddenLines * lineHeight;
+      record.domNode.style.transform = `translateY(-${offset}px)`;
+      record.domNode.style.maxHeight = `${visibleLines * lineHeight}px`;
+    } else if (block.startLine >= firstVisible) {
+      // Block starts within (or below) the viewport — reset to natural size.
+      record.domNode.style.transform = '';
+      const defaultLineHeight =
+        block.type === 'heading'
+          ? [42, 38, 34, 30, 28, 26][
+              Math.min((block.metadata?.headingLevel ?? 1) - 1, 5)
+            ]
+          : lineHeight;
+      record.domNode.style.maxHeight = `${totalLines * defaultLineHeight}px`;
+    }
   }
 
   private prune(nextIds: Set<string>) {
