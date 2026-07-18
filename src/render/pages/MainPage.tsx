@@ -2,7 +2,6 @@
 // WeaveMD — Main Page Layout
 // ============================================
 
-import type * as Monaco from 'monaco-editor';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import StatusBar from '../components/Common/StatusBar';
 import EditorView from '../components/Editor/EditorView';
@@ -50,17 +49,29 @@ const MainPage: React.FC = () => {
     };
   }, [currentFile?.id, isDirty, saveFile]);
 
-  // Monaco editor reference for toolbar and outline navigation
-  const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
-  const [selection, setSelection] = useState<Monaco.Selection | null>(null);
+  // Editor state
+  const isEditorActiveRef = useRef(false);
   const [isEditorFocused, setIsEditorFocused] = useState(false);
 
-  const handleSelectionChange = useCallback((sel: Monaco.Selection | null) => {
-    setSelection(sel);
-  }, []);
+  // Selection in the new architecture is tracked at the block level,
+  // not via Monaco Selection objects. The FloatingToolbar will need
+  // to be updated to work with the block-based architecture.
+  const [selection, setSelection] = useState<{
+    startLine: number;
+    startColumn: number;
+    endLine: number;
+    endColumn: number;
+  } | null>(null);
 
-  const setEditorRef = useCallback((editor: Monaco.editor.IStandaloneCodeEditor | null) => {
-    editorRef.current = editor;
+  const handleSelectionChange = useCallback(
+    (sel: { startLine: number; startColumn: number; endLine: number; endColumn: number } | null) => {
+      setSelection(sel);
+    },
+    [],
+  );
+
+  const handleEditorMount = useCallback((active: boolean) => {
+    isEditorActiveRef.current = active;
   }, []);
 
   useEffect(() => {
@@ -68,17 +79,15 @@ const MainPage: React.FC = () => {
       return;
     }
 
-    editorRef.current = null;
+    isEditorActiveRef.current = false;
     setSelection(null);
     setIsEditorFocused(false);
   }, [currentFile]);
 
-  const handleNavigateToLine = useCallback((lineNumber: number) => {
-    if (editorRef.current) {
-      editorRef.current.revealLineInCenter(lineNumber);
-      editorRef.current.setPosition({ lineNumber, column: 1 }, 'outline');
-      editorRef.current.focus();
-    }
+  const handleNavigateToLine = useCallback((_lineNumber: number) => {
+    // TODO: Implement block-based navigation for outline
+    // In the new architecture, we navigate to the block containing the target line
+    // rather than scrolling a single Monaco editor
   }, []);
 
   return (
@@ -100,7 +109,7 @@ const MainPage: React.FC = () => {
           {currentFile ? (
             <EditorView
               onSelectionChange={handleSelectionChange}
-              onEditorMount={setEditorRef}
+              onEditorMount={handleEditorMount}
               onFocusChange={setIsEditorFocused}
             />
           ) : (
@@ -117,9 +126,9 @@ const MainPage: React.FC = () => {
         </main>
       </div>
 
-      {/* Floating Toolbar */}
+      {/* Floating Toolbar — disabled pending block-based rewrite */}
       <FloatingToolbar
-        editor={editorRef.current}
+        editor={null}
         selection={selection}
         isEditorFocused={isEditorFocused}
       />
