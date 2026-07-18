@@ -21,11 +21,22 @@ src/
 │   ├── index.ts, window.ts, ipc-handlers.ts
 │   └── db/          # SQLite (better-sqlite3) — users, files, history, settings
 ├── render/          # React 18 + TypeScript frontend
-│   ├── components/  # Auth/, Editor/, Navbar/, Settings/, Common/
+│   ├── components/  # Auth/, Editor/ (below), Navbar/, Settings/, Common/
+│   │   └── Editor/               # Block-based WYSIWYG editor
+│   │       ├── blocks/           # Per-block-type React components
+│   │       │   ├── HeadingBlock.tsx, ParagraphBlock.tsx, ListItemBlock.tsx
+│   │       │   ├── CodeFenceBlock.tsx, TableBlock.tsx, BlockquoteBlock.tsx
+│   │       │   └── EmptyBlock.tsx
+│   │       ├── ActiveBlockEditor.tsx      # Monaco mini-editor wrapper
+│   │       ├── BlockRenderer.tsx          # Block type dispatcher
+│   │       ├── EditorScrollContainer.tsx  # Document viewport
+│   │       ├── EditorView.tsx             # Main editor orchestrator
+│   │       ├── FloatingToolbar.tsx        # Selection toolbar (stub — needs rewrite)
+│   │       └── OutlinePanel.tsx, HistoryPanel.tsx
 │   ├── pages/       # AuthPage, MainPage
 │   ├── hooks/       # useAuth, useEditor, useTheme
 │   ├── stores/      # Zustand — auth, editor, ui, history
-│   ├── services/    # api, storage, export, markdown
+│   ├── services/    # api, storage, export, markdown, blockTree*, blockController, inlineDecorator
 │   ├── styles/      # globals.css, tailwind.css
 │   └── utils/       # crypto, validators, helpers
 └── shared/          # types.ts, constants.ts
@@ -46,31 +57,31 @@ public/              # icons, images
 - **CSS**: Tailwind utility classes preferred; extract to CSS only for complex animations
 - **No inline styles** — use Tailwind classes or CSS modules
 
-## Known Issues (as of 2026-07-17)
+## Architecture (as of 2026-07-18)
 
-### ContentWidget Text Horizontal Overflow (UNRESOLVED)
-Rendered paragraph text in ContentWidget overlays does not auto-wrap when content
-exceeds the editor width. Despite CSS `overflow-wrap: anywhere !important`,
-`word-break: break-word !important`, `white-space: normal !important`, and JS
-width being set immediately in `upsertWidget()`, long text lines can still
-overflow the editor horizontally.
+### Block-Based WYSIWYG Editor v2
+The editor has been reworked to use a block-based architecture inspired by MarkText/Muya:
+- **Block Tree**: Document model with stable BlockIds (not position-based)
+- **React Block Components**: Each block (heading, paragraph, list, code, table, blockquote) is a React component
+- **Monaco Mini-Editor**: Only the active block embeds a small Monaco editor for editing
+- **Inline WYSIWYG**: Syntax markers hidden via Monaco decorations
+- **Markdown Pipeline**: unified/remark/rehype + Prism.js retained for HTML generation
 
-**Suspect causes (under investigation):**
-- Monaco's `.monaco-editor` CSS sets `overflow-wrap: initial` which may cascade
-  into the widget layer despite `!important` rules
-- The ContentWidget DOM node lives inside Monaco's overlay container, which may
-  have unconstrained width causing `width:100%` to resolve incorrectly
-- Browser default `white-space: pre` on `<code>` elements within text
-- Possible CSS containment or stacking context interference from Monaco
+**Key files:**
+- `src/render/services/blockTree.ts` — Core data structures
+- `src/render/services/blockTreeBuilder.ts` — Markdown → block tree parser
+- `src/render/services/blockTreeSerializer.ts` — Block tree → markdown serializer
+- `src/render/services/blockController.ts` — Block navigation/split/merge
+- `src/render/services/inlineDecorator.ts` — Inline WYSIWYG decorations
+- `src/render/components/Editor/blocks/` — 7 block type components
+- `src/render/components/Editor/ActiveBlockEditor.tsx` — Monaco mini-editor wrapper
+- `src/render/components/Editor/EditorScrollContainer.tsx` — Document viewport
 
-**Files involved:**
-- `src/render/components/Editor/markdownBlockWidgets.ts` — `MarkdownRenderedBlocksController`
-- `src/render/styles/globals.css` — `.markdown-block-widget` / `.markdown-block-rendered` rules
-
-### Other Resolved Issues
-| Issue | Root Cause | Fix |
-|-------|-----------|-----|
-| Heading overlap with body text | Rendered heading taller than Monaco source lines, `allowEditorOverflow: true` | `overflow: hidden` + dynamic `max-height` per block type |
-| Red box artifacts in rendered blocks | `bracketPairColorization`, `matchBrackets`, `occurrencesHighlight` drawing colored decorations | Disabled all three in Monaco config |
-| Code block widget disappearing on scroll | ContentWidget anchored at `block.startLine`, Monaco hides widgets whose anchor is off-screen | Dynamic anchor + 50ms debounced scroll listener + `translateY()` offset |
-| Code block plain-text styling ugly | No distinct code block background/theme | Catppuccin Mocha `--bg-code` / `--text-code` + Prism.js dark highlighting |
+### Resolved Issues (from old ContentWidget system)
+| Issue | Resolution |
+|-------|-----------|
+| Text horizontal overflow | Eliminated — blocks are React components in normal DOM flow |
+| Heading overlap with body text | Eliminated — each block has independent layout |
+| Red box artifacts | Eliminated — no ContentWidget overlays |
+| Code block widget disappearing on scroll | Eliminated — blocks use native scroll |
+| Code block plain-text styling | Retained — Prism.js highlighting preserved |

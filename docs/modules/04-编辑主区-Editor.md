@@ -1,6 +1,6 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 最后更新：2026-07-17
+> 模块编号：04 | 优先级：P0 | 版本：v3.0 | 最后更新：2026-07-18
 
 ---
 
@@ -8,12 +8,18 @@
 
 应用的核心编辑区域，包含目录面板、Monaco 编辑器、浮动工具栏和历史面板。支持 Markdown 编辑、Typora 式富文本排版、目录导航、按需 MD 原文查看、撤销/重做、自动保存等功能。
 
+**v3.0 深度重做：True WYSIWYG 块编辑器（2026-07-18）：**
+- 学习 MarkText/Muya 架构，全面替换 ContentWidget 叠加层系统
+- 采用 Block Tree 数据模型 + React 块组件 + 按需 Monaco 迷你编辑器
+- 彻底解决了 v2.x 所有已知问题（横向溢出、Widget 消失、红色 artifacts 等）
+- FloatingToolbar 需要重写以适配新架构
+
 **v2.2 编辑区优化（2026-07-17）：**
 - 修复标题渲染 widget 与正文重叠问题
 - 修复渲染块中出现红色方框 artifacts
 - 修复代码块首行滚出视口后整个 widget 消失的问题
 - 修复代码块 pure-text 样式丑陋问题（Catppuccin Mocha 暗色主题）
-- 尝试修复正文横向溢出不换行问题（CSS !important + JS 即时宽度设置，**仍未完全解决**）
+- 尝试修复正文横向溢出不换行问题（CSS !important + JS 即时宽度设置，**已由 v3.0 解决**）
 
 **v2.1 编辑区优化（2026-07-08）：**
 - 移除编辑器行号，扩大内容可视宽度
@@ -21,19 +27,79 @@
 - 默认点击/编辑均保持富文本排版；仅通过浮动工具栏「MD原文」按钮查看整段 Markdown 源文
 - 点击编辑区其他位置自动恢复富文本显示
 
+## v3.0 深度重做：True WYSIWYG 块编辑器（2026-07-18）
+
+### 背景
+v2.x 使用的 Monaco ContentWidget 叠加层系统存在根本性架构限制：
+- 文本横向溢出无法彻底解决（尝试了 10+ 种 CSS/JS 方案均失败）
+- Widget 是只读叠加层，无法在渲染视图中编辑
+- 基于位置的 BlockID 在行插入/删除时会断裂
+- 滚动性能问题复杂
+
+### 架构决策
+学习 MarkText/Muya 项目后，采用**混合方案**：
+- **Monaco 保留**：仅用于当前编辑块（active block）的迷你编辑器
+- **React 组件**：非活动块改用 React 组件，在正常 DOM 流中渲染
+- **Block Tree**：稳定的 JSON 状态模型（非基于位置的 ID）
+
+### 核心改进
+| 旧架构 (v2.x) | 新架构 (v3.0) |
+|--------------|--------------|
+| Monaco 全文档编辑器 | React Block 组件 + 按需 Monaco 迷你编辑器 |
+| ContentWidget 叠加层 | 普通 DOM 流中的 React 组件 |
+| 位置型 BlockID (`heading:3-5`) | 稳定 BlockID (`42_a3f2`) |
+| 全局 decorations 隐藏语法标记 | 内联 Monaco decorations 仅作用于活动块 |
+| 滚动 translateY 偏移 | 原生浏览器滚动 |
+| `allowEditorOverflow: true` | 无需此项 |
+
+### 新增文件 (16 个)
+| 文件 | 作用 |
+|------|------|
+| `services/blockTree.ts` | Block Tree 数据结构和不可变工具函数 |
+| `services/blockTreeBuilder.ts` | Markdown 字符串 → BlockTree 解析器 |
+| `services/blockTreeSerializer.ts` | BlockTree → Markdown 字符串序列化 |
+| `services/blockController.ts` | 块级操作：分割、合并、导航、变换 |
+| `services/inlineDecorator.ts` | 内联 WYSIWYG 装饰：隐藏语法标记、应用格式 |
+| `components/Editor/ActiveBlockEditor.tsx` | Monaco 迷你编辑器包装器 |
+| `components/Editor/EditorScrollContainer.tsx` | 可滚动文档视口 |
+| `components/Editor/BlockRenderer.tsx` | 块类型分发器 |
+| `components/Editor/blocks/HeadingBlock.tsx` | H1-H6 标题块 |
+| `components/Editor/blocks/ParagraphBlock.tsx` | 段落块 |
+| `components/Editor/blocks/ListItemBlock.tsx` | 无序/有序/任务列表块 |
+| `components/Editor/blocks/CodeFenceBlock.tsx` | 围栏代码块 |
+| `components/Editor/blocks/TableBlock.tsx` | 表格块 |
+| `components/Editor/blocks/BlockquoteBlock.tsx` | 引用块 |
+| `components/Editor/blocks/EmptyBlock.tsx` | 点击添加占位符 |
+
 ## 2. 架构位置
 
 ```
 src/render/pages/MainPage.tsx                          # 主页面布局
 src/render/components/Editor/
-├── EditorView.tsx                                     # Monaco 编辑器封装 (504行)
+├── EditorView.tsx                                     # 主编辑器编排器 (重写)
+├── BlockRenderer.tsx                                  # 块类型分发器 (新增 v3.0)
+├── ActiveBlockEditor.tsx                              # Monaco 迷你编辑器包装器 (新增 v3.0)
+├── EditorScrollContainer.tsx                          # 可滚动文档视口 (新增 v3.0)
+├── blocks/                                            # 各块类型的 React 组件 (新增 v3.0)
+│   ├── HeadingBlock.tsx
+│   ├── ParagraphBlock.tsx
+│   ├── ListItemBlock.tsx
+│   ├── CodeFenceBlock.tsx
+│   ├── TableBlock.tsx
+│   ├── BlockquoteBlock.tsx
+│   └── EmptyBlock.tsx
 ├── OutlinePanel.tsx                                   # 目录面板
-├── FloatingToolbar.tsx                                # 浮动工具栏
+├── FloatingToolbar.tsx                                # 浮动工具栏 (stub — 需要重写 v3.0)
 ├── HistoryPanel.tsx                                   # 历史面板
-├── editorBlockDecorations.ts                          # 编辑器块装饰
-├── markdownBlockWidgets.ts                            # Markdown 块小部件
-└── markdownBlockRenderer.ts                           # Markdown 块渲染器
+├── editorBlockDecorations.ts                          # 编辑器块装饰 (v2.x 遗留)
+├── markdownBlockWidgets.ts                            # Markdown 块小部件 (v2.x 遗留)
+└── markdownBlockRenderer.ts                           # Markdown 块渲染器 (v2.x 遗留)
 src/render/services/
+├── blockTree.ts                                       # Block Tree 数据结构 (新增 v3.0)
+├── blockTreeBuilder.ts                                # Markdown → BlockTree 解析 (新增 v3.0)
+├── blockTreeSerializer.ts                             # BlockTree → Markdown 序列化 (新增 v3.0)
+├── blockController.ts                                 # 块级操作控制器 (新增 v3.0)
+├── inlineDecorator.ts                                 # 内联 WYSIWYG 装饰 (新增 v3.0)
 ├── markdown.ts                                        # Markdown 处理服务 (439行)
 └── markdownBlockDetector.ts                           # Markdown 块检测器
 src/render/stores/
@@ -189,7 +255,7 @@ editorStore.saveFile()
   └── 触发 EditorView useEffect → editor.setValue(恢复的内容)
 ```
 
-### 3.6 块级渲染与 MD 原文切换流程
+### 3.6 块级渲染与 MD 原文切换流程（v2.x 历史）
 
 ```
 编辑器内容变化 / 光标移动
@@ -458,6 +524,10 @@ function stripDocumentLineNumbers(content: string): string {
 | `\| 表格 \|`    | HTML `<table>`                                     | remark-gfm + wrap table |
 
 ## 5. ContentWidget 富文本叠加层系统
+
+> **⚠️ v3.0 中已弃用** — 以下为 v2.x 的历史文档，保留供参考。
+> 
+> ⚠️ **FloatingToolbar 需要重写** — FloatingToolbar 当前为 stub（返回 null），需要适配新的块编辑器架构。
 
 ### 5.1 架构概览
 
