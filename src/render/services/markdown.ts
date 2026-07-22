@@ -5,11 +5,17 @@
 import type { Heading, Root } from 'mdast';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-bash';
+import 'prismjs/components/prism-css';
+import 'prismjs/components/prism-java';
 import 'prismjs/components/prism-json';
 import 'prismjs/components/prism-jsx';
 import 'prismjs/components/prism-markdown';
+import 'prismjs/components/prism-markup';
+import 'prismjs/components/prism-python';
+import 'prismjs/components/prism-sql';
 import 'prismjs/components/prism-tsx';
 import 'prismjs/components/prism-typescript';
+import 'prismjs/components/prism-yaml';
 import rehypeStringify from 'rehype-stringify';
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
@@ -146,15 +152,33 @@ type LineNumberCandidate = {
 
 const BARE_LINE_NUMBER_RE = /^(\s*)(\d{1,6})(?:\s+(.*))?$/;
 const LANGUAGE_ALIAS_MAP: Record<string, string> = {
+  bash: 'bash',
+  css: 'css',
+  html: 'markup',
   js: 'javascript',
+  javascript: 'javascript',
+  java: 'java',
   jsx: 'jsx',
+  json: 'json',
+  markdown: 'markdown',
+  md: 'markdown',
+  plaintext: 'plaintext',
+  plaintexttext: 'plaintext',
+  plain: 'plaintext',
+  text: 'plaintext',
+  txt: 'plaintext',
+  python: 'python',
   ts: 'typescript',
   tsx: 'tsx',
   sh: 'bash',
   shell: 'bash',
+  sql: 'sql',
+  svg: 'markup',
+  typescript: 'typescript',
+  xml: 'markup',
   zsh: 'bash',
   yml: 'yaml',
-  md: 'markdown',
+  yaml: 'yaml',
 };
 
 export function prepareMarkdownForRendering(content: string): string {
@@ -388,8 +412,9 @@ function normalizeLanguage(language: string | null): string | null {
     return null;
   }
 
-  const normalized = language.toLowerCase();
-  return LANGUAGE_ALIAS_MAP[normalized] ?? normalized;
+  const normalized = language.toLowerCase().trim();
+  const compact = normalized.replace(/[\s_-]+/g, '');
+  return LANGUAGE_ALIAS_MAP[normalized] ?? LANGUAGE_ALIAS_MAP[compact] ?? normalized;
 }
 
 function highlightCode(value: string, language: string | null) {

@@ -12,6 +12,8 @@
 
 import type { BlockType } from './markdownBlockDetector';
 
+const CODE_FENCE_RE = /^([ \t]*)(`{3,}|~{3,})([^\n]*)$/;
+
 // --- Counter for ID generation ---
 // Module-level counter; increments monotonically to guarantee uniqueness
 // within a single application session.
@@ -148,9 +150,8 @@ export function getNextSiblingId(tree: BlockTree, id: BlockId): BlockId | null {
   const block = tree.blocks[id];
   if (!block) return null;
 
-  const order = block.parentId === null
-    ? tree.rootBlockIds
-    : tree.blocks[block.parentId]?.childrenIds ?? [];
+  const order =
+    block.parentId === null ? tree.rootBlockIds : (tree.blocks[block.parentId]?.childrenIds ?? []);
 
   const index = order.indexOf(id);
   if (index === -1 || index >= order.length - 1) return null;
@@ -169,9 +170,8 @@ export function getPrevSiblingId(tree: BlockTree, id: BlockId): BlockId | null {
   const block = tree.blocks[id];
   if (!block) return null;
 
-  const order = block.parentId === null
-    ? tree.rootBlockIds
-    : tree.blocks[block.parentId]?.childrenIds ?? [];
+  const order =
+    block.parentId === null ? tree.rootBlockIds : (tree.blocks[block.parentId]?.childrenIds ?? []);
 
   const index = order.indexOf(id);
   if (index <= 0) return null;
@@ -281,7 +281,7 @@ function cloneTree(tree: BlockTree): BlockTree {
 export function insertBlockAfter(
   tree: BlockTree,
   targetId: BlockId | null,
-  newNode: BlockNode,
+  newNode: BlockNode
 ): BlockTree {
   const next = cloneTree(tree);
   const cloned = cloneNode(newNode);
@@ -303,9 +303,8 @@ export function insertBlockAfter(
       // Insert as a sibling of the target
       cloned.parentId = target.parentId;
 
-      const order = target.parentId === null
-        ? next.rootBlockIds
-        : next.blocks[target.parentId]!.childrenIds;
+      const order =
+        target.parentId === null ? next.rootBlockIds : next.blocks[target.parentId]!.childrenIds;
 
       const targetIndex = order.indexOf(targetId);
       const newOrder = [...order];
@@ -379,11 +378,7 @@ export function removeBlock(tree: BlockTree, id: BlockId): BlockTree {
  * @param sourceLines - The new source lines for this block
  * @returns A new BlockTree with the updated source and invalidated cache
  */
-export function updateBlockSource(
-  tree: BlockTree,
-  id: BlockId,
-  sourceLines: string[],
-): BlockTree {
+export function updateBlockSource(tree: BlockTree, id: BlockId, sourceLines: string[]): BlockTree {
   const node = tree.blocks[id];
   if (!node) {
     // Block not found — return tree unchanged but with incremented version
@@ -391,9 +386,15 @@ export function updateBlockSource(
   }
 
   const next = cloneTree(tree);
+  const nextFenceLanguage =
+    next.blocks[id].type === 'code-fence'
+      ? extractFenceLanguage(sourceLines)
+      : next.blocks[id].fenceLanguage;
+
   next.blocks[id] = {
     ...next.blocks[id],
     sourceLines: [...sourceLines],
+    fenceLanguage: nextFenceLanguage,
     renderedHtml: null,
   };
   next.version += 1;
@@ -413,11 +414,7 @@ export function updateBlockSource(
  * @param html - The rendered HTML string
  * @returns A new BlockTree with the updated renderedHtml
  */
-export function setBlockRenderedHtml(
-  tree: BlockTree,
-  id: BlockId,
-  html: string,
-): BlockTree {
+export function setBlockRenderedHtml(tree: BlockTree, id: BlockId, html: string): BlockTree {
   const node = tree.blocks[id];
   if (!node) {
     return { ...tree, version: tree.version + 1 };
@@ -430,4 +427,19 @@ export function setBlockRenderedHtml(
   };
   next.version += 1;
   return next;
+}
+
+function extractFenceLanguage(sourceLines: string[]): string | undefined {
+  const firstLine = sourceLines[0];
+  if (!firstLine) {
+    return undefined;
+  }
+
+  const match = firstLine.match(CODE_FENCE_RE);
+  if (!match) {
+    return undefined;
+  }
+
+  const language = match[3].trim();
+  return language.length > 0 ? language : undefined;
 }
