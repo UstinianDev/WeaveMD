@@ -47,7 +47,7 @@ const ParagraphBlock: React.FC<ParagraphBlockProps> = (props) => {
 
   return (
     <p
-      className="paragraph-block text-base leading-relaxed mb-1 cursor-text text-[var(--text-primary)]"
+      className="paragraph-block text-[14px] font-normal leading-[1.65] mb-1 cursor-text text-[var(--text-primary)]"
       data-block-id={block.id}
       onClick={() => onBlockActivate(block.id)}
       dangerouslySetInnerHTML={block.renderedHtml ? { __html: block.renderedHtml } : undefined}

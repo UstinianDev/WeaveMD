@@ -11,6 +11,7 @@
 // ============================================
 
 import type { BlockType } from './markdownBlockDetector';
+import { getHeadingLevelFromLine } from './lineMarkdown';
 
 const CODE_FENCE_RE = /^([ \t]*)(`{3,}|~{3,})([^\n]*)$/;
 
@@ -386,19 +387,28 @@ export function updateBlockSource(tree: BlockTree, id: BlockId, sourceLines: str
   }
 
   const next = cloneTree(tree);
-  const nextFenceLanguage =
-    next.blocks[id].type === 'code-fence'
-      ? extractFenceLanguage(sourceLines)
-      : next.blocks[id].fenceLanguage;
+  const current = next.blocks[id];
+  const nextType = resolveNextTypeFromSource(current.type, sourceLines);
+  const nextFenceLanguage = nextType === 'code-fence' ? extractFenceLanguage(sourceLines) : undefined;
+  const nextHeadingLevel = nextType === 'heading' ? getHeadingLevelFromLine(sourceLines[0] ?? '') : undefined;
 
   next.blocks[id] = {
-    ...next.blocks[id],
+    ...current,
+    type: nextType,
     sourceLines: [...sourceLines],
+    headingLevel: nextHeadingLevel,
     fenceLanguage: nextFenceLanguage,
     renderedHtml: null,
   };
   next.version += 1;
   return next;
+}
+
+function resolveNextTypeFromSource(currentType: BlockType, sourceLines: string[]): BlockType {
+  if (currentType === 'heading' || currentType === 'paragraph') {
+    return getHeadingLevelFromLine(sourceLines[0] ?? '') !== undefined ? 'heading' : 'paragraph';
+  }
+  return currentType;
 }
 
 /**
