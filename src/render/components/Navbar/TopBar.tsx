@@ -197,7 +197,7 @@ const TopBar: React.FC = () => {
   );
 
   const handleFindReplace = () => {
-    // Will trigger Monaco Editor find widget in Phase 3
+    openModal('findReplace');
   };
 
   useEffect(() => {
