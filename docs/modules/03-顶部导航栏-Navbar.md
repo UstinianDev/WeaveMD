@@ -1,6 +1,6 @@
 # 顶部导航栏 (Navbar) 功能总结
 
-> 模块编号：03 | 优先级：P0 | 最后更新：2026-07-08
+> 模块编号：03 | 优先级：P0 | 最后更新：2026-07-22
 
 ---
 
@@ -15,7 +15,11 @@ src/render/components/Navbar/
 ├── TopBar.tsx           # 导航栏主组件（布局 + 快捷键）
 ├── FileMenu.tsx         # 文件菜单（New/Open/Delete/Close）
 ├── MoreMenu.tsx         # 更多菜单（Find & Replace / Edit History）
+├── HelpMenu.tsx         # 帮助菜单（Settings / Version）
+├── WindowControls.tsx   # 窗口控制按钮（Min/Max/Close）
 └── HistoryMenu.tsx      # 历史菜单（文件列表 / Manage Files）
+src/render/components/Editor/
+└── FindReplaceModal.tsx # 查找与替换弹窗（居中模态框，双 Tab）
 src/render/stores/
 ├── authStore.ts         # 用户认证状态
 ├── editorStore.ts       # 编辑器状态（当前文件、撤销/重做）
@@ -89,10 +93,19 @@ function getShortcutAction(event: KeyboardEvent): ShortcutAction {
 
 #### 更多菜单 (⋮)
 
-| 菜单项         | 优先级 | 说明   |
-| -------------- | ------ | ------ |
-| Find & Replace | P1     | 待实现 |
-| Edit History   | P1     | 待实现 |
+| 菜单项         | 优先级 | 说明                              |
+| -------------- | ------ | --------------------------------- |
+| Find & Replace | P0     | `uiStore.openModal('findReplace')` |
+| Edit History   | P1     | `uiStore.toggleHistoryPanel()`    |
+
+**Find & Replace 弹窗详情：**
+
+点击后弹出居中模态框 (`FindReplaceModal.tsx`)，搜索 `editorStore.content` 原始文本：
+
+- **外观**：macOS 风格三色圆点（红/黄/绿）+ 应用主题适配（CSS 变量）
+- **查找 Tab**：查找内容输入框 → 搜索方向下拉（向下/全部/向上）→ 底部操作栏（阅读突出显示复选框、查找下一处、取消）
+- **替换 Tab**：查找内容输入框 → 搜索方向下拉 → 替换为输入框 → 底部操作栏（替换、全部替换、查找下一处、取消）
+- **匹配预览**：实时显示当前匹配的行号、列号及上下文（黄色高亮）
 
 ### 3.4 右侧操作按钮
 
@@ -206,7 +219,7 @@ const files = useHistoryStore((s) => s.files);
 
 | 模块       | 交互方式                                             |
 | ---------- | ---------------------------------------------------- |
-| 编辑器     | 通过 `editorStore` 操作当前文件、撤销/重做           |
+| 编辑器     | 通过 `editorStore` 操作当前文件、撤销/重做；FindReplaceModal 搜索 `editorStore.content` 并调用 `updateContent` 替换 |
 | 认证系统   | 显示当前账号标签；通过 `authStore.user` 获取用户信息 |
 | 设置       | 通过 `uiStore.openModal('settings')` 打开设置        |
 | 窗口控制   | 通过 IPC 调用窗口控制（最小化/最大化/关闭）          |

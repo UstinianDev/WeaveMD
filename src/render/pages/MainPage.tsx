@@ -9,6 +9,7 @@ import FloatingToolbar from '../components/Editor/FloatingToolbar';
 import HistoryPanel from '../components/Editor/HistoryPanel';
 import OutlinePanel from '../components/Editor/OutlinePanel';
 import TopBar from '../components/Navbar/TopBar';
+import FindReplaceModal from '../components/Editor/FindReplaceModal';
 import SettingsModal from '../components/Settings/SettingsModal';
 import { useAuthStore } from '../stores/authStore';
 import { useEditorStore } from '../stores/editorStore';
@@ -138,6 +139,9 @@ const MainPage: React.FC = () => {
 
       {/* Settings Modal */}
       <SettingsModal isOpen={activeModal === 'settings'} onClose={closeModal} />
+
+      {/* Find & Replace Modal */}
+      <FindReplaceModal isOpen={activeModal === 'findReplace'} onClose={closeModal} />
 
       {/* Status Bar */}
       <StatusBar />

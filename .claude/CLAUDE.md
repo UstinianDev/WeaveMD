@@ -33,6 +33,7 @@ src/
 │   │       ├── BlockRenderer.tsx          # Block type dispatcher
 │   │       ├── EditorScrollContainer.tsx  # Document viewport
 │   │       ├── EditorView.tsx             # Main editor orchestrator
+│   │       ├── FindReplaceModal.tsx       # Find & Replace modal (centered, tabbed)
 │   │       ├── FloatingToolbar.tsx        # Selection toolbar (stub — needs rewrite)
 │   │       └── OutlinePanel.tsx, HistoryPanel.tsx
 │   ├── pages/       # AuthPage, MainPage
