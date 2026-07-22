@@ -1,6 +1,6 @@
 # WeaveMD 项目总结文档
 
-> 版本：v2.1 | 最后更新：2026-07-08
+> 版本：v2.2 | 最后更新：2026-07-21
 
 ---
 
@@ -37,64 +37,40 @@
 
 ### 2.1 整体架构分层
 
-```
-┌─────────────────────────────────────────────────┐
-│              展示层 (UI Components)               │
-│  React 组件库 (Shadcn/ui 风格)                    │
-│  页面: AuthPage, MainPage                        │
-│  组件: Button, Input, Modal, Dropdown 等         │
-├─────────────────────────────────────────────────┤
-│            业务逻辑层 (Hooks & Stores)             │
-│  Zustand Stores: auth, editor, ui, history       │
-│  自定义 Hooks: useAuth, useEditor, useTheme      │
-│  事件处理: 快捷键映射、拖拽排序等                   │
-├─────────────────────────────────────────────────┤
-│            数据访问层 (Services & API)             │
-│  IPC 通信 (window.weaveMD.*)                     │
-│  本地存储 (localStorage)                          │
-│  Markdown 处理 (unified + remark + rehype)       │
-├─────────────────────────────────────────────────┤
-│             主进程层 (Electron Main)               │
-│  窗口管理 (BrowserWindow)                         │
-│  数据库操作 (better-sqlite3)                      │
-│  IPC 处理器 (ipcMain.handle)                     │
-│  文件系统操作 (fs)                                │
-│  导出功能 (MD/Word/PDF)                          │
-└─────────────────────────────────────────────────┘
-```
+- UI：React 页面与组件（AuthPage/MainPage + Editor/Navbar/Settings）
+- 状态与业务：Zustand stores + hooks（auth/editor/ui/history）
+- 渲染与服务：Markdown pipeline（unified/remark/rehype）+ Prism 高亮 + IPC bridge
+- 主进程：Electron window + SQLite（better-sqlite3）+ IPC handlers + 导出
 
 ### 2.2 核心依赖
 
-| 类别          | 依赖                                                | 用途             |
-| ------------- | --------------------------------------------------- | ---------------- |
-| 前端框架      | react@^18.3.0, react-dom@^18.3.0                    | UI 渲染          |
-| 类型系统      | typescript@^5.4.0                                   | 类型安全         |
-| 状态管理      | zustand@^4.5.0                                      | 轻量状态管理     |
-| 样式          | tailwindcss@^3.4.0, postcss@^8.4.0                  | 原子化 CSS       |
-| 编辑器        | @monaco-editor/react@^4.6.0                         | Markdown 编辑    |
-| Markdown 处理 | unified, remark-parse, remark-gfm, rehype-stringify | AST 解析与渲染   |
-| 代码高亮      | prismjs@^1.29.0                                     | 代码块语法高亮   |
-| 数据库        | better-sqlite3@^9.4.0                               | 本地 SQLite 存储 |
-| 加密          | bcryptjs@^2.4.3                                     | 密码哈希         |
-| JWT           | jsonwebtoken@^9.1.0                                 | 本地 Token 认证  |
-| 桌面框架      | electron@latest                                     | 跨平台桌面应用   |
-| 构建          | vite@^5.1.0, vite-plugin-electron@^0.28.0           | 开发与构建       |
-| 打包          | electron-builder@latest                             | 跨平台打包       |
+| 类别     | 依赖                      | 用途              |
+| -------- | ------------------------- | ----------------- |
+| 桌面框架 | Electron                  | 跨平台桌面应用    |
+| 前端框架 | React 18 + TypeScript     | UI 渲染与类型安全 |
+| 状态管理 | Zustand                   | 编辑/认证等状态   |
+| 样式     | TailwindCSS + Shadcn/ui   | 主题与组件风格    |
+| 编辑器   | Monaco                    | 主编辑体验        |
+| Markdown | unified + remark + rehype | 解析/渲染管线     |
+| 代码高亮 | Prism.js                  | 代码块高亮        |
+| 数据存储 | SQLite（better-sqlite3）  | 本地离线存储      |
 
 ### 2.3 设计令牌 (Design Tokens)
 
-| Token                | 值                                   | 用途            |
-| -------------------- | ------------------------------------ | --------------- |
-| `--bg-primary`       | `#0F0F0F`                            | 主背景色        |
-| `--bg-secondary`     | `#1A1A1A`                            | 次级背景色      |
-| `--border-color`     | `#2D2D2D`                            | 边框色          |
-| `--text-primary`     | `#FFFFFF`                            | 主文本色        |
-| `--text-sub`         | `#999999`                            | 副文本色        |
-| `--accent`           | `#7C3AED`                            | 主强调色 (紫蓝) |
-| `--accent-secondary` | `#6366F1`                            | 次强调色 (蓝紫) |
-| `--radius-input`     | `8px`                                | 输入框/按钮圆角 |
-| `--radius-card`      | `12px`                               | 卡片/面板圆角   |
-| 过渡                 | `150ms cubic-bezier(0.4, 0, 0.2, 1)` | 交互过渡        |
+| Token                | 值                                   | 用途                             |
+| -------------------- | ------------------------------------ | -------------------------------- |
+| `--bg-primary`       | `#0F0F0F`                            | 主背景色                         |
+| `--bg-secondary`     | `#1A1A1A`                            | 次级背景色                       |
+| `--border-color`     | `#2D2D2D`                            | 边框色                           |
+| `--text-primary`     | `#FFFFFF`                            | 主文本色                         |
+| `--text-sub`         | `#999999`                            | 副文本色                         |
+| `--accent`           | `#7C3AED`                            | 主强调色 (紫蓝)                  |
+| `--accent-secondary` | `#6366F1`                            | 次强调色 (蓝紫)                  |
+| `--radius-input`     | `8px`                                | 输入框/按钮圆角                  |
+| `--radius-card`      | `12px`                               | 卡片/面板圆角                    |
+| `--bg-code`          | `#1E1E2E`                            | 代码块语义底色（暗色主题变量）   |
+| `--text-code`        | `#CDD6F4`                            | 代码块语义文字色（暗色主题变量） |
+| 过渡                 | `150ms cubic-bezier(0.4, 0, 0.2, 1)` | 交互过渡                         |
 
 ---
 
@@ -102,18 +78,18 @@
 
 各功能模块的详细实现文档已拆分至 `docs/modules/` 目录，以下为索引：
 
-| 模块              | 文档                                                                         | 核心内容                                                                                |
-| ----------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| 加载页面 (Splash) | [modules/01-加载页面-Splash.md](./modules/01-加载页面-Splash.md)             | 启动动画、CSS 动画序列、提前跳转机制                                                    |
-| 认证系统          | [modules/02-认证系统-Auth.md](./modules/02-认证系统-Auth.md)                 | 注册/登录流程、JWT 生成、会话恢复、账号切换/删除、交互式吉祥物                          |
-| 顶部导航栏        | [modules/03-顶部导航栏-Navbar.md](./modules/03-顶部导航栏-Navbar.md)         | 布局结构、File/Help/History 菜单、窗口控制                                              |
-| 编辑主区          | [modules/04-编辑主区-Editor.md](./modules/04-编辑主区-Editor.md)             | 目录面板、Monaco 编辑器、浮动工具栏、自动保存、撤销/重做栈、Markdown 处理管道、块级渲染 |
-| 设置界面          | [modules/05-设置界面-Settings.md](./modules/05-设置界面-Settings.md)         | 语言选择、主题切换、自定义主题、账号管理                                                |
-| 窗口控制          | [modules/06-窗口控制-Window.md](./modules/06-窗口控制-Window.md)             | frameless 窗口配置、IPC 通道、拖拽区域                                                  |
-| 数据持久化层      | [modules/07-数据持久化层-Database.md](./modules/07-数据持久化层-Database.md) | SQLite Schema、WAL 模式、数据隔离、CRUD 操作、文件保存流程                              |
-| IPC 通信机制      | [modules/08-IPC通信机制.md](./modules/08-IPC通信机制.md)                     | 安全架构、22 个 IPC 通道、preload API 类型定义                                          |
-| 国际化 (i18n)     | [modules/09-国际化-i18n.md](./modules/09-国际化-i18n.md)                     | Provider 模式、翻译键组织、三语言支持                                                   |
-| 导出功能          | [modules/10-导出功能-Export.md](./modules/10-导出功能-Export.md)             | MD/Word/PDF 导出实现                                                                    |
+| 模块              | 文档                                                                         | 核心内容                                                                                                                     |
+| ----------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 加载页面 (Splash) | [modules/01-加载页面-Splash.md](./modules/01-加载页面-Splash.md)             | 启动动画、CSS 动画序列、提前跳转机制                                                                                         |
+| 认证系统          | [modules/02-认证系统-Auth.md](./modules/02-认证系统-Auth.md)                 | 注册/登录流程、JWT 生成、会话恢复、账号切换/删除、交互式吉祥物                                                               |
+| 顶部导航栏        | [modules/03-顶部导航栏-Navbar.md](./modules/03-顶部导航栏-Navbar.md)         | 布局结构、File/Help/History 菜单、窗口控制                                                                                   |
+| 编辑主区          | [modules/04-编辑主区-Editor.md](./modules/04-编辑主区-Editor.md)             | 目录面板、块编辑器（Block Tree + React Blocks + Monaco mini-editor）、代码块语言下拉、自动保存、撤销/重做、Markdown 处理管道 |
+| 设置界面          | [modules/05-设置界面-Settings.md](./modules/05-设置界面-Settings.md)         | 语言选择、主题切换、自定义主题、账号管理                                                                                     |
+| 窗口控制          | [modules/06-窗口控制-Window.md](./modules/06-窗口控制-Window.md)             | frameless 窗口配置、IPC 通道、拖拽区域                                                                                       |
+| 数据持久化层      | [modules/07-数据持久化层-Database.md](./modules/07-数据持久化层-Database.md) | SQLite Schema、WAL 模式、数据隔离、CRUD 操作、文件保存流程                                                                   |
+| IPC 通信机制      | [modules/08-IPC通信机制.md](./modules/08-IPC通信机制.md)                     | 安全架构、22 个 IPC 通道、preload API 类型定义                                                                               |
+| 国际化 (i18n)     | [modules/09-国际化-i18n.md](./modules/09-国际化-i18n.md)                     | Provider 模式、翻译键组织、三语言支持                                                                                        |
+| 导出功能          | [modules/10-导出功能-Export.md](./modules/10-导出功能-Export.md)             | MD/Word/PDF 导出实现                                                                                                         |
 
 ---
 
@@ -141,7 +117,7 @@
 
 ### 4.5 块级渲染
 
-**决策**：编辑器内对代码块、表格等 Markdown 块进行实时渲染预览。光标进入块时显示源码，离开时显示渲染效果，使用 Monaco Editor 的装饰和小部件 API。
+**决策**：编辑器采用块编辑器架构：Block Tree 作为文档模型，非活动块用 React 组件渲染，活动块用 Monaco 迷你编辑器编辑；代码块在渲染态提供头部语言选择器（固定在代码块 header 内），切换语言会回写围栏首行语法并更新语法高亮。
 
 ### 4.6 主题系统
 
@@ -151,131 +127,13 @@
 
 ## 5. 项目结构总览
 
-```
-weaveMD/
-├── src/
-│   ├── main/                          # Electron 主进程
-│   │   ├── index.ts                   # 主进程入口（单实例锁、初始化）
-│   │   ├── window.ts                  # 窗口管理（主窗口、启动画面）
-│   │   ├── ipc-handlers.ts            # IPC 处理器（认证、文件、导出等）
-│   │   ├── preload.ts                 # 预加载脚本（安全 API 桥接）
-│   │   └── db/
-│   │       ├── index.ts               # 数据库初始化 + 迁移
-│   │       ├── users.ts               # 用户 CRUD
-│   │       ├── files.ts               # 文件 CRUD（软删除）
-│   │       ├── history.ts             # 历史版本 CRUD
-│   │       └── settings.ts            # 设置 CRUD
-│   │
-│   ├── render/                        # React 前端
-│   │   ├── App.tsx                    # 根组件（阶段管理、主题切换）
-│   │   ├── main.tsx                   # 渲染进程入口
-│   │   ├── pages/
-│   │   │   ├── AuthPage.tsx           # 认证页（双栏布局）
-│   │   │   └── MainPage.tsx           # 主页面（编辑器布局）
-│   │   ├── components/
-│   │   │   ├── Auth/                  # 认证组件
-│   │   │   │   ├── LoginPage.tsx
-│   │   │   │   ├── SignupPage.tsx
-│   │   │   │   ├── SplashLoader.tsx
-│   │   │   │   ├── InteractiveMascot.tsx
-│   │   │   │   └── AuthWindowControls.tsx
-│   │   │   ├── Editor/                # 编辑器组件
-│   │   │   │   ├── EditorView.tsx
-│   │   │   │   ├── OutlinePanel.tsx
-│   │   │   │   ├── FloatingToolbar.tsx
-│   │   │   │   ├── HistoryPanel.tsx
-│   │   │   │   ├── editorBlockDecorations.ts
-│   │   │   │   ├── markdownBlockWidgets.ts
-│   │   │   │   └── markdownBlockRenderer.ts
-│   │   │   ├── Navbar/                # 导航栏组件
-│   │   │   │   ├── TopBar.tsx
-│   │   │   │   ├── FileMenu.tsx
-│   │   │   │   ├── MoreMenu.tsx
-│   │   │   │   └── HistoryMenu.tsx
-│   │   │   ├── Settings/              # 设置组件
-│   │   │   │   ├── SettingsModal.tsx
-│   │   │   │   ├── ThemeSelector.tsx
-│   │   │   │   └── AccountManager.tsx
-│   │   │   └── Common/                # 通用组件
-│   │   │       ├── Button.tsx
-│   │   │       ├── Input.tsx
-│   │   │       ├── Modal.tsx
-│   │   │       ├── Dropdown.tsx
-│   │   │       └── StatusBar.tsx
-│   │   ├── stores/                    # Zustand 状态管理
-│   │   │   ├── authStore.ts
-│   │   │   ├── editorStore.ts
-│   │   │   ├── uiStore.ts
-│   │   │   └── historyStore.ts
-│   │   ├── services/                  # 业务服务
-│   │   │   ├── markdown.ts
-│   │   │   ├── markdownBlockDetector.ts
-│   │   │   ├── storage.ts
-│   │   │   ├── export.ts
-│   │   │   └── api.ts
-│   │   ├── hooks/                     # 自定义 Hooks
-│   │   │   ├── useAuth.ts
-│   │   │   ├── useEditor.ts
-│   │   │   └── useTheme.ts
-│   │   ├── i18n/                      # 国际化
-│   │   │   ├── index.tsx
-│   │   │   ├── en.json
-│   │   │   ├── zh-CN.json
-│   │   │   └── zh-TW.json
-│   │   ├── styles/
-│   │   │   └── globals.css            # 全局样式 + 主题变量
-│   │   └── utils/
-│   │       ├── crypto.ts              # 加密工具
-│   │       ├── validators.ts          # 验证工具
-│   │       ├── helpers.ts             # 辅助函数
-│   │       ├── monacoSetup.ts         # Monaco 配置
-│   │       └── weaveMDBridge.ts       # API 桥接
-│   │
-│   └── shared/                        # 共享代码
-│       ├── types.ts                   # TypeScript 类型定义
-│       └── constants.ts               # 常量（IPC 通道、验证规则等）
-│
-├── tests/                             # 测试
-│   ├── setup.ts
-│   ├── components/
-│   ├── db/
-│   ├── services/
-│   ├── stores/
-│   └── utils/
-│
-├── docs/                              # 文档
-│   ├── ARCHITECTURE.md
-│   ├── DATABASE.md
-│   ├── FRONTEND.md
-│   ├── SECURITY.md
-│   ├── WORKFLOW.md
-│   ├── SUMMARY.md
-│   └── modules/                       # 各模块详细文档
-│       ├── README.md
-│       ├── 01-加载页面-Splash.md
-│       ├── 02-认证系统-Auth.md
-│       ├── 03-顶部导航栏-Navbar.md
-│       ├── 04-编辑主区-Editor.md
-│       ├── 05-设置界面-Settings.md
-│       ├── 06-窗口控制-Window.md
-│       ├── 07-数据持久化层-Database.md
-│       ├── 08-IPC通信机制.md
-│       ├── 09-国际化-i18n.md
-│       └── 10-导出功能-Export.md
-│
-├── public/icons/                      # 应用图标
-├── electron-builder.yml               # 打包配置
-├── vite.config.ts                     # Vite 配置
-├── vitest.config.ts                   # 测试配置
-├── tsconfig.json                      # TypeScript 配置
-├── tailwind.config.ts                 # TailwindCSS 配置
-├── postcss.config.js                  # PostCSS 配置
-├── package.json                       # 依赖管理
-├── .eslintrc.cjs                      # ESLint 配置
-└── .prettierrc                        # Prettier 配置
-```
+- `src/main/`：Electron 主进程（窗口、IPC handlers、SQLite）
+- `src/render/`：React 前端（页面、Editor 组件、stores、services、styles）
+- `src/shared/`：共享 types/constants
+- `docs/`：设计与模块文档（入口见 `.claude/CLAUDE.md`）
+- `tests/`：Vitest 测试
 
 ---
 
 > 本文档为 WeaveMD 项目概要总结，各模块详细实现请参阅 `docs/modules/` 目录下的对应文档。
-> 基于 WeaveMD v2.1 需求文档、技术选型文档及源码综合分析生成。
+> 基于项目需求文档、技术选型文档及源码综合分析生成。
