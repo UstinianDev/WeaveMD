@@ -56,6 +56,7 @@ public/              # icons, images
 - **Types**: Share via `src/shared/types.ts`; avoid `any`
 - **CSS**: Tailwind utility classes preferred; extract to CSS only for complex animations
 - **No inline styles** — use Tailwind classes or CSS modules
+- **Editor UI constraint**: Any code-fence language selector must be mounted inside the code block header container (no portal/fixed dropdown in the page side area)
 
 ## Architecture (as of 2026-07-18)
 
@@ -84,4 +85,4 @@ The editor has been reworked to use a block-based architecture inspired by MarkT
 | Heading overlap with body text | Eliminated — each block has independent layout |
 | Red box artifacts | Eliminated — no ContentWidget overlays |
 | Code block widget disappearing on scroll | Eliminated — blocks use native scroll |
-| Code block plain-text styling | Retained — Prism.js highlighting preserved |
+| Code block plain-text styling | Improved — light “terminal window” style + language dropdown selector in header; `Plain Text` normalized to `plaintext` |
