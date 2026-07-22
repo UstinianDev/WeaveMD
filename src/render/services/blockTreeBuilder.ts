@@ -17,12 +17,12 @@ import {
   insertBlockAfter,
 } from './blockTree';
 import type { BlockTree, BlockNode } from './blockTree';
+import { getHeadingLevelFromLine } from './lineMarkdown';
 
 // ============================================
 // Regex Patterns (mirrored from markdownBlockDetector.ts)
 // ============================================
 
-const HEADING_RE = /^(#{1,6})[ \t]+/;
 const BLOCKQUOTE_RE = /^[ \t]*(?:>[ \t]?)+/;
 const UNORDERED_LIST_RE = /^([ \t]*)([-+*])[ \t]+/;
 const ORDERED_LIST_RE = /^([ \t]*)(\d+)\.[ \t]+/;
@@ -79,7 +79,7 @@ function startsNewBlock(lines: string[], index: number): boolean {
   return (
     isBlankLine(line) ||
     FENCE_RE.test(line) ||
-    HEADING_RE.test(line) ||
+    getHeadingLevelFromLine(line) !== undefined ||
     BLOCKQUOTE_RE.test(line) ||
     TASK_LIST_RE.test(line) ||
     UNORDERED_LIST_RE.test(line) ||
@@ -114,12 +114,10 @@ interface DetectionResult {
  */
 function detectHeading(lines: string[], startIndex: number): DetectionResult | null {
   const line = lines[startIndex];
-  const match = line.match(HEADING_RE);
-  if (!match) {
+  const headingLevel = getHeadingLevelFromLine(line);
+  if (headingLevel === undefined) {
     return null;
   }
-
-  const headingLevel = match[1].length;
 
   return {
     sourceLines: [line],

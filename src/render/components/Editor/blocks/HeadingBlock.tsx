@@ -34,12 +34,12 @@ const HEADING_TAG_MAP: Record<number, keyof JSX.IntrinsicElements> = {
 };
 
 const HEADING_CLASSES: Record<number, string> = {
-  1: 'text-3xl font-bold leading-tight mb-3 mt-8',
-  2: 'text-2xl font-bold leading-tight mb-2 mt-6',
-  3: 'text-xl font-semibold leading-snug mb-2 mt-5',
-  4: 'text-lg font-semibold leading-snug mb-1 mt-4',
-  5: 'text-base font-semibold leading-normal mb-1 mt-3',
-  6: 'text-sm font-semibold leading-normal mb-1 mt-3',
+  1: 'text-[26px] font-[700] leading-[1.35] mt-[16px] mb-[8px]',
+  2: 'text-[22px] font-[600] leading-[1.35] mt-[14px] mb-[6px]',
+  3: 'text-[18px] font-[600] leading-[1.4] mt-[12px] mb-[4px]',
+  4: 'text-[16px] font-[500] leading-[1.45] mt-[10px] mb-[4px]',
+  5: 'text-[15px] font-[500] leading-[1.5] mt-[8px] mb-[4px]',
+  6: 'text-[14px] font-[500] leading-[1.5] mt-[8px] mb-[4px]',
 };
 
 const HeadingBlock: React.FC<HeadingBlockProps> = (props) => {

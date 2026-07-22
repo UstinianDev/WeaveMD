@@ -344,6 +344,18 @@ const EditorView: React.FC<EditorViewProps> = ({
     const blocks = getAllBlocksInOrder(blockTree);
     let cancelled = false;
 
+    const normalizeRenderedHtml = (blockType: string, html: string) => {
+      if (blockType === 'heading') {
+        const match = html.match(/^<h[1-6][^>]*>([\s\S]*)<\/h[1-6]>\s*$/);
+        return match ? match[1] : html;
+      }
+      if (blockType === 'paragraph') {
+        const match = html.match(/^<p[^>]*>([\s\S]*)<\/p>\s*$/);
+        return match ? match[1] : html;
+      }
+      return html;
+    };
+
     // Process blocks sequentially to avoid overwhelming the markdown processor
     const renderBlocks = async () => {
       for (const block of blocks) {
@@ -353,7 +365,8 @@ const EditorView: React.FC<EditorViewProps> = ({
 
         const markdown = block.sourceLines.join('\n');
         try {
-          const html = await renderMarkdownToHtml(markdown);
+          const htmlRaw = await renderMarkdownToHtml(markdown);
+          const html = normalizeRenderedHtml(block.type, htmlRaw);
           if (cancelled) return;
           setBlockTree((prev) => setBlockRenderedHtml(prev, block.id, html));
         } catch (err) {

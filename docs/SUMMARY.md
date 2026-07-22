@@ -83,7 +83,7 @@
 | 加载页面 (Splash) | [modules/01-加载页面-Splash.md](./modules/01-加载页面-Splash.md)             | 启动动画、CSS 动画序列、提前跳转机制                                                                                         |
 | 认证系统          | [modules/02-认证系统-Auth.md](./modules/02-认证系统-Auth.md)                 | 注册/登录流程、JWT 生成、会话恢复、账号切换/删除、交互式吉祥物                                                               |
 | 顶部导航栏        | [modules/03-顶部导航栏-Navbar.md](./modules/03-顶部导航栏-Navbar.md)         | 布局结构、File/Help/History 菜单、窗口控制                                                                                   |
-| 编辑主区          | [modules/04-编辑主区-Editor.md](./modules/04-编辑主区-Editor.md)             | 目录面板、块编辑器（Block Tree + React Blocks + Monaco mini-editor）、代码块语言下拉、自动保存、撤销/重做、Markdown 处理管道 |
+| 编辑主区          | [modules/04-编辑主区-Editor.md](./modules/04-编辑主区-Editor.md)             | 目录面板、块编辑器、标题解析统一（导入/新建/输入/粘贴）、代码块语言下拉、自动保存、撤销/重做 |
 | 设置界面          | [modules/05-设置界面-Settings.md](./modules/05-设置界面-Settings.md)         | 语言选择、主题切换、自定义主题、账号管理                                                                                     |
 | 窗口控制          | [modules/06-窗口控制-Window.md](./modules/06-窗口控制-Window.md)             | frameless 窗口配置、IPC 通道、拖拽区域                                                                                       |
 | 数据持久化层      | [modules/07-数据持久化层-Database.md](./modules/07-数据持久化层-Database.md) | SQLite Schema、WAL 模式、数据隔离、CRUD 操作、文件保存流程                                                                   |
@@ -117,7 +117,7 @@
 
 ### 4.5 块级渲染
 
-**决策**：编辑器采用块编辑器架构：Block Tree 作为文档模型，非活动块用 React 组件渲染，活动块用 Monaco 迷你编辑器编辑；代码块在渲染态提供头部语言选择器（固定在代码块 header 内），切换语言会回写围栏首行语法并更新语法高亮。
+**决策**：编辑器采用块编辑器架构：Block Tree 作为文档模型，非活动块用 React 组件渲染，活动块用 Monaco 迷你编辑器编辑；标题 `#` 解析在导入/新建/输入/粘贴中统一；代码块在渲染态提供头部语言选择器（固定在代码块 header 内）。
 
 ### 4.6 主题系统
 

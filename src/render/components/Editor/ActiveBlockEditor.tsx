@@ -20,8 +20,8 @@ import '../../utils/monacoSetup';
 // Heading font size / line height lookup tables
 // ============================================
 
-const HEADING_FONT_SIZES = [32, 28, 24, 20, 18, 16]; // H1-H6
-const HEADING_LINE_HEIGHTS = [42, 38, 34, 30, 28, 26]; // H1-H6
+const HEADING_FONT_SIZES = [26, 22, 18, 16, 15, 14]; // H1-H6
+const HEADING_LINE_HEIGHTS = [34, 30, 26, 24, 22, 21]; // H1-H6
 
 function getHeadingFontSize(level: number): number {
   return HEADING_FONT_SIZES[Math.min(level, 6) - 1] || 16;
