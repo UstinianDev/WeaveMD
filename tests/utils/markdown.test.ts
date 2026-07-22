@@ -166,4 +166,14 @@ describe('renderMarkdownToHtml', () => {
     expect(html).toContain('<code>==literal==</code>');
     expect(html).toContain('<mark class="markdown-highlight">styled</mark>');
   });
+
+  it('should normalize plain text and shell fence languages for rendered code blocks', async () => {
+    const plainTextHtml = await renderMarkdownToHtml('```Plain Text\nhello world\n```');
+    const shellHtml = await renderMarkdownToHtml('```shell\necho hello\n```');
+
+    expect(plainTextHtml).toContain('data-language="plaintext"');
+    expect(plainTextHtml).toContain('hello world');
+    expect(shellHtml).toContain('data-language="bash"');
+    expect(shellHtml).toContain('class="token');
+  });
 });

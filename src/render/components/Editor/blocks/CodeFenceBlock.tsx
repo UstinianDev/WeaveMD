@@ -10,6 +10,81 @@ import React from 'react';
 import type { BlockNode } from '../../../services/blockTree';
 import ActiveBlockEditor from '../ActiveBlockEditor';
 
+const LANGUAGE_OPTIONS = [
+  { value: 'plaintext', label: 'Plain Text' },
+  { value: 'markdown', label: 'markdown' },
+  { value: 'shell', label: 'shell' },
+  { value: 'json', label: 'json' },
+  { value: 'javascript', label: 'javascript' },
+  { value: 'typescript', label: 'typescript' },
+  { value: 'jsx', label: 'jsx' },
+  { value: 'tsx', label: 'tsx' },
+  { value: 'html', label: 'html' },
+  { value: 'css', label: 'css' },
+  { value: 'yaml', label: 'yaml' },
+  { value: 'python', label: 'python' },
+  { value: 'sql', label: 'sql' },
+  { value: 'java', label: 'java' },
+] as const;
+
+const CODE_FENCE_RE = /^([ \t]*)(`{3,}|~{3,})([^\n]*)$/;
+
+function normalizeFenceLanguageForSelect(language?: string): string {
+  if (!language) {
+    return 'plaintext';
+  }
+
+  const normalized = language.trim().toLowerCase();
+  const compact = normalized.replace(/[\s_-]+/g, '');
+
+  if (compact === 'plaintext' || compact === 'plain' || compact === 'text' || compact === 'txt') {
+    return 'plaintext';
+  }
+
+  if (compact === 'sh' || compact === 'bash' || compact === 'shell' || compact === 'zsh') {
+    return 'shell';
+  }
+
+  if (compact === 'md') {
+    return 'markdown';
+  }
+
+  if (compact === 'js') {
+    return 'javascript';
+  }
+
+  if (compact === 'ts') {
+    return 'typescript';
+  }
+
+  if (compact === 'yml') {
+    return 'yaml';
+  }
+
+  if (compact === 'xml' || compact === 'svg') {
+    return 'html';
+  }
+
+  return LANGUAGE_OPTIONS.some((option) => option.value === normalized) ? normalized : 'plaintext';
+}
+
+function buildFenceSourceLines(sourceLines: string[], language: string): string[] {
+  const nextSourceLines = [...sourceLines];
+  const firstLine = nextSourceLines[0] ?? '```';
+  const match = firstLine.match(CODE_FENCE_RE);
+
+  if (!match) {
+    nextSourceLines[0] = language === 'plaintext' ? '```plaintext' : `\`\`\`${language}`;
+    return nextSourceLines;
+  }
+
+  const indentation = match[1] ?? '';
+  const fenceMarker = match[2] ?? '```';
+  const nextInfo = language === 'plaintext' ? 'plaintext' : language;
+  nextSourceLines[0] = `${indentation}${fenceMarker}${nextInfo}`;
+  return nextSourceLines;
+}
+
 interface CodeFenceBlockProps {
   block: BlockNode;
   isActive: boolean;
@@ -26,6 +101,7 @@ interface CodeFenceBlockProps {
 
 const CodeFenceBlock: React.FC<CodeFenceBlockProps> = (props) => {
   const { block, isActive, onBlockActivate, ...callbacks } = props;
+  const selectedLanguage = normalizeFenceLanguageForSelect(block.fenceLanguage);
 
   if (isActive) {
     return (
@@ -46,19 +122,34 @@ const CodeFenceBlock: React.FC<CodeFenceBlockProps> = (props) => {
 
   return (
     <div
-      className="code-fence-block relative mb-4 rounded-lg overflow-hidden cursor-text
-                 border border-[var(--border-color)] bg-[var(--bg-code,#1e1e2e)]"
+      className="code-fence-block code-fence-block--inactive relative mb-4 overflow-hidden cursor-text"
       data-block-id={block.id}
       onClick={() => onBlockActivate(block.id)}
     >
-      {block.fenceLanguage && (
-        <div className="code-fence-lang-badge absolute top-2 right-3 px-2 py-0.5
-                        text-xs font-mono rounded
-                        bg-[var(--bg-secondary)] text-[var(--text-secondary)]
-                        select-none pointer-events-none z-10">
-          {block.fenceLanguage}
+      <div className="code-fence-header">
+        <div className="code-fence-window-controls" aria-hidden="true">
+          <span className="code-fence-window-dot code-fence-window-dot--close" />
+          <span className="code-fence-window-dot code-fence-window-dot--minimize" />
+          <span className="code-fence-window-dot code-fence-window-dot--zoom" />
         </div>
-      )}
+        <select
+          aria-label="代码块语言"
+          className="code-fence-language-select"
+          value={selectedLanguage}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) => {
+            event.stopPropagation();
+            callbacks.onContentChange(block.id, buildFenceSourceLines(block.sourceLines, event.target.value));
+          }}
+        >
+          {LANGUAGE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
       {block.renderedHtml ? (
         <div
           className="code-fence-content overflow-x-auto"

@@ -73,6 +73,8 @@ html.dark {
   --navbar-bg: #1a1a1a;
   --navbar-text-primary: #ffffff;
   --navbar-text-sub: #999999;
+  --bg-code: #1e1e2e;
+  --text-code: #cdd6f4;
   --input-bg: #0f0f0f;
   --modal-bg: #1a1a1a;
   --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.4);
@@ -94,6 +96,8 @@ html.custom {
   --navbar-bg: #1a1a1a;
   --navbar-text-primary: #ffffff;
   --navbar-text-sub: #999999;
+  --bg-code: #1e1e2e;
+  --text-code: #cdd6f4;
   --input-bg: #0f0f0f;
   --modal-bg: #1a1a1a;
   --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.4);
@@ -115,6 +119,8 @@ html.high-contrast {
   --navbar-bg: #000000;
   --navbar-text-primary: #ffffff;
   --navbar-text-sub: #cccccc;
+  --bg-code: #111111;
+  --text-code: #f3f4f6;
   --input-bg: #000000;
   --modal-bg: #111111;
   --shadow-modal: 0 4px 24px rgba(255, 255, 255, 0.1);
@@ -1313,17 +1319,150 @@ html.light .markdown-block-rendered code {
 /* Code fence block */
 .code-fence-block {
   scroll-margin-top: 24px;
+  border: 1px solid #d7dbe3;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+}
+
+.code-fence-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f5f5f7;
+}
+
+.code-fence-window-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.code-fence-window-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  display: inline-block;
+}
+
+.code-fence-window-dot--close {
+  background: #ff5f57;
+}
+
+.code-fence-window-dot--minimize {
+  background: #febc2e;
+}
+
+.code-fence-window-dot--zoom {
+  background: #28c840;
+}
+
+.code-fence-language-select {
+  flex-shrink: 0;
+  min-width: 136px;
+  max-width: 100%;
+  padding: 5px 28px 5px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+  cursor: pointer;
+}
+
+.code-fence-language-select:hover {
+  border-color: #9ca3af;
+}
+
+.code-fence-language-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.16);
 }
 
 .code-fence-content {
   font-size: 14px;
   line-height: 1.65;
+  background: #ffffff;
+  color: #111827;
+}
+
+.code-fence-content .markdown-code-block {
+  background: transparent;
 }
 
 .code-fence-content pre {
   margin: 0;
-  padding: 16px;
+  padding: 16px 18px 18px;
   overflow-x: auto;
+  background: transparent;
+  color: #111827;
+}
+
+.code-fence-content code {
+  color: #111827;
+}
+
+.code-fence-content .token.comment,
+.code-fence-content .token.prolog,
+.code-fence-content .token.doctype,
+.code-fence-content .token.cdata {
+  color: #6b7280;
+}
+
+.code-fence-content .token.punctuation {
+  color: #374151;
+}
+
+.code-fence-content .token.property,
+.code-fence-content .token.tag,
+.code-fence-content .token.boolean,
+.code-fence-content .token.number,
+.code-fence-content .token.constant,
+.code-fence-content .token.symbol,
+.code-fence-content .token.deleted {
+  color: #dc2626;
+}
+
+.code-fence-content .token.selector,
+.code-fence-content .token.attr-name,
+.code-fence-content .token.string,
+.code-fence-content .token.char,
+.code-fence-content .token.builtin,
+.code-fence-content .token.inserted {
+  color: #059669;
+}
+
+.code-fence-content .token.operator,
+.code-fence-content .token.entity,
+.code-fence-content .token.url,
+.code-fence-content .language-css .token.string,
+.code-fence-content .style .token.string {
+  color: #d97706;
+}
+
+.code-fence-content .token.atrule,
+.code-fence-content .token.attr-value,
+.code-fence-content .token.keyword {
+  color: #7c3aed;
+}
+
+.code-fence-content .token.function,
+.code-fence-content .token.class-name {
+  color: #2563eb;
+}
+
+.code-fence-content .token.regex,
+.code-fence-content .token.important,
+.code-fence-content .token.variable {
+  color: #ea580c;
 }
 
 .code-fence-lang-badge {
