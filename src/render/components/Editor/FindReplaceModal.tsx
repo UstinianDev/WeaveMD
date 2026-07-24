@@ -1,33 +1,51 @@
 // ============================================
-// WeaveMD — Find & Replace Modal
+// WeaveMD — Find & Replace Centered Modal
 // ============================================
-// Centered modal with macOS-style traffic-light dots,
-// two tabs (Find / Replace), and full text search &
-// replace logic operating on editor content.
+// Centered modal with macOS-style traffic-light
+// dots (red/yellow/green) at top-left corner.
+// Uses opacity-only animation (no CSS transform)
+// to prevent Chromium IME coordinate issues.
+//
+// Key design points:
+//   • Centered modal with semi-transparent overlay
+//   • macOS terminal-style title bar dots
+//   • Search options: case, whole word, regex
+//   • 150ms debounce (like MarkText)
+//   • Regex validation with error display
+//   • IME-safe uncontrolled inputs (defaultValue + key)
+//   • No CSS transform animations (IME safe)
+// ============================================
+//
+// Layout:
+//   ┌─── macOS Title Bar ──────────────────────────────┐
+//   │ ● ● ●  查找与替换          2/10            [✕]   │
+//   ├──────────────────────────────────────────────────┤
+//   │ [查找] [替换]                                      │ ← Tabs
+//   ├──────────────────────────────────────────────────┤
+//   │ [search input________] [Aa][W][.*] [◀] [▶]       │ ← Search + options + nav
+//   │ ● regex error (only when .* is active)            │ ← Error
+//   │ [replace input________] [替换] [全部替换]           │ ← Replace (only on replace tab)
+//   ├──────────────────────────────────────────────────┤
+//   │ 第 3 行, 第 5 列                                   │ ← Preview
+//   │ "text ██MATCH██ preview"                          │
+//   └──────────────────────────────────────────────────┘
+//
 // ============================================
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  findAllMatches,
+  replaceAll,
+  validateRegex,
+  type MatchResult,
+} from '../../services/searchEngine';
 import { useEditorStore } from '../../stores/editorStore';
 
 // ============================================
 // Types
 // ============================================
 
-type SearchDirection = 'down' | 'up' | 'all';
 type ActiveTab = 'find' | 'replace';
-
-interface MatchResult {
-  /** Byte offset of the match in the full content string */
-  offset: number;
-  /** The matched text (preserving original case) */
-  text: string;
-  /** 1-based line number */
-  line: number;
-  /** The full line text containing this match */
-  lineText: string;
-  /** Column position within the line (0-based) */
-  col: number;
-}
 
 interface FindReplaceModalProps {
   isOpen: boolean;
@@ -35,94 +53,122 @@ interface FindReplaceModalProps {
 }
 
 // ============================================
-// Helpers
+// macOS Traffic Light Dots Component
 // ============================================
 
-function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function findAllMatches(content: string, query: string, dir: SearchDirection): MatchResult[] {
-  if (!query || !content) return [];
-
-  const results: MatchResult[] = [];
-  const lines = content.split('\n');
-  let runningOffset = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    let from = 0;
-    while (from < line.length) {
-      const idx = line.toLowerCase().indexOf(query.toLowerCase(), from);
-      if (idx === -1) break;
-      results.push({
-        offset: runningOffset + idx,
-        text: line.substring(idx, idx + query.length),
-        line: i + 1,
-        lineText: line,
-        col: idx,
-      });
-      from = idx + query.length;
-    }
-    runningOffset += line.length + 1; // +1 for \n
-  }
-
-  // For "up" direction, reverse the result order
-  if (dir === 'up') {
-    results.reverse();
-  }
-
-  return results;
-}
+const MacOSTrafficLights: React.FC = () => (
+  <div className="flex items-center gap-[7px] mr-3">
+    <span
+      className="w-[12px] h-[12px] rounded-full"
+      style={{ backgroundColor: '#ff5f57' }}
+    />
+    <span
+      className="w-[12px] h-[12px] rounded-full"
+      style={{ backgroundColor: '#febc2e' }}
+    />
+    <span
+      className="w-[12px] h-[12px] rounded-full"
+      style={{ backgroundColor: '#28c840' }}
+    />
+  </div>
+);
 
 // ============================================
 // Component
 // ============================================
 
 const FindReplaceModal: React.FC<FindReplaceModalProps> = ({ isOpen, onClose }) => {
-  // --- Store ---
+  // ── Store ──────────────────────────────────
   const content = useEditorStore((s) => s.content);
   const updateContent = useEditorStore((s) => s.updateContent);
 
-  // --- Local state ---
+  // ── Local state ────────────────────────────
   const [activeTab, setActiveTab] = useState<ActiveTab>('find');
   const [searchText, setSearchText] = useState('');
   const [replaceText, setReplaceText] = useState('');
-  const [direction, setDirection] = useState<SearchDirection>('down');
-  const [highlightReading, setHighlightReading] = useState(true);
-  const [matchIndex, setMatchIndex] = useState(0);
+  const [isCaseSensitive, setIsCaseSensitive] = useState(false);
+  const [isWholeWord, setIsWholeWord] = useState(false);
+  const [isRegexp, setIsRegexp] = useState(false);
+  const [matchIndex, setMatchIndex] = useState(-1);
+  // Incremented on modal open → forces uncontrolled inputs to remount empty
+  const [resetKey, setResetKey] = useState(0);
 
-  // --- Derived: all matches in current content ---
-  const matches = useMemo<MatchResult[]>(() => {
-    if (!isOpen) return [];
-    return findAllMatches(content, searchText, direction);
-  }, [content, searchText, direction, isOpen]);
+  // ── Regex validation ───────────────────────
+  const regexError = useMemo<string | null>(() => {
+    if (!isRegexp || !searchText) return null;
+    return validateRegex(searchText);
+  }, [isRegexp, searchText]);
 
-  // Current match (null if no matches)
+  // ── Search matches (debounced) ─────────────
+  const rawMatches = useMemo<MatchResult[]>(() => {
+    if (!searchText || regexError) return [];
+    return findAllMatches(content, searchText, {
+      isCaseSensitive,
+      isWholeWord,
+      isRegexp,
+    });
+  }, [content, searchText, isCaseSensitive, isWholeWord, isRegexp, regexError]);
+
+  // Debounced matches — prevents rapid re-computation on every keystroke
+  const [matches, setMatches] = useState<MatchResult[]>([]);
+
+  useEffect(() => {
+    if (!searchText) {
+      setMatches([]);
+      setMatchIndex(-1);
+      return;
+    }
+    // For text changes: debounce 150ms
+    const timer = setTimeout(() => {
+      setMatches(rawMatches);
+      setMatchIndex((prev) =>
+        rawMatches.length > 0 ? Math.min(prev, rawMatches.length - 1) : -1,
+      );
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [rawMatches, searchText]);
+
+  // ── Current match ──────────────────────────
   const currentMatch: MatchResult | null =
-    matches.length > 0 ? matches[matchIndex % matches.length] : null;
+    matchIndex >= 0 && matchIndex < matches.length ? matches[matchIndex] : null;
 
-  // --- Reset state when modal opens or search text changes ---
+  const matchLabel = matches.length > 0 ? `${matchIndex + 1} / ${matches.length}` : '';
+
+  // ── Reset on open ──────────────────────────
   useEffect(() => {
     if (isOpen) {
       setSearchText('');
       setReplaceText('');
-      setMatchIndex(0);
+      setMatchIndex(-1);
       setActiveTab('find');
-      setDirection('down');
-      setHighlightReading(true);
+      setIsCaseSensitive(false);
+      setIsWholeWord(false);
+      setIsRegexp(false);
+      setMatches([]);
+      setResetKey((k) => k + 1);
     }
   }, [isOpen]);
 
+  // ── Escape key to close ────────────────────
   useEffect(() => {
-    setMatchIndex(0);
-  }, [searchText, direction]);
+    if (!isOpen) return;
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen, onClose]);
 
-  // --- Actions ---
+  // ── Actions ────────────────────────────────
 
   const handleFindNext = useCallback(() => {
     if (matches.length === 0) return;
     setMatchIndex((prev) => (prev + 1) % matches.length);
+  }, [matches.length]);
+
+  const handleFindPrev = useCallback(() => {
+    if (matches.length === 0) return;
+    setMatchIndex((prev) => (prev - 1 + matches.length) % matches.length);
   }, [matches.length]);
 
   const handleReplace = useCallback(() => {
@@ -132,7 +178,7 @@ const FindReplaceModal: React.FC<FindReplaceModalProps> = ({ isOpen, onClose }) 
     const after = content.substring(currentMatch.offset + searchText.length);
     updateContent(before + replaceText + after);
 
-    // Adjust index for removed matches
+    // Adjust index after replacement
     if (matchIndex >= matches.length - 1) {
       setMatchIndex(Math.max(0, matches.length - 2));
     }
@@ -141,70 +187,114 @@ const FindReplaceModal: React.FC<FindReplaceModalProps> = ({ isOpen, onClose }) 
   const handleReplaceAll = useCallback(() => {
     if (matches.length === 0 || !content || !searchText) return;
 
-    const escaped = escapeRegExp(searchText);
-    const regex = new RegExp(escaped, 'gi');
-    const newContent = content.replace(regex, replaceText);
-    updateContent(newContent);
-    setMatchIndex(0);
-  }, [content, searchText, replaceText, updateContent, matches.length]);
+    const newContent = replaceAll(content, searchText, replaceText, {
+      isCaseSensitive,
+      isWholeWord,
+      isRegexp,
+    });
 
-  // --- Render helpers ---
+    if (newContent !== null) {
+      updateContent(newContent);
+      setMatchIndex(-1);
+    }
+  }, [content, searchText, replaceText, isCaseSensitive, isWholeWord, isRegexp, updateContent, matches.length]);
 
-  const dots = (
-    <div className="flex items-center gap-2 flex-shrink-0">
-      <span
-        className="code-fence-window-dot code-fence-window-dot--close cursor-pointer"
-        onClick={onClose}
-        title="Close"
-      />
-      <span className="code-fence-window-dot code-fence-window-dot--minimize" />
-      <span className="code-fence-window-dot code-fence-window-dot--zoom" />
-    </div>
-  );
+  // ── Option toggle helper ───────────────────
+  const toggleOption = useCallback((option: 'case' | 'word' | 'regex') => {
+    switch (option) {
+      case 'case':
+        setIsCaseSensitive((p) => !p);
+        break;
+      case 'word':
+        setIsWholeWord((p) => !p);
+        break;
+      case 'regex':
+        setIsRegexp((p) => !p);
+        break;
+    }
+  }, []);
 
-  const matchInfo =
-    matches.length > 0
-      ? `${matchIndex + 1} / ${matches.length}`
-      : searchText
-        ? '0 matches'
-        : '';
+  // ── Option toggle button style ─────────────
+  const optionBtnClass = (active: boolean) =>
+    `w-7 h-7 flex items-center justify-center text-xs rounded transition-colors cursor-pointer select-none ${
+      active ? 'text-white' : ''
+    }`;
 
+  // ── Tab button style ───────────────────────
+  const tabBtnClass = (isActive: boolean) =>
+    `px-3 py-1.5 text-sm rounded-[6px] transition-colors cursor-pointer ${
+      isActive ? 'text-white' : ''
+    }`;
+
+  // ── Render: nothing when closed ────────────
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Overlay */}
+      {/* ======================== */}
+      {/* Overlay (click to close) */}
+      {/* ======================== */}
       <div
         className="absolute inset-0 bg-black/50 modal-overlay-enter"
         onClick={onClose}
       />
 
-      {/* Modal panel */}
+      {/* ======================== */}
+      {/* Content Panel */}
+      {/* ======================== */}
       <div
-        className="relative modal-content-enter rounded-[12px] border shadow-modal overflow-hidden flex flex-col"
+        className="relative w-[520px] max-w-[90vw] max-h-[80vh] rounded-xl border shadow-lg modal-content-fade-in overflow-hidden flex flex-col no-drag"
         style={{
-          width: '480px',
-          maxWidth: '90vw',
           backgroundColor: 'var(--modal-bg, var(--bg-secondary))',
           borderColor: 'var(--border-color)',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
         }}
       >
-        {/* ---- Header bar with dots + tabs ---- */}
+        {/* ======================== */}
+        {/* macOS Title Bar */}
+        {/* ======================== */}
         <div
-          className="flex items-center px-4 py-3 gap-4 border-b"
+          className="flex items-center px-4 py-3 border-b flex-shrink-0"
           style={{ borderColor: 'var(--border-color)' }}
         >
-          {dots}
+          {/* macOS traffic-light dots — top-left */}
+          <MacOSTrafficLights />
 
-          {/* Tab switcher */}
-          <div className="flex items-center gap-1 ml-2">
+          {/* Title */}
+          <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+            查找与替换
+          </span>
+
+          {/* Spacer */}
+          <div className="flex-1" />
+
+          {/* Match counter */}
+          {matchLabel && (
+            <span className="text-xs mr-3" style={{ color: 'var(--text-muted)' }}>
+              {matchLabel}
+            </span>
+          )}
+
+          {/* Close button */}
+          <button
+            onClick={onClose}
+            className="w-6 h-6 flex items-center justify-center rounded text-xs transition-colors cursor-pointer"
+            style={{ color: 'var(--text-muted)' }}
+            title="关闭 (Esc)"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* ======================== */}
+        {/* Body (scrollable if needed) */}
+        {/* ======================== */}
+        <div className="flex-1 overflow-y-auto">
+          {/* Tabs */}
+          <div className="flex items-center px-4 pt-3 pb-0 gap-1">
             <button
               onClick={() => setActiveTab('find')}
-              className={`px-3 py-1 text-sm rounded-[6px] transition-colors ${
-                activeTab === 'find'
-                  ? 'text-white'
-                  : ''
-              }`}
+              className={tabBtnClass(activeTab === 'find')}
               style={{
                 backgroundColor: activeTab === 'find' ? 'var(--accent)' : 'transparent',
                 color: activeTab === 'find' ? '#fff' : 'var(--text-sub)',
@@ -214,11 +304,7 @@ const FindReplaceModal: React.FC<FindReplaceModalProps> = ({ isOpen, onClose }) 
             </button>
             <button
               onClick={() => setActiveTab('replace')}
-              className={`px-3 py-1 text-sm rounded-[6px] transition-colors ${
-                activeTab === 'replace'
-                  ? 'text-white'
-                  : ''
-              }`}
+              className={tabBtnClass(activeTab === 'replace')}
               style={{
                 backgroundColor: activeTab === 'replace' ? 'var(--accent)' : 'transparent',
                 color: activeTab === 'replace' ? '#fff' : 'var(--text-sub)',
@@ -228,117 +314,187 @@ const FindReplaceModal: React.FC<FindReplaceModalProps> = ({ isOpen, onClose }) 
             </button>
           </div>
 
-          {/* Match counter */}
-          <span className="ml-auto text-xs" style={{ color: 'var(--text-muted)' }}>
-            {matchInfo}
-          </span>
-        </div>
+          {/* Search Input + Options */}
+          <div className="px-4 pt-3 pb-2">
+            <div className="flex items-center gap-2">
+              {/* Search input */}
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  key={`search-${resetKey}`}
+                  defaultValue=""
+                  onChange={(e) => setSearchText(e.target.value)}
+                  placeholder="输入要查找的文本..."
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleFindNext();
+                    }
+                  }}
+                  className="w-full border rounded-[6px] px-3 py-1.5 text-sm outline-none transition-colors no-drag"
+                  style={{
+                    backgroundColor: 'var(--input-bg, var(--bg-primary))',
+                    borderColor: regexError
+                      ? 'var(--notification-error, #ef4444)'
+                      : 'var(--border-color)',
+                    color: 'var(--text-primary)',
+                  }}
+                />
+              </div>
 
-        {/* ---- Body ---- */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {/* Row 1: 查找内容 */}
-          <div>
-            <label
-              className="text-xs font-medium mb-1.5 block"
-              style={{ color: 'var(--text-sub)' }}
-            >
-              查找内容
-            </label>
-            <input
-              type="text"
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              placeholder="输入要查找的文本..."
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleFindNext();
-                }
-              }}
-              className="w-full border rounded-input px-3 py-1.5 text-sm outline-none transition-colors"
-              style={{
-                backgroundColor: 'var(--input-bg, var(--bg-primary))',
-                borderColor: 'var(--border-color)',
-                color: 'var(--text-primary)',
-              }}
-            />
-          </div>
+              {/* Option toggles */}
+              <div className="flex items-center gap-1">
+                <span
+                  className={optionBtnClass(isCaseSensitive)}
+                  style={{
+                    backgroundColor: isCaseSensitive ? 'var(--accent)' : 'var(--bg-primary)',
+                    color: isCaseSensitive ? '#fff' : 'var(--text-sub)',
+                  }}
+                  onClick={() => toggleOption('case')}
+                  title="区分大小写"
+                >
+                  Aa
+                </span>
+                <span
+                  className={optionBtnClass(isWholeWord)}
+                  style={{
+                    backgroundColor: isWholeWord ? 'var(--accent)' : 'var(--bg-primary)',
+                    color: isWholeWord ? '#fff' : 'var(--text-sub)',
+                  }}
+                  onClick={() => toggleOption('word')}
+                  title="全词匹配"
+                >
+                  W
+                </span>
+                <span
+                  className={optionBtnClass(isRegexp)}
+                  style={{
+                    backgroundColor: isRegexp ? 'var(--accent)' : 'var(--bg-primary)',
+                    color: isRegexp ? '#fff' : 'var(--text-sub)',
+                  }}
+                  onClick={() => toggleOption('regex')}
+                  title="使用正则表达式"
+                >
+                  .*
+                </span>
+              </div>
 
-          {/* Row 2: 搜索方向 */}
-          <div>
-            <label
-              className="text-xs font-medium mb-1.5 block"
-              style={{ color: 'var(--text-sub)' }}
-            >
-              搜索
-            </label>
-            <select
-              value={direction}
-              onChange={(e) => setDirection(e.target.value as SearchDirection)}
-              className="w-full border rounded-input px-3 py-1.5 text-sm outline-none cursor-pointer transition-colors"
-              style={{
-                backgroundColor: 'var(--input-bg, var(--bg-primary))',
-                borderColor: 'var(--border-color)',
-                color: 'var(--text-primary)',
-              }}
-            >
-              <option value="down">向下</option>
-              <option value="all">全部</option>
-              <option value="up">向上</option>
-            </select>
-          </div>
+              {/* Navigation buttons */}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleFindPrev}
+                  disabled={matches.length === 0}
+                  className="w-7 h-7 flex items-center justify-center text-xs rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                  style={{
+                    backgroundColor: 'var(--bg-primary)',
+                    color: 'var(--text-sub)',
+                  }}
+                  title="上一个 (Shift+Enter)"
+                >
+                  ◀
+                </button>
+                <button
+                  onClick={handleFindNext}
+                  disabled={matches.length === 0}
+                  className="w-7 h-7 flex items-center justify-center text-xs rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                  style={{
+                    backgroundColor: 'var(--bg-primary)',
+                    color: 'var(--text-sub)',
+                  }}
+                  title="下一个 (Enter)"
+                >
+                  ▶
+                </button>
+              </div>
+            </div>
 
-          {/* Row 3 (Replace only): 替换为 */}
-          {activeTab === 'replace' && (
-            <div>
-              <label
-                className="text-xs font-medium mb-1.5 block"
-                style={{ color: 'var(--text-sub)' }}
-              >
-                替换为
-              </label>
-              <input
-                type="text"
-                value={replaceText}
-                onChange={(e) => setReplaceText(e.target.value)}
-                placeholder="替换文本..."
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleReplace();
-                  }
-                }}
-                className="w-full border rounded-input px-3 py-1.5 text-sm outline-none transition-colors"
+            {/* Regex error message */}
+            {regexError && (
+              <div
+                className="text-xs mt-1.5 px-3 py-1 rounded-[4px]"
                 style={{
-                  backgroundColor: 'var(--input-bg, var(--bg-primary))',
-                  borderColor: 'var(--border-color)',
-                  color: 'var(--text-primary)',
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                  color: '#ef4444',
                 }}
-              />
+              >
+                {regexError}
+              </div>
+            )}
+          </div>
+
+          {/* Replace Section */}
+          {activeTab === 'replace' && (
+            <div className="px-4 pb-2">
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <input
+                    type="text"
+                    key={`replace-${resetKey}`}
+                    defaultValue=""
+                    onChange={(e) => setReplaceText(e.target.value)}
+                    placeholder="替换文本..."
+                    onKeyDown={(e) => {
+                      if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleReplace();
+                      }
+                    }}
+                    className="w-full border rounded-[6px] px-3 py-1.5 text-sm outline-none transition-colors no-drag"
+                    style={{
+                      backgroundColor: 'var(--input-bg, var(--bg-primary))',
+                      borderColor: 'var(--border-color)',
+                      color: 'var(--text-primary)',
+                    }}
+                  />
+                </div>
+                <button
+                  onClick={handleReplace}
+                  disabled={!currentMatch}
+                  className="px-3 py-1.5 text-xs rounded-[6px] transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
+                  style={{
+                    backgroundColor: 'var(--accent)',
+                    color: '#fff',
+                  }}
+                >
+                  替换
+                </button>
+                <button
+                  onClick={handleReplaceAll}
+                  disabled={matches.length === 0}
+                  className="px-3 py-1.5 text-xs rounded-[6px] transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap"
+                  style={{
+                    backgroundColor: 'var(--bg-primary)',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  全部替换
+                </button>
+              </div>
             </div>
           )}
 
-          {/* Match context preview */}
+          {/* Match Preview */}
           {currentMatch && (
             <div
-              className="rounded-input border p-3 text-xs font-mono"
+              className="mx-4 mb-3 rounded-[6px] border p-3"
               style={{
                 backgroundColor: 'var(--bg-primary)',
                 borderColor: 'var(--border-color)',
-                color: 'var(--text-sub)',
               }}
             >
-              <div className="mb-1" style={{ color: 'var(--text-muted)' }}>
-                Line {currentMatch.line}, Col {currentMatch.col + 1}
+              <div className="text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
+                第 {currentMatch.line} 行, 第 {currentMatch.col + 1} 列
               </div>
-              <div className="whitespace-pre-wrap break-all">
+              <div className="text-xs font-mono whitespace-pre-wrap break-all leading-relaxed">
                 {currentMatch.lineText.substring(0, currentMatch.col)}
                 <mark
                   style={{
-                    backgroundColor: highlightReading ? '#facc15' : 'var(--accent)',
+                    backgroundColor: '#facc15',
                     color: '#000',
-                    padding: '0 1px',
+                    padding: '0 2px',
                     borderRadius: '2px',
                   }}
                 >
@@ -348,83 +504,9 @@ const FindReplaceModal: React.FC<FindReplaceModalProps> = ({ isOpen, onClose }) 
               </div>
             </div>
           )}
-        </div>
 
-        {/* ---- Footer ---- */}
-        <div
-          className="flex items-center gap-2 px-5 py-3 border-t"
-          style={{ borderColor: 'var(--border-color)' }}
-        >
-          {/* Highlight toggle (Find tab) */}
-          {activeTab === 'find' && (
-            <label
-              className="flex items-center gap-1.5 text-xs cursor-pointer select-none"
-              style={{ color: 'var(--text-sub)' }}
-            >
-              <input
-                type="checkbox"
-                checked={highlightReading}
-                onChange={(e) => setHighlightReading(e.target.checked)}
-                className="accent-[#facc15]"
-              />
-              阅读突出显示
-            </label>
-          )}
-
-          <div className="flex-1" />
-
-          {/* Replace tab buttons */}
-          {activeTab === 'replace' && (
-            <>
-              <button
-                onClick={handleReplace}
-                disabled={!currentMatch}
-                className="px-3 py-1.5 text-xs rounded-input transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                style={{
-                  backgroundColor: 'var(--accent)',
-                  color: '#fff',
-                }}
-              >
-                替换
-              </button>
-              <button
-                onClick={handleReplaceAll}
-                disabled={matches.length === 0}
-                className="px-3 py-1.5 text-xs rounded-input transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                style={{
-                  backgroundColor: 'var(--bg-tertiary)',
-                  color: 'var(--text-primary)',
-                }}
-              >
-                全部替换
-              </button>
-            </>
-          )}
-
-          {/* Find Next (both tabs) */}
-          <button
-            onClick={handleFindNext}
-            disabled={matches.length === 0}
-            className="px-3 py-1.5 text-xs rounded-input transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            style={{
-              backgroundColor: 'var(--bg-tertiary)',
-              color: 'var(--text-primary)',
-            }}
-          >
-            查找下一处
-          </button>
-
-          {/* Cancel */}
-          <button
-            onClick={onClose}
-            className="px-3 py-1.5 text-xs rounded-input transition-colors"
-            style={{
-              backgroundColor: 'var(--bg-tertiary)',
-              color: 'var(--text-sub)',
-            }}
-          >
-            取消
-          </button>
+          {/* Bottom padding */}
+          {!currentMatch && <div className="h-2" />}
         </div>
       </div>
     </div>

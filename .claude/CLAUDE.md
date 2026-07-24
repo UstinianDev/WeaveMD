@@ -33,7 +33,7 @@ src/
 │   │       ├── BlockRenderer.tsx          # Block type dispatcher
 │   │       ├── EditorScrollContainer.tsx  # Document viewport
 │   │       ├── EditorView.tsx             # Main editor orchestrator
-│   │       ├── FindReplaceModal.tsx       # Find & Replace modal (centered, tabbed)
+│   │       ├── FindReplaceModal.tsx       # Find & Replace (centered modal, macOS dots)
 │   │       ├── FloatingToolbar.tsx        # Selection toolbar (stub — needs rewrite)
 │   │       └── OutlinePanel.tsx, HistoryPanel.tsx
 │   ├── pages/       # AuthPage, MainPage
@@ -97,3 +97,29 @@ The editor has been reworked to use a block-based architecture inspired by MarkT
 | Red box artifacts                        | Eliminated — no ContentWidget overlays                                                                                  |
 | Code block widget disappearing on scroll | Eliminated — blocks use native scroll                                                                                   |
 | Code block plain-text styling            | Improved — light “terminal window” style + language dropdown selector in header; `Plain Text` normalized to `plaintext` |
+
+### FindReplaceModal — Centered Modal with macOS Traffic-Light Dots (2026-07-24)
+
+The FindReplaceModal is a centered modal with macOS-style title bar dots (red/yellow/green) and a semi-transparent overlay. Uses opacity-only animation (`modal-content-fade-in`) to avoid the CSS `transform` containing-block issue that breaks IME candidate window positioning.
+
+| Aspect               | Current Design                                                                                                               |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **Position**         | Centered modal (520px wide, 80vh max height) with semi-transparent overlay                                                   |
+| **macOS dots**       | Red (#ff5f57), yellow (#febc2e), green (#28c40) circles at top-left corner of title bar                                     |
+| **Search options**   | Case sensitivity (Aa), whole word (W), regex (.*) — toggle icons in the search row                                           |
+| **Search engine**    | `src/render/services/searchEngine.ts` — standalone module with `findAllMatches`, `validateRegex`, `replaceAll`               |
+| **Regex support**    | Full regex mode with validation; error message displayed below search input when pattern is invalid                          |
+| **Debounce**         | 150ms debounce on search text (immediate for option changes)                                                                 |
+| **Match navigation** | ◀ (previous) ▶ (next) buttons; Enter for next                                                                               |
+| **Match preview**    | Inline context preview with yellow highlight — shows line/column and surrounding text                                         |
+| **IME safety**       | Uncontrolled inputs (`defaultValue`+`key` re-mount) — React never overwrites DOM `input.value` during IME composition        |
+| **IME Enter guard**  | `onKeyDown` guards with `e.nativeEvent.isComposing \|\| e.keyCode === 229`                                                   |
+| **Close**            | Escape key, ✕ button, or click overlay                                                                                       |
+| **Keyboard shortcut**| `Ctrl+F` toggles open/close (handled in EditorView)                                                                           |
+| **Animation**        | `modal-content-fade-in` — opacity-only (no `transform`), so IME coordinate calculation is never broken                       |
+
+**Key files:**
+- `src/render/services/searchEngine.ts` — Search engine (findAllMatches, replaceAll, validateRegex)
+- `src/render/components/Editor/FindReplaceModal.tsx` — Centered modal UI component
+- `src/render/components/Editor/EditorView.tsx` — Ctrl+F shortcut handler
+- `src/render/styles/globals.css` — `modal-content-fade-in` animation (opacity-only)

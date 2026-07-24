@@ -1,12 +1,12 @@
 # 顶部导航栏 (Navbar) 功能总结
 
-> 模块编号：03 | 优先级：P0 | 最后更新：2026-07-22
+> 模块编号：03 | 优先级：P0 | 最后更新：2026-07-24
 
 ---
 
 ## 1. 功能概述
 
-应用主界面的顶部导航栏，包含应用 Logo、账号标签、文件操作菜单、帮助菜单、历史记录菜单、撤销/重做、导出、窗口控制等功能。
+应用主界面的顶部导航栏，包含应用 Logo、账号标签、文件操作菜单、帮助菜单、历史记录菜单、撤销/重做、导出、查找替换 (Ctrl+F)、窗口控制等功能。
 
 ## 2. 架构位置
 
@@ -19,7 +19,7 @@ src/render/components/Navbar/
 ├── WindowControls.tsx   # 窗口控制按钮（Min/Max/Close）
 └── HistoryMenu.tsx      # 历史菜单（文件列表 / Manage Files）
 src/render/components/Editor/
-└── FindReplaceModal.tsx # 查找与替换弹窗（居中模态框，双 Tab）
+└── FindReplaceModal.tsx # 查找与替换弹窗（居中模态框，macOS 三色圆点，双 Tab）
 src/render/stores/
 ├── authStore.ts         # 用户认证状态
 ├── editorStore.ts       # 编辑器状态（当前文件、撤销/重做）
@@ -100,12 +100,16 @@ function getShortcutAction(event: KeyboardEvent): ShortcutAction {
 
 **Find & Replace 弹窗详情：**
 
-点击后弹出居中模态框 (`FindReplaceModal.tsx`)，搜索 `editorStore.content` 原始文本：
+点击后在屏幕正中弹出居中模态框 (`FindReplaceModal.tsx`)，搜索 `editorStore.content` 原始文本。采用 macOS 终端风格的标题栏（红/黄/绿三色圆点）。使用纯透明度动画（无 CSS `transform`）避免 IME 候选窗定位问题：
 
-- **外观**：macOS 风格三色圆点（红/黄/绿）+ 应用主题适配（CSS 变量）
-- **查找 Tab**：查找内容输入框 → 搜索方向下拉（向下/全部/向上）→ 底部操作栏（阅读突出显示复选框、查找下一处、取消）
-- **替换 Tab**：查找内容输入框 → 搜索方向下拉 → 替换为输入框 → 底部操作栏（替换、全部替换、查找下一处、取消）
+- **外观**：居中模态框（520px 宽）+ 半透明遮罩，左上角红色（#ff5f57）/黄色（#febc2e）/绿色（#28c840）三个圆点
+- **动画**：`modal-content-fade-in` — 仅 opacity 变化，无 `transform`，IME 候选窗定位永远正确
+- **搜索行**：查找内容输入框 → 选项切换（Aa 大小写/W 全词/.* 正则）→ ◀▶ 导航按钮 → 匹配计数器（如 "2/10"）
+- **替换行**（切换至"替换"标签显示）：替换内容输入框 → 替换按钮及全部替换按钮
 - **匹配预览**：实时显示当前匹配的行号、列号及上下文（黄色高亮）
+- **搜索引擎**：独立模块 `src/render/services/searchEngine.ts` — 支持大小写敏感、全词匹配、正则搜索及正则验证
+- **键盘快捷键**：`Ctrl+F` 切换打开/关闭（EditorView 注册）；Enter 查找下一处；点击遮罩或按 Esc 关闭
+- **IME 兼容**：输入框采用非受控模式（`defaultValue` + `key` 强制重挂载），`onKeyDown` 以 `nativeEvent.isComposing || keyCode === 229` 守卫 Enter 键
 
 ### 3.4 右侧操作按钮
 

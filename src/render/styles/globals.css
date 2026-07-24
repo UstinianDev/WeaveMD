@@ -323,6 +323,18 @@ select:focus {
   animation: modal-scale-in 150ms ease-out forwards;
 }
 
+/* Opacity-only modal animation (no transform) for IME-safe modals
+   Uses opacity only to avoid Chromium IME coordinate issues caused
+   by CSS transform creating a new containing block. */
+@keyframes modal-fade-in-only {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.modal-content-fade-in {
+  animation: modal-fade-in-only 150ms ease-out forwards;
+}
+
 /* ============================================ */
 /* Markdown Preview Styles                      */
 /* ============================================ */
