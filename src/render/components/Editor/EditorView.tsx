@@ -449,6 +449,17 @@ const EditorView: React.FC<EditorViewProps> = ({
         debouncedStoreUpdate.flush();
         useEditorStore.getState().redo();
       }
+
+      // Ctrl+F: Toggle Find & Replace
+      if (ctrl && e.key === 'f') {
+        e.preventDefault();
+        const { activeModal, openModal, closeModal } = useUIStore.getState();
+        if (activeModal === 'findReplace') {
+          closeModal();
+        } else {
+          openModal('findReplace');
+        }
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
