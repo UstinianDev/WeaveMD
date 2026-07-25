@@ -1,9 +1,11 @@
 // ============================================
 // WeaveMD — Block Renderer Dispatcher
 // ============================================
-// Routes a BlockNode to the correct block component
-// based on its `type` field. Wraps each result in
-// React.memo for render performance.
+// Routes a BlockNode to the correct read-only
+// block component based on its `type` field.
+//
+// Blocks are always rendered as read-only rich text.
+// Editing is done via View → Source Code Mode.
 // ============================================
 
 import React from 'react';
@@ -19,40 +21,26 @@ import BlockquoteBlock from './blocks/BlockquoteBlock';
 
 interface BlockRendererProps {
   block: BlockNode;
-  isActive: boolean;
-  activeBlockId: string | null;
-  onBlockActivate: (blockId: string) => void;
-  onContentChange: (blockId: string, sourceLines: string[]) => void;
-  onEnterPress: (blockId: string, cursorLine: number, cursorColumn: number) => void;
-  onBackspaceAtStart: (blockId: string) => void;
-  onArrowUpAtTop: (blockId: string) => void;
-  onArrowDownAtBottom: (blockId: string) => void;
-  onEscape: (blockId: string) => void;
-  onBlockBlur: (blockId: string) => void;
 }
 
-const BlockRenderer: React.FC<BlockRendererProps> = (props) => {
-  const { block, isActive, ...callbacks } = props;
-
-  const blockProps = { block, isActive, ...callbacks };
-
+const BlockRenderer: React.FC<BlockRendererProps> = ({ block }) => {
   switch (block.type) {
     case 'heading':
-      return <HeadingBlock {...blockProps} />;
+      return <HeadingBlock block={block} />;
     case 'paragraph':
-      return <ParagraphBlock {...blockProps} />;
+      return <ParagraphBlock block={block} />;
     case 'unordered-list-item':
     case 'ordered-list-item':
     case 'task-list-item':
-      return <ListItemBlock {...blockProps} />;
+      return <ListItemBlock block={block} />;
     case 'code-fence':
-      return <CodeFenceBlock {...blockProps} />;
+      return <CodeFenceBlock block={block} />;
     case 'table':
-      return <TableBlock {...blockProps} />;
+      return <TableBlock block={block} />;
     case 'blockquote':
-      return <BlockquoteBlock {...blockProps} />;
+      return <BlockquoteBlock block={block} />;
     default:
-      return <ParagraphBlock {...blockProps} />;
+      return <ParagraphBlock block={block} />;
   }
 };
 

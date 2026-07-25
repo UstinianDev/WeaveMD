@@ -1,14 +1,13 @@
 // ============================================
 // WeaveMD — Code Fence Block Component
 // ============================================
-// Renders fenced code blocks in WYSIWYG mode.
-// Inactive: shows syntax-highlighted code with language badge.
-// Active: embeds ActiveBlockEditor for editing raw markdown.
+// Renders fenced code blocks in read-only WYSIWYG mode.
+// Shows syntax-highlighted code with language badge.
+// Editing is done via View → Source Code Mode.
 // ============================================
 
 import React from 'react';
 import type { BlockNode } from '../../../services/blockTree';
-import ActiveBlockEditor from '../ActiveBlockEditor';
 
 const LANGUAGE_OPTIONS = [
   { value: 'plaintext', label: 'Plain Text' },
@@ -26,8 +25,6 @@ const LANGUAGE_OPTIONS = [
   { value: 'sql', label: 'sql' },
   { value: 'java', label: 'java' },
 ] as const;
-
-const CODE_FENCE_RE = /^([ \t]*)(`{3,}|~{3,})([^\n]*)$/;
 
 function normalizeFenceLanguageForSelect(language?: string): string {
   if (!language) {
@@ -68,63 +65,17 @@ function normalizeFenceLanguageForSelect(language?: string): string {
   return LANGUAGE_OPTIONS.some((option) => option.value === normalized) ? normalized : 'plaintext';
 }
 
-function buildFenceSourceLines(sourceLines: string[], language: string): string[] {
-  const nextSourceLines = [...sourceLines];
-  const firstLine = nextSourceLines[0] ?? '```';
-  const match = firstLine.match(CODE_FENCE_RE);
-
-  if (!match) {
-    nextSourceLines[0] = language === 'plaintext' ? '```plaintext' : `\`\`\`${language}`;
-    return nextSourceLines;
-  }
-
-  const indentation = match[1] ?? '';
-  const fenceMarker = match[2] ?? '```';
-  const nextInfo = language === 'plaintext' ? 'plaintext' : language;
-  nextSourceLines[0] = `${indentation}${fenceMarker}${nextInfo}`;
-  return nextSourceLines;
-}
-
 interface CodeFenceBlockProps {
   block: BlockNode;
-  isActive: boolean;
-  activeBlockId: string | null;
-  onBlockActivate: (blockId: string) => void;
-  onContentChange: (blockId: string, sourceLines: string[]) => void;
-  onEnterPress: (blockId: string, cursorLine: number, cursorColumn: number) => void;
-  onBackspaceAtStart: (blockId: string) => void;
-  onArrowUpAtTop: (blockId: string) => void;
-  onArrowDownAtBottom: (blockId: string) => void;
-  onEscape: (blockId: string) => void;
-  onBlockBlur: (blockId: string) => void;
 }
 
-const CodeFenceBlock: React.FC<CodeFenceBlockProps> = (props) => {
-  const { block, isActive, onBlockActivate, ...callbacks } = props;
+const CodeFenceBlock: React.FC<CodeFenceBlockProps> = ({ block }) => {
   const selectedLanguage = normalizeFenceLanguageForSelect(block.fenceLanguage);
-
-  if (isActive) {
-    return (
-      <div className="code-fence-block code-fence-block--active mb-3" data-block-id={block.id}>
-        <ActiveBlockEditor
-          block={block}
-          onContentChange={callbacks.onContentChange}
-          onEnterPress={callbacks.onEnterPress}
-          onBackspaceAtStart={callbacks.onBackspaceAtStart}
-          onArrowUpAtTop={callbacks.onArrowUpAtTop}
-          onArrowDownAtBottom={callbacks.onArrowDownAtBottom}
-          onEscape={callbacks.onEscape}
-          onBlur={callbacks.onBlockBlur}
-        />
-      </div>
-    );
-  }
 
   return (
     <div
-      className="code-fence-block code-fence-block--inactive relative mb-4 overflow-hidden cursor-text"
+      className="code-fence-block code-fence-block--inactive relative mb-4 overflow-hidden"
       data-block-id={block.id}
-      onClick={() => onBlockActivate(block.id)}
     >
       <div className="code-fence-header">
         <div className="code-fence-window-controls" aria-hidden="true">
@@ -132,23 +83,20 @@ const CodeFenceBlock: React.FC<CodeFenceBlockProps> = (props) => {
           <span className="code-fence-window-dot code-fence-window-dot--minimize" />
           <span className="code-fence-window-dot code-fence-window-dot--zoom" />
         </div>
-        <select
-          aria-label="代码块语言"
+        {/* Display-only language badge — editing is done via Source Code Mode */}
+        <span
           className="code-fence-language-select"
-          value={selectedLanguage}
-          onMouseDown={(event) => event.stopPropagation()}
-          onClick={(event) => event.stopPropagation()}
-          onChange={(event) => {
-            event.stopPropagation();
-            callbacks.onContentChange(block.id, buildFenceSourceLines(block.sourceLines, event.target.value));
+          style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            fontSize: '11px',
+            color: 'var(--text-muted)',
+            cursor: 'default',
+            userSelect: 'none',
           }}
         >
-          {LANGUAGE_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          {LANGUAGE_OPTIONS.find((o) => o.value === selectedLanguage)?.label || 'Plain Text'}
+        </span>
       </div>
       {block.renderedHtml ? (
         <div

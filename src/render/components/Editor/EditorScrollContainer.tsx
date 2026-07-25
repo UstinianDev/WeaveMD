@@ -1,129 +1,82 @@
 // ============================================
 // WeaveMD — WYSIWYG Editor Scroll Container
 // ============================================
-// Main document viewport that replaces the Monaco
-// editor's scrollable area. All blocks are rendered
-// as React components in a normal scrollable div
-// instead of as ContentWidget overlays.
+// Main document viewport that renders all blocks
+// as read-only React components in a normal
+// scrollable div.
+//
+// Editing is done via View → Source Code Mode
+// (SourceCodeEditor with full Monaco instance).
 // ============================================
 
-import React, { useRef, useCallback } from 'react';
+import React, { forwardRef } from 'react';
 
-import type { BlockTree, BlockNode, BlockId } from '../../services/blockTree';
+import type { BlockNode, BlockId } from '../../services/blockTree';
 import { getAllBlocksInOrder } from '../../services/blockTree';
 
 import BlockRenderer from './BlockRenderer';
 import EmptyBlock from './blocks/EmptyBlock';
 
 interface EditorScrollContainerProps {
-  blockTree: BlockTree;
-  activeBlockId: string | null;
-  onBlockActivate: (blockId: string) => void;
-  onContentChange: (blockId: string, sourceLines: string[]) => void;
-  onEnterPress: (blockId: string, cursorLine: number, cursorColumn: number) => void;
-  onBackspaceAtStart: (blockId: string) => void;
-  onArrowUpAtTop: (blockId: string) => void;
-  onArrowDownAtBottom: (blockId: string) => void;
-  onEscape: (blockId: string) => void;
-  onBlockBlur: (blockId: string) => void;
-  onCreateEmptyBlock: () => void;
+  blockTree: import('../../services/blockTree').BlockTree;
 }
 
-const EditorScrollContainer: React.FC<EditorScrollContainerProps> = ({
-  blockTree,
-  activeBlockId,
-  onBlockActivate,
-  onContentChange,
-  onEnterPress,
-  onBackspaceAtStart,
-  onArrowUpAtTop,
-  onArrowDownAtBottom,
-  onEscape,
-  onBlockBlur,
-  onCreateEmptyBlock,
-}) => {
-  const containerRef = useRef<HTMLDivElement>(null);
+const EditorScrollContainer = forwardRef<HTMLDivElement, EditorScrollContainerProps>(
+  ({ blockTree }, ref) => {
+    const blocks = getAllBlocksInOrder(blockTree);
 
-  const blocks = getAllBlocksInOrder(blockTree);
+    const emptyBlockPlaceholder: BlockNode = {
+      id: '' as BlockId,
+      type: 'paragraph',
+      sourceLines: [''],
+      parentId: null,
+      childrenIds: [],
+      renderedHtml: null,
+    };
 
-  const handleContainerClick = useCallback(
-    (e: React.MouseEvent) => {
-      if (e.target === containerRef.current) {
-        onCreateEmptyBlock();
-      }
-    },
-    [onCreateEmptyBlock],
-  );
+    const trailingBlockPlaceholder: BlockNode = {
+      id: '__trailing__' as BlockId,
+      type: 'paragraph',
+      sourceLines: [''],
+      parentId: null,
+      childrenIds: [],
+      renderedHtml: null,
+    };
 
-  const emptyBlockPlaceholder: BlockNode = {
-    id: '' as BlockId,
-    type: 'paragraph',
-    sourceLines: [''],
-    parentId: null,
-    childrenIds: [],
-    renderedHtml: null,
-  };
-
-  const trailingBlockPlaceholder: BlockNode = {
-    id: '__trailing__' as BlockId,
-    type: 'paragraph',
-    sourceLines: [''],
-    parentId: null,
-    childrenIds: [],
-    renderedHtml: null,
-  };
-
-  return (
-    <div
-      ref={containerRef}
-      className="editor-scroll-container h-full overflow-y-auto overflow-x-hidden"
-      style={{ padding: '40px 0' }}
-      onClick={handleContainerClick}
-    >
+    return (
       <div
-        className="editor-content-area mx-auto"
-        style={{
-          maxWidth: '860px',
-          padding: '0 40px',
-        }}
+        ref={ref}
+        className="editor-scroll-container h-full overflow-y-auto overflow-x-hidden"
+        style={{ padding: '40px 0' }}
       >
-        {blocks.length === 0 ? (
-          <EmptyBlock
-            block={emptyBlockPlaceholder}
-            isActive={false}
-            onBlockActivate={onCreateEmptyBlock}
-          />
-        ) : (
-          blocks.map((block) => (
-            <BlockRenderer
-              key={block.id}
-              block={block}
-              isActive={block.id === activeBlockId}
-              activeBlockId={activeBlockId}
-              onBlockActivate={onBlockActivate}
-              onContentChange={onContentChange}
-              onEnterPress={onEnterPress}
-              onBackspaceAtStart={onBackspaceAtStart}
-              onArrowUpAtTop={onArrowUpAtTop}
-              onArrowDownAtBottom={onArrowDownAtBottom}
-              onEscape={onEscape}
-              onBlockBlur={onBlockBlur}
-            />
-          ))
-        )}
+        <div
+          className="editor-content-area mx-auto"
+          style={{
+            maxWidth: '860px',
+            padding: '0 40px',
+          }}
+        >
+          {blocks.length === 0 ? (
+            <EmptyBlock block={emptyBlockPlaceholder} />
+          ) : (
+            blocks.map((block) => (
+              <BlockRenderer
+                key={block.id}
+                block={block}
+              />
+            ))
+          )}
 
-        {blocks.length > 0 && (
-          <div className="mt-4">
-            <EmptyBlock
-              block={trailingBlockPlaceholder}
-              isActive={false}
-              onBlockActivate={onCreateEmptyBlock}
-            />
-          </div>
-        )}
+          {blocks.length > 0 && (
+            <div className="mt-4">
+              <EmptyBlock block={trailingBlockPlaceholder} />
+            </div>
+          )}
+        </div>
       </div>
-    </div>
-  );
-};
+    );
+  }
+);
 
+EditorScrollContainer.displayName = 'EditorScrollContainer';
 export default React.memo(EditorScrollContainer);

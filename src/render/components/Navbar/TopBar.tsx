@@ -12,6 +12,7 @@ import FileMenu from './FileMenu';
 import HelpMenu from './HelpMenu';
 import HistoryMenu from './HistoryMenu';
 import MoreMenu from './MoreMenu';
+import ViewMenu from './ViewMenu';
 import WindowControls from './WindowControls';
 
 type ShortcutAction = 'new-file' | 'open-file' | 'undo' | 'redo' | null;
@@ -197,7 +198,7 @@ const TopBar: React.FC = () => {
   );
 
   const handleFindReplace = () => {
-    openModal('findReplace');
+    useUIStore.getState().toggleFindReplace();
   };
 
   useEffect(() => {
@@ -280,6 +281,9 @@ const TopBar: React.FC = () => {
           }}
           onManageFiles={toggleHistoryPanel}
         />
+
+        {/* View menu */}
+        <ViewMenu />
       </div>
 
       {/* Loading indicator */}

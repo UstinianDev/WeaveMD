@@ -22,6 +22,8 @@ interface UIStore {
   isLoading: boolean;
   isSplashComplete: boolean;
   isHistoryPanelOpen: boolean;
+  isSourceCodeMode: boolean;
+  isFindReplaceOpen: boolean;
   markdownBlockState: MarkdownBlockState;
   editorDraftFlusher: (() => void | Promise<void>) | null;
 
@@ -35,6 +37,8 @@ interface UIStore {
   setLoading: (loading: boolean) => void;
   setSplashComplete: (complete: boolean) => void;
   toggleHistoryPanel: () => void;
+  toggleSourceCodeMode: () => void;
+  toggleFindReplace: () => void;
   setMarkdownBlockState: (state: MarkdownBlockState) => void;
   setMdSourceBlockId: (blockId: string | null) => void;
   clearMdSourceBlockId: () => void;
@@ -59,6 +63,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
   isLoading: false,
   isSplashComplete: false,
   isHistoryPanelOpen: false,
+  isSourceCodeMode: false,
+  isFindReplaceOpen: false,
   markdownBlockState: initialMarkdownBlockState,
   editorDraftFlusher: null,
 
@@ -81,7 +87,35 @@ export const useUIStore = create<UIStore>((set, get) => ({
 
   setPageWidth: (pageWidth) => set({ pageWidth }),
 
-  openModal: (modal) => set({ activeModal: modal }),
+  openModal: (modal) => {
+    // ---- Fix C: Global orphan Monaco textarea cleanup ----
+    // Before opening any modal, proactively remove orphan Monaco hidden
+    // textareas that may have leaked from a previously active block editor.
+    //
+    // Root cause: Monaco uses hidden <textarea> elements (class .ime-text-area,
+    // .inputarea) to capture keyboard input and IME composition. If a block
+    // editor's cleanup runs asynchronously (useEffect) after React already
+    // removed the container DOM, the blur() call is a no-op and the textarea
+    // may already be removed. However, in some edge cases (rapid Ctrl+F,
+    // React StrictMode double-invoke, @monaco-editor/react timing), orphan
+    // textareas can survive. They intercept keyboard events globally and
+    // cause IME candidate windows to appear at stale screen positions.
+    //
+    // This guard runs SYNCHRONOUSLY before set({ activeModal }) — ensuring
+    // that any modal's autoFocus input won't compete with a ghost textarea.
+    if (typeof document !== 'undefined') {
+      document
+        .querySelectorAll('textarea.ime-text-area, textarea.inputarea')
+        .forEach((el) => {
+          const monacoRoot = el.closest('.monaco-editor');
+          if (!monacoRoot || !document.body.contains(monacoRoot)) {
+            (el as HTMLTextAreaElement).blur();
+            el.remove();
+          }
+        });
+    }
+    set({ activeModal: modal });
+  },
 
   closeModal: () => set({ activeModal: null }),
 
@@ -90,6 +124,10 @@ export const useUIStore = create<UIStore>((set, get) => ({
   setSplashComplete: (complete) => set({ isSplashComplete: complete }),
 
   toggleHistoryPanel: () => set((s) => ({ isHistoryPanelOpen: !s.isHistoryPanelOpen })),
+
+  toggleSourceCodeMode: () => set((s) => ({ isSourceCodeMode: !s.isSourceCodeMode })),
+
+  toggleFindReplace: () => set((s) => ({ isFindReplaceOpen: !s.isFindReplaceOpen })),
 
   setMarkdownBlockState: (markdownBlockState) => set({ markdownBlockState }),
 

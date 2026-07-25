@@ -1,11 +1,8 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { render } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
 
 import CodeFenceBlock from '../../src/render/components/Editor/blocks/CodeFenceBlock';
 import type { BlockNode } from '../../src/render/services/blockTree';
-vi.mock('../../src/render/components/Editor/ActiveBlockEditor', () => ({
-  default: () => null,
-}));
 
 function createCodeFenceBlock(overrides: Partial<BlockNode> = {}): BlockNode {
   return {
@@ -21,39 +18,73 @@ function createCodeFenceBlock(overrides: Partial<BlockNode> = {}): BlockNode {
   };
 }
 
-describe('CodeFenceBlock', () => {
-  it('renders the language selector inside the code fence header and rewrites the fence marker', () => {
-    const onBlockActivate = vi.fn();
-    const onContentChange = vi.fn();
+describe('CodeFenceBlock — read-only display', () => {
+  it('renders the language label inside the code fence header (display-only)', () => {
+    const { container } = render(
+      <CodeFenceBlock block={createCodeFenceBlock()} />
+    );
 
+    const header = container.querySelector('.code-fence-header');
+    expect(header).not.toBeNull();
+
+    // The language is now a display-only span, not a select
+    expect(header?.textContent).toContain('Plain Text');
+  });
+
+  it('renders the code fence fallback when renderedHtml is null', () => {
     const { container } = render(
       <CodeFenceBlock
-        block={createCodeFenceBlock()}
-        isActive={false}
-        activeBlockId={null}
-        onBlockActivate={onBlockActivate}
-        onContentChange={onContentChange}
-        onEnterPress={vi.fn()}
-        onBackspaceAtStart={vi.fn()}
-        onArrowUpAtTop={vi.fn()}
-        onArrowDownAtBottom={vi.fn()}
-        onEscape={vi.fn()}
-        onBlockBlur={vi.fn()}
+        block={createCodeFenceBlock({
+          renderedHtml: null,
+          sourceLines: ['```javascript', 'console.log("hi")', '```'],
+          fenceLanguage: 'javascript',
+        })}
+      />
+    );
+
+    const fallback = container.querySelector('.code-fence-fallback');
+    expect(fallback).not.toBeNull();
+    expect(fallback?.textContent).toContain('console.log("hi")');
+  });
+
+  it('renders rendered HTML via dangerouslySetInnerHTML', () => {
+    const { container } = render(
+      <CodeFenceBlock
+        block={createCodeFenceBlock({
+          renderedHtml: '<pre><code>hello world</code></pre>',
+        })}
+      />
+    );
+
+    const content = container.querySelector('.code-fence-content');
+    expect(content).not.toBeNull();
+    expect(content?.innerHTML).toContain('hello world');
+  });
+
+  it('normalizes "Plain Text" to "plaintext" for display', () => {
+    const { container } = render(
+      <CodeFenceBlock
+        block={createCodeFenceBlock({
+          fenceLanguage: 'Plain Text',
+        })}
       />
     );
 
     const header = container.querySelector('.code-fence-header');
-    const select = screen.getByRole('combobox', { name: '代码块语言' });
+    expect(header?.textContent).toContain('Plain Text');
+  });
 
-    expect(header).not.toBeNull();
-    expect(header?.contains(select)).toBe(true);
-    expect(select).toHaveValue('plaintext');
+  it('normalizes "sh" alias to "shell" label', () => {
+    const { container } = render(
+      <CodeFenceBlock
+        block={createCodeFenceBlock({
+          fenceLanguage: 'sh',
+          sourceLines: ['```sh', 'echo hi', '```'],
+        })}
+      />
+    );
 
-    fireEvent.click(select);
-    expect(onBlockActivate).not.toHaveBeenCalled();
-
-    fireEvent.change(select, { target: { value: 'json' } });
-    expect(onContentChange).toHaveBeenCalledWith('code-block-1', ['```json', 'hello world', '```']);
-    expect(onBlockActivate).not.toHaveBeenCalled();
+    const header = container.querySelector('.code-fence-header');
+    expect(header?.textContent).toContain('shell');
   });
 });

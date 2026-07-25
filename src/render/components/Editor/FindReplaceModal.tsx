@@ -32,7 +32,7 @@
 //
 // ============================================
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   findAllMatches,
   replaceAll,
@@ -93,6 +93,10 @@ const FindReplaceModal: React.FC<FindReplaceModalProps> = ({ isOpen, onClose }) 
   // Incremented on modal open → forces uncontrolled inputs to remount empty
   const [resetKey, setResetKey] = useState(0);
 
+  // Fix B: Ref for explicit focus transfer after modal opens.
+  // Double RAF ensures the input is mounted (with the correct resetKey) before focusing.
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   // ── Regex validation ───────────────────────
   const regexError = useMemo<string | null>(() => {
     if (!isRegexp || !searchText) return null;
@@ -146,6 +150,25 @@ const FindReplaceModal: React.FC<FindReplaceModalProps> = ({ isOpen, onClose }) 
       setIsRegexp(false);
       setMatches([]);
       setResetKey((k) => k + 1);
+
+      // Fix B: Explicit focus transfer with double RAF.
+      // When the modal opens while a block is active, the Monaco editor's
+      // hidden textarea is being disposed (via useLayoutEffect cleanup in
+      // ActiveBlockEditor). The autoFocus attribute on the search input may
+      // not reliably take effect because:
+      //   1. setResetKey above triggers a re-render that remounts the input
+      //   2. The first render's autoFocus may be stolen by the cleanup
+      //   3. After the remount, autoFocus should work — but as a safety net,
+      //      we explicitly focus after both renders are complete.
+      //
+      // Double RAF: first waits for the resetKey re-render to be committed,
+      // second ensures any cascading effects (Monaco dispose, layout shifts)
+      // have settled before we call focus().
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          searchInputRef.current?.focus();
+        });
+      });
     }
   }, [isOpen]);
 
@@ -321,6 +344,7 @@ const FindReplaceModal: React.FC<FindReplaceModalProps> = ({ isOpen, onClose }) 
               <div className="flex-1 relative">
                 <input
                   type="text"
+                  ref={searchInputRef}
                   key={`search-${resetKey}`}
                   defaultValue=""
                   onChange={(e) => setSearchText(e.target.value)}

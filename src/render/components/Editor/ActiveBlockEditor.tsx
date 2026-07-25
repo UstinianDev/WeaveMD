@@ -8,7 +8,7 @@
 // instead of one big editor managing the whole document.
 // ============================================
 
-import React, { useRef, useEffect, useCallback } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import Editor, { OnMount } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import type { BlockNode } from '../../services/blockTree';
@@ -64,6 +64,27 @@ const ActiveBlockEditor: React.FC<ActiveBlockEditorProps> = ({
   const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
   const isUpdatingRef = useRef(false);
   const lastSourceLinesRef = useRef<string[]>(block.sourceLines);
+
+  // ---- Callback Refs (Fix 2: eliminate stale closures) ----
+  // Monaco's onMount is called once per editor lifetime. The callbacks
+  // captured in handleEditorMount become stale when props change.
+  // Refs ensure the keydown/blur handlers always read the latest props.
+  const onContentChangeRef = useRef(onContentChange);
+  const onEnterPressRef = useRef(onEnterPress);
+  const onBackspaceAtStartRef = useRef(onBackspaceAtStart);
+  const onArrowUpAtTopRef = useRef(onArrowUpAtTop);
+  const onArrowDownAtBottomRef = useRef(onArrowDownAtBottom);
+  const onEscapeRef = useRef(onEscape);
+  const onBlurRef = useRef(onBlur);
+
+  // Keep refs in sync with latest props on every render
+  onContentChangeRef.current = onContentChange;
+  onEnterPressRef.current = onEnterPress;
+  onBackspaceAtStartRef.current = onBackspaceAtStart;
+  onArrowUpAtTopRef.current = onArrowUpAtTop;
+  onArrowDownAtBottomRef.current = onArrowDownAtBottom;
+  onEscapeRef.current = onEscape;
+  onBlurRef.current = onBlur;
 
   const theme = useUIStore((s) => s.theme);
   const isDarkTheme = theme === 'dark' || theme === 'high-contrast' || theme === 'custom';
@@ -182,12 +203,22 @@ const ActiveBlockEditor: React.FC<ActiveBlockEditorProps> = ({
 
         if (changed) {
           lastSourceLinesRef.current = newSourceLines;
-          onContentChange(block.id, newSourceLines);
+          onContentChangeRef.current(block.id, newSourceLines);
         }
       });
 
       // ---- Key Down Handler ----
       editor.onKeyDown((e) => {
+        // Guard: During IME composition (CJK, etc.), skip all custom
+        // key handlers. The OS IME owns the keyboard during composition —
+        // we must not interfere with block splitting, merging, or navigation.
+        // Without this guard, pressing Enter to confirm a CJK character
+        // would trigger a block split.
+        const browserEvent = (e as unknown as { browserEvent?: KeyboardEvent }).browserEvent;
+        if (browserEvent?.isComposing) {
+          return;
+        }
+
         // Enter key: check if cursor is at last line → split block
         if (e.keyCode === monaco.KeyCode.Enter) {
           const position = editor.getPosition();
@@ -196,7 +227,7 @@ const ActiveBlockEditor: React.FC<ActiveBlockEditorProps> = ({
             const lastLine = model.getLineCount();
             // If Enter at end of last line, notify parent to create new block
             if (position.lineNumber === lastLine) {
-              onEnterPress(block.id, position.lineNumber, position.column);
+              onEnterPressRef.current(block.id, position.lineNumber, position.column);
               e.preventDefault();
               e.stopPropagation();
             }
@@ -207,7 +238,7 @@ const ActiveBlockEditor: React.FC<ActiveBlockEditorProps> = ({
         if (e.keyCode === monaco.KeyCode.Backspace) {
           const position = editor.getPosition();
           if (position && position.lineNumber === 1 && position.column === 1) {
-            onBackspaceAtStart(block.id);
+            onBackspaceAtStartRef.current(block.id);
             e.preventDefault();
             e.stopPropagation();
           }
@@ -217,7 +248,7 @@ const ActiveBlockEditor: React.FC<ActiveBlockEditorProps> = ({
         if (e.keyCode === monaco.KeyCode.UpArrow) {
           const position = editor.getPosition();
           if (position && position.lineNumber === 1) {
-            onArrowUpAtTop(block.id);
+            onArrowUpAtTopRef.current(block.id);
             e.preventDefault();
             e.stopPropagation();
           }
@@ -228,7 +259,7 @@ const ActiveBlockEditor: React.FC<ActiveBlockEditorProps> = ({
           const position = editor.getPosition();
           const model = editor.getModel();
           if (position && model && position.lineNumber === model.getLineCount()) {
-            onArrowDownAtBottom(block.id);
+            onArrowDownAtBottomRef.current(block.id);
             e.preventDefault();
             e.stopPropagation();
           }
@@ -236,7 +267,18 @@ const ActiveBlockEditor: React.FC<ActiveBlockEditorProps> = ({
 
         // Escape → blur (exit edit mode)
         if (e.keyCode === monaco.KeyCode.Escape) {
-          onEscape(block.id);
+          onEscapeRef.current(block.id);
+          e.preventDefault();
+          e.stopPropagation();
+        }
+
+        // Ctrl+F / Cmd+F: Prevent Monaco's built-in find widget.
+        // WeaveMD uses a custom FindReplaceModal instead — the
+        // window-level Ctrl+F handler in EditorView opens it.
+        // Without this interception, Monaco opens its own find
+        // widget synchronously, which steals focus from the
+        // custom modal's search input.
+        if (e.keyCode === monaco.KeyCode.KeyF && (e.ctrlKey || e.metaKey)) {
           e.preventDefault();
           e.stopPropagation();
         }
@@ -244,30 +286,86 @@ const ActiveBlockEditor: React.FC<ActiveBlockEditorProps> = ({
 
       // ---- Blur Handler ----
       editor.onDidBlurEditorText(() => {
-        onBlur(block.id);
+        onBlurRef.current(block.id);
       });
     },
     [
       block.id,
       block.sourceLines,
-      onContentChange,
-      onEnterPress,
-      onBackspaceAtStart,
-      onArrowUpAtTop,
-      onArrowDownAtBottom,
-      onEscape,
-      onBlur,
+      // Callbacks are accessed via refs — no need to list them as deps.
+      // Only values captured at mount time (block.id, block.sourceLines)
+      // and stable refs (onContentChangeRef) are needed.
     ]
   );
 
-  // ---- Cleanup on Unmount ----
-  useEffect(() => {
+  // ---- Cleanup on Unmount (Fix A v2: useLayoutEffect for synchronous blur) ----
+  // Monaco Editor internally uses hidden <textarea> elements for keyboard
+  // input capture and IME support. The v1 fix used useEffect for cleanup,
+  // but useEffect callbacks run ASYNCHRONOUSLY (after paint) — by that time
+  // React has already removed the ActiveBlockEditor DOM from the document,
+  // including the Monaco textarea. Calling blur() on a detached element is a
+  // no-op, so the OS never receives a focus-release notification, leaving the
+  // IME context at the old screen position. This breaks CJK input in any
+  // subsequently opened modal (Find & Replace, Settings, etc.).
+  //
+  // useLayoutEffect cleanup runs SYNCHRONOUSLY during React's commit phase,
+  // BEFORE the DOM nodes are removed. This guarantees that:
+  //   1. blur() actually fires on a live, in-document element
+  //   2. The OS IME receives the focus-release notification
+  //   3. We can safely remove textareas before React removes the container
+  //   4. No orphan textareas can leak into the next paint frame
+  //
+  // Phase 1: Blur + disable all hidden textareas (releases OS IME context).
+  // Phase 2: Manually remove textareas from DOM (before React unmounts container).
+  // Phase 3: Dispose the editor (clean up event listeners, models, etc.).
+  useLayoutEffect(() => {
     return () => {
       const editor = editorRef.current;
-      if (editor) {
-        editor.dispose();
-        editorRef.current = null;
+      if (!editor) return;
+
+      // Phase 1: Force-blur all hidden textareas BEFORE React removes the
+      // container DOM. We also set disabled=true to prevent any focus event
+      // listeners from re-focusing the textarea between blur and removal.
+      try {
+        const domNode = editor.getDomNode();
+        if (domNode) {
+          const textareas = domNode.querySelectorAll('textarea');
+          textareas.forEach((ta) => {
+            if (ta instanceof HTMLTextAreaElement) {
+              ta.blur();
+              ta.disabled = true;
+            }
+          });
+        }
+      } catch {
+        // Best-effort blur — ignore DOM access errors
       }
+
+      // Phase 2: Proactively remove Monaco's hidden textareas from the DOM
+      // while the container is still attached. This prevents any possibility
+      // of orphan textareas surviving the React unmount.
+      try {
+        const domNode = editor.getDomNode();
+        if (domNode) {
+          domNode
+            .querySelectorAll('textarea.ime-text-area, textarea.inputarea')
+            .forEach((el) => el.remove());
+        }
+      } catch {
+        // Best-effort removal — ignore DOM access errors
+      }
+
+      // Phase 3: Dispose the editor (only if still alive — guard against
+      // double-dispose from @monaco-editor/react internal cleanup).
+      try {
+        if (editor.getModel() !== null) {
+          editor.dispose();
+        }
+      } catch {
+        // Best-effort dispose
+      }
+
+      editorRef.current = null;
     };
   }, [block.id]);
 

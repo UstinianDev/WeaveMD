@@ -1,108 +1,41 @@
 // ============================================
-// WeaveMD — Block-Based WYSIWYG Editor View
+// WeaveMD — Block-Based Editor View
 // ============================================
-// Renders the document as a scrollable list of React
-// block components, each backed by a mini Monaco editor
-// for inline editing (via ActiveBlockEditor).
+// Renders the document as a scrollable list of
+// read-only React block components.
 //
-// On mount / content change: parse content into a BlockTree
-// All block editing operations delegate to blockController services
-// Serialized content is debounced and synced to editorStore
+// Two display modes:
+//   1. Normal (default): Rendered rich-text blocks
+//   2. Source Code Mode: Full Monaco editor for
+//      raw markdown editing
+//
+// Toggle via View → Source Code Mode in the navbar.
 // ============================================
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { BlockTree, BlockId } from '../../services/blockTree';
-import {
-  updateBlockSource,
-  setBlockRenderedHtml,
-  getAllBlocksInOrder,
-} from '../../services/blockTree';
+import type { BlockTree } from '../../services/blockTree';
+import { getAllBlocksInOrder, setBlockRenderedHtml } from '../../services/blockTree';
 import { buildBlockTree } from '../../services/blockTreeBuilder';
-import { serializeBlockTree } from '../../services/blockTreeSerializer';
-import {
-  splitBlockAtCursor,
-  mergeBlockWithPrevious,
-  navigateToPreviousBlock,
-  navigateToNextBlock,
-  createEmptyParagraphBlock,
-} from '../../services/blockController';
 import { renderMarkdownToHtml } from '../../services/markdown';
 import { useEditorStore } from '../../stores/editorStore';
 import { useUIStore } from '../../stores/uiStore';
 
-import EditorScrollContainer from './EditorScrollContainer';
 import '../../utils/monacoSetup';
+import EditorScrollContainer from './EditorScrollContainer';
+import FindReplaceBar from './FindReplaceBar';
+import SourceCodeEditor from './SourceCodeEditor';
 
 // ============================================
 // Types
 // ============================================
 
 interface EditorViewProps {
-  onSelectionChange?: (selection: { startLine: number; startColumn: number; endLine: number; endColumn: number } | null) => void;
+  onSelectionChange?: (
+    selection: { startLine: number; startColumn: number; endLine: number; endColumn: number } | null
+  ) => void;
   onEditorMount?: (active: boolean) => void;
   onFocusChange?: (isFocused: boolean) => void;
-}
-
-// ============================================
-// Internal: Debounce helper
-// ============================================
-
-type DebouncedCallback = ((value: string) => void) & {
-  flush: (value?: string) => void;
-  cancel: () => void;
-};
-
-function useDebouncedCallback(callback: (value: string) => void, delay: number): DebouncedCallback {
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const callbackRef = useRef(callback);
-  const pendingValueRef = useRef<string | null>(null);
-  callbackRef.current = callback;
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
-  }, []);
-
-  return useMemo(() => {
-    const debounced = ((value: string) => {
-      pendingValueRef.current = value;
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      timeoutRef.current = setTimeout(() => {
-        if (pendingValueRef.current !== null) {
-          callbackRef.current(pendingValueRef.current);
-          pendingValueRef.current = null;
-        }
-      }, delay);
-    }) as DebouncedCallback;
-
-    debounced.flush = (value?: string) => {
-      if (value !== undefined) {
-        pendingValueRef.current = value;
-      }
-
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
-
-      if (pendingValueRef.current !== null) {
-        callbackRef.current(pendingValueRef.current);
-        pendingValueRef.current = null;
-      }
-    };
-
-    debounced.cancel = () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
-      pendingValueRef.current = null;
-    };
-
-    return debounced;
-  }, [delay]);
 }
 
 // ============================================
@@ -117,24 +50,28 @@ const EditorView: React.FC<EditorViewProps> = ({
   // --- Refs ---
   const isUpdatingFromExternalRef = useRef(false);
   const themesDefinedRef = useRef(false);
+  const prevSourceCodeModeRef = useRef(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // --- Store ---
   const content = useEditorStore((s) => s.content);
   const setContent = useEditorStore((s) => s.updateContent);
   const currentFileId = useEditorStore((s) => s.currentFile?.id ?? null);
   const setEditorDraftFlusher = useUIStore((s) => s.setEditorDraftFlusher);
+  const isSourceCodeMode = useUIStore((s) => s.isSourceCodeMode);
+  const isFindReplaceOpen = useUIStore((s) => s.isFindReplaceOpen);
 
   // --- State ---
   const [blockTree, setBlockTree] = useState<BlockTree>(() => {
-    // Initialize from current store content
     const initialContent = useEditorStore.getState().content;
-    return initialContent ? buildBlockTree(initialContent) : { rootBlockIds: [], blocks: {}, version: 0 };
+    return initialContent
+      ? buildBlockTree(initialContent)
+      : { rootBlockIds: [], blocks: {}, version: 0 };
   });
-  const [activeBlockId, setActiveBlockId] = useState<BlockId | null>(null);
   const [themesLoading, setThemesLoading] = useState(true);
 
   // ============================================
-  // Theme Definitions (preserved from old EditorView)
+  // Theme Definitions (Monaco custom themes)
   // ============================================
 
   useEffect(() => {
@@ -143,7 +80,6 @@ const EditorView: React.FC<EditorViewProps> = ({
       return;
     }
 
-    // Dynamically import monaco-editor to define custom themes
     import('monaco-editor')
       .then((monaco) => {
         // --- Dark theme ---
@@ -221,123 +157,12 @@ const EditorView: React.FC<EditorViewProps> = ({
       })
       .catch((err) => {
         console.error('Failed to define Monaco themes:', err);
-        // Still allow the editor to render, themes just won't be customized
         setThemesLoading(false);
       });
   }, []);
 
   // ============================================
-  // Debounced store update
-  // Serialize blockTree and push to editorStore
-  // Sets the external update flag before writing to prevent echo loops
-  // ============================================
-
-  const debouncedStoreUpdate = useDebouncedCallback((serialized: string) => {
-    isUpdatingFromExternalRef.current = true;
-    setContent(serialized);
-  }, 300);
-
-  // ============================================
-  // Content Change Handler
-  // Single block's source lines changed — update tree and serialize
-  // ============================================
-
-  const handleContentChange = useCallback((blockId: BlockId, sourceLines: string[]) => {
-    setBlockTree((prev) => {
-      const updated = updateBlockSource(prev, blockId, sourceLines);
-      const serialized = serializeBlockTree(updated);
-      debouncedStoreUpdate(serialized);
-      return updated;
-    });
-  }, [debouncedStoreUpdate]);
-
-  const handleBlockActivate = useCallback((blockId: BlockId) => {
-    setActiveBlockId(blockId);
-    onFocusChange?.(true);
-  }, [onFocusChange]);
-
-  const handleBlockBlur = useCallback((_blockId: BlockId) => {
-    setActiveBlockId(null);
-    onFocusChange?.(false);
-  }, [onFocusChange]);
-
-  const handleEscape = useCallback((_blockId: BlockId) => {
-    setActiveBlockId(null);
-    onFocusChange?.(false);
-  }, [onFocusChange]);
-
-  // ============================================
-  // Enter Press → Split Block at Cursor
-  // ============================================
-
-  const handleEnterPress = useCallback((blockId: BlockId, cursorLine: number, cursorColumn: number) => {
-    setBlockTree((prev) => {
-      const result = splitBlockAtCursor(prev, blockId, cursorLine, cursorColumn);
-      if (result.newBlockId) {
-        // Queue activation of new block on next render cycle
-        queueMicrotask(() => setActiveBlockId(result.newBlockId));
-      }
-      return result.tree;
-    });
-  }, []);
-
-  // ============================================
-  // Backspace at Start → Merge with Previous Block
-  // ============================================
-
-  const handleBackspaceAtStart = useCallback((blockId: BlockId) => {
-    setBlockTree((prev) => {
-      const result = mergeBlockWithPrevious(prev, blockId);
-      if (result.mergedBlockId) {
-        // Navigate cursor to end of merged block on next render cycle
-        queueMicrotask(() => setActiveBlockId(result.mergedBlockId));
-      }
-      return result.tree;
-    });
-  }, []);
-
-  // ============================================
-  // Arrow Up/Down at Block Boundary → Navigate
-  // ============================================
-
-  const handleArrowUpAtTop = useCallback((blockId: BlockId) => {
-    // Navigate to previous sibling block
-    const prevResult = navigateToPreviousBlock(blockTree, blockId);
-    if (prevResult.targetBlockId) {
-      setActiveBlockId(prevResult.targetBlockId);
-    }
-  }, [blockTree]);
-
-  const handleArrowDownAtBottom = useCallback((blockId: BlockId) => {
-    // Navigate to next sibling block
-    const nextResult = navigateToNextBlock(blockTree, blockId);
-    if (nextResult.targetBlockId) {
-      setActiveBlockId(nextResult.targetBlockId);
-    }
-  }, [blockTree]);
-
-  // ============================================
-  // Create Empty Block (click on container background)
-  // ============================================
-
-  const handleCreateEmptyBlock = useCallback(() => {
-    setBlockTree((prev) => {
-      const lastBlockId = prev.rootBlockIds.length > 0
-        ? prev.rootBlockIds[prev.rootBlockIds.length - 1]
-        : null;
-
-      const result = createEmptyParagraphBlock(prev, lastBlockId);
-      if (result.newBlockId) {
-        // Activate the newly created block
-        queueMicrotask(() => setActiveBlockId(result.newBlockId));
-      }
-      return result.tree;
-    });
-  }, []);
-
-  // ============================================
   // Render HTML for blocks that need it
-  // Runs whenever blockTree.version changes
   // ============================================
 
   useEffect(() => {
@@ -356,11 +181,9 @@ const EditorView: React.FC<EditorViewProps> = ({
       return html;
     };
 
-    // Process blocks sequentially to avoid overwhelming the markdown processor
     const renderBlocks = async () => {
       for (const block of blocks) {
         if (cancelled) return;
-        // Skip blocks that already have rendered HTML
         if (block.renderedHtml !== null) continue;
 
         const markdown = block.sourceLines.join('\n');
@@ -380,8 +203,6 @@ const EditorView: React.FC<EditorViewProps> = ({
     return () => {
       cancelled = true;
     };
-    // We intentionally only trigger on blockTree.version changes, not
-    // the entire blockTree object, to avoid re-rendering on every state update.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockTree.version]);
 
@@ -391,105 +212,147 @@ const EditorView: React.FC<EditorViewProps> = ({
   // ============================================
 
   useEffect(() => {
-    // Avoid echo loop: if we are the ones who triggered the store update, skip
+    // Skip rebuild if we triggered the store update (SourceCodeEditor, FindReplaceBar)
     if (isUpdatingFromExternalRef.current) {
       isUpdatingFromExternalRef.current = false;
       return;
     }
 
-    // Rebuild block tree from new content
     const newTree = buildBlockTree(content);
     setBlockTree(newTree);
-
-    // Clear active block — user hasn't clicked into any block in the new tree
-    setActiveBlockId(null);
   }, [content]);
 
   // ============================================
-  // Flush draft on request (file save, close, etc.)
+  // Source Code Mode Toggle → Rebuild Block Tree
+  // When switching from source code mode back to
+  // normal mode, rebuild the block tree from the
+  // latest content (which may have been edited).
   // ============================================
-
-  const flushPendingEditorContent = useCallback(() => {
-    debouncedStoreUpdate.flush();
-  }, [debouncedStoreUpdate]);
 
   useEffect(() => {
-    setEditorDraftFlusher(flushPendingEditorContent);
-    return () => {
-      setEditorDraftFlusher(null);
-    };
-  }, [flushPendingEditorContent, setEditorDraftFlusher]);
+    // Transitioning from source code mode → normal mode
+    if (prevSourceCodeModeRef.current && !isSourceCodeMode) {
+      const latestContent = useEditorStore.getState().content;
+      const newTree = buildBlockTree(latestContent);
+      setBlockTree(newTree);
+    }
+    prevSourceCodeModeRef.current = isSourceCodeMode;
+  }, [isSourceCodeMode]);
 
   // ============================================
-  // Keyboard Shortcuts (Ctrl+S, Ctrl+Z, Ctrl+Y)
-  // Register globally since there's no single Monaco instance
+  // Source Code Editor Content Change Handler
+  // ============================================
+
+  const handleSourceContentChange = useCallback(
+    (newContent: string) => {
+      isUpdatingFromExternalRef.current = true;
+      setContent(newContent);
+    },
+    [setContent]
+  );
+
+  // ============================================
+  // FindReplaceBar Content Change Handler
+  // ============================================
+
+  const handleFindReplaceContentChange = useCallback(
+    (newContent: string) => {
+      isUpdatingFromExternalRef.current = true;
+      setContent(newContent);
+    },
+    [setContent]
+  );
+
+  // ============================================
+  // Keyboard Shortcuts (Ctrl+S, Ctrl+Z, Ctrl+Y, Ctrl+F)
   // ============================================
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const ctrl = e.ctrlKey || e.metaKey;
 
+      // Ctrl+F: Toggle Find & Replace — must come BEFORE the form-control
+      // filter below so the bar can be closed while its input is focused.
+      if (ctrl && e.key === 'f') {
+        e.preventDefault();
+        useUIStore.getState().toggleFindReplace();
+        return;
+      }
+
+      // Ctrl+`: Toggle Source Code Mode
+      if (ctrl && e.key === '`') {
+        e.preventDefault();
+        useUIStore.getState().toggleSourceCodeMode();
+        return;
+      }
+
+      // Skip when focus is in a native form control that is NOT
+      // Monaco's internal hidden textarea or the FindReplaceBar inputs.
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tagName = target.tagName.toLowerCase();
+        if (
+          tagName === 'input' ||
+          tagName === 'textarea' ||
+          tagName === 'select' ||
+          target.isContentEditable
+        ) {
+          // Allow in FindReplaceBar inputs (they have .no-drag class)
+          const isFindReplaceInput = target.closest('.find-replace-bar') !== null;
+          // Allow in Monaco internal textareas
+          const isMonacoInternal =
+            target.closest('.monaco-editor') !== null ||
+            target.classList.contains('ime-text-area') ||
+            target.classList.contains('inputarea');
+          if (!isMonacoInternal && !isFindReplaceInput) {
+            return; // Real form field — let the browser handle it
+          }
+        }
+      }
+
       // Ctrl+S: Save
       if (ctrl && e.key === 's') {
         e.preventDefault();
-        debouncedStoreUpdate.flush();
         useEditorStore.getState().saveFile();
       }
 
       // Ctrl+Z: Undo
       if (ctrl && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
-        debouncedStoreUpdate.flush();
         useEditorStore.getState().undo();
       }
 
       // Ctrl+Y or Ctrl+Shift+Z: Redo
       if ((ctrl && e.key === 'y') || (ctrl && e.shiftKey && e.key === 'z')) {
         e.preventDefault();
-        debouncedStoreUpdate.flush();
         useEditorStore.getState().redo();
-      }
-
-      // Ctrl+F: Toggle Find & Replace
-      if (ctrl && e.key === 'f') {
-        e.preventDefault();
-        const { activeModal, openModal, closeModal } = useUIStore.getState();
-        if (activeModal === 'findReplace') {
-          closeModal();
-        } else {
-          openModal('findReplace');
-        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [debouncedStoreUpdate]);
+  }, []);
 
   // ============================================
   // Mount / Unmount Lifecycle
   // ============================================
 
   useEffect(() => {
-    // Signal that the editor is ready and focused
     onEditorMount?.(true);
     onFocusChange?.(true);
 
     return () => {
-      debouncedStoreUpdate.cancel();
       onSelectionChange?.(null);
       onFocusChange?.(false);
       onEditorMount?.(false);
       setEditorDraftFlusher(null);
     };
-    // Run only on mount/unmount — stable refs for callbacks
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Cancel debounce when navigating away from current file
+  // Reset state when navigating to a different file
   useEffect(() => {
-    debouncedStoreUpdate.cancel();
-    // Run only when file changes
+    // Cancel any pending operations from the previous file
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentFileId]);
 
@@ -513,20 +376,25 @@ const EditorView: React.FC<EditorViewProps> = ({
   }
 
   return (
-    <div className="w-full h-full">
-      <EditorScrollContainer
-        blockTree={blockTree}
-        activeBlockId={activeBlockId}
-        onBlockActivate={handleBlockActivate}
-        onContentChange={handleContentChange}
-        onEnterPress={handleEnterPress}
-        onBackspaceAtStart={handleBackspaceAtStart}
-        onArrowUpAtTop={handleArrowUpAtTop}
-        onArrowDownAtBottom={handleArrowDownAtBottom}
-        onEscape={handleEscape}
-        onBlockBlur={handleBlockBlur}
-        onCreateEmptyBlock={handleCreateEmptyBlock}
+    <div className="w-full h-full flex flex-col">
+      {/* Find & Replace Inline Bar (Typora-style) — works in both modes */}
+      <FindReplaceBar
+        isOpen={isFindReplaceOpen}
+        onClose={() => useUIStore.getState().toggleFindReplace()}
+        content={content}
+        onContentChange={handleFindReplaceContentChange}
       />
+
+      {/* Editor Area */}
+      <div className="flex-1 overflow-hidden">
+        {isSourceCodeMode ? (
+          /* Source Code Mode: Full Monaco editor for raw markdown */
+          <SourceCodeEditor content={content} onContentChange={handleSourceContentChange} />
+        ) : (
+          /* Normal Mode: Read-only rendered rich-text blocks */
+          <EditorScrollContainer ref={scrollContainerRef} blockTree={blockTree} />
+        )}
+      </div>
     </div>
   );
 };
