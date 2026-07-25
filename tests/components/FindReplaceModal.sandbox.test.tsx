@@ -259,4 +259,129 @@ describe('FindReplaceModal — Centered Modal with macOS Dots', () => {
     expect(panel).toHaveClass('max-w-[90vw]');
     expect(panel).toHaveClass('max-h-[80vh]');
   });
+
+  // ==== Regression: input stays usable after content changes ====
+
+  it('accepts text input after content has been modified (manual edit scenario)', () => {
+    // 1. Open a file (simulates importing a document)
+    useEditorStore.getState().openFile({
+      id: 'reg-1',
+      userId: 'test',
+      name: 'test.md',
+      content: 'Hello World\nThis is a test document\nfor WeaveMD',
+      createdAt: '',
+      modifiedAt: '',
+      deletedAt: null,
+    });
+
+    // 2. Open Find & Replace — typing should work
+    const { unmount } = render(
+      <FindReplaceModal isOpen={true} onClose={vi.fn()} />,
+    );
+    const input = screen.getByPlaceholderText('输入要查找的文本...') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Hello' } });
+    expect(input.value).toBe('Hello');
+    unmount();
+
+    // 3. Simulate manual editing — update content via editorStore
+    // (This is what happens when user types in the Monaco editor —
+    //  the debounced store update calls updateContent)
+    useEditorStore.getState().updateContent(
+      'Hello World\nThis is a modified test document\nfor WeaveMD\nwith an extra line',
+    );
+
+    // 4. Re-open Find & Replace — typing should STILL work
+    render(<FindReplaceModal isOpen={true} onClose={vi.fn()} />);
+    const input2 = screen.getByPlaceholderText('输入要查找的文本...') as HTMLInputElement;
+    fireEvent.change(input2, { target: { value: 'modified' } });
+    expect(input2.value).toBe('modified');
+  });
+
+  it('accepts text input after multiple content edits and reopens', () => {
+    // Simulates: import → edit → reopen modal multiple times
+    useEditorStore.getState().openFile({
+      id: 'reg-2',
+      userId: 'test',
+      name: 'test.md',
+      content: 'Original content',
+      createdAt: '',
+      modifiedAt: '',
+      deletedAt: null,
+    });
+
+    // First open — works
+    const { unmount: unmount1 } = render(
+      <FindReplaceModal isOpen={true} onClose={vi.fn()} />,
+    );
+    let input = screen.getByPlaceholderText('输入要查找的文本...') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'first search' } });
+    expect(input.value).toBe('first search');
+    unmount1();
+
+    // Edit
+    useEditorStore.getState().updateContent('Modified content v1');
+
+    // Second open — should work
+    const { unmount: unmount2 } = render(
+      <FindReplaceModal isOpen={true} onClose={vi.fn()} />,
+    );
+    input = screen.getByPlaceholderText('输入要查找的文本...') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'second search' } });
+    expect(input.value).toBe('second search');
+    unmount2();
+
+    // Edit again
+    useEditorStore.getState().updateContent('Modified content v2');
+
+    // Third open — should still work
+    render(<FindReplaceModal isOpen={true} onClose={vi.fn()} />);
+    input = screen.getByPlaceholderText('输入要查找的文本...') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'third search' } });
+    expect(input.value).toBe('third search');
+  });
+
+  it('replaces content then reopens modal with working input', () => {
+    // Simulates the working scenario: replace → close → reopen
+    useEditorStore.getState().openFile({
+      id: 'reg-3',
+      userId: 'test',
+      name: 'test.md',
+      content: 'foo bar foo baz',
+      createdAt: '',
+      modifiedAt: '',
+      deletedAt: null,
+    });
+
+    // Open modal, search, replace
+    const { unmount } = render(
+      <FindReplaceModal isOpen={true} onClose={vi.fn()} />,
+    );
+    let input = screen.getByPlaceholderText('输入要查找的文本...') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'foo' } });
+
+    // Switch to replace tab and replace all
+    fireEvent.click(screen.getByText('替换'));
+    const replaceInput = screen.getByPlaceholderText('替换文本...') as HTMLInputElement;
+    fireEvent.change(replaceInput, { target: { value: 'XYZ' } });
+
+    // Wait for debounce then replace all
+    const timer1 = setTimeout(() => {
+      fireEvent.click(screen.getByText('全部替换'));
+
+      setTimeout(() => {
+        // Verify content was replaced
+        expect(useEditorStore.getState().content).toBe('XYZ bar XYZ baz');
+      }, 50);
+    }, 200);
+
+    unmount();
+
+    // Re-open — typing should work
+    render(<FindReplaceModal isOpen={true} onClose={vi.fn()} />);
+    input = screen.getByPlaceholderText('输入要查找的文本...') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'XYZ' } });
+    expect(input.value).toBe('XYZ');
+
+    return () => clearTimeout(timer1);
+  });
 });

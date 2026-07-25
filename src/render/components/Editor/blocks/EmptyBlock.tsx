@@ -1,33 +1,30 @@
 // ============================================
 // WeaveMD — Empty Block Component
 // ============================================
-// A clickable placeholder block used at the end of the
-// document or when the document has no content yet.
-// Clicking activates it (creates a new paragraph block),
-// or inserts at the trailing position.
+// A placeholder shown when the document has no content.
+// In read-only normal mode, shows a hint message.
+// Editing is done via View → Source Code Mode.
 // ============================================
 
 import React from 'react';
 
 interface EmptyBlockProps {
   block: { id: string; type: string; sourceLines: string[] };
-  isActive: boolean;
-  onBlockActivate: (blockId: string) => void;
 }
 
-const EmptyBlock: React.FC<EmptyBlockProps> = ({ block, isActive, onBlockActivate }) => {
+const EmptyBlock: React.FC<EmptyBlockProps> = ({ block }) => {
   const displayText =
-    block.id === '__trailing__' ? '点击添加内容...' : '开始输入...';
+    block.id === '__trailing__'
+      ? '切换到源代码模式 (View → Source Code Mode) 开始编辑'
+      : '切换到源代码模式开始编辑...';
 
   return (
     <div
-      className="empty-block text-base leading-relaxed py-2 px-1 cursor-text rounded
-                 text-[var(--text-muted)] hover:text-[var(--text-secondary)]
-                 hover:bg-[var(--bg-hover)] transition-colors duration-150"
+      className="empty-block text-base leading-relaxed py-2 px-1 rounded
+                 text-[var(--text-muted)]"
       data-block-id={block.id}
-      onClick={() => onBlockActivate(block.id)}
     >
-      {isActive ? '' : displayText}
+      {displayText}
     </div>
   );
 };
