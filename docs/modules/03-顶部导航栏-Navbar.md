@@ -1,12 +1,12 @@
 # 顶部导航栏 (Navbar) 功能总结
 
-> 模块编号：03 | 优先级：P0 | 最后更新：2026-07-24
+> 模块编号：03 | 优先级：P0 | 最后更新：2026-07-25
 
 ---
 
 ## 1. 功能概述
 
-应用主界面的顶部导航栏，包含应用 Logo、账号标签、文件操作菜单、帮助菜单、历史记录菜单、撤销/重做、导出、查找替换 (Ctrl+F)、窗口控制等功能。
+应用主界面的顶部导航栏，包含应用 Logo、账号标签、File/Help/History/View 菜单、撤销/重做、导出、查找替换 (Ctrl+F)、窗口控制等功能。
 
 ## 2. 架构位置
 
@@ -14,16 +14,18 @@
 src/render/components/Navbar/
 ├── TopBar.tsx           # 导航栏主组件（布局 + 快捷键）
 ├── FileMenu.tsx         # 文件菜单（New/Open/Delete/Close）
-├── MoreMenu.tsx         # 更多菜单（Find & Replace / Edit History）
 ├── HelpMenu.tsx         # 帮助菜单（Settings / Version）
-├── WindowControls.tsx   # 窗口控制按钮（Min/Max/Close）
-└── HistoryMenu.tsx      # 历史菜单（文件列表 / Manage Files）
+├── HistoryMenu.tsx      # 历史菜单（文件列表 / Manage Files）
+├── ViewMenu.tsx         # 视图菜单（Source Code Mode 切换）
+├── MoreMenu.tsx         # 更多菜单（Find & Replace / Edit History）
+└── WindowControls.tsx   # 窗口控制按钮（Min/Max/Close）
 src/render/components/Editor/
-└── FindReplaceModal.tsx # 查找与替换弹窗（居中模态框，macOS 三色圆点，双 Tab）
+├── FindReplaceBar.tsx   # 查找与替换 inline bar（Typora 风格，渲染于 EditorView 内）
+└── FindReplaceModal.tsx #（已废弃）旧居中模态框
 src/render/stores/
 ├── authStore.ts         # 用户认证状态
 ├── editorStore.ts       # 编辑器状态（当前文件、撤销/重做）
-├── uiStore.ts           # UI 状态（模态框、历史面板）
+├── uiStore.ts           # UI 状态（isSourceCodeMode, isFindReplaceOpen, 模态框等）
 └── historyStore.ts      # 历史文件列表
 ```
 
@@ -35,7 +37,7 @@ src/render/stores/
 ┌──────────────────────────────────────────────────────────────┐
 │ 左侧区域 (drag-region)                       右侧区域 (no-drag)│
 │                                                              │
-│  📔 WeaveMD  @username  │  File ▼  Help ▼  History ▼        │
+│  📔 WeaveMD  @username  │  File ▼  Help ▼  History ▼  View ▼ │
 │                                                              │
 │                                     ↶ 撤销  ↷ 重做  ⬇ 导出  │
 │                                     ⋮ 更多  _ 最小化  □ 全屏 │
@@ -91,25 +93,29 @@ function getShortcutAction(event: KeyboardEvent): ShortcutAction {
 | 文件列表     | 从 `historyStore.files` 读取当前用户文件列表（升序排列） |
 | Manage Files | `uiStore.toggleHistoryPanel()` → 打开历史面板            |
 
+#### View 菜单
+
+| 菜单项             | 快捷键    | 实现逻辑                                          |
+| ------------------ | --------- | ------------------------------------------------- |
+| Source Code Mode   | `Ctrl+`` ` | `uiStore.toggleSourceCodeMode()` → EditorView 切换 |
+
 #### 更多菜单 (⋮)
 
-| 菜单项         | 优先级 | 说明                              |
-| -------------- | ------ | --------------------------------- |
-| Find & Replace | P0     | `uiStore.openModal('findReplace')` |
-| Edit History   | P1     | `uiStore.toggleHistoryPanel()`    |
+| 菜单项         | 优先级 | 说明                                   |
+| -------------- | ------ | -------------------------------------- |
+| Find & Replace | P0     | `uiStore.toggleFindReplace()` → EditorView 内 FindReplaceBar |
+| Edit History   | P1     | `uiStore.toggleHistoryPanel()`         |
 
-**Find & Replace 弹窗详情：**
+**Find & Replace（Typora 风格 inline bar）：**
 
-点击后在屏幕正中弹出居中模态框 (`FindReplaceModal.tsx`)，搜索 `editorStore.content` 原始文本。采用 macOS 终端风格的标题栏（红/黄/绿三色圆点）。使用纯透明度动画（无 CSS `transform`）避免 IME 候选窗定位问题：
+查找替换不再使用居中模态弹窗，改为 EditorView 内部的内联栏（`FindReplaceBar.tsx`），渲染在编辑器流式布局内。两种编辑器模式（Normal / Source Code）均可用。
 
-- **外观**：居中模态框（520px 宽）+ 半透明遮罩，左上角红色（#ff5f57）/黄色（#febc2e）/绿色（#28c840）三个圆点
-- **动画**：`modal-content-fade-in` — 仅 opacity 变化，无 `transform`，IME 候选窗定位永远正确
-- **搜索行**：查找内容输入框 → 选项切换（Aa 大小写/W 全词/.* 正则）→ ◀▶ 导航按钮 → 匹配计数器（如 "2/10"）
-- **替换行**（切换至"替换"标签显示）：替换内容输入框 → 替换按钮及全部替换按钮
-- **匹配预览**：实时显示当前匹配的行号、列号及上下文（黄色高亮）
-- **搜索引擎**：独立模块 `src/render/services/searchEngine.ts` — 支持大小写敏感、全词匹配、正则搜索及正则验证
-- **键盘快捷键**：`Ctrl+F` 切换打开/关闭（EditorView 注册）；Enter 查找下一处；点击遮罩或按 Esc 关闭
-- **IME 兼容**：输入框采用非受控模式（`defaultValue` + `key` 强制重挂载），`onKeyDown` 以 `nativeEvent.isComposing || keyCode === 229` 守卫 Enter 键
+- **布局**：EditorView 顶部 slide-down 动画栏，不阻断编辑区
+- **引擎**：`src/render/services/searchEngine.ts` — `findAllMatches`、`replaceAll`、`validateRegex`
+- **功能**：查找/替换双 tab、大小写 (Aa)、全词 (W)、正则 (.*)、◀▶ 导航、匹配预览（黄色高亮）、全部替换
+- **打开方式**：`Ctrl+F`（EditorView 快捷键）或 More → Find & Replace
+- **状态**：`uiStore.isFindReplaceOpen` — TopBar 和 EditorView 共享
+- **IME 兼容**：非受控输入 + `isComposing` 守卫；动画仅 opacity（无 transform）
 
 ### 3.4 右侧操作按钮
 
@@ -223,7 +229,7 @@ const files = useHistoryStore((s) => s.files);
 
 | 模块       | 交互方式                                             |
 | ---------- | ---------------------------------------------------- |
-| 编辑器     | 通过 `editorStore` 操作当前文件、撤销/重做；FindReplaceModal 搜索 `editorStore.content` 并调用 `updateContent` 替换 |
+| 编辑器     | `editorStore` 操作文件/撤销/重做；`uiStore.toggleFindReplace()` 切换查找栏；`uiStore.toggleSourceCodeMode()` 切换源码模式 |
 | 认证系统   | 显示当前账号标签；通过 `authStore.user` 获取用户信息 |
 | 设置       | 通过 `uiStore.openModal('settings')` 打开设置        |
 | 窗口控制   | 通过 IPC 调用窗口控制（最小化/最大化/关闭）          |
@@ -235,5 +241,7 @@ const files = useHistoryStore((s) => s.files);
 1. **无边框窗口**：导航栏顶部区域作为窗口拖拽区域，菜单和按钮使用 `no-drag` 排除
 2. **全局快捷键**：在 TopBar 组件中监听键盘事件，实现 `Ctrl+N/O/Z/Y` 快捷键
 3. **自动保存**：关闭窗口时通过 `before-quit` 事件自动保存，无需手动保存按钮
-4. **菜单分层**：File/Help/History 三个主菜单 + 更多菜单 (⋮)，按功能域划分
+4. **菜单分层**：File/Help/History/View 四个主菜单 + 更多菜单 (⋮)，按功能域划分
 5. **账号标签**：导航栏显示当前账号，提供快速切换入口
+6. **View 菜单**：Source Code Mode 切换通过 `uiStore.isSourceCodeMode` 状态共享，EditorView 和 TopBar 均可触发
+7. **Find & Replace inline**：不再使用模态弹窗，改为 EditorView 内联栏（`uiStore.isFindReplaceOpen`），避免 IME 焦点转移问题

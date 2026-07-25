@@ -17,7 +17,7 @@ npm run db:migrate   # Run SQLite migrations
 
 ```
 .claude/             # AI config: CLAUDE.md, AGENTS.md, rules/
-docs/                # Detailed design docs (FRONTEND.md, SECURITY.md, etc.)
+docs/                # Detailed design docs (SUMMARY.md, modules/)
 src/
 ├── main/            # Electron main process
 │   ├── index.ts, window.ts, ipc-handlers.ts
@@ -25,21 +25,23 @@ src/
 ├── render/          # React 18 + TypeScript frontend
 │   ├── components/  # Auth/, Editor/ (below), Navbar/, Settings/, Common/
 │   │   └── Editor/               # Block-based WYSIWYG editor
-│   │       ├── blocks/           # Per-block-type React components
+│   │       ├── blocks/           # Per-block-type React components (read-only)
 │   │       │   ├── HeadingBlock.tsx, ParagraphBlock.tsx, ListItemBlock.tsx
 │   │       │   ├── CodeFenceBlock.tsx, TableBlock.tsx, BlockquoteBlock.tsx
 │   │       │   └── EmptyBlock.tsx
-│   │       ├── ActiveBlockEditor.tsx      # Monaco mini-editor wrapper
-│   │       ├── BlockRenderer.tsx          # Block type dispatcher
-│   │       ├── EditorScrollContainer.tsx  # Document viewport
-│   │       ├── EditorView.tsx             # Main editor orchestrator
-│   │       ├── FindReplaceModal.tsx       # Find & Replace (centered modal, macOS dots)
-│   │       ├── FloatingToolbar.tsx        # Selection toolbar (stub — needs rewrite)
+│   │       ├── ActiveBlockEditor.tsx      # (deprecated) Monaco mini-editor
+│   │       ├── BlockRenderer.tsx          # Block type dispatcher (read-only)
+│   │       ├── EditorScrollContainer.tsx  # Document viewport (forwardRef)
+│   │       ├── EditorView.tsx             # Main orchestrator (dual-mode)
+│   │       ├── FindReplaceBar.tsx         # Typora-style inline Find & Replace
+│   │       ├── FindReplaceModal.tsx       # (deprecated) old centered modal
+│   │       ├── SourceCodeEditor.tsx       # Full Monaco for Source Code Mode
+│   │       ├── Minimap.tsx                # Canvas document minimap (Normal Mode)
 │   │       └── OutlinePanel.tsx, HistoryPanel.tsx
 │   ├── pages/       # AuthPage, MainPage
 │   ├── hooks/       # useAuth, useEditor, useTheme
 │   ├── stores/      # Zustand — auth, editor, ui, history
-│   ├── services/    # api, storage, export, markdown, blockTree*, blockController, inlineDecorator
+│   ├── services/    # api, storage, export, markdown, blockTree*, searchEngine
 │   ├── styles/      # globals.css, tailwind.css
 │   └── utils/       # crypto, validators, helpers
 └── shared/          # types.ts, constants.ts
@@ -60,66 +62,52 @@ public/              # icons, images
 - **Types**: Share via `src/shared/types.ts`; avoid `any`
 - **CSS**: Tailwind utility classes preferred; extract to CSS only for complex animations
 - **No inline styles** — use Tailwind classes or CSS modules
-- **Editor UI constraint**: Any code-fence language selector must be mounted inside the code block header container (no portal/fixed dropdown in the page side area)
 - **Heading typography (Doubao-aligned)**: H1 26/700, H2 22/600, H3 18/600, H4 16/500, Paragraph 14/400
 - **Markdown line parsing**: Heading detection (`#...`) must be shared across import/new/edit/paste via `src/render/services/lineMarkdown.ts`
 
-## Architecture (as of 2026-07-21)
+## Architecture (as of 2026-07-25)
 
-### Block-Based WYSIWYG Editor v2
+### Dual-Mode Editor (v3)
 
-The editor has been reworked to use a block-based architecture inspired by MarkText/Muya:
+The editor has been reworked from "click-to-edit individual blocks" to a dual-mode architecture:
 
-- **Block Tree**: Document model with stable BlockIds (not position-based)
-- **React Block Components**: Each block (heading, paragraph, list, code, table, blockquote) is a React component
-- **Monaco Mini-Editor**: Only the active block embeds a small Monaco editor for editing
-- **Inline WYSIWYG**: Syntax markers hidden via Monaco decorations
-- **Markdown Pipeline**: unified/remark/rehype + Prism.js retained for HTML generation
+- **Normal Mode**: Block tree rendered as **read-only** rich-text React components. No click-to-edit — blocks are display-only. Canvas minimap on the right side shows document overview with viewport indicator and click-to-scroll.
+- **Source Code Mode**: Full-screen Monaco editor (`SourceCodeEditor.tsx`) for raw markdown editing. Toggle via View menu (`Ctrl+``) or `ViewMenu` dropdown in the navbar. Has built-in Monaco minimap.
+- **Find & Replace**: Typora-style inline bar (`FindReplaceBar.tsx`) rendered inside EditorView. Works in both modes. Toggle via `Ctrl+F` or More menu → Find & Replace. State managed via `uiStore.isFindReplaceOpen`.
 
 **Key files:**
 
-- `src/render/services/blockTree.ts` — Core data structures
+- `src/render/services/blockTree.ts` — Core data structures (BlockTree, BlockNode, BlockId)
 - `src/render/services/blockTreeBuilder.ts` — Markdown → block tree parser
 - `src/render/services/blockTreeSerializer.ts` — Block tree → markdown serializer
-- `src/render/services/blockController.ts` — Block navigation/split/merge
-- `src/render/services/inlineDecorator.ts` — Inline WYSIWYG decorations
-- `src/render/services/lineMarkdown.ts` — Shared line-level markdown helpers (e.g. heading detection)
-- `src/render/components/Editor/blocks/` — 7 block type components
-- `src/render/components/Editor/ActiveBlockEditor.tsx` — Monaco mini-editor wrapper
-- `src/render/components/Editor/EditorScrollContainer.tsx` — Document viewport
+- `src/render/services/searchEngine.ts` — Find/replace engine (findAllMatches, replaceAll, validateRegex)
+- `src/render/components/Editor/EditorView.tsx` — Dual-mode orchestrator
+- `src/render/components/Editor/SourceCodeEditor.tsx` — Full Monaco editor (Source Code Mode)
+- `src/render/components/Editor/FindReplaceBar.tsx` — Inline Find & Replace (Typora-style)
+- `src/render/components/Editor/Minimap.tsx` — Canvas document minimap (Normal Mode)
+- `src/render/components/Editor/EditorScrollContainer.tsx` — Scroll viewport for blocks
+- `src/render/components/Editor/blocks/` — 7 read-only block components
+- `src/render/components/Navbar/ViewMenu.tsx` — View dropdown (Source Code Mode toggle)
+- `src/render/stores/uiStore.ts` — `isSourceCodeMode`, `isFindReplaceOpen` + toggles
+
+### Design Decisions
+
+| Aspect | Decision |
+|--------|----------|
+| Block editing | Removed click-to-edit; use Source Code Mode for all editing |
+| Source Code toggle | `uiStore.isSourceCodeMode` → shared between TopBar and EditorView |
+| Find & Replace toggle | `uiStore.isFindReplaceOpen` → inline bar, not modal |
+| Block components | Read-only display only; `renderedHtml` via `dangerouslySetInnerHTML` |
+| Code fence language | Display-only span badge; no `<select>` dropdown |
+| Monaco themes | Defined in EditorView useEffect (`weaveMD-dark`, `weaveMD-light`) |
+| New file naming | `untitled-{timestamp36}.md` |
 
 ### Resolved Issues (from old ContentWidget system)
 
-| Issue                                    | Resolution                                                                                                              |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Text horizontal overflow                 | Eliminated — blocks are React components in normal DOM flow                                                             |
-| Heading overlap with body text           | Eliminated — each block has independent layout                                                                          |
-| Red box artifacts                        | Eliminated — no ContentWidget overlays                                                                                  |
-| Code block widget disappearing on scroll | Eliminated — blocks use native scroll                                                                                   |
-| Code block plain-text styling            | Improved — light “terminal window” style + language dropdown selector in header; `Plain Text` normalized to `plaintext` |
-
-### FindReplaceModal — Centered Modal with macOS Traffic-Light Dots (2026-07-24)
-
-The FindReplaceModal is a centered modal with macOS-style title bar dots (red/yellow/green) and a semi-transparent overlay. Uses opacity-only animation (`modal-content-fade-in`) to avoid the CSS `transform` containing-block issue that breaks IME candidate window positioning.
-
-| Aspect               | Current Design                                                                                                               |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| **Position**         | Centered modal (520px wide, 80vh max height) with semi-transparent overlay                                                   |
-| **macOS dots**       | Red (#ff5f57), yellow (#febc2e), green (#28c40) circles at top-left corner of title bar                                     |
-| **Search options**   | Case sensitivity (Aa), whole word (W), regex (.*) — toggle icons in the search row                                           |
-| **Search engine**    | `src/render/services/searchEngine.ts` — standalone module with `findAllMatches`, `validateRegex`, `replaceAll`               |
-| **Regex support**    | Full regex mode with validation; error message displayed below search input when pattern is invalid                          |
-| **Debounce**         | 150ms debounce on search text (immediate for option changes)                                                                 |
-| **Match navigation** | ◀ (previous) ▶ (next) buttons; Enter for next                                                                               |
-| **Match preview**    | Inline context preview with yellow highlight — shows line/column and surrounding text                                         |
-| **IME safety**       | Uncontrolled inputs (`defaultValue`+`key` re-mount) — React never overwrites DOM `input.value` during IME composition        |
-| **IME Enter guard**  | `onKeyDown` guards with `e.nativeEvent.isComposing \|\| e.keyCode === 229`                                                   |
-| **Close**            | Escape key, ✕ button, or click overlay                                                                                       |
-| **Keyboard shortcut**| `Ctrl+F` toggles open/close (handled in EditorView)                                                                           |
-| **Animation**        | `modal-content-fade-in` — opacity-only (no `transform`), so IME coordinate calculation is never broken                       |
-
-**Key files:**
-- `src/render/services/searchEngine.ts` — Search engine (findAllMatches, replaceAll, validateRegex)
-- `src/render/components/Editor/FindReplaceModal.tsx` — Centered modal UI component
-- `src/render/components/Editor/EditorView.tsx` — Ctrl+F shortcut handler
-- `src/render/styles/globals.css` — `modal-content-fade-in` animation (opacity-only)
+| Issue | Resolution |
+|-------|------------|
+| Text horizontal overflow | Eliminated — blocks are React components in normal DOM flow |
+| Heading overlap with body text | Eliminated — each block has independent layout |
+| Red box artifacts | Eliminated — no ContentWidget overlays |
+| Code block widget disappearing on scroll | Eliminated — blocks use native scroll |
+| IME candidate window positioning | Eliminated — no DOM mount/unmount during find/replace (inline bar) |
