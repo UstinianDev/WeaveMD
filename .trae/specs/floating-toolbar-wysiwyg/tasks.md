@@ -1,9 +1,10 @@
 # WeaveMD - 浮动工具栏 WYSIWYG 实现计划
 
-## [ ] Task 1: 创建 WYSIWYG 浮动工具栏组件
+## [/] Task 1: 创建 WYSIWYG 浮动工具栏组件
+
 - **Priority**: high
 - **Depends On**: None
-- **Description**: 
+- **Description**:
   - 创建新的 FloatingToolbarWYSIWYG 组件，支持非源码模式下的文本选择检测
   - 实现选择检测逻辑，判断是否跨多个块
   - 实现工具栏定位逻辑
@@ -15,9 +16,10 @@
 - **Notes**: 需要监听 document 的 selectionchange 事件
 
 ## [ ] Task 2: 实现结构转换功能
+
 - **Priority**: high
 - **Depends On**: Task 1
-- **Description**: 
+- **Description**:
   - 在浮动工具栏中添加结构下拉菜单
   - 实现段落类型转换逻辑（正文↔标题↔列表↔代码块↔引用）
   - 调用 blockTree 的 updateBlockType 函数
@@ -28,9 +30,10 @@
 - **Notes**: 需要确认 blockTree 是否有 updateBlockType 函数，如果没有需要添加
 
 ## [ ] Task 3: 实现文本格式化功能
+
 - **Priority**: high
 - **Depends On**: Task 1
-- **Description**: 
+- **Description**:
   - 实现粗体、斜体、下划线、高亮、代码格式化
   - 在选中的文本前后添加相应的 Markdown 语法
   - 支持 toggle（如果已格式化则移除格式）
@@ -41,9 +44,10 @@
 - **Notes**: 需要在段落的 sourceLines 中修改文本
 
 ## [ ] Task 4: 实现超链接功能
+
 - **Priority**: medium
 - **Depends On**: Task 1
-- **Description**: 
+- **Description**:
   - 实现添加超链接功能
   - 将选中的文本转换为 [text](url) 格式
   - 选中 url 部分便于编辑
@@ -54,9 +58,10 @@
 - **Notes**: 需要处理光标位置
 
 ## [ ] Task 5: 实现评论功能
+
 - **Priority**: medium
 - **Depends On**: Task 1
-- **Description**: 
+- **Description**:
   - 实现评论功能，使用 Markdown 脚注或引用语法
   - 在选中位置插入评论标记
 - **Acceptance Criteria Addressed**: AC-7
@@ -65,9 +70,10 @@
 - **Notes**: 需要确定评论的具体语法格式
 
 ## [ ] Task 6: 实现 MD 源码显示功能
+
 - **Priority**: medium
 - **Depends On**: Task 1
-- **Description**: 
+- **Description**:
   - 实现 MD 源码显示功能
   - 点击按钮后显示当前段落的 Markdown 源码
   - 点击其他位置恢复富文本格式
@@ -78,9 +84,10 @@
 - **Notes**: 需要使用现有的 mdSourceBlockId 机制
 
 ## [ ] Task 7: 在 EditorView 中集成浮动工具栏
+
 - **Priority**: high
 - **Depends On**: Task 1-6
-- **Description**: 
+- **Description**:
   - 在 EditorView 中渲染 FloatingToolbarWYSIWYG 组件
   - 传递必要的 props（blockTree, content, updateContent 等）
 - **Acceptance Criteria Addressed**: AC-1, AC-2, AC-9
@@ -90,9 +97,10 @@
 - **Notes**: 需要确保在源码模式下不渲染
 
 ## [ ] Task 8: 更新文档
+
 - **Priority**: low
 - **Depends On**: Task 7
-- **Description**: 
+- **Description**:
   - 更新 .claude/CLAUDE.md 中的架构说明
   - 更新 docs/modules/04-编辑主区-Editor.md 中的功能说明
 - **Acceptance Criteria Addressed**: 文档更新

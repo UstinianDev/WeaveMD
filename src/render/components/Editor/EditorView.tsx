@@ -36,6 +36,7 @@ import { useUIStore } from '../../stores/uiStore';
 import '../../utils/monacoSetup';
 import EditorScrollContainer from './EditorScrollContainer';
 import FindReplaceBar from './FindReplaceBar';
+import FloatingToolbarWYSIWYG from './FloatingToolbarWYSIWYG';
 import SourceCodeEditor from './SourceCodeEditor';
 
 // ============================================
@@ -358,6 +359,22 @@ const EditorView: React.FC<EditorViewProps> = ({
     [pushUndo, syncTreeToStore]
   );
 
+  const handleBlockTypeChange = useCallback(
+    (id: BlockId, _newType: string) => {
+      setBlockTree((prev) => {
+        pushUndo(serializeBlockTree(prev));
+        const next = updateBlockSource(prev, id, []);
+        syncTreeToStore(next);
+        return next;
+      });
+    },
+    [pushUndo, syncTreeToStore]
+  );
+
+  const handleShowMdSource = useCallback((blockId: BlockId) => {
+    useUIStore.getState().setMdSourceBlockId(blockId);
+  }, []);
+
   // ============================================
   // Source Code Editor Content Change Handler
   // ============================================
@@ -539,13 +556,23 @@ const EditorView: React.FC<EditorViewProps> = ({
           />
         ) : (
           /* Normal Mode: Editable rendered rich-text blocks */
-          <EditorScrollContainer
-            blockTree={blockTree}
-            onFenceLanguageChange={handleFenceLanguageChange}
-            onBlockContentChange={handleBlockContentChange}
-            onBlockEnter={handleBlockEnter}
-            onBlockDelete={handleBlockDelete}
-          />
+          <>
+            <EditorScrollContainer
+              blockTree={blockTree}
+              onFenceLanguageChange={handleFenceLanguageChange}
+              onBlockContentChange={handleBlockContentChange}
+              onBlockEnter={handleBlockEnter}
+              onBlockDelete={handleBlockDelete}
+            />
+            <FloatingToolbarWYSIWYG
+              blockTree={blockTree}
+              content={content}
+              onContentChange={setContent}
+              onBlockTypeChange={handleBlockTypeChange}
+              onShowMdSource={handleShowMdSource}
+              isSourceCodeMode={isSourceCodeMode}
+            />
+          </>
         )}
       </div>
     </div>
