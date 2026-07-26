@@ -4,13 +4,12 @@
 // Main document viewport that renders all blocks
 // as React components in a normal scrollable div.
 //
-// Blocks are read-only. Editing is done via
-// Source Code Mode (View → Source Code Mode).
+// Blocks are editable in Normal Mode via contentEditable.
 // ============================================
 
 import React from 'react';
 
-import type { BlockNode, BlockId, BlockTree } from '../../services/blockTree';
+import type { BlockId, BlockNode, BlockTree } from '../../services/blockTree';
 import { getAllBlocksInOrder } from '../../services/blockTree';
 
 import BlockRenderer from './BlockRenderer';
@@ -20,6 +19,10 @@ interface EditorScrollContainerProps {
   blockTree: BlockTree;
   /** Code fence language changed via dropdown */
   onFenceLanguageChange: (blockId: BlockId, language: string) => void;
+  /** Block content changed via contentEditable */
+  onBlockContentChange: (blockId: BlockId, newContent: string) => void;
+  /** Called when Enter is pressed in a block */
+  onBlockEnter: (blockId: BlockId) => void;
 }
 
 const emptyBlockPlaceholder: BlockNode = {
@@ -34,6 +37,8 @@ const emptyBlockPlaceholder: BlockNode = {
 const EditorScrollContainer: React.FC<EditorScrollContainerProps> = ({
   blockTree,
   onFenceLanguageChange,
+  onBlockContentChange,
+  onBlockEnter,
 }) => {
   const blocks = getAllBlocksInOrder(blockTree);
 
@@ -50,13 +55,15 @@ const EditorScrollContainer: React.FC<EditorScrollContainerProps> = ({
         }}
       >
         {blocks.length === 0 ? (
-          <EmptyBlock block={emptyBlockPlaceholder} />
+          <EmptyBlock block={emptyBlockPlaceholder} onContentChange={onBlockContentChange} />
         ) : (
           blocks.map((block) => (
             <div key={block.id}>
               <BlockRenderer
                 block={block}
                 onFenceLanguageChange={onFenceLanguageChange}
+                onBlockContentChange={onBlockContentChange}
+                onBlockEnter={onBlockEnter}
               />
             </div>
           ))

@@ -1,16 +1,17 @@
 // ============================================
 // WeaveMD — Heading Block Component
 // ============================================
-// Renders heading blocks (H1-H6) in read-only WYSIWYG mode.
-// Shows rendered HTML in the appropriate heading tag.
-// Editing is done via View → Source Code Mode.
+// Renders heading blocks (H1-H6) in editable WYSIWYG mode.
+// Shows rendered HTML in the appropriate heading tag with contentEditable.
 // ============================================
 
-import React from 'react';
-import type { BlockNode } from '../../../services/blockTree';
+import React, { useCallback } from 'react';
+import type { BlockId, BlockNode } from '../../../services/blockTree';
 
 interface HeadingBlockProps {
   block: BlockNode;
+  onContentChange?: (blockId: BlockId, newContent: string) => void;
+  onEnter?: (blockId: BlockId) => void;
 }
 
 const HEADING_TAG_MAP: Record<number, keyof JSX.IntrinsicElements> = {
@@ -31,17 +32,44 @@ const HEADING_CLASSES: Record<number, string> = {
   6: 'text-[14px] font-[500] leading-[1.5] mt-[8px] mb-[4px]',
 };
 
-const HeadingBlock: React.FC<HeadingBlockProps> = ({ block }) => {
+const HeadingBlock: React.FC<HeadingBlockProps> = ({ block, onContentChange, onEnter }) => {
   const level = block.headingLevel ?? 1;
   const Tag = HEADING_TAG_MAP[level] || 'h1';
   const className = `heading-block ${HEADING_CLASSES[level] || HEADING_CLASSES[1]}`;
+  const textContent = block.sourceLines.join('\n').replace(/^#{1,6}\s+/, '');
+
+  const handleBlur = useCallback(
+    (e: React.FocusEvent<HTMLElement>) => {
+      const newContent = e.currentTarget.innerText.trim();
+      if (newContent !== textContent.trim()) {
+        onContentChange?.(block.id, newContent);
+      }
+    },
+    [block.id, textContent, onContentChange]
+  );
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLElement>) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        onEnter?.(block.id);
+      }
+    },
+    [block.id, onEnter]
+  );
 
   return React.createElement(Tag, {
     className,
     'data-block-id': block.id,
-    ...(block.renderedHtml
-      ? { dangerouslySetInnerHTML: { __html: block.renderedHtml } }
-      : { children: block.sourceLines.join('\n').replace(/^#{1,6}\s+/, '') }),
+    contentEditable: true,
+    suppressContentEditableWarning: true,
+    onBlur: handleBlur,
+    onKeyDown: handleKeyDown,
+    children: block.renderedHtml ? (
+      <span dangerouslySetInnerHTML={{ __html: block.renderedHtml }} />
+    ) : (
+      textContent
+    ),
   });
 };
 
