@@ -15,7 +15,12 @@ interface ParagraphBlockProps {
   onDelete?: (blockId: BlockId) => void;
 }
 
-const ParagraphBlock: React.FC<ParagraphBlockProps> = ({ block, onContentChange, onEnter, onDelete }) => {
+const ParagraphBlock: React.FC<ParagraphBlockProps> = ({
+  block,
+  onContentChange,
+  onEnter,
+  onDelete,
+}) => {
   const handleBlur = useCallback(
     (e: React.FocusEvent<HTMLParagraphElement>) => {
       const newContent = e.currentTarget.innerText.trim();
@@ -39,7 +44,7 @@ const ParagraphBlock: React.FC<ParagraphBlockProps> = ({ block, onContentChange,
         if (selection) {
           const range = selection.getRangeAt(0);
           const content = e.currentTarget.innerText.trim();
-          
+
           if (content === '' && range.startOffset === 0 && range.endOffset === 0) {
             e.preventDefault();
             onDelete?.(block.id);
@@ -55,8 +60,6 @@ const ParagraphBlock: React.FC<ParagraphBlockProps> = ({ block, onContentChange,
       id={`block-${block.id}`}
       className="paragraph-block text-[14px] font-normal leading-[1.65] mb-1 text-[var(--text-primary)]"
       data-block-id={block.id}
-      contentEditable
-      suppressContentEditableWarning={true}
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}
     >

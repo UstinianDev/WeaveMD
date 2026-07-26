@@ -7,7 +7,7 @@
 // Blocks are editable in Normal Mode via contentEditable.
 // ============================================
 
-import React from 'react';
+import React, { useCallback } from 'react';
 
 import type { BlockId, BlockNode, BlockTree } from '../../services/blockTree';
 import { getAllBlocksInOrder } from '../../services/blockTree';
@@ -36,6 +36,13 @@ const emptyBlockPlaceholder: BlockNode = {
   renderedHtml: null,
 };
 
+const getBlockIdFromEventTarget = (target: EventTarget | null): BlockId | null => {
+  if (!target) return null;
+  const el = target as HTMLElement;
+  const blockEl = el.closest('[data-block-id]');
+  return blockEl ? (blockEl.getAttribute('data-block-id') as BlockId) : null;
+};
+
 const EditorScrollContainer: React.FC<EditorScrollContainerProps> = ({
   blockTree,
   onFenceLanguageChange,
@@ -45,6 +52,58 @@ const EditorScrollContainer: React.FC<EditorScrollContainerProps> = ({
 }) => {
   const blocks = getAllBlocksInOrder(blockTree);
 
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      const blockId = getBlockIdFromEventTarget(e.target);
+      if (!blockId) return;
+
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        onBlockEnter(blockId);
+        return;
+      }
+
+      if (e.key === 'Backspace') {
+        const selection = window.getSelection();
+        if (selection) {
+          const range = selection.getRangeAt(0);
+          const blockEl = document.querySelector(`[data-block-id="${blockId}"]`);
+          if (blockEl) {
+            const content = blockEl.textContent?.trim() ?? '';
+            if (content === '' && range.startOffset === 0 && range.endOffset === 0) {
+              e.preventDefault();
+              onBlockDelete(blockId);
+            }
+          }
+        }
+      }
+    },
+    [onBlockEnter, onBlockDelete]
+  );
+
+  const handleBlur = useCallback(
+    (e: React.FocusEvent<HTMLDivElement>) => {
+      const blockId = getBlockIdFromEventTarget(e.target);
+      if (!blockId) return;
+
+      const blockEl = document.querySelector(`[data-block-id="${blockId}"]`);
+      if (blockEl) {
+        const block = blockTree.blocks[blockId];
+        if (block) {
+          const oldContent =
+            block.type === 'heading'
+              ? block.sourceLines.join('\n').replace(/^#{1,6}\s+/, '')
+              : block.sourceLines.join(' ');
+          const newContent = blockEl.textContent?.trim() ?? '';
+          if (newContent !== oldContent.trim()) {
+            onBlockContentChange(blockId, newContent);
+          }
+        }
+      }
+    },
+    [blockTree, onBlockContentChange]
+  );
+
   return (
     <div
       className="editor-scroll-container h-full overflow-y-auto overflow-x-hidden"
@@ -52,10 +111,15 @@ const EditorScrollContainer: React.FC<EditorScrollContainerProps> = ({
     >
       <div
         className="editor-content-area mx-auto"
+        contentEditable
+        suppressContentEditableWarning={true}
         style={{
           maxWidth: '860px',
           padding: '0 40px',
+          outline: 'none',
         }}
+        onKeyDown={handleKeyDown}
+        onBlur={handleBlur}
       >
         {blocks.length === 0 ? (
           <EmptyBlock block={emptyBlockPlaceholder} onContentChange={onBlockContentChange} />

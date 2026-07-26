@@ -61,7 +61,13 @@ const BlockRenderer: React.FC<BlockRendererProps> = ({
     case 'task-list-item':
       return <ListItemBlock block={block} />;
     case 'code-fence':
-      return <CodeFenceBlock block={block} onFenceLanguageChange={onFenceLanguageChange} />;
+      return (
+        <CodeFenceBlock
+          block={block}
+          onFenceLanguageChange={onFenceLanguageChange}
+          onContentChange={onBlockContentChange}
+        />
+      );
     case 'table':
       return <TableBlock block={block} />;
     case 'blockquote':
