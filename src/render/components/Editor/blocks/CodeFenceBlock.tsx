@@ -6,8 +6,8 @@
 // Editing is done via View → Source Code Mode.
 // ============================================
 
-import React from 'react';
-import type { BlockNode } from '../../../services/blockTree';
+import React, { useCallback, useState } from 'react';
+import type { BlockId, BlockNode } from '../../../services/blockTree';
 
 const LANGUAGE_OPTIONS = [
   { value: 'plaintext', label: 'Plain Text' },
@@ -68,15 +68,34 @@ function normalizeFenceLanguageForSelect(language?: string): string {
 interface CodeFenceBlockProps {
   block: BlockNode;
   onFenceLanguageChange?: (blockId: string, language: string) => void;
+  onContentChange?: (blockId: BlockId, newContent: string) => void;
 }
 
-const CodeFenceBlock: React.FC<CodeFenceBlockProps> = ({ block, onFenceLanguageChange }) => {
+const CodeFenceBlock: React.FC<CodeFenceBlockProps> = ({
+  block,
+  onFenceLanguageChange,
+  onContentChange,
+}) => {
   const selectedLanguage = normalizeFenceLanguageForSelect(block.fenceLanguage);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState(block.sourceLines.slice(1, -1).join('\n'));
+
+  const handleBlur = useCallback(() => {
+    if (editContent !== block.sourceLines.slice(1, -1).join('\n')) {
+      onContentChange?.(block.id, editContent);
+    }
+    setIsEditing(false);
+  }, [block.id, block.sourceLines, editContent, onContentChange]);
+
+  const handleDoubleClick = useCallback(() => {
+    setIsEditing(true);
+  }, []);
 
   return (
     <div
       className="code-fence-block code-fence-block--inactive relative mb-4 overflow-hidden"
       data-block-id={block.id}
+      onDoubleClick={handleDoubleClick}
     >
       <div className="code-fence-header">
         <div className="code-fence-window-controls" aria-hidden="true">
@@ -104,15 +123,30 @@ const CodeFenceBlock: React.FC<CodeFenceBlockProps> = ({ block, onFenceLanguageC
           ))}
         </select>
       </div>
-      {block.renderedHtml ? (
+      {isEditing ? (
+        <textarea
+          className="code-fence-edit w-full p-4 overflow-x-auto m-0
+                     text-sm font-mono leading-relaxed resize-none
+                     bg-[var(--bg-code,#1e1e2e)] text-[var(--text-code,#cdd6f4)]
+                     border-none outline-none"
+          value={editContent}
+          onChange={(e) => setEditContent(e.target.value)}
+          onBlur={handleBlur}
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          autoFocus
+        />
+      ) : block.renderedHtml ? (
         <div
           className="code-fence-content overflow-x-auto"
           dangerouslySetInnerHTML={{ __html: block.renderedHtml }}
         />
       ) : (
-        <pre className="code-fence-fallback p-4 overflow-x-auto m-0
+        <pre
+          className="code-fence-fallback p-4 overflow-x-auto m-0
                         text-sm font-mono leading-relaxed
-                        text-[var(--text-code,#cdd6f4)]">
+                        text-[var(--text-code,#cdd6f4)]"
+        >
           <code>{block.sourceLines.slice(1, -1).join('\n')}</code>
         </pre>
       )}

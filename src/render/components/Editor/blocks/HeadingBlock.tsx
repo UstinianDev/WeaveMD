@@ -33,7 +33,12 @@ const HEADING_CLASSES: Record<number, string> = {
   6: 'text-[14px] font-[500] leading-[1.5] mt-[8px] mb-[4px]',
 };
 
-const HeadingBlock: React.FC<HeadingBlockProps> = ({ block, onContentChange, onEnter, onDelete }) => {
+const HeadingBlock: React.FC<HeadingBlockProps> = ({
+  block,
+  onContentChange,
+  onEnter,
+  onDelete,
+}) => {
   const level = block.headingLevel ?? 1;
   const Tag = HEADING_TAG_MAP[level] || 'h1';
   const className = `heading-block ${HEADING_CLASSES[level] || HEADING_CLASSES[1]}`;
@@ -62,7 +67,7 @@ const HeadingBlock: React.FC<HeadingBlockProps> = ({ block, onContentChange, onE
         if (selection) {
           const range = selection.getRangeAt(0);
           const content = e.currentTarget.innerText.trim();
-          
+
           if (content === '' && range.startOffset === 0 && range.endOffset === 0) {
             e.preventDefault();
             onDelete?.(block.id);
@@ -77,8 +82,6 @@ const HeadingBlock: React.FC<HeadingBlockProps> = ({ block, onContentChange, onE
     id: `block-${block.id}`,
     className,
     'data-block-id': block.id,
-    contentEditable: true,
-    suppressContentEditableWarning: true,
     onBlur: handleBlur,
     onKeyDown: handleKeyDown,
     children: block.renderedHtml ? (

@@ -71,12 +71,15 @@ public/              # icons, images
 
 The editor supports WYSIWYG editing in Normal Mode:
 
-- **Normal Mode**: Block tree rendered as **editable** rich-text React components via `contentEditable`. Users can:
+- **Normal Mode**: Block tree rendered as **editable** rich-text React components via `contentEditable` on parent container. Users can:
   - Click and edit paragraph/heading content directly
   - Press Enter to create new paragraphs
   - Press Backspace in empty paragraphs to delete them
   - Use Ctrl+Z/Ctrl+Y to undo/redo all operations
   - Canvas minimap shows document overview with viewport indicator
+  - Floating toolbar appears when text is selected (formatting, structure conversion)
+  - Cross-block text selection enabled via parent container contentEditable
+  - Code blocks editable via double-click
 - **Source Code Mode**: Full-screen Monaco editor (`SourceCodeEditor.tsx`) for raw markdown editing. Toggle via `Ctrl+\`` or View menu.
 - **Find & Replace**: Typora-style inline bar (`FindReplaceBar.tsx`). Works in both modes. Toggle via `Ctrl+F`.
 
@@ -86,27 +89,30 @@ The editor supports WYSIWYG editing in Normal Mode:
 - `src/render/services/blockTreeBuilder.ts` — Markdown → block tree parser
 - `src/render/services/blockTreeSerializer.ts` — Block tree → markdown serializer
 - `src/render/components/Editor/EditorView.tsx` — Dual-mode orchestrator with WYSIWYG handlers
-- `src/render/components/Editor/blocks/` — Editable block components (ParagraphBlock, HeadingBlock)
+- `src/render/components/Editor/FloatingToolbarWYSIWYG.tsx` — Floating toolbar for text formatting
+- `src/render/components/Editor/blocks/` — Editable block components (ParagraphBlock, HeadingBlock, CodeFenceBlock)
 - `src/render/stores/editorStore.ts` — Content state with undo/redo stack
 
 ### Design Decisions
 
-| Aspect | Decision |
-|--------|----------|
-| Block editing | WYSIWYG via `contentEditable` for paragraphs and headings |
-| Source Code toggle | `uiStore.isSourceCodeMode` → shared between TopBar and EditorView |
-| Find & Replace toggle | `uiStore.isFindReplaceOpen` → inline bar, not modal |
-| Undo/Redo | Store-based history stack; paragraph ops manually push to undoStack |
-| Code fence language | Display-only span badge; no `<select>` dropdown |
-| Monaco themes | Defined in EditorView useEffect (`weaveMD-dark`, `weaveMD-light`) |
-| New file naming | `untitled-{timestamp36}.md` |
+| Aspect                | Decision                                                            |
+| --------------------- | ------------------------------------------------------------------- |
+| Block editing         | WYSIWYG via `contentEditable` on parent container                   |
+| Source Code toggle    | `uiStore.isSourceCodeMode` → shared between TopBar and EditorView   |
+| Find & Replace toggle | `uiStore.isFindReplaceOpen` → inline bar, not modal                 |
+| Undo/Redo             | Store-based history stack; paragraph ops manually push to undoStack |
+| Code fence language   | `<select>` dropdown for language selection                          |
+| Code block editing    | Double-click to enter edit mode with textarea                       |
+| Floating toolbar      | Appears on text selection; hides when selection collapsed           |
+| Monaco themes         | Defined in EditorView useEffect (`weaveMD-dark`, `weaveMD-light`)   |
+| New file naming       | `untitled-{timestamp36}.md`                                         |
 
 ### Resolved Issues (from old ContentWidget system)
 
-| Issue | Resolution |
-|-------|------------|
-| Text horizontal overflow | Eliminated — blocks are React components in normal DOM flow |
-| Heading overlap with body text | Eliminated — each block has independent layout |
-| Red box artifacts | Eliminated — no ContentWidget overlays |
-| Code block widget disappearing on scroll | Eliminated — blocks use native scroll |
-| IME candidate window positioning | Eliminated — no DOM mount/unmount during find/replace (inline bar) |
+| Issue                                    | Resolution                                                         |
+| ---------------------------------------- | ------------------------------------------------------------------ |
+| Text horizontal overflow                 | Eliminated — blocks are React components in normal DOM flow        |
+| Heading overlap with body text           | Eliminated — each block has independent layout                     |
+| Red box artifacts                        | Eliminated — no ContentWidget overlays                             |
+| Code block widget disappearing on scroll | Eliminated — blocks use native scroll                              |
+| IME candidate window positioning         | Eliminated — no DOM mount/unmount during find/replace (inline bar) |
