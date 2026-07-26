@@ -4,8 +4,7 @@
 // Routes a BlockNode to the correct component based
 // on its `type` field.
 //
-// Blocks are read-only in Normal Mode. Editing is
-// done via Source Code Mode (View → Source Code Mode).
+// Blocks are editable in Normal Mode via contentEditable.
 // ============================================
 
 import React from 'react';
@@ -23,17 +22,23 @@ interface BlockRendererProps {
   block: BlockNode;
   /** Called when the code fence language is changed via dropdown */
   onFenceLanguageChange?: (blockId: BlockId, language: string) => void;
+  /** Called when block content is edited via contentEditable */
+  onBlockContentChange?: (blockId: BlockId, newContent: string) => void;
+  /** Called when Enter is pressed in a block */
+  onBlockEnter?: (blockId: BlockId) => void;
 }
 
 const BlockRenderer: React.FC<BlockRendererProps> = ({
   block,
   onFenceLanguageChange,
+  onBlockContentChange,
+  onBlockEnter,
 }) => {
   switch (block.type) {
     case 'heading':
-      return <HeadingBlock block={block} />;
+      return <HeadingBlock block={block} onContentChange={onBlockContentChange} onEnter={onBlockEnter} />;
     case 'paragraph':
-      return <ParagraphBlock block={block} />;
+      return <ParagraphBlock block={block} onContentChange={onBlockContentChange} onEnter={onBlockEnter} />;
     case 'unordered-list-item':
     case 'ordered-list-item':
     case 'task-list-item':
@@ -45,7 +50,7 @@ const BlockRenderer: React.FC<BlockRendererProps> = ({
     case 'blockquote':
       return <BlockquoteBlock block={block} />;
     default:
-      return <ParagraphBlock block={block} />;
+      return <ParagraphBlock block={block} onContentChange={onBlockContentChange} onEnter={onBlockEnter} />;
   }
 };
 

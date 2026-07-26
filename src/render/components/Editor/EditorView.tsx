@@ -14,11 +14,18 @@
 // or Ctrl+` keyboard shortcut.
 // ============================================
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { editor } from 'monaco-editor';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { BlockTree, BlockId } from '../../services/blockTree';
-import { getAllBlocksInOrder, setBlockRenderedHtml, setFenceLanguage } from '../../services/blockTree';
+import type { BlockId, BlockTree } from '../../services/blockTree';
+import {
+  generateBlockId,
+  getAllBlocksInOrder,
+  insertBlockAfter,
+  setBlockRenderedHtml,
+  setFenceLanguage,
+  updateBlockSource,
+} from '../../services/blockTree';
 import { buildBlockTree } from '../../services/blockTreeBuilder';
 import { serializeBlockTree } from '../../services/blockTreeSerializer';
 import { renderMarkdownToHtml } from '../../services/markdown';
@@ -252,7 +259,7 @@ const EditorView: React.FC<EditorViewProps> = ({
       isUpdatingFromExternalRef.current = true;
       setContent(serializeBlockTree(tree));
     },
-    [setContent],
+    [setContent]
   );
 
   // ============================================
@@ -267,7 +274,51 @@ const EditorView: React.FC<EditorViewProps> = ({
         return next;
       });
     },
-    [syncTreeToStore],
+    [syncTreeToStore]
+  );
+
+  // ============================================
+  // Block Content Change Handler (WYSIWYG editing)
+  // ============================================
+
+  const handleBlockContentChange = useCallback(
+    (id: BlockId, newContent: string) => {
+      setBlockTree((prev) => {
+        const block = prev.blocks[id];
+        if (!block) return prev;
+
+        const prefix = block.type === 'heading' ? '#'.repeat(block.headingLevel ?? 1) + ' ' : '';
+        const newSourceLines = [`${prefix}${newContent}`];
+        const next = updateBlockSource(prev, id, newSourceLines);
+        syncTreeToStore(next);
+        return next;
+      });
+    },
+    [syncTreeToStore]
+  );
+
+  // ============================================
+  // Block Enter Handler (Create new paragraph)
+  // ============================================
+
+  const handleBlockEnter = useCallback(
+    (id: BlockId) => {
+      setBlockTree((prev) => {
+        const newBlockId = generateBlockId(prev);
+        const newBlock = {
+          id: newBlockId,
+          type: 'paragraph' as const,
+          sourceLines: [''],
+          parentId: null,
+          childrenIds: [],
+          renderedHtml: null,
+        };
+        const next = insertBlockAfter(prev, id, newBlock);
+        syncTreeToStore(next);
+        return next;
+      });
+    },
+    [syncTreeToStore]
   );
 
   // ============================================
@@ -279,7 +330,7 @@ const EditorView: React.FC<EditorViewProps> = ({
       isUpdatingFromExternalRef.current = true;
       setContent(newContent);
     },
-    [setContent],
+    [setContent]
   );
 
   // ============================================
@@ -291,7 +342,7 @@ const EditorView: React.FC<EditorViewProps> = ({
       isUpdatingFromExternalRef.current = true;
       setContent(newContent);
     },
-    [setContent],
+    [setContent]
   );
 
   // ============================================
@@ -445,13 +496,17 @@ const EditorView: React.FC<EditorViewProps> = ({
           <SourceCodeEditor
             content={content}
             onContentChange={handleSourceContentChange}
-            onEditorRef={(ed) => { sourceEditorRef.current = ed; }}
+            onEditorRef={(ed) => {
+              sourceEditorRef.current = ed;
+            }}
           />
         ) : (
-          /* Normal Mode: Read-only rendered rich-text blocks */
+          /* Normal Mode: Editable rendered rich-text blocks */
           <EditorScrollContainer
             blockTree={blockTree}
             onFenceLanguageChange={handleFenceLanguageChange}
+            onBlockContentChange={handleBlockContentChange}
+            onBlockEnter={handleBlockEnter}
           />
         )}
       </div>
