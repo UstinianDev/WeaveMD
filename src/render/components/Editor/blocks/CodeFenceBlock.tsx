@@ -67,9 +67,10 @@ function normalizeFenceLanguageForSelect(language?: string): string {
 
 interface CodeFenceBlockProps {
   block: BlockNode;
+  onFenceLanguageChange?: (blockId: string, language: string) => void;
 }
 
-const CodeFenceBlock: React.FC<CodeFenceBlockProps> = ({ block }) => {
+const CodeFenceBlock: React.FC<CodeFenceBlockProps> = ({ block, onFenceLanguageChange }) => {
   const selectedLanguage = normalizeFenceLanguageForSelect(block.fenceLanguage);
 
   return (
@@ -83,20 +84,25 @@ const CodeFenceBlock: React.FC<CodeFenceBlockProps> = ({ block }) => {
           <span className="code-fence-window-dot code-fence-window-dot--minimize" />
           <span className="code-fence-window-dot code-fence-window-dot--zoom" />
         </div>
-        {/* Display-only language badge — editing is done via Source Code Mode */}
-        <span
+        {/* Interactive language selector — uses existing CSS styling */}
+        <select
+          aria-label="代码块语言"
           className="code-fence-language-select"
-          style={{
-            display: 'inline-block',
-            padding: '2px 8px',
-            fontSize: '11px',
-            color: 'var(--text-muted)',
-            cursor: 'default',
-            userSelect: 'none',
+          value={selectedLanguage}
+          disabled={!onFenceLanguageChange}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) => {
+            event.stopPropagation();
+            onFenceLanguageChange?.(block.id, event.target.value);
           }}
         >
-          {LANGUAGE_OPTIONS.find((o) => o.value === selectedLanguage)?.label || 'Plain Text'}
-        </span>
+          {LANGUAGE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
       </div>
       {block.renderedHtml ? (
         <div

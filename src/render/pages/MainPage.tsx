@@ -3,6 +3,7 @@
 // ============================================
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import type { editor } from 'monaco-editor';
 import StatusBar from '../components/Common/StatusBar';
 import EditorView from '../components/Editor/EditorView';
 import FloatingToolbar from '../components/Editor/FloatingToolbar';
@@ -53,19 +54,22 @@ const MainPage: React.FC = () => {
   const isEditorActiveRef = useRef(false);
   const [isEditorFocused, setIsEditorFocused] = useState(false);
 
-  // Selection in the new architecture is tracked at the block level,
-  // not via Monaco Selection objects. The FloatingToolbar will need
-  // to be updated to work with the block-based architecture.
-  const [selection, setSelection] = useState<{
-    startLine: number;
-    startColumn: number;
-    endLine: number;
-    endColumn: number;
-  } | null>(null);
+  // Active editor ref for FloatingToolbar — set by EditorView
+  const activeEditorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const [, forceUpdate] = useState(0);
 
+  const handleActiveEditorRef = useCallback(
+    (ref: React.RefObject<editor.IStandaloneCodeEditor | null> | null) => {
+      activeEditorRef.current = ref?.current ?? null;
+      forceUpdate((n) => n + 1);
+    },
+    [],
+  );
+
+  // Selection change callback — kept for EditorView compatibility
   const handleSelectionChange = useCallback(
-    (sel: { startLine: number; startColumn: number; endLine: number; endColumn: number } | null) => {
-      setSelection(sel);
+    (_sel: { startLine: number; startColumn: number; endLine: number; endColumn: number } | null) => {
+      // Selection tracking is now handled by FloatingToolbar directly via editor ref
     },
     [],
   );
@@ -80,7 +84,7 @@ const MainPage: React.FC = () => {
     }
 
     isEditorActiveRef.current = false;
-    setSelection(null);
+    activeEditorRef.current = null;
     setIsEditorFocused(false);
   }, [currentFile]);
 
@@ -111,6 +115,7 @@ const MainPage: React.FC = () => {
               onSelectionChange={handleSelectionChange}
               onEditorMount={handleEditorMount}
               onFocusChange={setIsEditorFocused}
+              onActiveEditorRef={handleActiveEditorRef}
             />
           ) : (
             <div className="flex items-center justify-center h-full">
@@ -126,10 +131,9 @@ const MainPage: React.FC = () => {
         </main>
       </div>
 
-      {/* Floating Toolbar — disabled pending block-based rewrite */}
+      {/* Floating Formatting Toolbar — appears on text selection */}
       <FloatingToolbar
-        editor={null}
-        selection={selection}
+        editorRef={activeEditorRef}
         isEditorFocused={isEditorFocused}
       />
 

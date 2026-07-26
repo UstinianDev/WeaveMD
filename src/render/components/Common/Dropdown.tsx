@@ -61,7 +61,8 @@ const Dropdown: React.FC<DropdownProps> = ({
 
       {isOpen && (
         <div
-          className={`absolute ${positionClass} top-full mt-1 border rounded-[8px] shadow-dropdown z-50 py-1 overflow-hidden`}
+          className={`no-drag absolute ${positionClass} top-full mt-1 border rounded-[8px] shadow-dropdown z-50 py-1 overflow-hidden`}
+          data-dropdown-panel
           style={{
             width: `${width}px`,
             backgroundColor: 'var(--bg-secondary)',

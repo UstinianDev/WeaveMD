@@ -190,6 +190,12 @@ select:focus {
   -webkit-app-region: no-drag;
 }
 
+/* Ensure dropdown panels inside drag regions receive mouse events */
+.drag-region [data-dropdown-panel] {
+  -webkit-app-region: no-drag;
+  pointer-events: auto;
+}
+
 /* Password Strength Bar */
 .strength-weak {
   background-color: #ef4444;
