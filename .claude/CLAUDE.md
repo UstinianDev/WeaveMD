@@ -65,39 +65,38 @@ public/              # icons, images
 - **Heading typography (Doubao-aligned)**: H1 26/700, H2 22/600, H3 18/600, H4 16/500, Paragraph 14/400
 - **Markdown line parsing**: Heading detection (`#...`) must be shared across import/new/edit/paste via `src/render/services/lineMarkdown.ts`
 
-## Architecture (as of 2026-07-25)
+## Architecture (as of 2026-07-26)
 
-### Dual-Mode Editor (v3)
+### Dual-Mode Editor (v4)
 
-The editor has been reworked from "click-to-edit individual blocks" to a dual-mode architecture:
+The editor supports WYSIWYG editing in Normal Mode:
 
-- **Normal Mode**: Block tree rendered as **read-only** rich-text React components. No click-to-edit — blocks are display-only. Canvas minimap on the right side shows document overview with viewport indicator and click-to-scroll.
-- **Source Code Mode**: Full-screen Monaco editor (`SourceCodeEditor.tsx`) for raw markdown editing. Toggle via View menu (`Ctrl+``) or `ViewMenu` dropdown in the navbar. Has built-in Monaco minimap.
-- **Find & Replace**: Typora-style inline bar (`FindReplaceBar.tsx`) rendered inside EditorView. Works in both modes. Toggle via `Ctrl+F` or More menu → Find & Replace. State managed via `uiStore.isFindReplaceOpen`.
+- **Normal Mode**: Block tree rendered as **editable** rich-text React components via `contentEditable`. Users can:
+  - Click and edit paragraph/heading content directly
+  - Press Enter to create new paragraphs
+  - Press Backspace in empty paragraphs to delete them
+  - Use Ctrl+Z/Ctrl+Y to undo/redo all operations
+  - Canvas minimap shows document overview with viewport indicator
+- **Source Code Mode**: Full-screen Monaco editor (`SourceCodeEditor.tsx`) for raw markdown editing. Toggle via `Ctrl+\`` or View menu.
+- **Find & Replace**: Typora-style inline bar (`FindReplaceBar.tsx`). Works in both modes. Toggle via `Ctrl+F`.
 
 **Key files:**
 
-- `src/render/services/blockTree.ts` — Core data structures (BlockTree, BlockNode, BlockId)
+- `src/render/services/blockTree.ts` — Core data structures and operations
 - `src/render/services/blockTreeBuilder.ts` — Markdown → block tree parser
 - `src/render/services/blockTreeSerializer.ts` — Block tree → markdown serializer
-- `src/render/services/searchEngine.ts` — Find/replace engine (findAllMatches, replaceAll, validateRegex)
-- `src/render/components/Editor/EditorView.tsx` — Dual-mode orchestrator
-- `src/render/components/Editor/SourceCodeEditor.tsx` — Full Monaco editor (Source Code Mode)
-- `src/render/components/Editor/FindReplaceBar.tsx` — Inline Find & Replace (Typora-style)
-- `src/render/components/Editor/Minimap.tsx` — Canvas document minimap (Normal Mode)
-- `src/render/components/Editor/EditorScrollContainer.tsx` — Scroll viewport for blocks
-- `src/render/components/Editor/blocks/` — 7 read-only block components
-- `src/render/components/Navbar/ViewMenu.tsx` — View dropdown (Source Code Mode toggle)
-- `src/render/stores/uiStore.ts` — `isSourceCodeMode`, `isFindReplaceOpen` + toggles
+- `src/render/components/Editor/EditorView.tsx` — Dual-mode orchestrator with WYSIWYG handlers
+- `src/render/components/Editor/blocks/` — Editable block components (ParagraphBlock, HeadingBlock)
+- `src/render/stores/editorStore.ts` — Content state with undo/redo stack
 
 ### Design Decisions
 
 | Aspect | Decision |
 |--------|----------|
-| Block editing | Removed click-to-edit; use Source Code Mode for all editing |
+| Block editing | WYSIWYG via `contentEditable` for paragraphs and headings |
 | Source Code toggle | `uiStore.isSourceCodeMode` → shared between TopBar and EditorView |
 | Find & Replace toggle | `uiStore.isFindReplaceOpen` → inline bar, not modal |
-| Block components | Read-only display only; `renderedHtml` via `dangerouslySetInnerHTML` |
+| Undo/Redo | Store-based history stack; paragraph ops manually push to undoStack |
 | Code fence language | Display-only span badge; no `<select>` dropdown |
 | Monaco themes | Defined in EditorView useEffect (`weaveMD-dark`, `weaveMD-light`) |
 | New file naming | `untitled-{timestamp36}.md` |

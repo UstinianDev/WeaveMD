@@ -1,6 +1,6 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 版本：v3.3 | 最后更新：2026-07-25
+> 模块编号：04 | 优先级：P0 | 版本：v4.0 | 最后更新：2026-07-26
 
 ---
 
@@ -8,8 +8,8 @@
 
 核心编辑区域，采用**双模式架构**：
 
-- **Normal Mode**：Block Tree → 只读富文本块，右侧 Canvas Minimap（文档缩影），无点击编辑
-- **Source Code Mode**：全屏 Monaco 编辑器，编辑原始 markdown（`Ctrl+`` 或 View 菜单切换）
+- **Normal Mode**：Block Tree → WYSIWYG 可编辑富文本块，支持直接编辑段落/标题、回车创建段落、Backspace 删除空段落、Ctrl+Z/Y 撤销重做，右侧 Canvas Minimap（文档缩影）
+- **Source Code Mode**：全屏 Monaco 编辑器，编辑原始 markdown（`Ctrl+\`` 或 View 菜单切换）
 - **Find & Replace**：Typora 风格 inline bar，两种模式均可用（`Ctrl+F`）
 
 ## 2. 核心数据模型：Block Tree
@@ -38,12 +38,12 @@ BlockNode = {
 ### 组件层 (`components/Editor/`)
 
 - `EditorView.tsx` — 主容器：双模式切换、Monaco 主题、全局快捷键、scroll 追踪
-- `EditorScrollContainer.tsx` — 可滚动视口（forwardRef），渲染只读块组件
-- `BlockRenderer.tsx` — 块类型分发器（仅 `block` prop）
+- `EditorScrollContainer.tsx` — 可滚动视口（forwardRef），渲染可编辑块组件
+- `BlockRenderer.tsx` — 块类型分发器（支持 contentEditable 回调）
 - `SourceCodeEditor.tsx` — 全屏 Monaco 编辑器（150ms debounce 写 store）
 - `FindReplaceBar.tsx` — Typora 风格 inline 查找替换栏
 - `Minimap.tsx` — Canvas 文档缩影（viewport 指示器 + 点击导航）
-- `blocks/` — 7 个只读块组件：Heading、Paragraph、ListItem、CodeFence、Table、Blockquote、Empty
+- `blocks/` — 块组件：Heading（可编辑）、Paragraph（可编辑）、ListItem、CodeFence、Table、Blockquote、Empty
 - `OutlinePanel.tsx` — 文档大纲（从 AST 提取 H1-H3）
 - `ActiveBlockEditor.tsx` —（已废弃）Monaco 迷你编辑器
 - `FindReplaceModal.tsx` —（已废弃）旧居中模态框
@@ -54,7 +54,9 @@ BlockNode = {
 
 ```
 editorStore.content → buildBlockTree → renderMarkdownToHtml(per block)
-  → BlockRenderer → 只读 block 组件 → DOM（dangerouslySetInnerHTML）
+  → BlockRenderer → 可编辑 block 组件 (contentEditable) → DOM
+  → 用户编辑/回车/删除 → handleBlockContentChange/handleBlockEnter/handleBlockDelete
+  → pushUndo → syncTreeToStore → editorStore.updateContent()
 ```
 
 ### Source Code Mode
@@ -73,16 +75,16 @@ FindReplaceBar → searchEngine.findAllMatches(content) → 匹配高亮
 
 ## 5. 关键特性
 
-| 特性 | 详情 |
-|------|------|
-| **双模式** | Normal（只读富文本 + Minimap）/ Source Code（全屏 Monaco） |
-| **Minimap** | 64px Canvas，块类型颜色编码，viewport 指示器，点击导航 |
-| **标题字号** | H1=26/700、H2=22/600、H3=18/600、H4=16/500、P=14/400 |
+| 特性           | 详情                                                                          |
+| -------------- | ----------------------------------------------------------------------------- |
+| **双模式**     | Normal（只读富文本 + Minimap）/ Source Code（全屏 Monaco）                    |
+| **Minimap**    | 64px Canvas，块类型颜色编码，viewport 指示器，点击导航                        |
+| **标题字号**   | H1=26/700、H2=22/600、H3=18/600、H4=16/500、P=14/400                          |
 | **代码块语言** | 只读 `<span>` badge；语言别名归一化（`sh`→`shell`、`Plain Text`→`plaintext`） |
-| **自动保存** | 1200ms debounce；关闭/切换文件前 flush |
-| **撤销/重做** | 自定义栈，50 条上限，跨会话保留 |
-| **IME 兼容** | isComposing 守卫；inline bar 无 DOM 挂载/卸载 |
-| **快捷键** | Ctrl+S 保存、Ctrl+Z/Y 撤销/重做、Ctrl+F 查找、Ctrl+` 源码模式 |
+| **自动保存**   | 1200ms debounce；关闭/切换文件前 flush                                        |
+| **撤销/重做**  | 自定义栈，50 条上限，跨会话保留                                               |
+| **IME 兼容**   | isComposing 守卫；inline bar 无 DOM 挂载/卸载                                 |
+| **快捷键**     | Ctrl+S 保存、Ctrl+Z/Y 撤销/重做、Ctrl+F 查找、Ctrl+` 源码模式                 |
 
 ## 6. 块检测优先级
 
@@ -92,10 +94,10 @@ FindReplaceBar → searchEngine.findAllMatches(content) → 匹配高亮
 
 ## 7. 与其他模块交互
 
-| 模块 | 交互方式 |
-|------|----------|
-| 导航栏 | editorStore 文件/撤销/重做；uiStore 切换模式/查找栏 |
-| 认证系统 | 切换账号时 closeFile() 清空编辑器 |
-| 数据持久化 | saveFile() 通过 IPC 保存到 SQLite |
-| 设置 | 主题变化切换 Monaco 主题 |
-| 导出 | 导出当前 content 为 MD/Word/PDF |
+| 模块       | 交互方式                                            |
+| ---------- | --------------------------------------------------- |
+| 导航栏     | editorStore 文件/撤销/重做；uiStore 切换模式/查找栏 |
+| 认证系统   | 切换账号时 closeFile() 清空编辑器                   |
+| 数据持久化 | saveFile() 通过 IPC 保存到 SQLite                   |
+| 设置       | 主题变化切换 Monaco 主题                            |
+| 导出       | 导出当前 content 为 MD/Word/PDF                     |
