@@ -305,23 +305,37 @@ const EditorView: React.FC<EditorViewProps> = ({
 
   const handleBlockEnter = useCallback(
     (id: BlockId) => {
-      setBlockTree((prev) => {
-        pushUndo(serializeBlockTree(prev));
-        const newBlockId = generateBlockId(prev);
-        const newBlock = {
-          id: newBlockId,
-          type: 'paragraph' as const,
-          sourceLines: [''],
-          parentId: null,
-          childrenIds: [],
-          renderedHtml: null,
-        };
-        const next = insertBlockAfter(prev, id, newBlock);
-        syncTreeToStore(next);
-        return next;
-      });
+      const currentTree = blockTree;
+      pushUndo(serializeBlockTree(currentTree));
+      const newBlockId = generateBlockId(currentTree);
+      const newBlock = {
+        id: newBlockId,
+        type: 'paragraph' as const,
+        sourceLines: [''],
+        parentId: null,
+        childrenIds: [],
+        renderedHtml: null,
+      };
+      const nextTree = insertBlockAfter(currentTree, id, newBlock);
+      setBlockTree(nextTree);
+      syncTreeToStore(nextTree);
+
+      setTimeout(() => {
+        const newBlockElement = document.getElementById(`block-${newBlockId}`);
+        if (newBlockElement) {
+          newBlockElement.focus();
+          const selection = window.getSelection();
+          if (selection) {
+            const range = document.createRange();
+            range.selectNodeContents(newBlockElement);
+            range.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
+        }
+      }, 0);
     },
-    [pushUndo, syncTreeToStore]
+    [blockTree, pushUndo, syncTreeToStore]
   );
 
   // ============================================

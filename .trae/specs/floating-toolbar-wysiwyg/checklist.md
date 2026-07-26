@@ -1,0 +1,18 @@
+- [ ] Checkpoint 1: 浮动工具栏在非源码模式下选中文本时显示
+- [ ] Checkpoint 2: 浮动工具栏在源码模式下不显示
+- [ ] Checkpoint 3: 跨块选择时不显示浮动工具栏
+- [ ] Checkpoint 4: 结构下拉菜单正常显示并支持所有选项
+- [ ] Checkpoint 5: 段落类型转换功能正常工作
+- [ ] Checkpoint 6: 粗体格式化功能正常工作
+- [ ] Checkpoint 7: 斜体格式化功能正常工作
+- [ ] Checkpoint 8: 下划线格式化功能正常工作
+- [ ] Checkpoint 9: 高亮格式化功能正常工作
+- [ ] Checkpoint 10: 代码格式化功能正常工作
+- [ ] Checkpoint 11: 添加超链接功能正常工作
+- [ ] Checkpoint 12: 评论功能正常工作
+- [ ] Checkpoint 13: MD 源码显示功能正常工作
+- [ ] Checkpoint 14: 点击外部隐藏浮动工具栏
+- [ ] Checkpoint 15: 所有现有测试通过
+- [ ] Checkpoint 16: 类型检查通过
+- [ ] Checkpoint 17: lint 检查通过
+- [ ] Checkpoint 18: 文档更新完成

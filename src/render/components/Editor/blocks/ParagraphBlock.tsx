@@ -52,6 +52,7 @@ const ParagraphBlock: React.FC<ParagraphBlockProps> = ({ block, onContentChange,
 
   return (
     <p
+      id={`block-${block.id}`}
       className="paragraph-block text-[14px] font-normal leading-[1.65] mb-1 text-[var(--text-primary)]"
       data-block-id={block.id}
       contentEditable
