@@ -22,6 +22,7 @@ import {
   generateBlockId,
   getAllBlocksInOrder,
   insertBlockAfter,
+  removeBlock,
   setBlockRenderedHtml,
   setFenceLanguage,
   updateBlockSource,
@@ -70,6 +71,7 @@ const EditorView: React.FC<EditorViewProps> = ({
   // --- Store ---
   const content = useEditorStore((s) => s.content);
   const setContent = useEditorStore((s) => s.updateContent);
+  const pushUndo = useEditorStore((s) => s.pushUndo);
   const currentFileId = useEditorStore((s) => s.currentFile?.id ?? null);
   const setEditorDraftFlusher = useUIStore((s) => s.setEditorDraftFlusher);
   const isSourceCodeMode = useUIStore((s) => s.isSourceCodeMode);
@@ -304,6 +306,7 @@ const EditorView: React.FC<EditorViewProps> = ({
   const handleBlockEnter = useCallback(
     (id: BlockId) => {
       setBlockTree((prev) => {
+        pushUndo(serializeBlockTree(prev));
         const newBlockId = generateBlockId(prev);
         const newBlock = {
           id: newBlockId,
@@ -318,7 +321,27 @@ const EditorView: React.FC<EditorViewProps> = ({
         return next;
       });
     },
-    [syncTreeToStore]
+    [pushUndo, syncTreeToStore]
+  );
+
+  // ============================================
+  // Block Delete Handler (Delete empty paragraph)
+  // ============================================
+
+  const handleBlockDelete = useCallback(
+    (id: BlockId) => {
+      setBlockTree((prev) => {
+        const blockCount = Object.keys(prev.blocks).length;
+        if (blockCount <= 1) {
+          return prev;
+        }
+        pushUndo(serializeBlockTree(prev));
+        const next = removeBlock(prev, id);
+        syncTreeToStore(next);
+        return next;
+      });
+    },
+    [pushUndo, syncTreeToStore]
   );
 
   // ============================================
@@ -507,6 +530,7 @@ const EditorView: React.FC<EditorViewProps> = ({
             onFenceLanguageChange={handleFenceLanguageChange}
             onBlockContentChange={handleBlockContentChange}
             onBlockEnter={handleBlockEnter}
+            onBlockDelete={handleBlockDelete}
           />
         )}
       </div>

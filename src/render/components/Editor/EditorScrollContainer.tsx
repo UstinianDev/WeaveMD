@@ -23,6 +23,8 @@ interface EditorScrollContainerProps {
   onBlockContentChange: (blockId: BlockId, newContent: string) => void;
   /** Called when Enter is pressed in a block */
   onBlockEnter: (blockId: BlockId) => void;
+  /** Called when Backspace is pressed in an empty block to delete it */
+  onBlockDelete: (blockId: BlockId) => void;
 }
 
 const emptyBlockPlaceholder: BlockNode = {
@@ -39,6 +41,7 @@ const EditorScrollContainer: React.FC<EditorScrollContainerProps> = ({
   onFenceLanguageChange,
   onBlockContentChange,
   onBlockEnter,
+  onBlockDelete,
 }) => {
   const blocks = getAllBlocksInOrder(blockTree);
 
@@ -64,6 +67,7 @@ const EditorScrollContainer: React.FC<EditorScrollContainerProps> = ({
                 onFenceLanguageChange={onFenceLanguageChange}
                 onBlockContentChange={onBlockContentChange}
                 onBlockEnter={onBlockEnter}
+                onBlockDelete={onBlockDelete}
               />
             </div>
           ))

@@ -12,9 +12,10 @@ interface ParagraphBlockProps {
   block: BlockNode;
   onContentChange?: (blockId: BlockId, newContent: string) => void;
   onEnter?: (blockId: BlockId) => void;
+  onDelete?: (blockId: BlockId) => void;
 }
 
-const ParagraphBlock: React.FC<ParagraphBlockProps> = ({ block, onContentChange, onEnter }) => {
+const ParagraphBlock: React.FC<ParagraphBlockProps> = ({ block, onContentChange, onEnter, onDelete }) => {
   const handleBlur = useCallback(
     (e: React.FocusEvent<HTMLParagraphElement>) => {
       const newContent = e.currentTarget.innerText.trim();
@@ -30,9 +31,23 @@ const ParagraphBlock: React.FC<ParagraphBlockProps> = ({ block, onContentChange,
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         onEnter?.(block.id);
+        return;
+      }
+
+      if (e.key === 'Backspace') {
+        const selection = window.getSelection();
+        if (selection) {
+          const range = selection.getRangeAt(0);
+          const content = e.currentTarget.innerText.trim();
+          
+          if (content === '' && range.startOffset === 0 && range.endOffset === 0) {
+            e.preventDefault();
+            onDelete?.(block.id);
+          }
+        }
       }
     },
-    [block.id, onEnter]
+    [block.id, onEnter, onDelete]
   );
 
   return (

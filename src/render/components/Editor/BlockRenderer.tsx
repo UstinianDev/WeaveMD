@@ -9,14 +9,14 @@
 
 import React from 'react';
 
-import type { BlockNode, BlockId } from '../../services/blockTree';
+import type { BlockId, BlockNode } from '../../services/blockTree';
 
-import HeadingBlock from './blocks/HeadingBlock';
-import ParagraphBlock from './blocks/ParagraphBlock';
-import ListItemBlock from './blocks/ListItemBlock';
-import CodeFenceBlock from './blocks/CodeFenceBlock';
-import TableBlock from './blocks/TableBlock';
 import BlockquoteBlock from './blocks/BlockquoteBlock';
+import CodeFenceBlock from './blocks/CodeFenceBlock';
+import HeadingBlock from './blocks/HeadingBlock';
+import ListItemBlock from './blocks/ListItemBlock';
+import ParagraphBlock from './blocks/ParagraphBlock';
+import TableBlock from './blocks/TableBlock';
 
 interface BlockRendererProps {
   block: BlockNode;
@@ -26,6 +26,8 @@ interface BlockRendererProps {
   onBlockContentChange?: (blockId: BlockId, newContent: string) => void;
   /** Called when Enter is pressed in a block */
   onBlockEnter?: (blockId: BlockId) => void;
+  /** Called when Backspace is pressed in an empty block to delete it */
+  onBlockDelete?: (blockId: BlockId) => void;
 }
 
 const BlockRenderer: React.FC<BlockRendererProps> = ({
@@ -33,12 +35,27 @@ const BlockRenderer: React.FC<BlockRendererProps> = ({
   onFenceLanguageChange,
   onBlockContentChange,
   onBlockEnter,
+  onBlockDelete,
 }) => {
   switch (block.type) {
     case 'heading':
-      return <HeadingBlock block={block} onContentChange={onBlockContentChange} onEnter={onBlockEnter} />;
+      return (
+        <HeadingBlock
+          block={block}
+          onContentChange={onBlockContentChange}
+          onEnter={onBlockEnter}
+          onDelete={onBlockDelete}
+        />
+      );
     case 'paragraph':
-      return <ParagraphBlock block={block} onContentChange={onBlockContentChange} onEnter={onBlockEnter} />;
+      return (
+        <ParagraphBlock
+          block={block}
+          onContentChange={onBlockContentChange}
+          onEnter={onBlockEnter}
+          onDelete={onBlockDelete}
+        />
+      );
     case 'unordered-list-item':
     case 'ordered-list-item':
     case 'task-list-item':
@@ -50,7 +67,14 @@ const BlockRenderer: React.FC<BlockRendererProps> = ({
     case 'blockquote':
       return <BlockquoteBlock block={block} />;
     default:
-      return <ParagraphBlock block={block} onContentChange={onBlockContentChange} onEnter={onBlockEnter} />;
+      return (
+        <ParagraphBlock
+          block={block}
+          onContentChange={onBlockContentChange}
+          onEnter={onBlockEnter}
+          onDelete={onBlockDelete}
+        />
+      );
   }
 };
 

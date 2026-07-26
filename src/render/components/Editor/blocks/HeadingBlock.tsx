@@ -12,6 +12,7 @@ interface HeadingBlockProps {
   block: BlockNode;
   onContentChange?: (blockId: BlockId, newContent: string) => void;
   onEnter?: (blockId: BlockId) => void;
+  onDelete?: (blockId: BlockId) => void;
 }
 
 const HEADING_TAG_MAP: Record<number, keyof JSX.IntrinsicElements> = {
@@ -32,7 +33,7 @@ const HEADING_CLASSES: Record<number, string> = {
   6: 'text-[14px] font-[500] leading-[1.5] mt-[8px] mb-[4px]',
 };
 
-const HeadingBlock: React.FC<HeadingBlockProps> = ({ block, onContentChange, onEnter }) => {
+const HeadingBlock: React.FC<HeadingBlockProps> = ({ block, onContentChange, onEnter, onDelete }) => {
   const level = block.headingLevel ?? 1;
   const Tag = HEADING_TAG_MAP[level] || 'h1';
   const className = `heading-block ${HEADING_CLASSES[level] || HEADING_CLASSES[1]}`;
@@ -53,9 +54,23 @@ const HeadingBlock: React.FC<HeadingBlockProps> = ({ block, onContentChange, onE
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         onEnter?.(block.id);
+        return;
+      }
+
+      if (e.key === 'Backspace') {
+        const selection = window.getSelection();
+        if (selection) {
+          const range = selection.getRangeAt(0);
+          const content = e.currentTarget.innerText.trim();
+          
+          if (content === '' && range.startOffset === 0 && range.endOffset === 0) {
+            e.preventDefault();
+            onDelete?.(block.id);
+          }
+        }
       }
     },
-    [block.id, onEnter]
+    [block.id, onEnter, onDelete]
   );
 
   return React.createElement(Tag, {
