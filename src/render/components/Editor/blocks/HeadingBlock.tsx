@@ -74,6 +74,7 @@ const HeadingBlock: React.FC<HeadingBlockProps> = ({ block, onContentChange, onE
   );
 
   return React.createElement(Tag, {
+    id: `block-${block.id}`,
     className,
     'data-block-id': block.id,
     contentEditable: true,
