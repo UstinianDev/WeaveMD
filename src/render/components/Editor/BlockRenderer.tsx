@@ -1,16 +1,16 @@
 // ============================================
 // WeaveMD — Block Renderer Dispatcher
 // ============================================
-// Routes a BlockNode to the correct read-only
-// block component based on its `type` field.
+// Routes a BlockNode to the correct component based
+// on its `type` field.
 //
-// Blocks are always rendered as read-only rich text.
-// Editing is done via View → Source Code Mode.
+// Blocks are read-only in Normal Mode. Editing is
+// done via Source Code Mode (View → Source Code Mode).
 // ============================================
 
 import React from 'react';
 
-import type { BlockNode } from '../../services/blockTree';
+import type { BlockNode, BlockId } from '../../services/blockTree';
 
 import HeadingBlock from './blocks/HeadingBlock';
 import ParagraphBlock from './blocks/ParagraphBlock';
@@ -21,9 +21,14 @@ import BlockquoteBlock from './blocks/BlockquoteBlock';
 
 interface BlockRendererProps {
   block: BlockNode;
+  /** Called when the code fence language is changed via dropdown */
+  onFenceLanguageChange?: (blockId: BlockId, language: string) => void;
 }
 
-const BlockRenderer: React.FC<BlockRendererProps> = ({ block }) => {
+const BlockRenderer: React.FC<BlockRendererProps> = ({
+  block,
+  onFenceLanguageChange,
+}) => {
   switch (block.type) {
     case 'heading':
       return <HeadingBlock block={block} />;
@@ -34,7 +39,7 @@ const BlockRenderer: React.FC<BlockRendererProps> = ({ block }) => {
     case 'task-list-item':
       return <ListItemBlock block={block} />;
     case 'code-fence':
-      return <CodeFenceBlock block={block} />;
+      return <CodeFenceBlock block={block} onFenceLanguageChange={onFenceLanguageChange} />;
     case 'table':
       return <TableBlock block={block} />;
     case 'blockquote':

@@ -31,6 +31,8 @@ import '../../utils/monacoSetup';
 interface SourceCodeEditorProps {
   content: string;
   onContentChange: (newContent: string) => void;
+  /** Called when the Monaco editor instance is mounted */
+  onEditorRef?: (editor: editor.IStandaloneCodeEditor) => void;
 }
 
 // ============================================
@@ -40,6 +42,7 @@ interface SourceCodeEditorProps {
 const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
   content,
   onContentChange,
+  onEditorRef,
 }) => {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
@@ -125,6 +128,9 @@ const SourceCodeEditor: React.FC<SourceCodeEditorProps> = ({
     (editor, monaco) => {
       editorRef.current = editor;
       monacoRef.current = monaco;
+
+      // Notify parent of editor instance
+      onEditorRef?.(editor);
 
       // Auto-focus the editor on mount
       editor.focus();

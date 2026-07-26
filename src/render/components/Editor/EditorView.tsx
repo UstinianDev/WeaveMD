@@ -2,21 +2,25 @@
 // WeaveMD — Block-Based Editor View
 // ============================================
 // Renders the document as a scrollable list of
-// read-only React block components.
+// React block components.
 //
 // Two display modes:
-//   1. Normal (default): Rendered rich-text blocks
+//   1. Normal (default): Read-only rich-text blocks.
+//      Editing is done via Source Code Mode.
 //   2. Source Code Mode: Full Monaco editor for
-//      raw markdown editing
+//      raw markdown editing.
 //
-// Toggle via View → Source Code Mode in the navbar.
+// Toggle via View → Source Code Mode in the navbar
+// or Ctrl+` keyboard shortcut.
 // ============================================
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import type { editor } from 'monaco-editor';
 
-import type { BlockTree } from '../../services/blockTree';
-import { getAllBlocksInOrder, setBlockRenderedHtml } from '../../services/blockTree';
+import type { BlockTree, BlockId } from '../../services/blockTree';
+import { getAllBlocksInOrder, setBlockRenderedHtml, setFenceLanguage } from '../../services/blockTree';
 import { buildBlockTree } from '../../services/blockTreeBuilder';
+import { serializeBlockTree } from '../../services/blockTreeSerializer';
 import { renderMarkdownToHtml } from '../../services/markdown';
 import { useEditorStore } from '../../stores/editorStore';
 import { useUIStore } from '../../stores/uiStore';
@@ -36,6 +40,8 @@ interface EditorViewProps {
   ) => void;
   onEditorMount?: (active: boolean) => void;
   onFocusChange?: (isFocused: boolean) => void;
+  /** Called when the active Monaco editor instance changes */
+  onActiveEditorRef?: (ref: React.RefObject<editor.IStandaloneCodeEditor | null> | null) => void;
 }
 
 // ============================================
@@ -46,12 +52,13 @@ const EditorView: React.FC<EditorViewProps> = ({
   onSelectionChange,
   onEditorMount,
   onFocusChange,
+  onActiveEditorRef,
 }) => {
   // --- Refs ---
   const isUpdatingFromExternalRef = useRef(false);
   const themesDefinedRef = useRef(false);
   const prevSourceCodeModeRef = useRef(false);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const sourceEditorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
   // --- Store ---
   const content = useEditorStore((s) => s.content);
@@ -212,7 +219,7 @@ const EditorView: React.FC<EditorViewProps> = ({
   // ============================================
 
   useEffect(() => {
-    // Skip rebuild if we triggered the store update (SourceCodeEditor, FindReplaceBar)
+    // Skip rebuild if we triggered the store update
     if (isUpdatingFromExternalRef.current) {
       isUpdatingFromExternalRef.current = false;
       return;
@@ -224,9 +231,6 @@ const EditorView: React.FC<EditorViewProps> = ({
 
   // ============================================
   // Source Code Mode Toggle → Rebuild Block Tree
-  // When switching from source code mode back to
-  // normal mode, rebuild the block tree from the
-  // latest content (which may have been edited).
   // ============================================
 
   useEffect(() => {
@@ -240,6 +244,33 @@ const EditorView: React.FC<EditorViewProps> = ({
   }, [isSourceCodeMode]);
 
   // ============================================
+  // Sync tree to store helper
+  // ============================================
+
+  const syncTreeToStore = useCallback(
+    (tree: BlockTree) => {
+      isUpdatingFromExternalRef.current = true;
+      setContent(serializeBlockTree(tree));
+    },
+    [setContent],
+  );
+
+  // ============================================
+  // Code Fence Language Change Handler
+  // ============================================
+
+  const handleFenceLanguageChange = useCallback(
+    (id: BlockId, language: string) => {
+      setBlockTree((prev) => {
+        const next = setFenceLanguage(prev, id, language);
+        syncTreeToStore(next);
+        return next;
+      });
+    },
+    [syncTreeToStore],
+  );
+
+  // ============================================
   // Source Code Editor Content Change Handler
   // ============================================
 
@@ -248,7 +279,7 @@ const EditorView: React.FC<EditorViewProps> = ({
       isUpdatingFromExternalRef.current = true;
       setContent(newContent);
     },
-    [setContent]
+    [setContent],
   );
 
   // ============================================
@@ -260,19 +291,18 @@ const EditorView: React.FC<EditorViewProps> = ({
       isUpdatingFromExternalRef.current = true;
       setContent(newContent);
     },
-    [setContent]
+    [setContent],
   );
 
   // ============================================
-  // Keyboard Shortcuts (Ctrl+S, Ctrl+Z, Ctrl+Y, Ctrl+F)
+  // Keyboard Shortcuts (Ctrl+S, Ctrl+Z, Ctrl+Y, Ctrl+F, Ctrl+`)
   // ============================================
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const ctrl = e.ctrlKey || e.metaKey;
 
-      // Ctrl+F: Toggle Find & Replace — must come BEFORE the form-control
-      // filter below so the bar can be closed while its input is focused.
+      // Ctrl+F: Toggle Find & Replace
       if (ctrl && e.key === 'f') {
         e.preventDefault();
         useUIStore.getState().toggleFindReplace();
@@ -297,7 +327,7 @@ const EditorView: React.FC<EditorViewProps> = ({
           tagName === 'select' ||
           target.isContentEditable
         ) {
-          // Allow in FindReplaceBar inputs (they have .no-drag class)
+          // Allow in FindReplaceBar inputs
           const isFindReplaceInput = target.closest('.find-replace-bar') !== null;
           // Allow in Monaco internal textareas
           const isMonacoInternal =
@@ -350,9 +380,32 @@ const EditorView: React.FC<EditorViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Register draft flusher (no-op in Normal Mode; Source Code mode
+  // handles its own flushing via SourceCodeEditor's blur handler)
+  useEffect(() => {
+    setEditorDraftFlusher(() => {
+      // No active block to flush — SourceCodeEditor handles its own flush
+    });
+    return () => {
+      setEditorDraftFlusher(null);
+    };
+  }, [setEditorDraftFlusher]);
+
+  // Expose active editor ref for FloatingToolbar
+  useEffect(() => {
+    if (isSourceCodeMode) {
+      onActiveEditorRef?.(sourceEditorRef);
+    } else {
+      // Normal Mode: no inline editor, clear the ref
+      onActiveEditorRef?.(null);
+    }
+    return () => {
+      onActiveEditorRef?.(null);
+    };
+  }, [isSourceCodeMode, onActiveEditorRef]);
+
   // Reset state when navigating to a different file
   useEffect(() => {
-    // Cancel any pending operations from the previous file
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentFileId]);
 
@@ -389,10 +442,17 @@ const EditorView: React.FC<EditorViewProps> = ({
       <div className="flex-1 overflow-hidden">
         {isSourceCodeMode ? (
           /* Source Code Mode: Full Monaco editor for raw markdown */
-          <SourceCodeEditor content={content} onContentChange={handleSourceContentChange} />
+          <SourceCodeEditor
+            content={content}
+            onContentChange={handleSourceContentChange}
+            onEditorRef={(ed) => { sourceEditorRef.current = ed; }}
+          />
         ) : (
           /* Normal Mode: Read-only rendered rich-text blocks */
-          <EditorScrollContainer ref={scrollContainerRef} blockTree={blockTree} />
+          <EditorScrollContainer
+            blockTree={blockTree}
+            onFenceLanguageChange={handleFenceLanguageChange}
+          />
         )}
       </div>
     </div>

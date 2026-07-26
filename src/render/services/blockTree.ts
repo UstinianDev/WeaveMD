@@ -439,6 +439,50 @@ export function setBlockRenderedHtml(tree: BlockTree, id: BlockId, html: string)
   return next;
 }
 
+/**
+ * Update only the fence language of a code fence block.
+ *
+ * Modifies the opening fence line to use the new language identifier
+ * and invalidates the cached rendered HTML so it will be re-rendered
+ * with the correct syntax highlighting.
+ *
+ * Returns a NEW BlockTree; the original is not modified.
+ *
+ * @param tree - The original block tree
+ * @param blockId - The ID of the code fence block to update
+ * @param language - The new language identifier (e.g., 'python', 'javascript')
+ * @returns A new BlockTree with the updated fence language
+ */
+export function setFenceLanguage(tree: BlockTree, blockId: BlockId, language: string): BlockTree {
+  const node = tree.blocks[blockId];
+  if (!node || node.type !== 'code-fence') {
+    return { ...tree, version: tree.version + 1 };
+  }
+
+  const next = cloneTree(tree);
+  const current = next.blocks[blockId];
+
+  // Update the opening fence line to reflect the new language
+  const newSourceLines = [...current.sourceLines];
+  const fenceLine = newSourceLines[0] ?? '';
+  const match = fenceLine.match(CODE_FENCE_RE);
+  if (match) {
+    const indent = match[1] ?? '';
+    const fenceMarker = match[2] ?? '```';
+    const langSuffix = language ? ` ${language}` : '';
+    newSourceLines[0] = `${indent}${fenceMarker}${langSuffix}`;
+  }
+
+  next.blocks[blockId] = {
+    ...current,
+    fenceLanguage: language,
+    sourceLines: newSourceLines,
+    renderedHtml: null,
+  };
+  next.version += 1;
+  return next;
+}
+
 function extractFenceLanguage(sourceLines: string[]): string | undefined {
   const firstLine = sourceLines[0];
   if (!firstLine) {
