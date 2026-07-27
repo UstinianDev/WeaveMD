@@ -77,16 +77,16 @@ FindReplaceBar → searchEngine.findAllMatches(content) → 匹配高亮
 
 | 特性           | 详情                                                                          |
 | -------------- | ----------------------------------------------------------------------------- |
-| **双模式**     | Normal（WYSIWYG 可编辑富文本 + Minimap）/ Source Code（全屏 Monaco）          |
+| **双模式**     | Normal（WYSIWYG 可编辑富文本 + Minimap）/ Source Code（全屏 Monaco）           |
 | **Minimap**    | 64px Canvas，块类型颜色编码，viewport 指示器，点击导航                        |
 | **标题字号**   | H1=26/700、H2=22/600、H3=18/600、H4=16/500、P=14/400                          |
-| **代码块语言** | `<select>` 下拉选择；语言别名归一化（`sh`→`shell`、`Plain Text`→`plaintext`） |
+| **代码块语言** | `<select>` 下拉选择；语言别名归一化（`sh`→`shell`、`Plain Text`→`plaintext`）  |
 | **代码块编辑** | 双击进入 textarea 编辑模式，失焦保存                                          |
-| **浮动工具栏** | 选中文本时显示；包含格式化、结构转换、超链接、评论、MD 源码显示               |
-| **跨块选择**   | contentEditable 移至父容器，支持跨段落/标题选择                               |
+| **浮动工具栏** | 选中文本时显示；包含格式化、结构转换、超链接、评论、MD 源码显示                |
+| **跨块选择**   | contentEditable 移至父容器，支持跨段落/标题选择                                |
 | **自动保存**   | 1200ms debounce；关闭/切换文件前 flush                                        |
-| **撤销/重做**  | 自定义栈，50 条上限，跨会话保留；段落增删手动 pushUndo                        |
-| **光标跳转**   | 按 Enter 创建新段落后，光标自动跳转到新段落开头                               |
+| **撤销/重做**  | 自定义栈，50 条上限，跨会话保留；段落增删手动 pushUndo                         |
+| **光标跳转**   | 按 Enter 创建新段落后，光标自动跳转到新段落开头                                |
 | **IME 兼容**   | isComposing 守卫；inline bar 无 DOM 挂载/卸载                                 |
 | **快捷键**     | Ctrl+S 保存、Ctrl+Z/Y 撤销/重做、Ctrl+F 查找、Ctrl+` 源码模式                 |
 
