@@ -17,7 +17,7 @@
 import type { editor } from 'monaco-editor';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { BlockId, BlockTree } from '../../services/blockTree';
+import type { BlockId, BlockNode, BlockTree } from '../../services/blockTree';
 import {
   generateBlockId,
   getAllBlocksInOrder,
@@ -29,6 +29,7 @@ import {
 } from '../../services/blockTree';
 import { buildBlockTree } from '../../services/blockTreeBuilder';
 import { serializeBlockTree } from '../../services/blockTreeSerializer';
+import { detectMarkdownLine } from '../../services/lineMarkdown';
 import { renderMarkdownToHtml } from '../../services/markdown';
 import { useEditorStore } from '../../stores/editorStore';
 import { useUIStore } from '../../stores/uiStore';
@@ -85,7 +86,11 @@ const EditorView: React.FC<EditorViewProps> = ({
       ? buildBlockTree(initialContent)
       : { rootBlockIds: [], blocks: {}, version: 0 };
   });
+  const blockTreeRef = useRef<BlockTree>(blockTree);
   const [themesLoading, setThemesLoading] = useState(true);
+
+  // Keep blockTreeRef in sync with blockTree
+  blockTreeRef.current = blockTree;
 
   // ============================================
   // Theme Definitions (Monaco custom themes)
@@ -266,6 +271,108 @@ const EditorView: React.FC<EditorViewProps> = ({
   );
 
   // ============================================
+  // Helper: Get block text content from DOM
+  // ============================================
+
+  const getBlockTextContent = useCallback((block: BlockNode, blockEl: Element): string => {
+    if (
+      block.type === 'unordered-list-item' ||
+      block.type === 'ordered-list-item' ||
+      block.type === 'task-list-item'
+    ) {
+      const contentEl = blockEl.querySelector('span.flex-1');
+      return contentEl?.textContent?.trim() ?? '';
+    }
+    return blockEl.textContent?.trim() ?? '';
+  }, []);
+
+  const buildSourceLinesFromContent = useCallback((block: BlockNode, content: string): string[] => {
+    if (block.type === 'heading') {
+      const prefix = '#'.repeat(block.headingLevel ?? 1) + ' ';
+      return [`${prefix}${content}`];
+    }
+    if (block.type === 'unordered-list-item') {
+      return [`- ${content}`];
+    }
+    if (block.type === 'ordered-list-item') {
+      const index = block.orderedIndex ?? 1;
+      return [`${index}. ${content}`];
+    }
+    if (block.type === 'task-list-item') {
+      const checked = block.checked ? 'x' : ' ';
+      return [`- [${checked}] ${content}`];
+    }
+    if (block.type === 'blockquote') {
+      return [`> ${content}`];
+    }
+    return [content];
+  }, []);
+
+  // ============================================
+  // Register sync callback for mode toggle
+  // ============================================
+
+  useEffect(() => {
+    const syncContentBeforeToggle = () => {
+      if (!isSourceCodeMode) {
+        const container = document.querySelector('.editor-content-area');
+        if (container) {
+          const blocks = getAllBlocksInOrder(blockTreeRef.current);
+          const newBlocks = { ...blockTreeRef.current.blocks };
+          let hasChanges = false;
+
+          for (const block of blocks) {
+            if (block.type === 'code-fence' || block.type === 'table') continue;
+
+            const blockEl = container.querySelector(`[data-block-id="${block.id}"]`);
+            if (blockEl) {
+              const newContent = getBlockTextContent(block, blockEl);
+              const oldContent = block.sourceLines
+                .join(block.type === 'heading' ? '\n' : ' ')
+                .replace(/^[\s]*[-+*]\s*/, '')
+                .replace(/^[\s]*\d+\.\s*/, '')
+                .replace(/^[\s]*[-+*]\s*\[[ xX]\]\s*/, '')
+                .replace(/^[\s]*>\s*/, '')
+                .trim();
+
+              if (newContent !== oldContent) {
+                const newSourceLines = buildSourceLinesFromContent(block, newContent);
+                newBlocks[block.id] = {
+                  ...block,
+                  sourceLines: newSourceLines,
+                  renderedHtml: null,
+                };
+                hasChanges = true;
+              }
+            }
+          }
+
+          if (hasChanges) {
+            const newTree = { ...blockTreeRef.current, blocks: newBlocks };
+            const serialized = serializeBlockTree(newTree);
+            isUpdatingFromExternalRef.current = true;
+            setContent(serialized);
+          } else {
+            const serialized = serializeBlockTree(blockTreeRef.current);
+            isUpdatingFromExternalRef.current = true;
+            setContent(serialized);
+          }
+        } else {
+          const serialized = serializeBlockTree(blockTreeRef.current);
+          isUpdatingFromExternalRef.current = true;
+          setContent(serialized);
+        }
+      }
+    };
+
+    useUIStore.getState().setBeforeToggleSourceMode(syncContentBeforeToggle);
+
+    return () => {
+      useUIStore.getState().setBeforeToggleSourceMode(null);
+    };
+  }, [isSourceCodeMode, setContent, getBlockTextContent, buildSourceLinesFromContent]);
+
+  // ============================================
   // Code Fence Language Change Handler
   // ============================================
 
@@ -290,14 +397,38 @@ const EditorView: React.FC<EditorViewProps> = ({
         const block = prev.blocks[id];
         if (!block) return prev;
 
-        const prefix = block.type === 'heading' ? '#'.repeat(block.headingLevel ?? 1) + ' ' : '';
-        const newSourceLines = [`${prefix}${newContent}`];
-        const next = updateBlockSource(prev, id, newSourceLines);
+        const detection = detectMarkdownLine(newContent);
+
+        if (detection && detection.type !== block.type) {
+          const newBlock: BlockNode = {
+            ...block,
+            type: detection.type,
+            sourceLines: [newContent],
+            headingLevel: detection.headingLevel,
+            checked: detection.isChecked,
+            orderedIndex: detection.orderedIndex,
+            renderedHtml: null,
+          };
+
+          const next = { ...prev, blocks: { ...prev.blocks, [id]: newBlock } };
+          syncTreeToStore(next);
+          return next;
+        }
+
+        const newSourceLines = buildSourceLinesFromContent(block, newContent);
+
+        const updatedBlock = {
+          ...block,
+          sourceLines: newSourceLines,
+          renderedHtml: null,
+        };
+
+        const next = { ...prev, blocks: { ...prev.blocks, [id]: updatedBlock } };
         syncTreeToStore(next);
         return next;
       });
     },
-    [syncTreeToStore]
+    [syncTreeToStore, buildSourceLinesFromContent]
   );
 
   // ============================================
@@ -466,6 +597,7 @@ const EditorView: React.FC<EditorViewProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ============================================
