@@ -93,8 +93,12 @@ const EditorScrollContainer: React.FC<EditorScrollContainerProps> = ({
           const oldContent =
             block.type === 'heading'
               ? block.sourceLines.join('\n').replace(/^#{1,6}\s+/, '')
-              : block.sourceLines.join(' ');
-          const newContent = blockEl.textContent?.trim() ?? '';
+              : block.sourceLines
+                  .join(' ')
+                  .replace(/^[\s]*[-+*]\s*/, '')
+                  .replace(/^[\s]*\d+\.\s*/, '')
+                  .replace(/^[\s]*[-+*]\s*\[[ xX]\]\s*/, '');
+          const newContent = getBlockTextContent(block, blockEl);
           if (newContent !== oldContent.trim()) {
             onBlockContentChange(blockId, newContent);
           }
@@ -103,6 +107,18 @@ const EditorScrollContainer: React.FC<EditorScrollContainerProps> = ({
     },
     [blockTree, onBlockContentChange]
   );
+
+  const getBlockTextContent = (block: BlockNode, blockEl: Element): string => {
+    if (
+      block.type === 'unordered-list-item' ||
+      block.type === 'ordered-list-item' ||
+      block.type === 'task-list-item'
+    ) {
+      const contentEl = blockEl.querySelector('span.flex-1');
+      return contentEl?.textContent?.trim() ?? '';
+    }
+    return blockEl.textContent?.trim() ?? '';
+  };
 
   return (
     <div

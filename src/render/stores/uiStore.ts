@@ -26,6 +26,7 @@ interface UIStore {
   isFindReplaceOpen: boolean;
   markdownBlockState: MarkdownBlockState;
   editorDraftFlusher: (() => void | Promise<void>) | null;
+  beforeToggleSourceMode: (() => void) | null;
 
   setTheme: (theme: ThemeType) => void;
   setLanguage: (language: LanguageType) => void;
@@ -39,6 +40,7 @@ interface UIStore {
   toggleHistoryPanel: () => void;
   toggleSourceCodeMode: () => void;
   toggleFindReplace: () => void;
+  setBeforeToggleSourceMode: (callback: (() => void) | null) => void;
   setMarkdownBlockState: (state: MarkdownBlockState) => void;
   setMdSourceBlockId: (blockId: string | null) => void;
   clearMdSourceBlockId: () => void;
@@ -67,6 +69,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   isFindReplaceOpen: false,
   markdownBlockState: initialMarkdownBlockState,
   editorDraftFlusher: null,
+  beforeToggleSourceMode: null,
 
   setTheme: (theme) => {
     set({ theme });
@@ -104,15 +107,13 @@ export const useUIStore = create<UIStore>((set, get) => ({
     // This guard runs SYNCHRONOUSLY before set({ activeModal }) — ensuring
     // that any modal's autoFocus input won't compete with a ghost textarea.
     if (typeof document !== 'undefined') {
-      document
-        .querySelectorAll('textarea.ime-text-area, textarea.inputarea')
-        .forEach((el) => {
-          const monacoRoot = el.closest('.monaco-editor');
-          if (!monacoRoot || !document.body.contains(monacoRoot)) {
-            (el as HTMLTextAreaElement).blur();
-            el.remove();
-          }
-        });
+      document.querySelectorAll('textarea.ime-text-area, textarea.inputarea').forEach((el) => {
+        const monacoRoot = el.closest('.monaco-editor');
+        if (!monacoRoot || !document.body.contains(monacoRoot)) {
+          (el as HTMLTextAreaElement).blur();
+          el.remove();
+        }
+      });
     }
     set({ activeModal: modal });
   },
@@ -125,7 +126,12 @@ export const useUIStore = create<UIStore>((set, get) => ({
 
   toggleHistoryPanel: () => set((s) => ({ isHistoryPanelOpen: !s.isHistoryPanelOpen })),
 
-  toggleSourceCodeMode: () => set((s) => ({ isSourceCodeMode: !s.isSourceCodeMode })),
+  toggleSourceCodeMode: () => {
+    get().beforeToggleSourceMode?.();
+    set((s) => ({ isSourceCodeMode: !s.isSourceCodeMode }));
+  },
+
+  setBeforeToggleSourceMode: (callback) => set({ beforeToggleSourceMode: callback }),
 
   toggleFindReplace: () => set((s) => ({ isFindReplaceOpen: !s.isFindReplaceOpen })),
 
