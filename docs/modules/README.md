@@ -11,7 +11,7 @@
 | 01   | 加载页面 (Splash)       | P0     | [01-加载页面-Splash.md](./01-加载页面-Splash.md)             | 启动动画、提前跳转机制          |
 | 02   | 认证系统 (Auth)         | P0     | [02-认证系统-Auth.md](./02-认证系统-Auth.md)                 | 注册、登录、会话恢复、账号切换  |
 | 03   | 顶部导航栏 (Navbar)     | P0     | [03-顶部导航栏-Navbar.md](./03-顶部导航栏-Navbar.md)         | 菜单系统、快捷键、窗口控制      |
-| 04   | 编辑主区 (Editor)       | P0     | [04-编辑主区-Editor.md](./04-编辑主区-Editor.md)             | Monaco 编辑器、目录、浮动工具栏 |
+| 04   | 编辑主区 (Editor)       | P0     | [04-编辑主区-Editor.md](./04-编辑主区-Editor.md)             | 双模式编辑器（WYSIWYG + Monaco）、Block Tree、浮动工具栏、Minimap |
 | 05   | 设置界面 (Settings)     | P1     | [05-设置界面-Settings.md](./05-设置界面-Settings.md)         | 主题、语言、账号管理            |
 | 06   | 窗口控制 (Window)       | P0     | [06-窗口控制-Window.md](./06-窗口控制-Window.md)             | 无边框窗口、单实例锁            |
 | 07   | 数据持久化层 (Database) | P0     | [07-数据持久化层-Database.md](./07-数据持久化层-Database.md) | SQLite Schema、CRUD、数据隔离   |
