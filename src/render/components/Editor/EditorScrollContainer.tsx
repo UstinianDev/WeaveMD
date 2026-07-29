@@ -17,6 +17,7 @@ import EmptyBlock from './blocks/EmptyBlock';
 
 interface EditorScrollContainerProps {
   blockTree: BlockTree;
+  blockTreeRef: React.MutableRefObject<BlockTree>;
   /** Code fence language changed via dropdown */
   onFenceLanguageChange: (blockId: BlockId, language: string) => void;
   /** Block content changed via contentEditable */
@@ -45,6 +46,7 @@ const getBlockIdFromEventTarget = (target: EventTarget | null): BlockId | null =
 
 const EditorScrollContainer: React.FC<EditorScrollContainerProps> = ({
   blockTree,
+  blockTreeRef,
   onFenceLanguageChange,
   onBlockContentChange,
   onBlockEnter,
@@ -88,7 +90,7 @@ const EditorScrollContainer: React.FC<EditorScrollContainerProps> = ({
 
       const blockEl = document.querySelector(`[data-block-id="${blockId}"]`);
       if (blockEl) {
-        const block = blockTree.blocks[blockId];
+        const block = blockTreeRef.current.blocks[blockId];
         if (block) {
           const oldContent =
             block.type === 'heading'
@@ -105,7 +107,7 @@ const EditorScrollContainer: React.FC<EditorScrollContainerProps> = ({
         }
       }
     },
-    [blockTree, onBlockContentChange]
+    [blockTreeRef, onBlockContentChange]
   );
 
   const getBlockTextContent = (block: BlockNode, blockEl: Element): string => {
