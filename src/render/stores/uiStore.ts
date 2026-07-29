@@ -17,6 +17,7 @@ interface UIStore {
   language: LanguageType;
   sidebarWidth: number;
   isSidebarOpen: boolean;
+  isOutlinePanelCollapsed: boolean;
   pageWidth: PageWidth;
   activeModal: string | null;
   isLoading: boolean;
@@ -32,6 +33,7 @@ interface UIStore {
   setLanguage: (language: LanguageType) => void;
   setSidebarWidth: (width: number) => void;
   toggleSidebar: () => void;
+  toggleOutlinePanel: () => void;
   setPageWidth: (width: PageWidth) => void;
   openModal: (modal: string) => void;
   closeModal: () => void;
@@ -60,6 +62,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   language: 'zh-CN',
   sidebarWidth: 240,
   isSidebarOpen: true,
+  isOutlinePanelCollapsed: false,
   pageWidth: 'default',
   activeModal: null,
   isLoading: false,
@@ -87,6 +90,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
   },
 
   toggleSidebar: () => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
+
+  toggleOutlinePanel: () => set((s) => ({ isOutlinePanelCollapsed: !s.isOutlinePanelCollapsed })),
 
   setPageWidth: (pageWidth) => set({ pageWidth }),
 
