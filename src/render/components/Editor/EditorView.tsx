@@ -213,7 +213,6 @@ const EditorView: React.FC<EditorViewProps> = ({
   useEffect(() => {
     // Skip rendering if user is actively typing (debounce pending)
     if (pendingInputBlockIdRef.current) {
-      console.log('[RENDER] Skipping render — user input pending');
       return;
     }
 
@@ -403,15 +402,7 @@ const EditorView: React.FC<EditorViewProps> = ({
 
   useEffect(() => {
     const syncContentBeforeToggle = () => {
-      console.log('[SYNC] syncContentBeforeToggle called, isSourceCodeMode:', isSourceCodeMode);
       if (!isSourceCodeMode) {
-        console.log(
-          '[SYNC] Starting sync, blockTree version:',
-          blockTreeRef.current.version,
-          'blocks:',
-          Object.keys(blockTreeRef.current.blocks).length
-        );
-
         // Flush pending input debounce immediately
         if (inputDebounceRef.current) {
           clearTimeout(inputDebounceRef.current);
@@ -419,10 +410,8 @@ const EditorView: React.FC<EditorViewProps> = ({
         }
         const pendingBlockId = pendingInputBlockIdRef.current;
         pendingInputBlockIdRef.current = null;
-        console.log('[SYNC] pendingBlockId:', pendingBlockId);
 
         const container = document.querySelector('.editor-content-area');
-        console.log('[SYNC] container found:', !!container);
         if (container) {
           const blocks = getAllBlocksInOrder(blockTreeRef.current);
           const newBlocks = { ...blockTreeRef.current.blocks };
@@ -430,34 +419,16 @@ const EditorView: React.FC<EditorViewProps> = ({
 
           for (const block of blocks) {
             if (block.type === 'code-fence' || block.type === 'table') {
-              console.log('[SYNC] skipping block:', block.id, 'type:', block.type);
               continue;
             }
 
             const blockEl = container.querySelector(`[data-block-id="${block.id}"]`);
-            console.log('[SYNC] block:', block.id, 'type:', block.type, 'found:', !!blockEl);
             if (blockEl) {
               const newContent = getBlockTextContent(block, blockEl);
-              console.log(
-                '[SYNC] block:',
-                block.id,
-                'domContent:',
-                JSON.stringify(newContent),
-                'sourceLines:',
-                JSON.stringify(block.sourceLines)
-              );
 
               // Detect Markdown type changes (covers pending debounce case)
               const detection = detectMarkdownLine(newContent);
               if (detection && detection.type !== block.type) {
-                console.log(
-                  '[SYNC] markdown type change for block:',
-                  block.id,
-                  'from:',
-                  block.type,
-                  'to:',
-                  detection.type
-                );
                 newBlocks[block.id] = {
                   ...block,
                   type: detection.type,
@@ -481,14 +452,6 @@ const EditorView: React.FC<EditorViewProps> = ({
                 .trim();
 
               if (newContent !== oldContent) {
-                console.log(
-                  '[SYNC] content changed for block:',
-                  block.id,
-                  'old:',
-                  JSON.stringify(oldContent),
-                  'new:',
-                  JSON.stringify(newContent)
-                );
                 const newSourceLines = buildSourceLinesFromContent(block, newContent);
                 newBlocks[block.id] = {
                   ...block,
@@ -496,15 +459,10 @@ const EditorView: React.FC<EditorViewProps> = ({
                   renderedHtml: null,
                 };
                 hasChanges = true;
-              } else {
-                console.log('[SYNC] content unchanged for block:', block.id);
               }
-            } else {
-              console.log('[SYNC] block element NOT found for:', block.id);
             }
           }
 
-          console.log('[SYNC] hasChanges:', hasChanges, 'pendingBlockId:', pendingBlockId);
           if (hasChanges || pendingBlockId) {
             const newTree = {
               ...blockTreeRef.current,
@@ -514,31 +472,24 @@ const EditorView: React.FC<EditorViewProps> = ({
             blockTreeRef.current = newTree;
             setBlockTree(newTree);
             const serialized = serializeBlockTree(newTree);
-            console.log('[SYNC] serialized content:', JSON.stringify(serialized));
             isUpdatingFromExternalRef.current = true;
             setContent(serialized);
           } else {
             const serialized = serializeBlockTree(blockTreeRef.current);
-            console.log('[SYNC] no changes, serialized:', JSON.stringify(serialized));
             isUpdatingFromExternalRef.current = true;
             setContent(serialized);
           }
         } else {
           const serialized = serializeBlockTree(blockTreeRef.current);
-          console.log('[SYNC] no container, serialized:', JSON.stringify(serialized));
           isUpdatingFromExternalRef.current = true;
           setContent(serialized);
         }
-      } else {
-        console.log('[SYNC] Already in source code mode, skipping sync');
       }
     };
 
     useUIStore.getState().setBeforeToggleSourceMode(syncContentBeforeToggle);
-    console.log('[SYNC] Registered beforeToggleSourceMode, isSourceCodeMode:', isSourceCodeMode);
 
     return () => {
-      console.log('[SYNC] Cleaning up beforeToggleSourceMode, isSourceCodeMode:', isSourceCodeMode);
       useUIStore.getState().setBeforeToggleSourceMode(null);
     };
   }, [isSourceCodeMode, setContent, getBlockTextContent, buildSourceLinesFromContent]);
@@ -628,7 +579,6 @@ const EditorView: React.FC<EditorViewProps> = ({
 
         // Cancel if tree version changed (Enter/Backspace may have modified it)
         if (blockTreeRef.current.version !== debounceTreeVersionRef.current) {
-          console.log('[INPUT] Debounce cancelled - tree version changed');
           inputDebounceRef.current = null;
           return;
         }
@@ -781,40 +731,44 @@ const EditorView: React.FC<EditorViewProps> = ({
       if (!blockEl) return;
 
       // Strategy 1: Find text nodes and place cursor at offset
+      // Handle \u200B (zero-width space) correctly
       const textWalker = document.createTreeWalker(blockEl, NodeFilter.SHOW_TEXT);
       let remaining = offset;
       let textNode: Text | null = null;
 
       while ((textNode = textWalker.nextNode() as Text | null) !== null) {
-        if (remaining <= textNode.length) {
+        const nodeValue = textNode.nodeValue ?? '';
+        // Calculate effective length excluding zero-width space
+        const zwspCount = (nodeValue.match(/\u200B/g) || []).length;
+        const effectiveLength = nodeValue.length - zwspCount;
+
+        if (remaining <= effectiveLength) {
+          // Find the actual position in the text node (skip \u200B characters)
+          let charCount = 0;
+          let position = 0;
+
+          for (let i = 0; i < nodeValue.length; i++) {
+            if (nodeValue[i] !== '\u200B') {
+              charCount++;
+            }
+            if (charCount >= remaining) {
+              position = i + 1;
+              break;
+            }
+          }
+
           const r = document.createRange();
-          r.setStart(textNode, Math.min(remaining, textNode.length));
+          r.setStart(textNode, position || 0);
           r.collapse(true);
           const sel = window.getSelection();
           sel?.removeAllRanges();
           sel?.addRange(r);
           return;
         }
-        remaining -= textNode.length;
+        remaining -= effectiveLength;
       }
 
-      // Strategy 2: No text nodes — look for <br /> elements
-      const brWalker = document.createTreeWalker(blockEl, NodeFilter.SHOW_ELEMENT);
-      let brElement: Element | null = null;
-      while ((brElement = brWalker.nextNode() as Element | null) !== null) {
-        if (brElement.tagName === 'BR') {
-          // Place cursor before <br />
-          const r = document.createRange();
-          r.setStartBefore(brElement);
-          r.collapse(true);
-          const sel = window.getSelection();
-          sel?.removeAllRanges();
-          sel?.addRange(r);
-          return;
-        }
-      }
-
-      // Strategy 3: Cursor at start of block
+      // Strategy 2: Cursor at start of block (handles empty blocks with only \u200B)
       const r = document.createRange();
       r.selectNodeContents(blockEl);
       r.collapse(true);
@@ -1143,7 +1097,6 @@ const EditorView: React.FC<EditorViewProps> = ({
           <>
             <EditorScrollContainer
               blockTree={blockTree}
-              blockTreeRef={blockTreeRef}
               onFenceLanguageChange={handleFenceLanguageChange}
               onBlockContentChange={handleBlockContentChange}
               onBlockEnter={handleBlockEnter}

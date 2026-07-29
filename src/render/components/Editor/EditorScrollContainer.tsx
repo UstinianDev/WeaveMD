@@ -17,7 +17,7 @@ import EmptyBlock from './blocks/EmptyBlock';
 
 interface EditorScrollContainerProps {
   blockTree: BlockTree;
-  blockTreeRef: React.MutableRefObject<BlockTree>;
+  _blockTreeRef?: React.MutableRefObject<BlockTree>;
   /** Code fence language changed via dropdown */
   onFenceLanguageChange: (blockId: BlockId, language: string) => void;
   /** Block content changed (text sync) */
@@ -70,44 +70,8 @@ const getCursorOffsetInBlock = (blockEl: Element): number => {
   return preRange.toString().replace(/\u200B/g, '').length;
 };
 
-const getBlockTextContent = (block: BlockNode, blockEl: Element): string => {
-  if (
-    block.type === 'unordered-list-item' ||
-    block.type === 'ordered-list-item' ||
-    block.type === 'task-list-item'
-  ) {
-    const contentEl = blockEl.querySelector('span.block-content');
-    return contentEl?.textContent?.replace(/\u200B/g, '').trim() ?? '';
-  }
-  if (block.type === 'heading') {
-    let text = blockEl.textContent ?? '';
-    // Strip heading prefix: "# ", "## ", etc.
-    text = text.replace(/^#{1,6}[ \t]*/, '');
-    // Safety: strip any remaining leading #
-    while (text.startsWith('#')) {
-      text = text.slice(1);
-      if (text.startsWith(' ') || text.startsWith('\t')) {
-        text = text.slice(1);
-      }
-    }
-    // Strip zero-width space
-    text = text.replace(/\u200B/g, '');
-    return text.trim();
-  }
-  if (block.type === 'blockquote') {
-    return (
-      blockEl.textContent
-        ?.replace(/^\s*>?\s*/, '')
-        .replace(/\u200B/g, '')
-        .trim() ?? ''
-    );
-  }
-  return blockEl.textContent?.replace(/\u200B/g, '').trim() ?? '';
-};
-
 const EditorScrollContainer: React.FC<EditorScrollContainerProps> = ({
   blockTree,
-  blockTreeRef,
   onFenceLanguageChange,
   onBlockContentChange,
   onBlockEnter,
@@ -148,10 +112,41 @@ const EditorScrollContainer: React.FC<EditorScrollContainerProps> = ({
     [onBlockEnter, onBlockDelete]
   );
 
+  const handleFocus = useCallback((_e: React.FocusEvent<HTMLDivElement>) => {
+    const blockId = getActiveBlockId();
+    if (!blockId) return;
+
+    const blockEl = document.querySelector(`[data-block-id="${blockId}"]`);
+    if (!blockEl) return;
+
+    // If block has data-empty attribute, place cursor at the start
+    // so that user's input replaces the placeholder
+    if (blockEl.hasAttribute('data-empty')) {
+      const range = document.createRange();
+      range.selectNodeContents(blockEl);
+      range.collapse(true); // Place cursor at start
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
+  }, []);
+
   const handleInput = useCallback(
     (_e: React.FormEvent<HTMLDivElement>) => {
       const blockId = getActiveBlockId();
       if (!blockId) return;
+
+      // Update data-empty attribute based on actual content
+      const blockEl = document.querySelector(`[data-block-id="${blockId}"]`);
+      if (blockEl) {
+        const text = blockEl.textContent?.replace(/\u200B/g, '').trim() ?? '';
+        if (text.length > 0) {
+          blockEl.removeAttribute('data-empty');
+        } else {
+          blockEl.setAttribute('data-empty', 'true');
+        }
+      }
+
       onBlockInput(blockId);
     },
     [onBlockInput]
@@ -173,6 +168,7 @@ const EditorScrollContainer: React.FC<EditorScrollContainerProps> = ({
         }}
         onKeyDown={handleKeyDown}
         onInput={handleInput}
+        onFocus={handleFocus}
       >
         {blocks.length === 0 ? (
           <EmptyBlock block={emptyBlockPlaceholder} />
