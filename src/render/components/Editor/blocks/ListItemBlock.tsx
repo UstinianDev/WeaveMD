@@ -1,10 +1,9 @@
 // ============================================
 // WeaveMD — List Item Block Component
 // ============================================
-// Renders list item blocks in read-only WYSIWYG mode.
-// Handles THREE list types: unordered-list-item, ordered-list-item, task-list-item.
-// Shows rendered HTML with appropriate list marker.
-// Editing is done via View → Source Code Mode.
+// Renders list item blocks.
+// Text is in plain text nodes for container-level contentEditable editing.
+// Markers (bullet, number, checkbox) are non-editable decorations.
 // ============================================
 
 import React from 'react';
@@ -14,17 +13,16 @@ interface ListItemBlockProps {
   block: BlockNode;
 }
 
+const getVisibleText = (block: BlockNode): string => {
+  const text = block.sourceLines.join(' ');
+  return text
+    .replace(/^[\s]*[-+*]\s*/, '')
+    .replace(/^[\s]*\d+\.\s*/, '')
+    .replace(/^[\s]*[-+*]\s*\[[ xX]\]\s*/, '');
+};
+
 const ListItemBlock: React.FC<ListItemBlockProps> = ({ block }) => {
-  const renderContent = () => {
-    if (block.renderedHtml) {
-      return <span dangerouslySetInnerHTML={{ __html: block.renderedHtml }} />;
-    }
-    const text = block.sourceLines.join(' ')
-      .replace(/^[\s]*[-+*]\s*/, '')
-      .replace(/^[\s]*\d+\.\s*/, '')
-      .replace(/^[\s]*[-+*]\s*\[[ xX]\]\s*/, '');
-    return <span>{text}</span>;
-  };
+  const text = getVisibleText(block);
 
   if (block.type === 'task-list-item') {
     return (
@@ -38,8 +36,8 @@ const ListItemBlock: React.FC<ListItemBlockProps> = ({ block }) => {
                         bg-[var(--bg-secondary)] text-[var(--text-primary)]">
           {block.checked ? '✓' : ''}
         </span>
-        <span className="flex-1 text-base leading-relaxed">
-          {renderContent()}
+        <span className="block-content flex-1 text-[14px] leading-[1.65]">
+          {text || '\u200B'}
         </span>
       </div>
     );
@@ -51,12 +49,12 @@ const ListItemBlock: React.FC<ListItemBlockProps> = ({ block }) => {
         className="ordered-list-item flex items-start gap-2 mb-1 text-[var(--text-primary)]"
         data-block-id={block.id}
       >
-        <span className="list-marker text-base leading-relaxed font-medium text-[var(--text-secondary)]
+        <span className="list-marker text-[14px] leading-[1.65] font-medium text-[var(--text-secondary)]
                         min-w-[1.5em] text-right flex-shrink-0 select-none">
           {block.orderedIndex ?? 1}.
         </span>
-        <span className="flex-1 text-base leading-relaxed">
-          {renderContent()}
+        <span className="block-content flex-1 text-[14px] leading-[1.65]">
+          {text || '\u200B'}
         </span>
       </div>
     );
@@ -68,12 +66,12 @@ const ListItemBlock: React.FC<ListItemBlockProps> = ({ block }) => {
       className="unordered-list-item flex items-start gap-2 mb-1 text-[var(--text-primary)]"
       data-block-id={block.id}
     >
-      <span className="list-bullet text-base leading-relaxed text-[var(--text-secondary)]
+      <span className="list-bullet text-[14px] leading-[1.65] text-[var(--text-secondary)]
                       min-w-[1.5em] text-center flex-shrink-0 select-none">
         {'•'}
       </span>
-      <span className="flex-1 text-base leading-relaxed">
-        {renderContent()}
+      <span className="block-content flex-1 text-[14px] leading-[1.65]">
+        {text || '\u200B'}
       </span>
     </div>
   );
