@@ -89,27 +89,33 @@ The editor supports WYSIWYG editing in Normal Mode via **container-level content
 - `src/render/services/blockTreeSerializer.ts` — Block tree → markdown serializer (uses `\n\n` paragraph separator)
 - `src/render/services/lineMarkdown.ts` — Shared markdown line detection
 - `src/render/components/Editor/EditorView.tsx` — Dual-mode orchestrator with WYSIWYG handlers
-- `src/render/components/Editor/EditorScrollContainer.tsx` — Document viewport (contentEditable surface, no forwardRef)
+- `src/render/components/Editor/EditorScrollContainer.tsx` — Document viewport (contentEditable surface, forwardRef + scrollToBlock + active heading detection)
 - `src/render/components/Editor/BlockRenderer.tsx` — Block type dispatcher (read-only rendering)
 - `src/render/components/Editor/FloatingToolbarWYSIWYG.tsx` — Floating toolbar for text formatting
+- `src/render/components/Editor/OutlinePanel.tsx` — Document outline with heading navigation + dynamic highlight
 - `src/render/components/Editor/blocks/` — Read-only block components (ParagraphBlock, HeadingBlock, CodeFenceBlock, EmptyBlock)
 - `src/render/stores/editorStore.ts` — Content state with undo/redo stack
 
 ### Design Decisions
 
-| Aspect                  | Decision                                                            |
-| ----------------------- | ------------------------------------------------------------------- |
-| Block editing           | Container-level `contentEditable` on `editor-content-area` div      |
-| Source Code toggle      | `uiStore.isSourceCodeMode` → shared between TopBar and EditorView   |
-| Find & Replace toggle   | `uiStore.isFindReplaceOpen` → inline bar, not modal                 |
-| Undo/Redo               | Store-based history stack; paragraph ops manually push to undoStack |
-| Code fence language     | `<select>` dropdown for language selection                          |
-| Code block editing      | Double-click to enter edit mode with textarea                       |
-| Floating toolbar        | Appears on text selection; hides when selection collapsed           |
-| Monaco themes           | Defined in EditorView useEffect (`weaveMD-dark`, `weaveMD-light`)   |
-| New file naming         | `untitled-{timestamp36}.md`                                         |
-| Empty block placeholder | Zero-width space (`\u200B`) + CSS `::before` pseudo-element         |
-| Serialization separator | `\n\n` between blocks to preserve paragraph boundaries              |
+| Aspect                  | Decision                                                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Block editing           | Container-level `contentEditable` on `editor-content-area` div                                                                             |
+| Source Code toggle      | `uiStore.isSourceCodeMode` → shared between TopBar and EditorView                                                                          |
+| Find & Replace toggle   | `uiStore.isFindReplaceOpen` → inline bar, not modal                                                                                        |
+| Undo/Redo               | Store-based history stack; paragraph ops manually push to undoStack                                                                        |
+| Code fence language     | `<select>` dropdown for language selection                                                                                                 |
+| Code block editing      | Double-click to enter edit mode with textarea                                                                                              |
+| Floating toolbar        | Appears on text selection; hides when selection collapsed                                                                                  |
+| Monaco themes           | Defined in EditorView useEffect (`weaveMD-dark`, `weaveMD-light`)                                                                          |
+| New file naming         | `untitled-{timestamp36}.md`                                                                                                                |
+| Empty block placeholder | Zero-width space (`\u200B`) + CSS `::before` pseudo-element                                                                                |
+| Serialization separator | `\n\n` between blocks to preserve paragraph boundaries                                                                                     |
+| Outline navigation      | Heading index mapping (H1-H3 only); EditorView exposes `navigateToHeading` via `onNavigateReady`                                           |
+| Outline highlight       | `EditorScrollContainer` scroll listener → `onActiveHeadingChange` → OutlinePanel active row styling                                        |
+| Outline width           | `uiStore.outlineWidth` (default 280px, range 200-500px); drag handle on right border, persisted to localStorage                            |
+| Scrollbar width         | Editor + outline: 10px webkit scrollbar with rounded thumb; global: 6px                                                                    |
+| Navigate ready timing   | `useEffect` depends on `[isSourceCodeMode, onNavigateReady, themesLoading]` — ensures `scrollContainerRef` is set after Monaco themes load |
 
 ### Resolved Issues (from old ContentWidget system)
 

@@ -9,7 +9,7 @@ import { useEditorStore } from '../../stores/editorStore';
 import { useUIStore } from '../../stores/uiStore';
 
 const INDENT_CLASSES = ['ml-0', 'ml-4', 'ml-8'] as const;
-const FONT_CLASSES = ['text-base font-semibold', 'text-sm', 'text-sm'] as const;
+const FONT_CLASSES = ['text-lg font-semibold', 'text-base font-medium', 'text-sm'] as const;
 
 interface OutlinePanelProps {
   onNavigateToHeading?: (headingIndex: number) => void;
@@ -165,7 +165,7 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto py-2">
+      <div className="outline-scroll flex-1 overflow-y-auto py-2">
         {outline.length === 0 ? (
           <div className="px-3 py-4 text-center">
             <p className="text-sm text-text-muted">
