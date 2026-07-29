@@ -16,6 +16,7 @@ interface UIStore {
   theme: ThemeType;
   language: LanguageType;
   sidebarWidth: number;
+  outlineWidth: number;
   isSidebarOpen: boolean;
   isOutlinePanelCollapsed: boolean;
   pageWidth: PageWidth;
@@ -32,6 +33,7 @@ interface UIStore {
   setTheme: (theme: ThemeType) => void;
   setLanguage: (language: LanguageType) => void;
   setSidebarWidth: (width: number) => void;
+  setOutlineWidth: (width: number) => void;
   toggleSidebar: () => void;
   toggleOutlinePanel: () => void;
   setPageWidth: (width: PageWidth) => void;
@@ -61,6 +63,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   theme: 'light-header',
   language: 'zh-CN',
   sidebarWidth: 240,
+  outlineWidth: 280,
   isSidebarOpen: true,
   isOutlinePanelCollapsed: false,
   pageWidth: 'default',
@@ -86,6 +89,11 @@ export const useUIStore = create<UIStore>((set, get) => ({
 
   setSidebarWidth: (width) => {
     set({ sidebarWidth: width });
+    get().persistSettings();
+  },
+
+  setOutlineWidth: (width) => {
+    set({ outlineWidth: Math.min(500, Math.max(200, width)) });
     get().persistSettings();
   },
 
@@ -173,19 +181,23 @@ export const useUIStore = create<UIStore>((set, get) => ({
   },
 
   persistSettings: () => {
-    const { theme, language, sidebarWidth } = get();
-    localStorage.setItem('weavemd_ui', JSON.stringify({ theme, language, sidebarWidth }));
+    const { theme, language, sidebarWidth, outlineWidth } = get();
+    localStorage.setItem(
+      'weavemd_ui',
+      JSON.stringify({ theme, language, sidebarWidth, outlineWidth })
+    );
   },
 
   loadSettings: () => {
     try {
       const stored = localStorage.getItem('weavemd_ui');
       if (stored) {
-        const { theme, language, sidebarWidth } = JSON.parse(stored);
+        const { theme, language, sidebarWidth, outlineWidth } = JSON.parse(stored);
         set({
           theme: theme || 'light-header',
           language: language || 'zh-CN',
           sidebarWidth: sidebarWidth || 240,
+          outlineWidth: outlineWidth || 280,
         });
       }
     } catch {

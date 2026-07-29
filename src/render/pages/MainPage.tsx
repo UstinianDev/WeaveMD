@@ -22,6 +22,8 @@ const MainPage: React.FC = () => {
   const saveFile = useEditorStore((s) => s.saveFile);
   const isSidebarOpen = useUIStore((s) => s.isSidebarOpen);
   const isOutlinePanelCollapsed = useUIStore((s) => s.isOutlinePanelCollapsed);
+  const outlineWidth = useUIStore((s) => s.outlineWidth);
+  const setOutlineWidth = useUIStore((s) => s.setOutlineWidth);
   const isHistoryPanelOpen = useUIStore((s) => s.isHistoryPanelOpen);
   const toggleHistoryPanel = useUIStore((s) => s.toggleHistoryPanel);
   const activeModal = useUIStore((s) => s.activeModal);
@@ -56,6 +58,37 @@ const MainPage: React.FC = () => {
   const [isEditorFocused, setIsEditorFocused] = useState(false);
   const navigateToHeadingRef = useRef<((headingIndex: number) => void) | null>(null);
   const [activeHeadingIndex, setActiveHeadingIndex] = useState<number | null>(null);
+  const [isDraggingOutline, setIsDraggingOutline] = useState(false);
+
+  // Outline panel drag-to-resize
+  const handleOutlineDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setIsDraggingOutline(true);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      const startX = e.clientX;
+      const startWidth = outlineWidth;
+
+      const onMove = (ev: MouseEvent) => {
+        const delta = ev.clientX - startX;
+        setOutlineWidth(startWidth + delta);
+      };
+
+      const onUp = () => {
+        setIsDraggingOutline(false);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    },
+    [outlineWidth, setOutlineWidth]
+  );
 
   const handleNavigateReady = useCallback((navFn: (headingIndex: number) => void) => {
     navigateToHeadingRef.current = navFn;
@@ -111,12 +144,32 @@ const MainPage: React.FC = () => {
       <div className="flex flex-1 overflow-hidden">
         {/* Outline Sidebar */}
         {isSidebarOpen && (
-          <div className={isOutlinePanelCollapsed ? 'w-8 flex-shrink-0' : 'w-1/4 flex-shrink-0'}>
-            <OutlinePanel
-              onNavigateToHeading={handleNavigateToHeading}
-              activeHeadingIndex={activeHeadingIndex}
-            />
-          </div>
+          <>
+            {isOutlinePanelCollapsed ? (
+              <div className="w-8 flex-shrink-0">
+                <OutlinePanel
+                  onNavigateToHeading={handleNavigateToHeading}
+                  activeHeadingIndex={activeHeadingIndex}
+                />
+              </div>
+            ) : (
+              <div
+                className={`flex-shrink-0 relative ${isDraggingOutline ? 'border-r-2 border-accent' : ''}`}
+                style={{ width: outlineWidth }}
+              >
+                <OutlinePanel
+                  onNavigateToHeading={handleNavigateToHeading}
+                  activeHeadingIndex={activeHeadingIndex}
+                />
+                {/* Drag handle */}
+                <div
+                  onMouseDown={handleOutlineDragStart}
+                  className="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-accent/30 transition-colors"
+                  style={{ marginRight: '-2px' }}
+                />
+              </div>
+            )}
+          </>
         )}
 
         {/* Editor area */}
