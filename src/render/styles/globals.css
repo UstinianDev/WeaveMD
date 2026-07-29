@@ -1591,5 +1591,50 @@ html.dark .code-fence-content .token.variable {
 /* Empty block placeholder */
 .empty-block {
   scroll-margin-top: 24px;
-  user-select: none;
+}
+
+/* Placeholder for simple blocks (paragraph, heading, blockquote, empty) */
+.editor-content-area [data-block-id][data-placeholder]:has(> br:only-child)::before,
+.editor-content-area [data-block-id][data-placeholder]:empty::before,
+.editor-content-area [data-block-id][data-placeholder][data-empty='true']::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+/* Placeholder for list items (content span has only br or is empty) */
+.editor-content-area [data-block-id] > span.block-content:has(> br:only-child)::before,
+.editor-content-area [data-block-id] > span.block-content:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+/* Ensure empty contentEditable blocks show caret */
+[contenteditable] br:only-child {
+  display: inline;
+}
+
+/* Remove orange focus outline from editor content area */
+.editor-content-area:focus,
+.editor-content-area *:focus {
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+/* Block styles within contentEditable container */
+.editor-content-area [data-block-id] {
+  outline: none !important;
+  border: none !important;
+}
+
+/* Placeholder text styling (combined with placeholder rules above) */
+.editor-content-area [data-block-id][data-placeholder]:has(> br:only-child)::before,
+.editor-content-area [data-block-id][data-placeholder]:empty::before,
+.editor-content-area [data-block-id][data-placeholder][data-empty='true']::before,
+.editor-content-area [data-block-id] > span.block-content:has(> br:only-child)::before,
+.editor-content-area [data-block-id] > span.block-content:empty::before {
+  font-style: italic;
+  opacity: 0.6;
 }

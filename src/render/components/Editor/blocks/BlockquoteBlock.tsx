@@ -1,9 +1,8 @@
 // ============================================
 // WeaveMD — Blockquote Block Component
 // ============================================
-// Renders blockquote blocks in read-only WYSIWYG mode.
-// Shows rendered HTML with left accent border.
-// Editing is done via View → Source Code Mode.
+// Renders blockquote blocks with plain text nodes
+// for container-level contentEditable editing.
 // ============================================
 
 import React from 'react';
@@ -14,14 +13,17 @@ interface BlockquoteBlockProps {
 }
 
 const BlockquoteBlock: React.FC<BlockquoteBlockProps> = ({ block }) => {
+  const text = block.sourceLines.map((l) => l.replace(/^>\s?/, '')).join(' ');
+
   return (
     <blockquote
       className="blockquote-block mb-3 pl-4 border-l-4 border-[var(--accent)]
-                 text-[var(--text-secondary)] italic"
+                 text-[var(--text-secondary)] italic text-[14px] leading-[1.65]"
       data-block-id={block.id}
-      dangerouslySetInnerHTML={block.renderedHtml ? { __html: block.renderedHtml } : undefined}
+      data-placeholder="Empty blockquote"
+      data-empty={!text ? 'true' : undefined}
     >
-      {!block.renderedHtml ? block.sourceLines.map((l) => l.replace(/^>\s?/, '')).join(' ') : undefined}
+      {text || '\u200B'}
     </blockquote>
   );
 };

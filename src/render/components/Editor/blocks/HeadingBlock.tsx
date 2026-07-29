@@ -1,95 +1,52 @@
-// ============================================
-// WeaveMD — Heading Block Component
-// ============================================
-// Renders heading blocks (H1-H6) in editable WYSIWYG mode.
-// Shows rendered HTML in the appropriate heading tag with contentEditable.
-// ============================================
+import React from 'react';
 
-import React, { useCallback } from 'react';
-import type { BlockId, BlockNode } from '../../../services/blockTree';
+import type { BlockNode } from '../../../services/blockTree';
 
 interface HeadingBlockProps {
   block: BlockNode;
-  onContentChange?: (blockId: BlockId, newContent: string) => void;
-  onEnter?: (blockId: BlockId) => void;
-  onDelete?: (blockId: BlockId) => void;
+  onContentChange?: (id: string, newContent: string) => void;
+  onEnter?: (id: string) => void;
+  onDelete?: (id: string) => void;
 }
 
-const HEADING_TAG_MAP: Record<number, keyof JSX.IntrinsicElements> = {
-  1: 'h1',
-  2: 'h2',
-  3: 'h3',
-  4: 'h4',
-  5: 'h5',
-  6: 'h6',
-};
+const HeadingBlock: React.FC<HeadingBlockProps> = ({ block }) => {
+  const { headingLevel = 1 } = block;
+  const rawText = block.sourceLines.join(' ');
+  // Strip markdown heading prefix (e.g., "# ", "## ", "###") for visual display
+  // Use [ \t]* to handle edge cases with or without trailing space
+  let text = rawText.replace(/^#{1,6}[ \t]*/, '');
+  // Safety: if text still starts with '#', strip any remaining leading #
+  while (text.startsWith('#')) {
+    text = text.slice(1);
+    if (text.startsWith(' ') || text.startsWith('\t')) {
+      text = text.slice(1);
+    }
+  }
 
-const HEADING_CLASSES: Record<number, string> = {
-  1: 'text-[26px] font-[700] leading-[1.35] mt-[16px] mb-[8px]',
-  2: 'text-[22px] font-[600] leading-[1.35] mt-[14px] mb-[6px]',
-  3: 'text-[18px] font-[600] leading-[1.4] mt-[12px] mb-[4px]',
-  4: 'text-[16px] font-[500] leading-[1.45] mt-[10px] mb-[4px]',
-  5: 'text-[15px] font-[500] leading-[1.5] mt-[8px] mb-[4px]',
-  6: 'text-[14px] font-[500] leading-[1.5] mt-[8px] mb-[4px]',
-};
+  const tag = `h${headingLevel}` as keyof JSX.IntrinsicElements;
 
-const HeadingBlock: React.FC<HeadingBlockProps> = ({
-  block,
-  onContentChange,
-  onEnter,
-  onDelete,
-}) => {
-  const level = block.headingLevel ?? 1;
-  const Tag = HEADING_TAG_MAP[level] || 'h1';
-  const className = `heading-block ${HEADING_CLASSES[level] || HEADING_CLASSES[1]}`;
-  const textContent = block.sourceLines.join('\n').replace(/^#{1,6}\s+/, '');
+  const sizeClasses: Record<number, string> = {
+    1: 'text-[26px] font-[700] mt-6 mb-4',
+    2: 'text-[22px] font-[600] mt-5 mb-3',
+    3: 'text-[18px] font-[600] mt-4 mb-2',
+    4: 'text-[16px] font-[500] mt-3 mb-2',
+    5: 'text-[15px] font-[500] mt-3 mb-1',
+    6: 'text-[14px] font-[500] mt-3 mb-1',
+  };
 
-  const handleBlur = useCallback(
-    (e: React.FocusEvent<HTMLElement>) => {
-      const newContent = e.currentTarget.innerText.trim();
-      if (newContent !== textContent.trim()) {
-        onContentChange?.(block.id, newContent);
-      }
+  const placeholder = `Heading ${headingLevel}`;
+
+  return React.createElement(
+    tag,
+    {
+      id: `block-${block.id}`,
+      className: `heading-block ${sizeClasses[headingLevel] || sizeClasses[1]} text-[var(--text-primary)] tracking-tight`,
+      'data-block-id': block.id,
+      'data-placeholder': placeholder,
+      'data-empty': !text ? 'true' : undefined,
     },
-    [block.id, textContent, onContentChange]
+    text || '\u200B'
   );
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        onEnter?.(block.id);
-        return;
-      }
-
-      if (e.key === 'Backspace') {
-        const selection = window.getSelection();
-        if (selection) {
-          const range = selection.getRangeAt(0);
-          const content = e.currentTarget.innerText.trim();
-
-          if (content === '' && range.startOffset === 0 && range.endOffset === 0) {
-            e.preventDefault();
-            onDelete?.(block.id);
-          }
-        }
-      }
-    },
-    [block.id, onEnter, onDelete]
-  );
-
-  return React.createElement(Tag, {
-    id: `block-${block.id}`,
-    className,
-    'data-block-id': block.id,
-    onBlur: handleBlur,
-    onKeyDown: handleKeyDown,
-    children: block.renderedHtml ? (
-      <span dangerouslySetInnerHTML={{ __html: block.renderedHtml }} />
-    ) : (
-      textContent
-    ),
-  });
 };
 
 export default React.memo(HeadingBlock);

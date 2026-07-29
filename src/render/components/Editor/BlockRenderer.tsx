@@ -4,7 +4,8 @@
 // Routes a BlockNode to the correct component based
 // on its `type` field.
 //
-// Blocks are editable in Normal Mode via contentEditable.
+// Blocks are rendered as styled children of the
+// container-level contentEditable surface.
 // ============================================
 
 import React from 'react';
@@ -34,28 +35,12 @@ const BlockRenderer: React.FC<BlockRendererProps> = ({
   block,
   onFenceLanguageChange,
   onBlockContentChange,
-  onBlockEnter,
-  onBlockDelete,
 }) => {
   switch (block.type) {
     case 'heading':
-      return (
-        <HeadingBlock
-          block={block}
-          onContentChange={onBlockContentChange}
-          onEnter={onBlockEnter}
-          onDelete={onBlockDelete}
-        />
-      );
+      return <HeadingBlock block={block} />;
     case 'paragraph':
-      return (
-        <ParagraphBlock
-          block={block}
-          onContentChange={onBlockContentChange}
-          onEnter={onBlockEnter}
-          onDelete={onBlockDelete}
-        />
-      );
+      return <ParagraphBlock block={block} />;
     case 'unordered-list-item':
     case 'ordered-list-item':
     case 'task-list-item':
@@ -73,14 +58,7 @@ const BlockRenderer: React.FC<BlockRendererProps> = ({
     case 'blockquote':
       return <BlockquoteBlock block={block} />;
     default:
-      return (
-        <ParagraphBlock
-          block={block}
-          onContentChange={onBlockContentChange}
-          onEnter={onBlockEnter}
-          onDelete={onBlockDelete}
-        />
-      );
+      return <ParagraphBlock block={block} />;
   }
 };
 

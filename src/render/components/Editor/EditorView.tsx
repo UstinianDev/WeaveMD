@@ -1,4 +1,4 @@
-// ============================================
+﻿// ============================================
 // WeaveMD — Block-Based Editor View
 // ============================================
 // Renders the document as a scrollable list of
@@ -69,6 +69,9 @@ const EditorView: React.FC<EditorViewProps> = ({
   const themesDefinedRef = useRef(false);
   const prevSourceCodeModeRef = useRef(false);
   const sourceEditorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const inputDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingInputBlockIdRef = useRef<BlockId | null>(null);
+  const debounceTreeVersionRef = useRef<number>(0);
 
   // --- Store ---
   const content = useEditorStore((s) => s.content);
@@ -79,12 +82,32 @@ const EditorView: React.FC<EditorViewProps> = ({
   const isSourceCodeMode = useUIStore((s) => s.isSourceCodeMode);
   const isFindReplaceOpen = useUIStore((s) => s.isFindReplaceOpen);
 
+  // --- Helper: Ensure tree has at least one block ---
+  const ensureTreeHasBlock = useCallback((tree: BlockTree): BlockTree => {
+    if (tree.rootBlockIds.length > 0) return tree;
+    const emptyBlockId = generateBlockId(tree);
+    const emptyBlock: BlockNode = {
+      id: emptyBlockId,
+      type: 'paragraph',
+      sourceLines: [''],
+      parentId: null,
+      childrenIds: [],
+      renderedHtml: null,
+    };
+    return {
+      rootBlockIds: [emptyBlockId],
+      blocks: { [emptyBlockId]: emptyBlock },
+      version: tree.version + 1,
+    };
+  }, []);
+
   // --- State ---
   const [blockTree, setBlockTree] = useState<BlockTree>(() => {
     const initialContent = useEditorStore.getState().content;
-    return initialContent
+    const tree = initialContent
       ? buildBlockTree(initialContent)
       : { rootBlockIds: [], blocks: {}, version: 0 };
+    return ensureTreeHasBlock(tree);
   });
   const blockTreeRef = useRef<BlockTree>(blockTree);
   const [themesLoading, setThemesLoading] = useState(true);
@@ -188,6 +211,12 @@ const EditorView: React.FC<EditorViewProps> = ({
   // ============================================
 
   useEffect(() => {
+    // Skip rendering if user is actively typing (debounce pending)
+    if (pendingInputBlockIdRef.current) {
+      console.log('[RENDER] Skipping render — user input pending');
+      return;
+    }
+
     const blocks = getAllBlocksInOrder(blockTree);
     let cancelled = false;
 
@@ -208,11 +237,47 @@ const EditorView: React.FC<EditorViewProps> = ({
         if (cancelled) return;
         if (block.renderedHtml !== null) continue;
 
+        // Skip plain paragraphs — they display as raw text, no rendering needed
+        if (block.type === 'paragraph') continue;
+
         const markdown = block.sourceLines.join('\n');
+        if (markdown.trim() === '') continue;
+        // #region debug-point H1:render-block-start
+        fetch('http://localhost:7777/event', {
+          method: 'POST',
+          body: JSON.stringify({
+            sessionId: 'editor-sync-render',
+            runId: 'pre-fix',
+            hypothesisId: 'H1',
+            location: 'EditorView.tsx:renderBlocks',
+            msg: '[DEBUG] Starting render for block',
+            data: {
+              blockId: block.id,
+              blockType: block.type,
+              sourceLines: block.sourceLines,
+              markdownLength: markdown.length,
+              ts: Date.now(),
+            },
+          }),
+        }).catch(() => {});
+        // #endregion
         try {
           const htmlRaw = await renderMarkdownToHtml(markdown);
           const html = normalizeRenderedHtml(block.type, htmlRaw);
           if (cancelled) return;
+          // #region debug-point H1:render-block-done
+          fetch('http://localhost:7777/event', {
+            method: 'POST',
+            body: JSON.stringify({
+              sessionId: 'editor-sync-render',
+              runId: 'pre-fix',
+              hypothesisId: 'H1',
+              location: 'EditorView.tsx:renderBlocks',
+              msg: '[DEBUG] Render complete, setting renderedHtml',
+              data: { blockId: block.id, htmlLength: html.length, ts: Date.now() },
+            }),
+          }).catch(() => {});
+          // #endregion
           setBlockTree((prev) => setBlockRenderedHtml(prev, block.id, html));
         } catch (err) {
           console.error(`Failed to render markdown for block ${block.id}:`, err);
@@ -240,9 +305,9 @@ const EditorView: React.FC<EditorViewProps> = ({
       return;
     }
 
-    const newTree = buildBlockTree(content);
+    const newTree = ensureTreeHasBlock(buildBlockTree(content));
     setBlockTree(newTree);
-  }, [content]);
+  }, [content, ensureTreeHasBlock]);
 
   // ============================================
   // Source Code Mode Toggle → Rebuild Block Tree
@@ -252,11 +317,11 @@ const EditorView: React.FC<EditorViewProps> = ({
     // Transitioning from source code mode → normal mode
     if (prevSourceCodeModeRef.current && !isSourceCodeMode) {
       const latestContent = useEditorStore.getState().content;
-      const newTree = buildBlockTree(latestContent);
+      const newTree = ensureTreeHasBlock(buildBlockTree(latestContent));
       setBlockTree(newTree);
     }
     prevSourceCodeModeRef.current = isSourceCodeMode;
-  }, [isSourceCodeMode]);
+  }, [isSourceCodeMode, ensureTreeHasBlock]);
 
   // ============================================
   // Sync tree to store helper
@@ -280,10 +345,34 @@ const EditorView: React.FC<EditorViewProps> = ({
       block.type === 'ordered-list-item' ||
       block.type === 'task-list-item'
     ) {
-      const contentEl = blockEl.querySelector('span.flex-1');
-      return contentEl?.textContent?.trim() ?? '';
+      const contentEl = blockEl.querySelector('span.block-content');
+      return contentEl?.textContent?.replace(/\u200B/g, '').trim() ?? '';
     }
-    return blockEl.textContent?.trim() ?? '';
+    if (block.type === 'blockquote') {
+      return (
+        blockEl.textContent
+          ?.replace(/^\s*>?\s*/, '')
+          .replace(/\u200B/g, '')
+          .trim() ?? ''
+      );
+    }
+    // For heading, strip markdown prefix from DOM text
+    if (block.type === 'heading') {
+      let text = blockEl.textContent ?? '';
+      // Strip heading prefix: "# ", "## ", etc.
+      text = text.replace(/^#{1,6}[ \t]*/, '');
+      // Safety: strip any remaining leading #
+      while (text.startsWith('#')) {
+        text = text.slice(1);
+        if (text.startsWith(' ') || text.startsWith('\t')) {
+          text = text.slice(1);
+        }
+      }
+      // Strip zero-width space
+      text = text.replace(/\u200B/g, '');
+      return text.trim();
+    }
+    return blockEl.textContent?.replace(/\u200B/g, '').trim() ?? '';
   }, []);
 
   const buildSourceLinesFromContent = useCallback((block: BlockNode, content: string): string[] => {
@@ -314,19 +403,75 @@ const EditorView: React.FC<EditorViewProps> = ({
 
   useEffect(() => {
     const syncContentBeforeToggle = () => {
+      console.log('[SYNC] syncContentBeforeToggle called, isSourceCodeMode:', isSourceCodeMode);
       if (!isSourceCodeMode) {
+        console.log(
+          '[SYNC] Starting sync, blockTree version:',
+          blockTreeRef.current.version,
+          'blocks:',
+          Object.keys(blockTreeRef.current.blocks).length
+        );
+
+        // Flush pending input debounce immediately
+        if (inputDebounceRef.current) {
+          clearTimeout(inputDebounceRef.current);
+          inputDebounceRef.current = null;
+        }
+        const pendingBlockId = pendingInputBlockIdRef.current;
+        pendingInputBlockIdRef.current = null;
+        console.log('[SYNC] pendingBlockId:', pendingBlockId);
+
         const container = document.querySelector('.editor-content-area');
+        console.log('[SYNC] container found:', !!container);
         if (container) {
           const blocks = getAllBlocksInOrder(blockTreeRef.current);
           const newBlocks = { ...blockTreeRef.current.blocks };
           let hasChanges = false;
 
           for (const block of blocks) {
-            if (block.type === 'code-fence' || block.type === 'table') continue;
+            if (block.type === 'code-fence' || block.type === 'table') {
+              console.log('[SYNC] skipping block:', block.id, 'type:', block.type);
+              continue;
+            }
 
             const blockEl = container.querySelector(`[data-block-id="${block.id}"]`);
+            console.log('[SYNC] block:', block.id, 'type:', block.type, 'found:', !!blockEl);
             if (blockEl) {
               const newContent = getBlockTextContent(block, blockEl);
+              console.log(
+                '[SYNC] block:',
+                block.id,
+                'domContent:',
+                JSON.stringify(newContent),
+                'sourceLines:',
+                JSON.stringify(block.sourceLines)
+              );
+
+              // Detect Markdown type changes (covers pending debounce case)
+              const detection = detectMarkdownLine(newContent);
+              if (detection && detection.type !== block.type) {
+                console.log(
+                  '[SYNC] markdown type change for block:',
+                  block.id,
+                  'from:',
+                  block.type,
+                  'to:',
+                  detection.type
+                );
+                newBlocks[block.id] = {
+                  ...block,
+                  type: detection.type,
+                  sourceLines: [newContent],
+                  headingLevel: detection.headingLevel,
+                  checked: detection.isChecked,
+                  orderedIndex: detection.orderedIndex,
+                  renderedHtml: null,
+                };
+                hasChanges = true;
+                continue;
+              }
+
+              // Check if content changed (for existing blocks)
               const oldContent = block.sourceLines
                 .join(block.type === 'heading' ? '\n' : ' ')
                 .replace(/^[\s]*[-+*]\s*/, '')
@@ -336,6 +481,14 @@ const EditorView: React.FC<EditorViewProps> = ({
                 .trim();
 
               if (newContent !== oldContent) {
+                console.log(
+                  '[SYNC] content changed for block:',
+                  block.id,
+                  'old:',
+                  JSON.stringify(oldContent),
+                  'new:',
+                  JSON.stringify(newContent)
+                );
                 const newSourceLines = buildSourceLinesFromContent(block, newContent);
                 newBlocks[block.id] = {
                   ...block,
@@ -343,11 +496,16 @@ const EditorView: React.FC<EditorViewProps> = ({
                   renderedHtml: null,
                 };
                 hasChanges = true;
+              } else {
+                console.log('[SYNC] content unchanged for block:', block.id);
               }
+            } else {
+              console.log('[SYNC] block element NOT found for:', block.id);
             }
           }
 
-          if (hasChanges) {
+          console.log('[SYNC] hasChanges:', hasChanges, 'pendingBlockId:', pendingBlockId);
+          if (hasChanges || pendingBlockId) {
             const newTree = {
               ...blockTreeRef.current,
               blocks: newBlocks,
@@ -356,24 +514,31 @@ const EditorView: React.FC<EditorViewProps> = ({
             blockTreeRef.current = newTree;
             setBlockTree(newTree);
             const serialized = serializeBlockTree(newTree);
+            console.log('[SYNC] serialized content:', JSON.stringify(serialized));
             isUpdatingFromExternalRef.current = true;
             setContent(serialized);
           } else {
             const serialized = serializeBlockTree(blockTreeRef.current);
+            console.log('[SYNC] no changes, serialized:', JSON.stringify(serialized));
             isUpdatingFromExternalRef.current = true;
             setContent(serialized);
           }
         } else {
           const serialized = serializeBlockTree(blockTreeRef.current);
+          console.log('[SYNC] no container, serialized:', JSON.stringify(serialized));
           isUpdatingFromExternalRef.current = true;
           setContent(serialized);
         }
+      } else {
+        console.log('[SYNC] Already in source code mode, skipping sync');
       }
     };
 
     useUIStore.getState().setBeforeToggleSourceMode(syncContentBeforeToggle);
+    console.log('[SYNC] Registered beforeToggleSourceMode, isSourceCodeMode:', isSourceCodeMode);
 
     return () => {
+      console.log('[SYNC] Cleaning up beforeToggleSourceMode, isSourceCodeMode:', isSourceCodeMode);
       useUIStore.getState().setBeforeToggleSourceMode(null);
     };
   }, [isSourceCodeMode, setContent, getBlockTextContent, buildSourceLinesFromContent]);
@@ -404,9 +569,10 @@ const EditorView: React.FC<EditorViewProps> = ({
       if (!block) return;
 
       const detection = detectMarkdownLine(newContent);
+      const typeChanged = !!(detection && detection.type !== block.type);
 
       let next: BlockTree;
-      if (detection && detection.type !== block.type) {
+      if (typeChanged && detection) {
         const newBlock: BlockNode = {
           ...block,
           type: detection.type,
@@ -431,100 +597,330 @@ const EditorView: React.FC<EditorViewProps> = ({
         };
       }
 
+      // Always update ref + store
       blockTreeRef.current = next;
-      setBlockTree(next);
       syncTreeToStore(next);
+
+      // Only call setBlockTree when block TYPE changes (structural re-render needed)
+      // For plain text blur updates, never trigger React re-render of contentEditable DOM
+      // — this causes "removeChild" crash because browser already modified the DOM
+      if (typeChanged) {
+        setBlockTree(next);
+      }
     },
     [syncTreeToStore, buildSourceLinesFromContent]
   );
+
+  // ============================================
+  // Block Input Handler (Real-time Markdown detection)
+  // ============================================
+
+  const handleBlockInput = useCallback(
+    (id: BlockId) => {
+      pendingInputBlockIdRef.current = id;
+      debounceTreeVersionRef.current = blockTreeRef.current.version;
+      if (inputDebounceRef.current) {
+        clearTimeout(inputDebounceRef.current);
+      }
+
+      inputDebounceRef.current = setTimeout(() => {
+        pendingInputBlockIdRef.current = null;
+
+        // Cancel if tree version changed (Enter/Backspace may have modified it)
+        if (blockTreeRef.current.version !== debounceTreeVersionRef.current) {
+          console.log('[INPUT] Debounce cancelled - tree version changed');
+          inputDebounceRef.current = null;
+          return;
+        }
+
+        const container = document.querySelector('.editor-content-area');
+        const blockEl = container?.querySelector(`[data-block-id="${id}"]`);
+        if (!blockEl) return;
+
+        const prev = blockTreeRef.current;
+        let block = prev.blocks[id];
+
+        // NEW BLOCK: Not in tree yet — create it with setBlockTree (no existing DOM to conflict)
+        if (!block) {
+          block = {
+            id,
+            type: 'paragraph',
+            sourceLines: [''],
+            parentId: null,
+            childrenIds: [],
+            renderedHtml: null,
+          };
+          let next: BlockTree;
+          if (prev.rootBlockIds.length === 0) {
+            next = {
+              rootBlockIds: [id],
+              blocks: { ...prev.blocks, [id]: block },
+              version: prev.version + 1,
+            };
+          } else {
+            next = insertBlockAfter(prev, prev.rootBlockIds[prev.rootBlockIds.length - 1], block);
+          }
+          blockTreeRef.current = next;
+          setBlockTree(next);
+          syncTreeToStore(next);
+          return;
+        }
+
+        const newContent = getBlockTextContent(block, blockEl);
+        const detection = detectMarkdownLine(newContent);
+        const typeChanged = !!(detection && detection.type !== block.type);
+
+        // Build updated block
+        let updatedBlock: BlockNode;
+        if (typeChanged && detection) {
+          updatedBlock = {
+            ...block,
+            type: detection.type,
+            sourceLines: [newContent],
+            headingLevel: detection.headingLevel,
+            checked: detection.isChecked,
+            orderedIndex: detection.orderedIndex,
+            renderedHtml: null,
+          };
+        } else if (block.type !== 'paragraph') {
+          updatedBlock = {
+            ...block,
+            sourceLines: buildSourceLinesFromContent(block, newContent),
+            renderedHtml: null,
+          };
+        } else {
+          updatedBlock = {
+            ...block,
+            sourceLines: [newContent],
+            renderedHtml: null,
+          };
+        }
+
+        const next: BlockTree = {
+          ...prev,
+          blocks: { ...prev.blocks, [id]: updatedBlock },
+          version: prev.version + 1,
+        };
+
+        // Always update ref immediately
+        blockTreeRef.current = next;
+
+        syncTreeToStore(next);
+
+        // CRITICAL: Only call setBlockTree when block TYPE changes
+        // For plain text edits, React must NOT re-render the block
+        // because it would replace the DOM node user is actively editing
+        if (typeChanged) {
+          setBlockTree(next);
+
+          // Save cursor before type-change re-render
+          const selection = window.getSelection();
+          let savedOffset = 0;
+          if (selection && selection.rangeCount > 0) {
+            const range = selection.getRangeAt(0);
+            const preRange = range.cloneRange();
+            preRange.selectNodeContents(blockEl);
+            preRange.setEnd(range.endContainer, range.endOffset);
+            savedOffset = preRange.toString().length;
+          }
+
+          setTimeout(() => {
+            const newBlockEl = document.querySelector(`[data-block-id="${id}"]`);
+            if (!newBlockEl) return;
+            // Strategy 1: Find text nodes
+            const walker = document.createTreeWalker(newBlockEl, NodeFilter.SHOW_TEXT);
+            let remaining = savedOffset;
+            let textNode: Text | null = null;
+            while ((textNode = walker.nextNode() as Text | null) !== null) {
+              if (remaining <= textNode.length) {
+                const r = document.createRange();
+                r.setStart(textNode, Math.min(remaining, textNode.length));
+                r.collapse(true);
+                const sel = window.getSelection();
+                sel?.removeAllRanges();
+                sel?.addRange(r);
+                return;
+              }
+              remaining -= textNode.length;
+            }
+            // Strategy 2: Look for <br /> elements
+            const brWalker = document.createTreeWalker(newBlockEl, NodeFilter.SHOW_ELEMENT);
+            let brEl: Element | null = null;
+            while ((brEl = brWalker.nextNode() as Element | null) !== null) {
+              if (brEl.tagName === 'BR') {
+                const r = document.createRange();
+                r.setStartBefore(brEl);
+                r.collapse(true);
+                const sel = window.getSelection();
+                sel?.removeAllRanges();
+                sel?.addRange(r);
+                return;
+              }
+            }
+            // Strategy 3: Cursor at start
+            const r = document.createRange();
+            r.selectNodeContents(newBlockEl);
+            r.collapse(true);
+            const sel = window.getSelection();
+            sel?.removeAllRanges();
+            sel?.addRange(r);
+          }, 0);
+        }
+      }, 30);
+    },
+    [syncTreeToStore, buildSourceLinesFromContent, getBlockTextContent]
+  );
+
+  // ============================================
+  // Cursor Helper: Place cursor at offset in block
+  // ============================================
+
+  const focusBlockCursor = useCallback((blockId: BlockId, offset: number) => {
+    setTimeout(() => {
+      const blockEl = document.querySelector(`[data-block-id="${blockId}"]`);
+      if (!blockEl) return;
+
+      // Strategy 1: Find text nodes and place cursor at offset
+      const textWalker = document.createTreeWalker(blockEl, NodeFilter.SHOW_TEXT);
+      let remaining = offset;
+      let textNode: Text | null = null;
+
+      while ((textNode = textWalker.nextNode() as Text | null) !== null) {
+        if (remaining <= textNode.length) {
+          const r = document.createRange();
+          r.setStart(textNode, Math.min(remaining, textNode.length));
+          r.collapse(true);
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(r);
+          return;
+        }
+        remaining -= textNode.length;
+      }
+
+      // Strategy 2: No text nodes — look for <br /> elements
+      const brWalker = document.createTreeWalker(blockEl, NodeFilter.SHOW_ELEMENT);
+      let brElement: Element | null = null;
+      while ((brElement = brWalker.nextNode() as Element | null) !== null) {
+        if (brElement.tagName === 'BR') {
+          // Place cursor before <br />
+          const r = document.createRange();
+          r.setStartBefore(brElement);
+          r.collapse(true);
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(r);
+          return;
+        }
+      }
+
+      // Strategy 3: Cursor at start of block
+      const r = document.createRange();
+      r.selectNodeContents(blockEl);
+      r.collapse(true);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(r);
+    }, 0);
+  }, []);
 
   // ============================================
   // Block Enter Handler (Create new paragraph)
   // ============================================
 
   const handleBlockEnter = useCallback(
-    (id: BlockId) => {
+    (id: BlockId, cursorOffset: number = 0) => {
+      // Cancel pending input debounce immediately - Enter takes priority
+      if (inputDebounceRef.current) {
+        clearTimeout(inputDebounceRef.current);
+        inputDebounceRef.current = null;
+        pendingInputBlockIdRef.current = null;
+      }
+
       const container = document.querySelector('.editor-content-area');
       const blockEl = container?.querySelector(`[data-block-id="${id}"]`);
       const currentTree = blockTreeRef.current;
       const currentBlock = currentTree.blocks[id];
 
-      const focusNewBlock = (blockId: BlockId) => {
-        setTimeout(() => {
-          const newBlockElement = document.getElementById(`block-${blockId}`);
-          if (newBlockElement) {
-            newBlockElement.focus();
-            const selection = window.getSelection();
-            if (selection) {
-              const range = document.createRange();
-              range.selectNodeContents(newBlockElement);
-              range.collapse(true);
-              selection.removeAllRanges();
-              selection.addRange(range);
-            }
-          }
-        }, 0);
-      };
-
-      if (blockEl && currentBlock) {
-        const content = getBlockTextContent(currentBlock, blockEl);
-        const detection = detectMarkdownLine(content);
-
-        if (detection && detection.type !== currentBlock.type) {
-          const convertedBlock: BlockNode = {
-            ...currentBlock,
-            type: detection.type,
-            sourceLines: [content],
-            headingLevel: detection.headingLevel,
-            checked: detection.isChecked,
-            orderedIndex: detection.orderedIndex,
-            renderedHtml: null,
-          };
-
-          const convertedTree: BlockTree = {
-            ...currentTree,
-            blocks: { ...currentTree.blocks, [id]: convertedBlock },
-          };
-
-          pushUndo(serializeBlockTree(currentTree));
-          const newBlockId = generateBlockId(convertedTree);
-          const emptyBlock: BlockNode = {
-            id: newBlockId,
-            type: 'paragraph' as const,
-            sourceLines: [''],
-            parentId: null,
-            childrenIds: [],
-            renderedHtml: null,
-          };
-          const finalTree = insertBlockAfter(convertedTree, id, emptyBlock);
-
-          blockTreeRef.current = finalTree;
-          setBlockTree(finalTree);
-          syncTreeToStore(finalTree);
-
-          focusNewBlock(newBlockId);
-          return;
-        }
+      if (!blockEl || !currentBlock) {
+        // Fallback: insert new block after the given id
+        const newBlockId = generateBlockId(currentTree);
+        const newBlock: BlockNode = {
+          id: newBlockId,
+          type: 'paragraph' as const,
+          sourceLines: [''],
+          parentId: null,
+          childrenIds: [],
+          renderedHtml: null,
+        };
+        const nextTree = insertBlockAfter(currentTree, id, newBlock);
+        blockTreeRef.current = nextTree;
+        setBlockTree(nextTree);
+        syncTreeToStore(nextTree);
+        focusBlockCursor(newBlockId, 0);
+        return;
       }
 
-      pushUndo(serializeBlockTree(currentTree));
+      // Get the full text content from DOM
+      const fullContent = getBlockTextContent(currentBlock, blockEl);
+
+      // Split at cursor position
+      const beforeText = fullContent.slice(0, cursorOffset);
+      const afterText = fullContent.slice(cursorOffset);
+
+      // Detect Markdown on the current block (beforeText) for type conversion
+      const detection = detectMarkdownLine(beforeText);
+      const typeChanged = !!(detection && detection.type !== currentBlock.type);
+
+      // Build updated current block
+      let updatedBlock: BlockNode;
+      if (typeChanged && detection) {
+        updatedBlock = {
+          ...currentBlock,
+          type: detection.type,
+          sourceLines: [beforeText],
+          headingLevel: detection.headingLevel,
+          checked: detection.isChecked,
+          orderedIndex: detection.orderedIndex,
+          renderedHtml: null,
+        };
+      } else {
+        const newSourceLines = buildSourceLinesFromContent(currentBlock, beforeText);
+        updatedBlock = {
+          ...currentBlock,
+          sourceLines: newSourceLines,
+          renderedHtml: null,
+        };
+      }
+
+      // Build new block with afterText
       const newBlockId = generateBlockId(currentTree);
       const newBlock: BlockNode = {
         id: newBlockId,
         type: 'paragraph' as const,
-        sourceLines: [''],
+        sourceLines: [afterText],
         parentId: null,
         childrenIds: [],
         renderedHtml: null,
       };
-      const nextTree = insertBlockAfter(currentTree, id, newBlock);
-      blockTreeRef.current = nextTree;
-      setBlockTree(nextTree);
-      syncTreeToStore(nextTree);
 
-      focusNewBlock(newBlockId);
+      // Update current block + insert new block
+      const treeWithUpdatedCurrent: BlockTree = {
+        ...currentTree,
+        blocks: { ...currentTree.blocks, [id]: updatedBlock },
+      };
+
+      pushUndo(serializeBlockTree(treeWithUpdatedCurrent));
+
+      const finalTree = insertBlockAfter(treeWithUpdatedCurrent, id, newBlock);
+      blockTreeRef.current = finalTree;
+      setBlockTree(finalTree);
+      syncTreeToStore(finalTree);
+
+      // Place cursor at start of new block
+      focusBlockCursor(newBlockId, 0);
     },
-    [pushUndo, syncTreeToStore, getBlockTextContent]
+    [pushUndo, syncTreeToStore, getBlockTextContent, buildSourceLinesFromContent, focusBlockCursor]
   );
 
   // ============================================
@@ -752,6 +1148,7 @@ const EditorView: React.FC<EditorViewProps> = ({
               onBlockContentChange={handleBlockContentChange}
               onBlockEnter={handleBlockEnter}
               onBlockDelete={handleBlockDelete}
+              onBlockInput={handleBlockInput}
             />
             <FloatingToolbarWYSIWYG
               blockTree={blockTree}

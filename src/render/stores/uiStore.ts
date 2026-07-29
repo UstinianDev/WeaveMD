@@ -127,8 +127,13 @@ export const useUIStore = create<UIStore>((set, get) => ({
   toggleHistoryPanel: () => set((s) => ({ isHistoryPanelOpen: !s.isHistoryPanelOpen })),
 
   toggleSourceCodeMode: () => {
+    console.log(
+      '[TOGGLE] toggleSourceCodeMode called, beforeToggleSourceMode:',
+      !!get().beforeToggleSourceMode
+    );
     get().beforeToggleSourceMode?.();
     set((s) => ({ isSourceCodeMode: !s.isSourceCodeMode }));
+    console.log('[TOGGLE] isSourceCodeMode now:', useUIStore.getState().isSourceCodeMode);
   },
 
   setBeforeToggleSourceMode: (callback) => set({ beforeToggleSourceMode: callback }),
