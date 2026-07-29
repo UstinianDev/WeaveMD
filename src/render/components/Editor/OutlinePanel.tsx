@@ -6,35 +6,58 @@ import React, { useMemo, useState } from 'react';
 import type { OutlineItem } from '../../services/markdown';
 import { extractOutline } from '../../services/markdown';
 import { useEditorStore } from '../../stores/editorStore';
+import { useUIStore } from '../../stores/uiStore';
 
 const INDENT_CLASSES = ['ml-0', 'ml-4', 'ml-8'] as const;
 const FONT_CLASSES = ['text-base font-semibold', 'text-sm', 'text-sm'] as const;
 
 interface OutlinePanelProps {
-  onNavigateToLine?: (lineNumber: number) => void;
+  onNavigateToHeading?: (headingIndex: number) => void;
+  activeHeadingIndex?: number | null;
+}
+
+/** Flatten the outline tree into a list with global indices (depth-first).
+ *  Returns a Map from item.id → global heading index. */
+function buildHeadingIndexMap(items: OutlineItem[]): Map<string, number> {
+  const map = new Map<string, number>();
+  let index = 0;
+  function walk(item: OutlineItem): void {
+    map.set(item.id, index);
+    index += 1;
+    for (const child of item.children) {
+      walk(child);
+    }
+  }
+  for (const item of items) {
+    walk(item);
+  }
+  return map;
 }
 
 const OutlineItemRow: React.FC<{
   item: OutlineItem;
-  onNavigate: (lineNumber: number) => void;
+  headingIndex: number;
+  activeHeadingIndex: number | null;
+  indexMap: Map<string, number>;
+  onNavigate: (headingIndex: number) => void;
   depth: number;
-}> = ({ item, onNavigate, depth }) => {
+}> = ({ item, headingIndex, activeHeadingIndex, indexMap, onNavigate, depth }) => {
   const [isExpanded, setIsExpanded] = useState(true);
 
   const hasChildren = item.children.length > 0;
   const indentClass = INDENT_CLASSES[Math.min(depth - 1, 2)];
   const fontSizeClass = FONT_CLASSES[Math.min(item.level - 1, 2)];
-  const textColorClass = 'text-text-sub';
+  const isActive = activeHeadingIndex === headingIndex;
 
   return (
     <div>
       <button
-        onClick={() => onNavigate(item.lineNumber)}
+        onClick={() => onNavigate(headingIndex)}
         className={`
           w-full flex items-center gap-1 text-left py-0.5 px-2
-          hover:bg-bg-tertiary rounded transition-colors duration-150
-          ${indentClass} ${fontSizeClass} ${textColorClass}
-          border-l-2 border-transparent hover:border-accent
+          rounded transition-colors duration-150
+          ${indentClass} ${fontSizeClass}
+          ${isActive ? 'bg-bg-tertiary text-accent border-l-2 border-accent' : 'text-text-sub border-l-2 border-transparent hover:bg-bg-tertiary hover:border-accent'}
         `}
       >
         {hasChildren && (
@@ -64,26 +87,40 @@ const OutlineItemRow: React.FC<{
 
       {isExpanded &&
         item.children.map((child) => (
-          <OutlineItemRow key={child.id} item={child} onNavigate={onNavigate} depth={depth + 1} />
+          <OutlineItemRow
+            key={child.id}
+            item={child}
+            headingIndex={indexMap.get(child.id) ?? 0}
+            activeHeadingIndex={activeHeadingIndex}
+            indexMap={indexMap}
+            onNavigate={onNavigate}
+            depth={depth + 1}
+          />
         ))}
     </div>
   );
 };
 
-const OutlinePanel: React.FC<OutlinePanelProps> = ({ onNavigateToLine }) => {
+const OutlinePanel: React.FC<OutlinePanelProps> = ({
+  onNavigateToHeading,
+  activeHeadingIndex = null,
+}) => {
   const content = useEditorStore((s) => s.content);
-  const [collapsed, setCollapsed] = useState(false);
+  const isOutlinePanelCollapsed = useUIStore((s) => s.isOutlinePanelCollapsed);
+  const toggleOutlinePanel = useUIStore((s) => s.toggleOutlinePanel);
 
   const outline = useMemo(() => {
     if (!content) return [];
     return extractOutline(content);
   }, [content]);
 
-  if (collapsed) {
+  const indexMap = useMemo(() => buildHeadingIndexMap(outline), [outline]);
+
+  if (isOutlinePanelCollapsed) {
     return (
       <div className="h-full flex flex-col items-center pt-3 bg-bg-secondary border-r border-border flex-shrink-0 w-8">
         <button
-          onClick={() => setCollapsed(false)}
+          onClick={toggleOutlinePanel}
           className="text-text-muted hover:text-white transition-colors"
           title="Expand outline"
         >
@@ -109,7 +146,7 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({ onNavigateToLine }) => {
         <span className="text-sm text-text-muted uppercase tracking-wider">Outline</span>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setCollapsed(true)}
+            onClick={toggleOutlinePanel}
             className="text-text-muted hover:text-white transition-colors p-0.5"
             title="Collapse outline"
           >
@@ -140,7 +177,10 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({ onNavigateToLine }) => {
             <OutlineItemRow
               key={item.id}
               item={item}
-              onNavigate={(lineNumber) => onNavigateToLine?.(lineNumber)}
+              headingIndex={indexMap.get(item.id) ?? 0}
+              activeHeadingIndex={activeHeadingIndex}
+              indexMap={indexMap}
+              onNavigate={(headingIndex) => onNavigateToHeading?.(headingIndex)}
               depth={1}
             />
           ))

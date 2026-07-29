@@ -1,4 +1,4 @@
-﻿// ============================================
+// ============================================
 // WeaveMD — Block-Based Editor View
 // ============================================
 // Renders the document as a scrollable list of
@@ -35,7 +35,7 @@ import { useEditorStore } from '../../stores/editorStore';
 import { useUIStore } from '../../stores/uiStore';
 
 import '../../utils/monacoSetup';
-import EditorScrollContainer from './EditorScrollContainer';
+import EditorScrollContainer, { type EditorScrollContainerHandle } from './EditorScrollContainer';
 import FindReplaceBar from './FindReplaceBar';
 import FloatingToolbarWYSIWYG from './FloatingToolbarWYSIWYG';
 import SourceCodeEditor from './SourceCodeEditor';
@@ -52,6 +52,10 @@ interface EditorViewProps {
   onFocusChange?: (isFocused: boolean) => void;
   /** Called when the active Monaco editor instance changes */
   onActiveEditorRef?: (ref: React.RefObject<editor.IStandaloneCodeEditor | null> | null) => void;
+  /** Called when navigation is ready, provides navigateToHeading function */
+  onNavigateReady?: (navFn: (headingIndex: number) => void) => void;
+  /** Called when the active heading changes during scroll */
+  onActiveHeadingChange?: (headingIndex: number | null) => void;
 }
 
 // ============================================
@@ -63,12 +67,15 @@ const EditorView: React.FC<EditorViewProps> = ({
   onEditorMount,
   onFocusChange,
   onActiveEditorRef,
+  onNavigateReady,
+  onActiveHeadingChange,
 }) => {
   // --- Refs ---
   const isUpdatingFromExternalRef = useRef(false);
   const themesDefinedRef = useRef(false);
   const prevSourceCodeModeRef = useRef(false);
   const sourceEditorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const scrollContainerRef = useRef<EditorScrollContainerHandle | null>(null);
   const inputDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInputBlockIdRef = useRef<BlockId | null>(null);
   const debounceTreeVersionRef = useRef<number>(0);
@@ -1023,6 +1030,22 @@ const EditorView: React.FC<EditorViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Expose navigateToHeading when in Normal Mode
+  useEffect(() => {
+    if (!isSourceCodeMode && !themesLoading && scrollContainerRef.current) {
+      onNavigateReady?.((headingIndex: number) => {
+        const allBlocks = getAllBlocksInOrder(blockTreeRef.current);
+        const headingBlocks = allBlocks.filter(
+          (b) => b.type === 'heading' && (b.headingLevel ?? 6) <= 3
+        );
+        const target = headingBlocks[headingIndex];
+        if (target) {
+          scrollContainerRef.current?.scrollToBlock(target.id);
+        }
+      });
+    }
+  }, [isSourceCodeMode, onNavigateReady, themesLoading]);
+
   // Register draft flusher (no-op in Normal Mode; Source Code mode
   // handles its own flushing via SourceCodeEditor's blur handler)
   useEffect(() => {
@@ -1096,12 +1119,14 @@ const EditorView: React.FC<EditorViewProps> = ({
           /* Normal Mode: Editable rendered rich-text blocks */
           <>
             <EditorScrollContainer
+              ref={scrollContainerRef}
               blockTree={blockTree}
               onFenceLanguageChange={handleFenceLanguageChange}
               onBlockContentChange={handleBlockContentChange}
               onBlockEnter={handleBlockEnter}
               onBlockDelete={handleBlockDelete}
               onBlockInput={handleBlockInput}
+              onActiveHeadingChange={onActiveHeadingChange}
             />
             <FloatingToolbarWYSIWYG
               blockTree={blockTree}

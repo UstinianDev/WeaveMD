@@ -10,8 +10,8 @@
 // Zustand (which requires serializable, immutable state patterns).
 // ============================================
 
-import type { BlockType } from './markdownBlockDetector';
 import { getHeadingLevelFromLine } from './lineMarkdown';
+import type { BlockType } from './markdownBlockDetector';
 
 const CODE_FENCE_RE = /^([ \t]*)(`{3,}|~{3,})([^\n]*)$/;
 
@@ -389,8 +389,10 @@ export function updateBlockSource(tree: BlockTree, id: BlockId, sourceLines: str
   const next = cloneTree(tree);
   const current = next.blocks[id];
   const nextType = resolveNextTypeFromSource(current.type, sourceLines);
-  const nextFenceLanguage = nextType === 'code-fence' ? extractFenceLanguage(sourceLines) : undefined;
-  const nextHeadingLevel = nextType === 'heading' ? getHeadingLevelFromLine(sourceLines[0] ?? '') : undefined;
+  const nextFenceLanguage =
+    nextType === 'code-fence' ? extractFenceLanguage(sourceLines) : undefined;
+  const nextHeadingLevel =
+    nextType === 'heading' ? getHeadingLevelFromLine(sourceLines[0] ?? '') : undefined;
 
   next.blocks[id] = {
     ...current,
