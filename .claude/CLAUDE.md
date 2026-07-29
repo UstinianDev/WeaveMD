@@ -31,10 +31,9 @@ src/
 │   │       │   └── EmptyBlock.tsx
 │   │       ├── ActiveBlockEditor.tsx      # (deprecated) Monaco mini-editor
 │   │       ├── BlockRenderer.tsx          # Block type dispatcher (read-only)
-│   │       ├── EditorScrollContainer.tsx  # Document viewport (forwardRef)
+│   │       ├── EditorScrollContainer.tsx  # Document viewport (contentEditable surface)
 │   │       ├── EditorView.tsx             # Main orchestrator (dual-mode)
 │   │       ├── FindReplaceBar.tsx         # Typora-style inline Find & Replace
-│   │       ├── FindReplaceModal.tsx       # (deprecated) old centered modal
 │   │       ├── SourceCodeEditor.tsx       # Full Monaco for Source Code Mode
 │   │       ├── Minimap.tsx                # Canvas document minimap (Normal Mode)
 │   │       └── OutlinePanel.tsx, HistoryPanel.tsx
@@ -65,20 +64,20 @@ public/              # icons, images
 - **Heading typography (Doubao-aligned)**: H1 26/700, H2 22/600, H3 18/600, H4 16/500, Paragraph 14/400
 - **Markdown line parsing**: Heading detection (`#...`) must be shared across import/new/edit/paste via `src/render/services/lineMarkdown.ts`
 
-## Architecture (as of 2026-07-26)
+## Architecture (as of 2026-07-29)
 
 ### Dual-Mode Editor (v4)
 
-The editor supports WYSIWYG editing in Normal Mode:
+The editor supports WYSIWYG editing in Normal Mode via **container-level contentEditable**:
 
-- **Normal Mode**: Block tree rendered as **editable** rich-text React components via `contentEditable` on parent container. Users can:
-  - Click and edit paragraph/heading content directly
-  - Press Enter to create new paragraphs
+- **Normal Mode**: Block tree rendered as editable rich-text React components. The `editor-content-area` div is the single `contentEditable` surface. Users can:
+  - Click and edit paragraph/heading content directly (empty blocks show "Type something..." placeholder)
+  - Press Enter to create new paragraphs (cursor auto-placed at new block start)
   - Press Backspace in empty paragraphs to delete them
   - Use Ctrl+Z/Ctrl+Y to undo/redo all operations
   - Canvas minimap shows document overview with viewport indicator
   - Floating toolbar appears when text is selected (formatting, structure conversion)
-  - Cross-block text selection enabled via parent container contentEditable
+  - Cross-block text selection enabled via container-level contentEditable
   - Code blocks editable via double-click
 - **Source Code Mode**: Full-screen Monaco editor (`SourceCodeEditor.tsx`) for raw markdown editing. Toggle via `Ctrl+\`` or View menu.
 - **Find & Replace**: Typora-style inline bar (`FindReplaceBar.tsx`). Works in both modes. Toggle via `Ctrl+F`.
@@ -87,25 +86,30 @@ The editor supports WYSIWYG editing in Normal Mode:
 
 - `src/render/services/blockTree.ts` — Core data structures and operations
 - `src/render/services/blockTreeBuilder.ts` — Markdown → block tree parser
-- `src/render/services/blockTreeSerializer.ts` — Block tree → markdown serializer
+- `src/render/services/blockTreeSerializer.ts` — Block tree → markdown serializer (uses `\n\n` paragraph separator)
+- `src/render/services/lineMarkdown.ts` — Shared markdown line detection
 - `src/render/components/Editor/EditorView.tsx` — Dual-mode orchestrator with WYSIWYG handlers
+- `src/render/components/Editor/EditorScrollContainer.tsx` — Document viewport (contentEditable surface, no forwardRef)
+- `src/render/components/Editor/BlockRenderer.tsx` — Block type dispatcher (read-only rendering)
 - `src/render/components/Editor/FloatingToolbarWYSIWYG.tsx` — Floating toolbar for text formatting
-- `src/render/components/Editor/blocks/` — Editable block components (ParagraphBlock, HeadingBlock, CodeFenceBlock)
+- `src/render/components/Editor/blocks/` — Read-only block components (ParagraphBlock, HeadingBlock, CodeFenceBlock, EmptyBlock)
 - `src/render/stores/editorStore.ts` — Content state with undo/redo stack
 
 ### Design Decisions
 
-| Aspect                | Decision                                                            |
-| --------------------- | ------------------------------------------------------------------- |
-| Block editing         | WYSIWYG via `contentEditable` on parent container                   |
-| Source Code toggle    | `uiStore.isSourceCodeMode` → shared between TopBar and EditorView   |
-| Find & Replace toggle | `uiStore.isFindReplaceOpen` → inline bar, not modal                 |
-| Undo/Redo             | Store-based history stack; paragraph ops manually push to undoStack |
-| Code fence language   | `<select>` dropdown for language selection                          |
-| Code block editing    | Double-click to enter edit mode with textarea                       |
-| Floating toolbar      | Appears on text selection; hides when selection collapsed           |
-| Monaco themes         | Defined in EditorView useEffect (`weaveMD-dark`, `weaveMD-light`)   |
-| New file naming       | `untitled-{timestamp36}.md`                                         |
+| Aspect                  | Decision                                                            |
+| ----------------------- | ------------------------------------------------------------------- |
+| Block editing           | Container-level `contentEditable` on `editor-content-area` div      |
+| Source Code toggle      | `uiStore.isSourceCodeMode` → shared between TopBar and EditorView   |
+| Find & Replace toggle   | `uiStore.isFindReplaceOpen` → inline bar, not modal                 |
+| Undo/Redo               | Store-based history stack; paragraph ops manually push to undoStack |
+| Code fence language     | `<select>` dropdown for language selection                          |
+| Code block editing      | Double-click to enter edit mode with textarea                       |
+| Floating toolbar        | Appears on text selection; hides when selection collapsed           |
+| Monaco themes           | Defined in EditorView useEffect (`weaveMD-dark`, `weaveMD-light`)   |
+| New file naming         | `untitled-{timestamp36}.md`                                         |
+| Empty block placeholder | Zero-width space (`\u200B`) + CSS `::before` pseudo-element         |
+| Serialization separator | `\n\n` between blocks to preserve paragraph boundaries              |
 
 ### Resolved Issues (from old ContentWidget system)
 

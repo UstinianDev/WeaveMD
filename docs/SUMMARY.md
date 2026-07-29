@@ -1,6 +1,6 @@
 # WeaveMD 项目总结文档
 
-> 版本：v2.5.0 | 最后更新：2026-07-25
+> 版本：v2.6.0 | 最后更新：2026-07-29
 
 ---
 
@@ -78,18 +78,18 @@
 
 各功能模块的详细实现文档已拆分至 `docs/modules/` 目录，以下为索引：
 
-| 模块              | 文档                                                                         | 核心内容                                                                                            |
-| ----------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| 加载页面 (Splash) | [modules/01-加载页面-Splash.md](./modules/01-加载页面-Splash.md)             | 启动动画、CSS 动画序列、提前跳转机制                                                                |
-| 认证系统          | [modules/02-认证系统-Auth.md](./modules/02-认证系统-Auth.md)                 | 注册/登录流程、JWT 生成、会话恢复、账号切换/删除、交互式吉祥物                                      |
-| 顶部导航栏        | [modules/03-顶部导航栏-Navbar.md](./modules/03-顶部导航栏-Navbar.md)         | 布局结构、File/Help/History/View 菜单、Find & Replace inline bar、窗口控制 |
-| 编辑主区          | [modules/04-编辑主区-Editor.md](./modules/04-编辑主区-Editor.md)             | 双模式架构（WYSIWYG 可编辑富文本 + 全屏 Monaco 源码）、Block Tree、浮动工具栏、跨块选择、代码块双击编辑、Minimap、FindReplaceBar、自动保存/撤销重做 |
-| 设置界面          | [modules/05-设置界面-Settings.md](./modules/05-设置界面-Settings.md)         | 语言选择、主题切换、自定义主题、账号管理                                                            |
-| 窗口控制          | [modules/06-窗口控制-Window.md](./modules/06-窗口控制-Window.md)             | frameless 窗口配置、IPC 通道、拖拽区域                                                              |
-| 数据持久化层      | [modules/07-数据持久化层-Database.md](./modules/07-数据持久化层-Database.md) | SQLite Schema、WAL 模式、数据隔离、CRUD 操作、文件保存流程                                          |
-| IPC 通信机制      | [modules/08-IPC通信机制.md](./modules/08-IPC通信机制.md)                     | 安全架构、22 个 IPC 通道、preload API 类型定义                                                      |
-| 国际化 (i18n)     | [modules/09-国际化-i18n.md](./modules/09-国际化-i18n.md)                     | Provider 模式、翻译键组织、三语言支持                                                               |
-| 导出功能          | [modules/10-导出功能-Export.md](./modules/10-导出功能-Export.md)             | MD/Word/PDF 导出实现                                                                                |
+| 模块              | 文档                                                                         | 核心内容                                                                                                                                                                    |
+| ----------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 加载页面 (Splash) | [modules/01-加载页面-Splash.md](./modules/01-加载页面-Splash.md)             | 启动动画、CSS 动画序列、提前跳转机制                                                                                                                                        |
+| 认证系统          | [modules/02-认证系统-Auth.md](./modules/02-认证系统-Auth.md)                 | 注册/登录流程、JWT 生成、会话恢复、账号切换/删除、交互式吉祥物                                                                                                              |
+| 顶部导航栏        | [modules/03-顶部导航栏-Navbar.md](./modules/03-顶部导航栏-Navbar.md)         | 布局结构、File/Help/History/View 菜单、Find & Replace inline bar、窗口控制                                                                                                  |
+| 编辑主区          | [modules/04-编辑主区-Editor.md](./modules/04-编辑主区-Editor.md)             | 双模式架构（容器级 contentEditable WYSIWYG + 全屏 Monaco 源码）、Block Tree、零宽空格占位、浮动工具栏、跨块选择、代码块双击编辑、Minimap、FindReplaceBar、自动保存/撤销重做 |
+| 设置界面          | [modules/05-设置界面-Settings.md](./modules/05-设置界面-Settings.md)         | 语言选择、主题切换、自定义主题、账号管理                                                                                                                                    |
+| 窗口控制          | [modules/06-窗口控制-Window.md](./modules/06-窗口控制-Window.md)             | frameless 窗口配置、IPC 通道、拖拽区域                                                                                                                                      |
+| 数据持久化层      | [modules/07-数据持久化层-Database.md](./modules/07-数据持久化层-Database.md) | SQLite Schema、WAL 模式、数据隔离、CRUD 操作、文件保存流程                                                                                                                  |
+| IPC 通信机制      | [modules/08-IPC通信机制.md](./modules/08-IPC通信机制.md)                     | 安全架构、22 个 IPC 通道、preload API 类型定义                                                                                                                              |
+| 国际化 (i18n)     | [modules/09-国际化-i18n.md](./modules/09-国际化-i18n.md)                     | Provider 模式、翻译键组织、三语言支持                                                                                                                                       |
+| 导出功能          | [modules/10-导出功能-Export.md](./modules/10-导出功能-Export.md)             | MD/Word/PDF 导出实现                                                                                                                                                        |
 
 ---
 
@@ -117,7 +117,7 @@
 
 ### 4.5 双模式编辑器
 
-**决策**：编辑器采用双模式架构（v3.x）：**Normal Mode** — Block Tree 渲染为只读富文本块，无点击编辑，右侧 Canvas Minimap 显示文档缩影（viewport 指示器 + 点击导航）；**Source Code Mode** — 全屏 Monaco 编辑器编辑原始 markdown（`Ctrl+`` 或 View 菜单切换）。Find & Replace 为 Typora 风格 inline bar（`FindReplaceBar`），两种模式均可使用。状态通过 `uiStore`（`isSourceCodeMode`、`isFindReplaceOpen`）跨组件共享。
+**决策**：编辑器采用双模式架构（v4）：**Normal Mode** — Block Tree 渲染为可编辑富文本块，通过容器级 `contentEditable`（`editor-content-area` div）实现跨块选择和直接编辑。空块使用零宽空格（`\u200B`）+ CSS `::before` 伪元素显示"Type something..."占位符。支持回车创建段落、Backspace 删除空段落、Ctrl+Z/Y 撤销重做、Canvas Minimap（文档缩影）、浮动工具栏（选中文本时显示）；**Source Code Mode** — 全屏 Monaco 编辑器编辑原始 markdown（`Ctrl+`` 或 View 菜单切换）。序列化使用 `\n\n` 分隔块以保留段落边界。Find & Replace 为 Typora 风格 inline bar（`FindReplaceBar`），两种模式均可使用。状态通过 `uiStore`（`isSourceCodeMode`、`isFindReplaceOpen`）跨组件共享。
 
 ### 4.6 主题系统
 
