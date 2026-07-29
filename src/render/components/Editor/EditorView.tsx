@@ -321,8 +321,6 @@ const EditorView: React.FC<EditorViewProps> = ({
           const newBlocks = { ...blockTreeRef.current.blocks };
           let hasChanges = false;
 
-          console.log('[DEBUG beforeToggle] blocks count:', blocks.length);
-
           for (const block of blocks) {
             if (block.type === 'code-fence' || block.type === 'table') continue;
 
@@ -337,16 +335,6 @@ const EditorView: React.FC<EditorViewProps> = ({
                 .replace(/^[\s]*>\s*/, '')
                 .trim();
 
-              console.log(
-                '[DEBUG beforeToggle] block',
-                block.id,
-                ':',
-                'newContent:',
-                JSON.stringify(newContent),
-                'oldContent:',
-                JSON.stringify(oldContent)
-              );
-
               if (newContent !== oldContent) {
                 const newSourceLines = buildSourceLinesFromContent(block, newContent);
                 newBlocks[block.id] = {
@@ -360,16 +348,18 @@ const EditorView: React.FC<EditorViewProps> = ({
           }
 
           if (hasChanges) {
-            const newTree = { ...blockTreeRef.current, blocks: newBlocks };
+            const newTree = {
+              ...blockTreeRef.current,
+              blocks: newBlocks,
+              version: blockTreeRef.current.version + 1,
+            };
             blockTreeRef.current = newTree;
             setBlockTree(newTree);
             const serialized = serializeBlockTree(newTree);
-            console.log('[DEBUG beforeToggle] hasChanges=true, serialized:', serialized);
             isUpdatingFromExternalRef.current = true;
             setContent(serialized);
           } else {
             const serialized = serializeBlockTree(blockTreeRef.current);
-            console.log('[DEBUG beforeToggle] hasChanges=false, serialized:', serialized);
             isUpdatingFromExternalRef.current = true;
             setContent(serialized);
           }
@@ -394,11 +384,11 @@ const EditorView: React.FC<EditorViewProps> = ({
 
   const handleFenceLanguageChange = useCallback(
     (id: BlockId, language: string) => {
-      setBlockTree((prev) => {
-        const next = setFenceLanguage(prev, id, language);
-        syncTreeToStore(next);
-        return next;
-      });
+      const prev = blockTreeRef.current;
+      const next = setFenceLanguage(prev, id, language);
+      blockTreeRef.current = next;
+      setBlockTree(next);
+      syncTreeToStore(next);
     },
     [syncTreeToStore]
   );
@@ -409,40 +399,41 @@ const EditorView: React.FC<EditorViewProps> = ({
 
   const handleBlockContentChange = useCallback(
     (id: BlockId, newContent: string) => {
-      setBlockTree((prev) => {
-        const block = prev.blocks[id];
-        if (!block) return prev;
+      const prev = blockTreeRef.current;
+      const block = prev.blocks[id];
+      if (!block) return;
 
-        const detection = detectMarkdownLine(newContent);
+      const detection = detectMarkdownLine(newContent);
 
-        if (detection && detection.type !== block.type) {
-          const newBlock: BlockNode = {
-            ...block,
-            type: detection.type,
-            sourceLines: [newContent],
-            headingLevel: detection.headingLevel,
-            checked: detection.isChecked,
-            orderedIndex: detection.orderedIndex,
-            renderedHtml: null,
-          };
-
-          const next = { ...prev, blocks: { ...prev.blocks, [id]: newBlock } };
-          syncTreeToStore(next);
-          return next;
-        }
-
+      let next: BlockTree;
+      if (detection && detection.type !== block.type) {
+        const newBlock: BlockNode = {
+          ...block,
+          type: detection.type,
+          sourceLines: [newContent],
+          headingLevel: detection.headingLevel,
+          checked: detection.isChecked,
+          orderedIndex: detection.orderedIndex,
+          renderedHtml: null,
+        };
+        next = { ...prev, blocks: { ...prev.blocks, [id]: newBlock }, version: prev.version + 1 };
+      } else {
         const newSourceLines = buildSourceLinesFromContent(block, newContent);
-
         const updatedBlock = {
           ...block,
           sourceLines: newSourceLines,
           renderedHtml: null,
         };
+        next = {
+          ...prev,
+          blocks: { ...prev.blocks, [id]: updatedBlock },
+          version: prev.version + 1,
+        };
+      }
 
-        const next = { ...prev, blocks: { ...prev.blocks, [id]: updatedBlock } };
-        syncTreeToStore(next);
-        return next;
-      });
+      blockTreeRef.current = next;
+      setBlockTree(next);
+      syncTreeToStore(next);
     },
     [syncTreeToStore, buildSourceLinesFromContent]
   );
@@ -455,67 +446,67 @@ const EditorView: React.FC<EditorViewProps> = ({
     (id: BlockId) => {
       const container = document.querySelector('.editor-content-area');
       const blockEl = container?.querySelector(`[data-block-id="${id}"]`);
-      const currentBlock = blockTreeRef.current.blocks[id];
+      const currentTree = blockTreeRef.current;
+      const currentBlock = currentTree.blocks[id];
 
-      console.log('[DEBUG handleBlockEnter] block id:', id);
+      const focusNewBlock = (blockId: BlockId) => {
+        setTimeout(() => {
+          const newBlockElement = document.getElementById(`block-${blockId}`);
+          if (newBlockElement) {
+            newBlockElement.focus();
+            const selection = window.getSelection();
+            if (selection) {
+              const range = document.createRange();
+              range.selectNodeContents(newBlockElement);
+              range.collapse(true);
+              selection.removeAllRanges();
+              selection.addRange(range);
+            }
+          }
+        }, 0);
+      };
 
       if (blockEl && currentBlock) {
         const content = getBlockTextContent(currentBlock, blockEl);
         const detection = detectMarkdownLine(content);
 
-        console.log('[DEBUG handleBlockEnter] content:', JSON.stringify(content));
-        console.log('[DEBUG handleBlockEnter] detection:', detection);
-
         if (detection && detection.type !== currentBlock.type) {
-          setBlockTree((prev) => {
-            const convertedBlock: BlockNode = {
-              ...prev.blocks[id],
-              type: detection.type,
-              sourceLines: [content],
-              headingLevel: detection.headingLevel,
-              checked: detection.isChecked,
-              orderedIndex: detection.orderedIndex,
-              renderedHtml: null,
-            };
+          const convertedBlock: BlockNode = {
+            ...currentBlock,
+            type: detection.type,
+            sourceLines: [content],
+            headingLevel: detection.headingLevel,
+            checked: detection.isChecked,
+            orderedIndex: detection.orderedIndex,
+            renderedHtml: null,
+          };
 
-            const next = { ...prev, blocks: { ...prev.blocks, [id]: convertedBlock } };
-            blockTreeRef.current = next;
+          const convertedTree: BlockTree = {
+            ...currentTree,
+            blocks: { ...currentTree.blocks, [id]: convertedBlock },
+          };
 
-            pushUndo(serializeBlockTree(prev));
-            const newBlockId = generateBlockId(next);
-            const emptyBlock: BlockNode = {
-              id: newBlockId,
-              type: 'paragraph' as const,
-              sourceLines: [''],
-              parentId: null,
-              childrenIds: [],
-              renderedHtml: null,
-            };
-            const finalTree = insertBlockAfter(next, id, emptyBlock);
-            syncTreeToStore(finalTree);
+          pushUndo(serializeBlockTree(currentTree));
+          const newBlockId = generateBlockId(convertedTree);
+          const emptyBlock: BlockNode = {
+            id: newBlockId,
+            type: 'paragraph' as const,
+            sourceLines: [''],
+            parentId: null,
+            childrenIds: [],
+            renderedHtml: null,
+          };
+          const finalTree = insertBlockAfter(convertedTree, id, emptyBlock);
 
-            setTimeout(() => {
-              const newBlockElement = document.getElementById(`block-${newBlockId}`);
-              if (newBlockElement) {
-                newBlockElement.focus();
-                const selection = window.getSelection();
-                if (selection) {
-                  const range = document.createRange();
-                  range.selectNodeContents(newBlockElement);
-                  range.collapse(true);
-                  selection.removeAllRanges();
-                  selection.addRange(range);
-                }
-              }
-            }, 0);
+          blockTreeRef.current = finalTree;
+          setBlockTree(finalTree);
+          syncTreeToStore(finalTree);
 
-            return finalTree;
-          });
+          focusNewBlock(newBlockId);
           return;
         }
       }
 
-      const currentTree = blockTreeRef.current;
       pushUndo(serializeBlockTree(currentTree));
       const newBlockId = generateBlockId(currentTree);
       const newBlock: BlockNode = {
@@ -531,20 +522,7 @@ const EditorView: React.FC<EditorViewProps> = ({
       setBlockTree(nextTree);
       syncTreeToStore(nextTree);
 
-      setTimeout(() => {
-        const newBlockElement = document.getElementById(`block-${newBlockId}`);
-        if (newBlockElement) {
-          newBlockElement.focus();
-          const selection = window.getSelection();
-          if (selection) {
-            const range = document.createRange();
-            range.selectNodeContents(newBlockElement);
-            range.collapse(true);
-            selection.removeAllRanges();
-            selection.addRange(range);
-          }
-        }
-      }, 0);
+      focusNewBlock(newBlockId);
     },
     [pushUndo, syncTreeToStore, getBlockTextContent]
   );
@@ -555,28 +533,27 @@ const EditorView: React.FC<EditorViewProps> = ({
 
   const handleBlockDelete = useCallback(
     (id: BlockId) => {
-      setBlockTree((prev) => {
-        const blockCount = Object.keys(prev.blocks).length;
-        if (blockCount <= 1) {
-          return prev;
-        }
-        pushUndo(serializeBlockTree(prev));
-        const next = removeBlock(prev, id);
-        syncTreeToStore(next);
-        return next;
-      });
+      const prev = blockTreeRef.current;
+      const blockCount = Object.keys(prev.blocks).length;
+      if (blockCount <= 1) return;
+
+      pushUndo(serializeBlockTree(prev));
+      const next = removeBlock(prev, id);
+      blockTreeRef.current = next;
+      setBlockTree(next);
+      syncTreeToStore(next);
     },
     [pushUndo, syncTreeToStore]
   );
 
   const handleBlockTypeChange = useCallback(
     (id: BlockId, _newType: string) => {
-      setBlockTree((prev) => {
-        pushUndo(serializeBlockTree(prev));
-        const next = updateBlockSource(prev, id, []);
-        syncTreeToStore(next);
-        return next;
-      });
+      const prev = blockTreeRef.current;
+      pushUndo(serializeBlockTree(prev));
+      const next = updateBlockSource(prev, id, []);
+      blockTreeRef.current = next;
+      setBlockTree(next);
+      syncTreeToStore(next);
     },
     [pushUndo, syncTreeToStore]
   );
@@ -770,6 +747,7 @@ const EditorView: React.FC<EditorViewProps> = ({
           <>
             <EditorScrollContainer
               blockTree={blockTree}
+              blockTreeRef={blockTreeRef}
               onFenceLanguageChange={handleFenceLanguageChange}
               onBlockContentChange={handleBlockContentChange}
               onBlockEnter={handleBlockEnter}
