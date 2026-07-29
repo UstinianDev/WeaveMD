@@ -24,13 +24,12 @@ import { getAllBlocksInOrder } from './blockTree';
  *
  * Gets all blocks in document order via `getAllBlocksInOrder`,
  * joins each block's `sourceLines` with '\n', then joins all
- * blocks with '\n'. No extra blank lines are added between
- * blocks — the sourceLines already include any trailing blanks.
+ * blocks with '\n\n' (two newlines) to ensure proper paragraph separation.
  *
  * Edge cases:
  *   - Empty tree → returns empty string ''
  *   - Single block → returns just its sourceLines
- *   - Multiple blocks → returns sourceLines joined with '\n'
+ *   - Multiple blocks → returns sourceLines joined with '\n\n'
  *
  * @param tree - The block tree to serialize
  * @returns The reconstructed markdown string
@@ -42,9 +41,16 @@ export function serializeBlockTree(tree: BlockTree): string {
     return '';
   }
 
+  if (allBlocks.length === 1) {
+    return serializeBlock(allBlocks[0]);
+  }
+
+  // Use '\n\n' to separate blocks, ensuring proper paragraph separation
+  // in Markdown format. This allows buildBlockTree to correctly identify
+  // block boundaries when parsing the serialized output.
   return allBlocks
     .map((block) => serializeBlock(block))
-    .join('\n');
+    .join('\n\n');
 }
 
 // ============================================
