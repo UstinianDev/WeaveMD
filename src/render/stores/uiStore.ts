@@ -93,7 +93,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   },
 
   setOutlineWidth: (width) => {
-    set({ outlineWidth: Math.min(500, Math.max(200, width)) });
+    set({ outlineWidth: Math.max(200, width) });
     get().persistSettings();
   },
 
