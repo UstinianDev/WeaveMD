@@ -224,31 +224,43 @@ const SourceCodeEditor = forwardRef<SourceCodeEditorHandle, SourceCodeEditorProp
         });
 
         // ---- Scroll / Cursor Listeners: drive active heading ----
-        // Use cursor position instead of visible range start for accurate heading detection
-        const updateActiveHeading = () => {
+        // Scroll event: use visible range start (cursor doesn't follow scroll)
+        // Cursor event: use cursor position (cursor was explicitly moved)
+        const updateActiveHeading = (useVisibleRange: boolean) => {
           const editorInstance = editorRef.current;
           if (!editorInstance) return;
 
-          const pos = editorInstance.getPosition();
-          let cursorLine = 1;
-          if (pos) {
-            cursorLine = pos.lineNumber;
-          } else {
+          let effectiveLine = 1;
+
+          if (useVisibleRange) {
             const visible = editorInstance.getVisibleRanges();
             if (visible && visible.length > 0) {
-              cursorLine = visible[0].startLineNumber;
+              effectiveLine = visible[0].startLineNumber;
+            } else {
+              const pos = editorInstance.getPosition();
+              if (pos) effectiveLine = pos.lineNumber;
+            }
+          } else {
+            const pos = editorInstance.getPosition();
+            if (pos) {
+              effectiveLine = pos.lineNumber;
+            } else {
+              const visible = editorInstance.getVisibleRanges();
+              if (visible && visible.length > 0) {
+                effectiveLine = visible[0].startLineNumber;
+              }
             }
           }
 
-          const lineNumber = getNearestHeadingLineNumber(contentRef.current, cursorLine);
+          const lineNumber = getNearestHeadingLineNumber(contentRef.current, effectiveLine);
           onActiveHeadingChangeRef.current?.(lineNumber);
         };
 
-        editor.onDidScrollChange(updateActiveHeading);
-        editor.onDidChangeCursorPosition(updateActiveHeading);
+        editor.onDidScrollChange(() => updateActiveHeading(true));
+        editor.onDidChangeCursorPosition(() => updateActiveHeading(false));
 
         // Initial active heading computation
-        updateActiveHeading();
+        updateActiveHeading(true);
       },
       // Only run on mount — callbacks accessed via refs
       // eslint-disable-next-line react-hooks/exhaustive-deps

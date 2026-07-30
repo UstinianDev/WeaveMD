@@ -101,6 +101,18 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
         const blockEl = document.querySelector(`[data-block-id="${blockId}"]`);
         if (!blockEl) return;
 
+        // 1. Calculate headingIndex for target block for immediate active heading update
+        if (onActiveHeadingChange) {
+          const allBlocks = getAllBlocksInOrder(blockTree);
+          const headingBlocks = allBlocks.filter(
+            (b) => b.type === 'heading' && (b.headingLevel ?? 6) <= 3
+          );
+          const targetHeadingIdx = headingBlocks.findIndex((b) => b.id === blockId);
+          if (targetHeadingIdx >= 0) {
+            onActiveHeadingChange(targetHeadingIdx);
+          }
+        }
+
         const containerRect = container.getBoundingClientRect();
         const blockRect = blockEl.getBoundingClientRect();
         const offset = blockRect.top - containerRect.top + container.scrollTop - 24;
@@ -109,6 +121,17 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
           top: Math.max(0, offset),
           behavior: 'smooth',
         });
+
+        // 2. Temporary highlight animation on target block
+        blockEl.classList.add('editor-block-highlight');
+        setTimeout(() => {
+          blockEl.classList.remove('editor-block-highlight');
+        }, 1500);
+
+        // 3. Re-verify active heading after smooth scroll finishes
+        setTimeout(() => {
+          detectActiveHeading();
+        }, 600);
       },
     }));
 
@@ -120,10 +143,14 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
       const containerRect = container.getBoundingClientRect();
       const threshold = containerRect.top + 40;
 
+      // Check if scrolled to bottom
+      const isAtBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 5;
+
       // Find all heading block elements in DOM order
       const headingEls = container.querySelectorAll('[data-block-id]');
       let activeHeadingIndex: number | null = null;
       let headingCount = 0;
+      let lastHeadingIndex: number | null = null;
 
       headingEls.forEach((el) => {
         const blockId = el.getAttribute('data-block-id');
@@ -133,12 +160,19 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
         const block = blockTree.blocks[blockId];
         if (!block || block.type !== 'heading' || (block.headingLevel ?? 6) > 3) return;
 
+        lastHeadingIndex = headingCount;
+
         const rect = el.getBoundingClientRect();
         if (rect.top <= threshold) {
           activeHeadingIndex = headingCount;
         }
         headingCount += 1;
       });
+
+      // If at bottom, use the last heading available (regardless of threshold)
+      if (isAtBottom && lastHeadingIndex !== null) {
+        activeHeadingIndex = lastHeadingIndex;
+      }
 
       onActiveHeadingChange(activeHeadingIndex);
     }, [blockTree, onActiveHeadingChange]);
@@ -241,7 +275,7 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
       <div
         ref={scrollContainerRef}
         className="editor-scroll-container h-full overflow-y-auto overflow-x-hidden"
-        style={{ padding: '40px 0' }}
+        style={{ padding: '40px 0 240px 0' }}
         onScroll={handleScroll}
       >
         <div
