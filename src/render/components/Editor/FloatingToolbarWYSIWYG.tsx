@@ -15,7 +15,14 @@ interface FloatingToolbarWYSIWYGProps {
   blockTree: BlockTree;
   content: string;
   onContentChange: (content: string) => void;
-  onBlockTypeChange: (blockId: BlockId, newType: string) => void;
+  onBlockTypeChange: (
+    blockId: BlockId,
+    newType: string,
+    headingLevel?: number,
+    orderedIndex?: number,
+    checked?: boolean,
+    fenceLanguage?: string
+  ) => void;
   onShowMdSource: (blockId: BlockId) => void;
   isSourceCodeMode: boolean;
 }
@@ -37,8 +44,8 @@ const STRUCTURE_OPTIONS = [
 
 const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
   blockTree,
-  content,
-  onContentChange,
+  content: _content,
+  onContentChange: _onContentChange,
   onBlockTypeChange,
   onShowMdSource,
   isSourceCodeMode,
@@ -46,7 +53,6 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
   const [isVisible, setIsVisible] = useState(false);
   const [position, setPosition] = useState<ToolbarPosition>({ top: 0, left: 0 });
   const [selectedBlockInfo, setSelectedBlockInfo] = useState<BlockInfo | null>(null);
-  const [selectedText, setSelectedText] = useState('');
   const [isStructureDropdownOpen, setIsStructureDropdownOpen] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -96,7 +102,6 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
         return;
       }
       setSelectedBlockInfo(blockInfo);
-      setSelectedText(text);
       const range = selection.getRangeAt(0);
       const rect = range.getBoundingClientRect();
       const toolbarHeight = toolbarRef.current?.offsetHeight ?? 40;
@@ -122,51 +127,85 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  const handleFormat = useCallback(
-    (wrapper: string, endWrapper?: string) => {
-      if (!selectedBlockInfo || !selectedText) return;
-      const block = selectedBlockInfo.block;
-      const newSourceLines = [...block.sourceLines];
-      const lineIndex = 0;
-      const line = newSourceLines[lineIndex] || '';
-      const prefix = block.type === 'heading' ? '#'.repeat(block.headingLevel || 1) + ' ' : '';
-      const textContent = line.replace(new RegExp('^' + prefix), '');
-      const endW = endWrapper || wrapper;
-      const newText = wrapper + selectedText + endW;
-      const newLineContent = textContent.replace(selectedText, newText);
-      newSourceLines[lineIndex] = prefix + newLineContent;
-      onContentChange(content.replace(block.sourceLines.join('\n'), newSourceLines.join('\n')));
-    },
-    [selectedBlockInfo, selectedText, content, onContentChange]
-  );
+  const wrapRangeWithTag = useCallback((tag: string, className?: string) => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    try {
+      range.surroundContents(el);
+    } catch {
+      const frag = range.extractContents();
+      el.appendChild(frag);
+      range.insertNode(el);
+    }
+    const newRange = document.createRange();
+    newRange.selectNodeContents(el);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+  }, []);
+
+  const afterFormat = useCallback(() => {
+    const container = document.getElementById('editor-content-area');
+    if (container) container.dispatchEvent(new Event('input', { bubbles: true }));
+  }, []);
+
+  const handleBold = useCallback(() => {
+    document.execCommand('bold', false, undefined);
+    afterFormat();
+  }, [afterFormat]);
+
+  const handleItalic = useCallback(() => {
+    document.execCommand('italic', false, undefined);
+    afterFormat();
+  }, [afterFormat]);
+
+  const handleUnderline = useCallback(() => {
+    document.execCommand('underline', false, undefined);
+    afterFormat();
+  }, [afterFormat]);
+
+  const handleHighlight = useCallback(() => {
+    wrapRangeWithTag('mark');
+    afterFormat();
+  }, [wrapRangeWithTag, afterFormat]);
+
+  const handleCode = useCallback(() => {
+    wrapRangeWithTag('code', 'inline-code');
+    afterFormat();
+  }, [wrapRangeWithTag, afterFormat]);
 
   const handleLink = useCallback(() => {
-    if (!selectedBlockInfo || !selectedText) return;
-    const block = selectedBlockInfo.block;
-    const newSourceLines = [...block.sourceLines];
-    const lineIndex = 0;
-    const line = newSourceLines[lineIndex] || '';
-    const prefix = block.type === 'heading' ? '#'.repeat(block.headingLevel || 1) + ' ' : '';
-    const textContent = line.replace(new RegExp('^' + prefix), '');
-    const newText = '[' + selectedText + '](url)';
-    const newLineContent = textContent.replace(selectedText, newText);
-    newSourceLines[lineIndex] = prefix + newLineContent;
-    onContentChange(content.replace(block.sourceLines.join('\n'), newSourceLines.join('\n')));
-  }, [selectedBlockInfo, selectedText, content, onContentChange]);
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const url = window.prompt('Enter URL:', 'https://');
+    if (url === null) return;
+    const href = url.trim() === '' ? 'url' : url.trim();
+    wrapRangeWithTag('a', 'inline-link');
+    const anchor = sel?.anchorNode?.parentElement?.closest('a.inline-link');
+    if (anchor) {
+      (anchor as HTMLAnchorElement).href = href;
+      if (href === 'url') (anchor as HTMLAnchorElement).dataset.placeholder = 'true';
+      anchor.addEventListener('click', (e) => {
+        if ((e.currentTarget as HTMLElement).dataset.placeholder === 'true') e.preventDefault();
+      });
+    }
+    afterFormat();
+  }, [wrapRangeWithTag, afterFormat]);
 
   const handleComment = useCallback(() => {
-    if (!selectedBlockInfo || !selectedText) return;
-    const block = selectedBlockInfo.block;
-    const newSourceLines = [...block.sourceLines];
-    const lineIndex = 0;
-    const line = newSourceLines[lineIndex] || '';
-    const prefix = block.type === 'heading' ? '#'.repeat(block.headingLevel || 1) + ' ' : '';
-    const textContent = line.replace(new RegExp('^' + prefix), '');
-    const newText = selectedText + ' ^[comment]';
-    const newLineContent = textContent.replace(selectedText, newText);
-    newSourceLines[lineIndex] = prefix + newLineContent;
-    onContentChange(content.replace(block.sourceLines.join('\n'), newSourceLines.join('\n')));
-  }, [selectedBlockInfo, selectedText, content, onContentChange]);
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    range.collapse(false);
+    const marker = document.createElement('span');
+    marker.className = 'comment-marker';
+    marker.title = 'comment';
+    marker.textContent = '[✎]';
+    range.insertNode(marker);
+    afterFormat();
+  }, [afterFormat]);
 
   const handleStructureChange = useCallback(
     (value: string) => {
@@ -177,20 +216,11 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
         headingLevel = parseInt(value.split('-')[1]);
         blockType = 'heading';
       }
-      onBlockTypeChange(selectedBlockInfo.blockId, blockType);
-      if (headingLevel !== undefined) {
-        const block = selectedBlockInfo.block;
-        const textContent = block.sourceLines.join('\n').replace(/^#+/, '').trim();
-        const newContent = content.replace(
-          block.sourceLines.join('\n'),
-          '#'.repeat(headingLevel) + ' ' + textContent
-        );
-        onContentChange(newContent);
-      }
+      onBlockTypeChange(selectedBlockInfo.blockId, blockType, headingLevel, 1, false, 'plaintext');
       setIsStructureDropdownOpen(false);
       setIsVisible(false);
     },
-    [selectedBlockInfo, content, onContentChange, onBlockTypeChange]
+    [selectedBlockInfo, onBlockTypeChange]
   );
 
   const handleShowMdSource = useCallback(() => {
@@ -256,7 +286,7 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
         <div className="w-px h-4 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
         <button
           title="Bold"
-          onClick={() => handleFormat('**')}
+          onClick={handleBold}
           className="w-7 h-6 flex items-center justify-center rounded text-xs font-bold"
           style={{ color: 'var(--text-sub)' }}
         >
@@ -264,7 +294,7 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
         </button>
         <button
           title="Italic"
-          onClick={() => handleFormat('*')}
+          onClick={handleItalic}
           className="w-7 h-6 flex items-center justify-center rounded text-xs italic"
           style={{ color: 'var(--text-sub)' }}
         >
@@ -272,7 +302,7 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
         </button>
         <button
           title="Underline"
-          onClick={() => handleFormat('<u>', '</u>')}
+          onClick={handleUnderline}
           className="w-7 h-6 flex items-center justify-center rounded text-xs"
           style={{ color: 'var(--text-sub)', textDecoration: 'underline' }}
         >
@@ -280,7 +310,7 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
         </button>
         <button
           title="Highlight"
-          onClick={() => handleFormat('==')}
+          onClick={handleHighlight}
           className="w-7 h-6 flex items-center justify-center rounded text-xs"
           style={{ color: 'var(--text-sub)' }}
         >
@@ -288,7 +318,7 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
         </button>
         <button
           title="Code"
-          onClick={() => handleFormat('`')}
+          onClick={handleCode}
           className="w-7 h-6 flex items-center justify-center rounded text-xs font-mono"
           style={{ color: 'var(--text-sub)' }}
         >

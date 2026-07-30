@@ -21,6 +21,7 @@ import type { BlockId, BlockNode, BlockTree } from '../../services/blockTree';
 import {
   generateBlockId,
   getAllBlocksInOrder,
+  getBlock,
   insertBlockAfter,
   removeBlock,
   setBlockRenderedHtml,
@@ -56,6 +57,135 @@ interface EditorViewProps {
   onNavigateReady?: (navFn: (lineNumber: number, headingIndex: number) => void) => void;
   /** Called when the active heading changes during scroll */
   onActiveHeadingChange?: (headingIndex: number | null) => void;
+}
+
+// ============================================
+// Markdown Prefix Utilities (Task 1 & 4)
+// ============================================
+
+export function stripAllMarkdownPrefixes(text: string): string {
+  const lines = text.split('\n');
+  const stripped: string[] = [];
+  let inCodeFence = false;
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+    if (line.trim().startsWith('```')) {
+      inCodeFence = !inCodeFence;
+      continue;
+    }
+    if (!inCodeFence) {
+      line = line.replace(/^[ \t]*>[ \t]?/, '');
+      line = line.replace(/^[ \t]*#{1,6}[ \t]+/, '');
+      line = line.replace(/^[ \t]*[-*+][ \t]+\[[ xX]\][ \t]+/, '');
+      line = line.replace(/^[ \t]*[-*+][ \t]+/, '');
+      line = line.replace(/^[ \t]*\d+\.[ \t]+/, '');
+    }
+    stripped.push(line);
+  }
+  return stripped.join('\n');
+}
+
+export function applyTypePrefix(
+  cleaned: string,
+  newType: string,
+  headingLevel?: number,
+  orderedIndex?: number,
+  checked?: boolean,
+  fenceLanguage?: string
+): string[] {
+  const lines = cleaned.split('\n');
+  if (newType === 'code-fence') {
+    return ['```' + (fenceLanguage || 'plaintext'), ...lines, '```'];
+  }
+  if (newType === 'blockquote') {
+    return lines.map((l) => '> ' + l);
+  }
+  if (newType === 'heading') {
+    const level = headingLevel ?? 1;
+    const firstLine = lines[0] ?? '';
+    const rest = lines.slice(1);
+    return ['#'.repeat(level) + ' ' + firstLine, ...rest];
+  }
+  if (newType === 'unordered-list-item') {
+    return ['- ' + cleaned];
+  }
+  if (newType === 'ordered-list-item') {
+    const idx = orderedIndex ?? 1;
+    return [`${idx}. ${cleaned}`];
+  }
+  if (newType === 'task-list-item') {
+    const mark = checked ? 'x' : ' ';
+    return [`- [${mark}] ${cleaned}`];
+  }
+  return [cleaned];
+}
+
+// ============================================
+// DOM → Markdown Converter (Task 4)
+// ============================================
+
+function domToMarkdownChildren(node: Node): string {
+  let result = '';
+  node.childNodes.forEach((child) => {
+    result += domToMarkdown(child);
+  });
+  return result;
+}
+
+export function domToMarkdown(el: Node | Element): string {
+  if (el.nodeType === Node.TEXT_NODE) {
+    const data = (el as Text).data;
+    return data.replace(/\u200B/g, '');
+  }
+  if (el.nodeType !== Node.ELEMENT_NODE) {
+    return '';
+  }
+  const elem = el as Element;
+  const tag = elem.tagName.toLowerCase();
+  const classList = (elem as HTMLElement).classList;
+  const inner = domToMarkdownChildren(elem);
+
+  switch (tag) {
+    case 'strong':
+    case 'b':
+      return `**${inner}**`;
+    case 'em':
+    case 'i':
+      return `*${inner}*`;
+    case 'u':
+      return `<u>${inner}</u>`;
+    case 'mark':
+      return `==${inner}==`;
+    case 'code': {
+      if (classList.contains('inline-code')) {
+        const backtickCount = Math.max(
+          1,
+          (inner.match(/`+/g)?.sort((a, b) => b.length - a.length)[0]?.length ?? 0) + 1
+        );
+        const ticks = '`'.repeat(backtickCount);
+        return `${ticks}${inner}${ticks}`;
+      }
+      return inner;
+    }
+    case 'a': {
+      if (classList.contains('inline-link')) {
+        const href = elem.getAttribute('href') || '';
+        return `[${inner}](${href})`;
+      }
+      return inner;
+    }
+    case 'span': {
+      if (classList.contains('comment-marker')) {
+        const title = elem.getAttribute('title') || 'comment';
+        return ` ^[${title}]`;
+      }
+      return inner;
+    }
+    case 'br':
+      return '\n';
+    default:
+      return inner;
+  }
 }
 
 // ============================================
@@ -356,26 +486,42 @@ const EditorView: React.FC<EditorViewProps> = ({
     return blockEl.textContent?.replace(/\u200B/g, '').trim() ?? '';
   }, []);
 
-  const buildSourceLinesFromContent = useCallback((block: BlockNode, content: string): string[] => {
+  const buildSourceLinesFromContent = useCallback((block: BlockNode, text: string): string[] => {
+    let contentStr: string;
+    const blockEl = document.querySelector<HTMLElement>(`[data-block-id="${block.id}"]`);
+    if (blockEl) {
+      if (
+        block.type === 'unordered-list-item' ||
+        block.type === 'ordered-list-item' ||
+        block.type === 'task-list-item'
+      ) {
+        const contentEl = blockEl.querySelector('span.block-content');
+        contentStr = contentEl ? domToMarkdown(contentEl).trim() : text;
+      } else {
+        contentStr = domToMarkdown(blockEl).trim();
+      }
+    } else {
+      contentStr = text;
+    }
     if (block.type === 'heading') {
       const prefix = '#'.repeat(block.headingLevel ?? 1) + ' ';
-      return [`${prefix}${content}`];
+      return [`${prefix}${contentStr}`];
     }
     if (block.type === 'unordered-list-item') {
-      return [`- ${content}`];
+      return [`- ${contentStr}`];
     }
     if (block.type === 'ordered-list-item') {
       const index = block.orderedIndex ?? 1;
-      return [`${index}. ${content}`];
+      return [`${index}. ${contentStr}`];
     }
     if (block.type === 'task-list-item') {
       const checked = block.checked ? 'x' : ' ';
-      return [`- [${checked}] ${content}`];
+      return [`- [${checked}] ${contentStr}`];
     }
     if (block.type === 'blockquote') {
-      return [`> ${content}`];
+      return contentStr.split('\n').map((l) => `> ${l}`);
     }
-    return [content];
+    return [contentStr];
   }, []);
 
   // ============================================
@@ -879,15 +1025,37 @@ const EditorView: React.FC<EditorViewProps> = ({
   );
 
   const handleBlockTypeChange = useCallback(
-    (id: BlockId, _newType: string) => {
+    (
+      id: BlockId,
+      newType: string,
+      headingLevel?: number,
+      orderedIndex?: number,
+      checked?: boolean,
+      fenceLanguage?: string
+    ) => {
       const prev = blockTreeRef.current;
+      const currentBlock = getBlock(prev, id);
+      if (!currentBlock) return;
+      const blockEl = document.querySelector<HTMLElement>(`[data-block-id="${id}"]`);
+      const text = blockEl
+        ? getBlockTextContent(currentBlock, blockEl)
+        : currentBlock.sourceLines.join('\n');
+      const cleaned = stripAllMarkdownPrefixes(text);
+      const newSourceLines = applyTypePrefix(
+        cleaned,
+        newType,
+        headingLevel,
+        orderedIndex,
+        checked,
+        fenceLanguage
+      );
       pushUndo(serializeBlockTree(prev));
-      const next = updateBlockSource(prev, id, []);
+      const next = updateBlockSource(prev, id, newSourceLines);
       blockTreeRef.current = next;
       setBlockTree(next);
       syncTreeToStore(next);
     },
-    [pushUndo, syncTreeToStore]
+    [pushUndo, syncTreeToStore, getBlockTextContent]
   );
 
   const handleShowMdSource = useCallback((blockId: BlockId) => {

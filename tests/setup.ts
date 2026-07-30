@@ -88,3 +88,30 @@ vi.mock('@monaco-editor/react', () => ({
   default: vi.fn(() => null),
   Editor: vi.fn(() => null),
 }));
+
+// Stub missing DOM APIs for monaco-editor ESM modules in jsdom
+if (typeof document !== 'undefined') {
+  if (typeof (document as any).queryCommandSupported !== 'function') {
+    (document as any).queryCommandSupported = vi.fn(() => false);
+  }
+  if (typeof (document as any).execCommand !== 'function') {
+    (document as any).execCommand = vi.fn(() => false);
+  }
+}
+
+// Stub window.matchMedia (required by some Monaco contrib modules)
+if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn(() => ({
+      matches: false,
+      media: '',
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+}

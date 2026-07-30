@@ -1700,3 +1700,41 @@ html.dark .code-fence-content .token.variable {
   font-style: italic;
   opacity: 0.6;
 }
+
+/* ============================================ */
+/* WYSIWYG Inline Formatting Styles (Task 2)   */
+/* ============================================ */
+
+mark {
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
+code.inline-code {
+  background: var(--bg-code);
+  color: var(--text-code);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+a.inline-link {
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+a.inline-link:hover {
+  opacity: 0.85;
+}
+
+span.comment-marker {
+  color: var(--text-sub);
+  font-size: 11px;
+  margin-left: 2px;
+  opacity: 0.7;
+  cursor: help;
+}
