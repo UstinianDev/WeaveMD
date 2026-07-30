@@ -15,7 +15,7 @@
 //   • External content sync (undo/redo, FindReplaceBar)
 //   • Ctrl+F intercepted to use inline FindReplaceBar
 //   • IME-composition guard for key handlers
-//   • Heading navigation & dynamic active-heading highlight
+//   • Line-number based heading navigation & highlight
 // ============================================
 
 import Editor, { OnMount } from '@monaco-editor/react';
@@ -30,39 +30,25 @@ import '../../utils/monacoSetup';
 // ============================================
 
 export interface SourceCodeEditorHandle {
-  scrollToHeading: (headingIndex: number) => void;
+  scrollToLine: (lineNumber: number) => void;
 }
 
 // ============================================
 // Utility Functions
 // ============================================
 
-function findHeadingLineNumbers(content: string): number[] {
+function getNearestHeadingLineNumber(content: string, currentLine: number): number | null {
   const lines = content.split('\n');
-  const headingLines: number[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const match = lines[i].match(/^(#{1,3})\s/);
-    if (match) {
-      headingLines.push(i + 1);
-    }
-  }
-  return headingLines;
-}
-
-function getActiveHeadingIndex(content: string, currentLine: number): number | null {
-  const lines = content.split('\n');
-  let nearestHeadingIndex = -1;
-  let headingCount = 0;
+  let nearestHeadingLine = -1;
   for (let i = 0; i < lines.length; i++) {
     const isHeading = /^(#{1,3})\s/.test(lines[i]);
     if (isHeading) {
       if (i + 1 <= currentLine) {
-        nearestHeadingIndex = headingCount;
+        nearestHeadingLine = i + 1; // 1-based line number
       }
-      headingCount++;
     }
   }
-  return nearestHeadingIndex >= 0 ? nearestHeadingIndex : null;
+  return nearestHeadingLine > 0 ? nearestHeadingLine : null;
 }
 
 // ============================================
@@ -74,8 +60,8 @@ interface SourceCodeEditorProps {
   onContentChange: (newContent: string) => void;
   /** Called when the Monaco editor instance is mounted */
   onEditorRef?: (editor: editor.IStandaloneCodeEditor) => void;
-  /** Called when the active heading changes during navigation */
-  onActiveHeadingChange?: (headingIndex: number | null) => void;
+  /** Called when the active heading changes during navigation, passes lineNumber */
+  onActiveHeadingChange?: (lineNumber: number | null) => void;
 }
 
 // ============================================
@@ -102,20 +88,17 @@ const SourceCodeEditor = forwardRef<SourceCodeEditorHandle, SourceCodeEditorProp
 
     const editorTheme = isDarkTheme ? 'weaveMD-dark' : 'weaveMD-light';
 
-    // ---- Imperative Handle: scrollToHeading ----
+    // ---- Imperative Handle: scrollToLine ----
     useImperativeHandle(
       ref,
       (): SourceCodeEditorHandle => ({
-        scrollToHeading: (headingIndex: number) => {
+        scrollToLine: (lineNumber: number) => {
           const editor = editorRef.current;
           if (!editor) return;
 
-          const headingLines = findHeadingLineNumbers(contentRef.current);
-          const targetLine = headingLines[headingIndex];
-          if (targetLine == null) return;
-
-          editor.revealPositionInCenterIfOutsideViewport({ lineNumber: targetLine, column: 1 });
-          editor.setPosition({ lineNumber: targetLine, column: 1 });
+          // Set cursor first, then scroll to ensure correct heading detection
+          editor.setPosition({ lineNumber, column: 1 });
+          editor.revealPositionInCenterIfOutsideViewport({ lineNumber, column: 1 });
         },
       }),
       []
@@ -241,21 +224,24 @@ const SourceCodeEditor = forwardRef<SourceCodeEditorHandle, SourceCodeEditorProp
         });
 
         // ---- Scroll / Cursor Listeners: drive active heading ----
+        // Use cursor position instead of visible range start for accurate heading detection
         const updateActiveHeading = () => {
           const editorInstance = editorRef.current;
           if (!editorInstance) return;
 
-          const visible = editorInstance.getVisibleRanges();
-          let firstLine = 1;
-          if (visible && visible.length > 0) {
-            firstLine = visible[0].startLineNumber;
+          const pos = editorInstance.getPosition();
+          let cursorLine = 1;
+          if (pos) {
+            cursorLine = pos.lineNumber;
           } else {
-            const pos = editorInstance.getPosition();
-            if (pos) firstLine = pos.lineNumber;
+            const visible = editorInstance.getVisibleRanges();
+            if (visible && visible.length > 0) {
+              cursorLine = visible[0].startLineNumber;
+            }
           }
 
-          const idx = getActiveHeadingIndex(contentRef.current, firstLine);
-          onActiveHeadingChangeRef.current?.(idx);
+          const lineNumber = getNearestHeadingLineNumber(contentRef.current, cursorLine);
+          onActiveHeadingChangeRef.current?.(lineNumber);
         };
 
         editor.onDidScrollChange(updateActiveHeading);

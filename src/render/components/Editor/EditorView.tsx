@@ -30,7 +30,7 @@ import {
 import { buildBlockTree } from '../../services/blockTreeBuilder';
 import { serializeBlockTree } from '../../services/blockTreeSerializer';
 import { detectMarkdownLine } from '../../services/lineMarkdown';
-import { renderMarkdownToHtml } from '../../services/markdown';
+import { extractOutline, renderMarkdownToHtml, type OutlineItem } from '../../services/markdown';
 import { useEditorStore } from '../../stores/editorStore';
 import { useUIStore } from '../../stores/uiStore';
 
@@ -80,6 +80,7 @@ const EditorView: React.FC<EditorViewProps> = ({
   const inputDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInputBlockIdRef = useRef<BlockId | null>(null);
   const debounceTreeVersionRef = useRef<number>(0);
+  const contentRef = useRef<string>('');
 
   // --- Store ---
   const content = useEditorStore((s) => s.content);
@@ -122,6 +123,11 @@ const EditorView: React.FC<EditorViewProps> = ({
 
   // Keep blockTreeRef in sync with blockTree
   blockTreeRef.current = blockTree;
+
+  // Keep contentRef in sync with content
+  useEffect(() => {
+    contentRef.current = content;
+  }, [content]);
 
   // ============================================
   // Theme Definitions (Monaco custom themes)
@@ -1031,6 +1037,64 @@ const EditorView: React.FC<EditorViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Helper: Convert headingIndex to lineNumber using depth-first traversal
+  // (matches OutlinePanel's buildHeadingIndexMap ordering)
+  const getLineNumberForHeadingIndex = useCallback((headingIndex: number): number | null => {
+    const outline = extractOutline(contentRef.current);
+    let currentIndex = 0;
+    let result: number | null = null;
+
+    const walk = (items: OutlineItem[]): boolean => {
+      for (const item of items) {
+        if (currentIndex === headingIndex) {
+          result = item.lineNumber;
+          return true;
+        }
+        currentIndex++;
+        if (walk(item.children)) return true;
+      }
+      return false;
+    };
+
+    walk(outline);
+    return result;
+  }, []);
+
+  // Helper: Convert lineNumber to headingIndex using depth-first traversal
+  const getHeadingIndexForLineNumber = useCallback((lineNumber: number): number | null => {
+    const outline = extractOutline(contentRef.current);
+    let currentIndex = 0;
+    let result: number | null = null;
+
+    const walk = (items: OutlineItem[]): boolean => {
+      for (const item of items) {
+        if (item.lineNumber === lineNumber) {
+          result = currentIndex;
+          return true;
+        }
+        currentIndex++;
+        if (walk(item.children)) return true;
+      }
+      return false;
+    };
+
+    walk(outline);
+    return result;
+  }, []);
+
+  // Wrapper for Source Code Mode: convert lineNumber to headingIndex for OutlinePanel highlight
+  const handleSourceActiveHeadingChange = useCallback(
+    (lineNumber: number | null) => {
+      if (lineNumber == null) {
+        onActiveHeadingChange?.(null);
+      } else {
+        const headingIndex = getHeadingIndexForLineNumber(lineNumber);
+        onActiveHeadingChange?.(headingIndex);
+      }
+    },
+    [onActiveHeadingChange, getHeadingIndexForLineNumber]
+  );
+
   // Expose navigateToHeading for both modes
   useEffect(() => {
     if (!themesLoading) {
@@ -1047,13 +1111,16 @@ const EditorView: React.FC<EditorViewProps> = ({
           }
         });
       } else if (isSourceCodeMode && sourceEditorHandleRef.current) {
-        // Source Code Mode: use SourceCodeEditor handle
+        // Source Code Mode: convert headingIndex to lineNumber via extractOutline
         onNavigateReady?.((headingIndex: number) => {
-          sourceEditorHandleRef.current?.scrollToHeading(headingIndex);
+          const lineNumber = getLineNumberForHeadingIndex(headingIndex);
+          if (lineNumber != null) {
+            sourceEditorHandleRef.current?.scrollToLine(lineNumber);
+          }
         });
       }
     }
-  }, [isSourceCodeMode, onNavigateReady, themesLoading]);
+  }, [isSourceCodeMode, onNavigateReady, themesLoading, getLineNumberForHeadingIndex]);
 
   // Register draft flusher (no-op in Normal Mode; Source Code mode
   // handles its own flushing via SourceCodeEditor's blur handler)
@@ -1124,7 +1191,7 @@ const EditorView: React.FC<EditorViewProps> = ({
             onEditorRef={(ed) => {
               sourceEditorRef.current = ed;
             }}
-            onActiveHeadingChange={onActiveHeadingChange}
+            onActiveHeadingChange={handleSourceActiveHeadingChange}
           />
         ) : (
           /* Normal Mode: Editable rendered rich-text blocks */
