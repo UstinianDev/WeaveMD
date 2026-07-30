@@ -115,7 +115,7 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
 
         const containerRect = container.getBoundingClientRect();
         const blockRect = blockEl.getBoundingClientRect();
-        const offset = blockRect.top - containerRect.top + container.scrollTop - 24;
+        const offset = blockRect.top - containerRect.top + container.scrollTop;
 
         container.scrollTo({
           top: Math.max(0, offset),
@@ -167,8 +167,8 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
         return;
       }
 
-      // Detection line: viewport top + 5px tolerance
-      const detectLine = containerRect.top + 5;
+      // Detection line: viewport top + 10px tolerance
+      const detectLine = containerRect.top + 10;
 
       // Find all heading block elements in DOM order
       const headingEls = container.querySelectorAll('[data-block-id]');
@@ -302,7 +302,7 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
       <div
         ref={scrollContainerRef}
         className="editor-scroll-container h-full overflow-y-auto overflow-x-hidden"
-        style={{ padding: '40px 0 50vh 0' }}
+        style={{ padding: '40px 0 200vh 0' }}
         onScroll={handleScroll}
       >
         <div
