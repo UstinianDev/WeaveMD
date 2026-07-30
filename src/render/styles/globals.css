@@ -1306,8 +1306,10 @@ html.light .markdown-block-rendered code {
 
 .editor-block-highlight {
   animation: editor-block-flash 1.5s ease-out forwards;
-  margin: 0 -6px;
-  padding: 0 6px;
+  margin-left: -6px;
+  margin-right: -6px;
+  padding-left: 6px;
+  padding-right: 6px;
 }
 
 .editor-scroll-container {

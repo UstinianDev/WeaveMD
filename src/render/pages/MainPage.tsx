@@ -56,7 +56,9 @@ const MainPage: React.FC = () => {
   // Editor state
   const isEditorActiveRef = useRef(false);
   const [isEditorFocused, setIsEditorFocused] = useState(false);
-  const navigateToHeadingRef = useRef<((headingIndex: number) => void) | null>(null);
+  const navigateToHeadingRef = useRef<((lineNumber: number, headingIndex: number) => void) | null>(
+    null
+  );
   const [activeHeadingIndex, setActiveHeadingIndex] = useState<number | null>(null);
   const [isDraggingOutline, setIsDraggingOutline] = useState(false);
 
@@ -90,12 +92,15 @@ const MainPage: React.FC = () => {
     [outlineWidth, setOutlineWidth]
   );
 
-  const handleNavigateReady = useCallback((navFn: (headingIndex: number) => void) => {
-    navigateToHeadingRef.current = navFn;
-  }, []);
+  const handleNavigateReady = useCallback(
+    (navFn: (lineNumber: number, headingIndex: number) => void) => {
+      navigateToHeadingRef.current = navFn;
+    },
+    []
+  );
 
-  const handleNavigateToHeading = useCallback((headingIndex: number) => {
-    navigateToHeadingRef.current?.(headingIndex);
+  const handleNavigateToHeading = useCallback((lineNumber: number, headingIndex: number) => {
+    navigateToHeadingRef.current?.(lineNumber, headingIndex);
   }, []);
 
   // Active editor ref for FloatingToolbar — set by EditorView

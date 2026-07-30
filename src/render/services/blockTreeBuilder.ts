@@ -10,14 +10,10 @@
 // input and return a result or null. No module-level mutable state.
 // ============================================
 
-import type { BlockType } from './markdownBlockDetector';
-import {
-  createBlockTree,
-  generateBlockId,
-  insertBlockAfter,
-} from './blockTree';
-import type { BlockTree, BlockNode } from './blockTree';
+import type { BlockNode, BlockTree } from './blockTree';
+import { createBlockTree, generateBlockId, insertBlockAfter } from './blockTree';
 import { getHeadingLevelFromLine } from './lineMarkdown';
+import type { BlockType } from './markdownBlockDetector';
 
 // ============================================
 // Regex Patterns (mirrored from markdownBlockDetector.ts)
@@ -403,7 +399,7 @@ export function buildBlockTree(markdown: string): BlockTree {
     // 2. Code fences
     const codeFenceResult = detectCodeFence(lines, index);
     if (codeFenceResult) {
-      const blockNode = createBlockNode(tree, codeFenceResult);
+      const blockNode = createBlockNode(tree, codeFenceResult, index + 1);
       tree = insertBlockAfter(tree, lastInsertedId, blockNode);
       lastInsertedId = blockNode.id;
       index = codeFenceResult.nextIndex;
@@ -413,7 +409,7 @@ export function buildBlockTree(markdown: string): BlockTree {
     // 3. Tables
     const tableResult = detectTable(lines, index);
     if (tableResult) {
-      const blockNode = createBlockNode(tree, tableResult);
+      const blockNode = createBlockNode(tree, tableResult, index + 1);
       tree = insertBlockAfter(tree, lastInsertedId, blockNode);
       lastInsertedId = blockNode.id;
       index = tableResult.nextIndex;
@@ -423,7 +419,7 @@ export function buildBlockTree(markdown: string): BlockTree {
     // 4. Headings
     const headingResult = detectHeading(lines, index);
     if (headingResult) {
-      const blockNode = createBlockNode(tree, headingResult);
+      const blockNode = createBlockNode(tree, headingResult, index + 1);
       tree = insertBlockAfter(tree, lastInsertedId, blockNode);
       lastInsertedId = blockNode.id;
       index = headingResult.nextIndex;
@@ -433,7 +429,7 @@ export function buildBlockTree(markdown: string): BlockTree {
     // 5. Blockquotes
     const blockquoteResult = detectBlockquote(lines, index);
     if (blockquoteResult) {
-      const blockNode = createBlockNode(tree, blockquoteResult);
+      const blockNode = createBlockNode(tree, blockquoteResult, index + 1);
       tree = insertBlockAfter(tree, lastInsertedId, blockNode);
       lastInsertedId = blockNode.id;
       index = blockquoteResult.nextIndex;
@@ -443,7 +439,7 @@ export function buildBlockTree(markdown: string): BlockTree {
     // 6. List items (task > unordered > ordered, handled inside detectListItem)
     const listItemResult = detectListItem(lines, index);
     if (listItemResult) {
-      const blockNode = createBlockNode(tree, listItemResult);
+      const blockNode = createBlockNode(tree, listItemResult, index + 1);
       tree = insertBlockAfter(tree, lastInsertedId, blockNode);
       lastInsertedId = blockNode.id;
       index = listItemResult.nextIndex;
@@ -452,7 +448,7 @@ export function buildBlockTree(markdown: string): BlockTree {
 
     // 7. Paragraph (catch-all fallback)
     const paragraphResult = detectParagraph(lines, index);
-    const blockNode = createBlockNode(tree, paragraphResult);
+    const blockNode = createBlockNode(tree, paragraphResult, index + 1);
     tree = insertBlockAfter(tree, lastInsertedId, blockNode);
     lastInsertedId = blockNode.id;
     index = paragraphResult.nextIndex;
@@ -469,7 +465,7 @@ export function buildBlockTree(markdown: string): BlockTree {
  * Construct a fully-formed BlockNode from a DetectionResult.
  * Generates a unique stable BlockId and merges detection metadata.
  */
-function createBlockNode(tree: BlockTree, result: DetectionResult): BlockNode {
+function createBlockNode(tree: BlockTree, result: DetectionResult, startLine: number): BlockNode {
   const id = generateBlockId(tree);
 
   return {
@@ -483,5 +479,6 @@ function createBlockNode(tree: BlockTree, result: DetectionResult): BlockNode {
     parentId: null,
     childrenIds: [],
     renderedHtml: null,
+    startLine,
   };
 }

@@ -55,6 +55,8 @@ export interface BlockNode {
   childrenIds: BlockId[];
   /** Cached rendered HTML. Set to `null` when source changes and needs re-render. */
   renderedHtml: string | null;
+  /** Starting line number (1-based) in the original markdown source */
+  startLine?: number;
 }
 
 /**
