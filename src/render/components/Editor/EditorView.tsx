@@ -255,42 +255,10 @@ const EditorView: React.FC<EditorViewProps> = ({
 
         const markdown = block.sourceLines.join('\n');
         if (markdown.trim() === '') continue;
-        // #region debug-point H1:render-block-start
-        fetch('http://localhost:7777/event', {
-          method: 'POST',
-          body: JSON.stringify({
-            sessionId: 'editor-sync-render',
-            runId: 'pre-fix',
-            hypothesisId: 'H1',
-            location: 'EditorView.tsx:renderBlocks',
-            msg: '[DEBUG] Starting render for block',
-            data: {
-              blockId: block.id,
-              blockType: block.type,
-              sourceLines: block.sourceLines,
-              markdownLength: markdown.length,
-              ts: Date.now(),
-            },
-          }),
-        }).catch(() => {});
-        // #endregion
         try {
           const htmlRaw = await renderMarkdownToHtml(markdown);
           const html = normalizeRenderedHtml(block.type, htmlRaw);
           if (cancelled) return;
-          // #region debug-point H1:render-block-done
-          fetch('http://localhost:7777/event', {
-            method: 'POST',
-            body: JSON.stringify({
-              sessionId: 'editor-sync-render',
-              runId: 'pre-fix',
-              hypothesisId: 'H1',
-              location: 'EditorView.tsx:renderBlocks',
-              msg: '[DEBUG] Render complete, setting renderedHtml',
-              data: { blockId: block.id, htmlLength: html.length, ts: Date.now() },
-            }),
-          }).catch(() => {});
-          // #endregion
           setBlockTree((prev) => setBlockRenderedHtml(prev, block.id, html));
         } catch (err) {
           console.error(`Failed to render markdown for block ${block.id}:`, err);
