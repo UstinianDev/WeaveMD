@@ -1,9 +1,0 @@
-- [x] 目录标题字体增大：H1 text-lg, H2 text-base, H3 text-sm
-- [x] 目录面板宽度可拖拽调整（200-500px），拖拽手柄在右侧边框
-- [x] 拖拽时编辑区宽度实时跟随调整
-- [x] 目录面板宽度持久化到 uiStore
-- [x] 目录面板滚动条宽度 10px，圆角 thumb
-- [x] 编辑器滚动条宽度 10px，圆角 thumb，悬停加粗
-- [x] npm run typecheck 通过
-- [x] npm run lint 通过
-- [x] npm run test 全部通过

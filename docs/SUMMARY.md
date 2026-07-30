@@ -121,8 +121,8 @@
 
 **目录导航与高亮机制**：
 
-- Normal Mode：点击目录标题 → headingIndex → `scrollToBlock` 直接滚动；滚动时 `EditorScrollContainer` 监听可见标题变化
-- Source Code Mode：点击目录标题 → headingIndex 通过 `extractOutline` 深度优先遍历转换为 lineNumber → `scrollToLine` 滚动定位；光标位置变化时 `SourceCodeEditor` 通过 `getNearestHeadingLineNumber` 获取最近标题行号，再转换回 headingIndex 实现目录高亮
+- Normal Mode：点击目录标题 → lineNumber → 通过 `BlockNode.startLine` 匹配目标块 → `scrollToBlock` 滚动（无偏移，标题到视口顶部）；滚动时 `detectActiveHeading` 取视口顶部 + 10px 检测线上方的最后一个标题
+- Source Code Mode：点击目录标题 → lineNumber → `scrollToLine` 滚动定位；光标位置变化时 `SourceCodeEditor` 通过 `getNearestHeadingLineNumber` 获取最近标题行号，再转换回 headingIndex 实现目录高亮
 
 ### 4.6 主题系统
 
