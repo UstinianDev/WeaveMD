@@ -74,6 +74,7 @@ const SourceCodeEditor = forwardRef<SourceCodeEditorHandle, SourceCodeEditorProp
     const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
     const isUpdatingRef = useRef(false);
     const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const isNavigatingRef = useRef(false);
 
     // Refs for latest props (avoid stale closures in Monaco callbacks)
     const onContentChangeRef = useRef(onContentChange);
@@ -96,9 +97,17 @@ const SourceCodeEditor = forwardRef<SourceCodeEditorHandle, SourceCodeEditorProp
           const editor = editorRef.current;
           if (!editor) return;
 
+          // Set navigation lock to prevent scroll event from overwriting correct heading
+          isNavigatingRef.current = true;
+
           // Set cursor first, then scroll to ensure correct heading detection
           editor.setPosition({ lineNumber, column: 1 });
           editor.revealPositionInCenterIfOutsideViewport({ lineNumber, column: 1 });
+
+          // Release lock after navigation settles
+          setTimeout(() => {
+            isNavigatingRef.current = false;
+          }, 600);
         },
       }),
       []
@@ -256,7 +265,10 @@ const SourceCodeEditor = forwardRef<SourceCodeEditorHandle, SourceCodeEditorProp
           onActiveHeadingChangeRef.current?.(lineNumber);
         };
 
-        editor.onDidScrollChange(() => updateActiveHeading(true));
+        editor.onDidScrollChange(() => {
+          if (isNavigatingRef.current) return;
+          updateActiveHeading(true);
+        });
         editor.onDidChangeCursorPosition(() => updateActiveHeading(false));
 
         // Initial active heading computation
