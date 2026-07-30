@@ -38,7 +38,7 @@ import '../../utils/monacoSetup';
 import EditorScrollContainer, { type EditorScrollContainerHandle } from './EditorScrollContainer';
 import FindReplaceBar from './FindReplaceBar';
 import FloatingToolbarWYSIWYG from './FloatingToolbarWYSIWYG';
-import SourceCodeEditor from './SourceCodeEditor';
+import SourceCodeEditor, { type SourceCodeEditorHandle } from './SourceCodeEditor';
 
 // ============================================
 // Types
@@ -76,6 +76,7 @@ const EditorView: React.FC<EditorViewProps> = ({
   const prevSourceCodeModeRef = useRef(false);
   const sourceEditorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const scrollContainerRef = useRef<EditorScrollContainerHandle | null>(null);
+  const sourceEditorHandleRef = useRef<SourceCodeEditorHandle | null>(null);
   const inputDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInputBlockIdRef = useRef<BlockId | null>(null);
   const debounceTreeVersionRef = useRef<number>(0);
@@ -1030,19 +1031,27 @@ const EditorView: React.FC<EditorViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Expose navigateToHeading when in Normal Mode
+  // Expose navigateToHeading for both modes
   useEffect(() => {
-    if (!isSourceCodeMode && !themesLoading && scrollContainerRef.current) {
-      onNavigateReady?.((headingIndex: number) => {
-        const allBlocks = getAllBlocksInOrder(blockTreeRef.current);
-        const headingBlocks = allBlocks.filter(
-          (b) => b.type === 'heading' && (b.headingLevel ?? 6) <= 3
-        );
-        const target = headingBlocks[headingIndex];
-        if (target) {
-          scrollContainerRef.current?.scrollToBlock(target.id);
-        }
-      });
+    if (!themesLoading) {
+      if (!isSourceCodeMode && scrollContainerRef.current) {
+        // Normal Mode: use EditorScrollContainer
+        onNavigateReady?.((headingIndex: number) => {
+          const allBlocks = getAllBlocksInOrder(blockTreeRef.current);
+          const headingBlocks = allBlocks.filter(
+            (b) => b.type === 'heading' && (b.headingLevel ?? 6) <= 3
+          );
+          const target = headingBlocks[headingIndex];
+          if (target) {
+            scrollContainerRef.current?.scrollToBlock(target.id);
+          }
+        });
+      } else if (isSourceCodeMode && sourceEditorHandleRef.current) {
+        // Source Code Mode: use SourceCodeEditor handle
+        onNavigateReady?.((headingIndex: number) => {
+          sourceEditorHandleRef.current?.scrollToHeading(headingIndex);
+        });
+      }
     }
   }, [isSourceCodeMode, onNavigateReady, themesLoading]);
 
@@ -1109,11 +1118,13 @@ const EditorView: React.FC<EditorViewProps> = ({
         {isSourceCodeMode ? (
           /* Source Code Mode: Full Monaco editor for raw markdown */
           <SourceCodeEditor
+            ref={sourceEditorHandleRef}
             content={content}
             onContentChange={handleSourceContentChange}
             onEditorRef={(ed) => {
               sourceEditorRef.current = ed;
             }}
+            onActiveHeadingChange={onActiveHeadingChange}
           />
         ) : (
           /* Normal Mode: Editable rendered rich-text blocks */

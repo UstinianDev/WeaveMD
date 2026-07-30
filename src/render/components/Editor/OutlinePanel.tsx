@@ -9,7 +9,11 @@ import { useEditorStore } from '../../stores/editorStore';
 import { useUIStore } from '../../stores/uiStore';
 
 const INDENT_CLASSES = ['ml-0', 'ml-4', 'ml-8'] as const;
-const FONT_CLASSES = ['text-lg font-semibold', 'text-base font-medium', 'text-sm'] as const;
+const FONT_CLASSES = [
+  'text-xl font-bold',
+  'text-lg font-semibold',
+  'text-base font-medium',
+] as const;
 
 interface OutlinePanelProps {
   onNavigateToHeading?: (headingIndex: number) => void;
@@ -54,7 +58,7 @@ const OutlineItemRow: React.FC<{
       <button
         onClick={() => onNavigate(headingIndex)}
         className={`
-          w-full flex items-center gap-1 text-left py-0.5 px-2
+          w-full flex items-center gap-1 text-left py-1.5 px-2
           rounded transition-colors duration-150
           ${indentClass} ${fontSizeClass}
           ${isActive ? 'bg-bg-tertiary text-accent border-l-2 border-accent' : 'text-text-sub border-l-2 border-transparent hover:bg-bg-tertiary hover:border-accent'}
