@@ -53,7 +53,7 @@ interface EditorViewProps {
   /** Called when the active Monaco editor instance changes */
   onActiveEditorRef?: (ref: React.RefObject<editor.IStandaloneCodeEditor | null> | null) => void;
   /** Called when navigation is ready, provides navigateToHeading function */
-  onNavigateReady?: (navFn: (headingIndex: number) => void) => void;
+  onNavigateReady?: (navFn: (lineNumber: number, headingIndex: number) => void) => void;
   /** Called when the active heading changes during scroll */
   onActiveHeadingChange?: (headingIndex: number | null) => void;
 }
@@ -1005,29 +1005,6 @@ const EditorView: React.FC<EditorViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Helper: Convert headingIndex to lineNumber using depth-first traversal
-  // (matches OutlinePanel's buildHeadingIndexMap ordering)
-  const getLineNumberForHeadingIndex = useCallback((headingIndex: number): number | null => {
-    const outline = extractOutline(contentRef.current);
-    let currentIndex = 0;
-    let result: number | null = null;
-
-    const walk = (items: OutlineItem[]): boolean => {
-      for (const item of items) {
-        if (currentIndex === headingIndex) {
-          result = item.lineNumber;
-          return true;
-        }
-        currentIndex++;
-        if (walk(item.children)) return true;
-      }
-      return false;
-    };
-
-    walk(outline);
-    return result;
-  }, []);
-
   // Helper: Convert lineNumber to headingIndex using depth-first traversal
   const getHeadingIndexForLineNumber = useCallback((lineNumber: number): number | null => {
     const outline = extractOutline(contentRef.current);
@@ -1067,28 +1044,23 @@ const EditorView: React.FC<EditorViewProps> = ({
   useEffect(() => {
     if (!themesLoading) {
       if (!isSourceCodeMode && scrollContainerRef.current) {
-        // Normal Mode: use EditorScrollContainer
-        onNavigateReady?.((headingIndex: number) => {
+        // Normal Mode: use lineNumber to find exact target block
+        onNavigateReady?.((lineNumber: number, _headingIndex: number) => {
           const allBlocks = getAllBlocksInOrder(blockTreeRef.current);
-          const headingBlocks = allBlocks.filter(
-            (b) => b.type === 'heading' && (b.headingLevel ?? 6) <= 3
-          );
-          const target = headingBlocks[headingIndex];
+          // Find block whose startLine matches the heading's lineNumber
+          const target = allBlocks.find((b) => b.startLine === lineNumber && b.type === 'heading');
           if (target) {
             scrollContainerRef.current?.scrollToBlock(target.id);
           }
         });
       } else if (isSourceCodeMode && sourceEditorHandleRef.current) {
-        // Source Code Mode: convert headingIndex to lineNumber via extractOutline
-        onNavigateReady?.((headingIndex: number) => {
-          const lineNumber = getLineNumberForHeadingIndex(headingIndex);
-          if (lineNumber != null) {
-            sourceEditorHandleRef.current?.scrollToLine(lineNumber);
-          }
+        // Source Code Mode: use lineNumber directly
+        onNavigateReady?.((lineNumber: number, _headingIndex: number) => {
+          sourceEditorHandleRef.current?.scrollToLine(lineNumber);
         });
       }
     }
-  }, [isSourceCodeMode, onNavigateReady, themesLoading, getLineNumberForHeadingIndex]);
+  }, [isSourceCodeMode, onNavigateReady, themesLoading]);
 
   // Register draft flusher (no-op in Normal Mode; Source Code mode
   // handles its own flushing via SourceCodeEditor's blur handler)

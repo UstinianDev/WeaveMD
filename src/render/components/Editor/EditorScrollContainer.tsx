@@ -136,25 +136,45 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
     }));
 
     // Detect active heading on scroll (throttled)
-    // Strategy: use viewport center as primary detection point for best UX
+    // Strategy: use viewport top edge + small tolerance.
+    // The active heading is the last one whose top is at or above the
+    // viewport top — i.e. the heading currently visible at the top.
     const detectActiveHeading = useCallback(() => {
       const container = scrollContainerRef.current;
       if (!container || !onActiveHeadingChange) return;
 
       const containerRect = container.getBoundingClientRect();
-      const viewportCenter = containerRect.top + container.clientHeight / 2;
-      const viewportTop = containerRect.top + 40;
 
-      // Check if truly at bottom (strict condition — only when last content visible)
-      const isAtBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 2;
+      // Special case: at the very top of document
+      const isAtTop = container.scrollTop <= 1;
+      if (isAtTop) {
+        // Find the first heading and set active to its index
+        const headingEls = container.querySelectorAll('[data-block-id]');
+        let firstHeadingFound = false;
+        for (const el of Array.from(headingEls)) {
+          const blockId = el.getAttribute('data-block-id');
+          if (!blockId) continue;
+          const block = blockTree.blocks[blockId];
+          if (!block || block.type !== 'heading' || (block.headingLevel ?? 6) > 3) continue;
+          firstHeadingFound = true;
+          break;
+        }
+        if (firstHeadingFound) {
+          onActiveHeadingChange(0);
+        } else {
+          onActiveHeadingChange(null);
+        }
+        return;
+      }
+
+      // Detection line: viewport top + 5px tolerance
+      const detectLine = containerRect.top + 5;
 
       // Find all heading block elements in DOM order
       const headingEls = container.querySelectorAll('[data-block-id]');
       let activeHeadingIndex: number | null = null;
       let headingCount = 0;
       let lastHeadingIndex: number | null = null;
-      let centerHeadingIndex: number | null = null;
-      let topHeadingIndex: number | null = null;
 
       headingEls.forEach((el) => {
         const blockId = el.getAttribute('data-block-id');
@@ -168,26 +188,17 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
 
         const rect = el.getBoundingClientRect();
 
-        // Check if heading is above viewport center
-        if (rect.top <= viewportCenter) {
-          centerHeadingIndex = headingCount;
-        }
-
-        // Check if heading is above viewport top (near top of visible area)
-        if (rect.top <= viewportTop) {
-          topHeadingIndex = headingCount;
+        // Last heading whose top is at or above the viewport top
+        if (rect.top <= detectLine) {
+          activeHeadingIndex = headingCount;
         }
 
         headingCount += 1;
       });
 
-      // Priority: center > top > bottom
-      if (centerHeadingIndex !== null) {
-        activeHeadingIndex = centerHeadingIndex;
-      } else if (topHeadingIndex !== null) {
-        activeHeadingIndex = topHeadingIndex;
-      } else if (isAtBottom && lastHeadingIndex !== null) {
-        activeHeadingIndex = lastHeadingIndex;
+      // Fallback: if no heading is above detectLine, use the first heading
+      if (activeHeadingIndex === null && lastHeadingIndex !== null) {
+        activeHeadingIndex = 0;
       }
 
       onActiveHeadingChange(activeHeadingIndex);
@@ -291,7 +302,7 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
       <div
         ref={scrollContainerRef}
         className="editor-scroll-container h-full overflow-y-auto overflow-x-hidden"
-        style={{ padding: '40px 0 300px 0' }}
+        style={{ padding: '40px 0 50vh 0' }}
         onScroll={handleScroll}
       >
         <div

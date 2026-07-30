@@ -16,7 +16,7 @@ const FONT_CLASSES = [
 ] as const;
 
 interface OutlinePanelProps {
-  onNavigateToHeading?: (headingIndex: number) => void;
+  onNavigateToHeading?: (lineNumber: number, headingIndex: number) => void;
   activeHeadingIndex?: number | null;
 }
 
@@ -43,7 +43,7 @@ const OutlineItemRow: React.FC<{
   headingIndex: number;
   activeHeadingIndex: number | null;
   indexMap: Map<string, number>;
-  onNavigate: (headingIndex: number) => void;
+  onNavigate: (lineNumber: number, headingIndex: number) => void;
   depth: number;
 }> = ({ item, headingIndex, activeHeadingIndex, indexMap, onNavigate, depth }) => {
   const [isExpanded, setIsExpanded] = useState(true);
@@ -56,7 +56,7 @@ const OutlineItemRow: React.FC<{
   return (
     <div>
       <button
-        onClick={() => onNavigate(headingIndex)}
+        onClick={() => onNavigate(item.lineNumber, headingIndex)}
         className={`
           w-full flex items-center gap-1 text-left py-1.5 px-2
           rounded transition-colors duration-150
@@ -184,7 +184,7 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
               headingIndex={indexMap.get(item.id) ?? 0}
               activeHeadingIndex={activeHeadingIndex}
               indexMap={indexMap}
-              onNavigate={(headingIndex) => onNavigateToHeading?.(headingIndex)}
+              onNavigate={(lineNumber, headingIndex) => onNavigateToHeading?.(lineNumber, headingIndex)}
               depth={1}
             />
           ))

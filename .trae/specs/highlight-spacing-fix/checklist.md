@@ -1,0 +1,4 @@
+- [x] 高亮动画 CSS 仅影响水平方向，不覆盖垂直 margin/padding
+- [x] 底部 padding 改为 50vh，确保最后标题可滚动到检测线
+- [x] typecheck 通过
+- [x] lint 通过
