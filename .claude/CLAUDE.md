@@ -64,7 +64,7 @@ public/              # icons, images
 - **Heading typography (Doubao-aligned)**: H1 26/700, H2 22/600, H3 18/600, H4 16/500, Paragraph 14/400
 - **Markdown line parsing**: Heading detection (`#...`) must be shared across import/new/edit/paste via `src/render/services/lineMarkdown.ts`
 
-## Architecture (as of 2026-07-29)
+## Architecture (as of 2026-07-30)
 
 ### Dual-Mode Editor (v4)
 
@@ -111,8 +111,8 @@ The editor supports WYSIWYG editing in Normal Mode via **container-level content
 | New file naming         | `untitled-{timestamp36}.md`                                                                                                                |
 | Empty block placeholder | Zero-width space (`\u200B`) + CSS `::before` pseudo-element                                                                                |
 | Serialization separator | `\n\n` between blocks to preserve paragraph boundaries                                                                                     |
-| Outline navigation      | Heading index mapping (H1-H3 only); EditorView exposes `navigateToHeading` via `onNavigateReady`                                           |
-| Outline highlight       | `EditorScrollContainer` scroll listener → `onActiveHeadingChange` → OutlinePanel active row styling                                        |
+| Outline navigation      | Normal Mode: heading index → `scrollToBlock`; Source Code Mode: heading index → lineNumber via `extractOutline` DFS → `scrollToLine`       |
+| Outline highlight       | Normal Mode: scroll listener → heading detection; Source Code Mode: cursor position → nearest heading line → headingIndex conversion       |
 | Outline width           | `uiStore.outlineWidth` (default 280px, range 200-500px); drag handle on right border, persisted to localStorage                            |
 | Scrollbar width         | Editor + outline: 10px webkit scrollbar with rounded thumb; global: 6px                                                                    |
 | Navigate ready timing   | `useEffect` depends on `[isSourceCodeMode, onNavigateReady, themesLoading]` — ensures `scrollContainerRef` is set after Monaco themes load |

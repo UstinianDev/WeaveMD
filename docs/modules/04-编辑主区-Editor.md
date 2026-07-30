@@ -1,6 +1,6 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 版本：v4.2 | 最后更新：2026-07-30
+> 模块编号：04 | 优先级：P0 | 版本：v4.3 | 最后更新：2026-07-30
 
 ---
 
@@ -37,10 +37,10 @@ BlockNode = {
 
 ### 组件层 (`components/Editor/`)
 
-- `EditorView.tsx` — 主容器：双模式切换、Monaco 主题、全局快捷键、scroll 追踪、光标定位
+- `EditorView.tsx` — 主容器：双模式切换、Monaco 主题、全局快捷键、scroll 追踪、光标定位；`getLineNumberForHeadingIndex`/`getHeadingIndexForLineNumber` 双向转换、`handleSourceActiveHeadingChange` Source Code Mode 高亮包装
 - `EditorScrollContainer.tsx` — 可滚动视口（单一 `contentEditable` 表面），渲染只读块组件；`forwardRef` 暴露 `scrollToBlock`；scroll 监听检测当前可见标题
 - `BlockRenderer.tsx` — 块类型分发器（只读渲染）
-- `SourceCodeEditor.tsx` — 全屏 Monaco 编辑器（150ms debounce 写 store）
+- `SourceCodeEditor.tsx` — 全屏 Monaco 编辑器（150ms debounce 写 store）；`scrollToLine(lineNumber)` 导航、`getNearestHeadingLineNumber` 动态高亮
 - `FindReplaceBar.tsx` — Typora 风格 inline 查找替换栏
 - `Minimap.tsx` — Canvas 文档缩影（viewport 指示器 + 点击导航）
 - `blocks/` — 块组件：Heading、Paragraph、ListItem、CodeFence、Table、Blockquote、Empty（均为只读渲染，contentEditable 在容器层）
@@ -59,6 +59,12 @@ editorStore.content → buildBlockTree → renderMarkdownToHtml(per block)
   → Markdown 类型检测（标题/列表/引用等） → 必要时类型转换
   → Enter/Backspace → handleBlockEnter/handleBlockDelete
   → pushUndo → syncTreeToStore → editorStore.updateContent()
+
+目录导航：OutlinePanel.onNavigate(headingIndex) → EditorView.navigateToHeading()
+  → headingBlocks[headingIndex] → scrollContainerRef.scrollToBlock(blockId)
+
+目录高亮：EditorScrollContainer scroll → detectActiveHeading()
+  → onActiveHeadingChange(headingIndex) → OutlinePanel highlight
 ```
 
 ### 模式切换
@@ -74,6 +80,14 @@ Source → Normal: buildBlockTree(latestContent) → 重建 blockTree → 渲染
 
 ```
 SourceCodeEditor (Monaco) → 150ms debounce → editorStore.updateContent()
+
+目录导航：OutlinePanel.onNavigate(headingIndex) → EditorView.getLineNumberForHeadingIndex()
+  → extractOutline DFS 遍历 → lineNumber → scrollToLine(lineNumber)
+  → setPosition + revealPositionInCenterIfOutsideViewport
+
+目录高亮：Monaco onDidChangeCursorPosition → getNearestHeadingLineNumber(cursorLine)
+  → onActiveHeadingChange(lineNumber) → EditorView.getHeadingIndexForLineNumber()
+  → convert to headingIndex → OutlinePanel highlight
 ```
 
 ### Find & Replace
@@ -85,25 +99,25 @@ FindReplaceBar → searchEngine.findAllMatches(content) → 匹配高亮
 
 ## 5. 关键特性
 
-| 特性           | 详情                                                                                                       |
-| -------------- | ---------------------------------------------------------------------------------------------------------- |
-| **双模式**     | Normal（容器级 contentEditable WYSIWYG + Minimap）/ Source Code（全屏 Monaco）                             |
-| **Minimap**    | 64px Canvas，块类型颜色编码，viewport 指示器，点击导航                                                     |
-| **标题字号**   | H1=26/700、H2=22/600、H3=18/600、H4=16/500、P=14/400                                                       |
-| **代码块语言** | `<select>` 下拉选择；语言别名归一化（`sh`→`shell`、`Plain Text`→`plaintext`）                              |
-| **代码块编辑** | 双击进入 textarea 编辑模式，失焦保存                                                                       |
-| **浮动工具栏** | 选中文本时显示；包含格式化、结构转换、超链接、评论、MD 源码显示                                            |
-| **跨块选择**   | 容器级 contentEditable，支持跨段落/标题选择                                                                |
-| **空块占位**   | 零宽空格 `\u200B` + CSS `::before` 显示 "Type something..."                                                |
-| **自动保存**   | 1200ms debounce；关闭/切换文件前 flush                                                                     |
-| **撤销/重做**  | 自定义栈，50 条上限，跨会话保留；段落增删手动 pushUndo                                                     |
-| **光标管理**   | TreeWalker 遍历 DOM 文本节点，支持零宽空格偏移计算                                                         |
-| **IME 兼容**   | isComposing 守卫；inline bar 无 DOM 挂载/卸载                                                              |
-| **快捷键**     | Ctrl+S 保存、Ctrl+Z/Y 撤销/重做、Ctrl+F 查找、Ctrl+` 源码模式                                              |
-| **目录导航**   | 点击 H1-H3 标题 → EditorView `navigateToHeading(headingIndex)` → `scrollToBlock`；heading 索引深度优先匹配 |
-| **目录高亮**   | scroll 时 `EditorScrollContainer` 检测可见标题 → `onActiveHeadingChange` → OutlinePanel 高亮行             |
-| **目录宽度**   | `uiStore.outlineWidth`（默认 280px，范围 200-500px）；右侧拖拽手柄，持久化到 localStorage                  |
-| **滚动条**     | 编辑器 + 目录：10px 宽 webkit scrollbar，圆角 thumb，悬停加粗；全局：6px                                   |
+| 特性           | 详情                                                                                                                             |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **双模式**     | Normal（容器级 contentEditable WYSIWYG + Minimap）/ Source Code（全屏 Monaco）                                                   |
+| **Minimap**    | 64px Canvas，块类型颜色编码，viewport 指示器，点击导航                                                                           |
+| **标题字号**   | H1=26/700、H2=22/600、H3=18/600、H4=16/500、P=14/400                                                                             |
+| **代码块语言** | `<select>` 下拉选择；语言别名归一化（`sh`→`shell`、`Plain Text`→`plaintext`）                                                    |
+| **代码块编辑** | 双击进入 textarea 编辑模式，失焦保存                                                                                             |
+| **浮动工具栏** | 选中文本时显示；包含格式化、结构转换、超链接、评论、MD 源码显示                                                                  |
+| **跨块选择**   | 容器级 contentEditable，支持跨段落/标题选择                                                                                      |
+| **空块占位**   | 零宽空格 `\u200B` + CSS `::before` 显示 "Type something..."                                                                      |
+| **自动保存**   | 1200ms debounce；关闭/切换文件前 flush                                                                                           |
+| **撤销/重做**  | 自定义栈，50 条上限，跨会话保留；段落增删手动 pushUndo                                                                           |
+| **光标管理**   | TreeWalker 遍历 DOM 文本节点，支持零宽空格偏移计算                                                                               |
+| **IME 兼容**   | isComposing 守卫；inline bar 无 DOM 挂载/卸载                                                                                    |
+| **快捷键**     | Ctrl+S 保存、Ctrl+Z/Y 撤销/重做、Ctrl+F 查找、Ctrl+` 源码模式                                                                    |
+| **目录导航**   | Normal Mode: headingIndex → `scrollToBlock`；Source Code Mode: headingIndex → lineNumber（`extractOutline` DFS）→ `scrollToLine` |
+| **目录高亮**   | Normal Mode: scroll → heading detection；Source Code Mode: cursor position → nearest heading line → headingIndex conversion      |
+| **目录宽度**   | `uiStore.outlineWidth`（默认 280px，范围 200-500px）；右侧拖拽手柄，持久化到 localStorage                                        |
+| **滚动条**     | 编辑器 + 目录：10px 宽 webkit scrollbar，圆角 thumb，悬停加粗；全局：6px                                                         |
 
 ## 6. 块检测优先级
 

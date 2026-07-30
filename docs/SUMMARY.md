@@ -1,6 +1,6 @@
 # WeaveMD 项目总结文档
 
-> 版本：v2.7.0 | 最后更新：2026-07-30
+> 版本：v2.8.0 | 最后更新：2026-07-30
 
 ---
 
@@ -117,7 +117,12 @@
 
 ### 4.5 双模式编辑器
 
-**决策**：编辑器采用双模式架构（v4）：**Normal Mode** — Block Tree 渲染为可编辑富文本块，通过容器级 `contentEditable`（`editor-content-area` div）实现跨块选择和直接编辑。空块使用零宽空格（`\u200B`）+ CSS `::before` 伪元素显示"Type something..."占位符。支持回车创建段落、Backspace 删除空段落、Ctrl+Z/Y 撤销重做、Canvas Minimap（文档缩影）、浮动工具栏（选中文本时显示）、目录导航（点击 H1-H3 标题滚动到对应位置 + 滚动时动态高亮当前标题）；**Source Code Mode** — 全屏 Monaco 编辑器编辑原始 markdown（`Ctrl+`` 或 View 菜单切换）。序列化使用 `\n\n` 分隔块以保留段落边界。Find & Replace 为 Typora 风格 inline bar（`FindReplaceBar`），两种模式均可使用。状态通过 `uiStore`（`isSourceCodeMode`、`isFindReplaceOpen`、`outlineWidth`、`isOutlinePanelCollapsed`）跨组件共享。目录面板宽度可拖拽调整（200-500px，持久化），编辑器与目录滚动条均为 10px 宽滑块样式。
+**决策**：编辑器采用双模式架构（v4）：**Normal Mode** — Block Tree 渲染为可编辑富文本块，通过容器级 `contentEditable`（`editor-content-area` div）实现跨块选择和直接编辑。空块使用零宽空格（`\u200B`）+ CSS `::before` 伪元素显示"Type something..."占位符。支持回车创建段落、Backspace 删除空段落、Ctrl+Z/Y 撤销重做、Canvas Minimap（文档缩影）、浮动工具栏（选中文本时显示）、目录导航（点击 H1-H3 标题滚动到对应位置）；**Source Code Mode** — 全屏 Monaco 编辑器编辑原始 markdown（`Ctrl+`` 或 View 菜单切换）。序列化使用 `\n\n` 分隔块以保留段落边界。Find & Replace 为 Typora 风格 inline bar（`FindReplaceBar`），两种模式均可使用。状态通过 `uiStore`（`isSourceCodeMode`、`isFindReplaceOpen`、`outlineWidth`、`isOutlinePanelCollapsed`）跨组件共享。
+
+**目录导航与高亮机制**：
+
+- Normal Mode：点击目录标题 → headingIndex → `scrollToBlock` 直接滚动；滚动时 `EditorScrollContainer` 监听可见标题变化
+- Source Code Mode：点击目录标题 → headingIndex 通过 `extractOutline` 深度优先遍历转换为 lineNumber → `scrollToLine` 滚动定位；光标位置变化时 `SourceCodeEditor` 通过 `getNearestHeadingLineNumber` 获取最近标题行号，再转换回 headingIndex 实现目录高亮
 
 ### 4.6 主题系统
 
