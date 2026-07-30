@@ -1288,6 +1288,28 @@ html.light .markdown-block-rendered code {
 /* ============================================ */
 /* Block-Based Editor Container (v2 WYSIWYG)     */
 /* ============================================ */
+
+/* Temporary navigation highlight for outline click targets */
+@keyframes editor-block-flash {
+  0% {
+    background-color: rgba(124, 58, 237, 0.25);
+    border-radius: 4px;
+  }
+  50% {
+    background-color: rgba(124, 58, 237, 0.1);
+    border-radius: 4px;
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.editor-block-highlight {
+  animation: editor-block-flash 1.5s ease-out forwards;
+  margin: 0 -6px;
+  padding: 0 6px;
+}
+
 .editor-scroll-container {
   font-family:
     'Inter',
