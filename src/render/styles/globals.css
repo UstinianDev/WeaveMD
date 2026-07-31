@@ -1481,6 +1481,26 @@ html.dark .code-fence-block {
   box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.16);
 }
 
+.code-fence-copy-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 4px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.code-fence-copy-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
 .code-fence-content {
   font-size: 14px;
   line-height: 1.65;
