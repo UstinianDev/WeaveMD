@@ -8,22 +8,28 @@
 // ============================================
 
 import React from 'react';
-import Dropdown from '../Common/Dropdown';
-import type { DropdownItem as DropdownItemType } from '../Common/Dropdown';
+import { useI18n } from '../../i18n';
 import { useUIStore } from '../../stores/uiStore';
+import type { DropdownItem as DropdownItemType } from '../Common/Dropdown';
+import Dropdown from '../Common/Dropdown';
 
 const ViewMenu: React.FC = () => {
   const isSourceCodeMode = useUIStore((s) => s.isSourceCodeMode);
   const toggleSourceCodeMode = useUIStore((s) => s.toggleSourceCodeMode);
+  const { t } = useI18n();
 
   const items: DropdownItemType[] = [
     {
-      label: 'Source Code Mode',
+      label: t('navbar.sourceCodeMode'),
       onClick: toggleSourceCodeMode,
       icon: isSourceCodeMode ? (
-        <span className="text-xs" style={{ color: 'var(--accent)' }}>✓</span>
+        <span className="text-xs" style={{ color: 'var(--accent)' }}>
+          ✓
+        </span>
       ) : (
-        <span className="text-xs" style={{ visibility: 'hidden' }}>✓</span>
+        <span className="text-xs" style={{ visibility: 'hidden' }}>
+          ✓
+        </span>
       ),
       shortcut: 'Ctrl+`',
     },
@@ -33,7 +39,7 @@ const ViewMenu: React.FC = () => {
     <Dropdown
       trigger={
         <span className="text-sm text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] transition-colors cursor-pointer select-none">
-          View ▾
+          {t('navbar.view')} ▾
         </span>
       }
       items={items}

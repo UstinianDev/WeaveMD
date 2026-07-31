@@ -3,23 +3,25 @@
 // ============================================
 
 import React from 'react';
-import Dropdown from '../Common/Dropdown';
-import type { DropdownItem as DropdownItemType } from '../Common/Dropdown';
 import { APP_VERSION } from '../../../shared/constants';
+import { useI18n } from '../../i18n';
+import type { DropdownItem as DropdownItemType } from '../Common/Dropdown';
+import Dropdown from '../Common/Dropdown';
 
 interface HelpMenuProps {
   onOpenSettings: () => void;
 }
 
 const HelpMenu: React.FC<HelpMenuProps> = ({ onOpenSettings }) => {
+  const { t } = useI18n();
   const items: DropdownItemType[] = [
     {
-      label: 'Settings',
+      label: t('settings.title'),
       onClick: onOpenSettings,
     },
     { type: 'divider' },
     {
-      label: `Version ${APP_VERSION}`,
+      label: t('navbar.version', 'Version {version}').replace('{version}', APP_VERSION),
       disabled: true,
     },
   ];
@@ -28,7 +30,7 @@ const HelpMenu: React.FC<HelpMenuProps> = ({ onOpenSettings }) => {
     <Dropdown
       trigger={
         <span className="text-sm text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] transition-colors cursor-pointer select-none">
-          Help ▾
+          {t('navbar.help')} ▾
         </span>
       }
       items={items}

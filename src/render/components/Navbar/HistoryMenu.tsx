@@ -3,9 +3,10 @@
 // ============================================
 
 import React from 'react';
-import Dropdown from '../Common/Dropdown';
-import type { DropdownItem as DropdownItemType } from '../Common/Dropdown';
 import type { IFile } from '../../../shared/types';
+import { useI18n } from '../../i18n';
+import type { DropdownItem as DropdownItemType } from '../Common/Dropdown';
+import Dropdown from '../Common/Dropdown';
 
 interface HistoryMenuProps {
   files: IFile[];
@@ -14,6 +15,7 @@ interface HistoryMenuProps {
 }
 
 const HistoryMenu: React.FC<HistoryMenuProps> = ({ files, onOpenFile, onManageFiles }) => {
+  const { t } = useI18n();
   const fileItems: DropdownItemType[] = [...files]
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((file) => ({
@@ -23,10 +25,10 @@ const HistoryMenu: React.FC<HistoryMenuProps> = ({ files, onOpenFile, onManageFi
     }));
 
   const items: DropdownItemType[] = [
-    ...(fileItems.length > 0 ? fileItems : [{ label: 'No files yet', disabled: true }]),
+    ...(fileItems.length > 0 ? fileItems : [{ label: t('file.noFiles'), disabled: true }]),
     { type: 'divider' },
     {
-      label: 'Manage Files',
+      label: t('history.manageFiles'),
       onClick: onManageFiles,
     },
   ];
@@ -35,7 +37,7 @@ const HistoryMenu: React.FC<HistoryMenuProps> = ({ files, onOpenFile, onManageFi
     <Dropdown
       trigger={
         <span className="text-sm text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] transition-colors cursor-pointer select-none">
-          History ▾
+          {t('navbar.history')} ▾
         </span>
       }
       items={items}

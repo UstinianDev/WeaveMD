@@ -3,6 +3,7 @@
 // ============================================
 
 import React from 'react';
+import { useI18n } from '../../i18n';
 import type { DropdownItem as DropdownItemType } from '../Common/Dropdown';
 import Dropdown from '../Common/Dropdown';
 
@@ -11,19 +12,17 @@ interface MoreMenuProps {
   onEditHistory: () => void;
 }
 
-const MoreMenu: React.FC<MoreMenuProps> = ({
-  onFindReplace,
-  onEditHistory,
-}) => {
+const MoreMenu: React.FC<MoreMenuProps> = ({ onFindReplace, onEditHistory }) => {
+  const { t } = useI18n();
   const items: DropdownItemType[] = [
     {
-      label: 'Find & Replace',
+      label: t('navbar.findReplace'),
       onClick: onFindReplace,
       shortcut: 'Ctrl+Shift+F',
     },
     { type: 'divider' },
     {
-      label: 'Edit History',
+      label: t('navbar.editHistory'),
       onClick: onEditHistory,
     },
   ];
