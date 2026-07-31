@@ -1077,22 +1077,27 @@ const EditorView: React.FC<EditorViewProps> = ({
         next.blocks[blockId] = {
           ...block,
           sourceLines: buildSourceLinesFromContent(block, newContent),
-          renderedHtml: null,
+          renderedHtml: blockEl.innerHTML,
         };
       }
     }
     blockTreeRef.current = next;
+    setBlockTree(next);
     syncTreeToStore(next);
   }, [syncTreeToStore, getBlockTextContent, buildSourceLinesFromContent]);
 
-  const handleShowMdSource = useCallback((blockId: BlockId) => {
-    const current = useUIStore.getState().markdownBlockState.mdSourceBlockId;
-    if (current === blockId) {
-      useUIStore.getState().clearMdSourceBlockId();
-    } else {
-      useUIStore.getState().setMdSourceBlockId(blockId);
-    }
-  }, []);
+  const handleShowMdSource = useCallback(
+    (blockId: BlockId) => {
+      const current = useUIStore.getState().markdownBlockState.mdSourceBlockId;
+      if (current === blockId) {
+        useUIStore.getState().clearMdSourceBlockId();
+      } else {
+        handleSyncToStore();
+        useUIStore.getState().setMdSourceBlockId(blockId);
+      }
+    },
+    [handleSyncToStore]
+  );
 
   // ============================================
   // Source Code Editor Content Change Handler
