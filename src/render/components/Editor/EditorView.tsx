@@ -649,6 +649,27 @@ const EditorView: React.FC<EditorViewProps> = ({
       const block = prev.blocks[id];
       if (!block) return;
 
+      // Code-fence blocks: content comes from textarea (double-click edit).
+      // Do NOT run detectMarkdownLine — code containing '#' would be misdetected as heading.
+      if (block.type === 'code-fence') {
+        const lang = block.fenceLanguage || 'plaintext';
+        const newSourceLines = ['```' + lang, newContent, '```'];
+        const updatedBlock: BlockNode = {
+          ...block,
+          sourceLines: newSourceLines,
+          renderedHtml: null,
+        };
+        const next: BlockTree = {
+          ...prev,
+          blocks: { ...prev.blocks, [id]: updatedBlock },
+          version: prev.version + 1,
+        };
+        blockTreeRef.current = next;
+        syncTreeToStore(next);
+        setBlockTree(next);
+        return;
+      }
+
       const detection = detectMarkdownLine(newContent);
       const typeChanged = !!(detection && detection.type !== block.type);
 
@@ -719,6 +740,13 @@ const EditorView: React.FC<EditorViewProps> = ({
 
         const prev = blockTreeRef.current;
         let block = prev.blocks[id];
+
+        // Code-fence blocks have their own edit path (textarea on double-click);
+        // skip contentEditable input processing to avoid corrupting sourceLines.
+        if (block && block.type === 'code-fence') {
+          inputDebounceRef.current = null;
+          return;
+        }
 
         // NEW BLOCK: Not in tree yet — create it with setBlockTree (no existing DOM to conflict)
         if (!block) {
@@ -1078,7 +1106,6 @@ const EditorView: React.FC<EditorViewProps> = ({
           const contentEl = blockEl.querySelector(':scope > .code-fence-content');
           next.blocks[blockId] = {
             ...block,
-            sourceLines: buildSourceLinesFromContent(block, newContent),
             renderedHtml: contentEl ? contentEl.innerHTML : null,
           };
         } else {

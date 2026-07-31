@@ -58,9 +58,12 @@ BlockNode = {
 editorStore.content → buildBlockTree → renderMarkdownToHtml(per block)
   → BlockRenderer → 只读 block 组件 → DOM
   → 用户编辑 → onInput → debounce(30ms) → handleBlockInput
+  → [code-fence 块跳过：独立 textarea 编辑路径，不运行 detectMarkdownLine]
   → Markdown 类型检测（标题/列表/引用等） → 必要时类型转换
   → Enter/Backspace → handleBlockEnter/handleBlockDelete
   → pushUndo → syncTreeToStore → editorStore.updateContent()
+  → 工具栏操作 → afterFormat → handleSyncToStore
+  → [code-fence 块跳过：仅更新 renderedHtml，不重建 sourceLines]
 
 目录导航：OutlinePanel.onNavigate(lineNumber, headingIndex) → EditorView.navigateToHeading()
   → find block by startLine → scrollContainerRef.scrollToBlock(blockId)
@@ -109,7 +112,7 @@ FindReplaceBar → searchEngine.findAllMatches(content) → 匹配高亮
 | **Minimap**    | 64px Canvas，块类型颜色编码，viewport 指示器，点击导航                                                                                                                                            |
 | **标题字号**   | H1=26/700、H2=22/600、H3=18/600、H4=16/500、P=14/400                                                                                                                                              |
 | **代码块语言** | `<select>` 下拉选择；语言别名归一化（`sh`→`shell`、`Plain Text`→`plaintext`）                                                                                                                     |
-| **代码块编辑** | 双击进入 textarea 编辑模式，失焦保存                                                                                                                                                              |
+| **代码块编辑** | 双击进入 textarea 编辑模式，失焦保存；独立编辑路径，不经过 contentEditable/detectMarkdownLine，避免代码中的 `#` 被误检测为标题                                                                    |
 | **浮动工具栏** | 选中文本时显示；Toggle 格式化（Bold/Italic/Underline/Strikethrough/Highlight/InlineCode/Link/Comment），使用 `document.execCommand` + DOM 直接操作实现实时渲染；MD Source 显示/隐藏 Markdown 源码 |
 | **实时渲染**   | `dangerouslySetInnerHTML` + `BlockNode.renderedHtml` 存储 DOM HTML，React 重渲染时恢复富文本格式，支持多属性叠加                                                                                  |
 | **跨块选择**   | 容器级 contentEditable，支持跨段落/标题选择                                                                                                                                                       |
