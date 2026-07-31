@@ -95,16 +95,16 @@ function getShortcutAction(event: KeyboardEvent): ShortcutAction {
 
 #### View 菜单
 
-| 菜单项             | 快捷键    | 实现逻辑                                          |
-| ------------------ | --------- | ------------------------------------------------- |
-| Source Code Mode   | `Ctrl+`` ` | `uiStore.toggleSourceCodeMode()` → EditorView 切换 |
+| 菜单项           | 快捷键     | 实现逻辑                                           |
+| ---------------- | ---------- | -------------------------------------------------- |
+| Source Code Mode | `Ctrl+`` ` | `uiStore.toggleSourceCodeMode()` → EditorView 切换 |
 
 #### 更多菜单 (⋮)
 
-| 菜单项         | 优先级 | 说明                                   |
-| -------------- | ------ | -------------------------------------- |
+| 菜单项         | 优先级 | 说明                                                         |
+| -------------- | ------ | ------------------------------------------------------------ |
 | Find & Replace | P0     | `uiStore.toggleFindReplace()` → EditorView 内 FindReplaceBar |
-| Edit History   | P1     | `uiStore.toggleHistoryPanel()`         |
+| Edit History   | P1     | `uiStore.toggleHistoryPanel()`                               |
 
 **Find & Replace（Typora 风格 inline bar）：**
 
@@ -227,14 +227,14 @@ const files = useHistoryStore((s) => s.files);
 
 ## 5. 与其他模块的交互
 
-| 模块       | 交互方式                                             |
-| ---------- | ---------------------------------------------------- |
+| 模块       | 交互方式                                                                                                                  |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------- |
 | 编辑器     | `editorStore` 操作文件/撤销/重做；`uiStore.toggleFindReplace()` 切换查找栏；`uiStore.toggleSourceCodeMode()` 切换源码模式 |
-| 认证系统   | 显示当前账号标签；通过 `authStore.user` 获取用户信息 |
-| 设置       | 通过 `uiStore.openModal('settings')` 打开设置        |
-| 窗口控制   | 通过 IPC 调用窗口控制（最小化/最大化/关闭）          |
-| 数据持久化 | 通过 IPC 调用文件 CRUD 操作                          |
-| 历史面板   | 通过 `uiStore.toggleHistoryPanel()` 打开/关闭        |
+| 认证系统   | 显示当前账号标签；通过 `authStore.user` 获取用户信息                                                                      |
+| 设置       | 通过 `uiStore.openModal('settings')` 打开设置                                                                             |
+| 窗口控制   | 通过 IPC 调用窗口控制（最小化/最大化/关闭）                                                                               |
+| 数据持久化 | 通过 IPC 调用文件 CRUD 操作                                                                                               |
+| 历史面板   | 通过 `uiStore.toggleHistoryPanel()` 打开/关闭                                                                             |
 
 ## 6. 关键设计决策
 
@@ -245,3 +245,4 @@ const files = useHistoryStore((s) => s.files);
 5. **账号标签**：导航栏显示当前账号，提供快速切换入口
 6. **View 菜单**：Source Code Mode 切换通过 `uiStore.isSourceCodeMode` 状态共享，EditorView 和 TopBar 均可触发
 7. **Find & Replace inline**：不再使用模态弹窗，改为 EditorView 内联栏（`uiStore.isFindReplaceOpen`），避免 IME 焦点转移问题
+8. **i18n 全覆盖**：TopBar + 6 个菜单组件（FileMenu/HelpMenu/HistoryMenu/ViewMenu/MoreMenu）+ WindowControls 全部接入 `useI18n`；品牌名 "WeaveMD" 与 emoji 图标保持硬编码；Version 项用 `{version}` 占位符替换
