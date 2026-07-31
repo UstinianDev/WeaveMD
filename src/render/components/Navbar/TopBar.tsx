@@ -4,6 +4,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import type { IFile } from '../../../shared/types';
+import { useI18n } from '../../i18n';
 import { useAuthStore } from '../../stores/authStore';
 import { useEditorStore } from '../../stores/editorStore';
 import { useHistoryStore } from '../../stores/historyStore';
@@ -64,6 +65,7 @@ export function getShortcutAction(event: {
 const TopBar: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const { t } = useI18n();
   const user = useAuthStore((s) => s.user);
   const currentFile = useEditorStore((s) => s.currentFile);
   const openFile = useEditorStore((s) => s.openFile);
@@ -291,7 +293,7 @@ const TopBar: React.FC = () => {
         <div className="flex items-center gap-2 px-2">
           <div className="w-3 h-3 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
           <span className="text-xs" style={{ color: 'var(--navbar-text-sub, #999999)' }}>
-            Loading...
+            {t('navbar.loading')}
           </span>
         </div>
       )}
@@ -322,7 +324,7 @@ const TopBar: React.FC = () => {
           disabled={undoStack.length === 0}
           className="w-8 h-8 flex items-center justify-center rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           style={{ color: 'var(--navbar-text-sub, #999999)' }}
-          title="Undo (Ctrl+Z)"
+          title={t('navbar.undoShortcut')}
         >
           <svg
             width="16"
@@ -345,7 +347,7 @@ const TopBar: React.FC = () => {
           disabled={redoStack.length === 0}
           className="w-8 h-8 flex items-center justify-center rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           style={{ color: 'var(--navbar-text-sub, #999999)' }}
-          title="Redo (Ctrl+Y)"
+          title={t('navbar.redoShortcut')}
         >
           <svg
             width="16"
@@ -368,7 +370,7 @@ const TopBar: React.FC = () => {
           <button
             className="text-sm hover:text-[var(--accent)] transition-colors px-1"
             style={{ color: 'var(--navbar-text-primary, #FFFFFF)' }}
-            title="Export"
+            title={t('navbar.export')}
           >
             ⬇️
           </button>

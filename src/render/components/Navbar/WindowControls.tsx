@@ -2,13 +2,18 @@
 // WeaveMD — Window Control Buttons
 // ============================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useI18n } from '../../i18n';
 
 const WindowControls: React.FC = () => {
   const [isMaximized, setIsMaximized] = useState(false);
+  const { t } = useI18n();
 
   useEffect(() => {
-    window.weaveMD.window.isMaximized().then(setIsMaximized).catch(() => {});
+    window.weaveMD.window
+      .isMaximized()
+      .then(setIsMaximized)
+      .catch(() => {});
   }, []);
 
   const handleMinimize = () => window.weaveMD.window.minimize();
@@ -21,8 +26,7 @@ const WindowControls: React.FC = () => {
 
   const handleClose = () => window.weaveMD.window.close();
 
-  const btnClass =
-    'w-11 h-full flex items-center justify-center transition-colors';
+  const btnClass = 'w-11 h-full flex items-center justify-center transition-colors';
   const btnStyle = { color: 'var(--navbar-text-sub, #999999)' };
 
   return (
@@ -32,7 +36,7 @@ const WindowControls: React.FC = () => {
         onClick={handleMinimize}
         className={btnClass}
         style={btnStyle}
-        title="Minimize"
+        title={t('navbar.minimize')}
       >
         <svg width="12" height="12" viewBox="0 0 12 12">
           <rect x="1" y="5.5" width="10" height="1" fill="currentColor" />
@@ -44,12 +48,20 @@ const WindowControls: React.FC = () => {
         onClick={handleMaximize}
         className={btnClass}
         style={btnStyle}
-        title={isMaximized ? 'Restore' : 'Maximize'}
+        title={isMaximized ? t('navbar.restore') : t('navbar.maximize')}
       >
         {isMaximized ? (
           <svg width="12" height="12" viewBox="0 0 12 12">
             <rect x="3" y="0.5" width="8" height="8" rx="0.5" stroke="currentColor" fill="none" />
-            <rect x="0.5" y="3" width="8" height="8" rx="0.5" stroke="currentColor" fill="var(--navbar-bg)" />
+            <rect
+              x="0.5"
+              y="3"
+              width="8"
+              height="8"
+              rx="0.5"
+              stroke="currentColor"
+              fill="var(--navbar-bg)"
+            />
           </svg>
         ) : (
           <svg width="12" height="12" viewBox="0 0 12 12">
@@ -59,12 +71,7 @@ const WindowControls: React.FC = () => {
       </button>
 
       {/* Close */}
-      <button
-        onClick={handleClose}
-        className={btnClass}
-        style={btnStyle}
-        title="Close"
-      >
+      <button onClick={handleClose} className={btnClass} style={btnStyle} title={t('navbar.close')}>
         <svg width="12" height="12" viewBox="0 0 12 12">
           <line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" strokeWidth="1.2" />
           <line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" strokeWidth="1.2" />

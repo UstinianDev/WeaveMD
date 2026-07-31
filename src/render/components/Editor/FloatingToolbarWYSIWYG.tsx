@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useI18n } from '../../i18n';
 import type { BlockId, BlockNode, BlockTree } from '../../services/blockTree';
 
 interface ToolbarPosition {
@@ -30,18 +31,18 @@ interface FloatingToolbarWYSIWYGProps {
 }
 
 const STRUCTURE_OPTIONS = [
-  { value: 'paragraph', label: '正文' },
-  { value: 'heading-1', label: '一级标题' },
-  { value: 'heading-2', label: '二级标题' },
-  { value: 'heading-3', label: '三级标题' },
-  { value: 'heading-4', label: '四级标题' },
-  { value: 'heading-5', label: '五级标题' },
-  { value: 'heading-6', label: '六级标题' },
-  { value: 'unordered-list-item', label: '无序列表' },
-  { value: 'ordered-list-item', label: '有序列表' },
-  { value: 'task-list-item', label: '任务' },
-  { value: 'code-fence', label: '代码块' },
-  { value: 'blockquote', label: '引用' },
+  { value: 'paragraph', labelKey: 'toolbar.paragraph' },
+  { value: 'heading-1', labelKey: 'toolbar.heading1' },
+  { value: 'heading-2', labelKey: 'toolbar.heading2' },
+  { value: 'heading-3', labelKey: 'toolbar.heading3' },
+  { value: 'heading-4', labelKey: 'toolbar.heading4' },
+  { value: 'heading-5', labelKey: 'toolbar.heading5' },
+  { value: 'heading-6', labelKey: 'toolbar.heading6' },
+  { value: 'unordered-list-item', labelKey: 'toolbar.unorderedList' },
+  { value: 'ordered-list-item', labelKey: 'toolbar.orderedList' },
+  { value: 'task-list-item', labelKey: 'toolbar.task' },
+  { value: 'code-fence', labelKey: 'toolbar.codeBlock' },
+  { value: 'blockquote', labelKey: 'toolbar.quote' },
 ];
 
 const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
@@ -60,6 +61,7 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
   const [isStructureDropdownOpen, setIsStructureDropdownOpen] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const { t } = useI18n();
 
   const getBlockIdFromElement = useCallback((element: Node | null): BlockId | null => {
     if (!element) return null;
@@ -174,9 +176,10 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return;
     const range = sel.getRangeAt(0);
-    const startEl = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
-      ? range.commonAncestorContainer.parentElement
-      : (range.commonAncestorContainer as HTMLElement);
+    const startEl =
+      range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+        ? range.commonAncestorContainer.parentElement
+        : (range.commonAncestorContainer as HTMLElement);
     const existingMark = startEl?.closest('mark') || null;
     if (existingMark) {
       // unwrap: 移除 <mark> 包装
@@ -247,7 +250,8 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
     if (!sel || sel.rangeCount === 0) return;
     const range = sel.getRangeAt(0);
     const endContainer = range.endContainer as HTMLElement;
-    const endEl = endContainer.nodeType === Node.TEXT_NODE ? endContainer.parentElement : endContainer;
+    const endEl =
+      endContainer.nodeType === Node.TEXT_NODE ? endContainer.parentElement : endContainer;
     const nextSibling = endEl?.nextElementSibling;
     if (nextSibling?.classList.contains('comment-marker')) {
       nextSibling.remove();
@@ -295,7 +299,7 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
     <React.Fragment>
       <div
         ref={toolbarRef}
-        className="floating-toolbar-wysiwyg fixed z-[100] flex items-center gap-1 px-2 py-1 rounded-lg shadow-lg"
+        className="floating-toolbar-wysiwyg fixed z-[100] flex items-center gap-1 px-2.5 py-1.5 rounded-lg shadow-lg"
         style={{
           top: position.top + 'px',
           left: position.left + 'px',
@@ -310,10 +314,13 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
               e.stopPropagation();
               setIsStructureDropdownOpen(!isStructureDropdownOpen);
             }}
-            className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded text-sm font-medium"
             style={{ color: 'var(--text-primary)' }}
           >
-            {STRUCTURE_OPTIONS.find((opt) => opt.value === currentStructure)?.label || '正文'}
+            {t(
+              STRUCTURE_OPTIONS.find((opt) => opt.value === currentStructure)?.labelKey ||
+                'toolbar.paragraph'
+            )}
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
                 strokeLinecap="round"
@@ -329,77 +336,77 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
                 <button
                   key={option.value}
                   onClick={() => handleStructureChange(option.value)}
-                  className="w-full px-3 py-1.5 text-left text-xs hover:bg-[var(--bg-tertiary)]"
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-[var(--bg-tertiary)]"
                   style={{ color: 'var(--text-primary)' }}
                 >
-                  {option.label}
+                  {t(option.labelKey)}
                 </button>
               ))}
             </div>
           )}
         </div>
-        <div className="w-px h-4 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
+        <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
         <button
-          title="Bold"
+          title={t('toolbar.bold')}
           onClick={handleBold}
-          className="w-7 h-6 flex items-center justify-center rounded text-xs font-bold"
+          className="w-9 h-8 flex items-center justify-center rounded text-sm font-bold"
           style={{ color: 'var(--text-sub)' }}
         >
           B
         </button>
         <button
-          title="Italic"
+          title={t('toolbar.italic')}
           onClick={handleItalic}
-          className="w-7 h-6 flex items-center justify-center rounded text-xs italic"
+          className="w-9 h-8 flex items-center justify-center rounded text-sm italic"
           style={{ color: 'var(--text-sub)' }}
         >
           I
         </button>
         <button
-          title="Underline"
+          title={t('toolbar.underline')}
           onClick={handleUnderline}
-          className="w-7 h-6 flex items-center justify-center rounded text-xs"
+          className="w-9 h-8 flex items-center justify-center rounded text-sm"
           style={{ color: 'var(--text-sub)', textDecoration: 'underline' }}
         >
           U
         </button>
         <button
-          title="Highlight"
+          title={t('toolbar.highlight')}
           onClick={handleHighlight}
-          className="w-7 h-6 flex items-center justify-center rounded text-xs"
+          className="w-9 h-8 flex items-center justify-center rounded text-sm"
           style={{ color: 'var(--text-sub)' }}
         >
           H
         </button>
         <button
-          title="Code"
+          title={t('toolbar.code')}
           onClick={handleCode}
-          className="w-7 h-6 flex items-center justify-center rounded text-xs font-mono"
+          className="w-9 h-8 flex items-center justify-center rounded text-sm font-mono"
           style={{ color: 'var(--text-sub)' }}
         >
           {'`'}
         </button>
-        <div className="w-px h-4 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
+        <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
         <button
-          title="Link"
+          title={t('toolbar.link')}
           onClick={handleLink}
-          className="w-7 h-6 flex items-center justify-center rounded text-xs"
+          className="w-9 h-8 flex items-center justify-center rounded text-sm"
           style={{ color: 'var(--text-sub)' }}
         >
           Link
         </button>
         <button
-          title="Comment"
+          title={t('toolbar.comment')}
           onClick={handleComment}
-          className="w-7 h-6 flex items-center justify-center rounded text-xs"
+          className="w-9 h-8 flex items-center justify-center rounded text-sm"
           style={{ color: 'var(--text-sub)' }}
         >
           Cm
         </button>
         <button
-          title="MD Source"
+          title={t('toolbar.mdSource')}
           onClick={handleShowMdSource}
-          className="w-7 h-6 flex items-center justify-center rounded text-xs"
+          className="w-9 h-8 flex items-center justify-center rounded text-sm"
           style={{ color: 'var(--text-sub)' }}
         >
           Src

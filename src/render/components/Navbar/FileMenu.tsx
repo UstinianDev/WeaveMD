@@ -3,6 +3,7 @@
 // ============================================
 
 import React from 'react';
+import { useI18n } from '../../i18n';
 import type { DropdownItem as DropdownItemType } from '../Common/Dropdown';
 import Dropdown from '../Common/Dropdown';
 
@@ -21,27 +22,28 @@ const FileMenu: React.FC<FileMenuProps> = ({
   onCloseFile,
   hasOpenFile,
 }) => {
+  const { t } = useI18n();
   const items: DropdownItemType[] = [
     {
-      label: 'New File',
+      label: t('file.new'),
       onClick: onNewFile,
       shortcut: 'Ctrl+N',
     },
     {
-      label: 'Open File',
+      label: t('file.open'),
       onClick: onOpenFile,
       shortcut: 'Ctrl+O',
     },
     { type: 'divider' },
     {
-      label: 'Delete File',
+      label: t('file.delete'),
       onClick: onDeleteFile,
       disabled: !hasOpenFile,
       danger: true,
     },
     { type: 'divider' },
     {
-      label: 'Close File',
+      label: t('file.close'),
       onClick: onCloseFile,
       disabled: !hasOpenFile,
     },
@@ -51,7 +53,7 @@ const FileMenu: React.FC<FileMenuProps> = ({
     <Dropdown
       trigger={
         <span className="text-sm text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] transition-colors cursor-pointer select-none">
-          File ▾
+          {t('navbar.file')} ▾
         </span>
       }
       items={items}
