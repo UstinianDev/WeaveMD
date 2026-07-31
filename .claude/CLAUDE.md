@@ -64,7 +64,7 @@ public/              # icons, images
 - **Heading typography (Doubao-aligned)**: H1 26/700, H2 22/600, H3 18/600, H4 16/500, Paragraph 14/400
 - **Markdown line parsing**: Heading detection (`#...`) must be shared across import/new/edit/paste via `src/render/services/lineMarkdown.ts`
 
-## Architecture (as of 2026-07-30)
+## Architecture (as of 2026-07-31)
 
 ### Dual-Mode Editor (v4)
 
@@ -76,9 +76,11 @@ The editor supports WYSIWYG editing in Normal Mode via **container-level content
   - Press Backspace in empty paragraphs to delete them
   - Use Ctrl+Z/Ctrl+Y to undo/redo all operations
   - Canvas minimap shows document overview with viewport indicator
-  - Floating toolbar appears when text is selected (formatting, structure conversion)
+  - Floating toolbar appears when text is selected (formatting via `document.execCommand` + DOM manipulation, toggle for Bold/Italic/Underline/Strikethrough/Highlight/InlineCode/Link/Comment/MD Source)
+  - Block components use `dangerouslySetInnerHTML` to render rich text formatting (Bold/Italic/Highlight etc.) in real-time
   - Cross-block text selection enabled via container-level contentEditable
   - Code blocks editable via double-click
+  - MD Source toggle: click toolbar "Src" button to show raw Markdown for the current block; click again or elsewhere to restore rich text
 - **Source Code Mode**: Full-screen Monaco editor (`SourceCodeEditor.tsx`) for raw markdown editing. Toggle via `Ctrl+\`` or View menu.
 - **Find & Replace**: Typora-style inline bar (`FindReplaceBar.tsx`). Works in both modes. Toggle via `Ctrl+F`.
 
@@ -98,25 +100,29 @@ The editor supports WYSIWYG editing in Normal Mode via **container-level content
 
 ### Design Decisions
 
-| Aspect                  | Decision                                                                                                                                                |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Block editing           | Container-level `contentEditable` on `editor-content-area` div                                                                                          |
-| Source Code toggle      | `uiStore.isSourceCodeMode` → shared between TopBar and EditorView                                                                                       |
-| Find & Replace toggle   | `uiStore.isFindReplaceOpen` → inline bar, not modal                                                                                                     |
-| Undo/Redo               | Store-based history stack; paragraph ops manually push to undoStack                                                                                     |
-| Code fence language     | `<select>` dropdown for language selection                                                                                                              |
-| Code block editing      | Double-click to enter edit mode with textarea                                                                                                           |
-| Floating toolbar        | Appears on text selection; hides when selection collapsed                                                                                               |
-| Monaco themes           | Defined in EditorView useEffect (`weaveMD-dark`, `weaveMD-light`)                                                                                       |
-| New file naming         | `untitled-{timestamp36}.md`                                                                                                                             |
-| Empty block placeholder | Zero-width space (`\u200B`) + CSS `::before` pseudo-element                                                                                             |
-| Serialization separator | `\n\n` between blocks to preserve paragraph boundaries                                                                                                  |
-| Outline navigation      | Normal Mode: lineNumber → find block by `startLine` → `scrollToBlock` (no offset, title to viewport top); Source Code Mode: lineNumber → `scrollToLine` |
-| Outline highlight       | Normal Mode: viewport top + 10px detectLine → last heading above it; Source Code Mode: cursor position → nearest heading line → headingIndex conversion |
-| Outline width           | `uiStore.outlineWidth` (default 280px, range 200-500px); drag handle on right border, persisted to localStorage                                         |
-| Scrollbar width         | Editor + outline: 10px webkit scrollbar with rounded thumb; global: 6px                                                                                 |
-| Scroll padding          | Bottom `200vh` padding ensures last headings can scroll to viewport top                                                                                 |
-| Navigate ready timing   | `useEffect` depends on `[isSourceCodeMode, onNavigateReady, themesLoading]` — ensures `scrollContainerRef` is set after Monaco themes load              |
+| Aspect                  | Decision                                                                                                                                                                                                       |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Block editing           | Container-level `contentEditable` on `editor-content-area` div                                                                                                                                                 |
+| Source Code toggle      | `uiStore.isSourceCodeMode` → shared between TopBar and EditorView                                                                                                                                              |
+| Find & Replace toggle   | `uiStore.isFindReplaceOpen` → inline bar, not modal                                                                                                                                                            |
+| Undo/Redo               | Store-based history stack; paragraph ops manually push to undoStack                                                                                                                                            |
+| Code fence language     | `<select>` dropdown for language selection                                                                                                                                                                     |
+| Code block editing      | Double-click to enter edit mode with textarea                                                                                                                                                                  |
+| Floating toolbar        | Appears on text selection; hides when selection collapsed                                                                                                                                                      |
+| Monaco themes           | Defined in EditorView useEffect (`weaveMD-dark`, `weaveMD-light`)                                                                                                                                              |
+| New file naming         | `untitled-{timestamp36}.md`                                                                                                                                                                                    |
+| Empty block placeholder | Zero-width space (`\u200B`) + CSS `::before` pseudo-element                                                                                                                                                    |
+| Serialization separator | `\n\n` between blocks to preserve paragraph boundaries                                                                                                                                                         |
+| Outline navigation      | Normal Mode: lineNumber → find block by `startLine` → `scrollToBlock` (no offset, title to viewport top); Source Code Mode: lineNumber → `scrollToLine`                                                        |
+| Outline highlight       | Normal Mode: viewport top + 10px detectLine → last heading above it; Source Code Mode: cursor position → nearest heading line → headingIndex conversion                                                        |
+| Outline width           | `uiStore.outlineWidth` (default 280px, range 200-500px); drag handle on right border, persisted to localStorage                                                                                                |
+| Scrollbar width         | Editor + outline: 10px webkit scrollbar with rounded thumb; global: 6px                                                                                                                                        |
+| Scroll padding          | Padding moved to inner `editor-content-area` (`40px 40px 100vh 40px`); outer scroll container has no padding → scrollbar reflects actual content size; `scrollToBlock` clamps to `scrollHeight - clientHeight` |
+| Navigate ready timing   | `useEffect` depends on `[isSourceCodeMode, onNavigateReady, themesLoading]` — ensures `scrollContainerRef` is set after Monaco themes load                                                                     |
+| BlockNode.startLine     | 每个 BlockNode 记录 `startLine`（1-based），用于 lineNumber 导航映射；blockTreeBuilder 构建时计算                                                                                                              |
+| BlockNode.renderedHtml  | 存储 DOM innerHTML，React 重渲染时通过 `dangerouslySetInnerHTML` 恢复富文本格式                                                                                                                                |
+| WYSIWYG 格式化          | FloatingToolbarWYSIWYG 使用 `document.execCommand` + `Range API` 直接操作 DOM，同步后存储 renderedHtml                                                                                                         |
+| MD Source 功能          | 对选中段落显示/隐藏 Markdown 源码；切换前 `handleSyncToStore` 同步 DOM → React state，确保格式不丢失                                                                                                           |
 
 ### Resolved Issues (from old ContentWidget system)
 
