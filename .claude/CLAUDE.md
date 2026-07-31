@@ -64,7 +64,7 @@ public/              # icons, images
 - **Heading typography (Doubao-aligned)**: H1 26/700, H2 22/600, H3 18/600, H4 16/500, Paragraph 14/400
 - **Markdown line parsing**: Heading detection (`#...`) must be shared across import/new/edit/paste via `src/render/services/lineMarkdown.ts`
 
-## Architecture (as of 2026-07-31)
+## Architecture (as of 2026-08-01)
 
 ### Dual-Mode Editor (v4)
 
