@@ -12,10 +12,7 @@ interface HeadingBlockProps {
 const HeadingBlock: React.FC<HeadingBlockProps> = ({ block }) => {
   const { headingLevel = 1 } = block;
   const rawText = block.sourceLines.join(' ');
-  // Strip markdown heading prefix (e.g., "# ", "## ", "###") for visual display
-  // Use [ \t]* to handle edge cases with or without trailing space
   let text = rawText.replace(/^#{1,6}[ \t]*/, '');
-  // Safety: if text still starts with '#', strip any remaining leading #
   while (text.startsWith('#')) {
     text = text.slice(1);
     if (text.startsWith(' ') || text.startsWith('\t')) {
@@ -36,17 +33,18 @@ const HeadingBlock: React.FC<HeadingBlockProps> = ({ block }) => {
 
   const placeholder = `Heading ${headingLevel}`;
 
-  return React.createElement(
-    tag,
-    {
-      id: `block-${block.id}`,
-      className: `heading-block ${sizeClasses[headingLevel] || sizeClasses[1]} text-[var(--text-primary)] tracking-tight`,
-      'data-block-id': block.id,
-      'data-placeholder': placeholder,
-      'data-empty': !text ? 'true' : undefined,
-    },
-    text || '\u200B'
-  );
+  const contentProps = block.renderedHtml
+    ? { dangerouslySetInnerHTML: { __html: block.renderedHtml } }
+    : { children: text || '\u200B' };
+
+  return React.createElement(tag, {
+    id: `block-${block.id}`,
+    className: `heading-block ${sizeClasses[headingLevel] || sizeClasses[1]} text-[var(--text-primary)] tracking-tight`,
+    'data-block-id': block.id,
+    'data-placeholder': placeholder,
+    'data-empty': !text ? 'true' : undefined,
+    ...contentProps,
+  });
 };
 
 export default React.memo(HeadingBlock);

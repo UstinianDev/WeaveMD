@@ -25,6 +25,8 @@ interface FloatingToolbarWYSIWYGProps {
   ) => void;
   onShowMdSource: (blockId: BlockId) => void;
   isSourceCodeMode: boolean;
+  onPushUndo: () => void;
+  onSyncToStore: () => void;
 }
 
 const STRUCTURE_OPTIONS = [
@@ -49,6 +51,8 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
   onBlockTypeChange,
   onShowMdSource,
   isSourceCodeMode,
+  onPushUndo,
+  onSyncToStore,
 }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [position, setPosition] = useState<ToolbarPosition>({ top: 0, left: 0 });
@@ -147,9 +151,9 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
   }, []);
 
   const afterFormat = useCallback(() => {
-    const container = document.getElementById('editor-content-area');
-    if (container) container.dispatchEvent(new Event('input', { bubbles: true }));
-  }, []);
+    onPushUndo();
+    onSyncToStore();
+  }, [onPushUndo, onSyncToStore]);
 
   const handleBold = useCallback(() => {
     document.execCommand('bold', false, undefined);
@@ -167,29 +171,73 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
   }, [afterFormat]);
 
   const handleHighlight = useCallback(() => {
-    wrapRangeWithTag('mark');
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    const startEl = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+      ? range.commonAncestorContainer.parentElement
+      : (range.commonAncestorContainer as HTMLElement);
+    const existingMark = startEl?.closest('mark') || null;
+    if (existingMark) {
+      // unwrap: 移除 <mark> 包装
+      const parent = existingMark.parentNode;
+      while (existingMark.firstChild) {
+        parent?.insertBefore(existingMark.firstChild, existingMark);
+      }
+      parent?.removeChild(existingMark);
+      // 恢复选中
+      const newRange = document.createRange();
+      newRange.selectNodeContents(parent?.lastChild || parent || document.body);
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+    } else {
+      wrapRangeWithTag('mark');
+    }
     afterFormat();
   }, [wrapRangeWithTag, afterFormat]);
 
   const handleCode = useCallback(() => {
-    wrapRangeWithTag('code', 'inline-code');
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    const existingCode = (range.commonAncestorContainer as HTMLElement)?.parentElement?.closest(
+      'code.inline-code'
+    );
+    if (existingCode) {
+      const parent = existingCode.parentNode;
+      while (existingCode.firstChild) {
+        parent?.insertBefore(existingCode.firstChild, existingCode);
+      }
+      parent?.removeChild(existingCode);
+    } else {
+      wrapRangeWithTag('code', 'inline-code');
+    }
     afterFormat();
   }, [wrapRangeWithTag, afterFormat]);
 
   const handleLink = useCallback(() => {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return;
-    const url = window.prompt('Enter URL:', 'https://');
-    if (url === null) return;
-    const href = url.trim() === '' ? 'url' : url.trim();
-    wrapRangeWithTag('a', 'inline-link');
-    const anchor = sel?.anchorNode?.parentElement?.closest('a.inline-link');
-    if (anchor) {
-      (anchor as HTMLAnchorElement).href = href;
-      if (href === 'url') (anchor as HTMLAnchorElement).dataset.placeholder = 'true';
-      anchor.addEventListener('click', (e) => {
-        if ((e.currentTarget as HTMLElement).dataset.placeholder === 'true') e.preventDefault();
-      });
+    const range = sel.getRangeAt(0);
+    const existingLink = (range.commonAncestorContainer as HTMLElement)?.parentElement?.closest(
+      'a.inline-link'
+    );
+    if (existingLink) {
+      const parent = existingLink.parentNode;
+      while (existingLink.firstChild) {
+        parent?.insertBefore(existingLink.firstChild, existingLink);
+      }
+      parent?.removeChild(existingLink);
+    } else {
+      const url = window.prompt('Enter URL:', 'https://');
+      if (url === null) return;
+      const href = url.trim() === '' ? 'url' : url.trim();
+      wrapRangeWithTag('a', 'inline-link');
+      const anchor = sel?.anchorNode?.parentElement?.closest('a.inline-link');
+      if (anchor) {
+        (anchor as HTMLAnchorElement).href = href;
+        if (href === 'url') (anchor as HTMLAnchorElement).dataset.placeholder = 'true';
+      }
     }
     afterFormat();
   }, [wrapRangeWithTag, afterFormat]);
@@ -198,12 +246,19 @@ const FloatingToolbarWYSIWYG: React.FC<FloatingToolbarWYSIWYGProps> = ({
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return;
     const range = sel.getRangeAt(0);
-    range.collapse(false);
-    const marker = document.createElement('span');
-    marker.className = 'comment-marker';
-    marker.title = 'comment';
-    marker.textContent = '[✎]';
-    range.insertNode(marker);
+    const endContainer = range.endContainer as HTMLElement;
+    const endEl = endContainer.nodeType === Node.TEXT_NODE ? endContainer.parentElement : endContainer;
+    const nextSibling = endEl?.nextElementSibling;
+    if (nextSibling?.classList.contains('comment-marker')) {
+      nextSibling.remove();
+    } else {
+      range.collapse(false);
+      const marker = document.createElement('span');
+      marker.className = 'comment-marker';
+      marker.title = 'comment';
+      marker.textContent = '[✎]';
+      range.insertNode(marker);
+    }
     afterFormat();
   }, [afterFormat]);
 

@@ -220,6 +220,8 @@ const EditorView: React.FC<EditorViewProps> = ({
   const setEditorDraftFlusher = useUIStore((s) => s.setEditorDraftFlusher);
   const isSourceCodeMode = useUIStore((s) => s.isSourceCodeMode);
   const isFindReplaceOpen = useUIStore((s) => s.isFindReplaceOpen);
+  const mdSourceBlockId = useUIStore((s) => s.markdownBlockState.mdSourceBlockId);
+  const clearMdSourceBlockId = useUIStore((s) => s.clearMdSourceBlockId);
 
   // --- Helper: Ensure tree has at least one block ---
   const ensureTreeHasBlock = useCallback((tree: BlockTree): BlockTree => {
@@ -758,19 +760,19 @@ const EditorView: React.FC<EditorViewProps> = ({
             headingLevel: detection.headingLevel,
             checked: detection.isChecked,
             orderedIndex: detection.orderedIndex,
-            renderedHtml: null,
+            renderedHtml: blockEl.innerHTML,
           };
         } else if (block.type !== 'paragraph') {
           updatedBlock = {
             ...block,
             sourceLines: buildSourceLinesFromContent(block, newContent),
-            renderedHtml: null,
+            renderedHtml: blockEl.innerHTML,
           };
         } else {
           updatedBlock = {
             ...block,
             sourceLines: [newContent],
-            renderedHtml: null,
+            renderedHtml: blockEl.innerHTML,
           };
         }
 
@@ -1058,8 +1060,38 @@ const EditorView: React.FC<EditorViewProps> = ({
     [pushUndo, syncTreeToStore, getBlockTextContent]
   );
 
+  const handlePushUndo = useCallback(() => {
+    pushUndo(serializeBlockTree(blockTreeRef.current));
+  }, [pushUndo]);
+
+  const handleSyncToStore = useCallback(() => {
+    const container = document.querySelector('.editor-content-area');
+    if (!container) return;
+    const prev = blockTreeRef.current;
+    const next: BlockTree = { ...prev, blocks: { ...prev.blocks }, version: prev.version + 1 };
+    for (const blockId of Object.keys(prev.blocks)) {
+      const blockEl = container.querySelector(`[data-block-id="${blockId}"]`);
+      if (blockEl) {
+        const block = prev.blocks[blockId];
+        const newContent = getBlockTextContent(block, blockEl);
+        next.blocks[blockId] = {
+          ...block,
+          sourceLines: buildSourceLinesFromContent(block, newContent),
+          renderedHtml: null,
+        };
+      }
+    }
+    blockTreeRef.current = next;
+    syncTreeToStore(next);
+  }, [syncTreeToStore, getBlockTextContent, buildSourceLinesFromContent]);
+
   const handleShowMdSource = useCallback((blockId: BlockId) => {
-    useUIStore.getState().setMdSourceBlockId(blockId);
+    const current = useUIStore.getState().markdownBlockState.mdSourceBlockId;
+    if (current === blockId) {
+      useUIStore.getState().clearMdSourceBlockId();
+    } else {
+      useUIStore.getState().setMdSourceBlockId(blockId);
+    }
   }, []);
 
   // ============================================
@@ -1313,6 +1345,8 @@ const EditorView: React.FC<EditorViewProps> = ({
               onBlockDelete={handleBlockDelete}
               onBlockInput={handleBlockInput}
               onActiveHeadingChange={onActiveHeadingChange}
+              mdSourceBlockId={mdSourceBlockId}
+              onClearMdSource={clearMdSourceBlockId}
             />
             <FloatingToolbarWYSIWYG
               blockTree={blockTree}
@@ -1321,6 +1355,8 @@ const EditorView: React.FC<EditorViewProps> = ({
               onBlockTypeChange={handleBlockTypeChange}
               onShowMdSource={handleShowMdSource}
               isSourceCodeMode={isSourceCodeMode}
+              onPushUndo={handlePushUndo}
+              onSyncToStore={handleSyncToStore}
             />
           </>
         )}

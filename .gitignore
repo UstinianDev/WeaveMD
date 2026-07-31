@@ -9,3 +9,5 @@ release/
 Thumbs.db
 .env
 .env.local
+.trae/
+debug-toolbar-mdsource-format-lost.md
