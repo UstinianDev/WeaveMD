@@ -8,7 +8,7 @@
 
 核心编辑区域，采用**双模式架构**：
 
-- **Normal Mode**：Block Tree → 容器级 `contentEditable` 可编辑富文本，支持直接编辑段落/标题、回车创建段落、Backspace 删除空段落、Ctrl+Z/Y 撤销重做。空块以零宽空格（`\u200B`）+ CSS 伪元素显示"Type something..."占位符。右侧 Canvas Minimap（文档缩影）、浮动工具栏（选中文本时显示）、跨块文本选择、代码块双击编辑
+- **Normal Mode**：Block Tree → 容器级 `contentEditable` 可编辑富文本，支持直接编辑段落/标题、回车创建段落、Backspace 删除空段落、Ctrl+Z/Y 撤销重做。空块以零宽空格（`\u200B`）+ CSS 伪元素显示"Type something..."占位符。右侧 Canvas Minimap（文档缩影）、浮动工具栏（选中文本时显示）、跨块文本选择、代码块语言选择+复制按钮
 - **Source Code Mode**：全屏 Monaco 编辑器，编辑原始 markdown（`Ctrl+\`` 或 View 菜单切换）
 - **Find & Replace**：Typora 风格 inline bar，两种模式均可用（`Ctrl+F`）
 
@@ -112,7 +112,7 @@ FindReplaceBar → searchEngine.findAllMatches(content) → 匹配高亮
 | **Minimap**    | 64px Canvas，块类型颜色编码，viewport 指示器，点击导航                                                                                                                                            |
 | **标题字号**   | H1=26/700、H2=22/600、H3=18/600、H4=16/500、P=14/400                                                                                                                                              |
 | **代码块语言** | `<select>` 下拉选择；语言别名归一化（`sh`→`shell`、`Plain Text`→`plaintext`）                                                                                                                     |
-| **代码块编辑** | 双击进入 textarea 编辑模式，失焦保存；独立编辑路径，不经过 contentEditable/detectMarkdownLine，避免代码中的 `#` 被误检测为标题                                                                    |
+| **代码块编辑** | 通过 Source Code Mode 编辑（双击已禁用）；顶栏含语言选择器和 Copy 按钮复制代码到剪贴板；独立编辑路径，不经过 contentEditable/detectMarkdownLine，避免代码中的 `#` 被误检测为标题                  |
 | **浮动工具栏** | 选中文本时显示；Toggle 格式化（Bold/Italic/Underline/Strikethrough/Highlight/InlineCode/Link/Comment），使用 `document.execCommand` + DOM 直接操作实现实时渲染；MD Source 显示/隐藏 Markdown 源码 |
 | **实时渲染**   | `dangerouslySetInnerHTML` + `BlockNode.renderedHtml` 存储 DOM HTML，React 重渲染时恢复富文本格式，支持多属性叠加                                                                                  |
 | **跨块选择**   | 容器级 contentEditable，支持跨段落/标题选择                                                                                                                                                       |
