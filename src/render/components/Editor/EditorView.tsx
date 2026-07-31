@@ -1074,11 +1074,20 @@ const EditorView: React.FC<EditorViewProps> = ({
       if (blockEl) {
         const block = prev.blocks[blockId];
         const newContent = getBlockTextContent(block, blockEl);
-        next.blocks[blockId] = {
-          ...block,
-          sourceLines: buildSourceLinesFromContent(block, newContent),
-          renderedHtml: blockEl.innerHTML,
-        };
+        if (block.type === 'code-fence') {
+          const contentEl = blockEl.querySelector(':scope > .code-fence-content');
+          next.blocks[blockId] = {
+            ...block,
+            sourceLines: buildSourceLinesFromContent(block, newContent),
+            renderedHtml: contentEl ? contentEl.innerHTML : null,
+          };
+        } else {
+          next.blocks[blockId] = {
+            ...block,
+            sourceLines: buildSourceLinesFromContent(block, newContent),
+            renderedHtml: blockEl.innerHTML,
+          };
+        }
       }
     }
     blockTreeRef.current = next;
