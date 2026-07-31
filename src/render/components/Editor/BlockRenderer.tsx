@@ -29,13 +29,28 @@ interface BlockRendererProps {
   onBlockEnter?: (blockId: BlockId) => void;
   /** Called when Backspace is pressed in an empty block to delete it */
   onBlockDelete?: (blockId: BlockId) => void;
+  /** Block currently toggled to MD source view */
+  mdSourceBlockId?: string | null;
 }
 
 const BlockRenderer: React.FC<BlockRendererProps> = ({
   block,
   onFenceLanguageChange,
   onBlockContentChange,
+  mdSourceBlockId,
 }) => {
+  if (mdSourceBlockId === block.id) {
+    return (
+      <pre
+        className="md-source-block"
+        data-block-id={block.id}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <code>{block.sourceLines.join('\n')}</code>
+      </pre>
+    );
+  }
+
   switch (block.type) {
     case 'heading':
       return <HeadingBlock block={block} />;

@@ -30,6 +30,10 @@ interface EditorScrollContainerProps {
   onBlockInput: (blockId: BlockId) => void;
   /** Called when the active heading changes during scroll */
   onActiveHeadingChange?: (headingIndex: number | null) => void;
+  /** Block currently toggled to MD source view */
+  mdSourceBlockId?: string | null;
+  /** Called to clear the MD source view when clicking outside the source block */
+  onClearMdSource?: () => void;
 }
 
 const emptyBlockPlaceholder: BlockNode = {
@@ -86,6 +90,8 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
       onBlockDelete,
       onBlockInput,
       onActiveHeadingChange,
+      mdSourceBlockId,
+      onClearMdSource,
     },
     ref
   ) => {
@@ -304,6 +310,16 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
         className="editor-scroll-container h-full overflow-y-auto overflow-x-hidden"
         style={{ padding: '40px 0 200vh 0' }}
         onScroll={handleScroll}
+        onClick={(e) => {
+          if (mdSourceBlockId) {
+            const target = e.target as HTMLElement;
+            const clickedBlock = target.closest('[data-block-id]');
+            const clickedBlockId = clickedBlock?.getAttribute('data-block-id');
+            if (clickedBlockId !== mdSourceBlockId) {
+              onClearMdSource?.();
+            }
+          }
+        }}
       >
         <div
           className="editor-content-area mx-auto"
@@ -327,6 +343,7 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
                   block={block}
                   onFenceLanguageChange={onFenceLanguageChange}
                   onBlockContentChange={onBlockContentChange}
+                  mdSourceBlockId={mdSourceBlockId}
                 />
               </div>
             ))

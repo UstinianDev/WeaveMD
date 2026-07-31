@@ -19,9 +19,10 @@ const ParagraphBlock: React.FC<ParagraphBlockProps> = ({ block }) => {
       data-block-id={block.id}
       data-placeholder="Type something..."
       data-empty={!text ? 'true' : undefined}
-    >
-      {text || '\u200B'}
-    </p>
+      {...(block.renderedHtml
+        ? { dangerouslySetInnerHTML: { __html: block.renderedHtml } }
+        : { children: text || '\u200B' })}
+    />
   );
 };
 
