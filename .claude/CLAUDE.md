@@ -123,6 +123,7 @@ The editor supports WYSIWYG editing in Normal Mode via **container-level content
 | BlockNode.renderedHtml  | 存储 DOM innerHTML，React 重渲染时通过 `dangerouslySetInnerHTML` 恢复富文本格式                                                                                                                                |
 | WYSIWYG 格式化          | FloatingToolbarWYSIWYG 使用 `document.execCommand` + `Range API` 直接操作 DOM，同步后存储 renderedHtml                                                                                                         |
 | MD Source 功能          | 对选中段落显示/隐藏 Markdown 源码；切换前 `handleSyncToStore` 同步 DOM → React state，确保格式不丢失                                                                                                           |
+| Code-fence 保护         | `handleSyncToStore`/`handleBlockInput`/`handleBlockContentChange` 对 `code-fence` 块特殊处理：不重建 sourceLines、不运行 `detectMarkdownLine`；代码块有独立编辑路径（textarea 双击编辑）                       |
 
 ### Resolved Issues (from old ContentWidget system)
 
