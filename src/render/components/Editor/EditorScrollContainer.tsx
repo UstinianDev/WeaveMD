@@ -124,7 +124,7 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
         const offset = blockRect.top - containerRect.top + container.scrollTop;
 
         container.scrollTo({
-          top: Math.max(0, offset),
+          top: Math.min(Math.max(0, offset), container.scrollHeight - container.clientHeight),
           behavior: 'smooth',
         });
 
@@ -308,7 +308,6 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
       <div
         ref={scrollContainerRef}
         className="editor-scroll-container h-full overflow-y-auto overflow-x-hidden"
-        style={{ padding: '40px 0 200vh 0' }}
         onScroll={handleScroll}
         onClick={(e) => {
           if (mdSourceBlockId) {
@@ -327,7 +326,7 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
           suppressContentEditableWarning
           style={{
             maxWidth: '860px',
-            padding: '0 40px',
+            padding: '40px 40px 100vh 40px',
             outline: 'none',
           }}
           onKeyDown={handleKeyDown}
