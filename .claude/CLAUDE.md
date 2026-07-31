@@ -79,7 +79,7 @@ The editor supports WYSIWYG editing in Normal Mode via **container-level content
   - Floating toolbar appears when text is selected (formatting via `document.execCommand` + DOM manipulation, toggle for Bold/Italic/Underline/Strikethrough/Highlight/InlineCode/Link/Comment/MD Source)
   - Block components use `dangerouslySetInnerHTML` to render rich text formatting (Bold/Italic/Highlight etc.) in real-time
   - Cross-block text selection enabled via container-level contentEditable
-  - Code blocks editable via double-click
+  - Code blocks: language selector dropdown + Copy button (copies code to clipboard); editing via Source Code Mode only (double-click disabled)
   - MD Source toggle: click toolbar "Src" button to show raw Markdown for the current block; click again or elsewhere to restore rich text
 - **Source Code Mode**: Full-screen Monaco editor (`SourceCodeEditor.tsx`) for raw markdown editing. Toggle via `Ctrl+\`` or View menu.
 - **Find & Replace**: Typora-style inline bar (`FindReplaceBar.tsx`). Works in both modes. Toggle via `Ctrl+F`.
@@ -106,8 +106,8 @@ The editor supports WYSIWYG editing in Normal Mode via **container-level content
 | Source Code toggle      | `uiStore.isSourceCodeMode` → shared between TopBar and EditorView                                                                                                                                              |
 | Find & Replace toggle   | `uiStore.isFindReplaceOpen` → inline bar, not modal                                                                                                                                                            |
 | Undo/Redo               | Store-based history stack; paragraph ops manually push to undoStack                                                                                                                                            |
-| Code fence language     | `<select>` dropdown for language selection                                                                                                                                                                     |
-| Code block editing      | Double-click to enter edit mode with textarea                                                                                                                                                                  |
+| Code fence language     | `<select>` dropdown for language selection; Copy button in header; double-click editing removed (use Source Code Mode)                                                                                         |
+| Code block editing      | Via Source Code Mode only; double-click disabled; Copy button copies code to clipboard                                                                                                                         |
 | Floating toolbar        | Appears on text selection; hides when selection collapsed                                                                                                                                                      |
 | Monaco themes           | Defined in EditorView useEffect (`weaveMD-dark`, `weaveMD-light`)                                                                                                                                              |
 | New file naming         | `untitled-{timestamp36}.md`                                                                                                                                                                                    |
