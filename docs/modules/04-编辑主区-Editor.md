@@ -1,6 +1,6 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 版本：v4.4 | 最后更新：2026-07-31
+> 模块编号：04 | 优先级：P0 | 版本：v4.6 | 最后更新：2026-08-01
 
 ---
 
@@ -25,6 +25,14 @@ BlockNode = {
 ```
 
 所有操作是**纯函数**（不可变），返回新树。
+
+**version 语义**（关键）：
+
+- `version` 仅在**内容/结构变更**时自增（insert/remove/updateBlockSource/setFenceLanguage 等）
+- `setBlockRenderedHtml` **不**自增 version —— `renderedHtml` 是渲染缓存，非内容。渲染 useEffect 依赖 `[blockTree.version]`，缓存写入若 bump version 会中途重触发 effect、取消在途循环、从 block 0 重扫（O(N²) → 代码块高亮延迟 ~4s）
+- 渲染 effect 启动时捕获 blocks 快照，循环内逐块 `setBlockTree((prev) => setBlockRenderedHtml(prev, id, html))`
+
+**内容同步防 stale ID**：`lastBuiltContentRef` 记录当前 blockTree 对应的 content。内容 useEffect 在 `lastBuiltContentRef.current === content` 时**跳过重建**（挂载时 useState 已建树）。`buildBlockTree` 用 counter+random 生成 ID，挂载时若内容 effect 再重建会换 ID，而渲染 effect 依赖 `[version]`（同块数 → version 不变）不重触发，导致捕获的旧 ID 失效、`setBlockRenderedHtml` no-op → 初次导入代码块不高亮。
 
 ## 3. 文件结构
 

@@ -39,7 +39,7 @@
 | EDIT-06 | 段落操作 | P0 | Enter 创建新段落、Backspace 删除空段落 |
 | EDIT-07 | 撤销/重做 | P0 | Ctrl+Z/Y，50 条上限，跨会话保留 |
 | EDIT-08 | 自动保存 | P0 | 1200ms debounce，关闭/切换前 flush |
-| EDIT-09 | 代码块编辑 | P0 | 双击进入 textarea 编辑，语言下拉选择 |
+| EDIT-09 | 代码块 | P0 | 语言下拉选择 + 复制按钮；Prism 语法高亮（初次导入即高亮，切换语言后快速重高亮）；编辑通过 Source Code Mode（双击已禁用） |
 | EDIT-10 | 空块占位 | P0 | 零宽空格 + CSS ::before 显示 "Type something..." |
 | EDIT-11 | 结构转换 | P1 | 浮动工具栏下拉选项：正文→H1~H4→引用 |
 

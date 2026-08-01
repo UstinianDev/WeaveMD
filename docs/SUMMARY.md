@@ -1,6 +1,6 @@
 # WeaveMD 项目总结文档
 
-> 版本：v2.9.0 | 最后更新：2026-07-31
+> 版本：v2.9.2 | 最后更新：2026-08-01
 
 ---
 
@@ -117,7 +117,7 @@
 
 ### 4.5 双模式编辑器
 
-**决策**：编辑器采用双模式架构（v4）：**Normal Mode** — Block Tree 渲染为可编辑富文本块，通过容器级 `contentEditable`（`editor-content-area` div）实现跨块选择和直接编辑。空块使用零宽空格（`\u200B`）+ CSS `::before` 伪元素显示"Type something..."占位符。支持回车创建段落、Backspace 删除空段落、Ctrl+Z/Y 撤销重做、Canvas Minimap（文档缩影）、浮动工具栏（选中文本时显示，支持 Toggle 格式化：Bold/Italic/Underline/Strikethrough/Highlight/InlineCode/Link/Comment/MD Source，使用 `document.execCommand` + `Range API` 直接操作 DOM 实现实时渲染）；浮动工具栏与 Navbar 全组件已接入 i18n（`useI18n`），格式按钮 36×32px（w-9 h-8）触控目标、text-sm 字号、跨块选择、代码块语言选择+复制按钮（双击编辑已禁用，通过 Source Code Mode 编辑；独立路径，不经过 contentEditable/detectMarkdownLine，避免代码中的 `#` 被误检测为标题）、MD Source 源码切换（点击工具栏 "Src" 显示/隐藏当前段落 Markdown 源码）、目录导航（点击 H1-H3 标题滚动到对应位置）；**Source Code Mode** — 全屏 Monaco 编辑器编辑原始 markdown（`Ctrl+`` 或 View 菜单切换）。序列化使用 `\n\n` 分隔块以保留段落边界。Find & Replace 为 Typora 风格 inline bar（`FindReplaceBar`），两种模式均可使用。状态通过 `uiStore`（`isSourceCodeMode`、`isFindReplaceOpen`、`outlineWidth`、`isOutlinePanelCollapsed`、`mdSourceBlockId`）跨组件共享。BlockNode 新增 `startLine`（1-based 行号，用于 lineNumber 导航）和 `renderedHtml`（缓存 DOM HTML，React 重渲染时恢复富文本格式）字段。滚动 padding 移至内层 `editor-content-area`（`40px 40px 100vh 40px`），外层滚动容器无 padding，确保滚动条正确反映内容大小。`handleSyncToStore`/`handleBlockInput`/`handleBlockContentChange`对`code-fence`块特殊保护：不重建 sourceLines、不运行`detectMarkdownLine`。
+**决策**：编辑器采用双模式架构（v4）：**Normal Mode** — Block Tree 渲染为可编辑富文本块，通过容器级 `contentEditable`（`editor-content-area` div）实现跨块选择和直接编辑。空块使用零宽空格（`\u200B`）+ CSS `::before` 伪元素显示"Type something..."占位符。支持回车创建段落、Backspace 删除空段落、Ctrl+Z/Y 撤销重做、Canvas Minimap（文档缩影）、浮动工具栏（选中文本时显示，支持 Toggle 格式化：Bold/Italic/Underline/Strikethrough/Highlight/InlineCode/Link/Comment/MD Source，使用 `document.execCommand` + `Range API` 直接操作 DOM 实现实时渲染）；浮动工具栏与 Navbar 全组件已接入 i18n（`useI18n`），格式按钮 36×32px（w-9 h-8）触控目标、text-sm 字号、跨块选择、代码块语言选择+复制按钮（双击编辑已禁用，通过 Source Code Mode 编辑；独立路径，不经过 contentEditable/detectMarkdownLine，避免代码中的 `#` 被误检测为标题）、MD Source 源码切换（点击工具栏 "Src" 显示/隐藏当前段落 Markdown 源码）、目录导航（点击 H1-H3 标题滚动到对应位置）；**Source Code Mode** — 全屏 Monaco 编辑器编辑原始 markdown（`Ctrl+`` 或 View 菜单切换）。序列化使用 `\n\n` 分隔块以保留段落边界。Find & Replace 为 Typora 风格 inline bar（`FindReplaceBar`），两种模式均可使用。状态通过 `uiStore`（`isSourceCodeMode`、`isFindReplaceOpen`、`outlineWidth`、`isOutlinePanelCollapsed`、`mdSourceBlockId`）跨组件共享。BlockNode 新增 `startLine`（1-based 行号，用于 lineNumber 导航）和 `renderedHtml`（缓存 DOM HTML，React 重渲染时恢复富文本格式）字段。滚动 padding 移至内层 `editor-content-area`（`40px 40px 100vh 40px`），外层滚动容器无 padding，确保滚动条正确反映内容大小。`handleSyncToStore`/`handleBlockInput`/`handleBlockContentChange`对`code-fence`块特殊保护：不重建 sourceLines、不运行`detectMarkdownLine`。BlockTree `version` 仅在内容/结构变更时自增（`setBlockRenderedHtml` 不自增，避免渲染 effect O(N²) 重扫致代码块高亮延迟）；`lastBuiltContentRef`让内容 useEffect 跳过挂载时冗余重建，防止`buildBlockTree` 重新生成 ID 致渲染 effect 捕获的旧 ID 失效、初次导入代码块不高亮。
 
 **目录导航与高亮机制**：
 
