@@ -211,6 +211,12 @@ const EditorView: React.FC<EditorViewProps> = ({
   const pendingInputBlockIdRef = useRef<BlockId | null>(null);
   const debounceTreeVersionRef = useRef<number>(0);
   const contentRef = useRef<string>('');
+  // Tracks the content the current blockTree was built from. The content effect
+  // uses this to skip a redundant rebuild on mount (useState already built the
+  // tree). Without this, buildBlockTree regenerates block IDs (counter+random),
+  // the render effect (dep [version], unchanged) keeps its captured stale IDs,
+  // and setBlockRenderedHtml no-ops → code blocks never highlight on initial import.
+  const lastBuiltContentRef = useRef<string>(useEditorStore.getState().content);
 
   // --- Store ---
   const content = useEditorStore((s) => s.content);
@@ -412,12 +418,21 @@ const EditorView: React.FC<EditorViewProps> = ({
   // ============================================
 
   useEffect(() => {
-    // Skip rebuild if we triggered the store update
+    // Skip rebuild if we triggered the store update (user editing in WYSIWYG)
     if (isUpdatingFromExternalRef.current) {
       isUpdatingFromExternalRef.current = false;
+      lastBuiltContentRef.current = content;
       return;
     }
 
+    // Skip rebuild if the current tree was already built from this content.
+    // On mount, useState already built the tree; rebuilding would regenerate
+    // block IDs and leave the render effect's captured IDs stale.
+    if (lastBuiltContentRef.current === content) {
+      return;
+    }
+
+    lastBuiltContentRef.current = content;
     const newTree = ensureTreeHasBlock(buildBlockTree(content));
     setBlockTree(newTree);
   }, [content, ensureTreeHasBlock]);
@@ -430,6 +445,7 @@ const EditorView: React.FC<EditorViewProps> = ({
     // Transitioning from source code mode → normal mode
     if (prevSourceCodeModeRef.current && !isSourceCodeMode) {
       const latestContent = useEditorStore.getState().content;
+      lastBuiltContentRef.current = latestContent;
       const newTree = ensureTreeHasBlock(buildBlockTree(latestContent));
       setBlockTree(newTree);
     }
