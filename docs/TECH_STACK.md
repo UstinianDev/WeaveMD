@@ -130,6 +130,8 @@ BlockNode: { id, type, sourceLines, startLine, renderedHtml, headingLevel?, ... 
 - 不可变数据结构，所有操作返回新树
 - `startLine`：1-based 行号，用于目录导航映射
 - `renderedHtml`：缓存 DOM innerHTML，React 重渲染时通过 `dangerouslySetInnerHTML` 恢复富文本
+- `version` 语义：仅在内容/结构变更时自增；`setBlockRenderedHtml` 不自增（缓存非内容）。渲染 useEffect 依赖 `[version]`，避免缓存写入重触发 effect 导致 O(N²) 重扫
+- `lastBuiltContentRef`：内容 useEffect 据此跳过挂载时的冗余重建（`buildBlockTree` 重新生成 ID 会导致渲染 effect 捕获的旧 ID 失效）
 
 ### 3.3 滚动与布局
 
