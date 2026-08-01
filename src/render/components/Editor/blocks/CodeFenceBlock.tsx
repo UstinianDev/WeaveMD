@@ -71,10 +71,7 @@ interface CodeFenceBlockProps {
   onContentChange?: (blockId: BlockId, newContent: string) => void;
 }
 
-const CodeFenceBlock: React.FC<CodeFenceBlockProps> = ({
-  block,
-  onFenceLanguageChange,
-}) => {
+const CodeFenceBlock: React.FC<CodeFenceBlockProps> = ({ block, onFenceLanguageChange }) => {
   const selectedLanguage = normalizeFenceLanguageForSelect(block.fenceLanguage);
   const [copied, setCopied] = useState(false);
 

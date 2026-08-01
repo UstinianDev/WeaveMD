@@ -421,17 +421,23 @@ function resolveNextTypeFromSource(currentType: BlockType, sourceLines: string[]
  * Called after the markdown AST pipeline produces HTML for a block.
  * The cache allows skipping re-renders when the source hasn't changed.
  *
+ * NOTE: This does NOT increment `tree.version`. `renderedHtml` is a render
+ * cache, not content/structure. The render useEffect in EditorView depends
+ * on `version`; bumping it here would re-trigger the effect mid-loop and
+ * restart rendering from block 0 (O(N²) race). React still re-renders the
+ * affected block because we return a new tree object with a new block ref.
+ *
  * Returns a NEW BlockTree; the original is not modified.
  *
  * @param tree - The original block tree
  * @param id - The ID of the block to update
  * @param html - The rendered HTML string
- * @returns A new BlockTree with the updated renderedHtml
+ * @returns A new BlockTree with the updated renderedHtml (version unchanged)
  */
 export function setBlockRenderedHtml(tree: BlockTree, id: BlockId, html: string): BlockTree {
   const node = tree.blocks[id];
   if (!node) {
-    return { ...tree, version: tree.version + 1 };
+    return tree;
   }
 
   const next = cloneTree(tree);
@@ -439,7 +445,6 @@ export function setBlockRenderedHtml(tree: BlockTree, id: BlockId, html: string)
     ...next.blocks[id],
     renderedHtml: html,
   };
-  next.version += 1;
   return next;
 }
 
