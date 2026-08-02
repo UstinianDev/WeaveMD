@@ -10,11 +10,14 @@ const StatusBar: React.FC = () => {
   const content = useEditorStore((s) => s.content);
   const isDirty = useEditorStore((s) => s.isDirty);
 
-  const counts = useMemo(() => ({
-    words: content ? content.trim().split(/\s+/).filter(Boolean).length : 0,
-    chars: content ? content.length : 0,
-    lines: content ? content.split('\n').length : 0,
-  }), [content]);
+  const counts = useMemo(
+    () => ({
+      words: content ? content.trim().split(/\s+/).filter(Boolean).length : 0,
+      chars: content ? content.length : 0,
+      lines: content ? content.split('\n').length : 0,
+    }),
+    [content]
+  );
 
   return (
     <footer
@@ -30,7 +33,9 @@ const StatusBar: React.FC = () => {
           <>
             <span>{currentFile.name}</span>
             <span className="flex items-center gap-1">
-              <span className={`w-1.5 h-1.5 rounded-full ${isDirty ? 'bg-yellow-500' : 'bg-green-500'}`} />
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${isDirty ? 'bg-yellow-500' : 'bg-green-500'}`}
+              />
               {isDirty ? 'Unsaved' : 'Saved'}
             </span>
           </>

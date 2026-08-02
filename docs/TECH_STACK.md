@@ -1,6 +1,6 @@
 # WeaveMD 技术选型文档
 
-> 版本：v2.0 | 最后更新：2026-07-31
+> 版本：v2.1 | 最后更新：2026-08-01
 
 ---
 
@@ -24,101 +24,104 @@
 
 ### 2.1 桌面框架
 
-| 技术 | 版本 | 选型理由 |
-|------|------|---------|
-| **Electron** | ^31.0.0 | 跨平台桌面应用成熟方案，庞大生态 |
+| 技术                 | 版本     | 选型理由                                  |
+| -------------------- | -------- | ----------------------------------------- |
+| **Electron**         | ^31.0.0  | 跨平台桌面应用成熟方案，庞大生态          |
 | **Electron Builder** | ^24.13.0 | 多平台打包（NSIS/DMG/AppImage），自动更新 |
 
 ### 2.2 前端框架
 
-| 技术 | 版本 | 选型理由 |
-|------|------|---------|
-| **React** | ^18.3.1 | 组件化、生态丰富、TypeScript 支持完善 |
-| **TypeScript** | ^5.4.5 | 类型安全、IDE 支持、减少运行时错误 |
-| **Vite** | ^5.3.0 | 极速 HMR、原生 ESM、与 Electron 集成好 |
+| 技术           | 版本    | 选型理由                               |
+| -------------- | ------- | -------------------------------------- |
+| **React**      | ^18.3.1 | 组件化、生态丰富、TypeScript 支持完善  |
+| **TypeScript** | ^5.4.5  | 类型安全、IDE 支持、减少运行时错误     |
+| **Vite**       | ^5.3.0  | 极速 HMR、原生 ESM、与 Electron 集成好 |
 
 ### 2.3 状态管理
 
-| 技术 | 版本 | 选型理由 |
-|------|------|---------|
+| 技术        | 版本   | 选型理由                                             |
+| ----------- | ------ | ---------------------------------------------------- |
 | **Zustand** | ^4.5.0 | 轻量（<2KB）、无 Provider 包裹、简洁 API、中间件支持 |
 
 选型对比：
+
 - Redux：模板代码多，对小应用过重
 - MobX：响应式模型与 React 理念不一致
 - Jotai/Recoil：原子化状态，跨组件共享不便
 
 ### 2.4 编辑器
 
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| **Monaco Editor** | ^0.55.1 | Source Code Mode 全屏编辑 |
-| **@monaco-editor/react** | ^4.6.0 | React 封装 |
+| 技术                     | 版本    | 用途                      |
+| ------------------------ | ------- | ------------------------- |
+| **Monaco Editor**        | ^0.55.1 | Source Code Mode 全屏编辑 |
+| **@monaco-editor/react** | ^4.6.0  | React 封装                |
 
 选型理由：VS Code 同款引擎，语法高亮/智能提示/查找替换开箱即用。
 
 Normal Mode 采用**容器级 contentEditable** 而非 Monaco，理由：
+
 - 直接 DOM 操作实现 WYSIWYG
 - 避免 Monaco Widget 系统的布局问题（重叠、滚动丢失、IME 错位）
 - React 组件渲染块，原生 DOM 流布局
 
 ### 2.5 Markdown 处理
 
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| **unified** | ^11.0.0 | 统一 AST 处理管线 |
-| **remark-parse** | ^11.0.0 | Markdown → MDAST |
-| **remark-gfm** | ^4.0.0 | GFM 扩展（表格、删除线、任务列表） |
-| **remark-rehype** | ^11.1.2 | MDAST → HAST |
-| **rehype-stringify** | ^10.0.0 | HAST → HTML |
-| **Prism.js** | ^1.29.0 | 代码块语法高亮 |
+| 技术                 | 版本    | 用途                               |
+| -------------------- | ------- | ---------------------------------- |
+| **unified**          | ^11.0.0 | 统一 AST 处理管线                  |
+| **remark-parse**     | ^11.0.0 | Markdown → MDAST                   |
+| **remark-gfm**       | ^4.0.0  | GFM 扩展（表格、删除线、任务列表） |
+| **remark-rehype**    | ^11.1.2 | MDAST → HAST                       |
+| **rehype-stringify** | ^10.0.0 | HAST → HTML                        |
+| **Prism.js**         | ^1.29.0 | 代码块语法高亮                     |
 
 选型理由：unified 生态模块化、可插拔，支持自定义转换。
 
 ### 2.6 数据库
 
-| 技术 | 版本 | 选型理由 |
-|------|------|---------|
+| 技术               | 版本    | 选型理由                                           |
+| ------------------ | ------- | -------------------------------------------------- |
 | **better-sqlite3** | ^11.6.0 | 同步 API（无回调地狱）、WAL 模式并发、嵌入式零配置 |
 
 选型对比：
+
 - IndexedDB：API 复杂，无 SQL 查询能力
 - LevelDB：无 SQL，需自建索引
 - LokiJS：纯 JS，性能不如原生 SQLite
 
 ### 2.7 认证
 
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| **bcryptjs** | ^2.4.3 | 密码哈希（纯 JS，无需原生编译） |
-| **jsonwebtoken** | ^9.0.2 | JWT 令牌生成/验证 |
+| 技术             | 版本   | 用途                            |
+| ---------------- | ------ | ------------------------------- |
+| **bcryptjs**     | ^2.4.3 | 密码哈希（纯 JS，无需原生编译） |
+| **jsonwebtoken** | ^9.0.2 | JWT 令牌生成/验证               |
 
 ### 2.8 UI 框架
 
-| 技术 | 版本 | 选型理由 |
-|------|------|---------|
+| 技术            | 版本   | 选型理由                             |
+| --------------- | ------ | ------------------------------------ |
 | **TailwindCSS** | ^3.4.4 | 原子化 CSS，开发效率高，主题系统完善 |
-| **Shadcn/ui** | — | 可定制组件库，不锁定运行时 |
+| **Shadcn/ui**   | —      | 可定制组件库，不锁定运行时           |
 
 ### 2.9 开发工具
 
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| **ESLint** | ^8.57.0 | 代码规范 |
-| **Prettier** | ^3.3.0 | 代码格式化 |
-| **Vitest** | ^1.6.0 | 单元测试（Vite 原生集成） |
-| **@testing-library/react** | ^14.2.0 | 组件测试 |
+| 技术                       | 版本    | 用途                      |
+| -------------------------- | ------- | ------------------------- |
+| **ESLint**                 | ^8.57.0 | 代码规范                  |
+| **Prettier**               | ^3.3.0  | 代码格式化                |
+| **Vitest**                 | ^1.6.0  | 单元测试（Vite 原生集成） |
+| **@testing-library/react** | ^14.2.0 | 组件测试                  |
 
 ## 3. 架构决策
 
 ### 3.1 双模式编辑器
 
-| 决策 | Normal Mode | Source Code Mode |
-|------|-------------|-----------------|
-| 渲染 | Block Tree → React 组件 + contentEditable | Monaco Editor 全屏 |
-| 格式化 | `document.execCommand` + `Range API` 直接操作 DOM | 文本插入 Markdown 语法 |
-| 数据存储 | `BlockNode.renderedHtml` 缓存 DOM HTML | `editorStore.content` 原始 Markdown |
-| 导航 | `startLine` → `scrollToBlock` | `lineNumber` → `scrollToLine` |
+| 决策     | Normal Mode                                       | Source Code Mode                    |
+| -------- | ------------------------------------------------- | ----------------------------------- |
+| 渲染     | Block Tree → React 组件 + contentEditable         | Monaco Editor 全屏                  |
+| 格式化   | `document.execCommand` + `Range API` 直接操作 DOM | 文本插入 Markdown 语法              |
+| 数据存储 | `BlockNode.renderedHtml` 缓存 DOM HTML            | `editorStore.content` 原始 Markdown |
+| 导航     | `startLine` → `scrollToBlock`                     | `lineNumber` → `scrollToLine`       |
 
 ### 3.2 Block Tree 数据模型
 
@@ -142,8 +145,9 @@ BlockNode: { id, type, sourceLines, startLine, renderedHtml, headingLevel?, ... 
 ### 3.4 IPC 通信
 
 - 白名单通道，preload 脚本桥接
-- 主进程：数据库 CRUD、文件 I/O、导出
+- 主进程：数据库 CRUD、文件 I/O、导出、外部链接打开（`LINK_OPEN_EXTERNAL` → `shell.openExternal`）
 - 渲染进程：通过 `window.api` 调用
+- 导航守卫：`will-navigate` + `setWindowOpenHandler` 阻止窗口内导航，外部链接转系统浏览器
 
 ## 4. 项目结构
 

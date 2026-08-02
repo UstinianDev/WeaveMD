@@ -14,6 +14,9 @@ interface BlockquoteBlockProps {
 
 const BlockquoteBlock: React.FC<BlockquoteBlockProps> = ({ block }) => {
   const text = block.sourceLines.map((l) => l.replace(/^>\s?/, '')).join(' ');
+  const contentProps = block.renderedHtml
+    ? { dangerouslySetInnerHTML: { __html: block.renderedHtml } }
+    : { children: text || '\u200B' };
 
   return (
     <blockquote
@@ -22,9 +25,8 @@ const BlockquoteBlock: React.FC<BlockquoteBlockProps> = ({ block }) => {
       data-block-id={block.id}
       data-placeholder="Empty blockquote"
       data-empty={!text ? 'true' : undefined}
-    >
-      {text || '\u200B'}
-    </blockquote>
+      {...contentProps}
+    />
   );
 };
 

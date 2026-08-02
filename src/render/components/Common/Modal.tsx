@@ -13,14 +13,7 @@ interface ModalProps {
   width?: number;
 }
 
-const Modal: React.FC<ModalProps> = ({
-  isOpen,
-  onClose,
-  title,
-  children,
-  footer,
-  width = 520,
-}) => {
+const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, footer, width = 520 }) => {
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -36,10 +29,7 @@ const Modal: React.FC<ModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Overlay */}
-      <div
-        className="absolute inset-0 bg-black/50 modal-overlay-enter"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/50 modal-overlay-enter" onClick={onClose} />
 
       {/* Content */}
       <div
@@ -49,13 +39,22 @@ const Modal: React.FC<ModalProps> = ({
         {/* Header */}
         {title && (
           <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-            <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{title}</h2>
+            <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+              {title}
+            </h2>
             <button
               onClick={onClose}
               className="transition-colors p-1"
               style={{ color: 'var(--text-muted)' }}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>

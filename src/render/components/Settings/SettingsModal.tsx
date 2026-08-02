@@ -111,7 +111,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     if (!user) return;
     setIsDeleting(true);
     try {
-      const result = await window.weaveMD.account.delete(user.id) as {
+      const result = (await window.weaveMD.account.delete(user.id)) as {
         success: boolean;
         message: string;
       };
@@ -152,9 +152,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     setSwitchError('');
 
     try {
-      const result = await window.weaveMD.auth.login(switchUsername, switchPassword, false) as {
+      const result = (await window.weaveMD.auth.login(switchUsername, switchPassword, false)) as {
         success: boolean;
-        data?: { token: string; user: { id: string; username: string; createdAt: string; lastLogin: string | null } };
+        data?: {
+          token: string;
+          user: { id: string; username: string; createdAt: string; lastLogin: string | null };
+        };
         message?: string;
       };
 
@@ -258,7 +261,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                       : 'border-[var(--border-color)] hover:border-[var(--accent-secondary)]'
                   }`}
                 >
-                  <div className={`w-8 h-8 rounded border border-[var(--border-color)] ${th.preview}`} />
+                  <div
+                    className={`w-8 h-8 rounded border border-[var(--border-color)] ${th.preview}`}
+                  />
                   <span className="text-sm text-[var(--text-sub)]">{th.label}</span>
                 </button>
               ))}
@@ -272,9 +277,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
           <div className="p-4 bg-[var(--bg-primary)] rounded-input border border-[var(--border-color)]">
             <p className="text-sm text-[var(--text-sub)]">
               {`${t('settings.accountInfo')}: `}
-              <span className="text-[var(--text-primary)] font-semibold">
-                @{user?.username}
-              </span>
+              <span className="text-[var(--text-primary)] font-semibold">@{user?.username}</span>
             </p>
             <p className="text-xs text-[var(--text-muted)] mt-1">{t('settings.manageAccount')}</p>
           </div>
@@ -286,20 +289,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                 {t('settings.switchAccount')}
               </Button>
               {/* Logout Button */}
-              <Button
-                variant="danger"
-                fullWidth
-                onClick={handleLogout}
-                loading={isLoggingOut}
-              >
+              <Button variant="danger" fullWidth onClick={handleLogout} loading={isLoggingOut}>
                 {t('settings.logOut')}
               </Button>
               {/* Delete Account Button */}
               {showDeleteConfirm ? (
                 <div className="p-3 bg-red-600/10 border border-red-600/30 rounded-input">
-                  <p className="text-sm text-red-400 mb-3">
-                    {t('settings.confirmDelete')}
-                  </p>
+                  <p className="text-sm text-red-400 mb-3">{t('settings.confirmDelete')}</p>
                   <div className="flex gap-2">
                     <Button
                       variant="secondary"
@@ -375,7 +371,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
               {switchUsername && (
                 <div className="p-3 bg-[var(--bg-primary)] rounded-input border border-[var(--border-color)] space-y-2">
                   <p className="text-xs text-[var(--text-sub)]">
-                    输入 <span className="text-[var(--text-primary)] font-semibold">@{switchUsername}</span> 的密码以切换
+                    输入{' '}
+                    <span className="text-[var(--text-primary)] font-semibold">
+                      @{switchUsername}
+                    </span>{' '}
+                    的密码以切换
                   </p>
                   <input
                     type="password"
@@ -394,9 +394,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                       color: 'var(--text-primary)',
                     }}
                   />
-                  {switchError && (
-                    <p className="text-xs text-red-400">{switchError}</p>
-                  )}
+                  {switchError && <p className="text-xs text-red-400">{switchError}</p>}
                   <div className="flex gap-2">
                     <Button
                       variant="secondary"

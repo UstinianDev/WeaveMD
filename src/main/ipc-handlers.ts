@@ -3,17 +3,16 @@
 // ============================================
 
 import crypto from 'crypto';
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import fs from 'fs';
 import jwt from 'jsonwebtoken';
-import { IPC_CHANNELS, PASSWORD_MIN_LENGTH, RESERVED_USERNAMES, USERNAME_REGEX } from '../shared/constants';
 import {
-  createFile,
-  deleteFile,
-  getFile,
-  listFiles,
-  updateFileContent,
-} from './db/files';
+  IPC_CHANNELS,
+  PASSWORD_MIN_LENGTH,
+  RESERVED_USERNAMES,
+  USERNAME_REGEX,
+} from '../shared/constants';
+import { createFile, deleteFile, getFile, listFiles, updateFileContent } from './db/files';
 import { getHistoryForFile, getLastVersion, saveVersion } from './db/history';
 import { getSettings, updateSettings } from './db/settings';
 import {
@@ -27,10 +26,7 @@ import {
 
 // JWT secret derived from user data path (unique per machine, stable across restarts)
 function getJwtSecret(): string {
-  return crypto
-    .createHash('sha256')
-    .update(app.getPath('userData'))
-    .digest('hex');
+  return crypto.createHash('sha256').update(app.getPath('userData')).digest('hex');
 }
 
 function generateToken(userId: string, username: string, rememberMe: boolean): string {
@@ -134,7 +130,8 @@ export function registerAllIpcHandlers(): void {
     if (!USERNAME_REGEX.test(normalized)) {
       return {
         success: false,
-        message: 'Username must be 5-15 characters, start with a letter, and contain only a-z, 0-9, _',
+        message:
+          'Username must be 5-15 characters, start with a letter, and contain only a-z, 0-9, _',
       };
     }
 
@@ -345,14 +342,17 @@ export function registerAllIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.SETTINGS_UPDATE, async (_event, { userId, theme, language, customColors }) => {
-    try {
-      const updated = updateSettings(userId, { theme, language, customColors });
-      return { success: true, data: updated };
-    } catch (error) {
-      return { success: false, message: 'Failed to update settings' };
+  ipcMain.handle(
+    IPC_CHANNELS.SETTINGS_UPDATE,
+    async (_event, { userId, theme, language, customColors }) => {
+      try {
+        const updated = updateSettings(userId, { theme, language, customColors });
+        return { success: true, data: updated };
+      } catch (error) {
+        return { success: false, message: 'Failed to update settings' };
+      }
     }
-  });
+  );
 
   // ========================================
   // Export
@@ -414,5 +414,14 @@ export function registerAllIpcHandlers(): void {
     fs.writeFileSync(result.filePath, pdfData);
     pdfWin.close();
     return { success: true, data: { filePath: result.filePath } };
+  });
+
+  // ========================================
+  // Link — open external URL in system browser
+  // ========================================
+  ipcMain.handle(IPC_CHANNELS.LINK_OPEN_EXTERNAL, (_e, url: string) => {
+    if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
+      shell.openExternal(url);
+    }
   });
 }

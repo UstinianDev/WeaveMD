@@ -119,6 +119,13 @@
   "toolbar.copy": "复制",
   "toolbar.comment": "评论",
   "toolbar.mdSource": "MD原文",
+  "toolbar.linkDialogTitle": "插入/编辑链接",
+  "toolbar.linkUrlLabel": "链接地址",
+  "toolbar.linkUrlPlaceholder": "请输入 URL",
+  "toolbar.linkRemove": "移除链接",
+  "toolbar.linkTip": "Ctrl+点击 打开",
+  "toolbar.confirm": "确定",
+  "toolbar.cancel": "取消",
   "splash.loading": "正在加载笔记...",
   "splash.clickSkip": "点击任意位置跳过"
 }

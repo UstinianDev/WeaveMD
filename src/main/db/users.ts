@@ -46,15 +46,20 @@ export function createUser(username: string, password: string): CreateUserResult
   const id = randomUUID();
 
   try {
-    db.prepare(
-      'INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)'
-    ).run(id, normalized, passwordHash);
+    db.prepare('INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)').run(
+      id,
+      normalized,
+      passwordHash
+    );
 
     // Create default settings for new user
     const settingsId = randomUUID();
-    db.prepare(
-      'INSERT INTO settings (id, user_id, theme, language) VALUES (?, ?, ?, ?)'
-    ).run(settingsId, id, 'dark', 'zh-CN');
+    db.prepare('INSERT INTO settings (id, user_id, theme, language) VALUES (?, ?, ?, ?)').run(
+      settingsId,
+      id,
+      'dark',
+      'zh-CN'
+    );
 
     return { success: true, message: 'Account created successfully', userId: id };
   } catch (error) {
@@ -65,9 +70,8 @@ export function createUser(username: string, password: string): CreateUserResult
 
 export function findByUsername(username: string): UserRow | undefined {
   const db = getDatabase();
-  return db
-    .prepare('SELECT * FROM users WHERE username = ?')
-    .get(username.toLowerCase()) as UserRow | undefined;
+  return db.prepare('SELECT * FROM users WHERE username = ?').get(username.toLowerCase()) as
+    UserRow | undefined;
 }
 
 export function findById(userId: string): UserRow | undefined {
@@ -102,17 +106,13 @@ export function validateCredentials(username: string, password: string): Validat
 
 export function isUsernameTaken(username: string): boolean {
   const db = getDatabase();
-  const row = db
-    .prepare('SELECT id FROM users WHERE username = ?')
-    .get(username.toLowerCase());
+  const row = db.prepare('SELECT id FROM users WHERE username = ?').get(username.toLowerCase());
   return !!row;
 }
 
 export function updateLastLogin(userId: string): void {
   const db = getDatabase();
-  db.prepare("UPDATE users SET last_login = datetime('now', 'localtime') WHERE id = ?").run(
-    userId
-  );
+  db.prepare("UPDATE users SET last_login = datetime('now', 'localtime') WHERE id = ?").run(userId);
 }
 
 export function deleteUser(userId: string): { success: boolean; message: string } {
@@ -120,9 +120,9 @@ export function deleteUser(userId: string): { success: boolean; message: string 
   try {
     // Cascade delete: settings, history, files, then user
     db.prepare('DELETE FROM settings WHERE user_id = ?').run(userId);
-    db.prepare(
-      'DELETE FROM history WHERE file_id IN (SELECT id FROM files WHERE user_id = ?)'
-    ).run(userId);
+    db.prepare('DELETE FROM history WHERE file_id IN (SELECT id FROM files WHERE user_id = ?)').run(
+      userId
+    );
     db.prepare('DELETE FROM files WHERE user_id = ?').run(userId);
     db.prepare('DELETE FROM users WHERE id = ?').run(userId);
     return { success: true, message: 'Account deleted' };
@@ -136,9 +136,9 @@ export function getAccountInfo(
   userId: string
 ): { username: string; createdAt: string; lastLogin: string | null; fileCount: number } | null {
   const db = getDatabase();
-  const user = db.prepare('SELECT username, created_at, last_login FROM users WHERE id = ?').get(userId) as
-    | { username: string; created_at: string; last_login: string | null }
-    | undefined;
+  const user = db
+    .prepare('SELECT username, created_at, last_login FROM users WHERE id = ?')
+    .get(userId) as { username: string; created_at: string; last_login: string | null } | undefined;
 
   if (!user) return null;
 

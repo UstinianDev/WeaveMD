@@ -8,9 +8,8 @@ import type { ISettings, ThemeType, LanguageType } from '../../shared/types';
 
 export function getSettings(userId: string): ISettings | undefined {
   const db = getDatabase();
-  const row = db
-    .prepare('SELECT * FROM settings WHERE user_id = ?')
-    .get(userId) as Record<string, unknown> | undefined;
+  const row = db.prepare('SELECT * FROM settings WHERE user_id = ?').get(userId) as
+    Record<string, unknown> | undefined;
 
   if (!row) return undefined;
 
@@ -37,7 +36,8 @@ export function updateSettings(
   if (existing) {
     const theme = updates.theme ?? existing.theme;
     const language = updates.language ?? existing.language;
-    const customColors = updates.customColors !== undefined ? updates.customColors : existing.customColors;
+    const customColors =
+      updates.customColors !== undefined ? updates.customColors : existing.customColors;
 
     db.prepare(
       'UPDATE settings SET theme = ?, language = ?, custom_colors = ? WHERE user_id = ?'

@@ -1493,7 +1493,9 @@ html.dark .code-fence-block {
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
 }
 
 .code-fence-copy-btn:hover {
@@ -1759,6 +1761,24 @@ a.inline-link {
   color: var(--accent);
   text-decoration: underline;
   cursor: pointer;
+  position: relative;
+}
+
+a.inline-link:hover::after {
+  content: var(--link-tip);
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  color: #2563eb;
+  font-size: 13px;
+  font-style: italic;
+  font-weight: bold;
+  line-height: 1.5;
+  padding: 4px 10px;
+  white-space: nowrap;
+  z-index: 50;
+  pointer-events: none;
 }
 
 a.inline-link:hover {

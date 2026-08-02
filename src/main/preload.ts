@@ -42,11 +42,17 @@ export interface WeaveMDApi {
   };
   dialog: {
     openFile: () => Promise<unknown>;
-    saveFile: (options: { defaultName: string; filters?: Array<{ name: string; extensions: string[] }> }) => Promise<unknown>;
+    saveFile: (options: {
+      defaultName: string;
+      filters?: Array<{ name: string; extensions: string[] }>;
+    }) => Promise<unknown>;
   };
   account: {
     info: (userId: string) => Promise<unknown>;
     delete: (userId: string) => Promise<unknown>;
+  };
+  link: {
+    openExternal: (url: string) => Promise<void>;
   };
 }
 
@@ -56,19 +62,15 @@ const api: WeaveMDApi = {
       ipcRenderer.invoke(IPC_CHANNELS.AUTH_LOGIN, { username, password, rememberMe }),
     register: (username, password) =>
       ipcRenderer.invoke(IPC_CHANNELS.AUTH_REGISTER, { username, password }),
-    checkUsername: (username) =>
-      ipcRenderer.invoke(IPC_CHANNELS.AUTH_CHECK_USERNAME, username),
-    validateToken: (token) =>
-      ipcRenderer.invoke(IPC_CHANNELS.AUTH_VALIDATE_TOKEN, token),
+    checkUsername: (username) => ipcRenderer.invoke(IPC_CHANNELS.AUTH_CHECK_USERNAME, username),
+    validateToken: (token) => ipcRenderer.invoke(IPC_CHANNELS.AUTH_VALIDATE_TOKEN, token),
   },
   file: {
-    create: (userId, name) =>
-      ipcRenderer.invoke(IPC_CHANNELS.FILE_CREATE, { userId, name }),
+    create: (userId, name) => ipcRenderer.invoke(IPC_CHANNELS.FILE_CREATE, { userId, name }),
     open: () => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_OPEN_FILE),
     save: (fileId, content, userId) =>
       ipcRenderer.invoke(IPC_CHANNELS.FILE_SAVE, { fileId, content, userId }),
-    delete: (fileId, userId) =>
-      ipcRenderer.invoke(IPC_CHANNELS.FILE_DELETE, { fileId, userId }),
+    delete: (fileId, userId) => ipcRenderer.invoke(IPC_CHANNELS.FILE_DELETE, { fileId, userId }),
     list: (userId) => ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST, userId),
     get: (fileId, userId) => ipcRenderer.invoke(IPC_CHANNELS.FILE_GET, { fileId, userId }),
   },
@@ -82,12 +84,10 @@ const api: WeaveMDApi = {
       ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_UPDATE, { userId, ...settings }),
   },
   export: {
-    md: (content, filename) =>
-      ipcRenderer.invoke(IPC_CHANNELS.EXPORT_MD, { content, filename }),
+    md: (content, filename) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_MD, { content, filename }),
     docx: (content, filename) =>
       ipcRenderer.invoke(IPC_CHANNELS.EXPORT_DOCX, { content, filename }),
-    pdf: (content, filename) =>
-      ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PDF, { content, filename }),
+    pdf: (content, filename) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PDF, { content, filename }),
   },
   window: {
     minimize: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_MINIMIZE),
@@ -103,6 +103,9 @@ const api: WeaveMDApi = {
   account: {
     info: (userId) => ipcRenderer.invoke(IPC_CHANNELS.ACCOUNT_INFO, userId),
     delete: (userId) => ipcRenderer.invoke(IPC_CHANNELS.ACCOUNT_DELETE, userId),
+  },
+  link: {
+    openExternal: (url) => ipcRenderer.invoke(IPC_CHANNELS.LINK_OPEN_EXTERNAL, url),
   },
 };
 

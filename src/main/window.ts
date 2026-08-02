@@ -2,7 +2,7 @@
 // WeaveMD — Window Management
 // ============================================
 
-import { BrowserWindow, app } from 'electron';
+import { BrowserWindow, app, shell } from 'electron';
 import path from 'path';
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
@@ -38,6 +38,16 @@ export function createMainWindow(): BrowserWindow {
   // Show when ready
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
+  });
+
+  // Prevent in-app navigation; open external links in the system browser
+  const contents = mainWindow.webContents;
+  contents.on('will-navigate', (e, url) => {
+    if (url !== contents.getURL()) e.preventDefault();
+  });
+  contents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
   });
 
   mainWindow.on('closed', () => {

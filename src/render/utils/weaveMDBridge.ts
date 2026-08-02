@@ -601,6 +601,9 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
         return createSuccessResult(undefined, 'Account deleted from browser mock bridge.');
       }),
   },
+  link: {
+    openExternal: async () => {},
+  },
 });
 
 let hasWarnedAboutFallback = false;
