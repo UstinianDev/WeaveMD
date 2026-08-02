@@ -96,24 +96,6 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     if (undoStack.length === 0) return;
 
     const prevContent = undoStack[undoStack.length - 1];
-    // #region debug-point link-list:dp5-undo
-    fetch('http://127.0.0.1:7777/event', {
-      method: 'POST',
-      body: JSON.stringify({
-        sessionId: 'link-reload-lost',
-        runId: 'pre',
-        hypothesisId: 'H2-A',
-        location: 'editorStore.ts:undo',
-        msg: '[DEBUG] undo restoring content',
-        data: {
-          undoStackLength: undoStack.length,
-          prevContent: prevContent.slice(0, 500),
-          currentContent: content.slice(0, 500),
-        },
-        ts: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
     set({
       content: prevContent,
       isDirty: true,
