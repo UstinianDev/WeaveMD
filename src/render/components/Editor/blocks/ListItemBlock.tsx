@@ -27,29 +27,6 @@ const ListItemBlock: React.FC<ListItemBlockProps> = ({ block }) => {
     ? { dangerouslySetInnerHTML: { __html: block.renderedHtml } }
     : { children: text || '\u200B' };
 
-  // #region debug-point link-reload:listblock-render
-  fetch('http://127.0.0.1:7777/event', {
-    method: 'POST',
-    body: JSON.stringify({
-      sessionId: 'link-reload-lost',
-      runId: 'pre',
-      hypothesisId: 'H5',
-      location: 'ListItemBlock.tsx',
-      msg: '[DEBUG] ListItemBlock render',
-      data: {
-        blockId: block.id,
-        blockType: block.type,
-        renderedHtmlNull: block.renderedHtml === null,
-        renderedHtml: block.renderedHtml,
-        sourceLines: block.sourceLines,
-        orderedIndex: block.orderedIndex,
-        checked: block.checked,
-      },
-      ts: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-
   if (block.type === 'task-list-item') {
     return (
       <div

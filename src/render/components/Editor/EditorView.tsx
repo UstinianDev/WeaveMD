@@ -261,35 +261,6 @@ const EditorView: React.FC<EditorViewProps> = ({
       const built = ensureTreeHasBlock(buildBlockTree(markdown));
       const prevVersion = blockTreeRef.current.version;
       const forcedVersion = Math.max(built.version, prevVersion) + 1;
-      // #region debug-point link-list:dp3-rebuild
-      const __dp3TypeCounts: Record<string, number> = {};
-      const __dp3LinkBlocks: Array<{ id: string; type: string; sourceLines: string[] }> = [];
-      for (const bid of Object.keys(built.blocks)) {
-        const b = built.blocks[bid];
-        __dp3TypeCounts[b.type] = (__dp3TypeCounts[b.type] || 0) + 1;
-        if (b.sourceLines.some((s) => s.includes(']('))) {
-          __dp3LinkBlocks.push({ id: bid, type: b.type, sourceLines: b.sourceLines });
-        }
-      }
-      fetch('http://127.0.0.1:7777/event', {
-        method: 'POST',
-        body: JSON.stringify({
-          sessionId: 'link-reload-lost',
-          runId: 'pre',
-          hypothesisId: 'H3-B',
-          location: 'EditorView.tsx:rebuildTreeFromContent',
-          msg: '[DEBUG] rebuild tree from content',
-          data: {
-            prevVersion,
-            builtVersion: built.version,
-            forcedVersion,
-            typeCounts: __dp3TypeCounts,
-            linkBlocks: __dp3LinkBlocks,
-          },
-          ts: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       return { ...built, version: forcedVersion };
     },
     [ensureTreeHasBlock]
@@ -463,26 +434,6 @@ const EditorView: React.FC<EditorViewProps> = ({
         // Skip plain paragraphs without inline markdown — they display as raw text
         if (block.type === 'paragraph') {
           const text = block.sourceLines.join(' ');
-          // #region debug-point link-list:dp4-paragraph-skip
-          const __dp4HasInline = /\[.*\]\(|\*\*|__|`[^`]|==[^=]|<u>|<a /i.test(text);
-          fetch('http://127.0.0.1:7777/event', {
-            method: 'POST',
-            body: JSON.stringify({
-              sessionId: 'link-reload-lost',
-              runId: 'pre',
-              hypothesisId: 'H4-C',
-              location: 'EditorView.tsx:renderEffect:paragraphSkip',
-              msg: '[DEBUG] paragraph skip decision',
-              data: {
-                blockId: block.id,
-                text: text.slice(0, 120),
-                hasInlineMarkdown: __dp4HasInline,
-                skipped: !__dp4HasInline,
-              },
-              ts: Date.now(),
-            }),
-          }).catch(() => {});
-          // #endregion
           if (!/\[.*\]\(|\*\*|__|`[^`]|==[^=]|<u>|<a /i.test(text)) {
             continue;
           }
@@ -492,56 +443,7 @@ const EditorView: React.FC<EditorViewProps> = ({
         if (markdown.trim() === '') continue;
         try {
           const htmlRaw = await renderMarkdownToHtml(markdown);
-          // #region debug-point link-reload:render-output
-          fetch('http://127.0.0.1:7777/event', {
-            method: 'POST',
-            body: JSON.stringify({
-              sessionId: 'link-reload-lost',
-              runId: 'pre',
-              hypothesisId: 'H3',
-              location: 'EditorView.tsx:renderBlocks',
-              msg: '[DEBUG] renderMarkdownToHtml output',
-              data: {
-                blockId: block.id,
-                blockType: block.type,
-                input: markdown,
-                output: htmlRaw,
-              },
-              ts: Date.now(),
-            }),
-          }).catch(() => {});
-          // #endregion
           const html = normalizeRenderedHtml(block.type, htmlRaw);
-          // #region debug-point link-reload:normalized-output
-          // Targeted debug: trace list-item normalization (ordered/unordered/task)
-          if (
-            block.type === 'ordered-list-item' ||
-            block.type === 'task-list-item' ||
-            block.type === 'unordered-list-item' ||
-            block.type === 'blockquote'
-          ) {
-            fetch('http://127.0.0.1:7777/event', {
-              method: 'POST',
-              body: JSON.stringify({
-                sessionId: 'link-reload-lost',
-                runId: 'pre',
-                hypothesisId: 'H4',
-                location: 'EditorView.tsx:normalizeRenderedHtml',
-                msg: '[DEBUG] normalized HTML for list/quote block',
-                data: {
-                  blockId: block.id,
-                  blockType: block.type,
-                  sourceLines: block.sourceLines,
-                  htmlRaw,
-                  htmlNormalized: html,
-                  orderedIndex: block.orderedIndex,
-                  checked: block.checked,
-                },
-                ts: Date.now(),
-              }),
-            }).catch(() => {});
-          }
-          // #endregion
           if (cancelled) return;
           setBlockTree((prev) => setBlockRenderedHtml(prev, block.id, html));
         } catch (err) {
@@ -604,33 +506,6 @@ const EditorView: React.FC<EditorViewProps> = ({
 
   const syncTreeToStore = useCallback(
     (tree: BlockTree) => {
-      // #region debug-point link-list:dp6-sync-to-store
-      const __dp6LinkBlocks: Array<{ id: string; type: string; sourceLines: string[] }> = [];
-      for (const bid of Object.keys(tree.blocks)) {
-        const b = tree.blocks[bid];
-        if (b.sourceLines.some((s) => s.includes(']('))) {
-          __dp6LinkBlocks.push({ id: bid, type: b.type, sourceLines: b.sourceLines });
-        }
-      }
-      if (__dp6LinkBlocks.length > 0) {
-        fetch('http://127.0.0.1:7777/event', {
-          method: 'POST',
-          body: JSON.stringify({
-            sessionId: 'link-reload-lost',
-            runId: 'pre',
-            hypothesisId: 'H1-D',
-            location: 'EditorView.tsx:syncTreeToStore',
-            msg: '[DEBUG] sync tree to store (link blocks)',
-            data: {
-              version: tree.version,
-              serialized: serializeBlockTree(tree).slice(0, 800),
-              linkBlocks: __dp6LinkBlocks,
-            },
-            ts: Date.now(),
-          }),
-        }).catch(() => {});
-      }
-      // #endregion
       isUpdatingFromExternalRef.current = true;
       setContent(serializeBlockTree(tree));
     },
@@ -877,27 +752,6 @@ const EditorView: React.FC<EditorViewProps> = ({
       const block = prev.blocks[id];
       if (!block) return;
 
-      // #region debug-point link-list:dp7-block-content-change
-      fetch('http://127.0.0.1:7777/event', {
-        method: 'POST',
-        body: JSON.stringify({
-          sessionId: 'link-reload-lost',
-          runId: 'pre',
-          hypothesisId: 'H1-D',
-          location: 'EditorView.tsx:handleBlockContentChange',
-          msg: '[DEBUG] block content change (blur)',
-          data: {
-            blockId: id,
-            oldType: block.type,
-            oldSourceLines: block.sourceLines,
-            oldRenderedHtml: block.renderedHtml,
-            newContent,
-          },
-          ts: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
-
       // Code-fence blocks: content comes from textarea (double-click edit).
       // Do NOT run detectMarkdownLine — code containing '#' would be misdetected as heading.
       if (block.type === 'code-fence') {
@@ -948,29 +802,6 @@ const EditorView: React.FC<EditorViewProps> = ({
         };
       }
 
-      // #region debug-point link-list:dp7-block-content-change-result
-      const __dp7Updated = next.blocks[id];
-      fetch('http://127.0.0.1:7777/event', {
-        method: 'POST',
-        body: JSON.stringify({
-          sessionId: 'link-reload-lost',
-          runId: 'pre',
-          hypothesisId: 'H1-D',
-          location: 'EditorView.tsx:handleBlockContentChange:result',
-          msg: '[DEBUG] block content change result',
-          data: {
-            blockId: id,
-            typeChanged,
-            detectionType: detection?.type ?? null,
-            newType: __dp7Updated.type,
-            newSourceLines: __dp7Updated.sourceLines,
-            newRenderedHtml: __dp7Updated.renderedHtml,
-          },
-          ts: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
-
       // Always update ref + store
       blockTreeRef.current = next;
       syncTreeToStore(next);
@@ -1002,24 +833,6 @@ const EditorView: React.FC<EditorViewProps> = ({
 
         // Cancel if tree version changed (Enter/Backspace may have modified it)
         if (blockTreeRef.current.version !== debounceTreeVersionRef.current) {
-          // #region debug-point link-list:dp8-input-cancelled
-          fetch('http://127.0.0.1:7777/event', {
-            method: 'POST',
-            body: JSON.stringify({
-              sessionId: 'link-reload-lost',
-              runId: 'pre',
-              hypothesisId: 'H1-D',
-              location: 'EditorView.tsx:handleBlockInput:cancelled',
-              msg: '[DEBUG] input debounce cancelled (version changed)',
-              data: {
-                blockId: id,
-                debounceVersion: debounceTreeVersionRef.current,
-                currentVersion: blockTreeRef.current.version,
-              },
-              ts: Date.now(),
-            }),
-          }).catch(() => {});
-          // #endregion
           inputDebounceRef.current = null;
           return;
         }
@@ -1067,27 +880,6 @@ const EditorView: React.FC<EditorViewProps> = ({
         const newContent = getBlockTextContent(block, blockEl);
         const detection = detectMarkdownLine(newContent);
         const typeChanged = !!(detection && detection.type !== block.type);
-
-        // #region debug-point link-list:dp8-input-detect
-        fetch('http://127.0.0.1:7777/event', {
-          method: 'POST',
-          body: JSON.stringify({
-            sessionId: 'link-reload-lost',
-            runId: 'pre',
-            hypothesisId: 'H1-D',
-            location: 'EditorView.tsx:handleBlockInput:detect',
-            msg: '[DEBUG] input debounce fired detection',
-            data: {
-              blockId: id,
-              oldType: block.type,
-              newContent,
-              detectionType: detection?.type ?? null,
-              typeChanged,
-            },
-            ts: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
 
         // Build updated block
         let updatedBlock: BlockNode;
@@ -1429,45 +1221,6 @@ const EditorView: React.FC<EditorViewProps> = ({
         } else {
           const newSourceLines = buildSourceLinesFromContent(block, newContent);
           const newRenderedHtml = getBlockRenderedHtml(block, blockEl);
-          // #region debug-point link-reload:sync-list-blocks
-          if (
-            block.type === 'ordered-list-item' ||
-            block.type === 'task-list-item' ||
-            block.type === 'unordered-list-item' ||
-            block.type === 'blockquote'
-          ) {
-            const __dpContentEl = blockEl.querySelector('span.block-content');
-            const __dpContentParentTag = __dpContentEl?.parentElement?.tagName.toLowerCase();
-            const __dpContentParentIsLink =
-              __dpContentEl?.parentElement?.classList.contains('inline-link') === true;
-            fetch('http://127.0.0.1:7777/event', {
-              method: 'POST',
-              body: JSON.stringify({
-                sessionId: 'link-reload-lost',
-                runId: 'pre',
-                hypothesisId: 'H6',
-                location: 'EditorView.tsx:handleSyncToStore',
-                msg: '[DEBUG] syncing list/quote block',
-                data: {
-                  blockId,
-                  blockType: block.type,
-                  newContent,
-                  newSourceLines,
-                  newRenderedHtml,
-                  contentElFound: __dpContentEl !== null,
-                  contentElInnerHTML: __dpContentEl?.innerHTML ?? null,
-                  contentParentTag: __dpContentParentTag ?? null,
-                  contentParentIsLink: __dpContentParentIsLink,
-                  blockElHasCheckboxSpan: blockEl.querySelector('.task-checkbox') !== null,
-                  blockElHasCheckboxInput: blockEl.querySelector('input[type="checkbox"]') !== null,
-                  blockElHasAnchor: blockEl.querySelector('a.inline-link') !== null,
-                  blockElOuterHTML: blockEl.outerHTML.slice(0, 800),
-                },
-                ts: Date.now(),
-              }),
-            }).catch(() => {});
-          }
-          // #endregion
           next.blocks[blockId] = {
             ...block,
             sourceLines: newSourceLines,
