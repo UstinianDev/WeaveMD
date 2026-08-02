@@ -50,9 +50,7 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   return (
-    <I18nContext.Provider value={{ t, language, setLanguage }}>
-      {children}
-    </I18nContext.Provider>
+    <I18nContext.Provider value={{ t, language, setLanguage }}>{children}</I18nContext.Provider>
   );
 };
 

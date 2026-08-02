@@ -9,6 +9,7 @@
 
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
 
+import { useI18n } from '../../i18n';
 import type { BlockId, BlockNode, BlockTree } from '../../services/blockTree';
 import { getAllBlocksInOrder } from '../../services/blockTree';
 
@@ -96,6 +97,7 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
     ref
   ) => {
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const { t } = useI18n();
     const blocks = getAllBlocksInOrder(blockTree);
     const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -304,21 +306,35 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
       [onBlockInput]
     );
 
+    const handleClick = useCallback(
+      (e: React.MouseEvent) => {
+        // Ctrl/Cmd+click on a hyperlink → open in the system browser
+        const linkEl = (e.target as HTMLElement).closest('a.inline-link');
+        if (linkEl && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          const href = linkEl.getAttribute('href') || '';
+          if (href) window.weaveMD?.link?.openExternal(href);
+        }
+
+        // Clear MD source view when clicking outside the source block
+        if (mdSourceBlockId) {
+          const target = e.target as HTMLElement;
+          const clickedBlock = target.closest('[data-block-id]');
+          const clickedBlockId = clickedBlock?.getAttribute('data-block-id');
+          if (clickedBlockId !== mdSourceBlockId) {
+            onClearMdSource?.();
+          }
+        }
+      },
+      [mdSourceBlockId, onClearMdSource]
+    );
+
     return (
       <div
         ref={scrollContainerRef}
         className="editor-scroll-container h-full overflow-y-auto overflow-x-hidden"
         onScroll={handleScroll}
-        onClick={(e) => {
-          if (mdSourceBlockId) {
-            const target = e.target as HTMLElement;
-            const clickedBlock = target.closest('[data-block-id]');
-            const clickedBlockId = clickedBlock?.getAttribute('data-block-id');
-            if (clickedBlockId !== mdSourceBlockId) {
-              onClearMdSource?.();
-            }
-          }
-        }}
+        onClick={handleClick}
       >
         <div
           className="editor-content-area mx-auto"
@@ -328,6 +344,7 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
             maxWidth: '860px',
             padding: '40px 40px 100vh 40px',
             outline: 'none',
+            ...({ '--link-tip': `"${t('toolbar.linkTip')}"` } as React.CSSProperties),
           }}
           onKeyDown={handleKeyDown}
           onInput={handleInput}

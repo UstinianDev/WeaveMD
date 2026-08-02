@@ -84,9 +84,7 @@ interface ToolbarPosition {
   left: number;
 }
 
-function computePosition(
-  editor: editor.IStandaloneCodeEditor,
-): ToolbarPosition | null {
+function computePosition(editor: editor.IStandaloneCodeEditor): ToolbarPosition | null {
   const selection = editor.getSelection();
   if (!selection || selection.isEmpty()) return null;
 
@@ -110,7 +108,11 @@ function computePosition(
   return { top, left };
 }
 
-function clampToViewport(pos: ToolbarPosition, toolbarWidth: number, toolbarHeight: number): ToolbarPosition {
+function clampToViewport(
+  pos: ToolbarPosition,
+  toolbarWidth: number,
+  toolbarHeight: number
+): ToolbarPosition {
   const clamped = { ...pos };
 
   // Don't go above viewport
@@ -138,10 +140,7 @@ function clampToViewport(pos: ToolbarPosition, toolbarWidth: number, toolbarHeig
 // Component
 // ============================================
 
-const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
-  editorRef,
-  isEditorFocused,
-}) => {
+const FloatingToolbar: React.FC<FloatingToolbarProps> = ({ editorRef, isEditorFocused }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [position, setPosition] = useState<ToolbarPosition>({ top: 0, left: 0 });
   const [activeFormats, setActiveFormats] = useState<Set<string>>(new Set());
@@ -298,7 +297,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         });
       }
     },
-    [editorRef],
+    [editorRef]
   );
 
   const handleClearFormatting = useCallback(() => {
@@ -398,10 +397,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       })}
 
       {/* Divider */}
-      <div
-        className="w-px h-4 mx-1"
-        style={{ backgroundColor: 'var(--border-color)' }}
-      />
+      <div className="w-px h-4 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
 
       {/* Clear formatting */}
       <button

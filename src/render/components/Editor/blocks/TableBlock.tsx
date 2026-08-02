@@ -15,12 +15,11 @@ interface TableBlockProps {
 
 const TableBlock: React.FC<TableBlockProps> = ({ block }) => {
   return (
-    <div
-      className="table-block mb-4"
-      data-block-id={block.id}
-    >
-      <div className="markdown-table-wrap overflow-x-auto rounded-lg
-                      border border-[var(--border-color)]">
+    <div className="table-block mb-4" data-block-id={block.id}>
+      <div
+        className="markdown-table-wrap overflow-x-auto rounded-lg
+                      border border-[var(--border-color)]"
+      >
         {block.renderedHtml ? (
           <div dangerouslySetInnerHTML={{ __html: block.renderedHtml }} />
         ) : (

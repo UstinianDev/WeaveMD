@@ -10,7 +10,7 @@
 // Zustand (which requires serializable, immutable state patterns).
 // ============================================
 
-import { getHeadingLevelFromLine } from './lineMarkdown';
+import { detectMarkdownLine, getHeadingLevelFromLine } from './lineMarkdown';
 import type { BlockType } from './markdownBlockDetector';
 
 const CODE_FENCE_RE = /^([ \t]*)(`{3,}|~{3,})([^\n]*)$/;
@@ -395,6 +395,12 @@ export function updateBlockSource(tree: BlockTree, id: BlockId, sourceLines: str
     nextType === 'code-fence' ? extractFenceLanguage(sourceLines) : undefined;
   const nextHeadingLevel =
     nextType === 'heading' ? getHeadingLevelFromLine(sourceLines[0] ?? '') : undefined;
+  // For list-item types, parse orderedIndex/checked from the (possibly newly
+  // prefixed) source so a paragraph→list conversion carries correct metadata.
+  const listDetection =
+    nextType === 'ordered-list-item' || nextType === 'task-list-item'
+      ? detectMarkdownLine(sourceLines[0] ?? '')
+      : null;
 
   next.blocks[id] = {
     ...current,
@@ -402,6 +408,14 @@ export function updateBlockSource(tree: BlockTree, id: BlockId, sourceLines: str
     sourceLines: [...sourceLines],
     headingLevel: nextHeadingLevel,
     fenceLanguage: nextFenceLanguage,
+    orderedIndex:
+      nextType === 'ordered-list-item'
+        ? (listDetection?.orderedIndex ?? current.orderedIndex ?? 1)
+        : current.orderedIndex,
+    checked:
+      nextType === 'task-list-item'
+        ? (listDetection?.isChecked ?? current.checked ?? false)
+        : current.checked,
     renderedHtml: null,
   };
   next.version += 1;
@@ -409,10 +423,21 @@ export function updateBlockSource(tree: BlockTree, id: BlockId, sourceLines: str
 }
 
 function resolveNextTypeFromSource(currentType: BlockType, sourceLines: string[]): BlockType {
-  if (currentType === 'heading' || currentType === 'paragraph') {
-    return getHeadingLevelFromLine(sourceLines[0] ?? '') !== undefined ? 'heading' : 'paragraph';
+  // For structural blocks (list items, code-fence, table, blockquote), keep
+  // the current type — `updateBlockSource` is a content update, not a type
+  // change, for these blocks.
+  if (currentType !== 'heading' && currentType !== 'paragraph') {
+    return currentType;
   }
-  return currentType;
+  // For heading/paragraph blocks (e.g. when the user explicitly converts via
+  // the toolbar dropdown, which applies a markdown prefix to the sourceLines),
+  // resolve the new type from the prefixed source so the block actually
+  // becomes the chosen list/heading/code/blockquote type.
+  const firstLine = sourceLines[0] ?? '';
+  if (CODE_FENCE_RE.test(firstLine)) return 'code-fence';
+  const detection = detectMarkdownLine(firstLine);
+  if (detection) return detection.type;
+  return 'paragraph';
 }
 
 /**

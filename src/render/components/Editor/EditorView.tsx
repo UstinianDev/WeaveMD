@@ -248,6 +248,53 @@ const EditorView: React.FC<EditorViewProps> = ({
     };
   }, []);
 
+  // --- Helper: Rebuild tree from content with a guaranteed-increasing version ---
+  // `buildBlockTree` resets `version` to the block count (via insertBlockAfter
+  // starting from createBlockTree()'s version 0). After undo/redo/reload, the
+  // rebuilt tree's version can COLLIDE with the previous tree's version. The
+  // render effect depends on [blockTree.version]; a collision means it does NOT
+  // re-run, so renderedHtml stays null and every block falls back to raw
+  // sourceLines (showing markdown source). Force the version strictly above the
+  // previous to guarantee the render effect re-runs and regenerates renderedHtml.
+  const rebuildTreeFromContent = useCallback(
+    (markdown: string): BlockTree => {
+      const built = ensureTreeHasBlock(buildBlockTree(markdown));
+      const prevVersion = blockTreeRef.current.version;
+      const forcedVersion = Math.max(built.version, prevVersion) + 1;
+      // #region debug-point link-list:dp3-rebuild
+      const __dp3TypeCounts: Record<string, number> = {};
+      const __dp3LinkBlocks: Array<{ id: string; type: string; sourceLines: string[] }> = [];
+      for (const bid of Object.keys(built.blocks)) {
+        const b = built.blocks[bid];
+        __dp3TypeCounts[b.type] = (__dp3TypeCounts[b.type] || 0) + 1;
+        if (b.sourceLines.some((s) => s.includes(']('))) {
+          __dp3LinkBlocks.push({ id: bid, type: b.type, sourceLines: b.sourceLines });
+        }
+      }
+      fetch('http://127.0.0.1:7777/event', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: 'link-reload-lost',
+          runId: 'pre',
+          hypothesisId: 'H3-B',
+          location: 'EditorView.tsx:rebuildTreeFromContent',
+          msg: '[DEBUG] rebuild tree from content',
+          data: {
+            prevVersion,
+            builtVersion: built.version,
+            forcedVersion,
+            typeCounts: __dp3TypeCounts,
+            linkBlocks: __dp3LinkBlocks,
+          },
+          ts: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+      return { ...built, version: forcedVersion };
+    },
+    [ensureTreeHasBlock]
+  );
+
   // --- State ---
   const [blockTree, setBlockTree] = useState<BlockTree>(() => {
     const initialContent = useEditorStore.getState().content;
@@ -372,15 +419,40 @@ const EditorView: React.FC<EditorViewProps> = ({
     let cancelled = false;
 
     const normalizeRenderedHtml = (blockType: string, html: string) => {
+      let result = html;
       if (blockType === 'heading') {
-        const match = html.match(/^<h[1-6][^>]*>([\s\S]*)<\/h[1-6]>\s*$/);
-        return match ? match[1] : html;
+        const match = result.match(/^<h[1-6][^>]*>([\s\S]*)<\/h[1-6]>\s*$/);
+        result = match ? match[1] : result;
+      } else if (blockType === 'paragraph') {
+        const match = result.match(/^<p[^>]*>([\s\S]*)<\/p>\s*$/);
+        result = match ? match[1] : result;
+      } else if (blockType === 'blockquote') {
+        // Strip <blockquote> wrapper, then inner <p> wrapper if present
+        const bqMatch = result.match(/^<blockquote[^>]*>([\s\S]*)<\/blockquote>\s*$/i);
+        if (bqMatch) result = bqMatch[1].trim();
+        const pMatch = result.match(/^<p[^>]*>([\s\S]*)<\/p>\s*$/i);
+        if (pMatch) result = pMatch[1];
+      } else if (
+        blockType === 'unordered-list-item' ||
+        blockType === 'ordered-list-item' ||
+        blockType === 'task-list-item'
+      ) {
+        // Strip <ul>/<ol> wrapper, then <li> wrapper
+        const listMatch = result.match(/^<[uo]l[^>]*>([\s\S]*)<\/[uo]l>\s*$/i);
+        if (listMatch) result = listMatch[1].trim();
+        const liMatch = result.match(/^<li[^>]*>([\s\S]*)<\/li>\s*$/i);
+        if (liMatch) result = liMatch[1];
+        // Task-list-item: strip the gfm checkbox <input> (component renders its own)
+        if (blockType === 'task-list-item') {
+          result = result.replace(/<input[^>]*type="checkbox"[^>]*>\s*/gi, '');
+        }
       }
-      if (blockType === 'paragraph') {
-        const match = html.match(/^<p[^>]*>([\s\S]*)<\/p>\s*$/);
-        return match ? match[1] : html;
-      }
-      return html;
+      // Add inline-link class to <a> and inline-code class to <code> tags
+      // produced by renderMarkdownToHtml, for consistent styling and
+      // domToMarkdown round-trip (domToMarkdown checks classList.contains)
+      result = result.replace(/<a(?![^>]*\bclass=)([^>]*)>/gi, '<a class="inline-link"$1>');
+      result = result.replace(/<code(?![^>]*\bclass=)([^>]*)>/gi, '<code class="inline-code"$1>');
+      return result;
     };
 
     const renderBlocks = async () => {
@@ -388,14 +460,88 @@ const EditorView: React.FC<EditorViewProps> = ({
         if (cancelled) return;
         if (block.renderedHtml !== null) continue;
 
-        // Skip plain paragraphs — they display as raw text, no rendering needed
-        if (block.type === 'paragraph') continue;
+        // Skip plain paragraphs without inline markdown — they display as raw text
+        if (block.type === 'paragraph') {
+          const text = block.sourceLines.join(' ');
+          // #region debug-point link-list:dp4-paragraph-skip
+          const __dp4HasInline = /\[.*\]\(|\*\*|__|`[^`]|==[^=]|<u>|<a /i.test(text);
+          fetch('http://127.0.0.1:7777/event', {
+            method: 'POST',
+            body: JSON.stringify({
+              sessionId: 'link-reload-lost',
+              runId: 'pre',
+              hypothesisId: 'H4-C',
+              location: 'EditorView.tsx:renderEffect:paragraphSkip',
+              msg: '[DEBUG] paragraph skip decision',
+              data: {
+                blockId: block.id,
+                text: text.slice(0, 120),
+                hasInlineMarkdown: __dp4HasInline,
+                skipped: !__dp4HasInline,
+              },
+              ts: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
+          if (!/\[.*\]\(|\*\*|__|`[^`]|==[^=]|<u>|<a /i.test(text)) {
+            continue;
+          }
+        }
 
         const markdown = block.sourceLines.join('\n');
         if (markdown.trim() === '') continue;
         try {
           const htmlRaw = await renderMarkdownToHtml(markdown);
+          // #region debug-point link-reload:render-output
+          fetch('http://127.0.0.1:7777/event', {
+            method: 'POST',
+            body: JSON.stringify({
+              sessionId: 'link-reload-lost',
+              runId: 'pre',
+              hypothesisId: 'H3',
+              location: 'EditorView.tsx:renderBlocks',
+              msg: '[DEBUG] renderMarkdownToHtml output',
+              data: {
+                blockId: block.id,
+                blockType: block.type,
+                input: markdown,
+                output: htmlRaw,
+              },
+              ts: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
           const html = normalizeRenderedHtml(block.type, htmlRaw);
+          // #region debug-point link-reload:normalized-output
+          // Targeted debug: trace list-item normalization (ordered/unordered/task)
+          if (
+            block.type === 'ordered-list-item' ||
+            block.type === 'task-list-item' ||
+            block.type === 'unordered-list-item' ||
+            block.type === 'blockquote'
+          ) {
+            fetch('http://127.0.0.1:7777/event', {
+              method: 'POST',
+              body: JSON.stringify({
+                sessionId: 'link-reload-lost',
+                runId: 'pre',
+                hypothesisId: 'H4',
+                location: 'EditorView.tsx:normalizeRenderedHtml',
+                msg: '[DEBUG] normalized HTML for list/quote block',
+                data: {
+                  blockId: block.id,
+                  blockType: block.type,
+                  sourceLines: block.sourceLines,
+                  htmlRaw,
+                  htmlNormalized: html,
+                  orderedIndex: block.orderedIndex,
+                  checked: block.checked,
+                },
+                ts: Date.now(),
+              }),
+            }).catch(() => {});
+          }
+          // #endregion
           if (cancelled) return;
           setBlockTree((prev) => setBlockRenderedHtml(prev, block.id, html));
         } catch (err) {
@@ -433,9 +579,9 @@ const EditorView: React.FC<EditorViewProps> = ({
     }
 
     lastBuiltContentRef.current = content;
-    const newTree = ensureTreeHasBlock(buildBlockTree(content));
+    const newTree = rebuildTreeFromContent(content);
     setBlockTree(newTree);
-  }, [content, ensureTreeHasBlock]);
+  }, [content, rebuildTreeFromContent]);
 
   // ============================================
   // Source Code Mode Toggle → Rebuild Block Tree
@@ -446,11 +592,11 @@ const EditorView: React.FC<EditorViewProps> = ({
     if (prevSourceCodeModeRef.current && !isSourceCodeMode) {
       const latestContent = useEditorStore.getState().content;
       lastBuiltContentRef.current = latestContent;
-      const newTree = ensureTreeHasBlock(buildBlockTree(latestContent));
+      const newTree = rebuildTreeFromContent(latestContent);
       setBlockTree(newTree);
     }
     prevSourceCodeModeRef.current = isSourceCodeMode;
-  }, [isSourceCodeMode, ensureTreeHasBlock]);
+  }, [isSourceCodeMode, rebuildTreeFromContent]);
 
   // ============================================
   // Sync tree to store helper
@@ -458,6 +604,33 @@ const EditorView: React.FC<EditorViewProps> = ({
 
   const syncTreeToStore = useCallback(
     (tree: BlockTree) => {
+      // #region debug-point link-list:dp6-sync-to-store
+      const __dp6LinkBlocks: Array<{ id: string; type: string; sourceLines: string[] }> = [];
+      for (const bid of Object.keys(tree.blocks)) {
+        const b = tree.blocks[bid];
+        if (b.sourceLines.some((s) => s.includes(']('))) {
+          __dp6LinkBlocks.push({ id: bid, type: b.type, sourceLines: b.sourceLines });
+        }
+      }
+      if (__dp6LinkBlocks.length > 0) {
+        fetch('http://127.0.0.1:7777/event', {
+          method: 'POST',
+          body: JSON.stringify({
+            sessionId: 'link-reload-lost',
+            runId: 'pre',
+            hypothesisId: 'H1-D',
+            location: 'EditorView.tsx:syncTreeToStore',
+            msg: '[DEBUG] sync tree to store (link blocks)',
+            data: {
+              version: tree.version,
+              serialized: serializeBlockTree(tree).slice(0, 800),
+              linkBlocks: __dp6LinkBlocks,
+            },
+            ts: Date.now(),
+          }),
+        }).catch(() => {});
+      }
+      // #endregion
       isUpdatingFromExternalRef.current = true;
       setContent(serializeBlockTree(tree));
     },
@@ -513,8 +686,16 @@ const EditorView: React.FC<EditorViewProps> = ({
         block.type === 'ordered-list-item' ||
         block.type === 'task-list-item'
       ) {
-        const contentEl = blockEl.querySelector('span.block-content');
-        contentStr = contentEl ? domToMarkdown(contentEl).trim() : text;
+        // Clone the block element and remove decoration spans (list-marker /
+        // task-checkbox / list-bullet) before converting to markdown. This
+        // captures the link even when an <a> wraps the content span (which
+        // happens if surroundContents fallback restructured the DOM): walking
+        // only the content span would miss an ancestor <a>.
+        const clone = blockEl.cloneNode(true) as HTMLElement;
+        clone
+          .querySelectorAll('.list-marker, .task-checkbox, .list-bullet')
+          .forEach((n) => n.remove());
+        contentStr = domToMarkdown(clone).trim();
       } else {
         contentStr = domToMarkdown(blockEl).trim();
       }
@@ -540,6 +721,37 @@ const EditorView: React.FC<EditorViewProps> = ({
       return contentStr.split('\n').map((l) => `> ${l}`);
     }
     return [contentStr];
+  }, []);
+
+  // Extract the innerHTML that should be cached as `renderedHtml`.
+  // For list items, the block element contains decorative spans
+  // (bullet/marker/checkbox) as siblings of span.block-content — capturing
+  // the whole blockEl.innerHTML would re-inject those decorations into the
+  // content span on every format/sync, causing bullets/markers to multiply.
+  // So for list items we capture only span.block-content's innerHTML.
+  const getBlockRenderedHtml = useCallback((block: BlockNode, blockEl: Element): string => {
+    if (
+      block.type === 'unordered-list-item' ||
+      block.type === 'ordered-list-item' ||
+      block.type === 'task-list-item'
+    ) {
+      // Clone, remove decoration spans, and unwrap .block-content spans so the
+      // captured innerHTML includes any <a> wrapping the content span (and
+      // excludes decoration spans). Reading contentEl.innerHTML alone misses an
+      // ancestor <a> when surroundContents fallback restructured the DOM.
+      const clone = blockEl.cloneNode(true) as HTMLElement;
+      clone
+        .querySelectorAll('.list-marker, .task-checkbox, .list-bullet')
+        .forEach((n) => n.remove());
+      clone.querySelectorAll('span.block-content').forEach((n) => {
+        const parent = n.parentNode;
+        if (!parent) return;
+        while (n.firstChild) parent.insertBefore(n.firstChild, n);
+        parent.removeChild(n);
+      });
+      return clone.innerHTML;
+    }
+    return blockEl.innerHTML;
   }, []);
 
   // ============================================
@@ -665,6 +877,27 @@ const EditorView: React.FC<EditorViewProps> = ({
       const block = prev.blocks[id];
       if (!block) return;
 
+      // #region debug-point link-list:dp7-block-content-change
+      fetch('http://127.0.0.1:7777/event', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: 'link-reload-lost',
+          runId: 'pre',
+          hypothesisId: 'H1-D',
+          location: 'EditorView.tsx:handleBlockContentChange',
+          msg: '[DEBUG] block content change (blur)',
+          data: {
+            blockId: id,
+            oldType: block.type,
+            oldSourceLines: block.sourceLines,
+            oldRenderedHtml: block.renderedHtml,
+            newContent,
+          },
+          ts: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+
       // Code-fence blocks: content comes from textarea (double-click edit).
       // Do NOT run detectMarkdownLine — code containing '#' would be misdetected as heading.
       if (block.type === 'code-fence') {
@@ -715,6 +948,29 @@ const EditorView: React.FC<EditorViewProps> = ({
         };
       }
 
+      // #region debug-point link-list:dp7-block-content-change-result
+      const __dp7Updated = next.blocks[id];
+      fetch('http://127.0.0.1:7777/event', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: 'link-reload-lost',
+          runId: 'pre',
+          hypothesisId: 'H1-D',
+          location: 'EditorView.tsx:handleBlockContentChange:result',
+          msg: '[DEBUG] block content change result',
+          data: {
+            blockId: id,
+            typeChanged,
+            detectionType: detection?.type ?? null,
+            newType: __dp7Updated.type,
+            newSourceLines: __dp7Updated.sourceLines,
+            newRenderedHtml: __dp7Updated.renderedHtml,
+          },
+          ts: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+
       // Always update ref + store
       blockTreeRef.current = next;
       syncTreeToStore(next);
@@ -746,6 +1002,24 @@ const EditorView: React.FC<EditorViewProps> = ({
 
         // Cancel if tree version changed (Enter/Backspace may have modified it)
         if (blockTreeRef.current.version !== debounceTreeVersionRef.current) {
+          // #region debug-point link-list:dp8-input-cancelled
+          fetch('http://127.0.0.1:7777/event', {
+            method: 'POST',
+            body: JSON.stringify({
+              sessionId: 'link-reload-lost',
+              runId: 'pre',
+              hypothesisId: 'H1-D',
+              location: 'EditorView.tsx:handleBlockInput:cancelled',
+              msg: '[DEBUG] input debounce cancelled (version changed)',
+              data: {
+                blockId: id,
+                debounceVersion: debounceTreeVersionRef.current,
+                currentVersion: blockTreeRef.current.version,
+              },
+              ts: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
           inputDebounceRef.current = null;
           return;
         }
@@ -794,6 +1068,27 @@ const EditorView: React.FC<EditorViewProps> = ({
         const detection = detectMarkdownLine(newContent);
         const typeChanged = !!(detection && detection.type !== block.type);
 
+        // #region debug-point link-list:dp8-input-detect
+        fetch('http://127.0.0.1:7777/event', {
+          method: 'POST',
+          body: JSON.stringify({
+            sessionId: 'link-reload-lost',
+            runId: 'pre',
+            hypothesisId: 'H1-D',
+            location: 'EditorView.tsx:handleBlockInput:detect',
+            msg: '[DEBUG] input debounce fired detection',
+            data: {
+              blockId: id,
+              oldType: block.type,
+              newContent,
+              detectionType: detection?.type ?? null,
+              typeChanged,
+            },
+            ts: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+
         // Build updated block
         let updatedBlock: BlockNode;
         if (typeChanged && detection) {
@@ -804,19 +1099,19 @@ const EditorView: React.FC<EditorViewProps> = ({
             headingLevel: detection.headingLevel,
             checked: detection.isChecked,
             orderedIndex: detection.orderedIndex,
-            renderedHtml: blockEl.innerHTML,
+            renderedHtml: getBlockRenderedHtml(block, blockEl),
           };
         } else if (block.type !== 'paragraph') {
           updatedBlock = {
             ...block,
             sourceLines: buildSourceLinesFromContent(block, newContent),
-            renderedHtml: blockEl.innerHTML,
+            renderedHtml: getBlockRenderedHtml(block, blockEl),
           };
         } else {
           updatedBlock = {
             ...block,
             sourceLines: [newContent],
-            renderedHtml: blockEl.innerHTML,
+            renderedHtml: getBlockRenderedHtml(block, blockEl),
           };
         }
 
@@ -892,7 +1187,7 @@ const EditorView: React.FC<EditorViewProps> = ({
         }
       }, 30);
     },
-    [syncTreeToStore, buildSourceLinesFromContent, getBlockTextContent]
+    [syncTreeToStore, buildSourceLinesFromContent, getBlockTextContent, getBlockRenderedHtml]
   );
 
   // ============================================
@@ -1095,6 +1390,13 @@ const EditorView: React.FC<EditorViewProps> = ({
         checked,
         fenceLanguage
       );
+      // Clear any pending debounced input for this block so it doesn't
+      // overwrite the new renderedHtml:null before the render effect processes it.
+      pendingInputBlockIdRef.current = null;
+      if (inputDebounceRef.current) {
+        clearTimeout(inputDebounceRef.current);
+        inputDebounceRef.current = null;
+      }
       pushUndo(serializeBlockTree(prev));
       const next = updateBlockSource(prev, id, newSourceLines);
       blockTreeRef.current = next;
@@ -1125,10 +1427,51 @@ const EditorView: React.FC<EditorViewProps> = ({
             renderedHtml: contentEl ? contentEl.innerHTML : null,
           };
         } else {
+          const newSourceLines = buildSourceLinesFromContent(block, newContent);
+          const newRenderedHtml = getBlockRenderedHtml(block, blockEl);
+          // #region debug-point link-reload:sync-list-blocks
+          if (
+            block.type === 'ordered-list-item' ||
+            block.type === 'task-list-item' ||
+            block.type === 'unordered-list-item' ||
+            block.type === 'blockquote'
+          ) {
+            const __dpContentEl = blockEl.querySelector('span.block-content');
+            const __dpContentParentTag = __dpContentEl?.parentElement?.tagName.toLowerCase();
+            const __dpContentParentIsLink =
+              __dpContentEl?.parentElement?.classList.contains('inline-link') === true;
+            fetch('http://127.0.0.1:7777/event', {
+              method: 'POST',
+              body: JSON.stringify({
+                sessionId: 'link-reload-lost',
+                runId: 'pre',
+                hypothesisId: 'H6',
+                location: 'EditorView.tsx:handleSyncToStore',
+                msg: '[DEBUG] syncing list/quote block',
+                data: {
+                  blockId,
+                  blockType: block.type,
+                  newContent,
+                  newSourceLines,
+                  newRenderedHtml,
+                  contentElFound: __dpContentEl !== null,
+                  contentElInnerHTML: __dpContentEl?.innerHTML ?? null,
+                  contentParentTag: __dpContentParentTag ?? null,
+                  contentParentIsLink: __dpContentParentIsLink,
+                  blockElHasCheckboxSpan: blockEl.querySelector('.task-checkbox') !== null,
+                  blockElHasCheckboxInput: blockEl.querySelector('input[type="checkbox"]') !== null,
+                  blockElHasAnchor: blockEl.querySelector('a.inline-link') !== null,
+                  blockElOuterHTML: blockEl.outerHTML.slice(0, 800),
+                },
+                ts: Date.now(),
+              }),
+            }).catch(() => {});
+          }
+          // #endregion
           next.blocks[blockId] = {
             ...block,
-            sourceLines: buildSourceLinesFromContent(block, newContent),
-            renderedHtml: blockEl.innerHTML,
+            sourceLines: newSourceLines,
+            renderedHtml: newRenderedHtml,
           };
         }
       }
@@ -1136,7 +1479,7 @@ const EditorView: React.FC<EditorViewProps> = ({
     blockTreeRef.current = next;
     setBlockTree(next);
     syncTreeToStore(next);
-  }, [syncTreeToStore, getBlockTextContent, buildSourceLinesFromContent]);
+  }, [syncTreeToStore, getBlockTextContent, buildSourceLinesFromContent, getBlockRenderedHtml]);
 
   const handleShowMdSource = useCallback(
     (blockId: BlockId) => {

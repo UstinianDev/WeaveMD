@@ -10,4 +10,7 @@ Thumbs.db
 .env
 .env.local
 .trae/
+.dbg/
 debug-toolbar-mdsource-format-lost.md
+debug-link-list-4bugs.md
+debug-link-reload-lost.md

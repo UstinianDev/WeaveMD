@@ -37,7 +37,11 @@ export function getFile(fileId: string, userId: string): IFile | undefined {
   return mapRowToFile(row);
 }
 
-export function updateFileContent(fileId: string, userId: string, content: string): IFile | undefined {
+export function updateFileContent(
+  fileId: string,
+  userId: string,
+  content: string
+): IFile | undefined {
   const db = getDatabase();
   const now = new Date().toISOString();
 

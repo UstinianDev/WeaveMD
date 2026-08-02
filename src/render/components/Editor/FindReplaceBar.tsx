@@ -58,18 +58,9 @@ interface FindReplaceBarProps {
 
 const MacOSTrafficLights: React.FC = () => (
   <div className="flex items-center gap-[7px] mr-3 flex-shrink-0">
-    <span
-      className="w-[12px] h-[12px] rounded-full"
-      style={{ backgroundColor: '#ff5f57' }}
-    />
-    <span
-      className="w-[12px] h-[12px] rounded-full"
-      style={{ backgroundColor: '#febc2e' }}
-    />
-    <span
-      className="w-[12px] h-[12px] rounded-full"
-      style={{ backgroundColor: '#28c840' }}
-    />
+    <span className="w-[12px] h-[12px] rounded-full" style={{ backgroundColor: '#ff5f57' }} />
+    <span className="w-[12px] h-[12px] rounded-full" style={{ backgroundColor: '#febc2e' }} />
+    <span className="w-[12px] h-[12px] rounded-full" style={{ backgroundColor: '#28c840' }} />
   </div>
 );
 
@@ -124,9 +115,7 @@ const FindReplaceBar: React.FC<FindReplaceBarProps> = ({
     const timer = setTimeout(() => {
       setMatches(rawMatches);
       setMatchIndex((prev) =>
-        rawMatches.length > 0
-          ? (prev < 0 ? 0 : Math.min(prev, rawMatches.length - 1))
-          : -1,
+        rawMatches.length > 0 ? (prev < 0 ? 0 : Math.min(prev, rawMatches.length - 1)) : -1
       );
     }, 150);
     return () => clearTimeout(timer);
@@ -216,7 +205,16 @@ const FindReplaceBar: React.FC<FindReplaceBarProps> = ({
       onContentChange(newContent);
       setMatchIndex(-1);
     }
-  }, [content, searchText, replaceText, isCaseSensitive, isWholeWord, isRegexp, onContentChange, matches.length]);
+  }, [
+    content,
+    searchText,
+    replaceText,
+    isCaseSensitive,
+    isWholeWord,
+    isRegexp,
+    onContentChange,
+    matches.length,
+  ]);
 
   // ── Option toggle helper ───────────────────
   const toggleOption = useCallback((option: 'case' | 'word' | 'regex') => {

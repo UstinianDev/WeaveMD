@@ -305,7 +305,9 @@ function detectListItemBlock(model: TextModelLike, startLine: number) {
 
   if (taskMatch) {
     const checkboxMarker = `${taskMatch[2]} [${taskMatch[3]}] `;
-    syntaxMarkers.push(createMarker(startLine, 1, indentation + checkboxMarker.length + 1, checkboxMarker));
+    syntaxMarkers.push(
+      createMarker(startLine, 1, indentation + checkboxMarker.length + 1, checkboxMarker)
+    );
   } else if (unorderedMatch) {
     const marker = `${unorderedMatch[1]}${unorderedMatch[2]} `;
     syntaxMarkers.push(createMarker(startLine, 1, marker.length + 1, marker));

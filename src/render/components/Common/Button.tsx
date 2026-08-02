@@ -22,8 +22,7 @@ interface ButtonProps {
 }
 
 const variantStyles: Record<ButtonVariant, string> = {
-  primary:
-    'bg-[#7C3AED] text-white hover:bg-[#6D28D9] active:bg-[#5B21B6] border-transparent',
+  primary: 'bg-[#7C3AED] text-white hover:bg-[#6D28D9] active:bg-[#5B21B6] border-transparent',
   secondary:
     'bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:brightness-110 active:brightness-125 border-transparent',
   ghost:
@@ -78,7 +77,14 @@ const Button: React.FC<ButtonProps> = ({
           fill="none"
           viewBox="0 0 24 24"
         >
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <circle
+            className="opacity-25"
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            strokeWidth="4"
+          />
           <path
             className="opacity-75"
             fill="currentColor"

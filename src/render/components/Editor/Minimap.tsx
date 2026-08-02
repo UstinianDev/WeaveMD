@@ -22,18 +22,18 @@ import { getAllBlocksInOrder } from '../../services/blockTree';
 
 const CANVAS_WIDTH = 64;
 const LINE_HEIGHT = 3; // px per source line in minimap
-const BLOCK_GAP = 2;   // px gap between blocks
+const BLOCK_GAP = 2; // px gap between blocks
 const DEVICE_PIXEL_RATIO = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
 
 // Block type colors (dark theme)
 const BLOCK_COLORS: Record<string, string> = {
-  heading: '#7C3AED',    // Purple (matches theme accent)
-  paragraph: '#6B7280',  // Gray
+  heading: '#7C3AED', // Purple (matches theme accent)
+  paragraph: '#6B7280', // Gray
   'code-fence': '#3B82F6', // Blue
-  'list-item': '#9CA3AF',  // Light gray
-  table: '#F59E0B',      // Amber
+  'list-item': '#9CA3AF', // Light gray
+  table: '#F59E0B', // Amber
   blockquote: '#10B981', // Green
-  empty: '#4B5563',      // Dark gray
+  empty: '#4B5563', // Dark gray
 };
 
 // ============================================
@@ -77,11 +77,7 @@ function estimateBlockHeight(block: { type: string; sourceLines: string[] }): nu
 // Component
 // ============================================
 
-const Minimap: React.FC<MinimapProps> = ({
-  blockTree,
-  scrollInfo,
-  onScrollTo,
-}) => {
+const Minimap: React.FC<MinimapProps> = ({ blockTree, scrollInfo, onScrollTo }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animFrameRef = useRef<number>(0);
 
@@ -95,10 +91,7 @@ const Minimap: React.FC<MinimapProps> = ({
     const blocks = getAllBlocksInOrder(blockTree);
 
     // Calculate total content height in minimap coordinates
-    const totalHeight = blocks.reduce(
-      (sum, b) => sum + estimateBlockHeight(b) + BLOCK_GAP,
-      0
-    );
+    const totalHeight = blocks.reduce((sum, b) => sum + estimateBlockHeight(b) + BLOCK_GAP, 0);
 
     // Canvas logical size → physical pixels
     const logicalHeight = Math.max(

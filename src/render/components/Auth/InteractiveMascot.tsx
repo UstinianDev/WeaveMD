@@ -5,7 +5,8 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 
-export type MascotState = 'idle' | 'focus-username' | 'focus-password' | 'typing' | 'success' | 'error' | 'hover-submit';
+export type MascotState =
+  'idle' | 'focus-username' | 'focus-password' | 'typing' | 'success' | 'error' | 'hover-submit';
 
 interface InteractiveMascotProps {
   state: MascotState;
@@ -35,10 +36,13 @@ const InteractiveMascot: React.FC<InteractiveMascotProps> = ({ state }) => {
 
   // Blink animation
   useEffect(() => {
-    const blinkInterval = setInterval(() => {
-      setBlink(true);
-      setTimeout(() => setBlink(false), 150);
-    }, 3000 + Math.random() * 2000);
+    const blinkInterval = setInterval(
+      () => {
+        setBlink(true);
+        setTimeout(() => setBlink(false), 150);
+      },
+      3000 + Math.random() * 2000
+    );
     return () => clearInterval(blinkInterval);
   }, []);
 
@@ -101,10 +105,7 @@ const InteractiveMascot: React.FC<InteractiveMascotProps> = ({ state }) => {
   const bodyBounce = state === 'typing' ? 'animate-bounce-small' : '';
 
   return (
-    <div
-      ref={mascotRef}
-      className="flex flex-col items-center justify-center h-full select-none"
-    >
+    <div ref={mascotRef} className="flex flex-col items-center justify-center h-full select-none">
       <div className={`relative transition-transform duration-300 ${bodyBounce}`}>
         <svg
           width="320"
@@ -128,18 +129,67 @@ const InteractiveMascot: React.FC<InteractiveMascotProps> = ({ state }) => {
           />
 
           {/* Notebook lines */}
-          <line x1="125" y1="260" x2="275" y2="260" stroke="#7C3AED" strokeWidth="1" opacity="0.3" />
-          <line x1="125" y1="285" x2="275" y2="285" stroke="#7C3AED" strokeWidth="1" opacity="0.3" />
-          <line x1="125" y1="310" x2="260" y2="310" stroke="#7C3AED" strokeWidth="1" opacity="0.3" />
-          <line x1="125" y1="335" x2="240" y2="335" stroke="#7C3AED" strokeWidth="1" opacity="0.3" />
+          <line
+            x1="125"
+            y1="260"
+            x2="275"
+            y2="260"
+            stroke="#7C3AED"
+            strokeWidth="1"
+            opacity="0.3"
+          />
+          <line
+            x1="125"
+            y1="285"
+            x2="275"
+            y2="285"
+            stroke="#7C3AED"
+            strokeWidth="1"
+            opacity="0.3"
+          />
+          <line
+            x1="125"
+            y1="310"
+            x2="260"
+            y2="310"
+            stroke="#7C3AED"
+            strokeWidth="1"
+            opacity="0.3"
+          />
+          <line
+            x1="125"
+            y1="335"
+            x2="240"
+            y2="335"
+            stroke="#7C3AED"
+            strokeWidth="1"
+            opacity="0.3"
+          />
 
           {/* WeaveMD text on body */}
-          <text x="200" y="375" textAnchor="middle" fill="#7C3AED" fontSize="18" fontWeight="bold" fontFamily="sans-serif" opacity="0.6">
+          <text
+            x="200"
+            y="375"
+            textAnchor="middle"
+            fill="#7C3AED"
+            fontSize="18"
+            fontWeight="bold"
+            fontFamily="sans-serif"
+            opacity="0.6"
+          >
             WeaveMD
           </text>
 
           {/* ===== Head ===== */}
-          <ellipse cx="200" cy="165" rx="75" ry="70" fill="url(#headGradient)" stroke="#7C3AED" strokeWidth="2" />
+          <ellipse
+            cx="200"
+            cy="165"
+            rx="75"
+            ry="70"
+            fill="url(#headGradient)"
+            stroke="#7C3AED"
+            strokeWidth="2"
+          />
 
           {/* ===== Eyes ===== */}
           {/* Left eye background */}
@@ -203,35 +253,109 @@ const InteractiveMascot: React.FC<InteractiveMascotProps> = ({ state }) => {
           {/* ===== Eyebrows ===== */}
           {/* Left eyebrow */}
           {state === 'error' ? (
-            <line x1="128" y1="102" x2="172" y2="108" stroke="#7C3AED" strokeWidth="3" strokeLinecap="round" />
+            <line
+              x1="128"
+              y1="102"
+              x2="172"
+              y2="108"
+              stroke="#7C3AED"
+              strokeWidth="3"
+              strokeLinecap="round"
+            />
           ) : state === 'success' ? (
-            <line x1="128" y1="108" x2="172" y2="102" stroke="#7C3AED" strokeWidth="3" strokeLinecap="round" />
+            <line
+              x1="128"
+              y1="108"
+              x2="172"
+              y2="102"
+              stroke="#7C3AED"
+              strokeWidth="3"
+              strokeLinecap="round"
+            />
           ) : (
-            <line x1="130" y1="105" x2="170" y2="105" stroke="#7C3AED" strokeWidth="2.5" strokeLinecap="round" />
+            <line
+              x1="130"
+              y1="105"
+              x2="170"
+              y2="105"
+              stroke="#7C3AED"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            />
           )}
 
           {/* Right eyebrow */}
           {state === 'error' ? (
-            <line x1="228" y1="108" x2="272" y2="102" stroke="#7C3AED" strokeWidth="3" strokeLinecap="round" />
+            <line
+              x1="228"
+              y1="108"
+              x2="272"
+              y2="102"
+              stroke="#7C3AED"
+              strokeWidth="3"
+              strokeLinecap="round"
+            />
           ) : state === 'success' ? (
-            <line x1="228" y1="102" x2="272" y2="108" stroke="#7C3AED" strokeWidth="3" strokeLinecap="round" />
+            <line
+              x1="228"
+              y1="102"
+              x2="272"
+              y2="108"
+              stroke="#7C3AED"
+              strokeWidth="3"
+              strokeLinecap="round"
+            />
           ) : (
-            <line x1="230" y1="105" x2="270" y2="105" stroke="#7C3AED" strokeWidth="2.5" strokeLinecap="round" />
+            <line
+              x1="230"
+              y1="105"
+              x2="270"
+              y2="105"
+              stroke="#7C3AED"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            />
           )}
 
           {/* ===== Mouth ===== */}
           {state === 'success' ? (
             // Happy smile
-            <path d="M 170 175 Q 200 200 230 175" stroke="#7C3AED" strokeWidth="3" fill="none" strokeLinecap="round" />
+            <path
+              d="M 170 175 Q 200 200 230 175"
+              stroke="#7C3AED"
+              strokeWidth="3"
+              fill="none"
+              strokeLinecap="round"
+            />
           ) : state === 'error' ? (
             // Worried
-            <path d="M 170 180 Q 200 165 230 180" stroke="#7C3AED" strokeWidth="3" fill="none" strokeLinecap="round" />
+            <path
+              d="M 170 180 Q 200 165 230 180"
+              stroke="#7C3AED"
+              strokeWidth="3"
+              fill="none"
+              strokeLinecap="round"
+            />
           ) : state === 'focus-password' ? (
             // Closed/zipped mouth
-            <line x1="175" y1="175" x2="225" y2="175" stroke="#7C3AED" strokeWidth="2.5" strokeLinecap="round" />
+            <line
+              x1="175"
+              y1="175"
+              x2="225"
+              y2="175"
+              stroke="#7C3AED"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            />
           ) : (
             // Neutral slight smile
-            <path d="M 175 172 Q 200 182 225 172" stroke="#7C3AED" strokeWidth="2" fill="none" strokeLinecap="round" />
+            <path
+              d="M 175 172 Q 200 182 225 172"
+              stroke="#7C3AED"
+              strokeWidth="2"
+              fill="none"
+              strokeLinecap="round"
+            />
           )}
 
           {/* ===== Arms ===== */}
@@ -296,18 +420,14 @@ const InteractiveMascot: React.FC<InteractiveMascotProps> = ({ state }) => {
           {state === 'focus-password' && (
             <p className="text-sm text-purple-400">I won&apos;t peek! 🙈</p>
           )}
-          {state === 'typing' && (
-            <p className="text-sm text-purple-400">Keep going... ✍️</p>
-          )}
+          {state === 'typing' && <p className="text-sm text-purple-400">Keep going... ✍️</p>}
           {state === 'success' && (
             <p className="text-sm text-green-400 font-semibold">Welcome aboard! 🎉</p>
           )}
           {state === 'error' && (
             <p className="text-sm text-red-400">Oops, something&apos;s wrong 😥</p>
           )}
-          {state === 'hover-submit' && (
-            <p className="text-sm text-purple-400">Let&apos;s go! 🚀</p>
-          )}
+          {state === 'hover-submit' && <p className="text-sm text-purple-400">Let&apos;s go! 🚀</p>}
         </div>
       </div>
 

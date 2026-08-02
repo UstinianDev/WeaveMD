@@ -48,9 +48,7 @@ export function serializeBlockTree(tree: BlockTree): string {
   // Use '\n\n' to separate blocks, ensuring proper paragraph separation
   // in Markdown format. This allows buildBlockTree to correctly identify
   // block boundaries when parsing the serialized output.
-  return allBlocks
-    .map((block) => serializeBlock(block))
-    .join('\n\n');
+  return allBlocks.map((block) => serializeBlock(block)).join('\n\n');
 }
 
 // ============================================

@@ -119,6 +119,13 @@
   "toolbar.copy": "複製",
   "toolbar.comment": "評論",
   "toolbar.mdSource": "MD原文",
+  "toolbar.linkDialogTitle": "插入/編輯連結",
+  "toolbar.linkUrlLabel": "連結地址",
+  "toolbar.linkUrlPlaceholder": "請輸入 URL",
+  "toolbar.linkRemove": "移除連結",
+  "toolbar.linkTip": "Ctrl+點擊 開啟",
+  "toolbar.confirm": "確定",
+  "toolbar.cancel": "取消",
   "splash.loading": "正在載入筆記...",
   "splash.clickSkip": "點選任意位置跳過"
 }

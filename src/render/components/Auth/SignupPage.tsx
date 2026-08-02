@@ -7,7 +7,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Input from '../Common/Input';
 import Button from '../Common/Button';
 import { useI18n } from '../../i18n';
-import { validateUsername, validatePassword, getPasswordStrength, generateCaptcha, validateCaptcha } from '../../utils/validators';
+import {
+  validateUsername,
+  validatePassword,
+  getPasswordStrength,
+  generateCaptcha,
+  validateCaptcha,
+} from '../../utils/validators';
 import type { PasswordStrength } from '../../utils/validators';
 import type { MascotState } from './InteractiveMascot';
 
@@ -156,11 +162,12 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
     }
   };
 
-  const strengthConfig: Record<PasswordStrength, { color: string; label: string; width: string }> = {
-    weak: { color: 'bg-red-500', label: t('auth.weak'), width: 'w-1/3' },
-    medium: { color: 'bg-yellow-500', label: t('auth.medium'), width: 'w-2/3' },
-    strong: { color: 'bg-green-500', label: t('auth.strong'), width: 'w-full' },
-  };
+  const strengthConfig: Record<PasswordStrength, { color: string; label: string; width: string }> =
+    {
+      weak: { color: 'bg-red-500', label: t('auth.weak'), width: 'w-1/3' },
+      medium: { color: 'bg-yellow-500', label: t('auth.medium'), width: 'w-2/3' },
+      strong: { color: 'bg-green-500', label: t('auth.strong'), width: 'w-full' },
+    };
 
   if (registrationSuccess) {
     return (
@@ -208,9 +215,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
         {usernameAvailable === false && (
           <p className="text-xs text-red-500 mt-1">{`✗ ${t('auth.taken')}`}</p>
         )}
-        {usernameChecking && (
-          <p className="text-xs text-gray-400 mt-1">{t('auth.checking')}</p>
-        )}
+        {usernameChecking && <p className="text-xs text-gray-400 mt-1">{t('auth.checking')}</p>}
       </div>
 
       {/* Password */}
@@ -233,7 +238,9 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
       {password && (
         <div className="mb-4">
           <div className="flex gap-1 h-1 mb-1">
-            <div className={`flex-1 rounded-full bg-gray-200 ${strengthConfig[passwordStrength].width} ${strengthConfig[passwordStrength].color}`} />
+            <div
+              className={`flex-1 rounded-full bg-gray-200 ${strengthConfig[passwordStrength].width} ${strengthConfig[passwordStrength].color}`}
+            />
           </div>
           <p className="text-xs text-gray-400">
             {`${t('auth.strength')}: `}
@@ -261,7 +268,14 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
             className="text-gray-400 hover:text-gray-600 transition-colors"
             title="Regenerate"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <polyline points="23 4 23 10 17 10" />
               <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
             </svg>

@@ -1,6 +1,6 @@
 # WeaveMD 项目总结文档
 
-> 版本：v2.9.2 | 最后更新：2026-08-01
+> 版本：v2.9.5 | 最后更新：2026-08-01
 
 ---
 
@@ -127,6 +127,10 @@
 ### 4.6 主题系统
 
 **决策**：使用 CSS 变量 + HTML 类名实现多主题切换。5 种预设主题（Light、Dark、Light Header、High Contrast、Custom），主题持久化到 localStorage + 后端数据库。
+
+### 4.7 超链接交互
+
+**决策**：浮动工具栏 Link 按钮点击后立即隐藏工具栏并打开 Modal（避免遮挡）；Modal 移出 `!isVisible` 守卫始终渲染，修复 Link 点击后工具栏永久消失。edit 模式显示"移除链接"按钮（unwrap `<a>` 保留文本）。Ctrl/Cmd+click 链接经 IPC `LINK_OPEN_EXTERNAL` → `shell.openExternal` 在系统浏览器打开；`will-navigate` + `setWindowOpenHandler` 阻止窗口内导航。hover 显示 Word 风格蓝色 tooltip（`a.inline-link:hover::after` + `--link-tip` CSS 变量，i18n `toolbar.linkTip`）。
 
 ---
 

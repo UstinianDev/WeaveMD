@@ -46,17 +46,14 @@ const Input: React.FC<InputProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
 
-  const inputType = showPasswordToggle && type === 'password'
-    ? (showPassword ? 'text' : 'password')
-    : type;
+  const inputType =
+    showPasswordToggle && type === 'password' ? (showPassword ? 'text' : 'password') : type;
 
   const isPassword = showPasswordToggle && type === 'password';
 
   return (
     <div className={`flex flex-col gap-1 ${className}`}>
-      {label && (
-        <label className="text-xs text-text-sub font-medium">{label}</label>
-      )}
+      {label && <label className="text-xs text-text-sub font-medium">{label}</label>}
 
       <div
         className={`
@@ -68,9 +65,7 @@ const Input: React.FC<InputProps> = ({
           bg-[var(--input-bg,#0F0F0F)]
         `}
       >
-        {leftIcon && (
-          <span className="pl-3 text-text-sub flex-shrink-0">{leftIcon}</span>
-        )}
+        {leftIcon && <span className="pl-3 text-text-sub flex-shrink-0">{leftIcon}</span>}
 
         <input
           type={inputType}
@@ -104,14 +99,32 @@ const Input: React.FC<InputProps> = ({
             tabIndex={-1}
           >
             {showPassword ? (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                <circle cx="12" cy="12" r="3"/>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
               </svg>
             ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/>
-                <line x1="1" y1="1" x2="23" y2="23"/>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" />
+                <line x1="1" y1="1" x2="23" y2="23" />
               </svg>
             )}
           </button>

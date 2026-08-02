@@ -184,7 +184,9 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
               headingIndex={indexMap.get(item.id) ?? 0}
               activeHeadingIndex={activeHeadingIndex}
               indexMap={indexMap}
-              onNavigate={(lineNumber, headingIndex) => onNavigateToHeading?.(lineNumber, headingIndex)}
+              onNavigate={(lineNumber, headingIndex) =>
+                onNavigateToHeading?.(lineNumber, headingIndex)
+              }
               depth={1}
             />
           ))

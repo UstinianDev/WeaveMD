@@ -3,14 +3,7 @@
 // ============================================
 
 // --- Reserved Usernames ---
-export const RESERVED_USERNAMES = [
-  'admin',
-  'root',
-  'system',
-  'guest',
-  'test',
-  'administrator',
-];
+export const RESERVED_USERNAMES = ['admin', 'root', 'system', 'guest', 'test', 'administrator'];
 
 // --- Validation ---
 export const USERNAME_MIN_LENGTH = 5;
@@ -73,6 +66,9 @@ export const IPC_CHANNELS = {
   // Account
   ACCOUNT_INFO: 'account:info',
   ACCOUNT_DELETE: 'account:delete',
+
+  // Link
+  LINK_OPEN_EXTERNAL: 'link:open-external',
 } as const;
 
 // --- Design Tokens ---

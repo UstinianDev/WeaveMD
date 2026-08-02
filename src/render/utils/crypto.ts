@@ -44,10 +44,7 @@ function simpleDecode(encoded: string, key: string): string {
 
 function getEncryptionKey(): string {
   // Use a combination of navigator data as key seed
-  const seed =
-    navigator.language +
-    navigator.platform +
-    (navigator.hardwareConcurrency || 4);
+  const seed = navigator.language + navigator.platform + (navigator.hardwareConcurrency || 4);
   return ENCRYPTION_KEY_PREFIX + btoa(seed).slice(0, 16);
 }
 

@@ -15,7 +15,8 @@ type WidgetRecord = {
   widget: MonacoEditor.IContentWidget;
 };
 
-export const RENDERED_BLOCK_WIDGET_CLASS = 'markdown-block-widget markdown-block-widget--pass-through';
+export const RENDERED_BLOCK_WIDGET_CLASS =
+  'markdown-block-widget markdown-block-widget--pass-through';
 
 function normalizeDocumentLines(content: string) {
   return prepareMarkdownForRendering(content).split('\n');
@@ -189,9 +190,7 @@ export class MarkdownRenderedBlocksController {
     // Constrain rendered height to source-line extent, preventing overflow
     // into adjacent blocks. Heading line heights match the decoration typography
     // scale so the rendered heading fits within its source-line budget.
-    const defaultLineHeight = this.editor.getOption(
-      this.monaco.editor.EditorOption.lineHeight
-    );
+    const defaultLineHeight = this.editor.getOption(this.monaco.editor.EditorOption.lineHeight);
     const lineCount = block.endLine - block.startLine + 1;
     let lineHeight = defaultLineHeight;
     if (block.type === 'heading') {
@@ -253,9 +252,7 @@ export class MarkdownRenderedBlocksController {
       record.domNode.style.transform = '';
       const defaultLineHeight =
         block.type === 'heading'
-          ? [42, 38, 34, 30, 28, 26][
-              Math.min((block.metadata?.headingLevel ?? 1) - 1, 5)
-            ]
+          ? [42, 38, 34, 30, 28, 26][Math.min((block.metadata?.headingLevel ?? 1) - 1, 5)]
           : lineHeight;
       record.domNode.style.maxHeight = `${totalLines * defaultLineHeight}px`;
     }

@@ -68,9 +68,7 @@ const SplashLoader: React.FC<SplashLoaderProps> = ({ onComplete }) => {
       </div>
 
       {/* Click hint */}
-      <p className="absolute bottom-12 text-xs text-gray-400 select-none">
-        Click anywhere to skip
-      </p>
+      <p className="absolute bottom-12 text-xs text-gray-400 select-none">Click anywhere to skip</p>
     </div>
   );
 };

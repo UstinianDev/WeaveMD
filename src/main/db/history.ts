@@ -6,7 +6,11 @@ import { randomUUID } from 'crypto';
 import { getDatabase } from './index';
 import type { IHistoryEntry } from '../../shared/types';
 
-export function saveVersion(fileId: string, version: number, diff: string | null = null): IHistoryEntry {
+export function saveVersion(
+  fileId: string,
+  version: number,
+  diff: string | null = null
+): IHistoryEntry {
   const db = getDatabase();
   const id = randomUUID();
   const now = new Date().toISOString();

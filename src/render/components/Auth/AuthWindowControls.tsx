@@ -9,7 +9,10 @@ const AuthWindowControls: React.FC = () => {
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
-    window.weaveMD.window.isMaximized().then(setIsMaximized).catch(() => {});
+    window.weaveMD.window
+      .isMaximized()
+      .then(setIsMaximized)
+      .catch(() => {});
   }, []);
 
   const handleMinimize = () => window.weaveMD.window.minimize();
@@ -23,9 +26,7 @@ const AuthWindowControls: React.FC = () => {
   const handleClose = () => window.weaveMD.window.close();
 
   return (
-    <div
-      className="flex items-center h-8 no-drag"
-    >
+    <div className="flex items-center h-8 no-drag">
       {/* Minimize */}
       <button
         onClick={handleMinimize}

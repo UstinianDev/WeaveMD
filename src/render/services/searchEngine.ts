@@ -69,7 +69,7 @@ export function escapeRegExp(str: string): string {
 export function findAllMatches(
   content: string,
   query: string,
-  options: SearchOptions = {},
+  options: SearchOptions = {}
 ): MatchResult[] {
   if (!query || !content) return [];
 
@@ -169,7 +169,7 @@ export function replaceAll(
   content: string,
   query: string,
   replacement: string,
-  options: SearchOptions = {},
+  options: SearchOptions = {}
 ): string | null {
   if (!query || !content) return null;
 

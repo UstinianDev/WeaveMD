@@ -119,6 +119,13 @@
   "toolbar.copy": "Copy",
   "toolbar.comment": "Comment",
   "toolbar.mdSource": "MD Source",
+  "toolbar.linkDialogTitle": "Insert/Edit Link",
+  "toolbar.linkUrlLabel": "URL",
+  "toolbar.linkUrlPlaceholder": "https://example.com",
+  "toolbar.linkRemove": "Remove Link",
+  "toolbar.linkTip": "Ctrl+Click to open",
+  "toolbar.confirm": "Confirm",
+  "toolbar.cancel": "Cancel",
   "splash.loading": "Loading your notes...",
   "splash.clickSkip": "Click anywhere to skip"
 }

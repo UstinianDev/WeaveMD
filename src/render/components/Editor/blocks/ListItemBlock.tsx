@@ -16,13 +16,39 @@ interface ListItemBlockProps {
 const getVisibleText = (block: BlockNode): string => {
   const text = block.sourceLines.join(' ');
   return text
-    .replace(/^[\s]*[-+*]\s*/, '')
+    .replace(/^[\s]*[-+*]\s*\[[ xX]\]\s*/, '')
     .replace(/^[\s]*\d+\.\s*/, '')
-    .replace(/^[\s]*[-+*]\s*\[[ xX]\]\s*/, '');
+    .replace(/^[\s]*[-+*]\s*/, '');
 };
 
 const ListItemBlock: React.FC<ListItemBlockProps> = ({ block }) => {
   const text = getVisibleText(block);
+  const contentProps = block.renderedHtml
+    ? { dangerouslySetInnerHTML: { __html: block.renderedHtml } }
+    : { children: text || '\u200B' };
+
+  // #region debug-point link-reload:listblock-render
+  fetch('http://127.0.0.1:7777/event', {
+    method: 'POST',
+    body: JSON.stringify({
+      sessionId: 'link-reload-lost',
+      runId: 'pre',
+      hypothesisId: 'H5',
+      location: 'ListItemBlock.tsx',
+      msg: '[DEBUG] ListItemBlock render',
+      data: {
+        blockId: block.id,
+        blockType: block.type,
+        renderedHtmlNull: block.renderedHtml === null,
+        renderedHtml: block.renderedHtml,
+        sourceLines: block.sourceLines,
+        orderedIndex: block.orderedIndex,
+        checked: block.checked,
+      },
+      ts: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
 
   if (block.type === 'task-list-item') {
     return (
@@ -30,15 +56,15 @@ const ListItemBlock: React.FC<ListItemBlockProps> = ({ block }) => {
         className="task-list-item flex items-start gap-2 mb-1 text-[var(--text-primary)]"
         data-block-id={block.id}
       >
-        <span className="task-checkbox inline-flex items-center justify-center w-5 h-5 mt-0.5
+        <span
+          className="task-checkbox inline-flex items-center justify-center w-5 h-5 mt-0.5
                         border border-[var(--border-color)] rounded
                         text-xs select-none flex-shrink-0
-                        bg-[var(--bg-secondary)] text-[var(--text-primary)]">
+                        bg-[var(--bg-secondary)] text-[var(--text-primary)]"
+        >
           {block.checked ? '✓' : ''}
         </span>
-        <span className="block-content flex-1 text-[14px] leading-[1.65]">
-          {text || '\u200B'}
-        </span>
+        <span className="block-content flex-1 text-[14px] leading-[1.65]" {...contentProps} />
       </div>
     );
   }
@@ -49,13 +75,13 @@ const ListItemBlock: React.FC<ListItemBlockProps> = ({ block }) => {
         className="ordered-list-item flex items-start gap-2 mb-1 text-[var(--text-primary)]"
         data-block-id={block.id}
       >
-        <span className="list-marker text-[14px] leading-[1.65] font-medium text-[var(--text-secondary)]
-                        min-w-[1.5em] text-right flex-shrink-0 select-none">
+        <span
+          className="list-marker text-[14px] leading-[1.65] font-medium text-[var(--text-secondary)]
+                        min-w-[1.5em] text-right flex-shrink-0 select-none"
+        >
           {block.orderedIndex ?? 1}.
         </span>
-        <span className="block-content flex-1 text-[14px] leading-[1.65]">
-          {text || '\u200B'}
-        </span>
+        <span className="block-content flex-1 text-[14px] leading-[1.65]" {...contentProps} />
       </div>
     );
   }
@@ -66,13 +92,13 @@ const ListItemBlock: React.FC<ListItemBlockProps> = ({ block }) => {
       className="unordered-list-item flex items-start gap-2 mb-1 text-[var(--text-primary)]"
       data-block-id={block.id}
     >
-      <span className="list-bullet text-[14px] leading-[1.65] text-[var(--text-secondary)]
-                      min-w-[1.5em] text-center flex-shrink-0 select-none">
+      <span
+        className="list-bullet text-[14px] leading-[1.65] text-[var(--text-secondary)]
+                      min-w-[1.5em] text-center flex-shrink-0 select-none"
+      >
         {'•'}
       </span>
-      <span className="block-content flex-1 text-[14px] leading-[1.65]">
-        {text || '\u200B'}
-      </span>
+      <span className="block-content flex-1 text-[14px] leading-[1.65]" {...contentProps} />
     </div>
   );
 };
