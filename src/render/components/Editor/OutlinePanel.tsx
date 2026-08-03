@@ -3,12 +3,12 @@
 // ============================================
 
 import React, { useMemo, useState } from 'react';
+import { useI18n } from '../../i18n';
 import type { OutlineItem } from '../../services/markdown';
 import { extractOutline } from '../../services/markdown';
 import { useEditorStore } from '../../stores/editorStore';
-import { useUIStore } from '../../stores/uiStore';
 import { useFileTreeStore } from '../../stores/fileTreeStore';
-import { useI18n } from '../../i18n';
+import { useUIStore } from '../../stores/uiStore';
 import FileTreePanel from './FileTreePanel';
 
 const INDENT_CLASSES = ['ml-0', 'ml-4', 'ml-8'] as const;
@@ -149,7 +149,10 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
   return (
     <aside className="bg-bg-secondary border-r border-border flex flex-col h-full w-full">
       {/* Tab Header */}
-      <div className="flex items-center border-b px-3 py-2 gap-1" style={{ borderColor: 'var(--border-color)' }}>
+      <div
+        className="flex items-center border-b px-3 py-2 gap-1"
+        style={{ borderColor: 'var(--border-color)' }}
+      >
         <button
           onClick={() => useFileTreeStore.getState().setActiveTab('outline')}
           className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded text-sm transition-colors ${

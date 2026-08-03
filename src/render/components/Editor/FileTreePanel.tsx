@@ -85,6 +85,7 @@ const FileTreePanel: React.FC = () => {
       const indent = depth * 16;
       const isFolder = node.isDirectory;
       const isSelected = selectedIds.includes(node.id);
+      const isActive = !isFolder && node.id === currentFileId;
       const hasChildren = node.children.length > 0;
 
       // Trash only shows on root folders (not sub-folders, not files inside folders)
@@ -94,8 +95,8 @@ const FileTreePanel: React.FC = () => {
         <div key={node.id}>
           <div
             className={`flex items-center gap-2 py-2.5 px-2 rounded hover:bg-white/5 cursor-pointer group ${
-              isSelected ? 'bg-accent/20' : ''
-            }`}
+              isActive ? 'current-file-active' : ''
+            } ${isSelected && !isActive ? 'bg-accent/20' : ''}`}
             style={{ paddingLeft: `${indent + 8}px` }}
             onClick={() => {
               toggleSelect(node.id);
@@ -143,18 +144,19 @@ const FileTreePanel: React.FC = () => {
         </div>
       );
     },
-    [selectedIds, toggleExpand, toggleSelect, handleFileClick, handleTrashFolder, t]
+    [selectedIds, currentFileId, toggleExpand, toggleSelect, handleFileClick, handleTrashFolder, t]
   );
 
   const renderLooseFile = useCallback(
     (file: IFileNode) => {
       const isSelected = selectedIds.includes(file.id);
+      const isActive = file.id === currentFileId;
       return (
         <div
           key={file.id}
           className={`flex items-center gap-2 py-2.5 px-2 rounded hover:bg-white/5 cursor-pointer group ${
-            isSelected ? 'bg-accent/20' : ''
-          }`}
+            isActive ? 'current-file-active' : ''
+          } ${isSelected && !isActive ? 'bg-accent/20' : ''}`}
           onClick={() => {
             toggleSelect(file.id);
             void handleFileClick(file);
@@ -178,7 +180,7 @@ const FileTreePanel: React.FC = () => {
         </div>
       );
     },
-    [selectedIds, toggleSelect, handleFileClick, handleTrashFile, t]
+    [selectedIds, currentFileId, toggleSelect, handleFileClick, handleTrashFile, t]
   );
 
   if (folders.length === 0 && looseFiles.length === 0) {
@@ -191,18 +193,21 @@ const FileTreePanel: React.FC = () => {
 
   return (
     <div className="flex-1 overflow-y-auto py-2">
-      {folders.map((folder) => (
-        <div key={folder.id}>{renderNode(folder, 0)}</div>
-      ))}
+      {/* 文件在上 */}
+      {looseFiles.map((file) => renderLooseFile(file))}
 
-      {folders.length > 0 && looseFiles.length > 0 && (
+      {/* 分隔线 */}
+      {looseFiles.length > 0 && folders.length > 0 && (
         <div
           className="border-t border-border my-2"
           style={{ borderColor: 'var(--border-color)' }}
         />
       )}
 
-      {looseFiles.map((file) => renderLooseFile(file))}
+      {/* 文件夹在下 */}
+      {folders.map((folder) => (
+        <div key={folder.id}>{renderNode(folder, 0)}</div>
+      ))}
     </div>
   );
 };

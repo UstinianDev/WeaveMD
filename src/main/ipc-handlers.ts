@@ -1,7 +1,6 @@
 // ============================================
 // WeaveMD — IPC Handlers Registration
 // ============================================
-
 import crypto from 'crypto';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import fs from 'fs';
@@ -515,9 +514,10 @@ export function registerAllIpcHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.FOLDER_CREATE, async (_event, { path, name }) => {
     try {
-      const targetPath = `${path}/${name}`;
+      // If name is empty, path is the full folder path (from saveFilePath dialog)
+      const targetPath = name ? `${path}/${name}` : path;
       fs.mkdirSync(targetPath, { recursive: true });
-      return { success: true, data: { path, name } };
+      return { success: true, data: { path: targetPath, name } };
     } catch (error) {
       return { success: false, message: 'Failed to create folder' };
     }

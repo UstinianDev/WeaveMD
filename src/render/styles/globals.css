@@ -27,8 +27,8 @@ html.light-header {
   --navbar-text-primary: #111827;
   --navbar-text-sub: #6b7280;
   --font-code: 'JetBrains Mono', Consolas, 'Courier New', monospace;
-  --bg-code: #1e1e2e;
-  --text-code: #cdd6f4;
+  --bg-code: #e5e5e5;
+  --text-code: #1a1a1a;
   --input-bg: #f9fafb;
   --modal-bg: #ffffff;
   --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.08);
@@ -50,8 +50,8 @@ html.light {
   --navbar-bg: #1a1a1a;
   --navbar-text-primary: #ffffff;
   --navbar-text-sub: #999999;
-  --bg-code: #1e1e2e;
-  --text-code: #cdd6f4;
+  --bg-code: #e5e5e5;
+  --text-code: #1a1a1a;
   --input-bg: #f9fafb;
   --modal-bg: #ffffff;
   --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.08);
@@ -73,8 +73,8 @@ html.dark {
   --navbar-bg: #1a1a1a;
   --navbar-text-primary: #ffffff;
   --navbar-text-sub: #999999;
-  --bg-code: #1e1e2e;
-  --text-code: #cdd6f4;
+  --bg-code: #e5e5e5;
+  --text-code: #1a1a1a;
   --input-bg: #0f0f0f;
   --modal-bg: #1a1a1a;
   --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.4);
@@ -96,8 +96,8 @@ html.custom {
   --navbar-bg: #1a1a1a;
   --navbar-text-primary: #ffffff;
   --navbar-text-sub: #999999;
-  --bg-code: #1e1e2e;
-  --text-code: #cdd6f4;
+  --bg-code: #e5e5e5;
+  --text-code: #1a1a1a;
   --input-bg: #0f0f0f;
   --modal-bg: #1a1a1a;
   --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.4);
@@ -119,8 +119,8 @@ html.high-contrast {
   --navbar-bg: #000000;
   --navbar-text-primary: #ffffff;
   --navbar-text-sub: #cccccc;
-  --bg-code: #111111;
-  --text-code: #f3f4f6;
+  --bg-code: #e5e5e5;
+  --text-code: #1a1a1a;
   --input-bg: #000000;
   --modal-bg: #111111;
   --shadow-modal: 0 4px 24px rgba(255, 255, 255, 0.1);
@@ -1822,4 +1822,15 @@ span.comment-marker {
   margin-left: 2px;
   opacity: 0.7;
   cursor: help;
+}
+
+/* 当前编辑文件的渐变光标锁定 */
+.current-file-active {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 215, 0, 0.15) 0%,
+    rgba(255, 165, 0, 0.08) 50%,
+    transparent 100%
+  );
+  border-left: 3px solid var(--accent);
 }
