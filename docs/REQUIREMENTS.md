@@ -1,6 +1,6 @@
 # WeaveMD 需求文档
 
-> 版本：v2.1 | 最后更新：2026-08-01
+> 版本：v2.2 | 最后更新：2026-08-03
 
 ---
 
@@ -29,20 +29,20 @@
 
 ### 3.2 编辑器核心 (P0)
 
-| 编号    | 需求                   | 优先级 | 说明                                                                                                                     |
-| ------- | ---------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------ |
-| EDIT-01 | 双模式编辑             | P0     | Normal Mode（WYSIWYG）+ Source Code Mode（Monaco）                                                                       |
-| EDIT-02 | 容器级 contentEditable | P0     | 跨块选择、直接编辑段落/标题                                                                                              |
-| EDIT-03 | Block Tree 数据模型    | P0     | 不可变数据结构，纯函数操作                                                                                               |
-| EDIT-04 | 实时格式化渲染         | P0     | Bold/Italic/Underline/Strikethrough/Highlight/InlineCode/Link/Comment，Toggle 逻辑（有→无、无→有）                       |
-| EDIT-05 | MD Source 切换         | P1     | 点击工具栏 "Src" 显示当前段落 Markdown 源码，再次点击或点击其他内容恢复富文本                                            |
-| EDIT-06 | 段落操作               | P0     | Enter 创建新段落、Backspace 删除空段落                                                                                   |
-| EDIT-07 | 撤销/重做              | P0     | Ctrl+Z/Y，50 条上限，跨会话保留                                                                                          |
-| EDIT-08 | 自动保存               | P0     | 1200ms debounce，关闭/切换前 flush                                                                                       |
-| EDIT-09 | 代码块                 | P0     | 语言下拉选择 + 复制按钮；Prism 语法高亮（初次导入即高亮，切换语言后快速重高亮）；编辑通过 Source Code Mode（双击已禁用） |
-| EDIT-10 | 空块占位               | P0     | 零宽空格 + CSS ::before 显示 "Type something..."                                                                         |
-| EDIT-11 | 结构转换               | P1     | 浮动工具栏下拉选项：正文→H1~H4→引用                                                                                      |
-| EDIT-12 | 超链接交互             | P1     | 点 Link 隐藏工具栏开 Modal；edit 模式含"移除链接"按钮；Ctrl/Cmd+click 经 IPC 在系统浏览器打开；hover 蓝色 tooltip        |
+| 编号    | 需求                   | 优先级 | 说明                                                                                                                      |
+| ------- | ---------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------- |
+| EDIT-01 | 双模式编辑             | P0     | Normal Mode（WYSIWYG）+ Source Code Mode（Monaco）                                                                        |
+| EDIT-02 | 容器级 contentEditable | P0     | 跨块选择、直接编辑段落/标题                                                                                               |
+| EDIT-03 | Block Tree 数据模型    | P0     | 不可变数据结构，纯函数操作                                                                                                |
+| EDIT-04 | 实时格式化渲染         | P0     | Bold/Italic/Underline/Strikethrough/Highlight/InlineCode/Link/Comment，Toggle 逻辑（有→无、无→有）                        |
+| EDIT-05 | MD Source 切换         | P1     | 点击工具栏 "Src" 显示当前段落 Markdown 源码，再次点击或点击其他内容恢复富文本                                             |
+| EDIT-06 | 段落操作               | P0     | Enter 创建新段落、Backspace 删除空段落                                                                                    |
+| EDIT-07 | 撤销/重做              | P0     | Ctrl+Z/Y，50 条上限，跨会话保留                                                                                           |
+| EDIT-08 | 自动保存               | P0     | 1200ms debounce，关闭/切换前 flush                                                                                        |
+| EDIT-09 | 代码块                 | P0     | 语言下拉选择 + 复制按钮；Prism 语法高亮（初次导入即高亮，切换语言后快速重高亮）；编辑通过 Source Code Mode（双击已禁用）  |
+| EDIT-10 | 空块占位               | P0     | 零宽空格 + CSS ::before 显示 "Type something..."                                                                          |
+| EDIT-11 | 结构转换               | P1     | 浮动工具栏下拉：正文↔H1~H4↔引用↔有序列表↔无序列表↔任务列表，类型由 resolveNextTypeFromSource 基于 detectMarkdownLine 检测 |
+| EDIT-12 | 超链接交互             | P1     | 点 Link 隐藏工具栏开 Modal；edit 模式含"移除链接"按钮；Ctrl/Cmd+click 经 IPC 在系统浏览器打开；hover 蓝色 tooltip         |
 
 ### 3.3 导航与定位 (P0)
 

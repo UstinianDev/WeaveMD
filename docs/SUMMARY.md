@@ -1,6 +1,6 @@
 # WeaveMD 项目总结文档
 
-> 版本：v2.9.5 | 最后更新：2026-08-01
+> 版本：v2.9.6 | 最后更新：2026-08-03
 
 ---
 
@@ -117,12 +117,19 @@
 
 ### 4.5 双模式编辑器
 
-**决策**：编辑器采用双模式架构（v4）：**Normal Mode** — Block Tree 渲染为可编辑富文本块，通过容器级 `contentEditable`（`editor-content-area` div）实现跨块选择和直接编辑。空块使用零宽空格（`\u200B`）+ CSS `::before` 伪元素显示"Type something..."占位符。支持回车创建段落、Backspace 删除空段落、Ctrl+Z/Y 撤销重做、Canvas Minimap（文档缩影）、浮动工具栏（选中文本时显示，支持 Toggle 格式化：Bold/Italic/Underline/Strikethrough/Highlight/InlineCode/Link/Comment/MD Source，使用 `document.execCommand` + `Range API` 直接操作 DOM 实现实时渲染）；浮动工具栏与 Navbar 全组件已接入 i18n（`useI18n`），格式按钮 36×32px（w-9 h-8）触控目标、text-sm 字号、跨块选择、代码块语言选择+复制按钮（双击编辑已禁用，通过 Source Code Mode 编辑；独立路径，不经过 contentEditable/detectMarkdownLine，避免代码中的 `#` 被误检测为标题）、MD Source 源码切换（点击工具栏 "Src" 显示/隐藏当前段落 Markdown 源码）、目录导航（点击 H1-H3 标题滚动到对应位置）；**Source Code Mode** — 全屏 Monaco 编辑器编辑原始 markdown（`Ctrl+`` 或 View 菜单切换）。序列化使用 `\n\n` 分隔块以保留段落边界。Find & Replace 为 Typora 风格 inline bar（`FindReplaceBar`），两种模式均可使用。状态通过 `uiStore`（`isSourceCodeMode`、`isFindReplaceOpen`、`outlineWidth`、`isOutlinePanelCollapsed`、`mdSourceBlockId`）跨组件共享。BlockNode 新增 `startLine`（1-based 行号，用于 lineNumber 导航）和 `renderedHtml`（缓存 DOM HTML，React 重渲染时恢复富文本格式）字段。滚动 padding 移至内层 `editor-content-area`（`40px 40px 100vh 40px`），外层滚动容器无 padding，确保滚动条正确反映内容大小。`handleSyncToStore`/`handleBlockInput`/`handleBlockContentChange`对`code-fence`块特殊保护：不重建 sourceLines、不运行`detectMarkdownLine`。BlockTree `version` 仅在内容/结构变更时自增（`setBlockRenderedHtml` 不自增，避免渲染 effect O(N²) 重扫致代码块高亮延迟）；`lastBuiltContentRef`让内容 useEffect 跳过挂载时冗余重建，防止`buildBlockTree` 重新生成 ID 致渲染 effect 捕获的旧 ID 失效、初次导入代码块不高亮。
+**决策**：编辑器 v4 双模式架构。
 
-**目录导航与高亮机制**：
+- **Normal Mode**：Block Tree → 容器级 `contentEditable`（`editor-content-area` div）。支持直接编辑、Enter/Backspace 块操作、Ctrl+Z/Y 撤销重做、Canvas Minimap；浮动工具栏（选中文本时显示）使用 `document.execCommand` + `Range API` 直接操作 DOM，格式化 Toggle：Bold/Italic/Underline/Strikethrough/Highlight/InlineCode/Link/Comment/MD Source。空块使用零宽空格 `\u200B` + CSS `::before` 占位。浮动工具栏与 Navbar 全接入 i18n。
+- **Source Code Mode**：全屏 Monaco 编辑原始 markdown（`Ctrl+\`` 或 View 切换）；代码块通过此模式编辑（双击禁用，防止 `#` 被误检测为标题）。
+- **Find & Replace**：Typora 风格 inline bar，双模式通用。
+- **核心字段**：`BlockNode.startLine`（1-based，目录导航映射）、`renderedHtml`（缓存 DOM HTML，重渲染恢复富文本）。
+- **列表块**：`resolveNextTypeFromSource` 基于 `detectMarkdownLine` 做 heading/task/ordered/unordered 前缀识别；`ListItemBlock.getVisibleText` 正则按 task > ordered > unordered 顺序剥离，避免 `- [ ] ` 残留 `[ ]`。
+- **性能**：滚动 padding 移至内层；`version` 仅在内容/结构变更时自增（`setBlockRenderedHtml` 不自增）；`lastBuiltContentRef` 跳过挂载冗余重建。
 
-- Normal Mode：点击目录标题 → lineNumber → 通过 `BlockNode.startLine` 匹配目标块 → `scrollToBlock` 滚动（无偏移，标题到视口顶部）；滚动时 `detectActiveHeading` 取视口顶部 + 10px 检测线上方的最后一个标题
-- Source Code Mode：点击目录标题 → lineNumber → `scrollToLine` 滚动定位；光标位置变化时 `SourceCodeEditor` 通过 `getNearestHeadingLineNumber` 获取最近标题行号，再转换回 headingIndex 实现目录高亮
+**目录导航与高亮**：
+
+- Normal Mode：`startLine` → `scrollToBlock`；`detectActiveHeading` 取视口顶部 + 10px 检测
+- Source Code Mode：`lineNumber` → `scrollToLine`；`getNearestHeadingLineNumber` → headingIndex
 
 ### 4.6 主题系统
 
@@ -130,7 +137,9 @@
 
 ### 4.7 超链接交互
 
-**决策**：浮动工具栏 Link 按钮点击后立即隐藏工具栏并打开 Modal（避免遮挡）；Modal 移出 `!isVisible` 守卫始终渲染，修复 Link 点击后工具栏永久消失。edit 模式显示"移除链接"按钮（unwrap `<a>` 保留文本）。Ctrl/Cmd+click 链接经 IPC `LINK_OPEN_EXTERNAL` → `shell.openExternal` 在系统浏览器打开；`will-navigate` + `setWindowOpenHandler` 阻止窗口内导航。hover 显示 Word 风格蓝色 tooltip（`a.inline-link:hover::after` + `--link-tip` CSS 变量，i18n `toolbar.linkTip`）。
+**决策**：浮动工具栏 Link 按钮点击后隐藏工具栏开 Modal（防遮挡）；Modal 移出 `!isVisible` 守卫始终渲染（修复点 Link 后工具栏永久消失）。edit 模式含"移除链接"按钮（unwrap `<a>` 保留文本）。Ctrl/Cmd+click 经 IPC `LINK_OPEN_EXTERNAL` → `shell.openExternal`；`will-navigate` + `setWindowOpenHandler` 阻止窗口内导航。hover 蓝色 tooltip（`a.inline-link:hover::after` + `--link-tip`，i18n `toolbar.linkTip`）。
+
+**链接 WYSIWYG 保留（v2.9.6 修复）**：`wrapRangeWithTag` 包裹前将 range 钳制到 `span.block-content` 内（防跨装饰 span 边界触发 surroundContents 异常→extractContents 分裂 marker 致双复选框）；`buildSourceLinesFromContent` + `getBlockRenderedHtml` list-item 分支改为克隆 blockEl 后移除装饰节点（marker/checkbox/bullet）再走 `domToMarkdown`（能看见祖先级 `<a>`）；包裹后清理 el 内嵌套同标签元素 + 空 `<a>` 兄弟（extractContents 残留）。
 
 ---
 

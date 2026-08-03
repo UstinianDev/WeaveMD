@@ -1,6 +1,6 @@
 # 顶部导航栏 (Navbar) 功能总结
 
-> 模块编号：03 | 优先级：P0 | 最后更新：2026-07-25
+> 模块编号：03 | 优先级：P0 | 最后更新：2026-08-03
 
 ---
 
@@ -20,8 +20,7 @@ src/render/components/Navbar/
 ├── MoreMenu.tsx         # 更多菜单（Find & Replace / Edit History）
 └── WindowControls.tsx   # 窗口控制按钮（Min/Max/Close）
 src/render/components/Editor/
-├── FindReplaceBar.tsx   # 查找与替换 inline bar（Typora 风格，渲染于 EditorView 内）
-└── FindReplaceModal.tsx #（已废弃）旧居中模态框
+└── FindReplaceBar.tsx   # 查找与替换 inline bar（Typora 风格，渲染于 EditorView 内）
 src/render/stores/
 ├── authStore.ts         # 用户认证状态
 ├── editorStore.ts       # 编辑器状态（当前文件、撤销/重做）
