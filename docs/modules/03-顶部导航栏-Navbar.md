@@ -100,10 +100,10 @@ function getShortcutAction(event: KeyboardEvent): ShortcutAction {
 
 #### 更多菜单 (⋮)
 
-| 菜单项         | 优先级 | 说明                                                         |
-| -------------- | ------ | ------------------------------------------------------------ |
-| Find & Replace | P0     | `uiStore.toggleFindReplace()` → EditorView 内 FindReplaceBar |
-| Edit History   | P1     | `uiStore.toggleHistoryPanel()`                               |
+| 菜单项         | 优先级 | 说明                                                                                             |
+| -------------- | ------ | ------------------------------------------------------------------------------------------------ |
+| Find & Replace | P0     | `uiStore.toggleFindReplace()` → EditorView 内 FindReplaceBar                                     |
+| Edit History   | P1     | `uiStore.toggleHistoryPanel()` → HistoryPanel 滑出；宽度可拖拽调整（最小 200px，无上限，持久化） |
 
 **Find & Replace（Typora 风格 inline bar）：**
 

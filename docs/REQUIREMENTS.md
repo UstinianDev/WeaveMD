@@ -53,6 +53,7 @@
 | NAV-03 | Minimap            | P1     | Canvas 文档缩影，viewport 指示器，点击导航   |
 | NAV-04 | 查找替换           | P0     | Typora 风格 inline bar，支持正则，双模式可用 |
 | NAV-05 | 滚动条正确反映内容 | P0     | 滑块位置和大小与实际内容对应                 |
+| NAV-06 | 历史面板动态宽度   | P1     | 右边缘拖拽调整（最小 200px，无上限），持久化 localStorage |
 
 ### 3.4 文件管理 (P0)
 

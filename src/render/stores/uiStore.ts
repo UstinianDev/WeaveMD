@@ -17,6 +17,7 @@ interface UIStore {
   language: LanguageType;
   sidebarWidth: number;
   outlineWidth: number;
+  historyPanelWidth: number;
   isSidebarOpen: boolean;
   isOutlinePanelCollapsed: boolean;
   pageWidth: PageWidth;
@@ -34,6 +35,7 @@ interface UIStore {
   setLanguage: (language: LanguageType) => void;
   setSidebarWidth: (width: number) => void;
   setOutlineWidth: (width: number) => void;
+  setHistoryPanelWidth: (width: number) => void;
   toggleSidebar: () => void;
   toggleOutlinePanel: () => void;
   setPageWidth: (width: PageWidth) => void;
@@ -64,6 +66,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   language: 'zh-CN',
   sidebarWidth: 240,
   outlineWidth: 280,
+  historyPanelWidth: 280,
   isSidebarOpen: true,
   isOutlinePanelCollapsed: false,
   pageWidth: 'default',
@@ -94,6 +97,11 @@ export const useUIStore = create<UIStore>((set, get) => ({
 
   setOutlineWidth: (width) => {
     set({ outlineWidth: Math.max(200, width) });
+    get().persistSettings();
+  },
+
+  setHistoryPanelWidth: (width) => {
+    set({ historyPanelWidth: Math.max(200, width) });
     get().persistSettings();
   },
 
@@ -181,10 +189,10 @@ export const useUIStore = create<UIStore>((set, get) => ({
   },
 
   persistSettings: () => {
-    const { theme, language, sidebarWidth, outlineWidth } = get();
+    const { theme, language, sidebarWidth, outlineWidth, historyPanelWidth } = get();
     localStorage.setItem(
       'weavemd_ui',
-      JSON.stringify({ theme, language, sidebarWidth, outlineWidth })
+      JSON.stringify({ theme, language, sidebarWidth, outlineWidth, historyPanelWidth })
     );
   },
 
@@ -192,12 +200,14 @@ export const useUIStore = create<UIStore>((set, get) => ({
     try {
       const stored = localStorage.getItem('weavemd_ui');
       if (stored) {
-        const { theme, language, sidebarWidth, outlineWidth } = JSON.parse(stored);
+        const { theme, language, sidebarWidth, outlineWidth, historyPanelWidth } =
+          JSON.parse(stored);
         set({
           theme: theme || 'light-header',
           language: language || 'zh-CN',
           sidebarWidth: sidebarWidth || 240,
           outlineWidth: outlineWidth || 280,
+          historyPanelWidth: historyPanelWidth || 280,
         });
       }
     } catch {
