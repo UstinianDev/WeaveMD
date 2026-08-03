@@ -1,6 +1,6 @@
 # WeaveMD 项目总结文档
 
-> 版本：v2.9.6 | 最后更新：2026-08-03
+> 版本：v3.0 | 最后更新：2026-08-03
 
 ---
 
@@ -78,18 +78,18 @@
 
 各功能模块的详细实现文档已拆分至 `docs/modules/` 目录，以下为索引：
 
-| 模块              | 文档                                                                         | 核心内容                                                                                                                                                                                                                                                                 |
-| ----------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 加载页面 (Splash) | [modules/01-加载页面-Splash.md](./modules/01-加载页面-Splash.md)             | 启动动画、CSS 动画序列、提前跳转机制                                                                                                                                                                                                                                     |
-| 认证系统          | [modules/02-认证系统-Auth.md](./modules/02-认证系统-Auth.md)                 | 注册/登录流程、JWT 生成、会话恢复、账号切换/删除、交互式吉祥物                                                                                                                                                                                                           |
-| 顶部导航栏        | [modules/03-顶部导航栏-Navbar.md](./modules/03-顶部导航栏-Navbar.md)         | 布局结构、File/Help/History/View 菜单、Find & Replace inline bar、窗口控制                                                                                                                                                                                               |
-| 编辑主区          | [modules/04-编辑主区-Editor.md](./modules/04-编辑主区-Editor.md)             | 双模式架构（容器级 contentEditable WYSIWYG + 全屏 Monaco 源码）、Block Tree、零宽空格占位、浮动工具栏、跨块选择、代码块语言选择+复制按钮、Minimap、FindReplaceBar、侧边栏Tab切换（目录/文件）、文件树管理、目录导航+动态高亮、可拖拽目录/历史面板宽度、自动保存/撤销重做 |
-| 设置界面          | [modules/05-设置界面-Settings.md](./modules/05-设置界面-Settings.md)         | 语言选择、主题切换、自定义主题、账号管理                                                                                                                                                                                                                                 |
-| 窗口控制          | [modules/06-窗口控制-Window.md](./modules/06-窗口控制-Window.md)             | frameless 窗口配置、IPC 通道、拖拽区域                                                                                                                                                                                                                                   |
-| 数据持久化层      | [modules/07-数据持久化层-Database.md](./modules/07-数据持久化层-Database.md) | SQLite Schema、WAL 模式、数据隔离、CRUD 操作、文件保存流程                                                                                                                                                                                                               |
-| IPC 通信机制      | [modules/08-IPC通信机制.md](./modules/08-IPC通信机制.md)                     | 安全架构、22 个 IPC 通道、preload API 类型定义                                                                                                                                                                                                                           |
-| 国际化 (i18n)     | [modules/09-国际化-i18n.md](./modules/09-国际化-i18n.md)                     | Provider 模式、翻译键组织、三语言支持                                                                                                                                                                                                                                    |
-| 导出功能          | [modules/10-导出功能-Export.md](./modules/10-导出功能-Export.md)             | MD/Word/PDF 导出实现                                                                                                                                                                                                                                                     |
+| 模块              | 文档                                                                         | 核心内容                                                                                                                                                                                                 |
+| ----------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 加载页面 (Splash) | [modules/01-加载页面-Splash.md](./modules/01-加载页面-Splash.md)             | 启动动画、CSS 动画序列、提前跳转机制                                                                                                                                                                     |
+| 认证系统          | [modules/02-认证系统-Auth.md](./modules/02-认证系统-Auth.md)                 | 注册/登录流程、JWT 生成、会话恢复、账号切换/删除、交互式吉祥物                                                                                                                                           |
+| 顶部导航栏        | [modules/03-顶部导航栏-Navbar.md](./modules/03-顶部导航栏-Navbar.md)         | 布局结构、File/Help/History/View 菜单、CreateDialog 弹窗（新建文件/文件夹）、删除文件夹从侧栏选中项、文件系统同步                                                                                        |
+| 编辑主区          | [modules/04-编辑主区-Editor.md](./modules/04-编辑主区-Editor.md)             | 双模式架构、Block Tree、浮动工具栏、文件系统实时同步、文件删除空状态、侧边栏Tab切换（目录/文件）、文件树累积展示、Minimap、FindReplaceBar、目录导航+动态高亮、可拖拽目录/历史面板宽度、自动保存/撤销重做 |
+| 设置界面          | [modules/05-设置界面-Settings.md](./modules/05-设置界面-Settings.md)         | 语言选择、主题切换、自定义主题、账号管理                                                                                                                                                                 |
+| 窗口控制          | [modules/06-窗口控制-Window.md](./modules/06-窗口控制-Window.md)             | frameless 窗口配置、IPC 通道、拖拽区域                                                                                                                                                                   |
+| 数据持久化层      | [modules/07-数据持久化层-Database.md](./modules/07-数据持久化层-Database.md) | SQLite Schema、WAL 模式、数据隔离、CRUD 操作、文件保存流程                                                                                                                                               |
+| IPC 通信机制      | [modules/08-IPC通信机制.md](./modules/08-IPC通信机制.md)                     | 安全架构、30+ 个 IPC 通道（含文件系统直操作）、preload API 类型定义                                                                                                                                      |
+| 国际化 (i18n)     | [modules/09-国际化-i18n.md](./modules/09-国际化-i18n.md)                     | Provider 模式、翻译键组织、三语言支持                                                                                                                                                                    |
+| 导出功能          | [modules/10-导出功能-Export.md](./modules/10-导出功能-Export.md)             | MD/Word/PDF 导出实现                                                                                                                                                                                     |
 
 ---
 
@@ -141,12 +141,17 @@
 
 **链接 WYSIWYG 保留（v2.9.6 修复）**：`wrapRangeWithTag` 包裹前将 range 钳制到 `span.block-content` 内（防跨装饰 span 边界触发 surroundContents 异常→extractContents 分裂 marker 致双复选框）；`buildSourceLinesFromContent` + `getBlockRenderedHtml` list-item 分支改为克隆 blockEl 后移除装饰节点（marker/checkbox/bullet）再走 `domToMarkdown`（能看见祖先级 `<a>`）；包裹后清理 el 内嵌套同标签元素 + 空 `<a>` 兄弟（extractContents 残留）。
 
+### 4.8 文件系统同步
+
+**决策**：editorStore.saveFile 对路径型 ID 直接写磁盘（`file:write`）；handleOpenFile 用磁盘路径作 file ID；垃圾箱仅清列表不同步删除磁盘；删除文件夹从侧栏选中项获取（`getSelectedFolder`，非文件夹提示）；CreateDialog 弹窗选位置+填名称创建文件/文件夹。
+
 ---
 
 ## 5. 项目结构总览
 
 - `src/main/`：Electron 主进程（窗口、IPC handlers、SQLite）
 - `src/render/`：React 前端（页面、Editor 组件、stores、services、styles）
+  - `src/render/components/Common/CreateDialog.tsx`：新建文件/文件夹弹窗
 - `src/shared/`：共享 types/constants
 - `docs/`：设计与模块文档（入口见 `.claude/CLAUDE.md`）
 - `tests/`：Vitest 测试

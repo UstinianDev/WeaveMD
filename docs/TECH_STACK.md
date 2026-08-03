@@ -142,12 +142,13 @@ BlockNode: { id, type, sourceLines, startLine, renderedHtml, headingLevel?, fenc
 - 内层 `editor-content-area`：`padding: 40px 40px 100vh 40px`，contentEditable 表面
 - 将 padding 放在内层避免 `border-box` 模式下压缩内容区域，确保滚动条正确反映内容大小
 - HistoryPanel 文件列表使用 `.history-scroll` 专属 10px 滚动条；拖拽手柄在面板外侧（`right: -4px`）避免遮挡滚动条
-- 文件夹操作 IPC：`dialog:open-folder`（选择对话框）、`folder:read`（递归扫描 .md）、`folder:create`、`folder:delete`（磁盘删除）
+- 文件夹操作 IPC：`file:write`/`file:read`/`file:delete-disk`（磁盘文件操作）、`dialog:save-file-path`（保存路径选择，含 createDirectory）、`folder:read`/`folder:create`/`folder:delete`（文件夹操作）
 - 侧边栏 Tab：OutlinePanel 改为 Tab 容器（目录/文件），`fileTreeStore` 管理文件树状态，`loadFolderContents` 构建层级树（路径前缀匹配，normalize `/`）
+- 文件系统同步：editorStore.saveFile 对路径型 ID（含 `/` 或 `\`）直接 `file:write` 写磁盘；handleOpenFile 用磁盘路径作 file ID；CreateDialog 弹窗选位置+填名称创建文件/文件夹
 
 ### 3.4 IPC 通信
 
-- 白名单通道，preload 脚本桥接
+- 白名单通道（30+个），preload 脚本桥接；新增文件系统直操作通道（`file:write`/`read`/`delete-disk`）和文件夹操作通道（`folder:read`/`create`/`delete`）
 - 主进程：数据库 CRUD、文件 I/O、导出、外部链接打开（`LINK_OPEN_EXTERNAL` → `shell.openExternal`）
 - 渲染进程：通过 `window.api` 调用
 - 导航守卫：`will-navigate` + `setWindowOpenHandler` 阻止窗口内导航，外部链接转系统浏览器

@@ -10,6 +10,7 @@ import { useEditorStore } from '../../stores/editorStore';
 import { useFileTreeStore } from '../../stores/fileTreeStore';
 import { useHistoryStore } from '../../stores/historyStore';
 import { useUIStore } from '../../stores/uiStore';
+import CreateDialog from '../Common/CreateDialog';
 import FileMenu from './FileMenu';
 import HelpMenu from './HelpMenu';
 import HistoryMenu from './HistoryMenu';
@@ -66,6 +67,8 @@ export function getShortcutAction(event: {
 const TopBar: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [createDialogType, setCreateDialogType] = useState<'file' | 'folder'>('file');
   const { t } = useI18n();
   const user = useAuthStore((s) => s.user);
   const currentFile = useEditorStore((s) => s.currentFile);
@@ -84,9 +87,11 @@ const TopBar: React.FC = () => {
   const setActiveTab = useFileTreeStore((s) => s.setActiveTab);
   const loadFolderContents = useFileTreeStore((s) => s.loadFolderContents);
   const removeFolder = useFileTreeStore((s) => s.removeFolder);
+  const addFile = useFileTreeStore((s) => s.addFile);
+  const removeFileFromEverywhere = useFileTreeStore((s) => s.removeFileFromEverywhere);
+  const getSelectedFolder = useFileTreeStore((s) => s.getSelectedFolder);
 
   const files = useHistoryStore((s) => s.files);
-  const loadHistory = useHistoryStore((s) => s.loadHistory);
 
   const saveCurrentDraftIfNeeded = useCallback(async () => {
     await flushEditorDraft();
@@ -107,29 +112,9 @@ const TopBar: React.FC = () => {
   }, [flushEditorDraft, redo]);
 
   const handleNewFile = useCallback(async () => {
-    if (!user) return;
-    setIsLoading(true);
-    setErrorMessage('');
-    try {
-      await saveCurrentDraftIfNeeded();
-      const name = `untitled-${Date.now().toString(36)}.md`;
-      const result = (await window.weaveMD.file.create(user.id, name)) as unknown as {
-        success: boolean;
-        data?: IFile;
-      };
-      if (result.success && result.data) {
-        openFile(result.data);
-        // Refresh file list
-        loadHistory(user.id);
-      } else {
-        setErrorMessage('Failed to create new file');
-      }
-    } catch {
-      setErrorMessage('Network error: Could not create file');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [user, saveCurrentDraftIfNeeded, openFile, loadHistory]);
+    setCreateDialogType('file');
+    setShowCreateDialog(true);
+  }, []);
 
   const handleOpenFile = useCallback(async () => {
     if (!user) return;
@@ -142,52 +127,46 @@ const TopBar: React.FC = () => {
         data?: { path: string; name: string; content: string };
       };
       if (result.success && result.data) {
-        // Save the opened file to DB first, then open it
-        const saveResult = (await window.weaveMD.file.create(
-          user.id,
-          result.data.name
-        )) as unknown as {
-          success: boolean;
-          data?: IFile;
+        // Use disk path as file ID for real-time filesystem sync
+        const file: IFile = {
+          id: result.data.path,
+          userId: user.id,
+          name: result.data.name,
+          content: result.data.content,
+          createdAt: new Date().toISOString(),
+          modifiedAt: new Date().toISOString(),
+          deletedAt: null,
         };
+        openFile(file);
 
-        if (saveResult.success && saveResult.data) {
-          // Update the file content with the imported content
-          await window.weaveMD.file.save(saveResult.data.id, result.data.content, user.id);
-
-          const file: IFile = {
-            ...saveResult.data,
-            content: result.data.content,
-          };
-          openFile(file);
-          // Refresh file list
-          loadHistory(user.id);
-        } else {
-          // Fallback: open directly with empty id (read-only mode)
-          const file: IFile = {
-            id: '',
-            userId: user.id,
-            name: result.data.name,
-            content: result.data.content,
-            createdAt: new Date().toISOString(),
-            modifiedAt: new Date().toISOString(),
-            deletedAt: null,
-          };
-          openFile(file);
-        }
+        // Add to file tree sidebar
+        addFile({
+          id: result.data.path,
+          name: result.data.name,
+          path: result.data.path,
+          content: result.data.content,
+        });
       }
     } catch {
       setErrorMessage('Failed to open file');
     } finally {
       setIsLoading(false);
     }
-  }, [user, saveCurrentDraftIfNeeded, openFile, loadHistory]);
+  }, [user, saveCurrentDraftIfNeeded, openFile, addFile]);
 
   const handleDeleteFile = useCallback(async () => {
     if (!currentFile) return;
     await saveCurrentDraftIfNeeded();
+    if (currentFile.id) {
+      // Delete from disk if it's a disk file (path-based id)
+      if (currentFile.id.includes('/') || currentFile.id.includes('\\')) {
+        await window.weaveMD.file.deleteDisk(currentFile.id);
+      }
+      // Remove from file tree (both looseFiles and folder trees)
+      removeFileFromEverywhere(currentFile.id);
+    }
     closeFile();
-  }, [currentFile, saveCurrentDraftIfNeeded, closeFile]);
+  }, [currentFile, saveCurrentDraftIfNeeded, closeFile, removeFileFromEverywhere]);
 
   const handleCloseFile = useCallback(async () => {
     await saveCurrentDraftIfNeeded();
@@ -195,30 +174,9 @@ const TopBar: React.FC = () => {
   }, [saveCurrentDraftIfNeeded, closeFile]);
 
   const handleNewFolder = useCallback(async () => {
-    try {
-      const result = (await window.weaveMD.dialog.openFolder()) as unknown as {
-        success: boolean;
-        data?: { path: string };
-      };
-      if (result.success && result.data) {
-        const parentPath = result.data.path;
-        const name = window.prompt(t('file.newFolder'));
-        if (name) {
-          const createResult = (await window.weaveMD.folder.createFolder(
-            parentPath,
-            name
-          )) as unknown as { success: boolean; data?: { path: string; name: string } };
-          if (createResult.success && createResult.data) {
-            const targetPath = `${createResult.data.path}/${createResult.data.name}`;
-            setActiveTab('files');
-            loadFolderContents(targetPath);
-          }
-        }
-      }
-    } catch {
-      setErrorMessage('Failed to create folder');
-    }
-  }, [setActiveTab, loadFolderContents, t]);
+    setCreateDialogType('folder');
+    setShowCreateDialog(true);
+  }, []);
 
   const handleOpenFolder = useCallback(async () => {
     try {
@@ -236,25 +194,80 @@ const TopBar: React.FC = () => {
   }, [loadFolderContents, setActiveTab]);
 
   const handleDeleteFolder = useCallback(async () => {
+    // Get the selected folder from the sidebar
+    const selectedFolder = getSelectedFolder();
+    if (!selectedFolder) {
+      setErrorMessage('请在左侧栏选择一个文件夹后再删除');
+      return;
+    }
+
+    const folderPath = selectedFolder.path;
+
+    // Check if current file is inside this folder
+    if (currentFile?.id && currentFile.id.startsWith(folderPath)) {
+      closeFile();
+    }
+
     try {
-      const result = (await window.weaveMD.dialog.openFolder()) as unknown as {
+      // Delete folder from disk (real-time filesystem sync)
+      const deleteResult = (await window.weaveMD.folder.deleteFolder(folderPath)) as unknown as {
         success: boolean;
-        data?: { path: string };
       };
-      if (result.success && result.data) {
-        const folderPath = result.data.path;
-        const deleteResult = (await window.weaveMD.folder.deleteFolder(folderPath)) as unknown as {
-          success: boolean;
-        };
-        if (deleteResult.success) {
-          // Normalize path to match store's normalized IDs
-          removeFolder(folderPath.replace(/\\/g, '/'));
-        }
+      if (deleteResult.success) {
+        // Remove from file tree
+        removeFolder(selectedFolder.id);
+      } else {
+        setErrorMessage('删除文件夹失败');
       }
     } catch {
-      setErrorMessage('Failed to delete folder');
+      setErrorMessage('删除文件夹失败');
     }
-  }, [removeFolder]);
+  }, [getSelectedFolder, removeFolder, currentFile, closeFile]);
+
+  const handleCreateConfirm = useCallback(
+    async (result: { type: 'file' | 'folder'; path: string; name: string }) => {
+      setShowCreateDialog(false);
+      try {
+        if (result.type === 'file') {
+          // Create file on disk
+          const filePath = `${result.path}/${result.name}`;
+          await window.weaveMD.file.write(filePath, '');
+          // Read back and open
+          const readResult = (await window.weaveMD.file.readDisk(filePath)) as unknown as {
+            success: boolean;
+            data?: { path: string; name: string; content: string };
+          };
+          if (readResult.success && readResult.data) {
+            const file: IFile = {
+              id: readResult.data.path,
+              userId: user?.id || '',
+              name: readResult.data.name,
+              content: readResult.data.content,
+              createdAt: new Date().toISOString(),
+              modifiedAt: new Date().toISOString(),
+              deletedAt: null,
+            };
+            openFile(file);
+            addFile({
+              id: readResult.data.path,
+              name: readResult.data.name,
+              path: readResult.data.path,
+              content: '',
+            });
+          }
+        } else {
+          // Create folder
+          await window.weaveMD.folder.createFolder(result.path, result.name);
+          const folderPath = `${result.path}/${result.name}`;
+          loadFolderContents(folderPath);
+          setActiveTab('files');
+        }
+      } catch {
+        setErrorMessage('Failed to create');
+      }
+    },
+    [openFile, addFile, loadFolderContents, setActiveTab, user]
+  );
 
   const handleHistoryOpenFile = useCallback(
     async (file: IFile) => {
@@ -300,162 +313,171 @@ const TopBar: React.FC = () => {
   }, [handleNewFile, handleOpenFile, handleRedo, handleUndo]);
 
   return (
-    <header
-      className="flex items-center h-12 border-b flex-shrink-0 drag-region"
-      style={{
-        backgroundColor: 'var(--navbar-bg, #1A1A1A)',
-        borderColor: 'var(--border-color, #2D2D2D)',
-      }}
-    >
-      {/* Left section */}
-      <div className="flex items-center gap-2 px-3 h-full no-drag">
-        {/* App icon (brand) */}
-        <span className="text-xl mr-1 select-none" title="WeaveMD">
-          📔
-        </span>
-
-        {/* Account badge */}
-        {user && (
-          <span
-            className="text-sm px-2 py-0.5 rounded select-none"
-            style={{
-              color: 'var(--navbar-text-sub, #999999)',
-              backgroundColor: 'var(--bg-tertiary)',
-            }}
-          >
-            @{user.username}
+    <>
+      <header
+        className="flex items-center h-12 border-b flex-shrink-0 drag-region"
+        style={{
+          backgroundColor: 'var(--navbar-bg, #1A1A1A)',
+          borderColor: 'var(--border-color, #2D2D2D)',
+        }}
+      >
+        {/* Left section */}
+        <div className="flex items-center gap-2 px-3 h-full no-drag">
+          {/* App icon (brand) */}
+          <span className="text-xl mr-1 select-none" title="WeaveMD">
+            📔
           </span>
+
+          {/* Account badge */}
+          {user && (
+            <span
+              className="text-sm px-2 py-0.5 rounded select-none"
+              style={{
+                color: 'var(--navbar-text-sub, #999999)',
+                backgroundColor: 'var(--bg-tertiary)',
+              }}
+            >
+              @{user.username}
+            </span>
+          )}
+
+          {/* Separator */}
+          <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
+
+          {/* File menu */}
+          <FileMenu
+            onNewFile={handleNewFile}
+            onOpenFile={handleOpenFile}
+            onDeleteFile={handleDeleteFile}
+            onCloseFile={handleCloseFile}
+            hasOpenFile={!!currentFile}
+            onNewFolder={handleNewFolder}
+            onOpenFolder={handleOpenFolder}
+            onDeleteFolder={handleDeleteFolder}
+          />
+
+          {/* Help menu */}
+          <HelpMenu onOpenSettings={() => openModal('settings')} />
+
+          {/* History menu */}
+          <HistoryMenu
+            files={files}
+            onOpenFile={(file) => {
+              void handleHistoryOpenFile(file);
+            }}
+            onManageFiles={toggleHistoryPanel}
+          />
+
+          {/* View menu */}
+          <ViewMenu />
+        </div>
+
+        {/* Loading indicator */}
+        {isLoading && (
+          <div className="flex items-center gap-2 px-2">
+            <div className="w-3 h-3 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
+            <span className="text-xs" style={{ color: 'var(--navbar-text-sub, #999999)' }}>
+              {t('navbar.loading')}
+            </span>
+          </div>
         )}
 
-        {/* Separator */}
-        <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
+        {/* Error message */}
+        {errorMessage && (
+          <div className="flex items-center gap-1 px-2">
+            <span className="text-xs text-red-400">{errorMessage}</span>
+            <button
+              onClick={() => setErrorMessage('')}
+              className="text-xs text-red-400 hover:text-red-300"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
-        {/* File menu */}
-        <FileMenu
-          onNewFile={handleNewFile}
-          onOpenFile={handleOpenFile}
-          onDeleteFile={handleDeleteFile}
-          onCloseFile={handleCloseFile}
-          hasOpenFile={!!currentFile}
-          onNewFolder={handleNewFolder}
-          onOpenFolder={handleOpenFolder}
-          onDeleteFolder={handleDeleteFolder}
-        />
+        {/* Center spacer */}
+        <div className="flex-1 drag-region" />
 
-        {/* Help menu */}
-        <HelpMenu onOpenSettings={() => openModal('settings')} />
-
-        {/* History menu */}
-        <HistoryMenu
-          files={files}
-          onOpenFile={(file) => {
-            void handleHistoryOpenFile(file);
-          }}
-          onManageFiles={toggleHistoryPanel}
-        />
-
-        {/* View menu */}
-        <ViewMenu />
-      </div>
-
-      {/* Loading indicator */}
-      {isLoading && (
-        <div className="flex items-center gap-2 px-2">
-          <div className="w-3 h-3 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
-          <span className="text-xs" style={{ color: 'var(--navbar-text-sub, #999999)' }}>
-            {t('navbar.loading')}
-          </span>
-        </div>
-      )}
-
-      {/* Error message */}
-      {errorMessage && (
-        <div className="flex items-center gap-1 px-2">
-          <span className="text-xs text-red-400">{errorMessage}</span>
+        {/* Right section */}
+        <div className="flex items-center gap-2 px-2 h-full no-drag">
+          {/* Undo */}
           <button
-            onClick={() => setErrorMessage('')}
-            className="text-xs text-red-400 hover:text-red-300"
+            onClick={() => {
+              void handleUndo();
+            }}
+            disabled={undoStack.length === 0}
+            className="w-8 h-8 flex items-center justify-center rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            style={{ color: 'var(--navbar-text-sub, #999999)' }}
+            title={t('navbar.undoShortcut')}
           >
-            ✕
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <polyline points="1 4 1 10 7 10" />
+              <path d="M3.51 15a9 9 0 102.13-9.36L1 10" />
+            </svg>
           </button>
-        </div>
-      )}
 
-      {/* Center spacer */}
-      <div className="flex-1 drag-region" />
-
-      {/* Right section */}
-      <div className="flex items-center gap-2 px-2 h-full no-drag">
-        {/* Undo */}
-        <button
-          onClick={() => {
-            void handleUndo();
-          }}
-          disabled={undoStack.length === 0}
-          className="w-8 h-8 flex items-center justify-center rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          style={{ color: 'var(--navbar-text-sub, #999999)' }}
-          title={t('navbar.undoShortcut')}
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <polyline points="1 4 1 10 7 10" />
-            <path d="M3.51 15a9 9 0 102.13-9.36L1 10" />
-          </svg>
-        </button>
-
-        {/* Redo */}
-        <button
-          onClick={() => {
-            void handleRedo();
-          }}
-          disabled={redoStack.length === 0}
-          className="w-8 h-8 flex items-center justify-center rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          style={{ color: 'var(--navbar-text-sub, #999999)' }}
-          title={t('navbar.redoShortcut')}
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <polyline points="23 4 23 10 17 10" />
-            <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
-          </svg>
-        </button>
-
-        {/* Separator */}
-        <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
-
-        {/* Export dropdown */}
-        <div className="relative inline-block">
+          {/* Redo */}
           <button
-            className="text-sm hover:text-[var(--accent)] transition-colors px-1"
-            style={{ color: 'var(--navbar-text-primary, #FFFFFF)' }}
-            title={t('navbar.export')}
+            onClick={() => {
+              void handleRedo();
+            }}
+            disabled={redoStack.length === 0}
+            className="w-8 h-8 flex items-center justify-center rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            style={{ color: 'var(--navbar-text-sub, #999999)' }}
+            title={t('navbar.redoShortcut')}
           >
-            ⬇️
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+            </svg>
           </button>
+
+          {/* Separator */}
+          <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
+
+          {/* Export dropdown */}
+          <div className="relative inline-block">
+            <button
+              className="text-sm hover:text-[var(--accent)] transition-colors px-1"
+              style={{ color: 'var(--navbar-text-primary, #FFFFFF)' }}
+              title={t('navbar.export')}
+            >
+              ⬇️
+            </button>
+          </div>
+
+          {/* More menu */}
+          <MoreMenu onFindReplace={handleFindReplace} onEditHistory={toggleHistoryPanel} />
+
+          {/* Separator */}
+          <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
+
+          {/* Window Controls */}
+          <WindowControls />
         </div>
+      </header>
 
-        {/* More menu */}
-        <MoreMenu onFindReplace={handleFindReplace} onEditHistory={toggleHistoryPanel} />
-
-        {/* Separator */}
-        <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
-
-        {/* Window Controls */}
-        <WindowControls />
-      </div>
-    </header>
+      <CreateDialog
+        isOpen={showCreateDialog}
+        onClose={() => setShowCreateDialog(false)}
+        onConfirm={handleCreateConfirm}
+        initialType={createDialogType}
+      />
+    </>
   );
 };
 
