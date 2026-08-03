@@ -120,7 +120,7 @@ const api: WeaveMDApi = {
   folder: {
     readFolder: (path) => ipcRenderer.invoke(IPC_CHANNELS.FOLDER_READ, path),
     createFolder: (parentPath, name) =>
-      ipcRenderer.invoke(IPC_CHANNELS.FOLDER_CREATE, { parentPath, name }),
+      ipcRenderer.invoke(IPC_CHANNELS.FOLDER_CREATE, { path: parentPath, name }),
     deleteFolder: (path) => ipcRenderer.invoke(IPC_CHANNELS.FOLDER_DELETE, path),
   },
   account: {

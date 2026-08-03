@@ -10,7 +10,6 @@ import { useEditorStore } from '../../stores/editorStore';
 import { useFileTreeStore } from '../../stores/fileTreeStore';
 import { useHistoryStore } from '../../stores/historyStore';
 import { useUIStore } from '../../stores/uiStore';
-import CreateDialog from '../Common/CreateDialog';
 import FileMenu from './FileMenu';
 import HelpMenu from './HelpMenu';
 import HistoryMenu from './HistoryMenu';
@@ -67,8 +66,6 @@ export function getShortcutAction(event: {
 const TopBar: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [createDialogType, setCreateDialogType] = useState<'file' | 'folder'>('file');
   const { t } = useI18n();
   const user = useAuthStore((s) => s.user);
   const currentFile = useEditorStore((s) => s.currentFile);
@@ -112,9 +109,51 @@ const TopBar: React.FC = () => {
   }, [flushEditorDraft, redo]);
 
   const handleNewFile = useCallback(async () => {
-    setCreateDialogType('file');
-    setShowCreateDialog(true);
-  }, []);
+    if (!user) return;
+    try {
+      const result = (await window.weaveMD.dialog.saveFilePath(
+        '新建文件',
+        'untitled.md'
+      )) as unknown as {
+        success: boolean;
+        data?: { path: string };
+      };
+      if (!result.success || !result.data) return;
+
+      const filePath = result.data.path;
+      // Ensure .md extension
+      const finalPath = filePath.endsWith('.md') ? filePath : `${filePath}.md`;
+
+      // Create empty file on disk
+      await window.weaveMD.file.write(finalPath, '');
+
+      // Read back and open
+      const readResult = (await window.weaveMD.file.readDisk(finalPath)) as unknown as {
+        success: boolean;
+        data?: { path: string; name: string; content: string };
+      };
+      if (readResult.success && readResult.data) {
+        const file: IFile = {
+          id: readResult.data.path,
+          userId: user.id,
+          name: readResult.data.name,
+          content: readResult.data.content,
+          createdAt: new Date().toISOString(),
+          modifiedAt: new Date().toISOString(),
+          deletedAt: null,
+        };
+        openFile(file);
+        addFile({
+          id: readResult.data.path,
+          name: readResult.data.name,
+          path: readResult.data.path,
+          content: '',
+        });
+      }
+    } catch {
+      setErrorMessage('Failed to create file');
+    }
+  }, [user, openFile, addFile]);
 
   const handleOpenFile = useCallback(async () => {
     if (!user) return;
@@ -156,6 +195,7 @@ const TopBar: React.FC = () => {
 
   const handleDeleteFile = useCallback(async () => {
     if (!currentFile) return;
+    if (!window.confirm('您确认要删除当前页面的文件吗')) return;
     await saveCurrentDraftIfNeeded();
     if (currentFile.id) {
       // Delete from disk if it's a disk file (path-based id)
@@ -174,9 +214,27 @@ const TopBar: React.FC = () => {
   }, [saveCurrentDraftIfNeeded, closeFile]);
 
   const handleNewFolder = useCallback(async () => {
-    setCreateDialogType('folder');
-    setShowCreateDialog(true);
-  }, []);
+    try {
+      // Use saveFilePath dialog (supports createDirectory) to let user pick location + enter folder name
+      const result = (await window.weaveMD.dialog.saveFilePath(
+        '新建文件夹',
+        'new-folder'
+      )) as unknown as { success: boolean; data?: { path: string } };
+
+      if (!result.success || !result.data) return;
+
+      const folderPath = result.data.path;
+
+      // Create the folder on disk
+      await window.weaveMD.folder.createFolder(folderPath, '');
+
+      const normalizedPath = folderPath.replace(/\\/g, '/');
+      loadFolderContents(normalizedPath);
+      setActiveTab('files');
+    } catch {
+      setErrorMessage('Failed to create folder');
+    }
+  }, [loadFolderContents, setActiveTab]);
 
   const handleOpenFolder = useCallback(async () => {
     try {
@@ -203,6 +261,8 @@ const TopBar: React.FC = () => {
 
     const folderPath = selectedFolder.path;
 
+    if (!window.confirm('您确认要删除选中文件夹吗')) return;
+
     // Check if current file is inside this folder
     if (currentFile?.id && currentFile.id.startsWith(folderPath)) {
       closeFile();
@@ -223,51 +283,6 @@ const TopBar: React.FC = () => {
       setErrorMessage('删除文件夹失败');
     }
   }, [getSelectedFolder, removeFolder, currentFile, closeFile]);
-
-  const handleCreateConfirm = useCallback(
-    async (result: { type: 'file' | 'folder'; path: string; name: string }) => {
-      setShowCreateDialog(false);
-      try {
-        if (result.type === 'file') {
-          // Create file on disk
-          const filePath = `${result.path}/${result.name}`;
-          await window.weaveMD.file.write(filePath, '');
-          // Read back and open
-          const readResult = (await window.weaveMD.file.readDisk(filePath)) as unknown as {
-            success: boolean;
-            data?: { path: string; name: string; content: string };
-          };
-          if (readResult.success && readResult.data) {
-            const file: IFile = {
-              id: readResult.data.path,
-              userId: user?.id || '',
-              name: readResult.data.name,
-              content: readResult.data.content,
-              createdAt: new Date().toISOString(),
-              modifiedAt: new Date().toISOString(),
-              deletedAt: null,
-            };
-            openFile(file);
-            addFile({
-              id: readResult.data.path,
-              name: readResult.data.name,
-              path: readResult.data.path,
-              content: '',
-            });
-          }
-        } else {
-          // Create folder
-          await window.weaveMD.folder.createFolder(result.path, result.name);
-          const folderPath = `${result.path}/${result.name}`;
-          loadFolderContents(folderPath);
-          setActiveTab('files');
-        }
-      } catch {
-        setErrorMessage('Failed to create');
-      }
-    },
-    [openFile, addFile, loadFolderContents, setActiveTab, user]
-  );
 
   const handleHistoryOpenFile = useCallback(
     async (file: IFile) => {
@@ -313,171 +328,162 @@ const TopBar: React.FC = () => {
   }, [handleNewFile, handleOpenFile, handleRedo, handleUndo]);
 
   return (
-    <>
-      <header
-        className="flex items-center h-12 border-b flex-shrink-0 drag-region"
-        style={{
-          backgroundColor: 'var(--navbar-bg, #1A1A1A)',
-          borderColor: 'var(--border-color, #2D2D2D)',
-        }}
-      >
-        {/* Left section */}
-        <div className="flex items-center gap-2 px-3 h-full no-drag">
-          {/* App icon (brand) */}
-          <span className="text-xl mr-1 select-none" title="WeaveMD">
-            📔
+    <header
+      className="flex items-center h-12 border-b flex-shrink-0 drag-region"
+      style={{
+        backgroundColor: 'var(--navbar-bg, #1A1A1A)',
+        borderColor: 'var(--border-color, #2D2D2D)',
+      }}
+    >
+      {/* Left section */}
+      <div className="flex items-center gap-2 px-3 h-full no-drag">
+        {/* App icon (brand) */}
+        <span className="text-xl mr-1 select-none" title="WeaveMD">
+          📔
+        </span>
+
+        {/* Account badge */}
+        {user && (
+          <span
+            className="text-sm px-2 py-0.5 rounded select-none"
+            style={{
+              color: 'var(--navbar-text-sub, #999999)',
+              backgroundColor: 'var(--bg-tertiary)',
+            }}
+          >
+            @{user.username}
           </span>
-
-          {/* Account badge */}
-          {user && (
-            <span
-              className="text-sm px-2 py-0.5 rounded select-none"
-              style={{
-                color: 'var(--navbar-text-sub, #999999)',
-                backgroundColor: 'var(--bg-tertiary)',
-              }}
-            >
-              @{user.username}
-            </span>
-          )}
-
-          {/* Separator */}
-          <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
-
-          {/* File menu */}
-          <FileMenu
-            onNewFile={handleNewFile}
-            onOpenFile={handleOpenFile}
-            onDeleteFile={handleDeleteFile}
-            onCloseFile={handleCloseFile}
-            hasOpenFile={!!currentFile}
-            onNewFolder={handleNewFolder}
-            onOpenFolder={handleOpenFolder}
-            onDeleteFolder={handleDeleteFolder}
-          />
-
-          {/* Help menu */}
-          <HelpMenu onOpenSettings={() => openModal('settings')} />
-
-          {/* History menu */}
-          <HistoryMenu
-            files={files}
-            onOpenFile={(file) => {
-              void handleHistoryOpenFile(file);
-            }}
-            onManageFiles={toggleHistoryPanel}
-          />
-
-          {/* View menu */}
-          <ViewMenu />
-        </div>
-
-        {/* Loading indicator */}
-        {isLoading && (
-          <div className="flex items-center gap-2 px-2">
-            <div className="w-3 h-3 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
-            <span className="text-xs" style={{ color: 'var(--navbar-text-sub, #999999)' }}>
-              {t('navbar.loading')}
-            </span>
-          </div>
         )}
 
-        {/* Error message */}
-        {errorMessage && (
-          <div className="flex items-center gap-1 px-2">
-            <span className="text-xs text-red-400">{errorMessage}</span>
-            <button
-              onClick={() => setErrorMessage('')}
-              className="text-xs text-red-400 hover:text-red-300"
-            >
-              ✕
-            </button>
-          </div>
-        )}
+        {/* Separator */}
+        <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
 
-        {/* Center spacer */}
-        <div className="flex-1 drag-region" />
+        {/* File menu */}
+        <FileMenu
+          onNewFile={handleNewFile}
+          onOpenFile={handleOpenFile}
+          onDeleteFile={handleDeleteFile}
+          onCloseFile={handleCloseFile}
+          hasOpenFile={!!currentFile}
+          onNewFolder={handleNewFolder}
+          onOpenFolder={handleOpenFolder}
+          onDeleteFolder={handleDeleteFolder}
+        />
 
-        {/* Right section */}
-        <div className="flex items-center gap-2 px-2 h-full no-drag">
-          {/* Undo */}
-          <button
-            onClick={() => {
-              void handleUndo();
-            }}
-            disabled={undoStack.length === 0}
-            className="w-8 h-8 flex items-center justify-center rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            style={{ color: 'var(--navbar-text-sub, #999999)' }}
-            title={t('navbar.undoShortcut')}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <polyline points="1 4 1 10 7 10" />
-              <path d="M3.51 15a9 9 0 102.13-9.36L1 10" />
-            </svg>
-          </button>
+        {/* Help menu */}
+        <HelpMenu onOpenSettings={() => openModal('settings')} />
 
-          {/* Redo */}
-          <button
-            onClick={() => {
-              void handleRedo();
-            }}
-            disabled={redoStack.length === 0}
-            className="w-8 h-8 flex items-center justify-center rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            style={{ color: 'var(--navbar-text-sub, #999999)' }}
-            title={t('navbar.redoShortcut')}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <polyline points="23 4 23 10 17 10" />
-              <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
-            </svg>
-          </button>
+        {/* History menu */}
+        <HistoryMenu
+          files={files}
+          onOpenFile={(file) => {
+            void handleHistoryOpenFile(file);
+          }}
+          onManageFiles={toggleHistoryPanel}
+        />
 
-          {/* Separator */}
-          <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
+        {/* View menu */}
+        <ViewMenu />
+      </div>
 
-          {/* Export dropdown */}
-          <div className="relative inline-block">
-            <button
-              className="text-sm hover:text-[var(--accent)] transition-colors px-1"
-              style={{ color: 'var(--navbar-text-primary, #FFFFFF)' }}
-              title={t('navbar.export')}
-            >
-              ⬇️
-            </button>
-          </div>
-
-          {/* More menu */}
-          <MoreMenu onFindReplace={handleFindReplace} onEditHistory={toggleHistoryPanel} />
-
-          {/* Separator */}
-          <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
-
-          {/* Window Controls */}
-          <WindowControls />
+      {/* Loading indicator */}
+      {isLoading && (
+        <div className="flex items-center gap-2 px-2">
+          <div className="w-3 h-3 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
+          <span className="text-xs" style={{ color: 'var(--navbar-text-sub, #999999)' }}>
+            {t('navbar.loading')}
+          </span>
         </div>
-      </header>
+      )}
 
-      <CreateDialog
-        isOpen={showCreateDialog}
-        onClose={() => setShowCreateDialog(false)}
-        onConfirm={handleCreateConfirm}
-        initialType={createDialogType}
-      />
-    </>
+      {/* Error message */}
+      {errorMessage && (
+        <div className="flex items-center gap-1 px-2">
+          <span className="text-xs text-red-400">{errorMessage}</span>
+          <button
+            onClick={() => setErrorMessage('')}
+            className="text-xs text-red-400 hover:text-red-300"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Center spacer */}
+      <div className="flex-1 drag-region" />
+
+      {/* Right section */}
+      <div className="flex items-center gap-2 px-2 h-full no-drag">
+        {/* Undo */}
+        <button
+          onClick={() => {
+            void handleUndo();
+          }}
+          disabled={undoStack.length === 0}
+          className="w-8 h-8 flex items-center justify-center rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          style={{ color: 'var(--navbar-text-sub, #999999)' }}
+          title={t('navbar.undoShortcut')}
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <polyline points="1 4 1 10 7 10" />
+            <path d="M3.51 15a9 9 0 102.13-9.36L1 10" />
+          </svg>
+        </button>
+
+        {/* Redo */}
+        <button
+          onClick={() => {
+            void handleRedo();
+          }}
+          disabled={redoStack.length === 0}
+          className="w-8 h-8 flex items-center justify-center rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          style={{ color: 'var(--navbar-text-sub, #999999)' }}
+          title={t('navbar.redoShortcut')}
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <polyline points="23 4 23 10 17 10" />
+            <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+          </svg>
+        </button>
+
+        {/* Separator */}
+        <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
+
+        {/* Export dropdown */}
+        <div className="relative inline-block">
+          <button
+            className="text-sm hover:text-[var(--accent)] transition-colors px-1"
+            style={{ color: 'var(--navbar-text-primary, #FFFFFF)' }}
+            title={t('navbar.export')}
+          >
+            ⬇️
+          </button>
+        </div>
+
+        {/* More menu */}
+        <MoreMenu onFindReplace={handleFindReplace} onEditHistory={toggleHistoryPanel} />
+
+        {/* Separator */}
+        <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
+
+        {/* Window Controls */}
+        <WindowControls />
+      </div>
+    </header>
   );
 };
 

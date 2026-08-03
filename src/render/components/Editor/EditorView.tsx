@@ -297,9 +297,9 @@ const EditorView: React.FC<EditorViewProps> = ({
 
     import('monaco-editor')
       .then((monaco) => {
-        // --- Dark theme ---
+        // --- Dark theme (light code background per user request) ---
         monaco.editor.defineTheme('weaveMD-dark', {
-          base: 'vs-dark',
+          base: 'vs',
           inherit: true,
           rules: [
             { token: 'comment', foreground: '6A9955', fontStyle: 'italic' },
@@ -314,21 +314,21 @@ const EditorView: React.FC<EditorViewProps> = ({
             { token: 'strong', fontStyle: 'bold' },
           ],
           colors: {
-            'editor.background': '#0F0F0F',
-            'editor.foreground': '#FFFFFF',
-            'editor.lineHighlightBackground': '#1A1A1A',
+            'editor.background': '#e5e5e5',
+            'editor.foreground': '#1a1a1a',
+            'editor.lineHighlightBackground': '#d5d5d5',
             'editor.selectionBackground': '#7C3AED40',
             'editorCursor.foreground': '#7C3AED',
             'editorLineNumber.foreground': '#999999',
-            'editorLineNumber.activeForeground': '#FFFFFF',
+            'editorLineNumber.activeForeground': '#1a1a1a',
             'editor.selectionHighlightBackground': '#7C3AED20',
             'editor.inactiveSelectionBackground': '#7C3AED20',
-            'editorWidget.background': '#1A1A1A',
-            'editorWidget.border': '#2D2D2D',
-            'input.background': '#0F0F0F',
-            'input.border': '#2D2D2D',
-            'input.foreground': '#FFFFFF',
-            'editorGutter.background': '#0F0F0F',
+            'editorWidget.background': '#d5d5d5',
+            'editorWidget.border': '#c0c0c0',
+            'input.background': '#e5e5e5',
+            'input.border': '#c0c0c0',
+            'input.foreground': '#1a1a1a',
+            'editorGutter.background': '#e5e5e5',
           },
         });
 
