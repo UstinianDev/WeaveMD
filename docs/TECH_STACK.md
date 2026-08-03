@@ -142,6 +142,8 @@ BlockNode: { id, type, sourceLines, startLine, renderedHtml, headingLevel?, fenc
 - 内层 `editor-content-area`：`padding: 40px 40px 100vh 40px`，contentEditable 表面
 - 将 padding 放在内层避免 `border-box` 模式下压缩内容区域，确保滚动条正确反映内容大小
 - HistoryPanel 文件列表使用 `.history-scroll` 专属 10px 滚动条；拖拽手柄在面板外侧（`right: -4px`）避免遮挡滚动条
+- 文件夹操作 IPC：`dialog:open-folder`（选择对话框）、`folder:read`（递归扫描 .md）、`folder:create`、`folder:delete`（磁盘删除）
+- 侧边栏 Tab：OutlinePanel 改为 Tab 容器（目录/文件），`fileTreeStore` 管理文件树状态，`loadFolderContents` 构建层级树（路径前缀匹配，normalize `/`）
 
 ### 3.4 IPC 通信
 

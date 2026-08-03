@@ -13,7 +13,7 @@
 ```
 src/render/components/Navbar/
 ├── TopBar.tsx           # 导航栏主组件（布局 + 快捷键）
-├── FileMenu.tsx         # 文件菜单（New/Open/Delete/Close）
+├── FileMenu.tsx         # 文件菜单（New/Open/Delete/Close + 新建/打开/删除文件夹）
 ├── HelpMenu.tsx         # 帮助菜单（Settings / Version）
 ├── HistoryMenu.tsx      # 历史菜单（文件列表 / Manage Files）
 ├── ViewMenu.tsx         # 视图菜单（Source Code Mode 切换）
@@ -100,10 +100,13 @@ function getShortcutAction(event: KeyboardEvent): ShortcutAction {
 
 #### 更多菜单 (⋮)
 
-| 菜单项         | 优先级 | 说明                                                                                             |
-| -------------- | ------ | ------------------------------------------------------------------------------------------------ |
-| Find & Replace | P0     | `uiStore.toggleFindReplace()` → EditorView 内 FindReplaceBar                                     |
-| Edit History   | P1     | `uiStore.toggleHistoryPanel()` → HistoryPanel 滑出；宽度可拖拽调整（最小 200px，无上限，持久化） |
+| 菜单项         | 优先级 | 说明                                                                                                           |
+| -------------- | ------ | -------------------------------------------------------------------------------------------------------------- |
+| Find & Replace | P0     | `uiStore.toggleFindReplace()` → EditorView 内 FindReplaceBar                                                   |
+| Edit History   | P1     | `uiStore.toggleHistoryPanel()` → HistoryPanel 滑出；宽度可拖拽调整（最小 200px，无上限，持久化）               |
+| 新建文件夹     | P1     | `dialog.openFolder()` 选父路径 → `folder.createFolder(path, name)` → `loadFolderContents` + 切换文件 Tab       |
+| 打开文件夹     | P1     | `dialog.openFolder()` → `folder.readFolder(path)` 递归扫描 .md → `fileTreeStore.loadFolderContents` 构建层级树 |
+| 删除文件夹     | P1     | `dialog.openFolder()` → `folder.deleteFolder(path)` 磁盘删除 → `fileTreeStore.removeFolder` 清列表             |
 
 **Find & Replace（Typora 风格 inline bar）：**
 

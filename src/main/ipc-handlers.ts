@@ -417,6 +417,74 @@ export function registerAllIpcHandlers(): void {
   });
 
   // ========================================
+  // Folder
+  // ========================================
+
+  ipcMain.handle(IPC_CHANNELS.DIALOG_OPEN_FOLDER, async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return { success: false, error: 'No window' };
+
+    try {
+      const result = await dialog.showOpenDialog(win, {
+        title: 'Open Folder',
+        properties: ['openDirectory'],
+      });
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, error: 'Cancelled' };
+      }
+
+      return { success: true, data: { path: result.filePaths[0] } };
+    } catch (error) {
+      return { success: false, error: 'Failed to open folder dialog' };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FOLDER_READ, async (_event, folderPath: string) => {
+    try {
+      const files: Array<{ name: string; path: string; isDirectory: boolean }> = [];
+
+      const scan = (dir: string) => {
+        const entries = fs.readdirSync(dir);
+        for (const entry of entries) {
+          const fullPath = `${dir}/${entry}`.replace(/\\/g, '/');
+          const stat = fs.statSync(fullPath);
+          if (stat.isDirectory()) {
+            files.push({ name: entry, path: fullPath, isDirectory: true });
+            scan(fullPath);
+          } else if (entry.endsWith('.md')) {
+            files.push({ name: entry, path: fullPath, isDirectory: false });
+          }
+        }
+      };
+
+      scan(folderPath);
+      return { success: true, data: files };
+    } catch (error) {
+      return { success: false, message: 'Failed to read folder' };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FOLDER_CREATE, async (_event, { path, name }) => {
+    try {
+      const targetPath = `${path}/${name}`;
+      fs.mkdirSync(targetPath, { recursive: true });
+      return { success: true, data: { path, name } };
+    } catch (error) {
+      return { success: false, message: 'Failed to create folder' };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FOLDER_DELETE, async (_event, folderPath: string) => {
+    try {
+      fs.rmSync(folderPath, { recursive: true, force: true });
+      return { success: true };
+    } catch (error) {
+      return { success: false, message: 'Failed to delete folder' };
+    }
+  });
+
+  // ========================================
   // Link — open external URL in system browser
   // ========================================
   ipcMain.handle(IPC_CHANNELS.LINK_OPEN_EXTERNAL, (_e, url: string) => {

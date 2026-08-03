@@ -7,6 +7,7 @@ import type { IFile } from '../../../shared/types';
 import { useI18n } from '../../i18n';
 import { useAuthStore } from '../../stores/authStore';
 import { useEditorStore } from '../../stores/editorStore';
+import { useFileTreeStore } from '../../stores/fileTreeStore';
 import { useHistoryStore } from '../../stores/historyStore';
 import { useUIStore } from '../../stores/uiStore';
 import FileMenu from './FileMenu';
@@ -79,6 +80,10 @@ const TopBar: React.FC = () => {
   const openModal = useUIStore((s) => s.openModal);
   const toggleHistoryPanel = useUIStore((s) => s.toggleHistoryPanel);
   const flushEditorDraft = useUIStore((s) => s.flushEditorDraft);
+
+  const setActiveTab = useFileTreeStore((s) => s.setActiveTab);
+  const loadFolderContents = useFileTreeStore((s) => s.loadFolderContents);
+  const removeFolder = useFileTreeStore((s) => s.removeFolder);
 
   const files = useHistoryStore((s) => s.files);
   const loadHistory = useHistoryStore((s) => s.loadHistory);
@@ -189,6 +194,68 @@ const TopBar: React.FC = () => {
     closeFile();
   }, [saveCurrentDraftIfNeeded, closeFile]);
 
+  const handleNewFolder = useCallback(async () => {
+    try {
+      const result = (await window.weaveMD.dialog.openFolder()) as unknown as {
+        success: boolean;
+        data?: { path: string };
+      };
+      if (result.success && result.data) {
+        const parentPath = result.data.path;
+        const name = window.prompt(t('file.newFolder'));
+        if (name) {
+          const createResult = (await window.weaveMD.folder.createFolder(
+            parentPath,
+            name
+          )) as unknown as { success: boolean; data?: { path: string; name: string } };
+          if (createResult.success && createResult.data) {
+            const targetPath = `${createResult.data.path}/${createResult.data.name}`;
+            setActiveTab('files');
+            loadFolderContents(targetPath);
+          }
+        }
+      }
+    } catch {
+      setErrorMessage('Failed to create folder');
+    }
+  }, [setActiveTab, loadFolderContents, t]);
+
+  const handleOpenFolder = useCallback(async () => {
+    try {
+      const result = (await window.weaveMD.dialog.openFolder()) as unknown as {
+        success: boolean;
+        data?: { path: string };
+      };
+      if (result.success && result.data) {
+        loadFolderContents(result.data.path);
+        setActiveTab('files');
+      }
+    } catch {
+      setErrorMessage('Failed to open folder');
+    }
+  }, [loadFolderContents, setActiveTab]);
+
+  const handleDeleteFolder = useCallback(async () => {
+    try {
+      const result = (await window.weaveMD.dialog.openFolder()) as unknown as {
+        success: boolean;
+        data?: { path: string };
+      };
+      if (result.success && result.data) {
+        const folderPath = result.data.path;
+        const deleteResult = (await window.weaveMD.folder.deleteFolder(folderPath)) as unknown as {
+          success: boolean;
+        };
+        if (deleteResult.success) {
+          // Normalize path to match store's normalized IDs
+          removeFolder(folderPath.replace(/\\/g, '/'));
+        }
+      }
+    } catch {
+      setErrorMessage('Failed to delete folder');
+    }
+  }, [removeFolder]);
+
   const handleHistoryOpenFile = useCallback(
     async (file: IFile) => {
       if (currentFile?.id !== file.id) {
@@ -241,16 +308,16 @@ const TopBar: React.FC = () => {
       }}
     >
       {/* Left section */}
-      <div className="flex items-center gap-1 px-3 h-full no-drag">
+      <div className="flex items-center gap-2 px-3 h-full no-drag">
         {/* App icon (brand) */}
-        <span className="text-lg mr-1 select-none" title="WeaveMD">
+        <span className="text-xl mr-1 select-none" title="WeaveMD">
           📔
         </span>
 
         {/* Account badge */}
         {user && (
           <span
-            className="text-xs px-2 py-0.5 rounded select-none"
+            className="text-sm px-2 py-0.5 rounded select-none"
             style={{
               color: 'var(--navbar-text-sub, #999999)',
               backgroundColor: 'var(--bg-tertiary)',
@@ -270,6 +337,9 @@ const TopBar: React.FC = () => {
           onDeleteFile={handleDeleteFile}
           onCloseFile={handleCloseFile}
           hasOpenFile={!!currentFile}
+          onNewFolder={handleNewFolder}
+          onOpenFolder={handleOpenFolder}
+          onDeleteFolder={handleDeleteFolder}
         />
 
         {/* Help menu */}
@@ -315,7 +385,7 @@ const TopBar: React.FC = () => {
       <div className="flex-1 drag-region" />
 
       {/* Right section */}
-      <div className="flex items-center gap-1 px-2 h-full no-drag">
+      <div className="flex items-center gap-2 px-2 h-full no-drag">
         {/* Undo */}
         <button
           onClick={() => {

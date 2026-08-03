@@ -1,5 +1,5 @@
 // ============================================
-// WeaveMD — Document Outline Panel
+// WeaveMD — Document Outline Panel (Tab Container)
 // ============================================
 
 import React, { useMemo, useState } from 'react';
@@ -7,6 +7,9 @@ import type { OutlineItem } from '../../services/markdown';
 import { extractOutline } from '../../services/markdown';
 import { useEditorStore } from '../../stores/editorStore';
 import { useUIStore } from '../../stores/uiStore';
+import { useFileTreeStore } from '../../stores/fileTreeStore';
+import { useI18n } from '../../i18n';
+import FileTreePanel from './FileTreePanel';
 
 const INDENT_CLASSES = ['ml-0', 'ml-4', 'ml-8'] as const;
 const FONT_CLASSES = [
@@ -20,8 +23,6 @@ interface OutlinePanelProps {
   activeHeadingIndex?: number | null;
 }
 
-/** Flatten the outline tree into a list with global indices (depth-first).
- *  Returns a Map from item.id → global heading index. */
 function buildHeadingIndexMap(items: OutlineItem[]): Map<string, number> {
   const map = new Map<string, number>();
   let index = 0;
@@ -109,9 +110,11 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
   onNavigateToHeading,
   activeHeadingIndex = null,
 }) => {
+  const { t } = useI18n();
   const content = useEditorStore((s) => s.content);
   const isOutlinePanelCollapsed = useUIStore((s) => s.isOutlinePanelCollapsed);
   const toggleOutlinePanel = useUIStore((s) => s.toggleOutlinePanel);
+  const activeTab = useFileTreeStore((s) => s.activeTab);
 
   const outline = useMemo(() => {
     if (!content) return [];
@@ -145,53 +148,83 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
 
   return (
     <aside className="bg-bg-secondary border-r border-border flex flex-col h-full w-full">
-      {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-        <span className="text-sm text-text-muted uppercase tracking-wider">Outline</span>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={toggleOutlinePanel}
-            className="text-text-muted hover:text-white transition-colors p-0.5"
-            title="Collapse outline"
-          >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
-          </button>
-        </div>
+      {/* Tab Header */}
+      <div className="flex items-center border-b px-3 py-2 gap-1" style={{ borderColor: 'var(--border-color)' }}>
+        <button
+          onClick={() => useFileTreeStore.getState().setActiveTab('outline')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded text-sm transition-colors ${
+            activeTab === 'outline'
+              ? 'bg-accent/20 text-text-primary'
+              : 'text-text-muted hover:text-text-primary'
+          }`}
+        >
+          <span>📑</span>
+          <span>{t('sidebar.outline')}</span>
+        </button>
+        <button
+          onClick={() => useFileTreeStore.getState().setActiveTab('files')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded text-sm transition-colors ${
+            activeTab === 'files'
+              ? 'bg-accent/20 text-text-primary'
+              : 'text-text-muted hover:text-text-primary'
+          }`}
+        >
+          <span>📁</span>
+          <span>{t('sidebar.files')}</span>
+        </button>
       </div>
 
-      {/* Content */}
-      <div className="outline-scroll flex-1 overflow-y-auto py-2">
-        {outline.length === 0 ? (
-          <div className="px-3 py-4 text-center">
-            <p className="text-sm text-text-muted">
-              {content ? 'No headings found' : 'Open a file to see outline'}
-            </p>
+      {/* Tab Content */}
+      {activeTab === 'outline' ? (
+        <>
+          {/* Toolbar */}
+          <div className="flex items-center justify-end px-3 py-1 border-b border-border">
+            <button
+              onClick={toggleOutlinePanel}
+              className="text-text-muted hover:text-white transition-colors p-0.5"
+              title="Collapse outline"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+            </button>
           </div>
-        ) : (
-          outline.map((item) => (
-            <OutlineItemRow
-              key={item.id}
-              item={item}
-              headingIndex={indexMap.get(item.id) ?? 0}
-              activeHeadingIndex={activeHeadingIndex}
-              indexMap={indexMap}
-              onNavigate={(lineNumber, headingIndex) =>
-                onNavigateToHeading?.(lineNumber, headingIndex)
-              }
-              depth={1}
-            />
-          ))
-        )}
-      </div>
+
+          {/* Outline List */}
+          <div className="outline-scroll flex-1 overflow-y-auto py-2">
+            {outline.length === 0 ? (
+              <div className="px-3 py-4 text-center">
+                <p className="text-sm text-text-muted">
+                  {content ? 'No headings found' : 'Open a file to see outline'}
+                </p>
+              </div>
+            ) : (
+              outline.map((item) => (
+                <OutlineItemRow
+                  key={item.id}
+                  item={item}
+                  headingIndex={indexMap.get(item.id) ?? 0}
+                  activeHeadingIndex={activeHeadingIndex}
+                  indexMap={indexMap}
+                  onNavigate={(lineNumber, headingIndex) =>
+                    onNavigateToHeading?.(lineNumber, headingIndex)
+                  }
+                  depth={1}
+                />
+              ))
+            )}
+          </div>
+        </>
+      ) : (
+        <FileTreePanel />
+      )}
     </aside>
   );
 };

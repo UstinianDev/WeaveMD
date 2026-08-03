@@ -127,5 +127,15 @@
   "toolbar.confirm": "确定",
   "toolbar.cancel": "取消",
   "splash.loading": "正在加载笔记...",
-  "splash.clickSkip": "点击任意位置跳过"
+  "splash.clickSkip": "点击任意位置跳过",
+  "file.newFolder": "新建文件夹",
+  "file.openFolder": "打开文件夹",
+  "file.deleteFolder": "删除文件夹",
+  "sidebar.outline": "目录",
+  "sidebar.files": "文件",
+  "sidebar.noFiles": "暂无文件",
+  "folder.openError": "无法打开文件夹",
+  "folder.createError": "无法创建文件夹",
+  "folder.deleteError": "无法删除文件夹",
+  "folder.emptyFolder": "文件夹为空"
 }

@@ -127,5 +127,15 @@
   "toolbar.confirm": "確定",
   "toolbar.cancel": "取消",
   "splash.loading": "正在載入筆記...",
-  "splash.clickSkip": "點選任意位置跳過"
+  "splash.clickSkip": "點選任意位置跳過",
+  "file.newFolder": "新建資料夾",
+  "file.openFolder": "開啟資料夾",
+  "file.deleteFolder": "刪除資料夾",
+  "sidebar.outline": "目錄",
+  "sidebar.files": "檔案",
+  "sidebar.noFiles": "暫無檔案",
+  "folder.openError": "無法開啟資料夾",
+  "folder.createError": "無法建立資料夾",
+  "folder.deleteError": "無法刪除資料夾",
+  "folder.emptyFolder": "資料夾為空"
 }

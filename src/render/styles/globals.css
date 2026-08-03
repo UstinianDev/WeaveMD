@@ -204,6 +204,18 @@ body {
   background: var(--text-sub);
 }
 
+/* --- Sidebar Tab Bar --- */
+.sidebar-tab-btn {
+  letter-spacing: 0.02em;
+  word-spacing: 0.05em;
+}
+
+/* --- File Tree Panel --- */
+.file-tree-node {
+  letter-spacing: 0.02em;
+  word-spacing: 0.05em;
+}
+
 /* Selection */
 ::selection {
   background-color: rgba(124, 58, 237, 0.3);
