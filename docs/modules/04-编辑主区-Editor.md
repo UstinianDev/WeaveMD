@@ -1,6 +1,6 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 版本：v4.9 | 最后更新：2026-08-01
+> 模块编号：04 | 优先级：P0 | 版本：v4.10 | 最后更新：2026-08-03
 
 ---
 
@@ -55,8 +55,6 @@ BlockNode = {
 - `blocks/` — 块组件：Heading、Paragraph、ListItem、CodeFence、Table、Blockquote、Empty（均为只读渲染，contentEditable 在容器层）
 - `OutlinePanel.tsx` — 文档大纲（H1-H3 标题树），lineNumber 索引导航 + 动态高亮当前标题；字体 H1=text-lg/H2=text-base/H3=text-sm
 - `FloatingToolbarWYSIWYG.tsx` — WYSIWYG 浮动工具栏：使用 `document.execCommand` + `Range API` 直接操作 DOM；支持 Toggle 格式化（Bold/Italic/Underline/Strikethrough/Highlight/InlineCode/Link/Comment）；MD Source 功能（显示/隐藏当前段落 Markdown 源码）
-- `ActiveBlockEditor.tsx` —（已废弃）Monaco 迷你编辑器
-- `FindReplaceModal.tsx` —（已废弃）旧居中模态框
 
 ## 4. 数据流
 

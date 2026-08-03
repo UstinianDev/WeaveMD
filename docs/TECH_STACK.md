@@ -1,6 +1,6 @@
 # WeaveMD 技术选型文档
 
-> 版本：v2.1 | 最后更新：2026-08-01
+> 版本：v2.2 | 最后更新：2026-08-03
 
 ---
 
@@ -127,7 +127,7 @@ Normal Mode 采用**容器级 contentEditable** 而非 Monaco，理由：
 
 ```
 BlockTree → Record<BlockId, BlockNode>
-BlockNode: { id, type, sourceLines, startLine, renderedHtml, headingLevel?, ... }
+BlockNode: { id, type, sourceLines, startLine, renderedHtml, headingLevel?, fenceLanguage?, orderedIndex?, checked?, orderedListId?, ... }
 ```
 
 - 不可变数据结构，所有操作返回新树
