@@ -115,6 +115,24 @@ export function registerAllIpcHandlers(): void {
     return { success: true, data: { filePath: result.filePath } };
   });
 
+  ipcMain.handle(IPC_CHANNELS.DIALOG_SAVE_FILE_PATH, async (_event, { title, defaultName }) => {
+    const win = BrowserWindow.getFocusedWindow();
+    if (!win) return { success: false, error: 'No window' };
+
+    const result = await dialog.showSaveDialog(win, {
+      title: title || 'Save File',
+      defaultPath: defaultName || '',
+      filters: [{ name: 'Markdown', extensions: ['md'] }],
+      properties: ['createDirectory'],
+    });
+
+    if (result.canceled || !result.filePath) {
+      return { success: false, error: 'Cancelled' };
+    }
+
+    return { success: true, data: { path: result.filePath } };
+  });
+
   // ========================================
   // Auth
   // ========================================
@@ -302,6 +320,36 @@ export function registerAllIpcHandlers(): void {
       return { success: true, data: file };
     } catch (error) {
       return { success: false, message: 'Failed to get file' };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FILE_WRITE, async (_event, { filePath, content }) => {
+    try {
+      fs.writeFileSync(filePath, content, 'utf-8');
+      return { success: true };
+    } catch (error) {
+      return { success: false, message: 'Failed to write file' };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FILE_DELETE_DISK, async (_event, filePath) => {
+    try {
+      fs.unlinkSync(filePath);
+      return { success: true };
+    } catch (error) {
+      return { success: false, message: 'Failed to delete file' };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.FILE_READ, async (_event, filePath) => {
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      return {
+        success: true,
+        data: { path: filePath, name: filePath.split(/[/\\]/).pop(), content },
+      };
+    } catch (error) {
+      return { success: false, message: 'Failed to read file' };
     }
   });
 

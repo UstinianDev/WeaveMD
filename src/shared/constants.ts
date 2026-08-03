@@ -38,6 +38,9 @@ export const IPC_CHANNELS = {
   FILE_DELETE: 'file:delete',
   FILE_LIST: 'file:list',
   FILE_GET: 'file:get',
+  FILE_WRITE: 'file:write',
+  FILE_DELETE_DISK: 'file:delete-disk',
+  FILE_READ: 'file:read',
 
   // History
   HISTORY_LIST: 'history:list',
@@ -63,6 +66,7 @@ export const IPC_CHANNELS = {
   DIALOG_OPEN_FILE: 'dialog:open-file',
   DIALOG_SAVE_FILE: 'dialog:save-file',
   DIALOG_OPEN_FOLDER: 'dialog:open-folder',
+  DIALOG_SAVE_FILE_PATH: 'dialog:save-file-path',
 
   // Folder
   FOLDER_READ: 'folder:read',

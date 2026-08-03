@@ -71,12 +71,12 @@ function getShortcutAction(event: KeyboardEvent): ShortcutAction {
 
 #### File 菜单
 
-| 菜单项      | 快捷键   | 实现逻辑                                                                                |
-| ----------- | -------- | --------------------------------------------------------------------------------------- |
-| New File    | `Ctrl+N` | 调用 `file:create` IPC → 创建新文件 → `editorStore.openFile()`                          |
-| Open File   | `Ctrl+O` | 调用 `dialog:open-file` IPC → 系统文件对话框 → 读取 .md 内容 → `editorStore.openFile()` |
-| Delete File | -        | 确认弹框 → 调用 `file:delete` IPC → 软删除 → `editorStore.closeFile()`                  |
-| Close       | -        | 先保存（如脏数据）→ `editorStore.closeFile()`                                           |
+| 菜单项      | 快捷键   | 实现逻辑                                                                                                                   |
+| ----------- | -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| New File    | `Ctrl+N` | 打开 CreateDialog 弹窗（选位置+填名称，文件自动加 .md 后缀，空名提示不退出）→ `file:write` 写磁盘 → `openFile` + `addFile` |
+| Open File   | `Ctrl+O` | 调用 `dialog:open-file` IPC → 用磁盘路径作 file ID → `openFile` + `addFile` 到侧栏                                         |
+| Delete File | -        | 确认弹框 → 调用 `file:delete-disk` 删磁盘 → `removeFileFromEverywhere` 清列表 → `closeFile` 显示空状态                     |
+| Close       | -        | 先保存（如脏数据）→ `editorStore.closeFile()`                                                                              |
 
 #### Help 菜单
 
@@ -100,13 +100,13 @@ function getShortcutAction(event: KeyboardEvent): ShortcutAction {
 
 #### 更多菜单 (⋮)
 
-| 菜单项         | 优先级 | 说明                                                                                                           |
-| -------------- | ------ | -------------------------------------------------------------------------------------------------------------- |
-| Find & Replace | P0     | `uiStore.toggleFindReplace()` → EditorView 内 FindReplaceBar                                                   |
-| Edit History   | P1     | `uiStore.toggleHistoryPanel()` → HistoryPanel 滑出；宽度可拖拽调整（最小 200px，无上限，持久化）               |
-| 新建文件夹     | P1     | `dialog.openFolder()` 选父路径 → `folder.createFolder(path, name)` → `loadFolderContents` + 切换文件 Tab       |
-| 打开文件夹     | P1     | `dialog.openFolder()` → `folder.readFolder(path)` 递归扫描 .md → `fileTreeStore.loadFolderContents` 构建层级树 |
-| 删除文件夹     | P1     | `dialog.openFolder()` → `folder.deleteFolder(path)` 磁盘删除 → `fileTreeStore.removeFolder` 清列表             |
+| 菜单项         | 优先级 | 说明                                                                                                                                                           |
+| -------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Find & Replace | P0     | `uiStore.toggleFindReplace()` → EditorView 内 FindReplaceBar                                                                                                   |
+| Edit History   | P1     | `uiStore.toggleHistoryPanel()` → HistoryPanel 滑出；宽度可拖拽调整（最小 200px，无上限，持久化）                                                               |
+| 新建文件夹     | P1     | 打开 CreateDialog 弹窗（folder 模式）→ `folder.createFolder` → `loadFolderContents`                                                                            |
+| 打开文件夹     | P1     | `dialog.openFolder()` → `folder.readFolder(path)` 递归扫描 .md → `fileTreeStore.loadFolderContents` 构建层级树                                                 |
+| 删除文件夹     | P1     | `getSelectedFolder()` 从侧栏获取选中文件夹（递归搜索）→ 非文件夹提示 → `folder.deleteFolder` 删磁盘 → `removeFolder` 清列表 → 当前文件在文件夹内则 `closeFile` |
 
 **Find & Replace（Typora 风格 inline bar）：**
 
@@ -198,10 +198,9 @@ const files = useHistoryStore((s) => s.files);
 
 ```
 用户点击 New File
-  → 弹出文件名输入框（默认 "untitled.md"）
-  → IPC: file:create(userId, name)
-  → 主进程: INSERT INTO files → 返回 IFile
-  → editorStore.openFile(file)
+  → 打开 CreateDialog 弹窗（选位置+填名称，文件自动加 .md 后缀，空名提示不退出）
+  → IPC: file:write(filePath, content)
+  → editorStore.openFile({ id: path, name, content }) + fileTreeStore.addFile
   → 编辑器加载空内容
 ```
 
@@ -211,9 +210,8 @@ const files = useHistoryStore((s) => s.files);
 用户点击 Open File
   → IPC: dialog:open-file
   → 系统文件对话框（过滤 .md 文件）
-  → 主进程: fs.readFileSync(filePath, 'utf-8')
-  → 返回 { path, name, content }
-  → editorStore.openFile({ id: path, name, content, ... })
+  → 用磁盘路径作 file ID
+  → editorStore.openFile({ id: path, name, content }) + fileTreeStore.addFile 到侧栏
 ```
 
 **Delete File 流程：**
@@ -221,10 +219,20 @@ const files = useHistoryStore((s) => s.files);
 ```
 用户点击 Delete File
   → 确认弹框（"确定删除此文件？"）
-  → IPC: file:delete(fileId, userId)
-  → 主进程: UPDATE files SET deleted_at = ? WHERE id = ?
-  → 成功 → editorStore.closeFile()
-  → 刷新文件列表
+  → IPC: file:delete-disk(filePath)
+  → 主进程: fs.unlinkSync(filePath) 删磁盘
+  → fileTreeStore.removeFileFromEverywhere 清列表
+  → editorStore.closeFile() 显示空状态
+```
+
+**Create Folder 流程：**
+
+```
+用户点击更多菜单"新建文件夹"
+  → 打开 CreateDialog 弹窗（folder 模式，选父路径+填名称）
+  → IPC: folder:create(parentPath, folderName)
+  → 主进程: fs.mkdirSync 创建磁盘文件夹
+  → fileTreeStore.loadFolderContents 刷新文件树
 ```
 
 ## 5. 与其他模块的交互
@@ -235,7 +243,7 @@ const files = useHistoryStore((s) => s.files);
 | 认证系统   | 显示当前账号标签；通过 `authStore.user` 获取用户信息                                                                      |
 | 设置       | 通过 `uiStore.openModal('settings')` 打开设置                                                                             |
 | 窗口控制   | 通过 IPC 调用窗口控制（最小化/最大化/关闭）                                                                               |
-| 数据持久化 | 通过 IPC 调用文件 CRUD 操作                                                                                               |
+| 数据持久化 | 通过 IPC 调用文件系统直操作（file:write/read/delete-disk）                                                                |
 | 历史面板   | 通过 `uiStore.toggleHistoryPanel()` 打开/关闭                                                                             |
 
 ## 6. 关键设计决策

@@ -14,31 +14,44 @@ export interface IFolderNode {
   isRoot: boolean;
 }
 
+export interface IFileNode {
+  id: string;
+  name: string;
+  path: string;
+  content?: string;
+}
+
 interface FileTreeState {
   folders: IFolderNode[];
+  looseFiles: IFileNode[];
   activeTab: 'outline' | 'files';
   isLoading: boolean;
   error: string | null;
+  selectedIds: string[];
 }
 
 interface FileTreeActions {
   setActiveTab: (tab: 'outline' | 'files') => void;
   addFolder: (folder: IFolderNode) => void;
   removeFolder: (folderId: string) => void;
-  removeFile: (folderId: string, fileId: string) => void;
+  addFile: (file: IFileNode) => void;
+  removeFile: (fileId: string) => void;
+  removeFileFromEverywhere: (fileId: string) => void;
+  removeNodeFromTree: (folderId: string, nodeId: string) => void;
   toggleExpand: (folderId: string) => void;
   loadFolderContents: (path: string) => Promise<void>;
+  toggleSelect: (id: string) => void;
+  clearSelection: () => void;
   clearAll: () => void;
+  getSelectedFolder: () => IFolderNode | null;
 }
 
-/** Recursively remove a node by id from a tree */
 function removeFromTree(nodes: IFolderNode[], targetId: string): IFolderNode[] {
   return nodes
     .filter((n) => n.id !== targetId)
     .map((n) => ({ ...n, children: removeFromTree(n.children, targetId) }));
 }
 
-/** Recursively toggle expansion of a node by id in a tree */
 function toggleInTree(nodes: IFolderNode[], targetId: string): IFolderNode[] {
   return nodes.map((n) => {
     if (n.id === targetId) {
@@ -48,30 +61,72 @@ function toggleInTree(nodes: IFolderNode[], targetId: string): IFolderNode[] {
   });
 }
 
+function sortNodes(nodes: IFolderNode[]): IFolderNode[] {
+  return [...nodes]
+    .sort((a, b) => {
+      if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    })
+    .map((n) => ({ ...n, children: sortNodes(n.children) }));
+}
+
+function sortLooseFiles(files: IFileNode[]): IFileNode[] {
+  return [...files].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export const useFileTreeStore = create<FileTreeState & FileTreeActions>((set, _get) => ({
   folders: [],
+  looseFiles: [],
   activeTab: 'files',
   isLoading: false,
   error: null,
+  selectedIds: [],
 
   setActiveTab: (tab) => set({ activeTab: tab }),
 
   addFolder: (folder) =>
     set((state) => ({
-      folders: [...state.folders, folder],
+      folders: sortNodes([...state.folders, folder]),
     })),
 
   removeFolder: (folderId) =>
     set((state) => ({
-      folders: state.folders.filter((f) => f.id !== folderId),
+      folders: state.folders
+        .filter((f) => f.id !== folderId)
+        .map((f) => ({ ...f, children: removeFromTree(f.children, folderId) })),
+      selectedIds: state.selectedIds.filter((sid) => sid !== folderId),
     })),
 
-  removeFile: (_folderId, fileId) =>
+  addFile: (file) =>
     set((state) => ({
+      looseFiles: sortLooseFiles([...state.looseFiles, file]),
+    })),
+
+  removeFile: (fileId) =>
+    set((state) => ({
+      looseFiles: state.looseFiles.filter((f) => f.id !== fileId),
+      selectedIds: state.selectedIds.filter((sid) => sid !== fileId),
+    })),
+
+  removeFileFromEverywhere: (fileId) =>
+    set((state) => ({
+      looseFiles: state.looseFiles.filter((f) => f.id !== fileId),
       folders: state.folders.map((folder) => ({
         ...folder,
         children: removeFromTree(folder.children, fileId),
       })),
+      selectedIds: state.selectedIds.filter((sid) => sid !== fileId),
+    })),
+
+  removeNodeFromTree: (folderId, nodeId) =>
+    set((state) => ({
+      folders: state.folders.map((folder) => {
+        if (folder.id === folderId) {
+          return { ...folder, children: removeFromTree(folder.children, nodeId) };
+        }
+        return folder;
+      }),
+      selectedIds: state.selectedIds.filter((sid) => sid !== nodeId),
     })),
 
   toggleExpand: (folderId) =>
@@ -96,13 +151,10 @@ export const useFileTreeStore = create<FileTreeState & FileTreeActions>((set, _g
         throw new Error('Failed to read folder contents');
       }
 
-      // Normalize path separator to '/' for consistent tree building
       const normalizedPath = path.replace(/\\/g, '/');
 
-      // Build hierarchical tree from flat list using path prefixes
       const pathToNode = new Map<string, IFolderNode>();
 
-      // Create root node
       const rootName = normalizedPath.split(/[\\/]/).pop() || normalizedPath;
       const rootFolder: IFolderNode = {
         id: normalizedPath,
@@ -115,7 +167,6 @@ export const useFileTreeStore = create<FileTreeState & FileTreeActions>((set, _g
       };
       pathToNode.set(normalizedPath, rootFolder);
 
-      // Sort by path to ensure parents are processed before children
       const sortedItems = [...result.data].sort((a, b) => a.path.length - b.path.length);
 
       for (const item of sortedItems) {
@@ -130,7 +181,6 @@ export const useFileTreeStore = create<FileTreeState & FileTreeActions>((set, _g
         };
         pathToNode.set(item.path, node);
 
-        // Find parent by checking which existing path is a prefix
         const parentPath = item.path.substring(0, item.path.lastIndexOf('/'));
         const parent = pathToNode.get(parentPath) || pathToNode.get(path);
         if (parent) {
@@ -140,10 +190,14 @@ export const useFileTreeStore = create<FileTreeState & FileTreeActions>((set, _g
         }
       }
 
-      set((state) => ({
-        folders: [...state.folders.filter((f) => f.path !== normalizedPath), rootFolder],
-        isLoading: false,
-      }));
+      set((state) => {
+        const existingFolders = state.folders.filter((f) => f.path !== normalizedPath);
+        rootFolder.children = sortNodes(rootFolder.children);
+        return {
+          folders: sortNodes([...existingFolders, rootFolder]),
+          isLoading: false,
+        };
+      });
     } catch (error) {
       set({
         isLoading: false,
@@ -152,5 +206,32 @@ export const useFileTreeStore = create<FileTreeState & FileTreeActions>((set, _g
     }
   },
 
-  clearAll: () => set({ folders: [], error: null }),
+  toggleSelect: (id) =>
+    set((state) => ({
+      selectedIds: state.selectedIds.includes(id)
+        ? state.selectedIds.filter((sid) => sid !== id)
+        : [...state.selectedIds, id],
+    })),
+
+  clearSelection: () => set({ selectedIds: [] }),
+
+  getSelectedFolder: () => {
+    const state = _get();
+
+    // Recursively search for a selected folder node (root or nested)
+    const findInNodes = (nodes: IFolderNode[]): IFolderNode | null => {
+      for (const node of nodes) {
+        if (node.isDirectory && state.selectedIds.includes(node.id)) {
+          return node;
+        }
+        const found = findInNodes(node.children);
+        if (found) return found;
+      }
+      return null;
+    };
+
+    return findInNodes(state.folders);
+  },
+
+  clearAll: () => set({ folders: [], looseFiles: [], selectedIds: [], error: null }),
 }));

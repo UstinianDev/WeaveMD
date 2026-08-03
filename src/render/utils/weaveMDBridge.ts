@@ -456,6 +456,12 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
 
       return createSuccessResult(file);
     },
+    write: async (_filePath, _content) =>
+      createSuccessResult(undefined, 'Browser bridge: write not available'),
+    deleteDisk: async (_filePath) =>
+      createSuccessResult(undefined, 'Browser bridge: deleteDisk not available'),
+    readDisk: async (_filePath) =>
+      createSuccessResult(undefined, 'Browser bridge: readDisk not available'),
   },
   history: {
     list: async (fileId) => {
@@ -561,6 +567,13 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
           path: defaultName,
         },
         'Browser mock bridge uses automatic downloads instead of a native save dialog.'
+      ),
+    saveFilePath: async (_title, defaultName) =>
+      createSuccessResult(
+        {
+          path: defaultName || 'untitled',
+        },
+        'Browser bridge save file path mock.'
       ),
   },
   account: {

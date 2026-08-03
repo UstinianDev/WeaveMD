@@ -19,6 +19,9 @@ export interface WeaveMDApi {
     delete: (fileId: string, userId: string) => Promise<unknown>;
     list: (userId: string) => Promise<unknown>;
     get: (fileId: string, userId: string) => Promise<unknown>;
+    write: (filePath: string, content: string) => Promise<unknown>;
+    deleteDisk: (filePath: string) => Promise<unknown>;
+    readDisk: (filePath: string) => Promise<unknown>;
   };
   history: {
     list: (fileId: string) => Promise<unknown>;
@@ -47,6 +50,7 @@ export interface WeaveMDApi {
       filters?: Array<{ name: string; extensions: string[] }>;
     }) => Promise<unknown>;
     openFolder: () => Promise<unknown>;
+    saveFilePath: (title: string, defaultName: string) => Promise<unknown>;
   };
   folder: {
     readFolder: (path: string) => Promise<unknown>;
@@ -79,6 +83,10 @@ const api: WeaveMDApi = {
     delete: (fileId, userId) => ipcRenderer.invoke(IPC_CHANNELS.FILE_DELETE, { fileId, userId }),
     list: (userId) => ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST, userId),
     get: (fileId, userId) => ipcRenderer.invoke(IPC_CHANNELS.FILE_GET, { fileId, userId }),
+    write: (filePath, content) =>
+      ipcRenderer.invoke(IPC_CHANNELS.FILE_WRITE, { filePath, content }),
+    deleteDisk: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.FILE_DELETE_DISK, filePath),
+    readDisk: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.FILE_READ, filePath),
   },
   history: {
     list: (fileId) => ipcRenderer.invoke(IPC_CHANNELS.HISTORY_LIST, fileId),
@@ -106,6 +114,8 @@ const api: WeaveMDApi = {
     openFile: () => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_OPEN_FILE),
     saveFile: (options) => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SAVE_FILE, options),
     openFolder: () => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_OPEN_FOLDER),
+    saveFilePath: (title, defaultName) =>
+      ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SAVE_FILE_PATH, { title, defaultName }),
   },
   folder: {
     readFolder: (path) => ipcRenderer.invoke(IPC_CHANNELS.FOLDER_READ, path),

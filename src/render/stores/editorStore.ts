@@ -56,25 +56,38 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     if (!currentFile) return;
 
     try {
-      const result = (await window.weaveMD.file.save(
-        currentFile.id,
-        content,
-        currentFile.userId
-      )) as unknown as {
-        success: boolean;
-        data?: { id: string; name: string; content: string; createdAt: string; modifiedAt: string };
-      };
-      if (result.success) {
+      // If file is a disk file (id contains path separator), write directly to disk
+      const isDiskFile = currentFile.id && (currentFile.id.includes('/') || currentFile.id.includes('\\'));
+
+      if (isDiskFile) {
+        // Real-time filesystem sync: write to disk
+        await window.weaveMD.file.write(currentFile.id, content);
         set({
           isDirty: false,
-          currentFile: result.data
-            ? {
-                ...currentFile,
-                content: result.data.content,
-                modifiedAt: result.data.modifiedAt,
-              }
-            : { ...currentFile, content, modifiedAt: new Date().toISOString() },
+          currentFile: { ...currentFile, content, modifiedAt: new Date().toISOString() },
         });
+      } else {
+        // DB-based file (legacy)
+        const result = (await window.weaveMD.file.save(
+          currentFile.id,
+          content,
+          currentFile.userId
+        )) as unknown as {
+          success: boolean;
+          data?: { id: string; name: string; content: string; createdAt: string; modifiedAt: string };
+        };
+        if (result.success) {
+          set({
+            isDirty: false,
+            currentFile: result.data
+              ? {
+                  ...currentFile,
+                  content: result.data.content,
+                  modifiedAt: result.data.modifiedAt,
+                }
+              : { ...currentFile, content, modifiedAt: new Date().toISOString() },
+          });
+        }
       }
     } catch (error) {
       console.error('Failed to save file:', error);
