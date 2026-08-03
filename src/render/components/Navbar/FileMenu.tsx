@@ -13,6 +13,9 @@ interface FileMenuProps {
   onDeleteFile: () => void;
   onCloseFile: () => void;
   hasOpenFile: boolean;
+  onNewFolder: () => void;
+  onOpenFolder: () => void;
+  onDeleteFolder: () => void;
 }
 
 const FileMenu: React.FC<FileMenuProps> = ({
@@ -21,6 +24,9 @@ const FileMenu: React.FC<FileMenuProps> = ({
   onDeleteFile,
   onCloseFile,
   hasOpenFile,
+  onNewFolder,
+  onOpenFolder,
+  onDeleteFolder,
 }) => {
   const { t } = useI18n();
   const items: DropdownItemType[] = [
@@ -33,6 +39,20 @@ const FileMenu: React.FC<FileMenuProps> = ({
       label: t('file.open'),
       onClick: onOpenFile,
       shortcut: 'Ctrl+O',
+    },
+    { type: 'divider' },
+    {
+      label: t('file.newFolder'),
+      onClick: onNewFolder,
+    },
+    {
+      label: t('file.openFolder'),
+      onClick: onOpenFolder,
+    },
+    {
+      label: t('file.deleteFolder'),
+      onClick: onDeleteFolder,
+      danger: true,
     },
     { type: 'divider' },
     {
@@ -52,12 +72,12 @@ const FileMenu: React.FC<FileMenuProps> = ({
   return (
     <Dropdown
       trigger={
-        <span className="text-sm text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] transition-colors cursor-pointer select-none">
+        <span className="text-base text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] transition-colors cursor-pointer select-none tracking-wide">
           {t('navbar.file')} ▾
         </span>
       }
       items={items}
-      width={180}
+      width={200}
     />
   );
 };

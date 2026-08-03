@@ -46,6 +46,12 @@ export interface WeaveMDApi {
       defaultName: string;
       filters?: Array<{ name: string; extensions: string[] }>;
     }) => Promise<unknown>;
+    openFolder: () => Promise<unknown>;
+  };
+  folder: {
+    readFolder: (path: string) => Promise<unknown>;
+    createFolder: (parentPath: string, name: string) => Promise<unknown>;
+    deleteFolder: (path: string) => Promise<unknown>;
   };
   account: {
     info: (userId: string) => Promise<unknown>;
@@ -99,6 +105,13 @@ const api: WeaveMDApi = {
   dialog: {
     openFile: () => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_OPEN_FILE),
     saveFile: (options) => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SAVE_FILE, options),
+    openFolder: () => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_OPEN_FOLDER),
+  },
+  folder: {
+    readFolder: (path) => ipcRenderer.invoke(IPC_CHANNELS.FOLDER_READ, path),
+    createFolder: (parentPath, name) =>
+      ipcRenderer.invoke(IPC_CHANNELS.FOLDER_CREATE, { parentPath, name }),
+    deleteFolder: (path) => ipcRenderer.invoke(IPC_CHANNELS.FOLDER_DELETE, path),
   },
   account: {
     info: (userId) => ipcRenderer.invoke(IPC_CHANNELS.ACCOUNT_INFO, userId),

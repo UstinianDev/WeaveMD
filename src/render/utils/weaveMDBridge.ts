@@ -553,6 +553,8 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
   },
   dialog: {
     openFile: async () => readBrowserSelectedFile(),
+    openFolder: async () =>
+      createFailureResult('Folder selection is not available in browser mode.'),
     saveFile: async ({ defaultName }) =>
       createSuccessResult(
         {
@@ -603,6 +605,13 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
   },
   link: {
     openExternal: async () => {},
+  },
+  folder: {
+    readFolder: async () => createSuccessResult([]),
+    createFolder: async () =>
+      createFailureResult('Folder creation is not available in browser mode.'),
+    deleteFolder: async () =>
+      createFailureResult('Folder deletion is not available in browser mode.'),
   },
 });
 

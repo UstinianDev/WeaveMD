@@ -38,7 +38,7 @@ const ViewMenu: React.FC = () => {
   return (
     <Dropdown
       trigger={
-        <span className="text-sm text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] transition-colors cursor-pointer select-none">
+        <span className="text-sm text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] transition-colors cursor-pointer select-none tracking-wide">
           {t('navbar.view')} ▾
         </span>
       }

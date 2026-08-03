@@ -127,5 +127,15 @@
   "toolbar.confirm": "Confirm",
   "toolbar.cancel": "Cancel",
   "splash.loading": "Loading your notes...",
-  "splash.clickSkip": "Click anywhere to skip"
+  "splash.clickSkip": "Click anywhere to skip",
+  "file.newFolder": "New Folder",
+  "file.openFolder": "Open Folder",
+  "file.deleteFolder": "Delete Folder",
+  "sidebar.outline": "Outline",
+  "sidebar.files": "Files",
+  "sidebar.noFiles": "No files",
+  "folder.openError": "Cannot open folder",
+  "folder.createError": "Cannot create folder",
+  "folder.deleteError": "Cannot delete folder",
+  "folder.emptyFolder": "Folder is empty"
 }

@@ -62,6 +62,12 @@ export const IPC_CHANNELS = {
   // Dialog
   DIALOG_OPEN_FILE: 'dialog:open-file',
   DIALOG_SAVE_FILE: 'dialog:save-file',
+  DIALOG_OPEN_FOLDER: 'dialog:open-folder',
+
+  // Folder
+  FOLDER_READ: 'folder:read',
+  FOLDER_CREATE: 'folder:create',
+  FOLDER_DELETE: 'folder:delete',
 
   // Account
   ACCOUNT_INFO: 'account:info',

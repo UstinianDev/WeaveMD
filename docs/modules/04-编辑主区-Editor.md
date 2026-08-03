@@ -53,8 +53,9 @@ BlockNode = {
 - `FindReplaceBar.tsx` — Typora 风格 inline 查找替换栏
 - `Minimap.tsx` — Canvas 文档缩影（viewport 指示器 + 点击导航）
 - `blocks/` — 块组件：Heading、Paragraph、ListItem、CodeFence、Table、Blockquote、Empty（均为只读渲染，contentEditable 在容器层）
-- `OutlinePanel.tsx` — 文档大纲（H1-H3 标题树），lineNumber 索引导航 + 动态高亮当前标题；字体 H1=text-lg/H2=text-base/H3=text-sm
-- `HistoryPanel.tsx` — 文件历史滑出面板；宽度可拖拽调整（`uiStore.historyPanelWidth`，最小 200px 无上限，持久化）；`.history-scroll` 10px 专属滚动条；拖拽手柄在面板外侧（`right: -4px`）避免遮挡滚动条；搜索框使用 `text-text-primary` 主题变量（修复浅色主题白底白字 bug）
+- `OutlinePanel.tsx` — 侧边栏 Tab 容器（目录/文件切换）；目录 Tab 保留原有大纲功能（H1-H3 标题树，lineNumber 索引导航 + 动态高亮）；文件 Tab 渲染 FileTreePanel；Tab 标签 i18n 实时同步
+- `FileTreePanel.tsx` — 文件树视图；递归渲染层级结构（depth*16px 缩进）；根文件夹垃圾箱（仅清列表）、单文件垃圾箱（仅清列表）；`fileTreeStore` 递归操作（removeFromTree/toggleInTree）；空状态 `sidebar.noFiles`
+- `fileTreeStore.ts` — 文件树 Zustand store；`loadFolderContents` 从 flat list 构建层级树（路径前缀匹配，normalize `/`）；folders[]、activeTab（'outline'|'files'）
 - `FloatingToolbarWYSIWYG.tsx` — WYSIWYG 浮动工具栏：使用 `document.execCommand` + `Range API` 直接操作 DOM；支持 Toggle 格式化（Bold/Italic/Underline/Strikethrough/Highlight/InlineCode/Link/Comment）；MD Source 功能（显示/隐藏当前段落 Markdown 源码）
 
 ## 4. 数据流
