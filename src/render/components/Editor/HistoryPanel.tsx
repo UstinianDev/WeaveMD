@@ -24,8 +24,34 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose }) => {
   const openFile = useEditorStore((s) => s.openFile);
   const saveFile = useEditorStore((s) => s.saveFile);
   const flushEditorDraft = useUIStore((s) => s.flushEditorDraft);
+  const historyPanelWidth = useUIStore((s) => s.historyPanelWidth);
+  const setHistoryPanelWidth = useUIStore((s) => s.setHistoryPanelWidth);
 
   const [loading, setLoading] = useState(false);
+
+  const handleDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const startX = e.clientX;
+    const startWidth = historyPanelWidth;
+
+    const onMove = (ev: MouseEvent) => {
+      const delta = ev.clientX - startX;
+      setHistoryPanelWidth(startWidth + delta);
+    };
+
+    const onUp = () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
 
   useEffect(() => {
     if (isOpen && user) {
@@ -77,11 +103,17 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose }) => {
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
 
       {/* Panel */}
-      <div className="relative w-[280px] bg-bg-secondary border-r border-border shadow-modal slide-in-left flex flex-col h-full">
+      <div
+        className="relative bg-bg-secondary border-r border-border shadow-modal slide-in-left flex flex-col h-full"
+        style={{ width: historyPanelWidth }}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <h3 className="text-sm font-semibold text-white">History</h3>
-          <button onClick={onClose} className="text-text-muted hover:text-white transition-colors">
+          <h3 className="text-base font-semibold text-text-primary">History</h3>
+          <button
+            onClick={onClose}
+            className="text-text-muted hover:text-text-primary transition-colors"
+          >
             <svg
               width="16"
               height="16"
@@ -100,9 +132,9 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose }) => {
         <div className="px-3 py-2">
           <div className="relative">
             <svg
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted"
-              width="14"
-              height="14"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
+              width="16"
+              height="16"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -116,13 +148,13 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose }) => {
               value={searchQuery}
               onChange={(e) => searchHistory(e.target.value)}
               placeholder="Search files..."
-              className="w-full bg-bg-primary border border-border rounded-input pl-8 pr-3 py-1.5 text-xs text-white placeholder-text-muted outline-none focus:border-accent transition-colors"
+              className="w-full bg-bg-primary border border-border rounded-input pl-9 pr-3 py-2.5 text-sm text-text-primary placeholder-text-muted outline-none focus:border-accent transition-colors"
             />
           </div>
         </div>
 
         {/* File list */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="history-scroll flex-1 overflow-y-auto">
           {loading ? (
             <div className="px-4 py-8 text-center">
               <p className="text-xs text-text-muted">Loading...</p>
@@ -137,15 +169,15 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose }) => {
             filteredFiles.map((file) => (
               <div
                 key={file.id}
-                className="flex items-center gap-3 px-4 py-2.5 hover:bg-bg-tertiary cursor-pointer transition-colors group"
+                className="flex items-center gap-3 px-4 py-3.5 hover:bg-bg-tertiary cursor-pointer transition-colors group"
                 onClick={() => {
                   void handleOpenFile(file);
                 }}
               >
                 <span className="text-sm">📄</span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-text-sub truncate">{file.name}</p>
-                  <p className="text-xs text-text-muted">{formatDate(file.modifiedAt)}</p>
+                  <p className="text-base text-text-sub truncate">{file.name}</p>
+                  <p className="text-sm text-text-muted">{formatDate(file.modifiedAt)}</p>
                 </div>
                 <button
                   onClick={(e) => {
@@ -171,6 +203,13 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose }) => {
             ))
           )}
         </div>
+
+        {/* Drag handle — positioned outside panel to avoid overlapping scrollbar */}
+        <div
+          onMouseDown={handleDragStart}
+          className="absolute top-0 h-full w-1.5 cursor-col-resize hover:bg-accent/30 transition-colors"
+          style={{ right: '-4px' }}
+        />
       </div>
     </div>
   );

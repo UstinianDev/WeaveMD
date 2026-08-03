@@ -141,6 +141,7 @@ BlockNode: { id, type, sourceLines, startLine, renderedHtml, headingLevel?, fenc
 - 外层 `editor-scroll-container`：`h-full` + `overflow-y-auto`，无 padding
 - 内层 `editor-content-area`：`padding: 40px 40px 100vh 40px`，contentEditable 表面
 - 将 padding 放在内层避免 `border-box` 模式下压缩内容区域，确保滚动条正确反映内容大小
+- HistoryPanel 文件列表使用 `.history-scroll` 专属 10px 滚动条；拖拽手柄在面板外侧（`right: -4px`）避免遮挡滚动条
 
 ### 3.4 IPC 通信
 
