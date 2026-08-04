@@ -216,11 +216,9 @@ const TopBar: React.FC = () => {
   const handleNewFolder = useCallback(async () => {
     try {
       // Use saveFilePath dialog (supports createDirectory) to let user pick location + enter folder name
-      const result = (await window.weaveMD.dialog.saveFilePath(
-        '新建文件夹',
-        'new-folder',
-        [{ name: 'All Files', extensions: ['*'] }]
-      )) as unknown as { success: boolean; data?: { path: string } };
+      const result = (await window.weaveMD.dialog.saveFilePath('新建文件夹', 'new-folder', [
+        { name: 'All Files', extensions: ['*'] },
+      ])) as unknown as { success: boolean; data?: { path: string } };
 
       if (!result.success || !result.data) return;
 
@@ -467,7 +465,7 @@ const TopBar: React.FC = () => {
         {/* Export dropdown */}
         <div className="relative inline-block">
           <button
-            className="text-sm hover:text-[var(--accent)] transition-colors px-1"
+            className="navbar-menu-trigger hover:text-[var(--accent)] transition-colors px-1"
             style={{ color: 'var(--navbar-text-primary, #FFFFFF)' }}
             title={t('navbar.export')}
           >

@@ -56,6 +56,7 @@
 | NAV-06 | 历史面板动态宽度   | P1     | 右边缘拖拽调整（最小 200px，无上限），持久化 localStorage                            |
 | NAV-07 | 文件夹操作         | P1     | 文件菜单新建/打开/删除文件夹，同步系统文件夹，扫描仅 .md 文件                        |
 | NAV-08 | 侧边栏 Tab 切换    | P1     | 侧边栏【目录】【文件】Tab 切换，i18n 实时同步；文件 Tab 展示文件夹树，垃圾箱仅清列表 |
+| NAV-09 | 菜单触发器样式统一 | P2     | `.navbar-menu-trigger` CSS 类统一文件/帮助/历史/视图/导出/更多 6 个菜单（font-size 15px / letter-spacing 0.06em / word-spacing 0.1em） |
 
 ### 3.4 文件管理 (P0)
 

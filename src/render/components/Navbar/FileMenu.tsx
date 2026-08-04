@@ -72,7 +72,7 @@ const FileMenu: React.FC<FileMenuProps> = ({
   return (
     <Dropdown
       trigger={
-        <span className="text-base text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] transition-colors cursor-pointer select-none tracking-wide">
+        <span className="navbar-menu-trigger text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] transition-colors cursor-pointer select-none">
           {t('navbar.file')} ▾
         </span>
       }

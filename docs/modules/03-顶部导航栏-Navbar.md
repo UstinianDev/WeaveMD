@@ -170,6 +170,13 @@ const files = useHistoryStore((s) => s.files);
 .navbar-menu-item:hover {
   background: #2d2d2d;
 }
+
+/* 菜单触发器（文件/帮助/历史/视图/导出/更多 6 个菜单统一） */
+.navbar-menu-trigger {
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  word-spacing: 0.1em;
+}
 ```
 
 ### 4.3 拖拽区域
