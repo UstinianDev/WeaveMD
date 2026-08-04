@@ -218,7 +218,8 @@ const TopBar: React.FC = () => {
       // Use saveFilePath dialog (supports createDirectory) to let user pick location + enter folder name
       const result = (await window.weaveMD.dialog.saveFilePath(
         '新建文件夹',
-        'new-folder'
+        'new-folder',
+        [{ name: 'All Files', extensions: ['*'] }]
       )) as unknown as { success: boolean; data?: { path: string } };
 
       if (!result.success || !result.data) return;

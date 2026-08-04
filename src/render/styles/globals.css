@@ -1617,11 +1617,11 @@ html.dark .code-fence-content .token.comment,
 html.dark .code-fence-content .token.prolog,
 html.dark .code-fence-content .token.doctype,
 html.dark .code-fence-content .token.cdata {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 html.dark .code-fence-content .token.punctuation {
-  color: #d1d5db;
+  color: #4b5563;
 }
 
 html.dark .code-fence-content .token.property,
@@ -1631,7 +1631,7 @@ html.dark .code-fence-content .token.number,
 html.dark .code-fence-content .token.constant,
 html.dark .code-fence-content .token.symbol,
 html.dark .code-fence-content .token.deleted {
-  color: #f87171;
+  color: #dc2626;
 }
 
 html.dark .code-fence-content .token.selector,
@@ -1640,7 +1640,7 @@ html.dark .code-fence-content .token.string,
 html.dark .code-fence-content .token.char,
 html.dark .code-fence-content .token.builtin,
 html.dark .code-fence-content .token.inserted {
-  color: #34d399;
+  color: #059669;
 }
 
 html.dark .code-fence-content .token.operator,
@@ -1648,24 +1648,24 @@ html.dark .code-fence-content .token.entity,
 html.dark .code-fence-content .token.url,
 html.dark .code-fence-content .language-css .token.string,
 html.dark .code-fence-content .style .token.string {
-  color: #fbbf24;
+  color: #d97706;
 }
 
 html.dark .code-fence-content .token.atrule,
 html.dark .code-fence-content .token.attr-value,
 html.dark .code-fence-content .token.keyword {
-  color: #a78bfa;
+  color: #7c3aed;
 }
 
 html.dark .code-fence-content .token.function,
 html.dark .code-fence-content .token.class-name {
-  color: #60a5fa;
+  color: #2563eb;
 }
 
 html.dark .code-fence-content .token.regex,
 html.dark .code-fence-content .token.important,
 html.dark .code-fence-content .token.variable {
-  color: #fb923c;
+  color: #ea580c;
 }
 
 .code-fence-lang-badge {

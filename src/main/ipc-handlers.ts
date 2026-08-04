@@ -114,23 +114,26 @@ export function registerAllIpcHandlers(): void {
     return { success: true, data: { filePath: result.filePath } };
   });
 
-  ipcMain.handle(IPC_CHANNELS.DIALOG_SAVE_FILE_PATH, async (_event, { title, defaultName }) => {
-    const win = BrowserWindow.getFocusedWindow();
-    if (!win) return { success: false, error: 'No window' };
+  ipcMain.handle(
+    IPC_CHANNELS.DIALOG_SAVE_FILE_PATH,
+    async (_event, { title, defaultName, filters }) => {
+      const win = BrowserWindow.getFocusedWindow();
+      if (!win) return { success: false, error: 'No window' };
 
-    const result = await dialog.showSaveDialog(win, {
-      title: title || 'Save File',
-      defaultPath: defaultName || '',
-      filters: [{ name: 'Markdown', extensions: ['md'] }],
-      properties: ['createDirectory'],
-    });
+      const result = await dialog.showSaveDialog(win, {
+        title: title || 'Save File',
+        defaultPath: defaultName || '',
+        filters: filters || [{ name: 'Markdown', extensions: ['md'] }],
+        properties: ['createDirectory'],
+      });
 
-    if (result.canceled || !result.filePath) {
-      return { success: false, error: 'Cancelled' };
+      if (result.canceled || !result.filePath) {
+        return { success: false, error: 'Cancelled' };
+      }
+
+      return { success: true, data: { path: result.filePath } };
     }
-
-    return { success: true, data: { path: result.filePath } };
-  });
+  );
 
   // ========================================
   // Auth
