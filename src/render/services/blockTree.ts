@@ -28,6 +28,23 @@ export type BlockId = string;
 // ============================================
 
 /**
+ * Pending markdown type change — prefix grayed in DOM, committed on Enter.
+ *
+ * When the user types a markdown prefix (e.g. `# `, `- `, `1. `) in a
+ * paragraph/heading block, the prefix is visually grayed via DOM wrapping
+ * without changing `block.type`. The change is committed (prefix stripped,
+ * type applied) only when the user presses Enter.
+ */
+export interface PendingTypeChange {
+  newType: BlockType;
+  headingLevel?: number;
+  checked?: boolean;
+  orderedIndex?: number;
+  /** Prefix character count (including trailing space), used to strip on commit */
+  prefixLength: number;
+}
+
+/**
  * A single node in the block tree representing one markdown block.
  *
  * Each block has a stable `id` that survives line insertions/deletions,
@@ -57,6 +74,8 @@ export interface BlockNode {
   renderedHtml: string | null;
   /** Starting line number (1-based) in the original markdown source */
   startLine?: number;
+  /** Pending markdown type change — prefix grayed in DOM, committed on Enter */
+  pendingTypeChange?: PendingTypeChange | null;
 }
 
 /**
@@ -420,6 +439,74 @@ export function updateBlockSource(tree: BlockTree, id: BlockId, sourceLines: str
   };
   next.version += 1;
   return next;
+}
+
+/**
+ * Commit a pending type change — strip the prefix from the first source line,
+ * apply the new block type/metadata, clear the pending marker, and invalidate
+ * the rendered HTML cache so the block re-renders in its new type.
+ *
+ * Returns the original tree unchanged if the block is missing or has no
+ * pending change.
+ *
+ * NOTE: Bumps `tree.version` (content/structure change).
+ *
+ * @param tree - The original block tree
+ * @param id - The ID of the block whose pending change to commit
+ * @returns A new BlockTree with the committed change
+ */
+export function commitPendingTypeChange(tree: BlockTree, id: BlockId): BlockTree {
+  const block = tree.blocks[id];
+  if (!block || !block.pendingTypeChange) {
+    return tree;
+  }
+
+  const pending = block.pendingTypeChange;
+  const raw = block.sourceLines[0] ?? '';
+  const stripped = raw.slice(pending.prefixLength);
+
+  const newBlock: BlockNode = {
+    ...block,
+    type: pending.newType,
+    headingLevel: pending.newType === 'heading' ? pending.headingLevel : undefined,
+    checked: pending.newType === 'task-list-item' ? pending.checked : undefined,
+    orderedIndex: pending.newType === 'ordered-list-item' ? pending.orderedIndex : undefined,
+    sourceLines: [stripped, ...block.sourceLines.slice(1)],
+    pendingTypeChange: null,
+    renderedHtml: null,
+  };
+
+  return {
+    ...tree,
+    blocks: { ...tree.blocks, [id]: newBlock },
+    version: tree.version + 1,
+  };
+}
+
+/**
+ * Clear a pending type change marker without committing it.
+ *
+ * Used when the user deletes the prefix characters (back to plain paragraph)
+ * or when an external operation (toolbar type change, mode switch) needs to
+ * discard a pending state.
+ *
+ * NOTE: Does NOT bump `tree.version` — clearing a marker is not a
+ * content/structure change, consistent with `setBlockRenderedHtml`.
+ *
+ * @param tree - The original block tree
+ * @param id - The ID of the block whose pending change to clear
+ * @returns A new BlockTree with the pending marker cleared
+ */
+export function clearPendingTypeChange(tree: BlockTree, id: BlockId): BlockTree {
+  const block = tree.blocks[id];
+  if (!block || !block.pendingTypeChange) {
+    return tree;
+  }
+
+  return {
+    ...tree,
+    blocks: { ...tree.blocks, [id]: { ...block, pendingTypeChange: null } },
+  };
 }
 
 function resolveNextTypeFromSource(currentType: BlockType, sourceLines: string[]): BlockType {

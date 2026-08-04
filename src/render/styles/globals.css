@@ -1729,22 +1729,48 @@ html.dark .code-fence-content .token.variable {
   margin: 4px 0;
 }
 
-/* Placeholder for simple blocks (paragraph, heading, blockquote, empty) */
-.editor-content-area [data-block-id][data-placeholder]:has(> br:only-child)::before,
-.editor-content-area [data-block-id][data-placeholder]:empty::before,
-.editor-content-area [data-block-id][data-placeholder][data-empty='true']::before {
-  content: attr(data-placeholder);
-  color: var(--text-muted);
-  pointer-events: none;
+/* Placeholder for simple blocks (paragraph, heading, blockquote, empty) —
+   rendered as absolute-positioned background layer so the caret appears
+   BEFORE the placeholder text, not after it. z-index: -1 within the
+   stacking context created by position: relative keeps ::before below
+   the non-positioned text content. */
+.editor-content-area [data-block-id][data-placeholder][data-empty='true'] {
+  position: relative;
 }
 
-/* Placeholder for list items (content span has only br or is empty) */
-.editor-content-area [data-block-id] > span.block-content:has(> br:only-child)::before,
-.editor-content-area [data-block-id] > span.block-content:empty::before {
+.editor-content-area [data-block-id][data-placeholder][data-empty='true']::before {
   content: attr(data-placeholder);
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
   color: var(--text-muted);
   pointer-events: none;
+  font-style: italic;
+  opacity: 0.6;
+  z-index: -1;
 }
+
+/* Placeholder for list items — same absolute-positioned background approach */
+.editor-content-area [data-block-id] > span.block-content[data-empty='true'] {
+  position: relative;
+}
+
+.editor-content-area [data-block-id] > span.block-content[data-empty='true']::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  color: var(--text-muted);
+  pointer-events: none;
+  font-style: italic;
+  opacity: 0.6;
+  z-index: -1;
+}
+
+/* Non-positioned content (inline text nodes, br, etc.) naturally stacks
+   above position: absolute with z-index: -1 in the same stacking context */
 
 /* Ensure empty contentEditable blocks show caret */
 [contenteditable] br:only-child {
@@ -1765,14 +1791,13 @@ html.dark .code-fence-content .token.variable {
   border: none !important;
 }
 
-/* Placeholder text styling (combined with placeholder rules above) */
-.editor-content-area [data-block-id][data-placeholder]:has(> br:only-child)::before,
-.editor-content-area [data-block-id][data-placeholder]:empty::before,
-.editor-content-area [data-block-id][data-placeholder][data-empty='true']::before,
-.editor-content-area [data-block-id] > span.block-content:has(> br:only-child)::before,
-.editor-content-area [data-block-id] > span.block-content:empty::before {
+/* Markdown prefix grayed styling — pending type change before Enter commit */
+.md-prefix-gray {
+  color: var(--text-muted);
   font-style: italic;
-  opacity: 0.6;
+  opacity: 0.7;
+  user-select: none;
+  pointer-events: none;
 }
 
 /* ============================================ */

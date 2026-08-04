@@ -135,6 +135,7 @@ BlockNode: { id, type, sourceLines, startLine, renderedHtml, headingLevel?, fenc
 - `renderedHtml`：缓存 DOM innerHTML，React 重渲染时通过 `dangerouslySetInnerHTML` 恢复富文本
 - `version` 语义：仅在内容/结构变更时自增；`setBlockRenderedHtml` 不自增（缓存非内容）。渲染 useEffect 依赖 `[version]`，避免缓存写入重触发 effect 导致 O(N²) 重扫
 - `lastBuiltContentRef`：内容 useEffect 据此跳过挂载时的冗余重建（`buildBlockTree` 重新生成 ID 会导致渲染 effect 捕获的旧 ID 失效）
+- `pendingTypeChange`：标记待提交的 markdown 类型转换（前缀已灰化、回车才提交）。`handleBlockInput` 设置时不 bump version/不 setBlockTree（仅 DOM 灰化），`handleBlockEnter` 提交时 bump version
 
 ### 3.3 滚动与布局
 

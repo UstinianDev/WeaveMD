@@ -18,7 +18,6 @@ const ParagraphBlock: React.FC<ParagraphBlockProps> = ({ block }) => {
       className="paragraph-block text-[14px] font-normal leading-[1.65] mb-1 text-[var(--text-primary)]"
       data-block-id={block.id}
       data-placeholder="Type something..."
-      data-empty={!text ? 'true' : undefined}
       {...(block.renderedHtml
         ? { dangerouslySetInnerHTML: { __html: block.renderedHtml } }
         : { children: text || '\u200B' })}

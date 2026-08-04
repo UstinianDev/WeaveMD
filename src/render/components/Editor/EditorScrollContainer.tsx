@@ -64,6 +64,11 @@ const getActiveBlockId = (): BlockId | null => {
   return null;
 };
 
+const getEmptyTargetEl = (blockEl: Element): Element => {
+  const contentSpan = blockEl.querySelector(':scope > span.block-content');
+  return contentSpan || blockEl;
+};
+
 const getCursorOffsetInBlock = (blockEl: Element): number => {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return 0;
@@ -266,24 +271,85 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
       [onBlockEnter, onBlockDelete]
     );
 
-    const handleFocus = useCallback((_e: React.FocusEvent<HTMLDivElement>) => {
-      const blockId = getActiveBlockId();
-      if (!blockId) return;
-
-      const blockEl = document.querySelector(`[data-block-id="${blockId}"]`);
-      if (!blockEl) return;
-
-      // If block has data-empty attribute, place cursor at the start
-      // so that user's input replaces the placeholder
-      if (blockEl.hasAttribute('data-empty')) {
-        const range = document.createRange();
-        range.selectNodeContents(blockEl);
-        range.collapse(true); // Place cursor at start
-        const selection = window.getSelection();
-        selection?.removeAllRanges();
-        selection?.addRange(range);
+    const updatePlaceholder = useCallback((preferredBlockId?: BlockId | null) => {
+      const container = scrollContainerRef.current;
+      if (!container) return;
+      // Clear data-empty from all blocks and their content spans
+      container.querySelectorAll('[data-block-id]').forEach((el) => {
+        el.removeAttribute('data-empty');
+        el.querySelectorAll(':scope > span.block-content').forEach((span) => {
+          span.removeAttribute('data-empty');
+        });
+      });
+      // Determine active block — prefer passed ID, fallback to selection
+      const activeBlockId = preferredBlockId ?? getActiveBlockId();
+      if (activeBlockId) {
+        const blockEl = container.querySelector(`[data-block-id="${activeBlockId}"]`);
+        if (blockEl) {
+          const text = blockEl.textContent?.replace(/\u200B/g, '').trim() ?? '';
+          if (text.length === 0) {
+            const targetEl = getEmptyTargetEl(blockEl);
+            targetEl.setAttribute('data-empty', 'true');
+          }
+        }
       }
     }, []);
+
+    // Update placeholder when the active selection changes (focus moves between blocks)
+    useEffect(() => {
+      const handler = () => updatePlaceholder();
+      document.addEventListener('selectionchange', handler);
+      return () => document.removeEventListener('selectionchange', handler);
+    }, [updatePlaceholder]);
+
+    // Initialize placeholder on first empty block when blocks mount/change
+    useEffect(() => {
+      const container = scrollContainerRef.current;
+      if (!container) return;
+      // Only initialize if no block currently has data-empty (avoids overriding user's focused block)
+      const hasActivePlaceholder = container.querySelector(
+        '[data-block-id][data-empty="true"], span.block-content[data-empty="true"]'
+      );
+      if (hasActivePlaceholder) return;
+      // Find the first empty block and set data-empty
+      const firstBlock = container.querySelector('[data-block-id]');
+      if (firstBlock) {
+        const text = firstBlock.textContent?.replace(/\u200B/g, '').trim() ?? '';
+        if (text.length === 0) {
+          const targetEl = getEmptyTargetEl(firstBlock);
+          targetEl.setAttribute('data-empty', 'true');
+        }
+      }
+    }, [blocks.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const handleFocus = useCallback(
+      (e: React.FocusEvent<HTMLDivElement>) => {
+        // Use event target to find block — more reliable than selection (which may not be set yet)
+        const target = e.target as HTMLElement | null;
+        const blockEl = target?.closest('[data-block-id]') as HTMLElement | null;
+        if (!blockEl) return;
+
+        const blockId = blockEl.getAttribute('data-block-id');
+        if (!blockId) return;
+
+        // Update placeholder with the known block ID
+        updatePlaceholder(blockId);
+
+        // Only force cursor to start for empty blocks; non-empty blocks keep user's click position
+        const text = blockEl.textContent?.replace(/\u200B/g, '').trim() ?? '';
+        if (text.length === 0) {
+          // Place cursor inside the content target (span.block-content for lists, block element for others)
+          const cursorTarget = getEmptyTargetEl(blockEl);
+          const range = document.createRange();
+          range.selectNodeContents(cursorTarget);
+          range.collapse(true);
+          const selection = window.getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+        }
+      },
+      [updatePlaceholder]
+    );
 
     const handleInput = useCallback(
       (_e: React.FormEvent<HTMLDivElement>) => {
@@ -294,17 +360,31 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
         const blockEl = document.querySelector(`[data-block-id="${blockId}"]`);
         if (blockEl) {
           const text = blockEl.textContent?.replace(/\u200B/g, '').trim() ?? '';
+          const targetEl = getEmptyTargetEl(blockEl);
           if (text.length > 0) {
-            blockEl.removeAttribute('data-empty');
+            targetEl.removeAttribute('data-empty');
           } else {
-            blockEl.setAttribute('data-empty', 'true');
+            targetEl.setAttribute('data-empty', 'true');
           }
         }
 
+        // Clear data-empty from other blocks so only the active block shows placeholder
+        updatePlaceholder(blockId);
         onBlockInput(blockId);
       },
-      [onBlockInput]
+      [onBlockInput, updatePlaceholder]
     );
+
+    const handleBlur = useCallback(() => {
+      const container = scrollContainerRef.current;
+      if (!container) return;
+      container.querySelectorAll('[data-block-id]').forEach((el) => {
+        el.removeAttribute('data-empty');
+        el.querySelectorAll(':scope > span.block-content').forEach((span) => {
+          span.removeAttribute('data-empty');
+        });
+      });
+    }, []);
 
     const handleClick = useCallback(
       (e: React.MouseEvent) => {
@@ -325,8 +405,15 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
             onClearMdSource?.();
           }
         }
+
+        // Update placeholder after click (selectionchange may fire late)
+        // Pass the known blockId for immediate accuracy
+        const clickedBlockId = (e.target as HTMLElement)
+          .closest('[data-block-id]')
+          ?.getAttribute('data-block-id');
+        setTimeout(() => updatePlaceholder(clickedBlockId ?? null), 0);
       },
-      [mdSourceBlockId, onClearMdSource]
+      [mdSourceBlockId, onClearMdSource, updatePlaceholder]
     );
 
     return (
@@ -349,6 +436,7 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
           onKeyDown={handleKeyDown}
           onInput={handleInput}
           onFocus={handleFocus}
+          onBlur={handleBlur}
         >
           {blocks.length === 0 ? (
             <EmptyBlock block={emptyBlockPlaceholder} />

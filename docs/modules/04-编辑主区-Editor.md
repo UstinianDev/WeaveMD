@@ -1,6 +1,6 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 版本：v4.10 | 最后更新：2026-08-03
+> 模块编号：04 | 优先级：P0 | 版本：v4.11 | 最后更新：2026-08-04
 
 ---
 
@@ -20,7 +20,8 @@ BlockNode = {
   id: BlockId, type: BlockType, sourceLines: string[],
   headingLevel?, fenceLanguage?, parentId, childrenIds,
   startLine: number,        // 1-based 起始行号，用于 lineNumber 导航映射
-  renderedHtml: string | null  // 缓存 DOM innerHTML，React 重渲染时恢复富文本格式
+  renderedHtml: string | null,  // 缓存 DOM innerHTML，React 重渲染时恢复富文本格式
+  pendingTypeChange?: PendingTypeChange | null  // 待提交的 markdown 类型转换（前缀已灰化、回车才提交）
 }
 ```
 
@@ -31,6 +32,8 @@ BlockNode = {
 - `version` 仅在**内容/结构变更**时自增（insert/remove/updateBlockSource/setFenceLanguage 等）
 - `setBlockRenderedHtml` **不**自增 version —— `renderedHtml` 是渲染缓存，非内容。渲染 useEffect 依赖 `[blockTree.version]`，缓存写入若 bump version 会中途重触发 effect、取消在途循环、从 block 0 重扫（O(N²) → 代码块高亮延迟 ~4s）
 - 渲染 effect 启动时捕获 blocks 快照，循环内逐块 `setBlockTree((prev) => setBlockRenderedHtml(prev, id, html))`
+
+**pendingTypeChange 语义**：标记待提交的 markdown 类型转换（前缀已灰化、回车才提交）。`handleBlockInput` 检测到 `# `/`- `/`1. `/`- [ ] `/`> ` 等前缀时设置该字段但**不** bump version、**不**调用 `setBlockTree`（仅直接 DOM 包裹 `.md-prefix-gray` + `focusBlockCursor` 恢复光标，避免 React 重渲染导致光标丢失）；`sourceLines` 保留完整内容（含前缀）以支持序列化。`handleBlockEnter` 调用 `commitPendingTypeChange` 提交转换（剥离前缀、设置新 type/headingLevel/checked/orderedIndex、`renderedHtml: null`、清空 pending）时 bump version 触发重渲染。`handleSyncToStore`/渲染 effect 对带 pending 的块**跳过** `renderedHtml` 更新，避免错误序列化覆盖 DOM 灰化结构。模式切换前 `syncContentBeforeToggle` 先 commit 所有 pending，确保 Source Mode 看到纯内容；`handleBlockTypeChange`（工具栏下拉）保持立即转换语义，但会清除 pending 避免冲突。
 
 **内容同步防 stale ID**：`lastBuiltContentRef` 记录当前 blockTree 对应的 content。内容 useEffect 在 `lastBuiltContentRef.current === content` 时**跳过重建**（挂载时 useState 已建树）。`buildBlockTree` 用 counter+random 生成 ID，挂载时若内容 effect 再重建会换 ID，而渲染 effect 依赖 `[version]`（同块数 → version 不变）不重触发，导致捕获的旧 ID 失效、`setBlockRenderedHtml` no-op → 初次导入代码块不高亮。
 
@@ -68,8 +71,10 @@ editorStore.content → buildBlockTree → renderMarkdownToHtml(per block)
   → BlockRenderer → 只读 block 组件 → DOM
   → 用户编辑 → onInput → debounce(30ms) → handleBlockInput
   → [code-fence 块跳过：独立 textarea 编辑路径，不运行 detectMarkdownLine]
-  → Markdown 类型检测（标题/列表/引用等） → 必要时类型转换
-  → Enter/Backspace → handleBlockEnter/handleBlockDelete
+  → 若检测到 markdown 前缀：设置 pendingTypeChange + DOM 包裹 .md-prefix-gray + focusBlockCursor 恢复光标（不 setBlockTree、不 bump version）
+  → 前缀删除：清除 pendingTypeChange + unwrap 灰化 span
+  → Enter → handleBlockEnter 优先提交 pending（commitPendingTypeChange 剥离前缀、转类型、renderedHtml:null）→ 无 pending 时维持分割逻辑
+  → Backspace → handleBlockDelete
   → pushUndo → syncTreeToStore → editorStore.updateContent()
   → 工具栏操作 → afterFormat → handleSyncToStore
   → [code-fence 块跳过：仅更新 renderedHtml，不重建 sourceLines]
@@ -125,7 +130,9 @@ FindReplaceBar → searchEngine.findAllMatches(content) → 匹配高亮
 | **浮动工具栏**   | 选中文本时显示；Toggle 格式化（Bold/Italic/Underline/Strikethrough/Highlight/InlineCode/Link/Comment），使用 `document.execCommand` + DOM 直接操作实现实时渲染；MD Source 显示/隐藏 Markdown 源码；全组件 i18n 接入（tooltip + 结构选项 labelKey）；格式按钮 36×32px（w-9 h-8）触控目标、text-sm 字号；超链接：点 Link 隐藏工具栏开 Modal（Modal 移出 `!isVisible` 守卫始终渲染，修复工具栏永久消失），edit 模式含"移除链接"按钮，Ctrl/Cmd+click 经 IPC 打开外部链接（`will-navigate` 守卫），hover 显示 Word 风格蓝色 tooltip |
 | **实时渲染**     | `dangerouslySetInnerHTML` + `BlockNode.renderedHtml` 存储 DOM HTML，React 重渲染时恢复富文本格式，支持多属性叠加                                                                                                                                                                                                                                                                                                                                                                                                               |
 | **跨块选择**     | 容器级 contentEditable，支持跨段落/标题选择                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| **空块占位**     | 零宽空格 `\u200B` + CSS `::before` 显示 "Type something..."                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| **空块占位**     | 仅聚焦空块显示；`EditorScrollContainer` 通过 `updatePlaceholder(preferredBlockId)` + `selectionchange` 监听动态管理 `data-empty`（清除全部 → 仅给当前活跃空块或其 `span.block-content` 设置）；`handleFocus` 用 `e.target.closest` 定位块（避免 selection 时序问题）；失焦 `onBlur` 清除；底层零宽空格 `\u200B` + CSS `::before` **绝对定位背景层**（`position:absolute; z-index:-1`），光标在文本 position 0 自然显示在占位符之前 |
+| **MD 前缀灰化**  | 输入 `# `/`- `/`1. `/`- [ ] `/`> ` 时前缀变灰（`.md-prefix-gray`：灰色斜体 0.7 透明度 `user-select:none`），块类型不变，回车才提交渲染；删除前缀字符则清除 `pendingTypeChange` + unwrap 灰化 span                                                                                                                                                                                                                                                                                                                              |
+| **结构转换**     | 延迟到回车提交；`handleBlockInput` 检测前缀仅设置 `pendingTypeChange` + DOM 灰化（不 `setBlockTree`、不 bump version），`handleBlockEnter` 调用 `commitPendingTypeChange` 剥离前缀并转换类型；工具栏下拉 `handleBlockTypeChange` 保持立即转换但清除 pending                                                                                                                                                                                                                                                                    |
 | **自动保存**     | 1200ms debounce；关闭/切换文件前 flush                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | **撤销/重做**    | 自定义栈，50 条上限，跨会话保留；段落增删手动 pushUndo                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | **光标管理**     | TreeWalker 遍历 DOM 文本节点，支持零宽空格偏移计算                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
