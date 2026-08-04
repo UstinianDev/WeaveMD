@@ -1,6 +1,6 @@
 # WeaveMD 技术选型文档
 
-> 版本：v2.2 | 最后更新：2026-08-03
+> 版本：v2.3 | 最后更新：2026-08-04
 
 ---
 
@@ -136,6 +136,7 @@ BlockNode: { id, type, sourceLines, startLine, renderedHtml, headingLevel?, fenc
 - `version` 语义：仅在内容/结构变更时自增；`setBlockRenderedHtml` 不自增（缓存非内容）。渲染 useEffect 依赖 `[version]`，避免缓存写入重触发 effect 导致 O(N²) 重扫
 - `lastBuiltContentRef`：内容 useEffect 据此跳过挂载时的冗余重建（`buildBlockTree` 重新生成 ID 会导致渲染 effect 捕获的旧 ID 失效）
 - `pendingTypeChange`：标记待提交的 markdown 类型转换（前缀已灰化、回车才提交）。`handleBlockInput` 设置时不 bump version/不 setBlockTree（仅 DOM 灰化），`handleBlockEnter` 提交时 bump version
+- `lineMarkdown.ts` 前缀检测正则 `[ \t\u00A0]` 支持非断行空格（U+00A0，中文输入法产生）；`handleBlockEnter` 无 pending 时回退 `detectMarkdownLine`（防抖未触发场景）；渲染 effect 对 heading/list 按类型重建带前缀 markdown 再渲染
 
 ### 3.3 滚动与布局
 

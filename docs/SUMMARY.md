@@ -1,6 +1,6 @@
 # WeaveMD 项目总结文档
 
-> 版本：v3.1 | 最后更新：2026-08-04
+> 版本：v3.2 | 最后更新：2026-08-04
 
 ---
 
@@ -82,7 +82,7 @@
 | ----------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 加载页面 (Splash) | [modules/01-加载页面-Splash.md](./modules/01-加载页面-Splash.md)             | 启动动画、CSS 动画序列、提前跳转机制                                                                                                                                                                     |
 | 认证系统          | [modules/02-认证系统-Auth.md](./modules/02-认证系统-Auth.md)                 | 注册/登录流程、JWT 生成、会话恢复、账号切换/删除、交互式吉祥物                                                                                                                                           |
-| 顶部导航栏        | [modules/03-顶部导航栏-Navbar.md](./modules/03-顶部导航栏-Navbar.md)         | 布局结构、File/Help/History/View 菜单、CreateDialog 弹窗（新建文件/文件夹）、删除文件夹从侧栏选中项、文件系统同步；菜单触发器统一使用 `.navbar-menu-trigger` 样式类                                       |
+| 顶部导航栏        | [modules/03-顶部导航栏-Navbar.md](./modules/03-顶部导航栏-Navbar.md)         | 布局结构、File/Help/History/View 菜单、CreateDialog 弹窗（新建文件/文件夹）、删除文件夹从侧栏选中项、文件系统同步；菜单触发器统一使用 `.navbar-menu-trigger` 样式类                                      |
 | 编辑主区          | [modules/04-编辑主区-Editor.md](./modules/04-编辑主区-Editor.md)             | 双模式架构、Block Tree、浮动工具栏、文件系统实时同步、文件删除空状态、侧边栏Tab切换（目录/文件）、文件树累积展示、Minimap、FindReplaceBar、目录导航+动态高亮、可拖拽目录/历史面板宽度、自动保存/撤销重做 |
 | 设置界面          | [modules/05-设置界面-Settings.md](./modules/05-设置界面-Settings.md)         | 语言选择、主题切换、自定义主题、账号管理                                                                                                                                                                 |
 | 窗口控制          | [modules/06-窗口控制-Window.md](./modules/06-窗口控制-Window.md)             | frameless 窗口配置、IPC 通道、拖拽区域                                                                                                                                                                   |
@@ -124,6 +124,7 @@
 - **Find & Replace**：Typora 风格 inline bar，双模式通用。
 - **核心字段**：`BlockNode.startLine`（1-based，目录导航映射）、`renderedHtml`（缓存 DOM HTML，重渲染恢复富文本）。
 - **列表块**：`resolveNextTypeFromSource` 基于 `detectMarkdownLine` 做 heading/task/ordered/unordered 前缀识别；`ListItemBlock.getVisibleText` 正则按 task > ordered > unordered 顺序剥离，避免 `- [ ] ` 残留 `[ ]`。
+- **Markdown 前缀输入**：输入 `# `/`- `/`1. `/`> ` 等前缀瞬间变灰（`pendingTypeChange` + DOM `.md-prefix-gray`，不触发 React 重渲染），回车才提交转换渲染。前缀分隔符正则 `[ \t\u00A0]` 支持非断行空格（U+00A0，中文输入法产生）；回车时即使防抖未触发也回退检测前缀；渲染 effect 按类型重建带前缀 markdown。
 - **性能**：滚动 padding 移至内层；`version` 仅在内容/结构变更时自增（`setBlockRenderedHtml` 不自增）；`lastBuiltContentRef` 跳过挂载冗余重建。
 
 **目录导航与高亮**：

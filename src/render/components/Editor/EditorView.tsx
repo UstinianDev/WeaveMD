@@ -450,8 +450,27 @@ const EditorView: React.FC<EditorViewProps> = ({
           }
         }
 
-        const markdown = block.sourceLines.join('\n');
+        // Reconstruct markdown with prefix for typed blocks (heading/list/etc.)
+        // because sourceLines was stripped of prefix during commit.
+        let markdown: string;
+        if (block.type === 'heading') {
+          const prefix = '#'.repeat(block.headingLevel ?? 1) + ' ';
+          markdown = prefix + block.sourceLines.join('\n');
+        } else if (block.type === 'unordered-list-item') {
+          markdown = '- ' + block.sourceLines.join('\n');
+        } else if (block.type === 'ordered-list-item') {
+          const idx = block.orderedIndex ?? 1;
+          markdown = `${idx}. ` + block.sourceLines.join('\n');
+        } else if (block.type === 'task-list-item') {
+          const checked = block.checked ? 'x' : ' ';
+          markdown = `- [${checked}] ` + block.sourceLines.join('\n');
+        } else if (block.type === 'blockquote') {
+          markdown = '> ' + block.sourceLines.join('\n');
+        } else {
+          markdown = block.sourceLines.join('\n');
+        }
         if (markdown.trim() === '') continue;
+
         try {
           const htmlRaw = await renderMarkdownToHtml(markdown);
           const html = normalizeRenderedHtml(block.type, htmlRaw);
@@ -534,17 +553,14 @@ const EditorView: React.FC<EditorViewProps> = ({
       block.type === 'task-list-item'
     ) {
       const contentEl = blockEl.querySelector('span.block-content');
-      return contentEl?.textContent?.replace(/\u200B/g, '').trim() ?? '';
+      // NOTE: No .trim() — trailing spaces matter for prefix detection
+      return contentEl?.textContent?.replace(/\u200B/g, '') ?? '';
     }
     if (block.type === 'blockquote') {
-      return (
-        blockEl.textContent
-          ?.replace(/^\s*>?\s*/, '')
-          .replace(/\u200B/g, '')
-          .trim() ?? ''
-      );
+      // NOTE: No .trim() at the end — trailing spaces matter for prefix detection
+      return blockEl.textContent?.replace(/^\s*>?\s*/, '').replace(/\u200B/g, '') ?? '';
     }
-    // For heading, strip markdown prefix from DOM text
+    // For heading, strip markdown prefix from DOM text but preserve trailing spaces
     if (block.type === 'heading') {
       let text = blockEl.textContent ?? '';
       // Strip heading prefix: "# ", "## ", etc.
@@ -558,9 +574,11 @@ const EditorView: React.FC<EditorViewProps> = ({
       }
       // Strip zero-width space
       text = text.replace(/\u200B/g, '');
-      return text.trim();
+      // NOTE: No .trim() — preserve trailing spaces
+      return text;
     }
-    return blockEl.textContent?.replace(/\u200B/g, '').trim() ?? '';
+    // NOTE: No .trim() — trailing spaces matter for prefix detection
+    return blockEl.textContent?.replace(/\u200B/g, '') ?? '';
   }, []);
 
   const buildSourceLinesFromContent = useCallback((block: BlockNode, text: string): string[] => {
@@ -911,12 +929,12 @@ const EditorView: React.FC<EditorViewProps> = ({
   const getPrefixLength = useCallback(
     (content: string, detection: MarkdownLineDetection): number => {
       let m: RegExpMatchArray | null;
-      if (detection.type === 'heading') m = content.match(/^#{1,6}[ \t]+/);
+      if (detection.type === 'heading') m = content.match(/^#{1,6}[ \t\u00A0]+/);
       else if (detection.type === 'task-list-item')
-        m = content.match(/^[-*+][ \t]+\[[ xX]\][ \t]+/);
-      else if (detection.type === 'unordered-list-item') m = content.match(/^[-*+][ \t]+/);
-      else if (detection.type === 'ordered-list-item') m = content.match(/^\d+[.)][ \t]+/);
-      else if (detection.type === 'blockquote') m = content.match(/^>[ \t]+/);
+        m = content.match(/^[-*+][ \t\u00A0]+\[[ xX\u00A0]\][ \t\u00A0]+/);
+      else if (detection.type === 'unordered-list-item') m = content.match(/^[-*+][ \t\u00A0]+/);
+      else if (detection.type === 'ordered-list-item') m = content.match(/^\d+[.)][ \t\u00A0]+/);
+      else if (detection.type === 'blockquote') m = content.match(/^>[ \t\u00A0]+/);
       else m = null;
       return m ? m[0].length : 0;
     },
@@ -1108,7 +1126,7 @@ const EditorView: React.FC<EditorViewProps> = ({
           syncTreeToStore(next);
           // No setBlockTree for plain text edits (original behavior)
         }
-      }, 30);
+      }, 0);
     },
     [
       syncTreeToStore,
@@ -1170,13 +1188,11 @@ const EditorView: React.FC<EditorViewProps> = ({
       // If the block has a pending markdown-prefix type change (set by
       // handleBlockInput when the user typed e.g. "# "), commit it now:
       // strip the prefix from beforeText and apply the new type. Otherwise
-      // (no pending) this is a plain paragraph split — keep the original
-      // type and just keep beforeText as content. Note: the old
-      // detectMarkdownLine(beforeText) + immediate typeChanged conversion
-      // is intentionally removed; real-time conversion is now handled by
-      // the pending mechanism in handleBlockInput.
+      // (no pending) check for markdown prefix as fallback (debounce may
+      // not have fired if user typed fast), then commit if found.
       let updatedBlock: BlockNode;
       const pending = currentBlock.pendingTypeChange;
+
       if (pending) {
         const strippedBefore = beforeText.slice(pending.prefixLength);
         updatedBlock = {
@@ -1190,12 +1206,30 @@ const EditorView: React.FC<EditorViewProps> = ({
           renderedHtml: null,
         };
       } else {
-        const newSourceLines = buildSourceLinesFromContent(currentBlock, beforeText);
-        updatedBlock = {
-          ...currentBlock,
-          sourceLines: newSourceLines,
-          renderedHtml: null,
-        };
+        // Fallback: no pending was set (debounce may not have fired).
+        // Check for markdown prefix directly and commit if found.
+        const detection = detectMarkdownLine(beforeText);
+        if (detection && detection.type !== currentBlock.type) {
+          const prefixLength = getPrefixLength(beforeText, detection);
+          const strippedBefore = beforeText.slice(prefixLength);
+          updatedBlock = {
+            ...currentBlock,
+            type: detection.type,
+            headingLevel: detection.type === 'heading' ? detection.headingLevel : undefined,
+            checked: detection.type === 'task-list-item' ? detection.isChecked : undefined,
+            orderedIndex:
+              detection.type === 'ordered-list-item' ? detection.orderedIndex : undefined,
+            sourceLines: [strippedBefore],
+            renderedHtml: null,
+          };
+        } else {
+          const newSourceLines = buildSourceLinesFromContent(currentBlock, beforeText);
+          updatedBlock = {
+            ...currentBlock,
+            sourceLines: newSourceLines,
+            renderedHtml: null,
+          };
+        }
       }
 
       // Build new block with afterText
