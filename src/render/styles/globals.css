@@ -210,6 +210,13 @@ body {
   word-spacing: 0.05em;
 }
 
+/* --- Navbar Menu Trigger --- */
+.navbar-menu-trigger {
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  word-spacing: 0.1em;
+}
+
 /* --- File Tree Panel --- */
 .file-tree-node {
   letter-spacing: 0.02em;

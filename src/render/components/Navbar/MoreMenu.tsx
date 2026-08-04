@@ -30,7 +30,7 @@ const MoreMenu: React.FC<MoreMenuProps> = ({ onFindReplace, onEditHistory }) => 
   return (
     <Dropdown
       trigger={
-        <span className="text-sm text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] transition-colors cursor-pointer select-none px-1">
+        <span className="navbar-menu-trigger text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] transition-colors cursor-pointer select-none px-1">
           ⋮
         </span>
       }
