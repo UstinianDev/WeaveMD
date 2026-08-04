@@ -41,7 +41,11 @@ const ListItemBlock: React.FC<ListItemBlockProps> = ({ block }) => {
         >
           {block.checked ? '✓' : ''}
         </span>
-        <span className="block-content flex-1 text-[14px] leading-[1.65]" {...contentProps} />
+        <span
+          className="block-content flex-1 text-[14px] leading-[1.65]"
+          data-placeholder="Type something..."
+          {...contentProps}
+        />
       </div>
     );
   }
@@ -58,7 +62,11 @@ const ListItemBlock: React.FC<ListItemBlockProps> = ({ block }) => {
         >
           {block.orderedIndex ?? 1}.
         </span>
-        <span className="block-content flex-1 text-[14px] leading-[1.65]" {...contentProps} />
+        <span
+          className="block-content flex-1 text-[14px] leading-[1.65]"
+          data-placeholder="Type something..."
+          {...contentProps}
+        />
       </div>
     );
   }
@@ -75,7 +83,11 @@ const ListItemBlock: React.FC<ListItemBlockProps> = ({ block }) => {
       >
         {'•'}
       </span>
-      <span className="block-content flex-1 text-[14px] leading-[1.65]" {...contentProps} />
+      <span
+        className="block-content flex-1 text-[14px] leading-[1.65]"
+        data-placeholder="Type something..."
+        {...contentProps}
+      />
     </div>
   );
 };

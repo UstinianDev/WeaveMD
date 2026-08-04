@@ -19,7 +19,6 @@ const EmptyBlock: React.FC<EmptyBlockProps> = ({ block }) => {
                  text-[var(--text-primary)]"
       data-block-id={block.id}
       data-placeholder="Type something..."
-      data-empty="true"
     >
       {'\u200B'}
     </div>

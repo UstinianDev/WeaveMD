@@ -40,8 +40,8 @@
 | EDIT-07 | 撤销/重做              | P0     | Ctrl+Z/Y，50 条上限，跨会话保留                                                                                           |
 | EDIT-08 | 自动保存               | P0     | 1200ms debounce，关闭/切换前 flush                                                                                        |
 | EDIT-09 | 代码块                 | P0     | 语言下拉选择 + 复制按钮；Prism 语法高亮（初次导入即高亮，切换语言后快速重高亮）；编辑通过 Source Code Mode（双击已禁用）  |
-| EDIT-10 | 空块占位               | P0     | 零宽空格 + CSS ::before 显示 "Type something..."                                                                          |
-| EDIT-11 | 结构转换               | P1     | 浮动工具栏下拉：正文↔H1~H4↔引用↔有序列表↔无序列表↔任务列表，类型由 resolveNextTypeFromSource 基于 detectMarkdownLine 检测 |
+| EDIT-10 | 空块占位               | P0     | 零宽空格 + CSS `::before`（绝对定位背景层 `z-index:-1`）显示 "Type something..."；仅聚焦空块显示，光标在占位符前；输入消失、删光恢复、失焦清除 |
+| EDIT-11 | 结构转换               | P1     | 浮动工具栏下拉：正文↔H1~H4↔引用↔有序列表↔无序列表↔任务列表。输入 `# `/`- `/`1. `/`- [ ] `/`> ` 前缀变灰（pendingTypeChange），回车才提交渲染；工具栏下拉立即转换 |
 | EDIT-12 | 超链接交互             | P1     | 点 Link 隐藏工具栏开 Modal；edit 模式含"移除链接"按钮；Ctrl/Cmd+click 经 IPC 在系统浏览器打开；hover 蓝色 tooltip         |
 
 ### 3.3 导航与定位 (P0)

@@ -19,6 +19,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { BlockId, BlockNode, BlockTree } from '../../services/blockTree';
 import {
+  clearPendingTypeChange,
+  commitPendingTypeChange,
   generateBlockId,
   getAllBlocksInOrder,
   getBlock,
@@ -30,7 +32,7 @@ import {
 } from '../../services/blockTree';
 import { buildBlockTree } from '../../services/blockTreeBuilder';
 import { serializeBlockTree } from '../../services/blockTreeSerializer';
-import { detectMarkdownLine } from '../../services/lineMarkdown';
+import { detectMarkdownLine, type MarkdownLineDetection } from '../../services/lineMarkdown';
 import { extractOutline, renderMarkdownToHtml, type OutlineItem } from '../../services/markdown';
 import { useEditorStore } from '../../stores/editorStore';
 import { useUIStore } from '../../stores/uiStore';
@@ -431,6 +433,15 @@ const EditorView: React.FC<EditorViewProps> = ({
         if (cancelled) return;
         if (block.renderedHtml !== null) continue;
 
+        // Skip blocks with a pending markdown-prefix type change: their
+        // sourceLines still contain the prefix (e.g. "# Hello") and the
+        // DOM is showing the grayed prefix wrapper. Rendering markdown
+        // here would overwrite the gray structure with a rendered block.
+        // The pending change is committed on Enter / mode toggle / toolbar
+        // type change, which sets renderedHtml:null and re-triggers this
+        // effect to render the committed block.
+        if (block.pendingTypeChange) continue;
+
         // Skip plain paragraphs without inline markdown — they display as raw text
         if (block.type === 'paragraph') {
           const text = block.sourceLines.join(' ');
@@ -644,6 +655,25 @@ const EditorView: React.FC<EditorViewProps> = ({
         const pendingBlockId = pendingInputBlockIdRef.current;
         pendingInputBlockIdRef.current = null;
 
+        // Commit any pending markdown-prefix type changes BEFORE syncing
+        // DOM → store. This ensures Source Mode sees the converted block
+        // types (heading/list/etc.) rather than paragraphs with grayed
+        // prefixes. commitPendingTypeChange bumps version + sets
+        // renderedHtml:null, so we must update blockTreeRef + setBlockTree
+        // to keep React state in sync.
+        let tree = blockTreeRef.current;
+        let pendingChanged = false;
+        for (const bid of tree.rootBlockIds) {
+          if (tree.blocks[bid]?.pendingTypeChange) {
+            tree = commitPendingTypeChange(tree, bid);
+            pendingChanged = true;
+          }
+        }
+        if (pendingChanged) {
+          blockTreeRef.current = tree;
+          setBlockTree(tree);
+        }
+
         const container = document.querySelector('.editor-content-area');
         if (container) {
           const blocks = getAllBlocksInOrder(blockTreeRef.current);
@@ -817,6 +847,122 @@ const EditorView: React.FC<EditorViewProps> = ({
   );
 
   // ============================================
+  // Cursor Helper: Place cursor at offset in block
+  // ============================================
+
+  const focusBlockCursor = useCallback((blockId: BlockId, offset: number) => {
+    setTimeout(() => {
+      const blockEl = document.querySelector(`[data-block-id="${blockId}"]`);
+      if (!blockEl) return;
+
+      // Strategy 1: Find text nodes and place cursor at offset
+      // Handle \u200B (zero-width space) correctly
+      const textWalker = document.createTreeWalker(blockEl, NodeFilter.SHOW_TEXT);
+      let remaining = offset;
+      let textNode: Text | null = null;
+
+      while ((textNode = textWalker.nextNode() as Text | null) !== null) {
+        const nodeValue = textNode.nodeValue ?? '';
+        // Calculate effective length excluding zero-width space
+        const zwspCount = (nodeValue.match(/\u200B/g) || []).length;
+        const effectiveLength = nodeValue.length - zwspCount;
+
+        if (remaining <= effectiveLength) {
+          // Find the actual position in the text node (skip \u200B characters)
+          let charCount = 0;
+          let position = 0;
+
+          for (let i = 0; i < nodeValue.length; i++) {
+            if (nodeValue[i] !== '\u200B') {
+              charCount++;
+            }
+            if (charCount >= remaining) {
+              position = i + 1;
+              break;
+            }
+          }
+
+          const r = document.createRange();
+          r.setStart(textNode, position || 0);
+          r.collapse(true);
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(r);
+          return;
+        }
+        remaining -= effectiveLength;
+      }
+
+      // Strategy 2: Cursor at start of block (handles empty blocks with only \u200B)
+      const r = document.createRange();
+      r.selectNodeContents(blockEl);
+      r.collapse(true);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(r);
+    }, 0);
+  }, []);
+
+  // ============================================
+  // Prefix Gray Helpers (DOM-level markdown prefix wrapping)
+  // ============================================
+
+  // Compute markdown prefix length (including trailing space)
+  const getPrefixLength = useCallback(
+    (content: string, detection: MarkdownLineDetection): number => {
+      let m: RegExpMatchArray | null;
+      if (detection.type === 'heading') m = content.match(/^#{1,6}[ \t]+/);
+      else if (detection.type === 'task-list-item')
+        m = content.match(/^[-*+][ \t]+\[[ xX]\][ \t]+/);
+      else if (detection.type === 'unordered-list-item') m = content.match(/^[-*+][ \t]+/);
+      else if (detection.type === 'ordered-list-item') m = content.match(/^\d+[.)][ \t]+/);
+      else if (detection.type === 'blockquote') m = content.match(/^>[ \t]+/);
+      else m = null;
+      return m ? m[0].length : 0;
+    },
+    []
+  );
+
+  // Wrap the in-block prefix in a gray span (DOM op, no React re-render)
+  const wrapPrefixInGray = useCallback((blockEl: Element, prefixLength: number) => {
+    // 1. Remove existing gray spans, merge text
+    blockEl.querySelectorAll('.md-prefix-gray').forEach((s) => {
+      const t = document.createTextNode(s.textContent || '');
+      s.replaceWith(t);
+    });
+    blockEl.normalize();
+    // 2. Take the first text node
+    const firstText = Array.from(blockEl.childNodes).find((n) => n.nodeType === Node.TEXT_NODE) as
+      Text | undefined;
+    if (!firstText) return;
+    const full = firstText.nodeValue || '';
+    // Exclude leading zero-width space
+    const zwspPrefix = full.startsWith('\u200B') ? '\u200B' : '';
+    const realText = zwspPrefix ? full.slice(1) : full;
+    if (realText.length < prefixLength) return;
+    const prefix = realText.slice(0, prefixLength);
+    const rest = realText.slice(prefixLength);
+    const span = document.createElement('span');
+    span.className = 'md-prefix-gray';
+    span.textContent = prefix;
+    // Replace: zwsp(optional) + span + rest
+    const frag = document.createDocumentFragment();
+    if (zwspPrefix) frag.appendChild(document.createTextNode(zwspPrefix));
+    frag.appendChild(span);
+    frag.appendChild(document.createTextNode(rest));
+    blockEl.replaceChild(frag, firstText);
+  }, []);
+
+  // Remove gray span (when prefix is deleted)
+  const unwrapGray = useCallback((blockEl: Element) => {
+    blockEl.querySelectorAll('.md-prefix-gray').forEach((s) => {
+      const t = document.createTextNode(s.textContent || '');
+      s.replaceWith(t);
+    });
+    blockEl.normalize();
+  }, []);
+
+  // ============================================
   // Block Input Handler (Real-time Markdown detection)
   // ============================================
 
@@ -879,165 +1025,102 @@ const EditorView: React.FC<EditorViewProps> = ({
 
         const newContent = getBlockTextContent(block, blockEl);
         const detection = detectMarkdownLine(newContent);
-        const typeChanged = !!(detection && detection.type !== block.type);
+        const hasPrefix = !!(detection && detection.type !== block.type);
 
-        // Build updated block
-        let updatedBlock: BlockNode;
-        if (typeChanged && detection) {
-          updatedBlock = {
-            ...block,
-            type: detection.type,
-            sourceLines: [newContent],
-            headingLevel: detection.headingLevel,
-            checked: detection.isChecked,
-            orderedIndex: detection.orderedIndex,
-            renderedHtml: getBlockRenderedHtml(block, blockEl),
-          };
-        } else if (block.type !== 'paragraph') {
-          updatedBlock = {
-            ...block,
-            sourceLines: buildSourceLinesFromContent(block, newContent),
-            renderedHtml: getBlockRenderedHtml(block, blockEl),
-          };
-        } else {
-          updatedBlock = {
+        // Read whether the block already had a pending prefix change
+        const hadPending = !!block.pendingTypeChange;
+
+        if (hasPrefix && detection) {
+          // Markdown prefix detected → set/update pendingTypeChange WITHOUT
+          // changing block.type, WITHOUT calling setBlockTree (avoid React
+          // re-render which would lose the caret), WITHOUT bumping version.
+          // The prefix is grayed via direct DOM wrapping.
+          const prefixLength = getPrefixLength(newContent, detection);
+          const updatedBlock: BlockNode = {
             ...block,
             sourceLines: [newContent],
-            renderedHtml: getBlockRenderedHtml(block, blockEl),
+            pendingTypeChange: {
+              newType: detection.type,
+              headingLevel: detection.headingLevel,
+              checked: detection.isChecked,
+              orderedIndex: detection.orderedIndex,
+              prefixLength,
+            },
+            // renderedHtml left untouched — preserve current DOM gray structure
           };
-        }
+          const next: BlockTree = {
+            ...prev,
+            blocks: { ...prev.blocks, [id]: updatedBlock },
+          };
+          blockTreeRef.current = next;
+          syncTreeToStore(next);
 
-        const next: BlockTree = {
-          ...prev,
-          blocks: { ...prev.blocks, [id]: updatedBlock },
-          version: prev.version + 1,
-        };
-
-        // Always update ref immediately
-        blockTreeRef.current = next;
-
-        syncTreeToStore(next);
-
-        // CRITICAL: Only call setBlockTree when block TYPE changes
-        // For plain text edits, React must NOT re-render the block
-        // because it would replace the DOM node user is actively editing
-        if (typeChanged) {
-          setBlockTree(next);
-
-          // Save cursor before type-change re-render
+          // DOM gray wrap + caret restore. Compute caret offset BEFORE wrapping
+          // (after wrap the text node splits change traversal offsets).
           const selection = window.getSelection();
-          let savedOffset = 0;
+          let cursorOffset = 0;
           if (selection && selection.rangeCount > 0) {
             const range = selection.getRangeAt(0);
             const preRange = range.cloneRange();
             preRange.selectNodeContents(blockEl);
             preRange.setEnd(range.endContainer, range.endOffset);
-            savedOffset = preRange.toString().length;
+            cursorOffset = preRange.toString().replace(/\u200B/g, '').length;
           }
-
-          setTimeout(() => {
-            const newBlockEl = document.querySelector(`[data-block-id="${id}"]`);
-            if (!newBlockEl) return;
-            // Strategy 1: Find text nodes
-            const walker = document.createTreeWalker(newBlockEl, NodeFilter.SHOW_TEXT);
-            let remaining = savedOffset;
-            let textNode: Text | null = null;
-            while ((textNode = walker.nextNode() as Text | null) !== null) {
-              if (remaining <= textNode.length) {
-                const r = document.createRange();
-                r.setStart(textNode, Math.min(remaining, textNode.length));
-                r.collapse(true);
-                const sel = window.getSelection();
-                sel?.removeAllRanges();
-                sel?.addRange(r);
-                return;
-              }
-              remaining -= textNode.length;
-            }
-            // Strategy 2: Look for <br /> elements
-            const brWalker = document.createTreeWalker(newBlockEl, NodeFilter.SHOW_ELEMENT);
-            let brEl: Element | null = null;
-            while ((brEl = brWalker.nextNode() as Element | null) !== null) {
-              if (brEl.tagName === 'BR') {
-                const r = document.createRange();
-                r.setStartBefore(brEl);
-                r.collapse(true);
-                const sel = window.getSelection();
-                sel?.removeAllRanges();
-                sel?.addRange(r);
-                return;
-              }
-            }
-            // Strategy 3: Cursor at start
-            const r = document.createRange();
-            r.selectNodeContents(newBlockEl);
-            r.collapse(true);
-            const sel = window.getSelection();
-            sel?.removeAllRanges();
-            sel?.addRange(r);
-          }, 0);
+          wrapPrefixInGray(blockEl, prefixLength);
+          focusBlockCursor(id, cursorOffset);
+        } else if (hadPending && !hasPrefix) {
+          // Previous had pending prefix; user removed prefix chars → clear
+          // pending + remove gray wrapping (no version bump, no setBlockTree).
+          const updatedBlock: BlockNode = {
+            ...block,
+            sourceLines: [newContent],
+            pendingTypeChange: null,
+          };
+          const next: BlockTree = {
+            ...prev,
+            blocks: { ...prev.blocks, [id]: updatedBlock },
+          };
+          blockTreeRef.current = next;
+          syncTreeToStore(next);
+          unwrapGray(blockEl);
+        } else {
+          // Plain text input (no prefix, no pending) — preserve original logic
+          let updatedBlock: BlockNode;
+          if (block.type !== 'paragraph') {
+            updatedBlock = {
+              ...block,
+              sourceLines: buildSourceLinesFromContent(block, newContent),
+              renderedHtml: getBlockRenderedHtml(block, blockEl),
+            };
+          } else {
+            updatedBlock = {
+              ...block,
+              sourceLines: [newContent],
+              renderedHtml: getBlockRenderedHtml(block, blockEl),
+            };
+          }
+          const next: BlockTree = {
+            ...prev,
+            blocks: { ...prev.blocks, [id]: updatedBlock },
+            version: prev.version + 1,
+          };
+          blockTreeRef.current = next;
+          syncTreeToStore(next);
+          // No setBlockTree for plain text edits (original behavior)
         }
       }, 30);
     },
-    [syncTreeToStore, buildSourceLinesFromContent, getBlockTextContent, getBlockRenderedHtml]
+    [
+      syncTreeToStore,
+      buildSourceLinesFromContent,
+      getBlockTextContent,
+      getBlockRenderedHtml,
+      getPrefixLength,
+      wrapPrefixInGray,
+      unwrapGray,
+      focusBlockCursor,
+    ]
   );
-
-  // ============================================
-  // Cursor Helper: Place cursor at offset in block
-  // ============================================
-
-  const focusBlockCursor = useCallback((blockId: BlockId, offset: number) => {
-    setTimeout(() => {
-      const blockEl = document.querySelector(`[data-block-id="${blockId}"]`);
-      if (!blockEl) return;
-
-      // Strategy 1: Find text nodes and place cursor at offset
-      // Handle \u200B (zero-width space) correctly
-      const textWalker = document.createTreeWalker(blockEl, NodeFilter.SHOW_TEXT);
-      let remaining = offset;
-      let textNode: Text | null = null;
-
-      while ((textNode = textWalker.nextNode() as Text | null) !== null) {
-        const nodeValue = textNode.nodeValue ?? '';
-        // Calculate effective length excluding zero-width space
-        const zwspCount = (nodeValue.match(/\u200B/g) || []).length;
-        const effectiveLength = nodeValue.length - zwspCount;
-
-        if (remaining <= effectiveLength) {
-          // Find the actual position in the text node (skip \u200B characters)
-          let charCount = 0;
-          let position = 0;
-
-          for (let i = 0; i < nodeValue.length; i++) {
-            if (nodeValue[i] !== '\u200B') {
-              charCount++;
-            }
-            if (charCount >= remaining) {
-              position = i + 1;
-              break;
-            }
-          }
-
-          const r = document.createRange();
-          r.setStart(textNode, position || 0);
-          r.collapse(true);
-          const sel = window.getSelection();
-          sel?.removeAllRanges();
-          sel?.addRange(r);
-          return;
-        }
-        remaining -= effectiveLength;
-      }
-
-      // Strategy 2: Cursor at start of block (handles empty blocks with only \u200B)
-      const r = document.createRange();
-      r.selectNodeContents(blockEl);
-      r.collapse(true);
-      const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(r);
-    }, 0);
-  }, []);
 
   // ============================================
   // Block Enter Handler (Create new paragraph)
@@ -1083,20 +1166,27 @@ const EditorView: React.FC<EditorViewProps> = ({
       const beforeText = fullContent.slice(0, cursorOffset);
       const afterText = fullContent.slice(cursorOffset);
 
-      // Detect Markdown on the current block (beforeText) for type conversion
-      const detection = detectMarkdownLine(beforeText);
-      const typeChanged = !!(detection && detection.type !== currentBlock.type);
-
-      // Build updated current block
+      // Build updated current block.
+      // If the block has a pending markdown-prefix type change (set by
+      // handleBlockInput when the user typed e.g. "# "), commit it now:
+      // strip the prefix from beforeText and apply the new type. Otherwise
+      // (no pending) this is a plain paragraph split — keep the original
+      // type and just keep beforeText as content. Note: the old
+      // detectMarkdownLine(beforeText) + immediate typeChanged conversion
+      // is intentionally removed; real-time conversion is now handled by
+      // the pending mechanism in handleBlockInput.
       let updatedBlock: BlockNode;
-      if (typeChanged && detection) {
+      const pending = currentBlock.pendingTypeChange;
+      if (pending) {
+        const strippedBefore = beforeText.slice(pending.prefixLength);
         updatedBlock = {
           ...currentBlock,
-          type: detection.type,
-          sourceLines: [beforeText],
-          headingLevel: detection.headingLevel,
-          checked: detection.isChecked,
-          orderedIndex: detection.orderedIndex,
+          type: pending.newType,
+          headingLevel: pending.newType === 'heading' ? pending.headingLevel : undefined,
+          checked: pending.newType === 'task-list-item' ? pending.checked : undefined,
+          orderedIndex: pending.newType === 'ordered-list-item' ? pending.orderedIndex : undefined,
+          sourceLines: [strippedBefore],
+          pendingTypeChange: null,
           renderedHtml: null,
         };
       } else {
@@ -1128,9 +1218,11 @@ const EditorView: React.FC<EditorViewProps> = ({
       pushUndo(serializeBlockTree(treeWithUpdatedCurrent));
 
       const finalTree = insertBlockAfter(treeWithUpdatedCurrent, id, newBlock);
-      blockTreeRef.current = finalTree;
-      setBlockTree(finalTree);
-      syncTreeToStore(finalTree);
+      // Bump version to trigger rendering effect for new/updated blocks
+      const treeWithVersion: BlockTree = { ...finalTree, version: finalTree.version + 1 };
+      blockTreeRef.current = treeWithVersion;
+      setBlockTree(treeWithVersion);
+      syncTreeToStore(treeWithVersion);
 
       // Place cursor at start of new block
       focusBlockCursor(newBlockId, 0);
@@ -1189,8 +1281,13 @@ const EditorView: React.FC<EditorViewProps> = ({
         clearTimeout(inputDebounceRef.current);
         inputDebounceRef.current = null;
       }
-      pushUndo(serializeBlockTree(prev));
-      const next = updateBlockSource(prev, id, newSourceLines);
+      // Clear any pending markdown-prefix type change marker so it doesn't
+      // conflict with this explicit toolbar conversion (the marker would
+      // otherwise leave the block in an inconsistent state: toolbar sets
+      // new type/sourceLines but pending still references the old prefix).
+      const prevClean = currentBlock.pendingTypeChange ? clearPendingTypeChange(prev, id) : prev;
+      pushUndo(serializeBlockTree(prevClean));
+      const next = updateBlockSource(prevClean, id, newSourceLines);
       blockTreeRef.current = next;
       setBlockTree(next);
       syncTreeToStore(next);
@@ -1211,6 +1308,14 @@ const EditorView: React.FC<EditorViewProps> = ({
       const blockEl = container.querySelector(`[data-block-id="${blockId}"]`);
       if (blockEl) {
         const block = prev.blocks[blockId];
+        // Skip blocks with a pending markdown-prefix type change: their
+        // DOM currently shows the grayed prefix wrapper, and serializing
+        // that into sourceLines/renderedHtml would clobber the pending
+        // state. The pending change is committed elsewhere (Enter / mode
+        // toggle / toolbar type change).
+        if (block.pendingTypeChange) {
+          continue;
+        }
         const newContent = getBlockTextContent(block, blockEl);
         if (block.type === 'code-fence') {
           const contentEl = blockEl.querySelector(':scope > .code-fence-content');

@@ -42,7 +42,6 @@ const HeadingBlock: React.FC<HeadingBlockProps> = ({ block }) => {
     className: `heading-block ${sizeClasses[headingLevel] || sizeClasses[1]} text-[var(--text-primary)] tracking-tight`,
     'data-block-id': block.id,
     'data-placeholder': placeholder,
-    'data-empty': !text ? 'true' : undefined,
     ...contentProps,
   });
 };

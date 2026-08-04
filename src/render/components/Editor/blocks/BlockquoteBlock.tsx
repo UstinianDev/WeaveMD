@@ -24,7 +24,6 @@ const BlockquoteBlock: React.FC<BlockquoteBlockProps> = ({ block }) => {
                  text-[var(--text-secondary)] italic text-[14px] leading-[1.65]"
       data-block-id={block.id}
       data-placeholder="Empty blockquote"
-      data-empty={!text ? 'true' : undefined}
       {...contentProps}
     />
   );
