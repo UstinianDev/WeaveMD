@@ -1,7 +1,7 @@
 import type { BlockType } from './markdownBlockDetector';
 
 export function getHeadingLevelFromLine(line: string): number | undefined {
-  const match = line.match(/^(#{1,6})[ \t]+/);
+  const match = line.match(/^(#{1,6})[ \t\u00A0]+/);
   if (!match) {
     return undefined;
   }
@@ -16,29 +16,32 @@ export interface MarkdownLineDetection {
 }
 
 export function detectMarkdownLine(line: string): MarkdownLineDetection | null {
-  const trimmedLine = line.trim();
+  // NOTE: No .trim() — trailing spaces are semantically significant for
+  // markdown prefix detection (e.g. "# " must not become "#").
+  // [ \t\u00A0] matches regular space, tab, and non-breaking space (U+00A0)
+  // which some IMEs (e.g. Chinese) produce instead of regular space.
 
-  const headingMatch = trimmedLine.match(/^(#{1,6})[ \t]+(.*)/);
+  const headingMatch = line.match(/^(#{1,6})[ \t\u00A0]+(.*)/);
   if (headingMatch) {
     return { type: 'heading', headingLevel: headingMatch[1].length };
   }
 
-  const taskMatch = trimmedLine.match(/^[-*+][ \t]+\[([ xX])\][ \t]+(.*)/);
+  const taskMatch = line.match(/^[-*+][ \t\u00A0]+\[([ xX\u00A0])\][ \t\u00A0]+(.*)/);
   if (taskMatch) {
     return { type: 'task-list-item', isChecked: taskMatch[1].toLowerCase() === 'x' };
   }
 
-  const ulMatch = trimmedLine.match(/^[-*+][ \t]+(.*)/);
+  const ulMatch = line.match(/^[-*+][ \t\u00A0]+(.*)/);
   if (ulMatch) {
     return { type: 'unordered-list-item' };
   }
 
-  const olMatch = trimmedLine.match(/^(\d+)\.[ \t]+(.*)/);
+  const olMatch = line.match(/^(\d+)\.[ \t\u00A0]+(.*)/);
   if (olMatch) {
     return { type: 'ordered-list-item', orderedIndex: parseInt(olMatch[1], 10) };
   }
 
-  const bqMatch = trimmedLine.match(/^>[ \t]+(.*)/);
+  const bqMatch = line.match(/^>[ \t\u00A0]+(.*)/);
   if (bqMatch) {
     return { type: 'blockquote' };
   }
