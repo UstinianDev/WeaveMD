@@ -69,12 +69,15 @@ interface CodeFenceBlockProps {
   block: BlockNode;
   onFenceLanguageChange?: (blockId: string, language: string) => void;
   onContentChange?: (blockId: BlockId, newContent: string) => void;
+  /** Called when the user presses Backspace in the empty textarea (demote/remove the fence) */
+  onDeleteBlock?: (blockId: BlockId) => void;
 }
 
 const CodeFenceBlock: React.FC<CodeFenceBlockProps> = ({
   block,
   onFenceLanguageChange,
   onContentChange,
+  onDeleteBlock,
 }) => {
   const selectedLanguage = normalizeFenceLanguageForSelect(block.fenceLanguage);
   const [copied, setCopied] = useState(false);
@@ -104,6 +107,20 @@ const CodeFenceBlock: React.FC<CodeFenceBlockProps> = ({
   const stopPropagation = useCallback(
     (e: React.MouseEvent | React.KeyboardEvent) => e.stopPropagation(),
     []
+  );
+
+  // Empty code fence + Backspace → demote/remove the block (exit code-fence
+  // syntax). Kept inside the textarea's own keydown path because code fences
+  // are an independent edit path (they must not run markdown prefix detection).
+  const handleTextareaKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      e.stopPropagation();
+      if (e.key === 'Backspace' && localText === '') {
+        e.preventDefault();
+        onDeleteBlock?.(block.id);
+      }
+    },
+    [localText, onDeleteBlock, block.id]
   );
 
   return (
@@ -159,7 +176,7 @@ const CodeFenceBlock: React.FC<CodeFenceBlockProps> = ({
           value={localText}
           onChange={(e) => setLocalText(e.target.value)}
           onBlur={handleTextareaBlur}
-          onKeyDown={stopPropagation}
+          onKeyDown={handleTextareaKeyDown}
           onClick={stopPropagation}
           onMouseDown={stopPropagation}
           placeholder="在此输入代码..."

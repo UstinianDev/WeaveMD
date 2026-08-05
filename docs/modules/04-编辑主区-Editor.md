@@ -1,6 +1,10 @@
 # 编辑主区 (Editor) 功能总结
 
 > 模块编号：04 | 优先级：P0 | 版本：v4.12 | 最后更新：2026-08-04
+>
+> **v2 重做进行中**：本模块计划按 [specs/editor-v2-architecture.md](../specs/editor-v2-architecture.md)
+> 深度重做（muya 式块树 + 控制器分层 + 块内 contentEditable）。本文档描述 v1 现状，
+> 重做期间保持为"现状基线"，M4 完成后整体重写本文档。
 
 ---
 

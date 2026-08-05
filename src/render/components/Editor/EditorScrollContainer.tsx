@@ -29,6 +29,8 @@ interface EditorScrollContainerProps {
   onBlockDelete: (blockId: BlockId) => void;
   /** Called when Backspace at start of non-paragraph converts it to paragraph */
   onBlockConvertToParagraph: (blockId: BlockId) => void;
+  /** Called when Backspace is pressed in an empty code-fence textarea */
+  onCodeFenceDelete?: (blockId: BlockId) => void;
   /** Called on input event for real-time sync */
   onBlockInput: (blockId: BlockId) => void;
   /** Called when the active heading changes during scroll */
@@ -103,17 +105,62 @@ const isAtContentStart = (blockEl: Element, blockType: string): boolean => {
   ) {
     const contentSpan = blockEl.querySelector(':scope > span.block-content');
     if (!contentSpan) return false;
-    // Cursor at start: anchor is the content span at offset 0,
-    // or a direct child text node at offset 0
-    if (selection.anchorNode === contentSpan && selection.anchorOffset === 0) return true;
-    if (selection.anchorNode?.parentNode === contentSpan && selection.anchorOffset === 0)
-      return true;
-    return false;
+    // Cursor at start of content (ignoring decorations & zero-width space):
+    // measure the text length between the content span start and the caret.
+    // This correctly handles formatted first nodes (strong/em/a) and a caret
+    // placed after the zero-width space of an empty block.
+    const range = selection.getRangeAt(0);
+    const preRange = range.cloneRange();
+    preRange.selectNodeContents(contentSpan);
+    preRange.setEnd(range.startContainer, range.startOffset);
+    return preRange.toString().replace(/\u200B/g, '').length === 0;
   }
 
   // For heading, blockquote, paragraph: standard offset check
   return getCursorOffsetInBlock(blockEl) === 0;
 };
+
+// ============================================
+// Backspace Action Resolution (pure)
+// ============================================
+// Decides what a Backspace press at the current caret should do.
+// Order matters:
+//   1. protected paragraph after code-fence → block (no action)
+//   2. structural block (heading/lists/blockquote) at content start
+//      → demote to paragraph (regardless of emptiness)
+//   3. empty paragraph at start → delete block (merge)
+//   4. otherwise → browser default (character deletion / merge)
+// Code-fence is excluded here: its empty-content Backspace is handled by
+// the textarea in CodeFenceBlock (independent edit path).
+
+export type BackspaceAction = 'none' | 'convert' | 'delete';
+
+export interface BackspaceContext {
+  isEmpty: boolean;
+  atStart: boolean;
+}
+
+export function resolveBackspaceAction(
+  block: Pick<BlockNode, 'type' | 'protectedAfterCodeFence'>,
+  context: BackspaceContext
+): BackspaceAction {
+  if (block.protectedAfterCodeFence) {
+    return 'none';
+  }
+  // Code-fence blocks own their empty-Backspace handling inside the textarea
+  // (independent edit path). A stray caret in the container must never delete
+  // or demote the fence.
+  if (block.type === 'code-fence') {
+    return 'none';
+  }
+  if (block.type !== 'paragraph' && context.atStart) {
+    return 'convert';
+  }
+  if (context.isEmpty && context.atStart) {
+    return 'delete';
+  }
+  return 'none';
+}
 
 export interface EditorScrollContainerHandle {
   scrollToBlock: (blockId: BlockId) => void;
@@ -128,6 +175,7 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
       onBlockEnter,
       onBlockDelete,
       onBlockConvertToParagraph,
+      onCodeFenceDelete,
       onBlockInput,
       onActiveHeadingChange,
       mdSourceBlockId,
@@ -296,30 +344,24 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
           const block = blockTree.blocks[blockId];
           if (!block) return;
 
-          // 1. Protected paragraph after code-fence: block ALL backspace
-          if (block.protectedAfterCodeFence) {
-            e.preventDefault();
-            return;
-          }
-
           const editableContent = getEditableTextContent(blockEl);
           const isEmpty = editableContent === '';
           const atStart = isAtContentStart(blockEl, block.type);
+          const action = resolveBackspaceAction(block, { isEmpty, atStart });
 
-          if (isEmpty && atStart) {
-            // 2. Empty block at start → delete (existing behavior)
-            e.preventDefault();
-            onBlockDelete(blockId);
-            return;
-          }
-
-          if (atStart && block.type !== 'paragraph') {
-            // 3. Non-paragraph with cursor at start → convert to paragraph
+          if (action === 'convert') {
+            // Structural block at content start → demote to paragraph
             e.preventDefault();
             onBlockConvertToParagraph(blockId);
             return;
           }
-          // 4. Otherwise: browser default (character deletion or block merge)
+          if (action === 'delete') {
+            // Empty paragraph at start → delete (merge)
+            e.preventDefault();
+            onBlockDelete(blockId);
+            return;
+          }
+          // 'none': browser default (character deletion or block merge)
         }
       },
       [onBlockEnter, onBlockDelete, onBlockConvertToParagraph, blockTree]
@@ -501,6 +543,7 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
                   block={block}
                   onFenceLanguageChange={onFenceLanguageChange}
                   onBlockContentChange={onBlockContentChange}
+                  onCodeFenceDelete={onCodeFenceDelete}
                   mdSourceBlockId={mdSourceBlockId}
                 />
               </div>

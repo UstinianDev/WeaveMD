@@ -1413,8 +1413,26 @@ const EditorView: React.FC<EditorViewProps> = ({
       blockTreeRef.current = finalNext;
       setBlockTree(finalNext);
       syncTreeToStore(finalNext);
+
+      // Restore the caret after deletion: previous block end, else next block
+      // start. Without this the selection is left dangling after the block is
+      // removed from the DOM (existing bug: empty-paragraph Backspace lost focus).
+      const prevBlock = currentIndex > 0 ? allBlocks[currentIndex - 1] : null;
+      const remainingNextBlock =
+        currentIndex >= 0 && currentIndex + 1 < allBlocks.length
+          ? allBlocks[currentIndex + 1]
+          : null;
+      if (prevBlock) {
+        const prevEl = document.querySelector(`[data-block-id="${prevBlock.id}"]`);
+        const prevLen = prevEl
+          ? getBlockTextContent(prevBlock, prevEl).replace(/\u200B/g, '').length
+          : 0;
+        focusBlockCursor(prevBlock.id, prevLen);
+      } else if (remainingNextBlock) {
+        focusBlockCursor(remainingNextBlock.id, 0);
+      }
     },
-    [pushUndo, syncTreeToStore]
+    [pushUndo, syncTreeToStore, getBlockTextContent, focusBlockCursor]
   );
 
   // ============================================
@@ -1456,11 +1474,59 @@ const EditorView: React.FC<EditorViewProps> = ({
       setBlockTree(next);
       syncTreeToStore(next);
 
-      // Place cursor at the end of the converted content
-      const textLen = currentContent.replace(/\u200B/g, '').length;
-      focusBlockCursor(id, textLen);
+      // Keep the caret at the content start — the user just demoted the block
+      // with Backspace and expects the syntax marker to disappear in place.
+      focusBlockCursor(id, 0);
     },
     [pushUndo, syncTreeToStore, getBlockTextContent, focusBlockCursor]
+  );
+
+  // ============================================
+  // Code Fence Empty-Backspace Handler
+  // ============================================
+  // Called from the code-fence textarea when the input is empty and the user
+  // presses Backspace. Exits the code-fence syntax:
+  //   - Sole block in the document → demote to an empty paragraph (keeps an
+  //     input position).
+  //   - Otherwise → delete the block and move the caret to the previous block
+  //     end (next block start if it was first).
+
+  const handleCodeFenceDelete = useCallback(
+    (id: BlockId) => {
+      const prev = blockTreeRef.current;
+      const block = prev.blocks[id];
+      if (!block) return;
+      const blockCount = Object.keys(prev.blocks).length;
+
+      if (blockCount <= 1) {
+        pushUndo(serializeBlockTree(prev));
+        const converted: BlockNode = {
+          ...block,
+          type: 'paragraph',
+          sourceLines: [''],
+          headingLevel: undefined,
+          checked: undefined,
+          orderedIndex: undefined,
+          fenceLanguage: undefined,
+          pendingTypeChange: null,
+          renderedHtml: null,
+          protectedAfterCodeFence: undefined,
+        };
+        const next: BlockTree = {
+          ...prev,
+          blocks: { ...prev.blocks, [id]: converted },
+          version: prev.version + 1,
+        };
+        blockTreeRef.current = next;
+        setBlockTree(next);
+        syncTreeToStore(next);
+        focusBlockCursor(id, 0);
+        return;
+      }
+
+      handleBlockDelete(id);
+    },
+    [pushUndo, syncTreeToStore, focusBlockCursor, handleBlockDelete]
   );
 
   const handleBlockTypeChange = useCallback(
@@ -1816,6 +1882,7 @@ const EditorView: React.FC<EditorViewProps> = ({
               onBlockEnter={handleBlockEnter}
               onBlockDelete={handleBlockDelete}
               onBlockConvertToParagraph={handleBlockConvertToParagraph}
+              onCodeFenceDelete={handleCodeFenceDelete}
               onBlockInput={handleBlockInput}
               onActiveHeadingChange={onActiveHeadingChange}
               mdSourceBlockId={mdSourceBlockId}

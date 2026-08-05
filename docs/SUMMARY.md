@@ -84,6 +84,8 @@
 | 认证系统          | [modules/02-认证系统-Auth.md](./modules/02-认证系统-Auth.md)                 | 注册/登录流程、JWT 生成、会话恢复、账号切换/删除、交互式吉祥物                                                                                                                                           |
 | 顶部导航栏        | [modules/03-顶部导航栏-Navbar.md](./modules/03-顶部导航栏-Navbar.md)         | 布局结构、File/Help/History/View 菜单、CreateDialog 弹窗（新建文件/文件夹）、删除文件夹从侧栏选中项、文件系统同步；菜单触发器统一使用 `.navbar-menu-trigger` 样式类                                      |
 | 编辑主区          | [modules/04-编辑主区-Editor.md](./modules/04-编辑主区-Editor.md)             | 双模式架构、Block Tree、浮动工具栏、文件系统实时同步、文件删除空状态、侧边栏Tab切换（目录/文件）、文件树累积展示、Minimap、FindReplaceBar、目录导航+动态高亮、可拖拽目录/历史面板宽度、自动保存/撤销重做 |
+| 编辑主区 v2 重做  | [specs/editor-v2-architecture.md](./specs/editor-v2-architecture.md)         | 编辑主区深度重做规范：muya 式块树/控制器分层/块内 contentEditable、Markdown 无损双向转换、六类事件控制器、光标模型、撤销重做、实施分期（M1-M4）与测试策略 |
+| 块语法退出规则    | [specs/markdown-block-exit-rules.md](./specs/markdown-block-exit-rules.md)   | 六种 Markdown 块（标题/无序/有序/任务/代码块/引用）"退出语法变回正文"的边界条件、Backspace 分发优先级、潜在问题与实现记录 |
 | 设置界面          | [modules/05-设置界面-Settings.md](./modules/05-设置界面-Settings.md)         | 语言选择、主题切换、自定义主题、账号管理                                                                                                                                                                 |
 | 窗口控制          | [modules/06-窗口控制-Window.md](./modules/06-窗口控制-Window.md)             | frameless 窗口配置、IPC 通道、拖拽区域                                                                                                                                                                   |
 | 数据持久化层      | [modules/07-数据持久化层-Database.md](./modules/07-数据持久化层-Database.md) | SQLite Schema、WAL 模式、数据隔离、CRUD 操作、文件保存流程                                                                                                                                               |
@@ -126,6 +128,12 @@
 - **列表块**：`resolveNextTypeFromSource` 基于 `detectMarkdownLine` 做 heading/task/ordered/unordered 前缀识别；`ListItemBlock.getVisibleText` 正则按 task > ordered > unordered 顺序剥离，避免 `- [ ] ` 残留 `[ ]`。
 - **Markdown 前缀输入**：输入 `# `/`- `/`1. `/`> ` 等前缀瞬间变灰（`pendingTypeChange` + DOM `.md-prefix-gray`，不触发 React 重渲染），回车才提交转换渲染。前缀分隔符正则 `[ \t\u00A0]` 支持非断行空格（U+00A0，中文输入法产生）；回车时即使防抖未触发也回退检测前缀；渲染 effect 按类型重建带前缀 markdown。
 - **性能**：滚动 padding 移至内层；`version` 仅在内容/结构变更时自增（`setBlockRenderedHtml` 不自增）；`lastBuiltContentRef` 跳过挂载冗余重建。
+
+> **v2 规划（2026-08-05）**：编辑主区存在容器级 contentEditable、巨型 EditorView、
+> renderedHtml 缓存与模型脱节、块模型扁平（不支持嵌套）等结构性问题，已立项深度重做，
+> 参考 marktext/muya 架构（块树 + 控制器分层 + 块内 contentEditable + Markdown 无损双向转换）。
+> 完整设计见 [specs/editor-v2-architecture.md](./specs/editor-v2-architecture.md)，
+> 按 M1（数据模型/转换）→ M2（渲染骨架）→ M3（交互控制器）→ M4（系统集成）分期实施。
 
 **目录导航与高亮**：
 
