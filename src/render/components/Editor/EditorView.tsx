@@ -690,8 +690,10 @@ const EditorView: React.FC<EditorViewProps> = ({
         // to keep React state in sync.
         let tree = blockTreeRef.current;
         let pendingChanged = false;
+        const hadPendingBlockIds = new Set<string>();
         for (const bid of tree.rootBlockIds) {
           if (tree.blocks[bid]?.pendingTypeChange) {
+            hadPendingBlockIds.add(bid);
             tree = commitPendingTypeChange(tree, bid);
             pendingChanged = true;
           }
@@ -741,7 +743,7 @@ const EditorView: React.FC<EditorViewProps> = ({
                 .replace(/^[\s]*>\s*/, '')
                 .trim();
 
-              if (newContent !== oldContent) {
+              if (newContent !== oldContent || hadPendingBlockIds.has(block.id)) {
                 const newSourceLines = buildSourceLinesFromContent(block, newContent);
                 newBlocks[block.id] = {
                   ...block,
@@ -847,10 +849,13 @@ const EditorView: React.FC<EditorViewProps> = ({
         next = { ...prev, blocks: { ...prev.blocks, [id]: newBlock }, version: prev.version + 1 };
       } else {
         const newSourceLines = buildSourceLinesFromContent(block, newContent);
-        const updatedBlock = {
+        const updatedBlock: BlockNode = {
           ...block,
           sourceLines: newSourceLines,
           renderedHtml: null,
+          // Remove protection when paragraph receives non-empty content
+          protectedAfterCodeFence:
+            block.protectedAfterCodeFence && newContent.trim() === '' ? true : undefined,
         };
         next = {
           ...prev,
@@ -1099,7 +1104,8 @@ const EditorView: React.FC<EditorViewProps> = ({
           focusBlockCursor(id, cursorOffset);
         } else if (hadPending && !hasPrefix) {
           // Previous had pending prefix; user removed prefix chars → clear
-          // pending + remove gray wrapping (no version bump, no setBlockTree).
+          // pending + remove gray wrapping. Bump version + setBlockTree to
+          // ensure React state stays in sync with the cleared pending.
           const updatedBlock: BlockNode = {
             ...block,
             sourceLines: [newContent],
@@ -1108,8 +1114,10 @@ const EditorView: React.FC<EditorViewProps> = ({
           const next: BlockTree = {
             ...prev,
             blocks: { ...prev.blocks, [id]: updatedBlock },
+            version: prev.version + 1,
           };
           blockTreeRef.current = next;
+          setBlockTree(next);
           syncTreeToStore(next);
           unwrapGray(blockEl);
         } else {
@@ -1126,6 +1134,9 @@ const EditorView: React.FC<EditorViewProps> = ({
               ...block,
               sourceLines: [newContent],
               renderedHtml: getBlockRenderedHtml(block, blockEl),
+              // Remove protection when paragraph receives non-empty content
+              protectedAfterCodeFence:
+                block.protectedAfterCodeFence && newContent.trim() === '' ? true : undefined,
             };
           }
           const next: BlockTree = {
@@ -1186,6 +1197,51 @@ const EditorView: React.FC<EditorViewProps> = ({
         syncTreeToStore(nextTree);
         focusBlockCursor(newBlockId, 0);
         return;
+      }
+
+      // =============================================
+      // Empty non-paragraph block Enter → convert to paragraph + new paragraph
+      // =============================================
+      if (
+        currentBlock.type !== 'paragraph' &&
+        currentBlock.type !== 'code-fence' &&
+        !currentBlock.pendingTypeChange
+      ) {
+        const content = getBlockTextContent(currentBlock, blockEl);
+        if (content.replace(/\u200B/g, '').trim() === '') {
+          pushUndo(serializeBlockTree(currentTree));
+          const convertedBlock: BlockNode = {
+            ...currentBlock,
+            type: 'paragraph',
+            sourceLines: [''],
+            headingLevel: undefined,
+            checked: undefined,
+            orderedIndex: undefined,
+            fenceLanguage: undefined,
+            pendingTypeChange: null,
+            renderedHtml: null,
+          };
+          const newBlockId = generateBlockId(currentTree);
+          const newBlock: BlockNode = {
+            id: newBlockId,
+            type: 'paragraph',
+            sourceLines: [''],
+            parentId: null,
+            childrenIds: [],
+            renderedHtml: null,
+          };
+          const treeWithConverted: BlockTree = {
+            ...currentTree,
+            blocks: { ...currentTree.blocks, [id]: convertedBlock },
+          };
+          const treeWithInserted = insertBlockAfter(treeWithConverted, id, newBlock);
+          const final = { ...treeWithInserted, version: treeWithInserted.version + 1 };
+          blockTreeRef.current = final;
+          setBlockTree(final);
+          syncTreeToStore(final);
+          focusBlockCursor(newBlockId, 0);
+          return;
+        }
       }
 
       // Get the full text content from DOM
@@ -1272,6 +1328,8 @@ const EditorView: React.FC<EditorViewProps> = ({
 
       // Build new block with afterText
       const newBlockId = generateBlockId(currentTree);
+      // Determine if new paragraph should be protected (after code-fence)
+      const isAfterCodeFence = updatedBlock.type === 'code-fence';
       const newBlock: BlockNode = {
         id: newBlockId,
         type: 'paragraph' as const,
@@ -1279,6 +1337,7 @@ const EditorView: React.FC<EditorViewProps> = ({
         parentId: null,
         childrenIds: [],
         renderedHtml: null,
+        protectedAfterCodeFence: isAfterCodeFence ? true : undefined,
       };
 
       // Update current block + insert new block
@@ -1310,15 +1369,98 @@ const EditorView: React.FC<EditorViewProps> = ({
     (id: BlockId) => {
       const prev = blockTreeRef.current;
       const blockCount = Object.keys(prev.blocks).length;
-      if (blockCount <= 1) return;
+      if (blockCount <= 1) {
+        // Last block cannot be deleted, but ensure sourceLines are clean
+        // (prevents stale markdown prefix residue in Source Mode).
+        const block = prev.blocks[id];
+        if (block && (block.sourceLines.join('') !== '' || block.pendingTypeChange)) {
+          const updatedBlock: BlockNode = {
+            ...block,
+            sourceLines: [''],
+            pendingTypeChange: null,
+            renderedHtml: null,
+          };
+          const next: BlockTree = {
+            ...prev,
+            blocks: { ...prev.blocks, [id]: updatedBlock },
+            version: prev.version + 1,
+          };
+          blockTreeRef.current = next;
+          setBlockTree(next);
+          syncTreeToStore(next);
+        }
+        return;
+      }
 
       pushUndo(serializeBlockTree(prev));
       const next = removeBlock(prev, id);
+
+      // If the deleted block was a code-fence and the next block is protected,
+      // remove the protection (the code-fence no longer exists)
+      const allBlocks = getAllBlocksInOrder(prev);
+      const currentIndex = allBlocks.findIndex((b) => b.id === id);
+      const nextBlock = currentIndex >= 0 ? allBlocks[currentIndex + 1] : null;
+
+      let finalNext = next;
+      if (nextBlock?.protectedAfterCodeFence) {
+        const prevOfNext = prev.blocks[nextBlock.id];
+        if (prevOfNext) {
+          const updatedNext: BlockNode = { ...prevOfNext, protectedAfterCodeFence: undefined };
+          finalNext = { ...next, blocks: { ...next.blocks, [nextBlock.id]: updatedNext } };
+        }
+      }
+
+      blockTreeRef.current = finalNext;
+      setBlockTree(finalNext);
+      syncTreeToStore(finalNext);
+    },
+    [pushUndo, syncTreeToStore]
+  );
+
+  // ============================================
+  // Block Convert-to-Paragraph Handler
+  // ============================================
+
+  const handleBlockConvertToParagraph = useCallback(
+    (id: BlockId) => {
+      const prev = blockTreeRef.current;
+      const block = prev.blocks[id];
+      if (!block) return;
+
+      pushUndo(serializeBlockTree(prev));
+
+      // Get current visible content from DOM
+      const blockEl = document.querySelector(`[data-block-id="${id}"]`);
+      const currentContent = blockEl
+        ? getBlockTextContent(block, blockEl)
+        : block.sourceLines.join(' ');
+
+      const updatedBlock: BlockNode = {
+        ...block,
+        type: 'paragraph',
+        sourceLines: [currentContent],
+        headingLevel: undefined,
+        checked: undefined,
+        orderedIndex: undefined,
+        fenceLanguage: undefined,
+        pendingTypeChange: null,
+        renderedHtml: null,
+      };
+
+      const next: BlockTree = {
+        ...prev,
+        blocks: { ...prev.blocks, [id]: updatedBlock },
+        version: prev.version + 1,
+      };
       blockTreeRef.current = next;
       setBlockTree(next);
       syncTreeToStore(next);
+
+      // Place cursor at the end of the converted content
+      const textLen = currentContent.replace(/\u200B/g, '').length;
+      focusBlockCursor(id, textLen);
     },
-    [pushUndo, syncTreeToStore]
+    [pushUndo, syncTreeToStore, getBlockTextContent, focusBlockCursor]
   );
 
   const handleBlockTypeChange = useCallback(
@@ -1673,6 +1815,7 @@ const EditorView: React.FC<EditorViewProps> = ({
               onBlockContentChange={handleBlockContentChange}
               onBlockEnter={handleBlockEnter}
               onBlockDelete={handleBlockDelete}
+              onBlockConvertToParagraph={handleBlockConvertToParagraph}
               onBlockInput={handleBlockInput}
               onActiveHeadingChange={onActiveHeadingChange}
               mdSourceBlockId={mdSourceBlockId}

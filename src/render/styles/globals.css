@@ -1564,6 +1564,30 @@ html.dark .code-fence-block {
   color: var(--text-code);
 }
 
+.code-fence-textarea {
+  display: block;
+  width: 100%;
+  min-height: 60px;
+  padding: 16px 18px 18px;
+  margin: 0;
+  border: none;
+  outline: none;
+  resize: vertical;
+  background: transparent;
+  color: var(--text-code);
+  font-size: 14px;
+  line-height: 1.65;
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+  tab-size: 2;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.code-fence-textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
 .code-fence-content .token.comment,
 .code-fence-content .token.prolog,
 .code-fence-content .token.doctype,
