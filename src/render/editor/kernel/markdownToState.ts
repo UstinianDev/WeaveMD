@@ -1,0 +1,473 @@
+// ============================================
+// WeaveMD Editor v2 — Markdown → BlockTree
+// ============================================
+// 块级解析器：把 Markdown 文本转换为 v2 块树。
+//
+// 往返语义（与 stateToMarkdown 配套）：
+//   stateToMarkdown(markdownToState(M)) === M
+// 对"规范输入"（块间用空行分隔、列表项内容缩进、标题无 closing #）严格成立；
+// 对非规范输入输出语义等价的规范化形式（如块间补空行、剥离标题 closing #）。
+//
+// 实现说明：解析阶段使用内部可变 Builder 构建树（一次性构建，非编辑操作），
+// 完成后转换为不可变 BlockTreeV2。
+
+import type { BlockMetaV2, BlockNodeV2, BlockTreeV2 } from './types';
+import { createDocumentTree } from './blockTree';
+
+// ============================================
+// 行匹配规则
+// ============================================
+
+const ATX_HEADING_RE = /^(#{1,6})[ \t\u00A0]+([\s\S]*)$/;
+const SETEXT_UNDERLINE_RE = /^ {0,3}(=+|-+)[ \t]*$/;
+const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})([^\n]*)$/;
+const BLOCKQUOTE_RE = /^ {0,3}(?:>[ \t]?)+(.*)$/;
+const UL_ITEM_RE = /^ {0,3}([-*+])([ \t\u00A0]+)(.*)$/;
+const OL_ITEM_RE = /^ {0,3}(\d{1,9})([.)])([ \t\u00A0]+)(.*)$/;
+const TASK_ITEM_RE = /^ {0,3}([-*+])([ \t\u00A0]+)\[([ xX\u00A0])\]([ \t\u00A0]+)(.*)$/;
+const THEMATIC_BREAK_RE =
+  /^ {0,3}(?:\*[ \t]*\*[ \t]*\*|-[ \t]*-[ \t]*-|_[ \t]*_[ \t]*_)[ \t*\-_]*$/;
+const TABLE_SEPARATOR_RE = /^ {0,3}\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/;
+const INDENT_RE = /^( {2,}|\t+)(.*)$/;
+
+function isBlankLine(line: string): boolean {
+  return line.trim() === '';
+}
+
+function stripHeadingClosing(text: string): string {
+  // 剥离行尾 closing # 序列（CommonMark 行为）
+  return text.replace(/[ \t]+#+[ \t]*$/, '');
+}
+
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ============================================
+// Builder（解析期可变构建）
+// ============================================
+
+class Builder {
+  private blocks: Record<string, BlockNodeV2> = {};
+  private seq = 0;
+  readonly root: BlockNodeV2;
+
+  constructor() {
+    this.root = {
+      id: 'root',
+      type: 'document',
+      parentId: null,
+      prevId: null,
+      nextId: null,
+      childrenIds: [],
+      text: null,
+      inlineHtml: null,
+    };
+    this.blocks[this.root.id] = this.root;
+  }
+
+  private genId(): string {
+    for (;;) {
+      const id = `k${Date.now().toString(36)}${(this.seq++).toString(36)}`;
+      if (!this.blocks[id]) return id;
+    }
+  }
+
+  addBlock(
+    type: BlockNodeV2['type'],
+    text: string | null,
+    meta?: BlockMetaV2
+  ): BlockNodeV2 {
+    const block: BlockNodeV2 = {
+      id: this.genId(),
+      type,
+      parentId: null,
+      prevId: null,
+      nextId: null,
+      childrenIds: [],
+      text,
+      meta,
+      inlineHtml: null,
+    };
+    this.blocks[block.id] = block;
+    return block;
+  }
+
+  /** 把 child 挂到 parent 的末尾（维护 childrenIds） */
+  attach(parent: BlockNodeV2, child: BlockNodeV2): void {
+    child.parentId = parent.id;
+    parent.childrenIds.push(child.id);
+  }
+
+  toTree(): BlockTreeV2 {
+    return { root: this.root, blocks: this.blocks };
+  }
+}
+
+// ============================================
+// 列表项信息
+// ============================================
+
+interface ListItemInfo {
+  isOrdered: boolean;
+  isTask: boolean;
+  marker: string;
+  delimiter: '.' | ')';
+  start: number;
+  checked: boolean;
+  content: string;
+}
+
+function parseListItemInfo(line: string): ListItemInfo | null {
+  const task = line.match(TASK_ITEM_RE);
+  if (task) {
+    return {
+      isOrdered: false,
+      isTask: true,
+      marker: task[1],
+      delimiter: '.',
+      start: 1,
+      checked: task[3].toLowerCase() === 'x',
+      content: task[5],
+    };
+  }
+  const ul = line.match(UL_ITEM_RE);
+  if (ul) {
+    return {
+      isOrdered: false,
+      isTask: false,
+      marker: ul[1],
+      delimiter: '.',
+      start: 1,
+      checked: false,
+      content: ul[3],
+    };
+  }
+  const ol = line.match(OL_ITEM_RE);
+  if (ol) {
+    return {
+      isOrdered: true,
+      isTask: false,
+      marker: '-',
+      delimiter: ol[2] as '.' | ')',
+      start: parseInt(ol[1], 10),
+      checked: false,
+      content: ol[4],
+    };
+  }
+  return null;
+}
+
+function isListItemLine(line: string): boolean {
+  return !!parseListItemInfo(line);
+}
+
+function sameListFamily(info: ListItemInfo, listType: 'bullet-list' | 'ordered-list'): boolean {
+  if (listType === 'ordered-list') return info.isOrdered;
+  return !info.isOrdered; // bullet-list 收纳普通无序与任务项
+}
+
+// ============================================
+// 块解析
+// ============================================
+
+export function markdownToState(markdown: string): BlockTreeV2 {
+  const builder = new Builder();
+  const lines = markdown.split('\n');
+  parseBlocks(builder, builder.root, lines, 0);
+  return builder.toTree();
+}
+
+/** 解析 lines[start..] 中的块并挂到 parent 下，返回下一行索引 */
+function parseBlocks(builder: Builder, parent: BlockNodeV2, lines: string[], start: number): number {
+  let i = start;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (isBlankLine(line)) {
+      i++;
+      continue;
+    }
+
+    const fenceOpen = line.match(FENCE_OPEN_RE);
+    if (fenceOpen) {
+      i = parseFence(builder, parent, lines, i, fenceOpen[1], fenceOpen[2]);
+      continue;
+    }
+
+    if (i + 1 < lines.length && TABLE_SEPARATOR_RE.test(lines[i + 1]) && line.includes('|')) {
+      i = parseTable(builder, parent, lines, i);
+      continue;
+    }
+
+    const atx = line.match(ATX_HEADING_RE);
+    if (atx) {
+      const level = atx[1].length as 1 | 2 | 3 | 4 | 5 | 6;
+      const heading = builder.addBlock('heading', stripHeadingClosing(atx[2]), {
+        headingLevel: level,
+      });
+      builder.attach(parent, heading);
+      i++;
+      continue;
+    }
+
+    if (BLOCKQUOTE_RE.test(line)) {
+      i = parseBlockquote(builder, parent, lines, i);
+      continue;
+    }
+
+    if (isListItemLine(line)) {
+      i = parseList(builder, parent, lines, i);
+      continue;
+    }
+
+    if (THEMATIC_BREAK_RE.test(line)) {
+      const hr = builder.addBlock('thematic-break', '---');
+      builder.attach(parent, hr);
+      i++;
+      continue;
+    }
+
+    i = parseParagraph(builder, parent, lines, i);
+  }
+  return i;
+}
+
+/** 围栏代码块 */
+function parseFence(
+  builder: Builder,
+  parent: BlockNodeV2,
+  lines: string[],
+  start: number,
+  marker: string,
+  langRaw: string
+): number {
+  const lang = langRaw.trim();
+  const fenceChar = marker[0] === '`' ? '`' : '~';
+  // 闭合围栏：与开启同字符、至少 3 个
+  const closingRe = new RegExp(`^ {0,3}${fenceChar}{3,}[ \\t]*$`);
+  const content: string[] = [];
+  let i = start + 1;
+  while (i < lines.length) {
+    if (closingRe.test(lines[i])) {
+      i++;
+      break;
+    }
+    content.push(lines[i]);
+    i++;
+  }
+  const code = builder.addBlock('code-block', content.join('\n'), {
+    fenceLanguage: lang || undefined,
+    fenceMarker: marker[0],
+  });
+  builder.attach(parent, code);
+  return i;
+}
+
+/** 表格（v2 首版为叶子块，保留原始文本） */
+function parseTable(builder: Builder, parent: BlockNodeV2, lines: string[], start: number): number {
+  const rows: string[] = [lines[start], lines[start + 1]];
+  let i = start + 2;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (isBlankLine(line) || !line.includes('|')) break;
+    rows.push(line);
+    i++;
+  }
+  const table = builder.addBlock('table', rows.join('\n'));
+  builder.attach(parent, table);
+  return i;
+}
+
+/** 引用块（递归解析内部块） */
+function parseBlockquote(
+  builder: Builder,
+  parent: BlockNodeV2,
+  lines: string[],
+  start: number
+): number {
+  const quote = builder.addBlock('blockquote', null);
+  builder.attach(parent, quote);
+
+  const inner: string[] = [];
+  let i = start;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (isBlankLine(line)) {
+      const next = lines[i + 1];
+      if (next !== undefined && BLOCKQUOTE_RE.test(next)) {
+        inner.push('');
+        i++;
+        continue;
+      }
+      break;
+    }
+    const match = line.match(BLOCKQUOTE_RE);
+    if (!match) break;
+    inner.push(match[1]);
+    i++;
+  }
+
+  parseBlocks(builder, quote, inner, 0);
+  return i;
+}
+
+/** 列表（含任务项、嵌套列表） */
+function parseList(
+  builder: Builder,
+  parent: BlockNodeV2,
+  lines: string[],
+  start: number
+): number {
+  const first = parseListItemInfo(lines[start])!;
+  const listType: 'bullet-list' | 'ordered-list' = first.isOrdered
+    ? 'ordered-list'
+    : 'bullet-list';
+  const list = builder.addBlock(listType, null, {
+    listMarker: first.isOrdered ? undefined : (first.marker as '-' | '*' | '+'),
+    orderedStart: first.isOrdered ? first.start : undefined,
+    orderedDelimiter: first.isOrdered ? first.delimiter : undefined,
+    loose: false,
+  });
+  builder.attach(parent, list);
+
+  let i = start;
+  let loose = false;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (isBlankLine(line)) {
+      const next = lines[i + 1];
+      const nextInfo = next !== undefined ? parseListItemInfo(next) : null;
+      if (nextInfo && sameListFamily(nextInfo, listType)) {
+        loose = true;
+        i++;
+        continue;
+      }
+      break;
+    }
+    const info = parseListItemInfo(line);
+    if (!info || !sameListFamily(info, listType)) break;
+
+    const item = builder.addBlock(
+      'list-item',
+      null,
+      info.isTask ? { taskChecked: info.checked } : undefined
+    );
+    builder.attach(list, item);
+    i = parseListItemContent(builder, item, lines, i, info);
+  }
+
+  list.meta = { ...list.meta, loose };
+  return i;
+}
+
+/** 列表项内容：首行 + 缩进延续 + 嵌套列表 */
+function parseListItemContent(
+  builder: Builder,
+  item: BlockNodeV2,
+  lines: string[],
+  start: number,
+  info: ListItemInfo
+): number {
+  const paragraph = builder.addBlock('paragraph', info.content);
+  builder.attach(item, paragraph);
+
+  let i = start + 1;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (isBlankLine(line)) break;
+    const indent = line.match(INDENT_RE);
+    if (!indent) break;
+
+    const stripped = indent[2];
+    const childInfo = parseListItemInfo(stripped);
+    if (childInfo) {
+      // 嵌套列表：收集该子列表的缩进行并递归解析
+      const subRows: string[] = [];
+      let j = i;
+      while (j < lines.length) {
+        const subLine = lines[j];
+        if (isBlankLine(subLine)) {
+          const next = lines[j + 1];
+          if (next !== undefined && INDENT_RE.test(next)) {
+            subRows.push('');
+            j++;
+            continue;
+          }
+          break;
+        }
+        const subIndent = subLine.match(INDENT_RE);
+        if (!subIndent) break;
+        subRows.push(subIndent[2]);
+        j++;
+      }
+      parseList(builder, item, subRows, 0);
+      i = j;
+      continue;
+    }
+
+    // 普通缩进行：段落续行
+    paragraph.text = `${paragraph.text === '' ? '' : paragraph.text + '\n'}${stripped}`;
+    i++;
+  }
+  return i;
+}
+
+/** 段落（含 Setext 标题检测） */
+function parseParagraph(
+  builder: Builder,
+  parent: BlockNodeV2,
+  lines: string[],
+  start: number
+): number {
+  const collected: string[] = [];
+  let i = start;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (isBlankLine(line)) break;
+    if (collected.length > 0 && SETEXT_UNDERLINE_RE.test(line)) {
+      // Setext 下划线行：紧跟段落内容，收集后结束段落
+      collected.push(line);
+      i++;
+      break;
+    }
+    if (
+      ATX_HEADING_RE.test(line) ||
+      FENCE_OPEN_RE.test(line) ||
+      BLOCKQUOTE_RE.test(line) ||
+      isListItemLine(line) ||
+      THEMATIC_BREAK_RE.test(line) ||
+      (i + 1 < lines.length && TABLE_SEPARATOR_RE.test(lines[i + 1]) && line.includes('|'))
+    ) {
+      break;
+    }
+    collected.push(line);
+    i++;
+  }
+
+  if (collected.length >= 2) {
+    const underlineMatch = collected[collected.length - 1].match(SETEXT_UNDERLINE_RE);
+    if (underlineMatch) {
+      const level = underlineMatch[1].startsWith('=') ? 1 : 2;
+      const heading = builder.addBlock(
+        'heading',
+        stripHeadingClosing(collected.slice(0, -1).join('\n')),
+        {
+          headingLevel: level as 1 | 2,
+          setext: {
+            char: underlineMatch[1].startsWith('=') ? '=' : '-',
+            underline: underlineMatch[1],
+          },
+        }
+      );
+      builder.attach(parent, heading);
+      return i;
+    }
+  }
+
+  const paragraph = builder.addBlock('paragraph', collected.join('\n'));
+  builder.attach(parent, paragraph);
+  return i;
+}
+
+// 供 createDocumentTree 再导出（保持内核统一入口）
+export { createDocumentTree };

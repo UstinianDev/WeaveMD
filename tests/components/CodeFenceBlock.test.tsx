@@ -1,5 +1,6 @@
-import { render } from '@testing-library/react';
+import { fireEvent, render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { vi } from 'vitest';
 
 import CodeFenceBlock from '../../src/render/components/Editor/blocks/CodeFenceBlock';
 import type { BlockNode } from '../../src/render/services/blockTree';
@@ -84,5 +85,43 @@ describe('CodeFenceBlock — read-only display', () => {
 
     const header = container.querySelector('.code-fence-header');
     expect(header?.textContent).toContain('shell');
+  });
+});
+
+describe('CodeFenceBlock — empty code-fence Backspace exit', () => {
+  it('calls onDeleteBlock when Backspace is pressed on an empty textarea', () => {
+    const onDeleteBlock = vi.fn();
+    const { container } = render(
+      <CodeFenceBlock
+        block={createCodeFenceBlock({
+          renderedHtml: null,
+          fenceLanguage: undefined,
+          sourceLines: ['```', '', '```'],
+        })}
+        onDeleteBlock={onDeleteBlock}
+      />
+    );
+
+    const textarea = container.querySelector('.code-fence-textarea') as HTMLTextAreaElement;
+    expect(textarea?.value).toBe('');
+    fireEvent.keyDown(textarea, { key: 'Backspace' });
+
+    expect(onDeleteBlock).toHaveBeenCalledTimes(1);
+    expect(onDeleteBlock).toHaveBeenCalledWith('code-block-1');
+  });
+
+  it('does not call onDeleteBlock when Backspace is pressed on non-empty textarea', () => {
+    const onDeleteBlock = vi.fn();
+    const { container } = render(
+      <CodeFenceBlock
+        block={createCodeFenceBlock({ renderedHtml: null })}
+        onDeleteBlock={onDeleteBlock}
+      />
+    );
+
+    const textarea = container.querySelector('.code-fence-textarea') as HTMLTextAreaElement;
+    fireEvent.keyDown(textarea, { key: 'Backspace' });
+
+    expect(onDeleteBlock).not.toHaveBeenCalled();
   });
 });

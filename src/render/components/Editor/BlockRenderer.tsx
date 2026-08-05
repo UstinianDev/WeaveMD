@@ -29,6 +29,8 @@ interface BlockRendererProps {
   onBlockEnter?: (blockId: BlockId) => void;
   /** Called when Backspace is pressed in an empty block to delete it */
   onBlockDelete?: (blockId: BlockId) => void;
+  /** Called when Backspace is pressed in an empty code-fence textarea */
+  onCodeFenceDelete?: (blockId: BlockId) => void;
   /** Block currently toggled to MD source view */
   mdSourceBlockId?: string | null;
 }
@@ -37,6 +39,7 @@ const BlockRenderer: React.FC<BlockRendererProps> = ({
   block,
   onFenceLanguageChange,
   onBlockContentChange,
+  onCodeFenceDelete,
   mdSourceBlockId,
 }) => {
   if (mdSourceBlockId === block.id) {
@@ -66,6 +69,7 @@ const BlockRenderer: React.FC<BlockRendererProps> = ({
           block={block}
           onFenceLanguageChange={onFenceLanguageChange}
           onContentChange={onBlockContentChange}
+          onDeleteBlock={onCodeFenceDelete}
         />
       );
     case 'table':
