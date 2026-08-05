@@ -40,6 +40,8 @@ export interface PendingTypeChange {
   headingLevel?: number;
   checked?: boolean;
   orderedIndex?: number;
+  /** For code-fence: language identifier (e.g. 'typescript', 'python') */
+  fenceLanguage?: string;
   /** Prefix character count (including trailing space), used to strip on commit */
   prefixLength: number;
 }
@@ -465,13 +467,28 @@ export function commitPendingTypeChange(tree: BlockTree, id: BlockId): BlockTree
   const raw = block.sourceLines[0] ?? '';
   const stripped = raw.slice(pending.prefixLength);
 
+  // For code-fence, reconstruct the full opening/content/closing sourceLines
+  // rather than simply stripping the prefix from the first line.
+  let nextSourceLines: string[];
+  let nextFenceLanguage: string | undefined;
+  if (pending.newType === 'code-fence') {
+    const fenceMarker = block.sourceLines[0]?.match(/^(`{3,}|~{3,})/)?.[1] ?? '```';
+    const lang = pending.fenceLanguage ?? '';
+    nextFenceLanguage = lang || undefined;
+    nextSourceLines = [`${fenceMarker}${lang}`, stripped, fenceMarker];
+  } else {
+    nextFenceLanguage = undefined;
+    nextSourceLines = [stripped, ...block.sourceLines.slice(1)];
+  }
+
   const newBlock: BlockNode = {
     ...block,
     type: pending.newType,
     headingLevel: pending.newType === 'heading' ? pending.headingLevel : undefined,
     checked: pending.newType === 'task-list-item' ? pending.checked : undefined,
     orderedIndex: pending.newType === 'ordered-list-item' ? pending.orderedIndex : undefined,
-    sourceLines: [stripped, ...block.sourceLines.slice(1)],
+    fenceLanguage: pending.newType === 'code-fence' ? nextFenceLanguage : undefined,
+    sourceLines: nextSourceLines,
     pendingTypeChange: null,
     renderedHtml: null,
   };

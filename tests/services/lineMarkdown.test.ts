@@ -29,6 +29,11 @@ describe('detectMarkdownLine', () => {
     expect(detectMarkdownLine('1. ')).toEqual({ type: 'ordered-list-item', orderedIndex: 1 });
   });
 
+  it('detects ordered list prefix with ) separator', () => {
+    expect(detectMarkdownLine('1) ')).toEqual({ type: 'ordered-list-item', orderedIndex: 1 });
+    expect(detectMarkdownLine('42) ')).toEqual({ type: 'ordered-list-item', orderedIndex: 42 });
+  });
+
   it('detects blockquote prefix with trailing space', () => {
     expect(detectMarkdownLine('> ')).toEqual({ type: 'blockquote' });
   });
@@ -68,6 +73,25 @@ describe('detectMarkdownLine', () => {
       type: 'task-list-item',
       isChecked: false,
     });
+  });
+
+  it('detects code fence prefix (backticks)', () => {
+    expect(detectMarkdownLine('```')).toEqual({ type: 'code-fence', fenceLanguage: undefined });
+    expect(detectMarkdownLine('```js')).toEqual({ type: 'code-fence', fenceLanguage: 'js' });
+    expect(detectMarkdownLine('```typescript')).toEqual({
+      type: 'code-fence',
+      fenceLanguage: 'typescript',
+    });
+    expect(detectMarkdownLine('~~~~')).toEqual({ type: 'code-fence', fenceLanguage: undefined });
+    expect(detectMarkdownLine('~~~ python')).toEqual({
+      type: 'code-fence',
+      fenceLanguage: 'python',
+    });
+  });
+
+  it('does not detect code fence with fewer than 3 backticks', () => {
+    expect(detectMarkdownLine('``')).toBeNull();
+    expect(detectMarkdownLine('`')).toBeNull();
   });
 });
 
