@@ -13,6 +13,7 @@ export interface MarkdownLineDetection {
   headingLevel?: number;
   isChecked?: boolean;
   orderedIndex?: number;
+  fenceLanguage?: string;
 }
 
 export function detectMarkdownLine(line: string): MarkdownLineDetection | null {
@@ -36,7 +37,7 @@ export function detectMarkdownLine(line: string): MarkdownLineDetection | null {
     return { type: 'unordered-list-item' };
   }
 
-  const olMatch = line.match(/^(\d+)\.[ \t\u00A0]+(.*)/);
+  const olMatch = line.match(/^(\d+)[.)][ \t\u00A0]+(.*)/);
   if (olMatch) {
     return { type: 'ordered-list-item', orderedIndex: parseInt(olMatch[1], 10) };
   }
@@ -44,6 +45,15 @@ export function detectMarkdownLine(line: string): MarkdownLineDetection | null {
   const bqMatch = line.match(/^>[ \t\u00A0]+(.*)/);
   if (bqMatch) {
     return { type: 'blockquote' };
+  }
+
+  // Code fence: ``` or ~~~ optionally followed by a language identifier.
+  // Detected as a single-line prefix for gray-out; the full code-fence block
+  // (opening + content + closing) is constructed on Enter commit.
+  const fenceMatch = line.match(/^(`{3,}|~{3,})(.*)/);
+  if (fenceMatch) {
+    const lang = fenceMatch[2].trim();
+    return { type: 'code-fence', fenceLanguage: lang || undefined };
   }
 
   return null;

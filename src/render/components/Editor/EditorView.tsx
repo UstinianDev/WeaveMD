@@ -547,6 +547,7 @@ const EditorView: React.FC<EditorViewProps> = ({
   // ============================================
 
   const getBlockTextContent = useCallback((block: BlockNode, blockEl: Element): string => {
+    let text: string;
     if (
       block.type === 'unordered-list-item' ||
       block.type === 'ordered-list-item' ||
@@ -554,31 +555,39 @@ const EditorView: React.FC<EditorViewProps> = ({
     ) {
       const contentEl = blockEl.querySelector('span.block-content');
       // NOTE: No .trim() — trailing spaces matter for prefix detection
-      return contentEl?.textContent?.replace(/\u200B/g, '') ?? '';
-    }
-    if (block.type === 'blockquote') {
+      text = contentEl?.textContent?.replace(/\u200B/g, '') ?? '';
+    } else if (block.type === 'blockquote') {
       // NOTE: No .trim() at the end — trailing spaces matter for prefix detection
-      return blockEl.textContent?.replace(/^\s*>?\s*/, '').replace(/\u200B/g, '') ?? '';
-    }
-    // For heading, strip markdown prefix from DOM text but preserve trailing spaces
-    if (block.type === 'heading') {
-      let text = blockEl.textContent ?? '';
+      text = blockEl.textContent?.replace(/^\s*>?\s*/, '').replace(/\u200B/g, '') ?? '';
+    } else if (block.type === 'heading') {
+      // For heading, strip markdown prefix from DOM text but preserve trailing spaces
+      let raw = blockEl.textContent ?? '';
       // Strip heading prefix: "# ", "## ", etc.
-      text = text.replace(/^#{1,6}[ \t]*/, '');
+      raw = raw.replace(/^#{1,6}[ \t]*/, '');
       // Safety: strip any remaining leading #
-      while (text.startsWith('#')) {
-        text = text.slice(1);
-        if (text.startsWith(' ') || text.startsWith('\t')) {
-          text = text.slice(1);
+      while (raw.startsWith('#')) {
+        raw = raw.slice(1);
+        if (raw.startsWith(' ') || raw.startsWith('\t')) {
+          raw = raw.slice(1);
         }
       }
       // Strip zero-width space
-      text = text.replace(/\u200B/g, '');
+      text = raw.replace(/\u200B/g, '');
       // NOTE: No .trim() — preserve trailing spaces
-      return text;
+    } else {
+      // NOTE: No .trim() — trailing spaces matter for prefix detection
+      text = blockEl.textContent?.replace(/\u200B/g, '') ?? '';
     }
-    // NOTE: No .trim() — trailing spaces matter for prefix detection
-    return blockEl.textContent?.replace(/\u200B/g, '') ?? '';
+
+    // When a pending prefix gray-out exists, the DOM contains a .md-prefix-gray
+    // span whose text is the markdown prefix (e.g. "# ", "- ", "```"). This
+    // text must be excluded from content calculations, otherwise backspace-
+    // deleted content appears non-empty and the pending state is never cleared.
+    if (block.pendingTypeChange) {
+      text = text.slice(block.pendingTypeChange.prefixLength);
+    }
+
+    return text;
   }, []);
 
   const buildSourceLinesFromContent = useCallback((block: BlockNode, text: string): string[] => {
@@ -935,6 +944,7 @@ const EditorView: React.FC<EditorViewProps> = ({
       else if (detection.type === 'unordered-list-item') m = content.match(/^[-*+][ \t\u00A0]+/);
       else if (detection.type === 'ordered-list-item') m = content.match(/^\d+[.)][ \t\u00A0]+/);
       else if (detection.type === 'blockquote') m = content.match(/^>[ \t\u00A0]+/);
+      else if (detection.type === 'code-fence') m = content.match(/^(`{3,}|~{3,})[^\n]*/);
       else m = null;
       return m ? m[0].length : 0;
     },
@@ -1062,6 +1072,7 @@ const EditorView: React.FC<EditorViewProps> = ({
               headingLevel: detection.headingLevel,
               checked: detection.isChecked,
               orderedIndex: detection.orderedIndex,
+              fenceLanguage: detection.fenceLanguage,
               prefixLength,
             },
             // renderedHtml left untouched — preserve current DOM gray structure
@@ -1195,13 +1206,27 @@ const EditorView: React.FC<EditorViewProps> = ({
 
       if (pending) {
         const strippedBefore = beforeText.slice(pending.prefixLength);
+        // For code-fence, reconstruct full opening/content/closing sourceLines
+        let pendingSourceLines: string[];
+        let pendingFenceLanguage: string | undefined;
+        if (pending.newType === 'code-fence') {
+          const rawLine = currentBlock.sourceLines[0] ?? '';
+          const fenceMarker = rawLine.match(/^(`{3,}|~{3,})/)?.[1] ?? '```';
+          const lang = pending.fenceLanguage ?? '';
+          pendingFenceLanguage = lang || undefined;
+          pendingSourceLines = [`${fenceMarker}${lang}`, strippedBefore, fenceMarker];
+        } else {
+          pendingFenceLanguage = undefined;
+          pendingSourceLines = [strippedBefore];
+        }
         updatedBlock = {
           ...currentBlock,
           type: pending.newType,
           headingLevel: pending.newType === 'heading' ? pending.headingLevel : undefined,
           checked: pending.newType === 'task-list-item' ? pending.checked : undefined,
           orderedIndex: pending.newType === 'ordered-list-item' ? pending.orderedIndex : undefined,
-          sourceLines: [strippedBefore],
+          fenceLanguage: pending.newType === 'code-fence' ? pendingFenceLanguage : undefined,
+          sourceLines: pendingSourceLines,
           pendingTypeChange: null,
           renderedHtml: null,
         };
@@ -1212,6 +1237,18 @@ const EditorView: React.FC<EditorViewProps> = ({
         if (detection && detection.type !== currentBlock.type) {
           const prefixLength = getPrefixLength(beforeText, detection);
           const strippedBefore = beforeText.slice(prefixLength);
+          // For code-fence, reconstruct full opening/content/closing sourceLines
+          let fallbackSourceLines: string[];
+          let fallbackFenceLanguage: string | undefined;
+          if (detection.type === 'code-fence') {
+            const fenceMarker = beforeText.match(/^(`{3,}|~{3,})/)?.[1] ?? '```';
+            const lang = detection.fenceLanguage ?? '';
+            fallbackFenceLanguage = lang || undefined;
+            fallbackSourceLines = [`${fenceMarker}${lang}`, strippedBefore, fenceMarker];
+          } else {
+            fallbackFenceLanguage = undefined;
+            fallbackSourceLines = [strippedBefore];
+          }
           updatedBlock = {
             ...currentBlock,
             type: detection.type,
@@ -1219,7 +1256,8 @@ const EditorView: React.FC<EditorViewProps> = ({
             checked: detection.type === 'task-list-item' ? detection.isChecked : undefined,
             orderedIndex:
               detection.type === 'ordered-list-item' ? detection.orderedIndex : undefined,
-            sourceLines: [strippedBefore],
+            fenceLanguage: detection.type === 'code-fence' ? fallbackFenceLanguage : undefined,
+            sourceLines: fallbackSourceLines,
             renderedHtml: null,
           };
         } else {
