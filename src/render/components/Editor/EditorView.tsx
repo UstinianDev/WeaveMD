@@ -42,6 +42,7 @@ import EditorScrollContainer, { type EditorScrollContainerHandle } from './Edito
 import FindReplaceBar from './FindReplaceBar';
 import FloatingToolbarWYSIWYG from './FloatingToolbarWYSIWYG';
 import SourceCodeEditor, { type SourceCodeEditorHandle } from './SourceCodeEditor';
+import EditorV2 from './v2/EditorV2';
 
 // ============================================
 // Types
@@ -202,6 +203,9 @@ const EditorView: React.FC<EditorViewProps> = ({
   onNavigateReady,
   onActiveHeadingChange,
 }) => {
+  // Editor v2 并行开关（M2-M4）：window.__EDITOR_V2__ === false 时回退 v1
+  const isEditorV2 = typeof window !== 'undefined' && window.__EDITOR_V2__ !== false;
+
   // --- Refs ---
   const isUpdatingFromExternalRef = useRef(false);
   const themesDefinedRef = useRef(false);
@@ -1871,8 +1875,16 @@ const EditorView: React.FC<EditorViewProps> = ({
             }}
             onActiveHeadingChange={handleSourceActiveHeadingChange}
           />
+        ) : isEditorV2 ? (
+          /* Editor v2：块树渲染 + 块内 contentEditable（SPEC-EDITOR-V2） */
+          <EditorV2
+            content={content}
+            onContentChange={setContent}
+            onNavigateReady={onNavigateReady}
+            onActiveHeadingChange={onActiveHeadingChange}
+          />
         ) : (
-          /* Normal Mode: Editable rendered rich-text blocks */
+          /* Normal Mode v1: Editable rendered rich-text blocks */
           <>
             <EditorScrollContainer
               ref={scrollContainerRef}
