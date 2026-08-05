@@ -78,6 +78,8 @@ export interface BlockNode {
   startLine?: number;
   /** Pending markdown type change — prefix grayed in DOM, committed on Enter */
   pendingTypeChange?: PendingTypeChange | null;
+  /** Paragraph immediately after code-fence: cannot be deleted via Backspace */
+  protectedAfterCodeFence?: boolean;
 }
 
 /**

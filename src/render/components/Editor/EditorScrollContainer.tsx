@@ -27,6 +27,8 @@ interface EditorScrollContainerProps {
   onBlockEnter: (blockId: BlockId, cursorOffset: number) => void;
   /** Called when Backspace is pressed at block start to delete it */
   onBlockDelete: (blockId: BlockId) => void;
+  /** Called when Backspace at start of non-paragraph converts it to paragraph */
+  onBlockConvertToParagraph: (blockId: BlockId) => void;
   /** Called on input event for real-time sync */
   onBlockInput: (blockId: BlockId) => void;
   /** Called when the active heading changes during scroll */
@@ -82,6 +84,37 @@ const getCursorOffsetInBlock = (blockEl: Element): number => {
   return preRange.toString().replace(/\u200B/g, '').length;
 };
 
+const getEditableTextContent = (blockEl: Element): string => {
+  const contentSpan = blockEl.querySelector(':scope > span.block-content');
+  if (contentSpan) {
+    return contentSpan.textContent?.replace(/\u200B/g, '').trim() ?? '';
+  }
+  return blockEl.textContent?.replace(/\u200B/g, '').trim() ?? '';
+};
+
+const isAtContentStart = (blockEl: Element, blockType: string): boolean => {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return false;
+
+  if (
+    blockType === 'unordered-list-item' ||
+    blockType === 'ordered-list-item' ||
+    blockType === 'task-list-item'
+  ) {
+    const contentSpan = blockEl.querySelector(':scope > span.block-content');
+    if (!contentSpan) return false;
+    // Cursor at start: anchor is the content span at offset 0,
+    // or a direct child text node at offset 0
+    if (selection.anchorNode === contentSpan && selection.anchorOffset === 0) return true;
+    if (selection.anchorNode?.parentNode === contentSpan && selection.anchorOffset === 0)
+      return true;
+    return false;
+  }
+
+  // For heading, blockquote, paragraph: standard offset check
+  return getCursorOffsetInBlock(blockEl) === 0;
+};
+
 export interface EditorScrollContainerHandle {
   scrollToBlock: (blockId: BlockId) => void;
 }
@@ -94,6 +127,7 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
       onBlockContentChange,
       onBlockEnter,
       onBlockDelete,
+      onBlockConvertToParagraph,
       onBlockInput,
       onActiveHeadingChange,
       mdSourceBlockId,
@@ -254,21 +288,41 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
 
         if (e.key === 'Backspace') {
           const selection = window.getSelection();
-          if (selection && selection.rangeCount > 0) {
-            const blockEl = document.querySelector(`[data-block-id="${blockId}"]`);
-            if (blockEl) {
-              const cursorOffset = getCursorOffsetInBlock(blockEl);
-              const blockContent = blockEl.textContent ?? '';
-              // Block is empty and cursor is at position 0
-              if (blockContent.replace(/\u200B/g, '').trim() === '' && cursorOffset === 0) {
-                e.preventDefault();
-                onBlockDelete(blockId);
-              }
-            }
+          if (!selection || selection.rangeCount === 0) return;
+
+          const blockEl = document.querySelector(`[data-block-id="${blockId}"]`);
+          if (!blockEl) return;
+
+          const block = blockTree.blocks[blockId];
+          if (!block) return;
+
+          // 1. Protected paragraph after code-fence: block ALL backspace
+          if (block.protectedAfterCodeFence) {
+            e.preventDefault();
+            return;
           }
+
+          const editableContent = getEditableTextContent(blockEl);
+          const isEmpty = editableContent === '';
+          const atStart = isAtContentStart(blockEl, block.type);
+
+          if (isEmpty && atStart) {
+            // 2. Empty block at start → delete (existing behavior)
+            e.preventDefault();
+            onBlockDelete(blockId);
+            return;
+          }
+
+          if (atStart && block.type !== 'paragraph') {
+            // 3. Non-paragraph with cursor at start → convert to paragraph
+            e.preventDefault();
+            onBlockConvertToParagraph(blockId);
+            return;
+          }
+          // 4. Otherwise: browser default (character deletion or block merge)
         }
       },
-      [onBlockEnter, onBlockDelete]
+      [onBlockEnter, onBlockDelete, onBlockConvertToParagraph, blockTree]
     );
 
     const updatePlaceholder = useCallback((preferredBlockId?: BlockId | null) => {

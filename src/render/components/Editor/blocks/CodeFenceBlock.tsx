@@ -1,12 +1,12 @@
 // ============================================
 // WeaveMD — Code Fence Block Component
 // ============================================
-// Renders fenced code blocks in read-only WYSIWYG mode.
+// Renders fenced code blocks in WYSIWYG mode.
 // Shows syntax-highlighted code with language badge and copy button.
-// Editing is done via View → Source Code Mode.
+// Includes an editable textarea for code input in Normal Mode.
 // ============================================
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { BlockId, BlockNode } from '../../../services/blockTree';
 
 const LANGUAGE_OPTIONS = [
@@ -71,25 +71,47 @@ interface CodeFenceBlockProps {
   onContentChange?: (blockId: BlockId, newContent: string) => void;
 }
 
-const CodeFenceBlock: React.FC<CodeFenceBlockProps> = ({ block, onFenceLanguageChange }) => {
+const CodeFenceBlock: React.FC<CodeFenceBlockProps> = ({
+  block,
+  onFenceLanguageChange,
+  onContentChange,
+}) => {
   const selectedLanguage = normalizeFenceLanguageForSelect(block.fenceLanguage);
   const [copied, setCopied] = useState(false);
 
   const codeText = block.sourceLines.slice(1, -1).join('\n');
+  const [localText, setLocalText] = useState(codeText);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Sync local text when block sourceLines change externally (e.g. Source Mode edit)
+  useEffect(() => {
+    setLocalText(codeText);
+  }, [codeText]);
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(codeText).then(() => {
+    navigator.clipboard.writeText(localText || codeText).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
-  }, [codeText]);
+  }, [localText, codeText]);
+
+  const handleTextareaBlur = useCallback(() => {
+    if (localText !== codeText) {
+      onContentChange?.(block.id, localText);
+    }
+  }, [localText, codeText, onContentChange, block.id]);
+
+  const stopPropagation = useCallback(
+    (e: React.MouseEvent | React.KeyboardEvent) => e.stopPropagation(),
+    []
+  );
 
   return (
     <div
       className="code-fence-block code-fence-block--inactive relative mb-4 overflow-hidden"
       data-block-id={block.id}
     >
-      <div className="code-fence-header">
+      <div className="code-fence-header" contentEditable={false} suppressContentEditableWarning>
         <div className="code-fence-window-controls" aria-hidden="true">
           <span className="code-fence-window-dot code-fence-window-dot--close" />
           <span className="code-fence-window-dot code-fence-window-dot--minimize" />
@@ -125,18 +147,25 @@ const CodeFenceBlock: React.FC<CodeFenceBlockProps> = ({ block, onFenceLanguageC
           {copied ? 'Copied!' : 'Copy'}
         </button>
       </div>
-      {block.renderedHtml ? (
-        <div
-          className="code-fence-content overflow-x-auto"
-          dangerouslySetInnerHTML={{ __html: block.renderedHtml }}
+      <div className="code-fence-content overflow-x-auto">
+        {block.renderedHtml &&
+        !localText &&
+        !document.activeElement?.closest(`[data-block-id="${block.id}"]`) ? (
+          <div dangerouslySetInnerHTML={{ __html: block.renderedHtml }} />
+        ) : null}
+        <textarea
+          ref={textareaRef}
+          className="code-fence-textarea"
+          value={localText}
+          onChange={(e) => setLocalText(e.target.value)}
+          onBlur={handleTextareaBlur}
+          onKeyDown={stopPropagation}
+          onClick={stopPropagation}
+          onMouseDown={stopPropagation}
+          placeholder="在此输入代码..."
+          spellCheck={false}
         />
-      ) : (
-        <div className="code-fence-content overflow-x-auto">
-          <pre className="code-fence-fallback">
-            <code>{codeText}</code>
-          </pre>
-        </div>
-      )}
+      </div>
     </div>
   );
 };

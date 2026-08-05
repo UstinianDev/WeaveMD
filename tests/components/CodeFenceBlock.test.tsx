@@ -20,9 +20,7 @@ function createCodeFenceBlock(overrides: Partial<BlockNode> = {}): BlockNode {
 
 describe('CodeFenceBlock — read-only display', () => {
   it('renders the language label inside the code fence header (display-only)', () => {
-    const { container } = render(
-      <CodeFenceBlock block={createCodeFenceBlock()} />
-    );
+    const { container } = render(<CodeFenceBlock block={createCodeFenceBlock()} />);
 
     const header = container.querySelector('.code-fence-header');
     expect(header).not.toBeNull();
@@ -31,7 +29,7 @@ describe('CodeFenceBlock — read-only display', () => {
     expect(header?.textContent).toContain('Plain Text');
   });
 
-  it('renders the code fence fallback when renderedHtml is null', () => {
+  it('renders a textarea with code content when renderedHtml is null', () => {
     const { container } = render(
       <CodeFenceBlock
         block={createCodeFenceBlock({
@@ -42,9 +40,9 @@ describe('CodeFenceBlock — read-only display', () => {
       />
     );
 
-    const fallback = container.querySelector('.code-fence-fallback');
-    expect(fallback).not.toBeNull();
-    expect(fallback?.textContent).toContain('console.log("hi")');
+    const textarea = container.querySelector('.code-fence-textarea') as HTMLTextAreaElement;
+    expect(textarea).not.toBeNull();
+    expect(textarea?.value).toContain('console.log("hi")');
   });
 
   it('renders rendered HTML via dangerouslySetInnerHTML', () => {
