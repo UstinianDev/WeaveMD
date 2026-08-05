@@ -644,3 +644,25 @@ Source → Normal：content → markdownToState → 块树 → 渲染
 - 往返不变量细化为"规范化往返"（见 4.2 归一化清单）。
 - `table` 首版为叶子块而非容器块（3.2 已更新）。
 - 任务列表在 M1 表达为 `bullet-list > list-item(taskChecked)`，`task-list` 容器类型保留备用。
+
+### 13.2 M2 渲染骨架完成（2026-08-06）
+
+渲染层已按第 5 节实施，与 v1 并行、可回退：
+
+| 文件 | 内容 |
+| ---- | ---- |
+| `src/render/editor/selection.ts` | 光标/选区 DOM 读写（偏移 ↔ 文本节点，排除零宽空格） |
+| `src/render/editor/editorInstance.ts` | EditorInstance 宿主：内容装载、行内缓存、基础输入/回车拆分/空块退格 |
+| `src/render/components/Editor/v2/EditorV2.tsx` | v2 入口：树状态、事件路由、DOM 注册表、光标恢复、内容同步 |
+| `src/render/components/Editor/v2/EditorScrollContainer.tsx` | 滚动视口（容器非 contentEditable） |
+| `src/render/components/Editor/v2/BlockRenderer.tsx` | 容器/叶子递归分发 |
+| `src/render/components/Editor/v2/blocks/` | ContentBlock（唯一 contentEditable）、LeafBlock、CodeBlock、ListItemBlock、BlockquoteBlock |
+
+**接入方式**：`EditorView` Normal Mode 按 `window.__EDITOR_V2__ !== false` 渲染 v2，
+设为 `false` 刷新即回退 v1（M4 验收后删除 v1 路径）。v1 文件未改动。
+
+**M2 能力边界**：基础文本输入（行内实时渲染 + 光标恢复）、Enter 拆块（heading 右半转段落）、
+空块 Backspace 合并/删除、列表/引用/代码块渲染。结构块退出规则、格式化、快捷键等交互在 M3 扩展。
+
+**M2 验证**：新增测试 12 例（EditorInstance 8 / EditorV2 渲染 4）；
+全量 `vitest run` 272 例通过；`tsc --noEmit` 无错误；`vite build` 成功。
