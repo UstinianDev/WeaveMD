@@ -12,7 +12,8 @@ describe('EditorInstance — 内容装载', () => {
     const instance = new EditorInstance('**bold** text');
     const blocks = Object.values(instance.tree.blocks).filter((b) => b.text !== null);
     expect(blocks.length).toBe(1);
-    expect(blocks[0].inlineHtml).toContain('<strong>bold</strong>');
+    expect(blocks[0].inlineHtml).toContain('<strong>');
+    expect(blocks[0].inlineHtml).toContain('bold');
   });
 
   it('setContent 替换内容并重建树', () => {

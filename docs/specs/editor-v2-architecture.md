@@ -732,3 +732,48 @@ Source → Normal：content → markdownToState → 块树 → 渲染
 | EDIT-10 空块占位 | ✅ data-empty + CSS ::before |
 | EDIT-11 结构转换 | ✅ 六种前缀即时转换 + 退出规则 |
 | EDIT-12 超链接 | ✅ Ctrl+Click 外部打开 + 链接对话框（formatCtrl link） |
+
+### 13.5 真实运行缺陷修复（2026-08-06）
+
+用户实测反馈"编辑主区无法输入、markdown 无法实时渲染为富文本"。经排查定位到三个
+真实运行缺陷并修复（对齐 marktext 行为）：
+
+| # | 根因 | 修复 |
+| - | ---- | ---- |
+| R1 | 空文档渲染为不可编辑的占位 div（无 contentEditable、无输入处理），新建文件后无法输入 | `EditorInstance` 保证文档始终至少一个空 paragraph（marktext scrollPage 语义）；`getMarkdown` 对唯一空段落返回 `''`，保持往返 |
+| R2 | 每次输入都触发 React 重渲染 + `dangerouslySetInnerHTML` 重写 DOM，打断浏览器编辑状态与 IME | `inputCtrl` 引入 marktext `checkNeedRender` 思路：仅当 autoPair 补全或文本含格式语法标记（`hasFormatSyntax`）时才重渲染；纯文本输入仅同步模型（DOM 已由浏览器更新） |
+| R3 | 无 IME 守卫，中文输入（composition）期间每次拼音都重渲染打断组合 | ContentBlock 监听 compositionstart/end，组合期间跳过 input，结束后统一同步 |
+| R4 | 行内渲染隐藏语法标记（`**bold**` → `<strong>bold</strong>`），DOM textContent 与源文本不一致，在已渲染格式中继续输入会丢失标记 | inlineRenderer 按 marktext 范式保留语法标记：`<span class="md-syntax">**</span>` 灰显包裹，DOM textContent 与源文本始终一致；新增 `.md-syntax` 样式（灰显、不可选） |
+
+**验证**：新增 `tests/components/editorV2Input.test.tsx` 7 例（空文档输入、逐字符连续输入、
+IME 组合、前缀转换、实时加粗渲染、列表转换、标记保留）；
+全量 `vitest run` 304 例通过；`tsc --noEmit` 与 ESLint 零告警；`vite build` 成功。
+
+**建议**：运行 `npm run dev` 在真实桌面环境做输入/IME/格式渲染手工验收；
+确认无回归后执行 v1 路径退役（独立任务）。
+
+### 13.6 真实 Chromium E2E 验证与最终修复（2026-08-06）
+
+为确认真实浏览器行为（jsdom 无法覆盖 contentEditable/IME/布局语义），引入
+Playwright + 真实 Chromium E2E（`e2e/editor.spec.ts`，renderer-only vite 配置
+`vite.test.config.ts`，mock Electron API 直达编辑主区）。验证中发现并修复：
+
+| # | 问题 | 修复 |
+| - | ---- | ---- |
+| E2E-1 | 空内容块 span 宽度为 0（仅零宽空格），Playwright 判定不可见；真实浏览器中点击命中困难 | `.block-content { display:inline-block; width:100%; min-height:1.2em; cursor:text }` |
+| E2E-2 | 块转换替换 DOM 后焦点丢失（旧节点卸载、新节点未注册），后续按键丢失 | `registerDom` 改 `useLayoutEffect` 同步注册；`inputCtrl` 返回转换后 `focusBlockId`，EditorV2 统一恢复焦点；恢复 effect 改 `useLayoutEffect`（paint 前同步） |
+
+**E2E 覆盖**（6 例全部通过）：
+
+1. 空文档可输入文本
+2. `# 标题` 即时渲染为 h1（转换后继续输入内容）
+3. `**bold**` 实时渲染为 strong（DOM 保留 `**` 标记）
+4. 渲染后继续输入保留 markdown 标记
+5. `- item` 即时转换列表
+6. 中文输入正常（IME）
+
+**最终验证**：`vitest run` 304 例通过；`tsc --noEmit` 与 ESLint 零告警；
+`vite build` 成功；Playwright Chromium E2E 6/6 通过。
+
+**运行 E2E**：`npx playwright test`（自动启动 renderer-only vite server，需要已安装
+`@playwright/test` 与 chromium）。

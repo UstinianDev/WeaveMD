@@ -16,6 +16,8 @@ export interface InputResult {
   cursorOffset?: number;
   /** 是否发生了块类型转换 */
   converted?: boolean;
+  /** 转换后光标所在块 id（块可能被替换，原 id 失效） */
+  focusBlockId?: string;
 }
 
 const AUTO_PAIRS: Record<string, string> = {
@@ -26,6 +28,17 @@ const AUTO_PAIRS: Record<string, string> = {
   '"': '"',
   "'": "'",
 };
+
+/**
+ * 文本是否包含行内格式语法标记。
+ * 仅当存在标记（或标记变化）时才需要 React 重渲染；
+ * 纯文本输入由浏览器直接更新 DOM，重渲染反而会打断编辑（marktext checkNeedRender 思路）。
+ */
+const FORMAT_SYNTAX_RE = /[*`~=[\]<>\\]/;
+
+export function hasFormatSyntax(text: string): boolean {
+  return FORMAT_SYNTAX_RE.test(text);
+}
 
 export function handleInput(
   instance: EditorInstance,
@@ -42,6 +55,7 @@ export function handleInput(
 
   let finalOffset = cursorOffset;
   // autoPair：单字符插入开括号时自动补闭括号
+  let autoPairApplied = false;
   if (text.length === oldText.length + 1 && cursorOffset > 0) {
     const inserted = text[cursorOffset - 1];
     const close = AUTO_PAIRS[inserted];
@@ -49,6 +63,7 @@ export function handleInput(
     if (close && nextChar !== close) {
       text = `${text.slice(0, cursorOffset)}${close}${text.slice(cursorOffset)}`;
       finalOffset = cursorOffset + 1;
+      autoPairApplied = true;
     }
   }
 
@@ -62,6 +77,11 @@ export function handleInput(
   tree = { ...tree, blocks: nextBlocks };
   instance.tree = tree;
 
+  // 代码块：原样显示（escapeHtml），输入无需重渲染
+  if (block.type === 'code-block') {
+    return { needRender: false, cursorOffset: finalOffset };
+  }
+
   // 块转换：仅 paragraph 参与前缀检测
   if (block.type === 'paragraph') {
     const conversion = detectBlockConversion(text);
@@ -72,12 +92,17 @@ export function handleInput(
           needRender: true,
           cursorOffset: result.focus.offset,
           converted: true,
+          focusBlockId: result.focus.blockId,
         };
       }
     }
   }
 
-  return { needRender: true, cursorOffset: finalOffset };
+  // 按需重渲染：autoPair 补全了 DOM 中不存在的字符，必须重渲染；
+  // 文本含格式语法标记时行内渲染结果变化，需要重渲染；
+  // 否则 DOM 已由浏览器更新，仅同步模型即可（避免打断输入）。
+  const needRender = autoPairApplied || hasFormatSyntax(text);
+  return { needRender, cursorOffset: finalOffset };
 }
 
 export function escapeHtmlText(text: string): string {

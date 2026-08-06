@@ -27,7 +27,8 @@ describe('EditorV2 — 渲染结构', () => {
     expect(container.querySelector('h1.heading-block')).not.toBeNull();
     expect(container.querySelector('h1.heading-block')?.textContent).toBe('Heading');
     expect(container.querySelector('p.paragraph-block')).not.toBeNull();
-    expect(container.querySelector('p.paragraph-block')?.textContent).toBe('Plain bold text');
+    // DOM textContent 保留 markdown 标记（与源一致，编辑不丢标记）
+    expect(container.querySelector('p.paragraph-block')?.textContent).toBe('Plain **bold** text');
     expect(container.querySelector('p.paragraph-block strong')).not.toBeNull();
     expect(container.querySelectorAll('.list-item').length).toBe(2);
     expect(container.querySelector('blockquote.blockquote-block')).not.toBeNull();

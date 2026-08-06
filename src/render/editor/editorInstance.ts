@@ -11,6 +11,8 @@ import {
   renderInline,
   escapeHtml,
   setInlineHtml,
+  appendChild,
+  makeParagraph,
 } from './kernel';
 
 export interface EditorActionResult {
@@ -24,18 +26,32 @@ export class EditorInstance {
   tree: BlockTreeV2;
 
   constructor(markdown = '') {
-    this.tree = markdownToState(markdown);
-    this.renderInlineAll();
+    this.tree = markdownToState('');
+    this.setContent(markdown);
   }
 
   // ---------- 内容 ----------
 
   setContent(markdown: string): void {
     this.tree = markdownToState(markdown);
+    // 文档始终至少一个空段落（marktext scrollPage 语义），保证空文档可编辑
+    if (this.tree.root.childrenIds.length === 0) {
+      const p = makeParagraph(this.tree, '');
+      this.tree = appendChild(this.tree, this.tree.root.id, p);
+    }
     this.renderInlineAll();
   }
 
   getMarkdown(): string {
+    // 空文档（唯一空段落）→ ''
+    const leafBlocks = Object.values(this.tree.blocks).filter((b) => b.text !== null);
+    if (
+      leafBlocks.length === 1 &&
+      leafBlocks[0].type === 'paragraph' &&
+      leafBlocks[0].text === ''
+    ) {
+      return '';
+    }
     return stateToMarkdown(this.tree);
   }
 

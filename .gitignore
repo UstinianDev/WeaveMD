@@ -11,3 +11,5 @@ Thumbs.db
 .env.local
 .trae/
 .dbg/
+test-results/
+playwright-report/

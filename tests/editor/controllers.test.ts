@@ -24,7 +24,8 @@ describe('inputCtrl — 输入与 autoPair', () => {
     const instance = new EditorInstance('hello');
     const id = paragraphId(instance);
     const result = inputCtrl.handleInput(instance, id, 'hello world', 11);
-    expect(result.needRender).toBe(true);
+    // 纯文本无格式标记：不触发 React 重渲染（DOM 已由浏览器更新），仅同步模型
+    expect(result.needRender).toBe(false);
     expect(instance.getMarkdown()).toBe('hello world');
   });
 

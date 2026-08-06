@@ -41,6 +41,8 @@ function stripZeroWidth(text: string): string {
 export function setCursorAtOffset(contentEl: HTMLElement, offset: number): void {
   const selection = window.getSelection();
   if (!selection) return;
+  // 重渲染替换 DOM 后必须恢复编辑焦点（否则后续按键丢失）
+  contentEl.focus({ preventScroll: true });
   const textWalker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT);
   let remaining = Math.max(0, offset);
   let textNode: Text | null;
