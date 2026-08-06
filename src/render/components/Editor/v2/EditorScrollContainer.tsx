@@ -17,10 +17,11 @@ export interface EditorScrollContainerHandle {
 interface EditorScrollContainerProps {
   tree: BlockTreeV2;
   handlers: BlockHandlers;
+  onScroll?: (scrollTop: number, containerEl: HTMLElement) => void;
 }
 
 const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScrollContainerProps>(
-  ({ tree, handlers }, ref) => {
+  ({ tree, handlers, onScroll }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
 
     useImperativeHandle(ref, () => ({
@@ -37,12 +38,12 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
     useEffect(() => {
       if (!containerRef.current) return;
       const container = containerRef.current;
-      const onScroll = () => {
-        // M2 占位：滚动高亮由 M4 接入
+      const handleScroll = () => {
+        onScroll?.(container.scrollTop, container);
       };
-      container.addEventListener('scroll', onScroll);
-      return () => container.removeEventListener('scroll', onScroll);
-    }, []);
+      container.addEventListener('scroll', handleScroll);
+      return () => container.removeEventListener('scroll', handleScroll);
+    }, [onScroll]);
 
     return (
       <div ref={containerRef} className="editor-scroll-container h-full overflow-y-auto">

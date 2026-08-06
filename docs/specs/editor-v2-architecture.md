@@ -690,3 +690,45 @@ Source → Normal：content → markdownToState → 块树 → 渲染
 
 **M3 验证**：新增控制器测试 24 例（含六条退出规则矩阵）；
 全量 `vitest run` 291 例通过；`tsc --noEmit` 与 ESLint 无告警；`vite build` 成功。
+
+### 13.4 M4 系统集成完成（2026-08-06）
+
+按第 8、9 节完成系统集成：
+
+| 集成项 | 实现 |
+| ------ | ---- |
+| 撤销/重做 | 经 `editorStore` content 快照栈（v2 每次编辑序列化同步，天然与 v1 undo 栈兼容）；ContentBlock 拦截 Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z 并调 store，TopBar 按钮同样生效 |
+| 大纲导航 | 新增 `kernel/outline.ts`（`extractHeadingOutline`：DFS 标题 + 序列化行号）；`onNavigateReady` 按 lineNumber/headingIndex → `scrollToBlock` |
+| 滚动高亮 | EditorScrollContainer 滚动事件 + 视口顶部 +10px 检测 → `onActiveHeadingChange`（与 v1 规则一致） |
+| 代码块语言/复制 | v2 CodeBlock 语言下拉（别名归一化）+ 复制按钮；`onFenceLanguageChange` 更新 meta |
+| 链接打开 | Ctrl/Cmd+Click `a.inline-link` → `window.weaveMD.link.openExternal`（IPC 白名单） |
+| 空块占位 | ContentBlock 空文本挂 `data-empty="true"`，复用现有 `::before` 占位符 CSS |
+| Find & Replace | 复用现有 FindReplaceBar（content 文本层），替换 → updateContent → v2 重建树 |
+
+**已知限制（记录，后续任务）**：
+
+- v2 Normal 模式暂无查找高亮（替换功能正常；Source 模式高亮由 Monaco 提供）。
+- 撤销/重做后光标回到重建树首块（块 ID 重建，位置保持待优化）。
+- 段落级 MD Source 视图（v1 `mdSourceBlockId`）未迁移到 v2。
+- v1 渲染路径与 `src/render/services/` 保留（`window.__EDITOR_V2__ === false` 可回退）；
+  v1 退役删除建议作为独立任务，先做手工验收。
+
+**M4 验证**：新增测试 5 例（outline 3 / EditorV2 集成 2）；
+全量 `vitest run` 296 例通过；`tsc --noEmit` 与 ESLint 零告警；`vite build` 成功。
+
+**验收清单（REQUIREMENTS EDIT-01~12 对照）**：
+
+| 需求 | 状态 |
+| ---- | ---- |
+| EDIT-01 双模式编辑 | ✅ Normal（v2）/ Source（Monaco） |
+| EDIT-02 块内 contentEditable | ✅ 仅内容块可编辑 |
+| EDIT-03 Block Tree 数据模型 | ✅ v2 块树（不可变 + 嵌套） |
+| EDIT-04 实时格式化渲染 | ✅ formatCtrl + inlineRenderer |
+| EDIT-05 MD Source 切换 | ⚠️ 工具栏入口未迁移（快捷键与源码模式可用） |
+| EDIT-06 段落操作 | ✅ Enter/Backspace 完整规则 |
+| EDIT-07 撤销/重做 | ✅ Ctrl+Z/Y + 按钮 |
+| EDIT-08 自动保存 | ✅ 1200ms + 切换前 flush |
+| EDIT-09 代码块 | ✅ 语言下拉 + 复制 + 独立编辑路径 |
+| EDIT-10 空块占位 | ✅ data-empty + CSS ::before |
+| EDIT-11 结构转换 | ✅ 六种前缀即时转换 + 退出规则 |
+| EDIT-12 超链接 | ✅ Ctrl+Click 外部打开 + 链接对话框（formatCtrl link） |

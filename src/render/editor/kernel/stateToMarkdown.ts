@@ -12,8 +12,8 @@ interface Ctx {
   indent: string;
 }
 
-/** 把块序列化为行数组 */
-function serializeBlock(block: BlockNodeV2, tree: BlockTreeV2, ctx: Ctx): string[] {
+/** 把块序列化为行数组（供大纲行号计算等复用） */
+export function serializeBlock(block: BlockNodeV2, tree: BlockTreeV2, ctx: Ctx = { indent: '' }): string[] {
   switch (block.type) {
     case 'document':
       return serializeChildren(block, tree, ctx, '\n\n');

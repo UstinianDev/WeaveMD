@@ -39,10 +39,6 @@ function stripHeadingClosing(text: string): string {
   return text.replace(/[ \t]+#+[ \t]*$/, '');
 }
 
-function escapeRegExp(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 // ============================================
 // Builder（解析期可变构建）
 // ============================================

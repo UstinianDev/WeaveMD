@@ -65,4 +65,25 @@ describe('EditorV2 — 渲染结构', () => {
     const placeholder = container.querySelector('[data-placeholder="Type something..."]');
     expect(placeholder).not.toBeNull();
   });
+
+  it('代码块语言切换同步内容', () => {
+    const onContentChange = vi.fn();
+    const { container } = render(
+      <EditorV2
+        content={'```js\nconst a = 1;\n```'}
+        onContentChange={onContentChange}
+      />
+    );
+    const select = container.querySelector('.code-fence-language-select') as HTMLSelectElement;
+    expect(select).not.toBeNull();
+    fireEvent.change(select, { target: { value: 'python' } });
+    expect(onContentChange).toHaveBeenCalledWith('```python\nconst a = 1;\n```');
+  });
+
+  it('有内容的内容块不带 data-empty 标记', () => {
+    const { container } = render(<EditorV2 content="hello" onContentChange={() => {}} />);
+    const content = container.querySelector('span.block-content');
+    expect(content).not.toBeNull();
+    expect(content?.hasAttribute('data-empty')).toBe(false);
+  });
 });
