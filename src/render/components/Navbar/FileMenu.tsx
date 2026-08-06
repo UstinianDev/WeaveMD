@@ -5,7 +5,7 @@
 import React from 'react';
 import { useI18n } from '../../i18n';
 import type { DropdownItem as DropdownItemType } from '../Common/Dropdown';
-import Dropdown from '../Common/Dropdown';
+import NavMenu from './NavMenu';
 
 interface FileMenuProps {
   onNewFile: () => void;
@@ -69,17 +69,7 @@ const FileMenu: React.FC<FileMenuProps> = ({
     },
   ];
 
-  return (
-    <Dropdown
-      trigger={
-        <span className="navbar-menu-trigger text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] transition-colors cursor-pointer select-none">
-          {t('navbar.file')} ▾
-        </span>
-      }
-      items={items}
-      width={200}
-    />
-  );
+  return <NavMenu label="navbar.file" items={items} width={200} />;
 };
 
 export default FileMenu;
