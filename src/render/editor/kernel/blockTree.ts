@@ -12,6 +12,7 @@ import {
   type BlockTypeV2,
   isLeafBlockType,
 } from './types';
+import { ATX_HEADING_RE, THEMATIC_BREAK_RE } from './markdownSyntax';
 
 // ============================================
 // ID 生成（稳定、文档内唯一）
@@ -526,17 +527,14 @@ export function mergeLeafIntoPrev(tree: BlockTreeV2, leafId: string): BlockTreeV
 // 与 SPEC-EDIT-EXIT 及 v1 lineMarkdown 对齐：
 // 分隔符支持普通空格 / Tab / 非断行空格（U+00A0，中文输入法）。
 
-const HEADING_CONV_RE = /^(#{1,6})[ \t\u00A0]+([\s\S]*)$/;
 const TASK_CONV_RE = /^[-*+][ \t\u00A0]+\[([ xX\u00A0])\][ \t\u00A0]+([\s\S]*)$/;
 const UL_CONV_RE = /^([-*+])[ \t\u00A0]+([\s\S]*)$/;
 const OL_CONV_RE = /^(\d{1,9})([.)])[ \t\u00A0]+([\s\S]*)$/;
 const BQ_CONV_RE = /^>[ \t\u00A0]+([\s\S]*)$/;
 const FENCE_CONV_RE = /^(`{3,}|~{3,})([^\n]*)$/;
-const THEMATIC_BREAK_CONV_RE =
-  /^(?:\*[ \t]*\*[ \t]*\*|-[ \t]*-[ \t]*-|_[ \t]*_[ \t]*_)[ \t*\-_]*$/;
 
 export function detectBlockConversion(text: string): BlockConversionV2 | null {
-  const heading = text.match(HEADING_CONV_RE);
+  const heading = text.match(ATX_HEADING_RE);
   if (heading) {
     return {
       type: 'heading',
@@ -594,7 +592,7 @@ export function detectBlockConversion(text: string): BlockConversionV2 | null {
     };
   }
 
-  if (THEMATIC_BREAK_CONV_RE.test(text)) {
+  if (THEMATIC_BREAK_RE.test(text)) {
     return { type: 'thematic-break', prefixLength: text.length };
   }
 

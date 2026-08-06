@@ -5,8 +5,7 @@
 // 对齐 marktext inputHandler 管线（autoPair → text → checkNeedRender → convertIfNeeded）。
 
 import type { EditorInstance } from '../editorInstance';
-import type { BlockNodeV2 } from '../kernel';
-import { detectBlockConversion, renderInline, setInlineHtml } from '../kernel';
+import { detectBlockConversion, renderBlockHtml, setInlineHtml } from '../kernel';
 import { convertParagraphToBlock } from './convertCtrl';
 
 export interface InputResult {
@@ -67,11 +66,7 @@ export function handleInput(
     }
   }
 
-  let tree = setInlineHtml(
-    instance.tree,
-    blockId,
-    block.type === 'code-block' ? escapeHtmlText(text) : renderInline(text)
-  );
+  let tree = setInlineHtml(instance.tree, blockId, renderBlockHtml({ type: block.type, text }));
   const nextBlocks = { ...tree.blocks };
   nextBlocks[blockId] = { ...nextBlocks[blockId], text };
   tree = { ...tree, blocks: nextBlocks };
@@ -103,19 +98,4 @@ export function handleInput(
   // 否则 DOM 已由浏览器更新，仅同步模型即可（避免打断输入）。
   const needRender = autoPairApplied || hasFormatSyntax(text);
   return { needRender, cursorOffset: finalOffset };
-}
-
-export function escapeHtmlText(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-/** 删除前缀时降级：由 backspaceCtrl 负责，此处提供检测辅助 */
-export function isInStructuralBlock(tree: EditorInstance['tree'], block: BlockNodeV2): boolean {
-  const parent = block.parentId ? tree.blocks[block.parentId] : undefined;
-  return block.type === 'heading' || parent?.type === 'list-item' || parent?.type === 'blockquote';
 }

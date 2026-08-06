@@ -13,20 +13,20 @@
 
 import type { BlockMetaV2, BlockNodeV2, BlockTreeV2 } from './types';
 import { createDocumentTree } from './blockTree';
+import { ATX_HEADING_RE, THEMATIC_BREAK_RE as THEMATIC_BREAK_CORE, indented } from './markdownSyntax';
 
 // ============================================
 // 行匹配规则
 // ============================================
 
-const ATX_HEADING_RE = /^(#{1,6})[ \t\u00A0]+([\s\S]*)$/;
 const SETEXT_UNDERLINE_RE = /^ {0,3}(=+|-+)[ \t]*$/;
 const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})([^\n]*)$/;
 const BLOCKQUOTE_RE = /^ {0,3}(?:>[ \t]?)+(.*)$/;
 const UL_ITEM_RE = /^ {0,3}([-*+])([ \t\u00A0]+)(.*)$/;
 const OL_ITEM_RE = /^ {0,3}(\d{1,9})([.)])([ \t\u00A0]+)(.*)$/;
 const TASK_ITEM_RE = /^ {0,3}([-*+])([ \t\u00A0]+)\[([ xX\u00A0])\]([ \t\u00A0]+)(.*)$/;
-const THEMATIC_BREAK_RE =
-  /^ {0,3}(?:\*[ \t]*\*[ \t]*\*|-[ \t]*-[ \t]*-|_[ \t]*_[ \t]*_)[ \t*\-_]*$/;
+// 分割线行级变体：允许 0-3 空格缩进（从核心正则派生）
+const THEMATIC_BREAK_RE = indented(THEMATIC_BREAK_CORE);
 const TABLE_SEPARATOR_RE = /^ {0,3}\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/;
 const INDENT_RE = /^( {2,}|\t+)(.*)$/;
 

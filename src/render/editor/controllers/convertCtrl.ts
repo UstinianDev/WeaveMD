@@ -21,16 +21,11 @@ import {
   removeBlock,
   replaceBlock,
   setInlineHtml,
-  renderInline,
-  escapeHtml,
+  renderBlockHtml,
 } from '../kernel';
 
 function renderFor(block: BlockNodeV2, tree: BlockTreeV2): BlockTreeV2 {
-  return setInlineHtml(
-    tree,
-    block.id,
-    block.type === 'code-block' ? escapeHtml(block.text ?? '') : renderInline(block.text ?? '')
-  );
+  return setInlineHtml(tree, block.id, renderBlockHtml(block));
 }
 
 /** 替换块并写入行内缓存 */

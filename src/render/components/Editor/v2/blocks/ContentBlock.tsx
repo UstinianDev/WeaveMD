@@ -109,58 +109,90 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
     [processInput]
   );
 
-  const handleKeyDown = useCallback(
+  const handleEnterKey = useCallback(
     (e: React.KeyboardEvent<HTMLSpanElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.key !== 'Enter' || e.shiftKey) return;
+      e.preventDefault();
+      const { start } = getCursorOffsets(e.currentTarget);
+      onEnter(blockId, start);
+    },
+    [blockId, onEnter]
+  );
+
+  const handleBackspaceKey = useCallback(
+    (e: React.KeyboardEvent<HTMLSpanElement>) => {
+      if (e.key !== 'Backspace') return;
+      const { start } = getCursorOffsets(e.currentTarget);
+      if (start === 0) {
         e.preventDefault();
-        const el = e.currentTarget;
-        const { start } = getCursorOffsets(el);
-        onEnter(blockId, start);
-        return;
-      }
-      if (e.key === 'Backspace') {
-        const el = e.currentTarget;
-        const { start } = getCursorOffsets(el);
-        if (start === 0) {
-          e.preventDefault();
-          onBackspaceAtStart(blockId);
-        }
-      }
-      if (e.key === 'Tab') {
-        const handled = e.shiftKey ? onShiftTab(blockId) : onTab(blockId);
-        if (handled) {
-          e.preventDefault();
-        }
-      }
-      // 格式化快捷键（Ctrl/Cmd）
-      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
-        const el = e.currentTarget;
-        const { start, end } = getCursorOffsets(el);
-        const key = e.key.toLowerCase();
-        if (key === 'z') {
-          e.preventDefault();
-          if (e.shiftKey) onRedo();
-          else onUndo();
-          return;
-        }
-        if (key === 'y') {
-          e.preventDefault();
-          onRedo();
-          return;
-        }
-        let style: InlineFormatStyle | null = null;
-        if (key === 'b') style = 'bold';
-        else if (key === 'i') style = 'italic';
-        else if (key === 'e') style = 'code';
-        else if (key === 's' && e.shiftKey) style = 'strike';
-        else if (key === 'h' && e.shiftKey) style = 'highlight';
-        if (style) {
-          e.preventDefault();
-          onFormat(blockId, style, start, end);
-        }
+        onBackspaceAtStart(blockId);
       }
     },
-    [blockId, onEnter, onBackspaceAtStart, onTab, onShiftTab, onFormat, onUndo, onRedo]
+    [blockId, onBackspaceAtStart]
+  );
+
+  const handleTabKey = useCallback(
+    (e: React.KeyboardEvent<HTMLSpanElement>) => {
+      if (e.key !== 'Tab') return;
+      const handled = e.shiftKey ? onShiftTab(blockId) : onTab(blockId);
+      if (handled) {
+        e.preventDefault();
+      }
+    },
+    [blockId, onTab, onShiftTab]
+  );
+
+  const handleFormatShortcut = useCallback(
+    (e: React.KeyboardEvent<HTMLSpanElement>) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const { start, end } = getCursorOffsets(e.currentTarget);
+      const key = e.key.toLowerCase();
+
+      // 撤销/重做优先于格式化
+      if (key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) onRedo();
+        else onUndo();
+        return;
+      }
+      if (key === 'y') {
+        e.preventDefault();
+        onRedo();
+        return;
+      }
+
+      const styleByKey: Partial<Record<string, InlineFormatStyle>> = {
+        b: 'bold',
+        i: 'italic',
+        e: 'code',
+      };
+      if (e.shiftKey && key === 's') {
+        e.preventDefault();
+        onFormat(blockId, 'strike', start, end);
+        return;
+      }
+      if (e.shiftKey && key === 'h') {
+        e.preventDefault();
+        onFormat(blockId, 'highlight', start, end);
+        return;
+      }
+      const style = styleByKey[key];
+      if (style) {
+        e.preventDefault();
+        onFormat(blockId, style, start, end);
+      }
+    },
+    [blockId, onUndo, onRedo, onFormat]
+  );
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLSpanElement>) => {
+      handleEnterKey(e);
+      handleBackspaceKey(e);
+      handleTabKey(e);
+      handleFormatShortcut(e);
+    },
+    [handleEnterKey, handleBackspaceKey, handleTabKey, handleFormatShortcut]
   );
 
   const html = inlineHtml ?? escapeHtml(text);

@@ -8,8 +8,7 @@ import type { BlockNodeV2, BlockTreeV2 } from './kernel';
 import {
   markdownToState,
   stateToMarkdown,
-  renderInline,
-  escapeHtml,
+  renderBlockHtml,
   setInlineHtml,
   appendChild,
   makeParagraph,
@@ -61,11 +60,7 @@ export class EditorInstance {
     for (const id of Object.keys(tree.blocks)) {
       const block = tree.blocks[id];
       if (block.text === null) continue;
-      tree = setInlineHtml(
-        tree,
-        id,
-        block.type === 'code-block' ? escapeHtml(block.text) : renderInline(block.text)
-      );
+      tree = setInlineHtml(tree, id, renderBlockHtml(block));
     }
     this.tree = tree;
   }
