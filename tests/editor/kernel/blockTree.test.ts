@@ -168,7 +168,11 @@ describe('blockTree — detectBlockConversion', () => {
     expect(detectBlockConversion('- [x] done')?.type).toBe('task-list');
     expect(detectBlockConversion('- [x] done')?.meta?.taskChecked).toBe(true);
     expect(detectBlockConversion('> quote')?.type).toBe('blockquote');
-    expect(detectBlockConversion('```js')?.type).toBe('code-block');
+    expect(detectBlockConversion('```js ')?.type).toBe('code-block');
+    expect(detectBlockConversion('```js ')?.meta?.fenceLanguage).toBe('js');
+    // 未提交的围栏行（无尾随空格）不即时转换，避免逐字符输入被提前消费
+    expect(detectBlockConversion('```js')).toBeNull();
+    expect(detectBlockConversion('```')).toBeNull();
     expect(detectBlockConversion('---')?.type).toBe('thematic-break');
     expect(detectBlockConversion('plain text')).toBeNull();
   });

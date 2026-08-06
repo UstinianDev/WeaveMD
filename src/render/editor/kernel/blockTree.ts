@@ -531,7 +531,24 @@ const TASK_CONV_RE = /^[-*+][ \t\u00A0]+\[([ xX\u00A0])\][ \t\u00A0]+([\s\S]*)$/
 const UL_CONV_RE = /^([-*+])[ \t\u00A0]+([\s\S]*)$/;
 const OL_CONV_RE = /^(\d{1,9})([.)])[ \t\u00A0]+([\s\S]*)$/;
 const BQ_CONV_RE = /^>[ \t\u00A0]+([\s\S]*)$/;
-const FENCE_CONV_RE = /^(`{3,}|~{3,})([^\n]*)$/;
+// 围栏行即时转换需要尾随空格（与其他前缀一致，如 `# ` / `- `）；
+// 仅输入 ```lang 尚未提交时不转换，避免逐字符输入时围栏被提前消费导致语言/内容错乱。
+const FENCE_CONV_RE = /^(`{3,}|~{3,})([^\n]*?)[ \t\u00A0]+$/;
+
+/** 判断整行是否为围栏语法行（如 ```java），供回车提交代码块使用 */
+export function detectFenceLine(text: string): {
+  marker: string;
+  lang: string;
+  prefixLength: number;
+} | null {
+  const fence = text.match(/^(`{3,}|~{3,})([^\n]*)$/);
+  if (!fence) return null;
+  return {
+    marker: fence[1],
+    lang: fence[2].trim(),
+    prefixLength: text.length,
+  };
+}
 
 export function detectBlockConversion(text: string): BlockConversionV2 | null {
   const heading = text.match(ATX_HEADING_RE);
@@ -580,11 +597,10 @@ export function detectBlockConversion(text: string): BlockConversionV2 | null {
 
   const fence = text.match(FENCE_CONV_RE);
   if (fence) {
-    const lang = fence[2].trim();
     return {
       type: 'code-block',
       meta: {
-        fenceLanguage: lang || undefined,
+        fenceLanguage: fence[2].trim() || undefined,
         fenceMarker: fence[1],
       },
       // 围栏转换消费整行

@@ -126,7 +126,8 @@
 | EDIT-11 | 结构转换 | ✅ | 六种前缀即时转换（`#`/`-`/`1.`/`- [ ]`/`>`/` ``` `） |
 | EDIT-12 | 超链接交互 | ✅ | Ctrl+Click 经 IPC 打开；hover tooltip；链接对话框 |
 
-**输入与渲染保障（真实 Chromium E2E 验证，`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts` 10/10 通过）**：
+**输入与渲染保障（真实 Chromium E2E 验证，`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
++ `e2e/exit-behavior.spec.ts` 14/14 通过）**：
 
 - 空文档可直接输入；连续输入不被重渲染打断（按需重渲染 + IME 守卫）
 - `# 标题`、`- 列表`、`**加粗**` 即时渲染为富文本
@@ -134,3 +135,5 @@
 - 中文输入法（IME 组合）正常
 - marktext 语法符号渲染与不可选中：标题 marker 聚焦显隐、圆形任务复选框、引用绿色竖线、列表 marker 深灰（计算样式断言）
 - 列表 marker 与内容并排、任务项无多余圆点；标题 marker 与内容同排；空标题行可点击选中
+- 有序列表末尾空项退格即退出列表（列表保留、光标移到左边缘）；` ```lang `（空格或回车）提交代码块且语言正确、
+  代码块下方自动补空段落、空代码块回车可退出继续输入

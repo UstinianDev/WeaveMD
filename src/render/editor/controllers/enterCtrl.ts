@@ -13,16 +13,19 @@ import type { EditorActionResult } from '../editorInstance';
 import type { BlockNodeV2 } from '../kernel';
 import {
   appendChild,
+  detectFenceLine,
+  getNextLeaf,
   insertBlockAfter,
   makeListItem,
   makeParagraph,
+  removeBlock,
   replaceBlock,
   setBlockText,
   splitLeaf,
   renderBlockHtml,
   setInlineHtml,
 } from '../kernel';
-import { convertBlockToParagraph } from './convertCtrl';
+import { convertBlockToParagraph, convertParagraphToBlock } from './convertCtrl';
 
 export function handleEnter(
   instance: EditorInstance,
@@ -33,14 +36,33 @@ export function handleEnter(
   if (!block || block.text === null) return null;
   const parent = block.parentId ? instance.tree.blocks[block.parentId] : undefined;
 
-  // 代码块：插入换行
+  // 代码块：空内容回车 → 退出代码块（撤销围栏，光标移到下一块）；否则插入换行
   if (block.type === 'code-block') {
+    if ((block.text ?? '') === '') {
+      return exitEmptyCodeBlock(instance, block);
+    }
     const text = block.text ?? '';
     const newText = `${text.slice(0, offset)}\n${text.slice(offset)}`;
     let tree = setBlockText(instance.tree, blockId, newText);
     tree = setInlineHtml(tree, blockId, renderBlockHtml({ type: block.type, text: newText }));
     instance.tree = tree;
     return { changedBlockIds: [blockId], focus: { blockId, offset: offset + 1 } };
+  }
+
+  // 段落围栏行（如 ```java）回车 → 提交为代码块（与 marktext ```lang + Enter 一致）
+  if (block.type === 'paragraph') {
+    const fence = detectFenceLine(block.text ?? '');
+    if (fence) {
+      const result = convertParagraphToBlock(instance, blockId, {
+        type: 'code-block',
+        meta: {
+          fenceLanguage: fence.lang || undefined,
+          fenceMarker: fence.marker,
+        },
+        prefixLength: fence.prefixLength,
+      });
+      if (result?.focus) return result;
+    }
   }
 
   // 列表项内容
@@ -107,4 +129,23 @@ function enterInListItem(
     changedBlockIds: [content.id, newItem.id],
     focus: { blockId: paragraph.id, offset: 0 },
   };
+}
+
+/** 空代码块回车：撤销围栏，光标移到下一个内容块（无后续块则保留空段落） */
+function exitEmptyCodeBlock(
+  instance: EditorInstance,
+  block: BlockNodeV2
+): EditorActionResult | null {
+  let tree = instance.tree;
+  const nextLeaf = getNextLeaf(tree, block.id);
+  tree = removeBlock(tree, block.id);
+  instance.tree = tree;
+  if (nextLeaf) {
+    return { changedBlockIds: [block.id], focus: { blockId: nextLeaf.id, offset: 0 } };
+  }
+  const p = makeParagraph(tree, '');
+  tree = appendChild(tree, tree.root.id, p);
+  tree = setInlineHtml(tree, p.id, renderBlockHtml(p));
+  instance.tree = tree;
+  return { changedBlockIds: [block.id], focus: { blockId: p.id, offset: 0 } };
 }

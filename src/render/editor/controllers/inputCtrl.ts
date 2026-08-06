@@ -59,7 +59,9 @@ export function handleInput(
     const inserted = text[cursorOffset - 1];
     const close = AUTO_PAIRS[inserted];
     const nextChar = text[cursorOffset] ?? '';
-    if (close && nextChar !== close) {
+    // 反引号围栏（如 ```java）不做成对自动补齐，避免围栏被 autoPair 干扰
+    const isFenceLike = inserted === '`' && /^`{2,}/.test(text);
+    if (close && nextChar !== close && !isFenceLike) {
       text = `${text.slice(0, cursorOffset)}${close}${text.slice(cursorOffset)}`;
       finalOffset = cursorOffset + 1;
       autoPairApplied = true;
