@@ -25,6 +25,8 @@ interface ContentBlockProps {
   onTab: (blockId: string) => boolean;
   onShiftTab: (blockId: string) => boolean;
   onFormat: (blockId: string, style: InlineFormatStyle, start: number, end: number) => void;
+  onUndo: () => void;
+  onRedo: () => void;
   registerDom: (blockId: string, el: HTMLElement) => void;
   unregisterDom: (blockId: string) => void;
 }
@@ -41,6 +43,8 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
   onTab,
   onShiftTab,
   onFormat,
+  onUndo,
+  onRedo,
   registerDom,
   unregisterDom,
 }) => {
@@ -108,6 +112,17 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
         const el = e.currentTarget;
         const { start, end } = getCursorOffsets(el);
         const key = e.key.toLowerCase();
+        if (key === 'z') {
+          e.preventDefault();
+          if (e.shiftKey) onRedo();
+          else onUndo();
+          return;
+        }
+        if (key === 'y') {
+          e.preventDefault();
+          onRedo();
+          return;
+        }
         let style: InlineFormatStyle | null = null;
         if (key === 'b') style = 'bold';
         else if (key === 'i') style = 'italic';
@@ -120,11 +135,12 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
         }
       }
     },
-    [blockId, onEnter, onBackspaceAtStart, onTab, onShiftTab, onFormat]
+    [blockId, onEnter, onBackspaceAtStart, onTab, onShiftTab, onFormat, onUndo, onRedo]
   );
 
   const html = inlineHtml ?? escapeHtml(text);
   const displayHtml = html === '' ? '\u200B' : html;
+  const isEmpty = text === '';
   const style: React.CSSProperties = raw
     ? { whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '13px', lineHeight: 1.6 }
     : {};
@@ -135,6 +151,7 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
       className="block-content"
       data-block-id={blockId}
       data-placeholder={placeholder}
+      data-empty={isEmpty ? 'true' : undefined}
       style={style}
       contentEditable
       suppressContentEditableWarning

@@ -15,6 +15,9 @@ export interface BlockHandlers {
   onShiftTab: (blockId: string) => boolean;
   onFormat: (blockId: string, style: InlineFormatStyle, start: number, end: number) => void;
   onToggleTask: (listItemId: string) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  onFenceLanguageChange: (blockId: string, language: string) => void;
   registerDom: (blockId: string, el: HTMLElement) => void;
   unregisterDom: (blockId: string) => void;
 }
