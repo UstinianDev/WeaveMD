@@ -1,6 +1,6 @@
 # WeaveMD 技术选型文档
 
-> 版本：v2.3 | 最后更新：2026-08-04
+> 版本：v2.4 | 最后更新：2026-08-06
 
 ---
 
@@ -13,8 +13,11 @@
 │  │   Main Process    │  │  Renderer Process   │  │
 │  │  ┌─────────────┐  │  │  ┌───────────────┐  │  │
 │  │  │  SQLite DB  │  │  │  │  React 18 App │  │  │
-│  │  │  IPC Bridge │◄─┼──┼─►│  Zustand Store│  │  │
-│  │  │  Export     │  │  │  │  Monaco Editor│  │  │
+│  │  │  IPC Bridge │◄─┼──┼─►│  Editor v2    │  │  │
+│  │  │  Export     │  │  │  │  (kernel +    │  │  │
+│  │  │             │  │  │  │   controllers)│  │  │
+│  │  │             │  │  │  │  Zustand Store│  │  │
+│  │  │             │  │  │  │  Monaco Editor│  │  │
 │  │  └─────────────┘  │  │  └───────────────┘  │  │
 │  └───────────────────┘  └─────────────────────┘  │
 └─────────────────────────────────────────────────┘
@@ -58,11 +61,16 @@
 
 选型理由：VS Code 同款引擎，语法高亮/智能提示/查找替换开箱即用。
 
-Normal Mode 采用**容器级 contentEditable** 而非 Monaco，理由：
+**Normal Mode（v2，2026-08-06 重做）**：采用**自研块树内核**（架构照搬
+marktext/muya），不依赖 Monaco：
 
-- 直接 DOM 操作实现 WYSIWYG
-- 避免 Monaco Widget 系统的布局问题（重叠、滚动丢失、IME 错位）
-- React 组件渲染块，原生 DOM 流布局
+- `src/render/editor/kernel/`：不可变块树、Markdown 无损双向转换、行内渲染器
+  （语法标记保留，`textContent` 与源一致）、光标/选区 DOM 读写
+- `src/render/editor/controllers/`：input/enter/backspace/convert/click/list/format
+  七类交互控制器（对齐 marktext 行为：`checkNeedRender` 按需重渲染、IME 守卫）
+- 仅叶子块内容区 `contentEditable`（替代 v1 容器级），支持列表/引用嵌套
+
+v1（容器级 contentEditable）保留为回退路径：`window.__EDITOR_V2__ === false`。
 
 ### 2.5 Markdown 处理
 
@@ -111,8 +119,13 @@ Normal Mode 采用**容器级 contentEditable** 而非 Monaco，理由：
 | **Prettier**               | ^3.3.0  | 代码格式化                |
 | **Vitest**                 | ^1.6.0  | 单元测试（Vite 原生集成） |
 | **@testing-library/react** | ^14.2.0 | 组件测试                  |
+| **Playwright**             | ^1.x    | 真实 Chromium E2E（编辑输入/IME/富文本渲染） |
 
 ## 3. 架构决策
+
+> 3.1-3.4 为 **v1 基线（回退路径）** 的架构决策记录；编辑主区 v2 的当前决策
+> 见 [specs/editor-v2-architecture.md](./specs/editor-v2-architecture.md) 与
+> [modules/04-编辑主区-Editor.md](./modules/04-编辑主区-Editor.md)。
 
 ### 3.1 双模式编辑器
 
@@ -166,9 +179,13 @@ src/
 │   ├── preload.ts   # 安全桥接
 │   └── db/          # SQLite 数据访问层
 ├── render/          # React 前端
+│   ├── editor/      # 编辑内核（v2，与 React 解耦）
+│   │   ├── kernel/          # 块树、双向转换、行内渲染、selection
+│   │   ├── controllers/     # 七类交互控制器
+│   │   └── editorInstance.ts # 内核宿主
 │   ├── components/  # UI 组件
 │   │   ├── Auth/    # 认证界面
-│   │   ├── Editor/  # 编辑器（核心）
+│   │   ├── Editor/  # 编辑器（v2 渲染层在 Editor/v2/，v1 保留回退）
 │   │   ├── Navbar/  # 顶部导航
 │   │   ├── Settings/ # 设置模态框
 │   │   └── Common/  # 通用组件
@@ -177,4 +194,8 @@ src/
 │   ├── i18n/        # 国际化资源
 │   └── styles/      # 全局样式
 └── shared/          # 跨进程共享类型和常量
+
+测试：
+tests/                 # Vitest 单元/组件测试
+e2e/                   # Playwright 真实 Chromium E2E（vite.test.config.ts renderer-only）
 ```

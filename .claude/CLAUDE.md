@@ -11,6 +11,7 @@ npm run test:watch   # Vitest watch mode
 npm run typecheck    # tsc --noEmit
 npm run format       # Prettier
 npm run db:migrate   # Run SQLite migrations
+npx playwright test  # E2E (real Chromium, e2e/editor.spec.ts) — requires @playwright/test + chromium
 ```
 
 ## Directory Structure
@@ -23,18 +24,20 @@ src/
 │   ├── index.ts, window.ts, ipc-handlers.ts
 │   └── db/          # SQLite (better-sqlite3) — users, files, history, settings
 ├── render/          # React 18 + TypeScript frontend
+│   ├── editor/      # Editor v2 kernel (React-free)
+│   │   ├── kernel/        # blockTree, markdownToState/stateToMarkdown, inlineRenderer, outline, selection
+│   │   ├── controllers/   # input/enter/backspace/convert/click/list/format ctrl
+│   │   └── editorInstance.ts
 │   ├── components/  # Auth/, Editor/ (below), Navbar/, Settings/, Common/
-│   │   └── Editor/               # Block-based WYSIWYG editor
-│   │       ├── blocks/           # Per-block-type React components (read-only)
-│   │       │   ├── HeadingBlock.tsx, ParagraphBlock.tsx, ListItemBlock.tsx
-│   │       │   ├── CodeFenceBlock.tsx, TableBlock.tsx, BlockquoteBlock.tsx
-│   │       │   └── EmptyBlock.tsx
-│   │       ├── BlockRenderer.tsx          # Block type dispatcher (read-only)
-│   │       ├── EditorScrollContainer.tsx  # Document viewport (contentEditable surface)
-│   │       ├── EditorView.tsx             # Main orchestrator (dual-mode)
+│   │   └── Editor/               # Editor UI
+│   │       ├── v2/               # Editor v2 render layer (ACTIVE)
+│   │       │   ├── EditorV2.tsx, EditorScrollContainer.tsx, BlockRenderer.tsx
+│   │       │   └── blocks/       # ContentBlock (only contentEditable), LeafBlock, CodeBlock, ListItemBlock, BlockquoteBlock
+│   │       ├── blocks/           # v1 read-only blocks (fallback only)
+│   │       ├── BlockRenderer.tsx, EditorScrollContainer.tsx  # v1 (fallback)
+│   │       ├── EditorView.tsx             # Dual-mode orchestrator (v2 by default, __EDITOR_V2__ false → v1)
 │   │       ├── FindReplaceBar.tsx         # Typora-style inline Find & Replace
 │   │       ├── SourceCodeEditor.tsx       # Full Monaco for Source Code Mode
-│   │       ├── Minimap.tsx                # Canvas document minimap (Normal Mode)
 │   │       └── OutlinePanel.tsx, HistoryPanel.tsx
 │   ├── components/Common/    # CreateDialog.tsx (新建文件/文件夹弹窗)
 │   ├── pages/       # AuthPage, MainPage
@@ -52,8 +55,8 @@ public/              # icons, images
 - **Framework**: React 18 + TypeScript strict mode
 - **UI**: TailwindCSS v4 + Shadcn/ui — dark theme via `<html class="dark">`
 - **State**: Zustand v4 — stores in `src/render/stores/`
-- **Editor**: Monaco Editor (`@monaco-editor/react`)
-- **Markdown**: unified + remark + rehype AST pipeline
+- **Editor**: Editor v2 self-built block-tree kernel (marktext/muya-style) + Monaco for Source mode
+- **Markdown**: editor kernel markdownToState/stateToMarkdown (lossless round-trip) + inlineRenderer
 - **Database**: better-sqlite3 in main process, IPC bridge to renderer
 - **Auth**: Local accounts (5-15 chars, a-z/0-9/_), bcryptjs, JWT localStorage
 - **Naming**: `PascalCase` for components, `camelCase` for hooks/functions/files
@@ -64,41 +67,52 @@ public/              # icons, images
 - **Heading typography (Doubao-aligned)**: H1 26/700, H2 22/600, H3 18/600, H4 16/500, Paragraph 14/400
 - **Markdown line parsing**: Heading detection (`#...`) must be shared across import/new/edit/paste via `src/render/services/lineMarkdown.ts`
 
-## Architecture (as of 2026-08-01)
+## Architecture (as of 2026-08-06)
 
-### Dual-Mode Editor (v4)
+### Dual-Mode Editor (v2)
 
-The editor supports WYSIWYG editing in Normal Mode via **container-level contentEditable**:
+Normal Mode uses the **Editor v2 kernel** (`src/render/editor/`), architecture ported from
+marktext/muya. v1 (container-level contentEditable, below) remains as fallback
+(`window.__EDITOR_V2__ = false`).
 
-- **Normal Mode**: Block tree rendered as editable rich-text React components. The `editor-content-area` div is the single `contentEditable` surface. Users can:
-  - Click and edit paragraph/heading content directly (empty blocks show "Type something..." placeholder)
-  - Press Enter to create new paragraphs (cursor auto-placed at new block start)
-  - Press Backspace in empty paragraphs to delete them
-  - Use Ctrl+Z/Ctrl+Y to undo/redo all operations
-  - Canvas minimap shows document overview with viewport indicator
-  - Floating toolbar appears when text is selected (formatting via `document.execCommand` + DOM manipulation, toggle for Bold/Italic/Underline/Strikethrough/Highlight/InlineCode/Link/Comment/MD Source)
-  - Block components use `dangerouslySetInnerHTML` to render rich text formatting (Bold/Italic/Highlight etc.) in real-time
-  - Cross-block text selection enabled via container-level contentEditable
-  - Code blocks: language selector dropdown + Copy button (copies code to clipboard); editing via Source Code Mode only (double-click disabled)
-  - MD Source toggle: click toolbar "Src" button to show raw Markdown for the current block; click again or elsewhere to restore rich text
-- **Source Code Mode**: Full-screen Monaco editor (`SourceCodeEditor.tsx`) for raw markdown editing. Toggle via `Ctrl+\`` or View menu.
-- **Find & Replace**: Typora-style inline bar (`FindReplaceBar.tsx`). Works in both modes. Toggle via `Ctrl+F`.
+- **Normal Mode (v2)**: only leaf-block content spans are `contentEditable` (`ContentBlock`).
+  Key mechanisms (aligned with marktext):
+  - **On-demand re-render**: plain text input never triggers React re-render; only autoPair
+    completion or format-syntax presence does (marktext `checkNeedRender`).
+  - **IME guard**: compositionstart/end skip input handling; Chinese IME works.
+  - **Syntax markers kept in DOM** (`<span class="md-syntax">`): `textContent` always equals
+    source text, so editing rendered bold/italic never loses `**`/`*` markers.
+  - Prefix conversion (`# `/`- `/`1. `/`- [ ] `/`> `/` ``` `) converts instantly; Backspace
+    at content start demotes (six exit rules, see docs/specs/markdown-block-exit-rules.md).
+  - Empty document always has one editable empty paragraph.
+- **Source Code Mode**: Full-screen Monaco (`SourceCodeEditor.tsx`). Toggle via `Ctrl+\`` or View menu.
+- **Find & Replace**: Typora-style inline bar (`FindReplaceBar.tsx`); replace works in v2 via content rebuild.
 
 **Key files:**
 
-- `src/render/services/blockTree.ts` — Core data structures and operations
-- `src/render/services/blockTreeBuilder.ts` — Markdown → block tree parser
-- `src/render/services/blockTreeSerializer.ts` — Block tree → markdown serializer (uses `\n\n` paragraph separator)
-- `src/render/services/lineMarkdown.ts` — Shared markdown line detection
-- `src/render/components/Editor/EditorView.tsx` — Dual-mode orchestrator with WYSIWYG handlers
-- `src/render/components/Editor/EditorScrollContainer.tsx` — Document viewport (contentEditable surface, forwardRef + scrollToBlock + active heading detection)
-- `src/render/components/Editor/BlockRenderer.tsx` — Block type dispatcher (read-only rendering)
-- `src/render/components/Editor/FloatingToolbarWYSIWYG.tsx` — Floating toolbar for text formatting
-- `src/render/components/Editor/OutlinePanel.tsx` — Document outline with heading navigation + dynamic highlight
-- `src/render/components/Editor/blocks/` — Read-only block components (ParagraphBlock, HeadingBlock, CodeFenceBlock, EmptyBlock)
+- `src/render/editor/kernel/blockTree.ts` — Immutable block tree ops (list links + parent/children, split/merge)
+- `src/render/editor/kernel/markdownToState.ts` — Markdown → block tree parser
+- `src/render/editor/kernel/stateToMarkdown.ts` — Block tree → markdown serializer (lossless round-trip)
+- `src/render/editor/kernel/inlineRenderer.ts` — Inline rendering with syntax markers kept
+- `src/render/editor/kernel/outline.ts` — Heading outline + serialized line numbers
+- `src/render/editor/kernel/selection.ts` — Cursor/selection DOM read/write
+- `src/render/editor/controllers/` — Seven interaction controllers (input/enter/backspace/convert/click/list/format)
+- `src/render/editor/editorInstance.ts` — Kernel host (content load, markdown sync)
+- `src/render/components/Editor/v2/EditorV2.tsx` — v2 entry (state, event routing, focus restore, undo/redo, outline)
+- `src/render/components/Editor/v2/blocks/ContentBlock.tsx` — The only contentEditable surface
+- `src/render/components/Editor/EditorView.tsx` — Dual-mode orchestrator (v2 default)
 - `src/render/stores/editorStore.ts` — Content state with undo/redo stack
 
+### v1 (fallback, window.__EDITOR_V2__ === false)
+
+Container-level contentEditable + `renderedHtml` cache; known structural issues
+(input interruption, IME breakage, marker loss — see specs 13.5 R1-R4). Kept for
+rollback; retirement is a separate task.
+
 ### Design Decisions
+
+> 以下决策表为 **v1 基线（回退路径）** 记录；v2 当前决策见
+> [docs/specs/editor-v2-architecture.md](docs/specs/editor-v2-architecture.md)。
 
 | Aspect                  | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

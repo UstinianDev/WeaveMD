@@ -1,6 +1,6 @@
 # WeaveMD 需求文档
 
-> 版本：v2.3 | 最后更新：2026-08-04
+> 版本：v2.4 | 最后更新：2026-08-06
 
 ---
 
@@ -101,3 +101,33 @@
 - 不收集用户数据
 - 不使用第三方登录
 - 数据以 Markdown 纯文本为核心格式
+
+---
+
+## 附录 A：编辑器核心实现状态（2026-08-06，v2 重做后）
+
+编辑主区已完成 v2 深度重做（架构照搬 marktext/muya），设计见
+[specs/editor-v2-architecture.md](./specs/editor-v2-architecture.md)。
+以下为 EDIT-01~12 的当前实现状态：
+
+| 编号 | 需求 | 状态 | 说明 |
+| ---- | ---- | ---- | ---- |
+| EDIT-01 | 双模式编辑 | ✅ | Normal（v2 块树 WYSIWYG）/ Source（Monaco） |
+| EDIT-02 | 块内 contentEditable | ✅ | 仅叶子块内容区可编辑，替代 v1 容器级 |
+| EDIT-03 | Block Tree 数据模型 | ✅ | v2 块树：不可变、容器/叶子分型、链表结构、支持嵌套 |
+| EDIT-04 | 实时格式化渲染 | ✅ | 行内渲染保留语法标记（`.md-syntax`），输入/编辑不丢标记 |
+| EDIT-05 | MD Source 切换 | ⚠️ | 工具栏入口未迁移（快捷键与源码模式可用），后续任务 |
+| EDIT-06 | 段落操作 | ✅ | Enter 拆分/续行、Backspace 六条退出规则（SPEC-EDIT-EXIT） |
+| EDIT-07 | 撤销/重做 | ✅ | Ctrl+Z/Y + 按钮，经 editorStore 快照栈 |
+| EDIT-08 | 自动保存 | ✅ | 1200ms debounce + 切换/关闭前 flush |
+| EDIT-09 | 代码块 | ✅ | 语言下拉 + 复制按钮，独立编辑路径（不误判标题前缀） |
+| EDIT-10 | 空块占位 | ✅ | 空内容块 `data-empty` + CSS `::before`；空文档始终可编辑 |
+| EDIT-11 | 结构转换 | ✅ | 六种前缀即时转换（`#`/`-`/`1.`/`- [ ]`/`>`/` ``` `） |
+| EDIT-12 | 超链接交互 | ✅ | Ctrl+Click 经 IPC 打开；hover tooltip；链接对话框 |
+
+**输入与渲染保障（真实 Chromium E2E 验证，`e2e/editor.spec.ts` 6/6 通过）**：
+
+- 空文档可直接输入；连续输入不被重渲染打断（按需重渲染 + IME 守卫）
+- `# 标题`、`- 列表`、`**加粗**` 即时渲染为富文本
+- 渲染后继续编辑不丢失 markdown 标记
+- 中文输入法（IME 组合）正常

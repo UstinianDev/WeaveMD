@@ -1,167 +1,120 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 版本：v4.12 | 最后更新：2026-08-04
->
-> **v2 重做进行中**：本模块计划按 [specs/editor-v2-architecture.md](../specs/editor-v2-architecture.md)
-> 深度重做（muya 式块树 + 控制器分层 + 块内 contentEditable）。本文档描述 v1 现状，
-> 重做期间保持为"现状基线"，M4 完成后整体重写本文档。
+> 模块编号：04 | 优先级：P0 | 版本：v2.0 | 最后更新：2026-08-06
+> 设计规范：[specs/editor-v2-architecture.md](../specs/editor-v2-architecture.md)
+> 退出规则：[specs/markdown-block-exit-rules.md](../specs/markdown-block-exit-rules.md)
+> 参考实现：marktext/muya（架构照搬）
 
 ---
 
 ## 1. 功能概述
 
-核心编辑区域，采用**双模式架构**：
+核心编辑区域，**双模式架构**：
 
-- **Normal Mode**：Block Tree → 容器级 `contentEditable` 可编辑富文本，支持直接编辑段落/标题、回车创建段落、Backspace 删除空段落、Ctrl+Z/Y 撤销重做。空块以零宽空格（`\u200B`）+ CSS 伪元素显示"Type something..."占位符。右侧 Canvas Minimap（文档缩影）、浮动工具栏（选中文本时显示）、跨块文本选择、代码块语言选择+复制按钮
-- **Source Code Mode**：全屏 Monaco 编辑器，编辑原始 markdown（`Ctrl+\`` 或 View 菜单切换）
-- **Find & Replace**：Typora 风格 inline bar，两种模式均可用（`Ctrl+F`）
+- **Normal Mode（v2）**：自研块树内核 → 块内 `contentEditable` WYSIWYG。支持直接编辑、
+  Enter 拆块/列表续行、Backspace 六条退出规则、实时富文本渲染（语法标记保留）、
+  autoPair、IME 兼容、任务复选框、Tab 缩进/凸出、格式化快捷键。
+- **Source Code Mode**：全屏 Monaco 编辑原始 markdown（`Ctrl+\`` 或 View 菜单）。
+- **Find & Replace**：Typora 风格 inline bar，双模式可用（v2 Normal 无高亮，见限制）。
 
-## 2. 核心数据模型：Block Tree
+## 2. 总体架构
 
 ```
-BlockTree = { rootBlockIds: BlockId[], blocks: Record<BlockId, BlockNode>, version: number }
-BlockNode = {
-  id: BlockId, type: BlockType, sourceLines: string[],
-  headingLevel?, fenceLanguage?, parentId, childrenIds,
-  startLine: number,        // 1-based 起始行号，用于 lineNumber 导航映射
-  renderedHtml: string | null,  // 缓存 DOM innerHTML，React 重渲染时恢复富文本格式
-  pendingTypeChange?: PendingTypeChange | null  // 待提交的 markdown 类型转换（前缀已灰化、回车才提交）
+┌─────────────────────────────────────────────────────────┐
+│ 渲染层（React，纯投影）                                   │
+│  EditorV2 → EditorScrollContainer → BlockRenderer       │
+│    → 容器块（list/blockquote 递归）/ 叶子块（ContentBlock）│
+├─────────────────────────────────────────────────────────┤
+│ 控制器层（纯逻辑，可独立测试）                             │
+│  inputCtrl · enterCtrl · backspaceCtrl · convertCtrl     │
+│  clickCtrl · listCtrl · formatCtrl                       │
+├─────────────────────────────────────────────────────────┤
+│ 内核层（与 React 解耦）                                   │
+│  kernel/blockTree · markdownToState · stateToMarkdown   │
+│  kernel/inlineRenderer · outline · selection             │
+│  editorInstance（宿主）                                   │
+└─────────────────────────────────────────────────────────┘
+```
+
+## 3. 核心数据模型：BlockTree v2
+
+```ts
+BlockNodeV2 = {
+  id, type, parentId, prevId, nextId, childrenIds,
+  text: string | null,   // 叶子块唯一文本事实源
+  meta?: { headingLevel, fenceLanguage, listMarker, orderedStart,
+           orderedDelimiter, taskChecked, loose, setext },
+  inlineHtml: string | null  // 行内渲染缓存
 }
 ```
 
-所有操作是**纯函数**（不可变），返回新树。
+- 容器块：document / blockquote / bullet-list / ordered-list / task-list / list-item。
+- 叶子块：paragraph / heading / code-block / thematic-break / table。
+- 兄弟关系用 `prevId/nextId` 双向链表，父子用 `childrenIds`，支持列表嵌套、引用嵌套。
+- 所有操作不可变（返回新树，结构共享）。
 
-**version 语义**（关键）：
+## 4. Markdown 双向转换
 
-- `version` 仅在**内容/结构变更**时自增（insert/remove/updateBlockSource/setFenceLanguage 等）
-- `setBlockRenderedHtml` **不**自增 version —— `renderedHtml` 是渲染缓存，非内容。渲染 useEffect 依赖 `[blockTree.version]`，缓存写入若 bump version 会中途重触发 effect、取消在途循环、从 block 0 重扫（O(N²) → 代码块高亮延迟 ~4s）
-- 渲染 effect 启动时捕获 blocks 快照，循环内逐块 `setBlockTree((prev) => setBlockRenderedHtml(prev, id, html))`
+- `markdownToState(M)`：块级解析（围栏/表格/ATX/Setext/引用递归/列表嵌套/分割线/段落兜底）。
+- `stateToMarkdown(tree)`：逐行序列化（列表标记归一化 `-`、围栏自动加长、Setext 保留）。
+- **规范化往返不变量**：`stateToMarkdown(markdownToState(M)) === M`（规范输入）。
+- 行内渲染：`inlineRenderer` 保留语法标记（`<span class="md-syntax">`），DOM
+  `textContent` 与源文本一致——编辑/序列化不丢标记。
 
-**pendingTypeChange 语义**：标记待提交的 markdown 类型转换（前缀已灰化、回车才提交）。`handleBlockInput` 检测到 `# `/`- `/`1. `/`- [ ] `/`> ` 等前缀时设置该字段但**不** bump version、**不**调用 `setBlockTree`（仅直接 DOM 包裹 `.md-prefix-gray` + `focusBlockCursor` 恢复光标，避免 React 重渲染导致光标丢失）；`sourceLines` 保留完整内容（含前缀）以支持序列化。前缀分隔符正则 `[ \t\u00A0]` 同时支持普通空格/Tab/非断行空格（U+00A0，中文输入法产生），确保输入 `# ` 瞬间灰化。`handleBlockEnter` 提交转换（剥离前缀、设置新 type/headingLevel/checked/orderedIndex、`renderedHtml: null`、清空 pending）时 bump version 触发重渲染；若防抖未触发导致 pending 缺失，else 分支回退 `detectMarkdownLine(beforeText)` 同样提交。渲染 effect 对 heading/unordered/ordered/task/blockquote 类型按前缀重建 markdown 再渲染（sourceLines 已剥离前缀），确保回车后正确输出富文本。`handleSyncToStore`/渲染 effect 对带 pending 的块**跳过** `renderedHtml` 更新，避免错误序列化覆盖 DOM 灰化结构。模式切换前 `syncContentBeforeToggle` 先 commit 所有 pending，确保 Source Mode 看到纯内容；`handleBlockTypeChange`（工具栏下拉）保持立即转换语义，但会清除 pending 避免冲突。
+## 5. 实时渲染与输入保障（关键机制）
 
-**内容同步防 stale ID**：`lastBuiltContentRef` 记录当前 blockTree 对应的 content。内容 useEffect 在 `lastBuiltContentRef.current === content` 时**跳过重建**（挂载时 useState 已建树）。`buildBlockTree` 用 counter+random 生成 ID，挂载时若内容 effect 再重建会换 ID，而渲染 effect 依赖 `[version]`（同块数 → version 不变）不重触发，导致捕获的旧 ID 失效、`setBlockRenderedHtml` no-op → 初次导入代码块不高亮。
+| 机制 | 说明 |
+| ---- | ---- |
+| 按需重渲染 | 纯文本输入不触发 React 重渲染（DOM 已由浏览器更新）；仅 autoPair 补全或文本含格式语法标记时才重渲染并恢复光标（marktext `checkNeedRender` 思路） |
+| IME 守卫 | compositionstart/end 期间跳过 input 事件，结束后统一同步，中文输入不被打断 |
+| 语法标记保留 | `**bold**` 渲染为 `<strong><span class="md-syntax">**</span>bold…`，灰显不可选；已渲染格式中继续编辑不丢标记 |
+| 前缀即时转换 | `# `/`- `/`1. `/`- [ ] `/`> `/` ``` ` 输入即转块（无 v1 pending 双路径）；删除前缀即时降级 |
+| 焦点恢复 | 块转换/重渲染替换 DOM 后，`useLayoutEffect` + 同步 DOM 注册在 paint 前恢复 focus/selection |
+| 空文档可编辑 | 文档始终至少一个空段落（marktext scrollPage 语义） |
+| 空块占位 | 空内容块 `data-empty="true"` + CSS `::before` 显示占位符；`.block-content` 占满块宽 |
 
-## 3. 文件结构
+## 6. 交互控制器
 
-### 数据模型层 (`services/`)
+| 控制器 | 职责 |
+| ------ | ---- |
+| inputCtrl | autoPair（`(` `[` `{` `` ` `` `'` `"`）、文本更新、前缀转换触发 |
+| enterCtrl | 代码块换行、列表续行新项、空列表项回车退出、标题右半转段落、引用内拆分 |
+| backspaceCtrl | 光标在内容起点即触发：标题转正文、列表项退出、引用降级、空代码块移除、段落合并前块（SPEC-EDIT-EXIT 六条规则） |
+| convertCtrl | 升格（paragraph → 六种结构块）/ 降格 |
+| clickCtrl | 任务复选框切换 |
+| listCtrl | Tab 缩进为前项子列表、Shift+Tab 凸出 |
+| formatCtrl | 文本层格式化（bold/italic/strike/highlight/code/link），取代 execCommand |
 
-- `blockTree.ts` — 核心数据结构和不可变操作
-- `blockTreeBuilder.ts` — Markdown → BlockTree 解析器（7 种块检测优先级）
-- `blockTreeSerializer.ts` — BlockTree → Markdown 序列化
-- `searchEngine.ts` — 查找替换引擎（findAllMatches, replaceAll, validateRegex）
-- `markdown.ts` — unified/remark/rehype 渲染管线 + Prism 高亮
+快捷键：Enter / Backspace / Tab / Shift+Tab / Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z /
+Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H。
 
-### 组件层 (`components/Editor/`)
+## 7. 与周边模块集成
 
-- `EditorView.tsx` — 主容器：双模式切换、Monaco 主题、全局快捷键、scroll 追踪、光标定位；lineNumber 导航回调、`handleSourceActiveHeadingChange` Source Code Mode 高亮包装
-- `EditorScrollContainer.tsx` — 可滚动视口（单一 `contentEditable` 表面），渲染只读块组件；`forwardRef` 暴露 `scrollToBlock`（clamp 到 `scrollHeight - clientHeight`）；`detectActiveHeading` 取视口顶部 + 10px 检测线上方最后一个标题；padding 移至内层 `editor-content-area`（`40px 40px 100vh 40px`），外层无 padding → 滚动条正确反映内容大小
-- `BlockRenderer.tsx` — 块类型分发器（只读渲染）
-- `SourceCodeEditor.tsx` — 全屏 Monaco 编辑器（150ms debounce 写 store）；`scrollToLine(lineNumber)` 导航、`getNearestHeadingLineNumber` 动态高亮
-- `FindReplaceBar.tsx` — Typora 风格 inline 查找替换栏
-- `Minimap.tsx` — Canvas 文档缩影（viewport 指示器 + 点击导航）
-- `blocks/` — 块组件：Heading、Paragraph、ListItem、CodeFence、Table、Blockquote、Empty（均为只读渲染，contentEditable 在容器层）
-- `OutlinePanel.tsx` — 侧边栏 Tab 容器（目录/文件切换）；目录 Tab 保留原有大纲功能（H1-H3 标题树，lineNumber 索引导航 + 动态高亮）；文件 Tab 渲染 FileTreePanel；Tab 标签 i18n 实时同步
-- `FileTreePanel.tsx` — 文件树视图；递归渲染层级结构（depth*16px缩进）；垃圾箱仅清列表（仅独立文件+根文件夹显示，子文件夹/文件夹内文件不显示）；文件夹内文件点击→readDisk→openFile；删除当前文件→closeFile显示空状态
-- `fileTreeStore.ts` — 文件树 Zustand store；累积模式（folders[] + looseFiles[]）；递归操作（removeFromTree/toggleInTree/sortNodes）；removeFileFromEverywhere、getSelectedFolder（递归搜索选中文件夹）
-- `FloatingToolbarWYSIWYG.tsx` — WYSIWYG 浮动工具栏：使用 `document.execCommand` + `Range API` 直接操作 DOM；支持 Toggle 格式化（Bold/Italic/Underline/Strikethrough/Highlight/InlineCode/Link/Comment）；MD Source 功能（显示/隐藏当前段落 Markdown 源码）
-- `Common/CreateDialog.tsx` — 新建文件/文件夹弹窗；Tab切换（文件/文件夹）、路径选择（dialog:saveFile/openFolder）、名称验证（空值提示不退出）、文件自动加 .md
+| 模块 | 集成方式 |
+| ---- | -------- |
+| editorStore | 每次编辑经 `stateToMarkdown` 同步 content；撤销/重做走 content 快照栈 |
+| uiStore | `isSourceCodeMode` 切换（Normal→Source 先 flush）；查找栏、大纲宽度不变 |
+| OutlinePanel | `extractHeadingOutline`（块树 DFS + 序列化行号）→ 导航滚动；滚动高亮（视口顶部 +10px） |
+| Find & Replace | 复用 inline bar（content 文本层），替换后重建块树 |
+| 代码块 | 语言下拉（别名归一化）+ 复制按钮 |
+| 链接 | Ctrl/Cmd+Click → `window.weaveMD.link.openExternal`（IPC 白名单） |
 
-## 4. 数据流
+## 8. 已知限制
 
-### Normal Mode
+- v2 Normal 模式暂无查找高亮（替换功能正常；Source 模式由 Monaco 高亮）。
+- 撤销/重做后光标回到重建树首块。
+- 段落级 MD Source 视图（工具栏入口）未迁移。
+- v1 渲染路径保留为回退（`window.__EDITOR_V2__ === false`），退役清理为独立任务。
 
-```
-editorStore.content → buildBlockTree → renderMarkdownToHtml(per block)
-  → BlockRenderer → 只读 block 组件 → DOM
-  → 用户编辑 → onInput → debounce(30ms) → handleBlockInput
-  → [code-fence 块跳过：独立 textarea 编辑路径，不运行 detectMarkdownLine]
-  → 若检测到 markdown 前缀：设置 pendingTypeChange + DOM 包裹 .md-prefix-gray + focusBlockCursor 恢复光标（不 setBlockTree、不 bump version）
-  → 前缀删除：清除 pendingTypeChange + unwrap 灰化 span
-  → Enter → handleBlockEnter 优先提交 pending（commitPendingTypeChange 剥离前缀、转类型、renderedHtml:null）→ 无 pending 时维持分割逻辑
-  → Backspace → handleBlockDelete
-  → pushUndo → syncTreeToStore → editorStore.updateContent()
-  → 工具栏操作 → afterFormat → handleSyncToStore
-  → [code-fence 块跳过：仅更新 renderedHtml，不重建 sourceLines]
+## 9. 验证与测试
 
-目录导航：OutlinePanel.onNavigate(lineNumber, headingIndex) → EditorView.navigateToHeading()
-  → find block by startLine → scrollContainerRef.scrollToBlock(blockId)
-  → 标题滚到视口顶部（无偏移）
+- Vitest：内核/控制器/组件 304 例（含往返属性测试、六条退出规则矩阵、输入链路）。
+- Playwright 真实 Chromium E2E（`e2e/editor.spec.ts`）6 例：空文档输入、`# ` 标题转换、
+  `**` 加粗渲染、标记保留、列表转换、中文输入。
+- 运行：`npm run test` / `npx playwright test`。
 
-目录高亮：EditorScrollContainer scroll → detectActiveHeading()
-  → detectLine = containerTop + 10px → 最后一个 rect.top ≤ detectLine 的标题
-  → onActiveHeadingChange(headingIndex) → OutlinePanel highlight
-```
+## 10. v1 基线（回退路径，历史实现）
 
-### 模式切换
-
-```
-Normal → Source: syncContentBeforeToggle() 同步 DOM 变更到 blockTree
-  → serializeBlockTree() → setContent() → Monaco 加载
-
-Source → Normal: buildBlockTree(latestContent) → 重建 blockTree → 渲染块
-```
-
-### Source Code Mode (独立数据流)
-
-```
-SourceCodeEditor (Monaco) → 150ms debounce → editorStore.updateContent()
-
-目录导航：OutlinePanel.onNavigate(headingIndex) → EditorView.getLineNumberForHeadingIndex()
-  → extractOutline DFS 遍历 → lineNumber → scrollToLine(lineNumber)
-  → setPosition + revealPositionInCenterIfOutsideViewport
-
-目录高亮：Monaco onDidChangeCursorPosition → getNearestHeadingLineNumber(cursorLine)
-  → onActiveHeadingChange(lineNumber) → EditorView.getHeadingIndexForLineNumber()
-  → convert to headingIndex → OutlinePanel highlight
-```
-
-### Find & Replace
-
-```
-FindReplaceBar → searchEngine.findAllMatches(content) → 匹配高亮
-  → replaceAll → editorStore.updateContent() → content useEffect → rebuild blockTree
-```
-
-## 5. 关键特性
-
-| 特性             | 详情                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **双模式**       | Normal（容器级 contentEditable WYSIWYG + Minimap）/ Source Code（全屏 Monaco）                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| **Minimap**      | 64px Canvas，块类型颜色编码，viewport 指示器，点击导航                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| **标题字号**     | H1=26/700、H2=22/600、H3=18/600、H4=16/500、P=14/400                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| **代码块语言**   | `<select>` 下拉选择；语言别名归一化（`sh`→`shell`、`Plain Text`→`plaintext`）                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| **代码块编辑**   | 通过 Source Code Mode 编辑（双击已禁用）；顶栏含语言选择器和 Copy 按钮复制代码到剪贴板；独立编辑路径，不经过 contentEditable/detectMarkdownLine，避免代码中的 `#` 被误检测为标题                                                                                                                                                                                                                                                                                                                                               |
-| **浮动工具栏**   | 选中文本时显示；Toggle 格式化（Bold/Italic/Underline/Strikethrough/Highlight/InlineCode/Link/Comment），使用 `document.execCommand` + DOM 直接操作实现实时渲染；MD Source 显示/隐藏 Markdown 源码；全组件 i18n 接入（tooltip + 结构选项 labelKey）；格式按钮 36×32px（w-9 h-8）触控目标、text-sm 字号；超链接：点 Link 隐藏工具栏开 Modal（Modal 移出 `!isVisible` 守卫始终渲染，修复工具栏永久消失），edit 模式含"移除链接"按钮，Ctrl/Cmd+click 经 IPC 打开外部链接（`will-navigate` 守卫），hover 显示 Word 风格蓝色 tooltip |
-| **实时渲染**     | `dangerouslySetInnerHTML` + `BlockNode.renderedHtml` 存储 DOM HTML，React 重渲染时恢复富文本格式，支持多属性叠加                                                                                                                                                                                                                                                                                                                                                                                                               |
-| **跨块选择**     | 容器级 contentEditable，支持跨段落/标题选择                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| **空块占位**     | 仅聚焦空块显示；`EditorScrollContainer` 通过 `updatePlaceholder(preferredBlockId)` + `selectionchange` 监听动态管理 `data-empty`（清除全部 → 仅给当前活跃空块或其 `span.block-content` 设置）；`handleFocus` 用 `e.target.closest` 定位块（避免 selection 时序问题）；失焦 `onBlur` 清除；底层零宽空格 `\u200B` + CSS `::before` **绝对定位背景层**（`position:absolute; z-index:-1`），光标在文本 position 0 自然显示在占位符之前                                                                                             |
-| **MD 前缀灰化**  | 输入 `# `/`- `/`1. `/`- [ ] `/`> ` 时前缀变灰（`.md-prefix-gray`：灰色斜体 0.7 透明度 `user-select:none`），块类型不变，回车才提交渲染；删除前缀字符则清除 `pendingTypeChange` + unwrap 灰化 span                                                                                                                                                                                                                                                                                                                              |
-| **结构转换**     | 延迟到回车提交；`handleBlockInput` 检测前缀仅设置 `pendingTypeChange` + DOM 灰化（不 `setBlockTree`、不 bump version），`handleBlockEnter` 调用 `commitPendingTypeChange` 剥离前缀并转换类型；工具栏下拉 `handleBlockTypeChange` 保持立即转换但清除 pending                                                                                                                                                                                                                                                                    |
-| **自动保存**     | 1200ms debounce；关闭/切换文件前 flush                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| **撤销/重做**    | 自定义栈，50 条上限，跨会话保留；段落增删手动 pushUndo                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| **光标管理**     | TreeWalker 遍历 DOM 文本节点，支持零宽空格偏移计算                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| **IME 兼容**     | isComposing 守卫；inline bar 无 DOM 挂载/卸载                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| **快捷键**       | Ctrl+S 保存、Ctrl+Z/Y 撤销/重做、Ctrl+F 查找、Ctrl+` 源码模式                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| **目录导航**     | Normal Mode: lineNumber → `startLine` 匹配 → `scrollToBlock`（无偏移）；Source Code Mode: lineNumber → `scrollToLine`                                                                                                                                                                                                                                                                                                                                                                                                          |
-| **目录高亮**     | Normal Mode: viewport top + 10px detectLine → last heading above；Source Code Mode: cursor → nearest heading → headingIndex                                                                                                                                                                                                                                                                                                                                                                                                    |
-| **目录宽度**     | `uiStore.outlineWidth`（默认 280px，范围 200-500px）；右侧拖拽手柄，持久化到 localStorage                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| **滚动条**       | 编辑器 + 目录：10px 宽 webkit scrollbar，圆角 thumb，悬停加粗；全局：6px；padding 在内层容器 → 滚动条正确反映内容大小                                                                                                                                                                                                                                                                                                                                                                                                          |
-| **MD Source**    | 工具栏 "Src" 按钮；显示当前段落原始 Markdown 源码；切换前 `handleSyncToStore` 同步 DOM → React state，确保格式不丢失；再次点击或点击其他内容恢复富文本                                                                                                                                                                                                                                                                                                                                                                         |     |
-| **文件系统同步** | editorStore.saveFile 对路径型 ID（含 `/` 或 `\`）直接 `file:write` 写磁盘；1200ms debounce 自动保存                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| **空状态**       | 文件被删（①垃圾箱 ②顶部删除 ③所属文件夹删除）时 `closeFile()` → 编辑主区显示 "📝 Open or create a file"                                                                                                                                                                                                                                                                                                                                                                                                                        |
-
-## 6. 块检测优先级
-
-```
-空白行(跳过) > 代码围栏 > 表格 > 标题 > 引用 > 列表项 > 段落(兜底)
-```
-
-## 7. 与其他模块交互
-
-| 模块       | 交互方式                                            |
-| ---------- | --------------------------------------------------- |
-| 导航栏     | editorStore 文件/撤销/重做；uiStore 切换模式/查找栏 |
-| 认证系统   | 切换账号时 closeFile() 清空编辑器                   |
-| 数据持久化 | saveFile() 对磁盘文件直接 file:write 写磁盘         |
-| 设置       | 主题变化切换 Monaco 主题                            |
-| 导出       | 导出当前 content 为 MD/Word/PDF                     |
+v1 采用容器级 contentEditable + `renderedHtml` 缓存，存在输入打断、IME 失效、
+标记丢失等结构性问题（详见规范文档 13.5 的 R1-R4）。已由 v2 替代；通过
+`window.__EDITOR_V2__ = false` 可临时回退，退役清理为独立任务。
