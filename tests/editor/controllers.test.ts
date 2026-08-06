@@ -76,10 +76,47 @@ describe('inputCtrl — 前缀转换（升格）', () => {
   it('输入 ``` 代码围栏 → code-block', () => {
     const instance = new EditorInstance('x');
     const id = paragraphId(instance);
-    inputCtrl.handleInput(instance, id, '```js', 5);
+    inputCtrl.handleInput(instance, id, '```js ', 6);
     const block = Object.values(instance.tree.blocks).find((b) => b.type === 'code-block')!;
     expect(block.type).toBe('code-block');
     expect(block.meta?.fenceLanguage).toBe('js');
+  });
+
+  it('代码块转换后自动在下方补空段落（可退出继续输入）', () => {
+    const instance = new EditorInstance('x');
+    const id = paragraphId(instance);
+    inputCtrl.handleInput(instance, id, '```java ', 8);
+    const leaves = Object.values(instance.tree.blocks).filter((b) => b.text !== null);
+    expect(leaves.map((b) => b.type)).toEqual(['code-block', 'paragraph']);
+    expect(leaves[1]?.text).toBe('');
+  });
+
+  it('段落围栏行回车 → 提交为代码块', () => {
+    const instance = new EditorInstance('x');
+    const id = paragraphId(instance);
+    inputCtrl.handleInput(instance, id, '```java', 7);
+    // 未提交前仍是段落
+    expect(instance.tree.blocks[id]?.type).toBe('paragraph');
+    const result = enterCtrl.handleEnter(instance, id, 7);
+    const code = Object.values(instance.tree.blocks).find((b) => b.type === 'code-block')!;
+    expect(code).toBeTruthy();
+    expect(code.meta?.fenceLanguage).toBe('java');
+    expect(result?.focus?.blockId).toBe(code.id);
+  });
+
+  it('空代码块回车 → 退出代码块并聚焦下一段落', () => {
+    const instance = new EditorInstance('x');
+    const id = paragraphId(instance);
+    inputCtrl.handleInput(instance, id, '```js ', 6);
+    const codeId = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'code-block'
+    )!.id;
+    const result = enterCtrl.handleEnter(instance, codeId, 0);
+    expect(instance.tree.blocks[codeId]).toBeUndefined();
+    expect(instance.getMarkdown()).toBe('');
+    expect(result?.focus).toBeTruthy();
+    const focusBlock = instance.tree.blocks[result!.focus!.blockId];
+    expect(focusBlock?.type).toBe('paragraph');
   });
 
   it('输入 --- 分割线 → thematic-break', () => {
@@ -179,6 +216,29 @@ describe('backspaceCtrl — 六条退出规则（SPEC-EDIT-EXIT）', () => {
     const emptyId = enterResult!.focus!.blockId;
     backspaceCtrl.handleBackspaceAtStart(instance, emptyId);
     expect(instance.getMarkdown()).toBe('foo');
+  });
+
+  it('删除末尾空列表项 → 退出列表（列表保留，光标移到列表后空段落）', () => {
+    const instance = new EditorInstance('x');
+    const id = paragraphId(instance);
+    inputCtrl.handleInput(instance, id, '1. 一级标题', 6);
+    const content = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'paragraph' && b.text === '一级标题'
+    )!;
+    const enterResult = enterCtrl.handleEnter(instance, content.id, 5);
+    const item2ContentId = enterResult!.focus!.blockId;
+    const result = backspaceCtrl.handleBackspaceAtStart(instance, item2ContentId);
+    // 列表仍保留第 1 项
+    const list = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'ordered-list'
+    )!;
+    expect(list).toBeTruthy();
+    expect(list.childrenIds.length).toBe(1);
+    // 光标移到列表后的空段落（根级，不在列表内）
+    const focusBlock = instance.tree.blocks[result!.focus!.blockId];
+    expect(focusBlock?.type).toBe('paragraph');
+    expect(focusBlock?.parentId).toBe(instance.tree.root.id);
+    expect(instance.getMarkdown()).toBe('1. 一级标题');
   });
 });
 

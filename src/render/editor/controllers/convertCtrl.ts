@@ -10,6 +10,8 @@ import type { EditorActionResult } from '../editorInstance';
 import type { BlockConversionV2, BlockNodeV2, BlockTreeV2 } from '../kernel';
 import {
   appendChild,
+  getNextLeaf,
+  insertBlockAfter,
   insertBlockBefore,
   makeBlockquote,
   makeCodeBlock,
@@ -103,6 +105,12 @@ export function convertParagraphToBlock(
       );
       tree = replaceAndRender(tree, blockId, code);
       blockId = code.id;
+      // 代码块后自动补空段落：保证回车/方向键能退出代码块继续输入（marktext 行为）
+      if (!getNextLeaf(tree, blockId)) {
+        const trailing = makeParagraph(tree, '');
+        tree = insertBlockAfter(tree, blockId, trailing);
+        tree = renderFor(trailing, tree);
+      }
       break;
     }
     case 'thematic-break': {
@@ -179,7 +187,7 @@ function exitListItem(instance: EditorInstance, content: BlockNodeV2): EditorAct
   if (children.length === 0) {
     // 空列表项：直接移除；列表为空则一并移除
     tree = removeBlock(tree, listItem.id);
-    if (list.childrenIds.length === 0) {
+    if (list.childrenIds.length === 1) {
       tree = removeBlock(tree, list.id);
     }
     const p = makeParagraph(tree, '');
@@ -204,7 +212,34 @@ function exitListItem(instance: EditorInstance, content: BlockNodeV2): EditorAct
     tree = removeBlock(tree, listItem.id);
     focusBlockId = children[0];
   } else {
-    // 其他：子块移入前一个 list-item
+    // 其他：子块移入前一个 list-item；空项则退出列表
+    const allEmpty = children.every(
+      (childId) => (tree.blocks[childId].text ?? '') === ''
+    );
+    const nextItem = listItem.nextId ? tree.blocks[listItem.nextId] : null;
+    if (allEmpty) {
+      // 末项为空 → 退出整个列表：删除该项，列表后补空段落，光标移到左边缘；
+      // 中间项为空 → 仅移除该项，光标移到下一项内容开头
+      tree = removeBlock(tree, listItem.id);
+      if (!nextItem) {
+        const p = makeParagraph(tree, '');
+        tree = insertBlockAfter(tree, list.id, p);
+        tree = renderFor(p, tree);
+        instance.tree = tree;
+        return {
+          changedBlockIds: [list.id],
+          focus: { blockId: p.id, offset: 0 },
+        };
+      }
+      const nextContentId = nextItem.childrenIds[0];
+      instance.tree = tree;
+      return nextContentId
+        ? {
+            changedBlockIds: [list.id, listItem.id],
+            focus: { blockId: nextContentId, offset: 0 },
+          }
+        : { changedBlockIds: [list.id, listItem.id] };
+    }
     for (const childId of children) {
       tree = appendChild(tree, prevItem.id, tree.blocks[childId]);
     }

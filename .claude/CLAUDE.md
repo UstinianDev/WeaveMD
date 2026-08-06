@@ -101,6 +101,14 @@ marktext/muya. v1 (container-level contentEditable, below) remains as fallback
     content; heading blocks have a click handler that focuses the content span so empty
     heading lines (including the marker area) are clickable; the generic empty-block
     placeholder rule excludes `.heading-block` so it can't override the `#` hint.
+  - **List/code-block exit (spec 13.9)**: Backspace on an empty trailing list item exits
+    the whole list (item removed, empty paragraph appended after the list, caret at the
+    left margin; middle empty items just move the caret to the next item). Fence conversion
+    (` ```lang `) requires a trailing space for instant conversion, or Enter to commit
+    (`detectFenceLine`); typing backticks skips autoPair so the fence isn't consumed early.
+    Code-block conversion appends an empty paragraph below (when last); Enter on an EMPTY
+    code block exits it (caret moves to the next block), while Enter on non-empty content
+    still inserts a newline.
 - **Source Code Mode**: Full-screen Monaco (`SourceCodeEditor.tsx`). Toggle via `Ctrl+\`` or View menu.
 - **Find & Replace**: Typora-style inline bar (`FindReplaceBar.tsx`); replace works in v2 via content rebuild.
 

@@ -818,3 +818,18 @@ Playwright + 真实 Chromium E2E（`e2e/editor.spec.ts`，renderer-only vite 配
 **验证**：新增 `e2e/marktext-rendering.spec.ts` 3 例（标题 marker 并排 / 空标题点击聚焦 /
 列表项 flex 与任务项无多余圆点）。全量 `vitest run` 305 例、`tsc --noEmit`、ESLint
 （0 error）、`vite build` 均通过；Playwright Chromium E2E 10/10 通过。
+
+### 13.9 列表退出与代码块退出修复（2026-08-06）
+
+用户反馈两类问题并附截图，经真实 Chromium 复现定位并修复：
+
+| # | 问题 | 根因 | 修复 |
+| - | ---- | ---- | ---- |
+| 1 | 有序列表 `1. a` + Enter 生成空 `2.`，退格删除 `2.` 后光标仍停留在列表缩进内；再回车导致 `1.` 被删除而内容保留 | `exitListItem` 对非首空项走"合并到前项"分支，空段落被并入上一项，光标留在列表内 | `exitListItem` 增加"空项"分支：末尾空项 → 删除该项并在列表后补空段落，光标移到列表外左边缘（列表保留）；中间空项 → 仅移除该项，光标移到下一项开头。同时修复唯一空项分支的 stale 引用判断（`childrenIds.length === 1`） |
+| 2a | 逐字符输入 ` ```java ` 时第 3 个反引号即触发转换，语言为空、内容变成 `` `java ``，源码模式显示异常 | `FENCE_CONV_RE` 不要求尾随空格，围栏被提前消费；反引号 autoPair 干扰围栏输入 | 围栏即时转换要求尾随空格（与其他前缀一致）；新增 `detectFenceLine` 供 ` ```lang ` + Enter 提交；输入反引号围栏时跳过 autoPair |
+| 2b | 代码块内回车只能增加代码块内空行，无法退出继续输入其他内容；代码块下方无空行 | 转换仅替换段落，无尾随空段落；Enter 在 code-block 内恒插入换行 | 代码块转换后若无后续块，自动在其后插入空段落；代码块内容为空时 Enter 撤销代码块并把光标移到下一内容块 |
+
+**验证**：新增控制器测试 4 例（围栏尾随空格转换 + 自动补空段落、` ```lang ` 回车提交、
+空代码块回车退出、末尾空列表项退出列表），`vitest run` 309 例通过；新增
+`e2e/exit-behavior.spec.ts` 4 例（列表退出 / ```java 空格提交 / 空代码块回车退出 / ```java 回车提交），
+Playwright Chromium E2E 14/14 通过；`tsc --noEmit`、ESLint（0 error）、`vite build` 均通过。
