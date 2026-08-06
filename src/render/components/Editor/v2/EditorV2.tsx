@@ -11,9 +11,12 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { EditorInstance } from '../../../editor/editorInstance';
 import type { EditorActionResult } from '../../../editor/editorInstance';
 import type { BlockMetaV2, BlockTreeV2 } from '../../../editor/kernel';
-import { updateMeta } from '../../../editor/kernel';
+import { deleteLeafRange, updateMeta } from '../../../editor/kernel';
 import { extractHeadingOutline } from '../../../editor/kernel/outline';
-import { setCursorAtOffset } from '../../../editor/kernel/selection';
+import {
+  nearestContentSpan,
+  setCursorAtOffset,
+} from '../../../editor/kernel/selection';
 import { useEditorStore } from '../../../stores/editorStore';
 import {
   inputCtrl,
@@ -51,6 +54,8 @@ const EditorV2: React.FC<EditorV2Props> = ({
   const [tree, setTree] = useState<BlockTreeV2>(() => instanceRef.current!.tree);
   const scrollRef = useRef<EditorScrollContainerHandle>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const dragStartRef = useRef<{ startContainer: Node; startOffset: number } | null>(null);
+  const lastDragRangeRef = useRef<Range | null>(null);
   const domRegistryRef = useRef<Map<string, HTMLElement>>(new Map());
   const pendingFocusRef = useRef<{ blockId: string; offset: number } | null>(null);
   const lastSyncedContentRef = useRef(content);
@@ -77,6 +82,82 @@ const EditorV2: React.FC<EditorV2Props> = ({
       setCursorAtOffset(el, pending.offset);
     }
   }, [tree]);
+
+  // 跨块鼠标拖选：拖过不同内容块时用 Range API 扩展选区
+  // （浏览器原生拖选被编辑宿主边界截断，见 spec 13.13）
+  useEffect(() => {
+    const container = containerRef.current;
+    // eslint-disable-next-line no-console
+    console.log('[drag] effect', !!container);
+    if (!container) return;
+
+    const caretRangeAtPoint = (x: number, y: number): Range | null => {
+      if (typeof document.caretRangeFromPoint === 'function') {
+        return document.caretRangeFromPoint(x, y);
+      }
+      const pos = document.caretPositionFromPoint?.(x, y);
+      if (!pos) return null;
+      const range = document.createRange();
+      range.setStart(pos.offsetNode, pos.offset);
+      return range;
+    };
+
+    const handleMouseDown = (e: MouseEvent) => {
+      const span = (e.target as HTMLElement).closest('span.block-content');
+      if (!span || !container.contains(span)) return;
+      const range = caretRangeAtPoint(e.clientX, e.clientY);
+      if (!range) return;
+      dragStartRef.current = {
+        startContainer: range.startContainer,
+        startOffset: range.startOffset,
+      };
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const dragStart = dragStartRef.current;
+      if (!dragStart) return;
+      const range = caretRangeAtPoint(e.clientX, e.clientY);
+      if (!range) return;
+      const startSpan = nearestContentSpan(dragStart.startContainer);
+      const endSpan = nearestContentSpan(range.startContainer);
+      // 同块内由浏览器原生选择；仅跨块时程序化扩展
+      if (!startSpan || !endSpan || startSpan === endSpan) return;
+      const sel = window.getSelection();
+      if (!sel) return;
+      const next = document.createRange();
+      next.setStart(dragStart.startContainer, dragStart.startOffset);
+      next.setEnd(range.startContainer, range.startOffset);
+      sel.removeAllRanges();
+      sel.addRange(next);
+      // 记录跨块 Range：mouseup 时重新应用（原生拖选可能覆盖中间状态）
+      lastDragRangeRef.current = next.cloneRange();
+    };
+
+    const handleMouseUp = () => {
+      const lastRange = lastDragRangeRef.current;
+      dragStartRef.current = null;
+      lastDragRangeRef.current = null;
+      if (lastRange) {
+        // 延迟到下一帧重放：浏览器原生拖选会在 mouseup 同步收尾并覆盖选区
+        requestAnimationFrame(() => {
+          const sel = window.getSelection();
+          if (sel) {
+            sel.removeAllRanges();
+            sel.addRange(lastRange);
+          }
+        });
+      }
+    };
+
+    document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
 
   const syncContent = useCallback(() => {
     const markdown = instanceRef.current?.getMarkdown() ?? '';
@@ -139,6 +220,38 @@ const EditorV2: React.FC<EditorV2Props> = ({
   const onBackspaceAtStart = useCallback(
     (blockId: string) => {
       applyAction((instance) => backspaceCtrl.handleBackspaceAtStart(instance, blockId));
+    },
+    [applyAction]
+  );
+  // 跨块选区删除（Backspace/Delete）：块树级删除选区内容
+  const onDeleteRange = useCallback(
+    (startBlockId: string, startOffset: number, endBlockId: string, endOffset: number) => {
+      applyAction((instance) => {
+        const result = deleteLeafRange(
+          instance.tree,
+          startBlockId,
+          startOffset,
+          endBlockId,
+          endOffset
+        );
+        if (!result) return null;
+        instance.tree = result.tree;
+        return {
+          changedBlockIds: [startBlockId, endBlockId],
+          focus: { blockId: result.focusBlockId, offset: result.focusOffset },
+        };
+      });
+      // 按需渲染下 React 状态可能陈旧、memo 跳过重渲染，需按模型强制同步受影响块 DOM
+      for (const blockId of [startBlockId, endBlockId]) {
+        const el = domRegistryRef.current.get(blockId);
+        const block = instanceRef.current?.tree.blocks[blockId];
+        if (!el || !block || block.text === null) continue;
+        const html = block.inlineHtml ?? '';
+        const display = html === '' ? '\u200B' : html;
+        if (el.innerHTML !== display) {
+          el.innerHTML = display;
+        }
+      }
     },
     [applyAction]
   );
@@ -233,6 +346,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
       onInput,
       onEnter,
       onBackspaceAtStart,
+      onDeleteRange,
       onTab,
       onShiftTab,
       onFormat,
@@ -247,6 +361,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
       onInput,
       onEnter,
       onBackspaceAtStart,
+      onDeleteRange,
       onTab,
       onShiftTab,
       onFormat,

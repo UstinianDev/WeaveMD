@@ -127,7 +127,8 @@
 | EDIT-12 | 超链接交互 | ✅ | Ctrl+Click 经 IPC 打开；hover tooltip；链接对话框 |
 
 **输入与渲染保障（真实 Chromium E2E 验证，`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
-+ `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts` 22/22 通过）**：
++ `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`
++ `e2e/cross-block-selection.spec.ts` 23/23 通过）**：
 
 - 空文档可直接输入；连续输入不被重渲染打断（按需重渲染 + IME 守卫）
 - `# 标题`、`- 列表`、`**加粗**` 即时渲染为富文本
@@ -140,3 +141,4 @@
   退格一键删除；引用空行回车可退出引用
 - 退格链：删光标题内容后连续退格光标跳回上一行；段落退格可合并进前一个列表项内容
 - 浮动工具栏：选区触发（marktext 风格），最左侧块类型下拉（正文/H1-H6）+ 行内格式按钮
+- 跨块鼠标拖选：拖过不同内容块生成跨块选区，Backspace/Delete 块树级删除

@@ -9,7 +9,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { InlineFormatStyle } from '../../../editor/controllers';
 import type { BlockTreeV2 } from '../../../editor/kernel';
-import { getCursorOffsets } from '../../../editor/kernel/selection';
+import {
+  getCursorOffsets,
+  nearestContentSpan as kernelNearestContentSpan,
+} from '../../../editor/kernel/selection';
 
 export type BlockTypeOption = 'paragraph' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
 
@@ -98,10 +101,8 @@ function nearestContentSpan(
   node: Node | null,
   container: HTMLElement
 ): HTMLElement | null {
-  if (!node) return null;
-  const el = node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
-  if (!el || !container.contains(el)) return null;
-  return el.closest('span.block-content') as HTMLElement | null;
+  const span = kernelNearestContentSpan(node);
+  return span && container.contains(span) ? span : null;
 }
 
 const FloatingToolbar: React.FC<FloatingToolbarProps> = ({

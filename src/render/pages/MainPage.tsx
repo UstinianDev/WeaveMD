@@ -2,11 +2,9 @@
 // WeaveMD — Main Page Layout
 // ============================================
 
-import type { editor } from 'monaco-editor';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import StatusBar from '../components/Common/StatusBar';
 import EditorView from '../components/Editor/EditorView';
-import FloatingToolbar from '../components/Editor/FloatingToolbar';
 import HistoryPanel from '../components/Editor/panels/HistoryPanel';
 import OutlinePanel from '../components/Editor/panels/OutlinePanel';
 import TopBar from '../components/Navbar/TopBar';
@@ -54,8 +52,6 @@ const MainPage: React.FC = () => {
   }, [currentFile?.id, isDirty, saveFile]);
 
   // Editor state
-  const isEditorActiveRef = useRef(false);
-  const [isEditorFocused, setIsEditorFocused] = useState(false);
   const navigateToHeadingRef = useRef<((lineNumber: number, headingIndex: number) => void) | null>(
     null
   );
@@ -104,39 +100,16 @@ const MainPage: React.FC = () => {
   }, []);
 
   // Active editor ref for FloatingToolbar — set by EditorView
-  const activeEditorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
-  const [, forceUpdate] = useState(0);
 
-  const handleActiveEditorRef = useCallback(
-    (ref: React.RefObject<editor.IStandaloneCodeEditor | null> | null) => {
-      activeEditorRef.current = ref?.current ?? null;
-      forceUpdate((n) => n + 1);
-    },
-    []
-  );
 
   // Selection change callback — kept for EditorView compatibility
-  const handleSelectionChange = useCallback(
-    (
-      _sel: { startLine: number; startColumn: number; endLine: number; endColumn: number } | null
-    ) => {
-      // Selection tracking is now handled by FloatingToolbar directly via editor ref
-    },
-    []
-  );
 
-  const handleEditorMount = useCallback((active: boolean) => {
-    isEditorActiveRef.current = active;
-  }, []);
 
   useEffect(() => {
     if (currentFile) {
       return;
     }
 
-    isEditorActiveRef.current = false;
-    activeEditorRef.current = null;
-    setIsEditorFocused(false);
     setActiveHeadingIndex(null);
   }, [currentFile]);
 
@@ -184,10 +157,6 @@ const MainPage: React.FC = () => {
           <div className={isOutlinePanelCollapsed ? 'w-full max-w-4xl h-full' : 'w-full h-full'}>
             {currentFile ? (
               <EditorView
-                onSelectionChange={handleSelectionChange}
-                onEditorMount={handleEditorMount}
-                onFocusChange={setIsEditorFocused}
-                onActiveEditorRef={handleActiveEditorRef}
                 onNavigateReady={handleNavigateReady}
                 onActiveHeadingChange={setActiveHeadingIndex}
               />
@@ -209,8 +178,6 @@ const MainPage: React.FC = () => {
       </div>
 
       {/* Floating Formatting Toolbar — appears on text selection */}
-      <FloatingToolbar editorRef={activeEditorRef} isEditorFocused={isEditorFocused} />
-
       {/* History Panel (slide-out) */}
       <HistoryPanel isOpen={isHistoryPanelOpen} onClose={toggleHistoryPanel} />
 
