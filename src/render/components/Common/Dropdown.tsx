@@ -90,21 +90,17 @@ const Dropdown: React.FC<DropdownProps> = ({
                   }
                 }}
                 disabled={item.disabled}
-                className="w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors duration-150"
+                className={`w-full flex items-center gap-3 px-3 py-2 text-sm transition-colors duration-150 ${
+                  item.disabled
+                    ? ''
+                    : item.danger
+                      ? 'hover:bg-[rgba(239,68,68,0.1)]'
+                      : 'hover:bg-[var(--bg-tertiary)]'
+                }`}
                 style={{
                   color: item.danger ? '#EF4444' : 'var(--text-primary)',
                   opacity: item.disabled ? 0.4 : 1,
                   cursor: item.disabled ? 'not-allowed' : 'pointer',
-                }}
-                onMouseEnter={(e) => {
-                  if (!item.disabled) {
-                    e.currentTarget.style.backgroundColor = item.danger
-                      ? 'rgba(239, 68, 68, 0.1)'
-                      : 'var(--bg-tertiary)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'transparent';
                 }}
               >
                 {item.icon && (
