@@ -147,7 +147,8 @@ export function convertBlockToParagraph(
     const paragraph = makeParagraph(tree, block.text ?? '');
     tree = replaceAndRender(tree, blockId, paragraph);
     instance.tree = tree;
-    return { changedBlockIds: [blockId], focus: { blockId, offset: 0 } };
+    // replaceBlock 后旧 id 已不存在，焦点必须指向新段落 id
+    return { changedBlockIds: [blockId], focus: { blockId: paragraph.id, offset: 0 } };
   }
 
   const parent = block.parentId ? tree.blocks[block.parentId] : undefined;
@@ -183,6 +184,7 @@ function exitListItem(instance: EditorInstance, content: BlockNodeV2): EditorAct
   const prevItem = listItem.prevId ? tree.blocks[listItem.prevId] : null;
   const children = [...listItem.childrenIds];
   let focusBlockId: string | null = null;
+  let focusAtStart = false;
 
   if (children.length === 0) {
     // 空列表项：直接移除；列表为空则一并移除
@@ -204,6 +206,7 @@ function exitListItem(instance: EditorInstance, content: BlockNodeV2): EditorAct
     }
     tree = removeBlock(tree, list.id);
     focusBlockId = children[0];
+    focusAtStart = true;
   } else if (!prevItem) {
     // 首项：子块提升到 list 前，移除 list-item
     for (const childId of children) {
@@ -211,6 +214,7 @@ function exitListItem(instance: EditorInstance, content: BlockNodeV2): EditorAct
     }
     tree = removeBlock(tree, listItem.id);
     focusBlockId = children[0];
+    focusAtStart = true;
   } else {
     // 其他：子块移入前一个 list-item；空项则退出列表
     const allEmpty = children.every(
@@ -249,7 +253,9 @@ function exitListItem(instance: EditorInstance, content: BlockNodeV2): EditorAct
 
   const focusBlock = tree.blocks[focusBlockId];
   const focusOffset =
-    focusBlock && focusBlock.text !== null ? focusBlock.text.length : 0;
+    focusBlock && focusBlock.text !== null && !focusAtStart
+      ? focusBlock.text.length
+      : 0;
   instance.tree = tree;
   return {
     changedBlockIds: [list.id, listItem.id],
@@ -276,7 +282,10 @@ function exitBlockquote(
     const paragraph = makeParagraph(tree, content.text ?? '');
     tree = replaceAndRender(tree, quote.id, paragraph);
     instance.tree = tree;
-    return { changedBlockIds: [quote.id], focus: { blockId: quote.id, offset: 0 } };
+    return {
+      changedBlockIds: [quote.id],
+      focus: { blockId: paragraph.id, offset: 0 },
+    };
   }
 
   // 末尾空行退格 → 退出引用：空段落移到引用之后（对齐列表末尾空项行为，光标在引用下方）

@@ -107,13 +107,27 @@ marktext/muya. v1 (container-level contentEditable, below) remains as fallback
     (` ```lang `) requires a trailing space for instant conversion, or Enter to commit
     (`detectFenceLine`); typing backticks skips autoPair so the fence isn't consumed early.
     Code-block conversion appends an empty paragraph below (when last); Enter on an EMPTY
-    code block moves the caret to the next block (code block is KEPT — Backspace does the
-    same; do not delete the code block on empty Backspace), while Enter on non-empty
-    content still inserts a newline. Empty quote lines exit via Enter/Backspace (empty
-    trailing quote line moves the paragraph after the quote, mirroring the list behavior).
+    code block moves the caret to the next block (code block is KEPT); **Backspace on an
+    EMPTY code block DELETES it** (one-key delete, per user requirement; caret goes to the
+    previous leaf end, else next leaf start, else an empty paragraph). The trailing empty
+    paragraph after a code block is **protected from Backspace** (it stays and is NOT merged
+    into the code block — it only becomes a normal, deletable paragraph after the code block
+    itself is deleted; mirrors v1 `protectedAfterCodeFence`). Enter on non-empty code content
+    still inserts a newline. Empty quote lines exit via Enter/Backspace (empty trailing quote
+    line moves the paragraph after the quote, mirroring the list behavior).
     Note: `applyAction` must restore focus immediately when the tree reference is unchanged
     (`instance.tree === prevTree`), otherwise React skips the re-render and the focus
     restore `useLayoutEffect` never runs.
+  - **Backspace chain (spec 13.11)**: demotion (`convertBlockToParagraph`) must focus the
+    NEW block id (replaceBlock removes the old id); `exitListItem` lift branches focus at
+    offset 0; `mergeParagraph` merges across container boundaries (paragraph after a list
+    joins into the previous list item); `setCursorAtOffset(el, 0)` must place the caret at
+    offset 0 (guard `remaining > 0`).
+  - **v2 Floating toolbar** (`Editor/v2/FloatingToolbar.tsx`): marktext-style, appears on
+    non-collapsed text selection inside a `.block-content` span, positioned above the
+    selection; leftmost dropdown converts root paragraph/heading to 正文/H1-H6
+    (`onConvertBlock`), format buttons reuse `formatCtrl.formatRange` (`onFormat` accepts
+    an optional `url` for links).
 - **Source Code Mode**: Full-screen Monaco (`SourceCodeEditor.tsx`). Toggle via `Ctrl+\`` or View menu.
 - **Find & Replace**: Typora-style inline bar (`FindReplaceBar.tsx`); replace works in v2 via content rebuild.
 

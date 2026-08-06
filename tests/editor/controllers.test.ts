@@ -121,7 +121,7 @@ describe('inputCtrl — 前缀转换（升格）', () => {
     expect(focusBlock?.parentId).toBe(instance.tree.root.id);
   });
 
-  it('空代码块退格 → 保留代码块并聚焦下一段落', () => {
+  it('空代码块退格 → 删除代码块并聚焦下一段落', () => {
     const instance = new EditorInstance('x');
     const id = paragraphId(instance);
     inputCtrl.handleInput(instance, id, '```js ', 6);
@@ -129,9 +129,42 @@ describe('inputCtrl — 前缀转换（升格）', () => {
       (b) => b.type === 'code-block'
     )!.id;
     const result = backspaceCtrl.handleBackspaceAtStart(instance, codeId);
-    expect(instance.tree.blocks[codeId]?.type).toBe('code-block');
+    expect(instance.tree.blocks[codeId]).toBeUndefined();
     expect(result?.focus).toBeTruthy();
     expect(instance.tree.blocks[result!.focus!.blockId]?.type).toBe('paragraph');
+  });
+
+  it('代码块后的空段落 Backspace 受保护（不删除、不并入代码块）', () => {
+    const instance = new EditorInstance('x');
+    const id = paragraphId(instance);
+    inputCtrl.handleInput(instance, id, '```js ', 6);
+    const trailing = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'paragraph'
+    )!;
+    const result = backspaceCtrl.handleBackspaceAtStart(instance, trailing.id);
+    expect(result).toBeNull();
+    expect(instance.tree.blocks[trailing.id]?.type).toBe('paragraph');
+    expect(
+      Object.values(instance.tree.blocks).some((b) => b.type === 'code-block')
+    ).toBe(true);
+  });
+
+  it('删除代码块后，其后的空段落恢复为可删除（与前段合并）', () => {
+    const instance = new EditorInstance('a');
+    const id = paragraphId(instance);
+    const enterResult = enterCtrl.handleEnter(instance, id, 1);
+    const secondId = enterResult!.focus!.blockId;
+    inputCtrl.handleInput(instance, secondId, '```js ', 6);
+    const codeId = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'code-block'
+    )!.id;
+    backspaceCtrl.handleBackspaceAtStart(instance, codeId);
+    const trailing = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'paragraph' && b.text === ''
+    )!;
+    const result = backspaceCtrl.handleBackspaceAtStart(instance, trailing.id);
+    expect(result).toBeTruthy();
+    expect(instance.getMarkdown()).toBe('a');
   });
 
   it('输入 --- 分割线 → thematic-break', () => {
@@ -211,14 +244,29 @@ describe('backspaceCtrl — 六条退出规则（SPEC-EDIT-EXIT）', () => {
     const id = headingId(instance);
     const result = backspaceCtrl.handleBackspaceAtStart(instance, id);
     expect(instance.getMarkdown()).toBe('Title');
+    // 焦点必须指向新段落（replaceBlock 后旧 id 已不存在）
     expect(result?.focus?.offset).toBe(0);
+    expect(instance.tree.blocks[result!.focus!.blockId]?.type).toBe('paragraph');
   });
 
   it('列表项内容起点退格 → 退出列表（唯一项）', () => {
     const instance = new EditorInstance('- item');
     const id = paragraphId(instance);
-    backspaceCtrl.handleBackspaceAtStart(instance, id);
+    const result = backspaceCtrl.handleBackspaceAtStart(instance, id);
     expect(instance.getMarkdown()).toBe('item');
+    // 降级后光标保持在内容开头（对齐 SPEC：光标保持在开头）
+    expect(result?.focus?.offset).toBe(0);
+  });
+
+  it('列表后的段落退格 → 合并进前一个列表项内容（退格链）', () => {
+    const instance = new EditorInstance('1. 有序列表\n\n无序列表');
+    const para = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'paragraph' && b.text === '无序列表'
+    )!;
+    const result = backspaceCtrl.handleBackspaceAtStart(instance, para.id);
+    expect(result?.focus).toBeTruthy();
+    expect(instance.getMarkdown()).toBe('1. 有序列表无序列表');
+    expect(instance.tree.blocks[para.id]).toBeUndefined();
   });
 
   it('任务列表项内容起点退格 → 退出列表', () => {
@@ -235,14 +283,13 @@ describe('backspaceCtrl — 六条退出规则（SPEC-EDIT-EXIT）', () => {
     expect(instance.getMarkdown()).toBe('quote');
   });
 
-  it('空代码块退格 → 保留代码块（唯一块时回退无操作）', () => {
+  it('空代码块退格 → 删除代码块（唯一块转空段落）', () => {
     const instance = new EditorInstance('```\n```');
     const codeId = Object.keys(instance.tree.blocks).find(
       (bid) => instance.tree.blocks[bid].type === 'code-block'
     )!;
-    const result = backspaceCtrl.handleBackspaceAtStart(instance, codeId);
-    expect(instance.tree.blocks[codeId]?.type).toBe('code-block');
-    expect(result).toBeNull();
+    backspaceCtrl.handleBackspaceAtStart(instance, codeId);
+    expect(instance.getMarkdown()).toBe('');
   });
 
   it('普通空段落退格 → 合并到前块', () => {

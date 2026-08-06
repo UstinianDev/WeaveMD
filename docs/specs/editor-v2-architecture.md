@@ -842,11 +842,38 @@ Playwright Chromium E2E 14/14 通过；`tsc --noEmit`、ESLint（0 error）、`v
 | # | 问题 | 根因 | 修复 |
 | - | ---- | ---- | ---- |
 | 1 | 引用空行无法退出（与列表同源） | `enterCtrl` 缺少 blockquote 分支，空引用行回车走通用拆分，新空行仍在引用内 | `enterCtrl` 新增引用分支：空行回车 → 退出引用（`convertBlockToParagraph`）；非空回车保持引用内拆分。`exitBlockquote` 对末尾空行改为把空段落移到**引用之后**（对齐列表末尾空项行为） |
-| 2a | 空代码块 Backspace 误删整个代码块 | `removeCodeBlock` 直接删除代码块 | 空代码块 Backspace/Enter 统一改为**保留代码块**、光标移到下一内容块（无后续块则前一块末尾）；`mergeParagraph` 增加保护：前块为代码块时禁止文本合并（空段落直接移除，非空段落不处理） |
-| 2b | 代码块后空段落 Backspace 删不掉/行为异常 | 空代码块退出后剩余空段落无前块可合并（Backspace 无操作）；或合并把光标带进代码块 | 空代码块退出不再删除代码块，代码块后空段落始终可通过 Backspace 删除（空段落移除、光标回代码块） |
+| 2a | 空代码块 Backspace 一键删除（用户澄清需求） | 上一版误改为"保留代码块" | 恢复 `removeCodeBlock`：空代码块 Backspace 一键删除（光标前块末尾 → 无前块则下一块开头 → 唯一块转空段落）；**Enter 仍为退出**（保留代码块，光标移到下一块）；`mergeParagraph` 增加保护：前块为代码块时禁止文本合并（空段落直接移除，非空段落不处理） |
+| 2b | 代码块后空段落 Backspace 行为（用户澄清：需受保护） | 误实现为"可删除/并入代码块" | `mergeParagraph` 对前块为代码块的段落**整体保护**：Backspace 不删除、不并入（对齐 v1 `protectedAfterCodeFence` 语义）；删除代码块本身后，该空行恢复为普通段落可正常合并 |
 | 2c | 树未变化时焦点恢复失效 | `applyAction` 中 `setTree` 传入同一引用 → React 跳过重渲染 → `useLayoutEffect` 焦点恢复不执行 | `applyAction` 检测 `instance.tree === prevTree` 时立即恢复焦点（`setCursorAtOffset`） |
 
-**验证**：新增控制器测试 3 例（空代码块退格保留、引用空行回车退出、引用末尾空行退格移到
-引用后），`vitest run` 312 例通过；`e2e/exit-behavior.spec.ts` 扩充至 6 例（新增空代码块
-退格保留、引用空行回车退出），Playwright Chromium E2E 16/16 通过；`tsc --noEmit`、
+**验证**：控制器测试覆盖空代码块退格删除、代码块后空段落受保护、删除代码块后空段落恢复
+可删、引用空行回车退出、引用末尾空行退格移到引用后，`vitest run` 314 例通过；
+`e2e/exit-behavior.spec.ts` 7 例（空代码块退格一键删除、代码块后空行 Backspace 受保护
+且删除代码块后可删、引用空行回车退出），
+Playwright Chromium E2E 17/17 通过；`tsc --noEmit`、
 ESLint（0 error）、`vite build` 均通过。
+
+### 13.11 退格链修复与 v2 浮动工具栏（2026-08-06）
+
+**退格链修复**（真实 Chromium 复现定位）：
+
+| 问题 | 根因 | 修复 |
+| ---- | ---- | ---- |
+| 空标题降级为段落后焦点丢失，后续退格无效 | `convertBlockToParagraph` 的 heading/quote 分支用旧块 id 作为焦点目标，而 `replaceBlock` 已把旧 id 移除（注册表查不到） | 焦点改用 `paragraph.id`（新块 id） |
+| 列表项降级后光标落在内容末尾而非开头 | `exitListItem` 统一按 `text.length` 计算焦点偏移 | 提升类分支（唯一项/首项）焦点偏移为 0，对齐 SPEC"光标保持在开头" |
+| 段落前是列表项时退格无反应（无法跳回上一行） | `mergeParagraph` 要求同父才合并，跨列表边界被跳过 | 允许跨容器合并到前一个内容块（列表项/引用内容），实现"退格跳回上一行" |
+| `setCursorAtOffset(span, 0)` 光标落在 offset 1 | 循环条件 `charCount >= 0` 在第一个字符后即触发 | `remaining > 0 && charCount >= remaining`，offset 0 时光标位于文本起点 |
+
+**v2 浮动工具栏**（marktext 风格，新增 `src/render/components/Editor/v2/FloatingToolbar.tsx`）：
+- 触发规则与 marktext 一致：文本选区非折叠且位于编辑器内容块内时，出现在选区上方居中；
+  收起/滚动/移出编辑器即隐藏（带延迟，允许点击工具栏）。
+- 最左侧为**块类型下拉**：正文 / H1-H6（显示当前块类型；转换仅作用于根级 paragraph/heading，
+  经 `convertParagraphToBlock` / `convertBlockToParagraph` / `updateMeta` 实现）。
+- 其余为行内格式按钮：加粗 / 斜体 / 删除线 / 行内代码 / 链接（prompt URL）/ 高亮，
+  复用 `formatCtrl.formatRange`，`onFormat` 增加可选 `url` 参数。
+- 选区偏移用 `getCursorOffsets` 取自锚点内容 span；按钮 `onMouseDown` preventDefault 保持选区。
+
+**验证**：`vitest run` 315 例通过（新增列表跨边界合并等）；`e2e/floating-toolbar.spec.ts` 3 例
+（选区触发加粗 / 正文→H2 / 级别切换与转回正文）、`e2e/exit-behavior.spec.ts` 扩充至 9 例
+（新增列表退格链、标题删除链），Playwright Chromium E2E 22/22 通过；`tsc --noEmit`、
+ESLint（0 error，1 个既有 warning）、`vite build` 均通过。

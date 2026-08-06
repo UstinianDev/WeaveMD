@@ -56,7 +56,9 @@ export function setCursorAtOffset(contentEl: HTMLElement, offset: number): void 
       let position = 0;
       for (let i = 0; i < value.length; i++) {
         if (value[i] !== '\u200B') charCount++;
-        if (charCount >= remaining) {
+        // remaining 为 0 时光标应位于文本起点（offset 0），
+        // 避免 `charCount >= 0` 在第一个字符后就误定位到 offset 1
+        if (remaining > 0 && charCount >= remaining) {
           position = i + 1;
           break;
         }

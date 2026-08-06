@@ -149,7 +149,7 @@ test('空代码块回车 → 退出代码块并可在下方继续输入', async 
   expect(state.helloInParagraph).toBe(true);
 });
 
-test('空代码块退格 → 保留代码块并聚焦下方段落', async ({ page }) => {
+test('空代码块退格 → 一键删除代码块', async ({ page }) => {
   await openEditor(page);
   const editable = page.locator('span.block-content[contenteditable="true"]').first();
   await editable.click();
@@ -159,16 +159,55 @@ test('空代码块退格 → 保留代码块并聚焦下方段落', async ({ pag
 
   await page.keyboard.press('Backspace');
   await page.waitForTimeout(200);
-  await expect(page.locator('.code-fence-block')).toHaveCount(1);
+  await expect(page.locator('.code-fence-block')).toHaveCount(0);
   const state = await page.locator('.editor-content-area').evaluate((el) => {
     const active = document.activeElement;
     return {
       activeInCode: !!active && !!active.closest('.code-fence-block'),
       activeTag: active ? active.tagName : null,
+      paragraphCount: el.querySelectorAll('p.paragraph-block').length,
     };
   });
   expect(state.activeInCode).toBe(false);
   expect(state.activeTag).toBe('SPAN');
+  expect(state.paragraphCount).toBeGreaterThan(0);
+});
+
+test('代码块后的空行 Backspace 受保护（删除代码块后才可删）', async ({ page }) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  // 先输入一行正文，再创建代码块，确保删除代码块后空行有前段可合并
+  await page.keyboard.type('正文', { delay: 20 });
+  await page.keyboard.press('Enter');
+  const second = page.locator('span.block-content[contenteditable="true"]').nth(1);
+  await second.click();
+  await page.keyboard.type('```java ', { delay: 20 });
+  await page.waitForTimeout(300);
+  await expect(page.locator('.code-fence-block')).toHaveCount(1);
+  await expect(page.locator('p.paragraph-block')).toHaveCount(2);
+
+  // 1) 点击代码块后的空行，Backspace → 受保护，空行保留
+  const trailing = page.locator('p.paragraph-block span.block-content').last();
+  await trailing.click();
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(200);
+  await expect(page.locator('.code-fence-block')).toHaveCount(1);
+  await expect(page.locator('p.paragraph-block')).toHaveCount(2);
+
+  // 2) 点击空代码块，Backspace → 一键删除代码块
+  const codeContent = page.locator('.code-fence-block span.block-content');
+  await codeContent.click();
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(200);
+  await expect(page.locator('.code-fence-block')).toHaveCount(0);
+
+  // 3) 删除代码块后，空行恢复为普通段落：Backspace 与前段合并
+  const after = page.locator('p.paragraph-block span.block-content').last();
+  await after.click();
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(200);
+  await expect(page.locator('p.paragraph-block')).toHaveCount(1);
 });
 
 test('```java + 回车 → 提交为代码块（语言 java）', async ({ page }) => {
@@ -206,4 +245,88 @@ test('引用空行回车 → 退出引用并可在下方继续输入', async ({ 
   expect(state.activeInQuote).toBe(false);
   expect(state.quoteCount).toBe(1);
   expect(state.paragraphs.some((t) => (t ?? '').includes('正文'))).toBe(true);
+});
+
+test('列表退格链：无序退格降级后继续退格合并进有序项', async ({ page }) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('1. 有序列表', { delay: 20 });
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  const afterExit = page.locator('span.block-content[contenteditable="true"]').last();
+  await afterExit.click();
+  await page.keyboard.type('- 无序列表', { delay: 20 });
+  await page.waitForTimeout(300);
+  await expect(page.locator('.list-item-block')).toHaveCount(2);
+
+  // 光标移到无序项内容开头，退格撤销无序列表
+  const second = page.locator('.list-item-block').last().locator('span.block-content');
+  await second.click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(300);
+  await expect(page.locator('.list-item-block')).toHaveCount(1);
+  await expect(page.locator('p.paragraph-block').last()).toContainText('无序列表');
+
+  // 继续退格 → 合并进第一行有序列表内容（光标跳回上一行）
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(300);
+  await expect(page.locator('.list-item-block')).toHaveCount(1);
+  await expect(page.locator('.list-item-block')).toContainText('有序列表无序列表');
+  await expect(page.locator('p.paragraph-block')).toHaveCount(1);
+});
+
+test('标题删除链：删光二级标题后连续退格光标跳回一级标题', async ({ page }) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('# 一级标题', { delay: 20 });
+  await page.keyboard.press('Enter');
+  const second = page.locator('span.block-content[contenteditable="true"]').last();
+  await second.click();
+  await page.keyboard.type('## 二级标题', { delay: 20 });
+  await page.waitForTimeout(300);
+  await expect(page.locator('h2.heading-block')).toHaveCount(1);
+
+  const h2 = page.locator('h2.heading-block span.block-content');
+  await h2.click();
+  await page.keyboard.press('End');
+  // 逐字退格（含零宽空格），间隔避免快速连按丢键
+  for (let i = 0; i < 5; i++) {
+    await page.keyboard.press('Backspace');
+    await page.waitForTimeout(80);
+  }
+  await page.waitForTimeout(300);
+  // 二级标题内容已删光
+  const emptyState = await page.locator('h2.heading-block span.block-content').evaluate((el) => ({
+    text: el.textContent,
+    activeIsH2: document.activeElement === el,
+  }));
+  expect(emptyState.text?.replace(/\u200B/g, '')).toBe('');
+  expect(emptyState.activeIsH2).toBe(true);
+
+  // 第一次退格：空二级标题降级为正文（焦点保持）
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(300);
+  await expect(page.locator('h2.heading-block')).toHaveCount(0);
+  await expect(page.locator('p.paragraph-block')).toHaveCount(1);
+
+  // 第二次退格：合并进一级标题，光标回到第一行
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(300);
+  await expect(page.locator('h1.heading-block')).toHaveCount(1);
+  await expect(page.locator('p.paragraph-block')).toHaveCount(0);
+  const state = await page.locator('.editor-content-area').evaluate((el) => {
+    const active = document.activeElement;
+    const sel = document.getSelection();
+    return {
+      activeInH1: !!active && !!active.closest('h1.heading-block'),
+      selCollapsed: sel ? sel.isCollapsed : null,
+      h1Text: el.querySelector('h1.heading-block span.block-content')?.textContent ?? null,
+    };
+  });
+  expect(state.activeInH1).toBe(true);
+  expect(state.selCollapsed).toBe(true);
+  expect(state.h1Text).toBe('一级标题');
 });
