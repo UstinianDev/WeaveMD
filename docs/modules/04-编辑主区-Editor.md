@@ -107,6 +107,8 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H。
 - v2 Normal 模式暂无查找高亮（替换功能正常；Source 模式由 Monaco 高亮）。
 - 撤销/重做后光标回到重建树首块。
 - 段落级 MD Source 视图（工具栏入口）未迁移。
+- 跨块鼠标拖选受浏览器编辑宿主边界限制（多个独立 contentEditable span 无法拖拽跨选；
+  退格链可用，Ctrl+A 可全选文档）。
 - v1 渲染路径保留为回退（`window.__EDITOR_V2__ === false`），退役清理为独立任务。
 
 ## 9. 验证与测试

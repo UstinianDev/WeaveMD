@@ -69,6 +69,7 @@ marktext/muya），不依赖 Monaco：
 - `src/render/editor/controllers/`：input/enter/backspace/convert/click/list/format
   七类交互控制器（对齐 marktext 行为：`checkNeedRender` 按需重渲染、IME 守卫）
 - 仅叶子块内容区 `contentEditable`（替代 v1 容器级），支持列表/引用嵌套
+- v2 浮动工具栏（marktext 风格）：选区触发；最左块类型下拉（正文/H1-H6）+ 行内格式按钮
 
 v1（容器级 contentEditable）保留为回退路径：`window.__EDITOR_V2__ === false`。
 
