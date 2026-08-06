@@ -33,6 +33,7 @@ src/
 │   │       ├── v2/               # Editor v2 render layer (ACTIVE)
 │   │       │   ├── EditorV2.tsx, EditorScrollContainer.tsx, BlockRenderer.tsx
 │   │       │   └── blocks/       # ContentBlock (only contentEditable), LeafBlock, CodeBlock, ListItemBlock, BlockquoteBlock
+│   │       ├── panels/           # Side panels & tools: OutlinePanel, HistoryPanel, FileTreePanel, Minimap, FindReplaceBar
 │   │       ├── blocks/           # v1 read-only blocks (fallback only)
 │   │       ├── BlockRenderer.tsx, EditorScrollContainer.tsx  # v1 (fallback)
 │   │       ├── EditorView.tsx             # Dual-mode orchestrator (v2 by default, __EDITOR_V2__ false → v1)

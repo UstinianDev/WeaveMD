@@ -6,9 +6,9 @@
 // The implementations are functionally identical.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BlockTree } from '../src/render/services/blockTree';
-import { updateBlockSource } from '../src/render/services/blockTree';
-import { useEditorStore } from '../src/render/stores/editorStore';
+import type { BlockTree } from '../../src/render/services/blockTree';
+import { updateBlockSource } from '../../src/render/services/blockTree';
+import { useEditorStore } from '../../src/render/stores/editorStore';
 
 // ============== INLINED PURE UTILITIES ==============
 

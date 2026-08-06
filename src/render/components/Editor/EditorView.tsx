@@ -39,7 +39,7 @@ import { useUIStore } from '../../stores/uiStore';
 
 import '../../utils/monacoSetup';
 import EditorScrollContainer, { type EditorScrollContainerHandle } from './EditorScrollContainer';
-import FindReplaceBar from './FindReplaceBar';
+import FindReplaceBar from './panels/FindReplaceBar';
 import FloatingToolbarWYSIWYG from './FloatingToolbarWYSIWYG';
 import SourceCodeEditor, { type SourceCodeEditorHandle } from './SourceCodeEditor';
 import EditorV2 from './v2/EditorV2';
