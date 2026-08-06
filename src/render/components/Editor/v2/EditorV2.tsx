@@ -10,8 +10,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { EditorInstance } from '../../../editor/editorInstance';
+import type { EditorActionResult } from '../../../editor/editorInstance';
 import type { BlockTreeV2 } from '../../../editor/kernel';
 import { setCursorAtOffset } from '../../../editor/selection';
+import {
+  inputCtrl,
+  enterCtrl,
+  backspaceCtrl,
+  clickCtrl,
+  listCtrl,
+  formatCtrl,
+  type InlineFormatStyle,
+} from '../../../editor/controllers';
 import EditorScrollContainer, {
   type EditorScrollContainerHandle,
 } from './EditorScrollContainer';
@@ -34,6 +44,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
   if (!instanceRef.current) {
     instanceRef.current = new EditorInstance(content);
   }
+  void onActiveHeadingChange; // M4 接入滚动高亮
   const [tree, setTree] = useState<BlockTreeV2>(() => instanceRef.current!.tree);
   const scrollRef = useRef<EditorScrollContainerHandle>(null);
   const domRegistryRef = useRef<Map<string, HTMLElement>>(new Map());
@@ -65,44 +76,70 @@ const EditorV2: React.FC<EditorV2Props> = ({
     onContentChange(markdown);
   }, [onContentChange]);
 
-  // 统一的块操作入口：执行操作 → 更新树 → 记录焦点 → 同步内容
+  // 统一的块操作入口：执行操作 → 更新树 → 记录焦点 → 同步内容。
+  // 返回是否处理了事件（供 Tab 等决定是否 preventDefault）。
   const applyAction = useCallback(
-    (action: (instance: EditorInstance) => ReturnType<EditorInstance['handleEnter']>) => {
+    (action: (instance: EditorInstance) => EditorActionResult | null): boolean => {
       const instance = instanceRef.current;
-      if (!instance) return;
+      if (!instance) return false;
       const result = action(instance);
-      if (!result) return;
+      if (!result) return false;
       if (result.focus) {
         pendingFocusRef.current = result.focus;
       }
       setTree(instance.tree);
       syncContent();
+      return true;
     },
     [syncContent]
   );
 
   const onInput = useCallback(
-    (blockId: string, text: string) => {
+    (blockId: string, text: string, cursorOffset: number) => {
       const instance = instanceRef.current;
-      if (!instance) return false;
-      const needRender = instance.handleInput(blockId, text);
-      if (needRender) {
+      if (!instance) return { needRender: false };
+      const result = inputCtrl.handleInput(instance, blockId, text, cursorOffset);
+      if (result.needRender) {
         setTree(instance.tree);
       }
       syncContent();
-      return needRender;
+      return result;
     },
     [syncContent]
   );
   const onEnter = useCallback(
       (blockId: string, offset: number) => {
-        applyAction((instance) => instance.handleEnter(blockId, offset));
+        applyAction((instance) => enterCtrl.handleEnter(instance, blockId, offset));
       },
       [applyAction]
     );
   const onBackspaceAtStart = useCallback(
       (blockId: string) => {
-        applyAction((instance) => instance.handleBackspaceAtStart(blockId));
+        applyAction((instance) => backspaceCtrl.handleBackspaceAtStart(instance, blockId));
+      },
+      [applyAction]
+    );
+  const onTab = useCallback(
+      (blockId: string) => {
+        return applyAction((instance) => listCtrl.handleTab(instance, blockId));
+      },
+      [applyAction]
+    );
+  const onShiftTab = useCallback(
+      (blockId: string) => {
+        return applyAction((instance) => listCtrl.handleShiftTab(instance, blockId));
+      },
+      [applyAction]
+    );
+  const onToggleTask = useCallback(
+      (listItemId: string) => {
+        applyAction((instance) => clickCtrl.toggleTaskChecked(instance, listItemId));
+      },
+      [applyAction]
+    );
+  const onFormat = useCallback(
+      (blockId: string, style: InlineFormatStyle, start: number, end: number) => {
+        applyAction((instance) => formatCtrl.formatRange(instance, blockId, style, start, end));
       },
       [applyAction]
     );
@@ -118,10 +155,14 @@ const EditorV2: React.FC<EditorV2Props> = ({
       onInput,
       onEnter,
       onBackspaceAtStart,
+      onTab,
+      onShiftTab,
+      onFormat,
+      onToggleTask,
       registerDom,
       unregisterDom,
     }),
-    [onInput, onEnter, onBackspaceAtStart, registerDom, unregisterDom]
+    [onInput, onEnter, onBackspaceAtStart, onTab, onShiftTab, onFormat, onToggleTask, registerDom, unregisterDom]
   );
 
   // 大纲导航回调（M4 完善行号映射；M2 先注册空实现）

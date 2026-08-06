@@ -281,6 +281,23 @@ function linkAfter(
   if (nextId && tree.blocks[nextId]) tree.blocks[nextId].prevId = nodeId;
 }
 
+/** 从旧父与兄弟链中摘除 node（树已是克隆体，直接就地修改） */
+function detachNode(tree: BlockTreeV2, nodeId: string): void {
+  const node = tree.blocks[nodeId];
+  if (!node) return;
+  if (node.parentId && tree.blocks[node.parentId]) {
+    tree.blocks[node.parentId].childrenIds = tree.blocks[node.parentId].childrenIds.filter(
+      (cid) => cid !== nodeId
+    );
+  }
+  if (node.prevId && tree.blocks[node.prevId]) {
+    tree.blocks[node.prevId].nextId = node.nextId;
+  }
+  if (node.nextId && tree.blocks[node.nextId]) {
+    tree.blocks[node.nextId].prevId = node.prevId;
+  }
+}
+
 /** 把 node 作为 parentId 的子块插入到 refId 之后（refId 必须与 node 同父） */
 export function insertBlockAfter(
   tree: BlockTreeV2,
@@ -295,24 +312,10 @@ export function insertBlockAfter(
   if (!parent) return tree;
 
   const nodeId = node.id;
-  if (next.blocks[nodeId]) {
-    // node 已存在：先从原父移除（保持不可变语义，直接重建其兄弟链）
-    const existing = next.blocks[nodeId];
-    if (existing.parentId) {
-      const oldParent = next.blocks[existing.parentId];
-      if (oldParent) {
-        oldParent.childrenIds = oldParent.childrenIds.filter((cid) => cid !== nodeId);
-      }
-      if (existing.prevId && next.blocks[existing.prevId]) {
-        next.blocks[existing.prevId].nextId = existing.nextId;
-      }
-      if (existing.nextId && next.blocks[existing.nextId]) {
-        next.blocks[existing.nextId].prevId = existing.prevId;
-      }
-    }
-  } else {
+  if (!next.blocks[nodeId]) {
     next.blocks[nodeId] = cloneNode(node);
   }
+  detachNode(next, nodeId);
 
   const inserted = next.blocks[nodeId];
   inserted.parentId = parent.id;
@@ -343,6 +346,7 @@ export function insertBlockBefore(
   if (!next.blocks[nodeId]) {
     next.blocks[nodeId] = cloneNode(node);
   }
+  detachNode(next, nodeId);
   const inserted = next.blocks[nodeId];
   inserted.parentId = parent.id;
   linkAfter(next, null, refId, nodeId);
@@ -366,6 +370,7 @@ export function appendChild(tree: BlockTreeV2, parentId: string, node: BlockNode
   if (!next.blocks[nodeId]) {
     next.blocks[nodeId] = cloneNode(node);
   }
+  detachNode(next, nodeId);
   const inserted = next.blocks[nodeId];
   inserted.parentId = parentId;
   inserted.prevId = null;

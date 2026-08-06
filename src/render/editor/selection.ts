@@ -79,6 +79,7 @@ export function setCursorAtOffset(contentEl: HTMLElement, offset: number): void 
 
 /** 从选区所在 DOM 查找最近的 data-block-id */
 export function getBlockIdFromSelection(root: HTMLElement): string | null {
+  void root;
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || !selection.anchorNode) return null;
   const el =

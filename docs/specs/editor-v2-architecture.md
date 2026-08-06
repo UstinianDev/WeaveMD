@@ -666,3 +666,27 @@ Source → Normal：content → markdownToState → 块树 → 渲染
 
 **M2 验证**：新增测试 12 例（EditorInstance 8 / EditorV2 渲染 4）；
 全量 `vitest run` 272 例通过；`tsc --noEmit` 无错误；`vite build` 成功。
+
+### 13.3 M3 交互控制器完成（2026-08-06）
+
+按第 6 节实施全部控制器，交互行为对齐 marktext：
+
+| 控制器 | 内容 |
+| ------ | ---- |
+| `controllers/inputCtrl.ts` | autoPair（`(` `[` `{` `` ` `` `'` `"` 自动补全、光标居中）、文本更新、前缀即时转换触发 |
+| `controllers/convertCtrl.ts` | 升格（paragraph → heading/list/blockquote/code-block/thematic-break）与降格（六条退出规则） |
+| `controllers/enterCtrl.ts` | 代码块换行、列表续行新列表项、空列表项回车退出、标题右半转段落、引用内拆分 |
+| `controllers/backspaceCtrl.ts` | 光标在内容起点即触发：标题转正文、列表项退出、引用降级、空代码块移除、段落合并前块 |
+| `controllers/clickCtrl.ts` | 任务复选框切换（v1 缺失的"可打勾"交互） |
+| `controllers/listCtrl.ts` | Tab 缩进为前项子列表、Shift+Tab 凸出（嵌套列表空后自动移除） |
+| `controllers/formatCtrl.ts` | 文本层格式化（bold/italic/strike/highlight/code/link），取代 execCommand |
+
+**接入**：`ContentBlock` 键盘事件（Enter/Backspace/Tab/Shift+Tab/Ctrl+B/I/E/Shift+S/Shift+H）
+路由到对应控制器；`EditorV2` 统一执行"操作 → 更新树 → 恢复光标 → 同步内容"。
+
+**实施中修复的内核问题**：`markdownToState` 的 Builder 此前未维护 `prevId/nextId`
+兄弟链，导致跨块查找（Tab 缩进、合并前块）失效——已修复并补链；
+`insertBlockBefore` 增加节点 detach 处理。
+
+**M3 验证**：新增控制器测试 24 例（含六条退出规则矩阵）；
+全量 `vitest run` 291 例通过；`tsc --noEmit` 与 ESLint 无告警；`vite build` 成功。
