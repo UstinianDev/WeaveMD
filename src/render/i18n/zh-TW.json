@@ -88,7 +88,7 @@
   "navbar.deleteFolderFailed": "刪除資料夾失敗",
   "navbar.selectFolderFirst": "請先在左側欄選擇一個資料夾",
   "navbar.confirmDeleteFile": "確定要刪除目前頁面的檔案嗎",
-  "navbar.confirmDeleteFolder": "確定要刪除選取的資料夾嗎"
+  "navbar.confirmDeleteFolder": "確定要刪除選取的資料夾嗎",
   "settings.title": "設定",
   "settings.system": "系統",
   "settings.account": "帳號",
