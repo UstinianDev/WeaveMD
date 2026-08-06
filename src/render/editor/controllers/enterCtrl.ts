@@ -1,0 +1,119 @@
+// ============================================
+// WeaveMD Editor v2 — enterCtrl（回车）
+// ============================================
+// 对齐 marktext enterHandler / enterInListItem / enterInBlockQuote：
+//   code-block → 插入换行（不拆块）
+//   list-item 内容 → 拆分；光标前为空则退出列表；否则续行新列表项
+//   blockquote 内容 → 拆分，新段落留在引用内
+//   heading → 拆分，右半转段落
+//   paragraph → 拆分
+
+import type { EditorInstance } from '../editorInstance';
+import type { EditorActionResult } from '../editorInstance';
+import type { BlockNodeV2 } from '../kernel';
+import {
+  appendChild,
+  insertBlockAfter,
+  makeListItem,
+  makeParagraph,
+  replaceBlock,
+  setBlockText,
+  splitLeaf,
+  renderInline,
+  setInlineHtml,
+} from '../kernel';
+import { convertBlockToParagraph } from './convertCtrl';
+
+export function handleEnter(
+  instance: EditorInstance,
+  blockId: string,
+  offset: number
+): EditorActionResult | null {
+  const block = instance.tree.blocks[blockId];
+  if (!block || block.text === null) return null;
+  const parent = block.parentId ? instance.tree.blocks[block.parentId] : undefined;
+
+  // 代码块：插入换行
+  if (block.type === 'code-block') {
+    const text = block.text ?? '';
+    const newText = `${text.slice(0, offset)}\n${text.slice(offset)}`;
+    let tree = setBlockText(instance.tree, blockId, newText);
+    tree = setInlineHtml(tree, blockId, escapeHtmlText(newText));
+    instance.tree = tree;
+    return { changedBlockIds: [blockId], focus: { blockId, offset: offset + 1 } };
+  }
+
+  // 列表项内容
+  if (parent?.type === 'list-item') {
+    return enterInListItem(instance, block, offset);
+  }
+
+  // 标题：拆分，右半转段落
+  if (block.type === 'heading') {
+    const result = splitLeaf(instance.tree, blockId, offset);
+    let tree = result.tree;
+    const newLeaf = tree.blocks[result.newLeafId];
+    const paragraph = makeParagraph(tree, newLeaf?.text ?? '');
+    tree = replaceBlock(tree, result.newLeafId, paragraph);
+    tree = setInlineHtml(tree, paragraph.id, renderInline(paragraph.text ?? ''));
+    instance.tree = tree;
+    return {
+      changedBlockIds: [blockId, paragraph.id],
+      focus: { blockId: paragraph.id, offset: 0 },
+    };
+  }
+
+  // 引用/段落：通用拆分
+  const result = splitLeaf(instance.tree, blockId, offset);
+  let tree = result.tree;
+  const newLeaf = tree.blocks[result.newLeafId];
+  tree = setInlineHtml(tree, newLeaf.id, renderInline(newLeaf.text ?? ''));
+  instance.tree = tree;
+  return {
+    changedBlockIds: [blockId, newLeaf.id],
+    focus: { blockId: newLeaf.id, offset: 0 },
+  };
+}
+
+function enterInListItem(
+  instance: EditorInstance,
+  content: BlockNodeV2,
+  offset: number
+): EditorActionResult | null {
+  const tree = instance.tree;
+  const item = tree.blocks[content.parentId!];
+  if (!item) return null;
+  const list = item.parentId ? tree.blocks[item.parentId] : undefined;
+  if (!list) return null;
+
+  const beforeText = (content.text ?? '').slice(0, offset);
+  const afterText = (content.text ?? '').slice(offset);
+
+  // 空列表项回车 → 退出列表（SPEC 二/三/四）
+  if (beforeText === '' && afterText === '') {
+    return convertBlockToParagraph(instance, content.id);
+  }
+
+  // 续行：当前项保留 beforeText，新项承载 afterText
+  let next = setBlockText(tree, content.id, beforeText);
+  next = setInlineHtml(next, content.id, renderInline(beforeText));
+  const newItem = makeListItem(next, item.meta?.taskChecked !== undefined ? { taskChecked: false } : undefined);
+  next = insertBlockAfter(next, item.id, newItem);
+  const paragraph = makeParagraph(next, afterText);
+  next = appendChild(next, newItem.id, paragraph);
+  next = setInlineHtml(next, paragraph.id, renderInline(afterText));
+  instance.tree = next;
+  return {
+    changedBlockIds: [content.id, newItem.id],
+    focus: { blockId: paragraph.id, offset: 0 },
+  };
+}
+
+function escapeHtmlText(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}

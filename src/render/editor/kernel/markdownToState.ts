@@ -96,6 +96,14 @@ class Builder {
   /** 把 child 挂到 parent 的末尾（维护 childrenIds） */
   attach(parent: BlockNodeV2, child: BlockNodeV2): void {
     child.parentId = parent.id;
+    const lastId = parent.childrenIds.length
+      ? parent.childrenIds[parent.childrenIds.length - 1]
+      : null;
+    child.prevId = lastId;
+    child.nextId = null;
+    if (lastId && this.blocks[lastId]) {
+      this.blocks[lastId].nextId = child.id;
+    }
     parent.childrenIds.push(child.id);
   }
 

@@ -39,6 +39,14 @@ const ListItemBlock: React.FC<ListItemBlockProps> = ({ block, tree, handlers, in
         }
         contentEditable={false}
         suppressContentEditableWarning
+        onClick={
+          isTask
+            ? (e) => {
+                e.stopPropagation();
+                handlers.onToggleTask(block.id);
+              }
+            : undefined
+        }
       >
         {isTask ? (block.meta?.taskChecked ? '✓' : '') : marker}
       </span>

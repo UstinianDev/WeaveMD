@@ -139,7 +139,7 @@ function serializeListItem(
     if (childIndex === 0) {
       // 主体：首行加前缀，后续行缩进 prefix 宽度
       const first = serialized[0] ?? '';
-      lines.push(prefix + first.trimStart());
+      lines.push(prefix + first);
       for (let li = 1; li < serialized.length; li++) {
         lines.push(' '.repeat(prefix.length) + serialized[li].trimStart());
       }

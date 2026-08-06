@@ -9,6 +9,8 @@ import React, { useCallback, useEffect, useRef } from 'react';
 
 import { escapeHtml } from '../../../../editor/kernel';
 import { getCursorOffsets, setCursorAtOffset } from '../../../../editor/selection';
+import type { InlineFormatStyle } from '../../../../editor/controllers';
+import type { InputEventResult } from '../types';
 
 interface ContentBlockProps {
   blockId: string;
@@ -17,9 +19,12 @@ interface ContentBlockProps {
   placeholder?: string;
   /** raw 模式：不做行内语法渲染（代码块），文本按 pre-wrap 显示 */
   raw?: boolean;
-  onInput: (blockId: string, text: string) => boolean;
+  onInput: (blockId: string, text: string, cursorOffset: number) => InputEventResult;
   onEnter: (blockId: string, offset: number) => void;
   onBackspaceAtStart: (blockId: string) => void;
+  onTab: (blockId: string) => boolean;
+  onShiftTab: (blockId: string) => boolean;
+  onFormat: (blockId: string, style: InlineFormatStyle, start: number, end: number) => void;
   registerDom: (blockId: string, el: HTMLElement) => void;
   unregisterDom: (blockId: string) => void;
 }
@@ -33,6 +38,9 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
   onInput,
   onEnter,
   onBackspaceAtStart,
+  onTab,
+  onShiftTab,
+  onFormat,
   registerDom,
   unregisterDom,
 }) => {
@@ -63,10 +71,10 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
       lastDomTextRef.current = domText;
       const before = getCursorOffsets(el);
       // 更新模型；若行内渲染结果变化，需要 React 重渲染
-      const needRender = onInput(blockId, domText);
-      if (needRender) {
+      const result = onInput(blockId, domText, before.start);
+      if (result.needRender) {
         // 重渲染后由 effect 恢复光标
-        pendingOffsetRef.current = before.start;
+        pendingOffsetRef.current = result.cursorOffset ?? before.start;
       }
     },
     [blockId, onInput]
@@ -89,8 +97,30 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
           onBackspaceAtStart(blockId);
         }
       }
+      if (e.key === 'Tab') {
+        const handled = e.shiftKey ? onShiftTab(blockId) : onTab(blockId);
+        if (handled) {
+          e.preventDefault();
+        }
+      }
+      // 格式化快捷键（Ctrl/Cmd）
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        const el = e.currentTarget;
+        const { start, end } = getCursorOffsets(el);
+        const key = e.key.toLowerCase();
+        let style: InlineFormatStyle | null = null;
+        if (key === 'b') style = 'bold';
+        else if (key === 'i') style = 'italic';
+        else if (key === 'e') style = 'code';
+        else if (key === 's' && e.shiftKey) style = 'strike';
+        else if (key === 'h' && e.shiftKey) style = 'highlight';
+        if (style) {
+          e.preventDefault();
+          onFormat(blockId, style, start, end);
+        }
+      }
     },
-    [blockId, onEnter, onBackspaceAtStart]
+    [blockId, onEnter, onBackspaceAtStart, onTab, onShiftTab, onFormat]
   );
 
   const html = inlineHtml ?? escapeHtml(text);
