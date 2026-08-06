@@ -86,6 +86,21 @@ marktext/muya. v1 (container-level contentEditable, below) remains as fallback
   - Prefix conversion (`# `/`- `/`1. `/`- [ ] `/`> `/` ``` `) converts instantly; Backspace
     at content start demotes (six exit rules, see docs/specs/markdown-block-exit-rules.md).
   - Empty document always has one editable empty paragraph.
+  - **Syntax rendering aligned with marktext** (spec 13.7): heading shows gray `#`×n level
+    hint via `h1~h6.heading-block::before` + `:focus-within` (collapsed when unfocused);
+    list markers are dark gray (`.list-marker` → `--text-sub`); task checkbox is an 18px
+    circle (`border-radius: 50%`, checked = accent bg + white ✓ via `::after`); blockquote
+    is a 3px green bar (`--quote-bar-color: #42d392`, non-italic). All syntax symbols are
+    unselectable (`user-select: none` + `contentEditable={false}` / pseudo-elements).
+    Note: `.editor-content-area [data-block-id]:not(blockquote)` keeps `border:none!important`
+    so only blockquote may show its left bar; code blocks unchanged.
+  - **Rendering pitfalls fixed (spec 13.8)**: do NOT name a v2 component class `list-item`
+    (Tailwind's `list-item` utility forces `display:list-item` and overrides `flex`, adding a
+    native marker dot and stacking marker/content vertically — use `list-item-block`); heading
+    uses `display:flex; align-items:baseline` so the `#` marker stays on the same line as
+    content; heading blocks have a click handler that focuses the content span so empty
+    heading lines (including the marker area) are clickable; the generic empty-block
+    placeholder rule excludes `.heading-block` so it can't override the `#` hint.
 - **Source Code Mode**: Full-screen Monaco (`SourceCodeEditor.tsx`). Toggle via `Ctrl+\`` or View menu.
 - **Find & Replace**: Typora-style inline bar (`FindReplaceBar.tsx`); replace works in v2 via content rebuild.
 

@@ -19,7 +19,7 @@ const BlockquoteBlock: React.FC<BlockquoteBlockProps> = ({ block, tree, handlers
   return (
     <blockquote
       data-block-id={block.id}
-      className="blockquote-block mb-3 pl-4 border-l-4 border-[var(--accent)] text-[var(--text-secondary)] italic text-[14px] leading-[1.65]"
+      className="blockquote-block mb-3 pl-4 text-[var(--text-secondary)] text-[14px] leading-[1.65]"
     >
       {block.childrenIds.map((childId) => (
         <BlockRenderer key={childId} blockId={childId} tree={tree} handlers={handlers} />

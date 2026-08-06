@@ -72,8 +72,8 @@ describe('EditorV2 — 输入链路（真实编辑场景）', () => {
   it('输入列表前缀即时转换为列表', () => {
     const { container } = render(<EditorV2 content="" onContentChange={() => {}} />);
     typeInto(container, '- item');
-    expect(container.querySelector('.list-item')).not.toBeNull();
-    expect(container.querySelector('.list-item')?.textContent).toContain('item');
+    expect(container.querySelector('.list-item-block')).not.toBeNull();
+    expect(container.querySelector('.list-item-block')?.textContent).toContain('item');
   });
 
   it('富文本渲染后继续输入不丢失 markdown 标记', () => {

@@ -132,10 +132,10 @@ test('输入列表前缀即时转换为列表', async ({ page }) => {
   const editable = page.locator('span.block-content[contenteditable="true"]');
   await editable.click();
   await page.keyboard.type('- ', { delay: 30 });
-  await expect(page.locator('.list-item')).toHaveCount(1);
+  await expect(page.locator('.list-item-block')).toHaveCount(1);
   await page.keyboard.type('item', { delay: 30 });
-  await expect(page.locator('.list-item')).toHaveCount(1);
-  await expect(page.locator('.list-item')).toContainText('item');
+  await expect(page.locator('.list-item-block')).toHaveCount(1);
+  await expect(page.locator('.list-item-block')).toContainText('item');
 });
 
 test('中文输入正常（IME 场景）', async ({ page }) => {
@@ -144,4 +144,96 @@ test('中文输入正常（IME 场景）', async ({ page }) => {
   await editable.click();
   await page.keyboard.insertText('你好，世界');
   await expect(editable).toHaveText('你好，世界');
+});
+
+/** 等待编辑器回到空文档（仅剩一个块），供同一测试内多次 openEditor 复用 */
+async function waitEmptyDoc(page: import('@playwright/test').Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const area = document.querySelector('.editor-content-area');
+    return area && area.querySelectorAll(':scope > [data-block-id]').length === 1;
+  });
+}
+
+test('语法符号对齐 marktext：标题级别提示/任务复选框/引用竖线渲染与不可选中', async ({ page }) => {
+  // 1) 标题：data-level + 聚焦显示灰色 # 提示、失焦隐藏
+  await openEditor(page);
+  const h1Editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await h1Editable.click();
+  await page.keyboard.type('# 标题', { delay: 30 });
+  const h1 = page.locator('h1.heading-block');
+  await expect(h1).toHaveCount(1);
+  await expect(h1).toHaveAttribute('data-level', '1');
+  await expect(h1).toContainText('标题');
+  const focusedMarker = await h1.evaluate((el) => {
+    const s = getComputedStyle(el, '::before');
+    return { content: s.content, opacity: s.opacity, color: s.color };
+  });
+  expect(focusedMarker.content).toBe('"#"');
+  expect(focusedMarker.opacity).toBe('1');
+  expect(focusedMarker.color).toBe('rgb(156, 163, 175)');
+  await page.locator('header').click();
+  const blurredMarker = await h1.evaluate((el) => {
+    const s = getComputedStyle(el, '::before');
+    return { opacity: s.opacity, fontSize: s.fontSize };
+  });
+  expect(blurredMarker.opacity).toBe('0');
+  expect(blurredMarker.fontSize).toBe('0px');
+
+  // 2) 任务复选框：勾选态类 + accent 背景 + 不可选中
+  await openEditor(page);
+  await waitEmptyDoc(page);
+  const taskEditable = page.locator('span.block-content[contenteditable="true"]').first();
+  await taskEditable.click();
+  // 一次性插入整串，避免 `- ` 先转为无序列表后不再触发任务列表转换
+  await page.keyboard.insertText('- [x] done');
+  const checkedBox = page.locator('.task-checkbox.task-checkbox--checked');
+  await expect(checkedBox).toHaveCount(1);
+  const boxStyle = await checkedBox.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return {
+      userSelect: s.userSelect,
+      backgroundColor: s.backgroundColor,
+      width: s.width,
+      height: s.height,
+    };
+  });
+  expect(boxStyle.userSelect).toBe('none');
+  expect(boxStyle.backgroundColor).toBe('rgb(124, 58, 237)');
+  expect(boxStyle.width).toBe('18px');
+  expect(boxStyle.height).toBe('18px');
+
+  // 3) 引用：3px 绿色竖线
+  await openEditor(page);
+  await waitEmptyDoc(page);
+  const quoteEditable = page.locator('span.block-content[contenteditable="true"]').first();
+  await quoteEditable.click();
+  await page.keyboard.type('> quote', { delay: 30 });
+  const quote = page.locator('blockquote.blockquote-block');
+  await expect(quote).toHaveCount(1);
+  const quoteStyle = await quote.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return {
+      borderLeftWidth: s.borderLeftWidth,
+      borderLeftStyle: s.borderLeftStyle,
+      borderLeftColor: s.borderLeftColor,
+    };
+  });
+  expect(quoteStyle.borderLeftWidth).toBe('3px');
+  expect(quoteStyle.borderLeftStyle).toBe('solid');
+  expect(quoteStyle.borderLeftColor).toBe('rgb(66, 211, 146)');
+
+  // 4) 无序列表 marker：灰色 + 不可选中
+  await openEditor(page);
+  await waitEmptyDoc(page);
+  const listEditable = page.locator('span.block-content[contenteditable="true"]').first();
+  await listEditable.click();
+  await page.keyboard.type('- item', { delay: 30 });
+  const marker = page.locator('.list-marker');
+  await expect(marker).toHaveCount(1);
+  const markerStyle = await marker.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return { color: s.color, userSelect: s.userSelect };
+  });
+  expect(markerStyle.color).toBe('rgb(107, 114, 128)');
+  expect(markerStyle.userSelect).toBe('none');
 });
