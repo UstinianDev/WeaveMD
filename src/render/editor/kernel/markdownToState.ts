@@ -13,18 +13,28 @@
 
 import type { BlockMetaV2, BlockNodeV2, BlockTreeV2 } from './types';
 import { createDocumentTree } from './blockTree';
-import { ATX_HEADING_RE, THEMATIC_BREAK_RE as THEMATIC_BREAK_CORE, indented } from './markdownSyntax';
+import {
+  ATX_HEADING_RE,
+  FENCE_OPEN_CORE_RE,
+  OL_ITEM_RE as OL_ITEM_CORE,
+  TASK_ITEM_RE as TASK_ITEM_CORE,
+  THEMATIC_BREAK_RE as THEMATIC_BREAK_CORE,
+  UL_ITEM_RE as UL_ITEM_CORE,
+  indented,
+} from './markdownSyntax';
 
 // ============================================
 // 行匹配规则
 // ============================================
 
 const SETEXT_UNDERLINE_RE = /^ {0,3}(=+|-+)[ \t]*$/;
-const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})([^\n]*)$/;
+// 引用解析：允许 `>` 重复与无空格（与转换器的严格 `> ` 版不同，见 markdownSyntax.BQ_CONV_RE）
 const BLOCKQUOTE_RE = /^ {0,3}(?:>[ \t]?)+(.*)$/;
-const UL_ITEM_RE = /^ {0,3}([-*+])([ \t\u00A0]+)(.*)$/;
-const OL_ITEM_RE = /^ {0,3}(\d{1,9})([.)])([ \t\u00A0]+)(.*)$/;
-const TASK_ITEM_RE = /^ {0,3}([-*+])([ \t\u00A0]+)\[([ xX\u00A0])\]([ \t\u00A0]+)(.*)$/;
+// 列表/围栏行级变体：从 markdownSyntax 核心正则派生（统一前缀语法单一来源）
+const FENCE_OPEN_RE = indented(FENCE_OPEN_CORE_RE);
+const UL_ITEM_RE = indented(UL_ITEM_CORE);
+const OL_ITEM_RE = indented(OL_ITEM_CORE);
+const TASK_ITEM_RE = indented(TASK_ITEM_CORE);
 // 分割线行级变体：允许 0-3 空格缩进（从核心正则派生）
 const THEMATIC_BREAK_RE = indented(THEMATIC_BREAK_CORE);
 const TABLE_SEPARATOR_RE = /^ {0,3}\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/;

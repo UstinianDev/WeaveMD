@@ -879,3 +879,24 @@ ESLint（0 error）、`vite build` 均通过。
 （选区触发加粗 / 正文→H2 / 级别切换与转回正文）、`e2e/exit-behavior.spec.ts` 扩充至 9 例
 （新增列表退格链、标题删除链），Playwright Chromium E2E 22/22 通过；`tsc --noEmit`、
 ESLint（0 error，1 个既有 warning）、`vite build` 均通过。
+
+### 13.12 编辑主区技术债清理（2026-08-06）
+
+按代码审查清单（重复/长函数/命名/嵌套/公共逻辑）实施，行为不变（全量门禁通过）：
+
+- **正则单一来源**：六种块前缀正则收进 `kernel/markdownSyntax.ts`（task/ul/ol/bq/fence），
+  `blockTree.detectBlockConversion` 直接复用（捕获组统一为富结构），
+  `markdownToState` 经 `indented()` 派生解析变体；消除三处漂移。
+- **渲染助手**：内核新增 `renderBlock(tree, id, text?)`，统一 11 处
+  `setInlineHtml + renderBlockHtml/renderInline` 模式。
+- **焦点助手**：内核新增 `adjacentLeafFocus(tree, id, prefer)`，供
+  `enterCtrl.moveCaretOutOfEmptyCodeBlock` 与 `backspaceCtrl.removeCodeBlock` 共用。
+- **长函数拆分**：`convertParagraphToBlock` 93→64 行（抽出 `buildList`/`buildBlockquote`/
+  `ensureTrailingParagraph`）；`exitListItem` 90→~70 行（抽出 `liftChildrenBefore`/
+  `createEmptyParagraphAfter`/`exitEmptyListItem`）。
+- **命名**：`exitListItem`/`exitBlockquote` 参数 `content` → `leaf`；
+  `exitEmptyCodeBlock` → `moveCaretOutOfEmptyCodeBlock`。
+- **EditorV2**：抽取 `applyMetaUpdate`（消除 `updateMeta + setTree + syncContent` 重复）。
+
+**验证**：`vitest run` 315 例、Playwright E2E 22/22、`tsc --noEmit`、ESLint（0 error）、
+`vite build` 全部通过。

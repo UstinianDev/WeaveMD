@@ -10,7 +10,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 
 import { EditorInstance } from '../../../editor/editorInstance';
 import type { EditorActionResult } from '../../../editor/editorInstance';
-import type { BlockTreeV2 } from '../../../editor/kernel';
+import type { BlockMetaV2, BlockTreeV2 } from '../../../editor/kernel';
 import { updateMeta } from '../../../editor/kernel';
 import { extractHeadingOutline } from '../../../editor/kernel/outline';
 import { setCursorAtOffset } from '../../../editor/kernel/selection';
@@ -170,6 +170,18 @@ const EditorV2: React.FC<EditorV2Props> = ({
   );
 
   // 浮动工具栏：块类型转换（正文 ↔ H1-H6，仅根级 paragraph/heading）
+  // 块元数据更新助手：updateMeta → setTree → 同步内容（消除重复模式）
+  const applyMetaUpdate = useCallback(
+    (blockId: string, meta: Partial<BlockMetaV2>) => {
+      const instance = instanceRef.current;
+      if (!instance) return;
+      instance.tree = updateMeta(instance.tree, blockId, meta);
+      setTree(instance.tree);
+      syncContent();
+    },
+    [syncContent]
+  );
+
   const onConvertBlock = useCallback(
     (blockId: string, target: BlockTypeOption) => {
       const instance = instanceRef.current;
@@ -184,10 +196,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
       }
       const level = Number(target.slice(1)) as 1 | 2 | 3 | 4 | 5 | 6;
       if (block.type === 'heading') {
-        applyAction((inst) => {
-          inst.tree = updateMeta(inst.tree, blockId, { headingLevel: level });
-          return { changedBlockIds: [blockId], focus: { blockId, offset: 0 } };
-        });
+        applyMetaUpdate(blockId, { headingLevel: level });
       } else if (block.type === 'paragraph') {
         applyAction((inst) =>
           convertCtrl.convertParagraphToBlock(inst, blockId, {
@@ -198,7 +207,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
         );
       }
     },
-    [applyAction]
+    [applyAction, applyMetaUpdate]
   );
   const onUndo = useCallback(() => {
     useEditorStore.getState().undo();
@@ -208,13 +217,9 @@ const EditorV2: React.FC<EditorV2Props> = ({
   }, []);
   const onFenceLanguageChange = useCallback(
     (blockId: string, language: string) => {
-      const instance = instanceRef.current;
-      if (!instance) return;
-      instance.tree = updateMeta(instance.tree, blockId, { fenceLanguage: language });
-      setTree(instance.tree);
-      syncContent();
+      applyMetaUpdate(blockId, { fenceLanguage: language });
     },
-    [syncContent]
+    [applyMetaUpdate]
   );
   const registerDom = useCallback((blockId: string, el: HTMLElement) => {
     domRegistryRef.current.set(blockId, el);

@@ -13,17 +13,15 @@ import type { EditorActionResult } from '../editorInstance';
 import type { BlockNodeV2 } from '../kernel';
 import {
   appendChild,
+  adjacentLeafFocus,
   detectFenceLine,
-  getNextLeaf,
-  getPrevLeaf,
   insertBlockAfter,
   makeListItem,
   makeParagraph,
+  renderBlock,
   replaceBlock,
   setBlockText,
   splitLeaf,
-  renderBlockHtml,
-  setInlineHtml,
 } from '../kernel';
 import { convertBlockToParagraph, convertParagraphToBlock } from './convertCtrl';
 
@@ -39,12 +37,12 @@ export function handleEnter(
   // 代码块：空内容回车 → 退出代码块（保留代码块，光标移到下一块）；否则插入换行
   if (block.type === 'code-block') {
     if ((block.text ?? '') === '') {
-      return exitEmptyCodeBlock(instance, block);
+      return moveCaretOutOfEmptyCodeBlock(instance, block);
     }
     const text = block.text ?? '';
     const newText = `${text.slice(0, offset)}\n${text.slice(offset)}`;
     let tree = setBlockText(instance.tree, blockId, newText);
-    tree = setInlineHtml(tree, blockId, renderBlockHtml({ type: block.type, text: newText }));
+    tree = renderBlock(tree, blockId, newText);
     instance.tree = tree;
     return { changedBlockIds: [blockId], focus: { blockId, offset: offset + 1 } };
   }
@@ -77,7 +75,7 @@ export function handleEnter(
     const newLeaf = tree.blocks[result.newLeafId];
     const paragraph = makeParagraph(tree, newLeaf?.text ?? '');
     tree = replaceBlock(tree, result.newLeafId, paragraph);
-    tree = setInlineHtml(tree, paragraph.id, renderBlockHtml(paragraph));
+    tree = renderBlock(tree, paragraph.id);
     instance.tree = tree;
     return {
       changedBlockIds: [blockId, paragraph.id],
@@ -95,7 +93,7 @@ export function handleEnter(
     const result = splitLeaf(instance.tree, blockId, offset);
     let tree = result.tree;
     const newLeaf = tree.blocks[result.newLeafId];
-    tree = setInlineHtml(tree, newLeaf.id, renderBlockHtml(newLeaf));
+    tree = renderBlock(tree, newLeaf.id);
     instance.tree = tree;
     return {
       changedBlockIds: [blockId, newLeaf.id],
@@ -107,7 +105,7 @@ export function handleEnter(
   const result = splitLeaf(instance.tree, blockId, offset);
   let tree = result.tree;
   const newLeaf = tree.blocks[result.newLeafId];
-  tree = setInlineHtml(tree, newLeaf.id, renderBlockHtml(newLeaf));
+    tree = renderBlock(tree, newLeaf.id);
   instance.tree = tree;
   return {
     changedBlockIds: [blockId, newLeaf.id],
@@ -136,12 +134,12 @@ function enterInListItem(
 
   // 续行：当前项保留 beforeText，新项承载 afterText
   let next = setBlockText(tree, content.id, beforeText);
-  next = setInlineHtml(next, content.id, renderBlockHtml({ type: content.type, text: beforeText }));
+  next = renderBlock(next, content.id, beforeText);
   const newItem = makeListItem(next, item.meta?.taskChecked !== undefined ? { taskChecked: false } : undefined);
   next = insertBlockAfter(next, item.id, newItem);
   const paragraph = makeParagraph(next, afterText);
   next = appendChild(next, newItem.id, paragraph);
-  next = setInlineHtml(next, paragraph.id, renderBlockHtml(paragraph));
+  next = renderBlock(next, paragraph.id);
   instance.tree = next;
   return {
     changedBlockIds: [content.id, newItem.id],
@@ -150,23 +148,11 @@ function enterInListItem(
 }
 
 /** 空代码块回车：保留代码块，光标移到下一个内容块（无后续块则回退到前一块末尾） */
-function exitEmptyCodeBlock(
+function moveCaretOutOfEmptyCodeBlock(
   instance: EditorInstance,
   block: BlockNodeV2
 ): EditorActionResult | null {
-  const nextLeaf = getNextLeaf(instance.tree, block.id);
-  if (nextLeaf) {
-    return {
-      changedBlockIds: [],
-      focus: { blockId: nextLeaf.id, offset: 0 },
-    };
-  }
-  const prevLeaf = getPrevLeaf(instance.tree, block.id);
-  if (prevLeaf) {
-    return {
-      changedBlockIds: [],
-      focus: { blockId: prevLeaf.id, offset: prevLeaf.text?.length ?? 0 },
-    };
-  }
-  return null;
+  const focus = adjacentLeafFocus(instance.tree, block.id, 'next');
+  if (!focus) return null;
+  return { changedBlockIds: [], focus };
 }

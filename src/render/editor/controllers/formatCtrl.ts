@@ -6,7 +6,7 @@
 
 import type { EditorInstance } from '../editorInstance';
 import type { EditorActionResult } from '../editorInstance';
-import { renderInline, setInlineHtml, setBlockText } from '../kernel';
+import { renderBlock, setBlockText } from '../kernel';
 
 export type InlineFormatStyle =
   | 'bold'
@@ -65,7 +65,7 @@ export function formatRange(
   }
 
   let tree = setBlockText(instance.tree, blockId, newText);
-  tree = setInlineHtml(tree, blockId, renderInline(newText));
+  tree = renderBlock(tree, blockId, newText);
   instance.tree = tree;
   return {
     changedBlockIds: [blockId],
