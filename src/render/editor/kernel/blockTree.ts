@@ -557,6 +557,66 @@ export function mergeLeafIntoPrev(tree: BlockTreeV2, leafId: string): BlockTreeV
   return next;
 }
 
+/** 清理空容器（列表项/列表/引用），自底向上移除 */
+export function removeEmptyContainers(tree: BlockTreeV2): BlockTreeV2 {
+  let next = tree;
+  const containers = getAllBlocksInOrder(next).filter((b) =>
+    ['list-item', 'bullet-list', 'ordered-list', 'task-list', 'blockquote'].includes(b.type)
+  );
+  for (const container of [...containers].reverse()) {
+    const current = next.blocks[container.id];
+    if (!current) continue;
+    if (current.childrenIds.length === 0) {
+      next = removeBlock(next, current.id);
+    }
+  }
+  return next;
+}
+
+/**
+ * 删除跨叶子块的选区：保留 start 块前段与 end 块后段，
+ * 中间叶子整块删除并清理空容器；同块选区退化为块内删除。
+ */
+export function deleteLeafRange(
+  tree: BlockTreeV2,
+  startLeafId: string,
+  startOffset: number,
+  endLeafId: string,
+  endOffset: number
+): { tree: BlockTreeV2; focusBlockId: string; focusOffset: number } | null {
+  const start = tree.blocks[startLeafId];
+  const end = tree.blocks[endLeafId];
+  if (!start || !end || start.text === null || end.text === null) return null;
+
+  if (startLeafId === endLeafId) {
+    const text = start.text ?? '';
+    const s = Math.max(0, Math.min(startOffset, text.length));
+    const e = Math.max(s, Math.min(endOffset, text.length));
+    let next = setBlockText(tree, startLeafId, `${text.slice(0, s)}${text.slice(e)}`);
+    next = renderBlock(next, startLeafId);
+    return { tree: next, focusBlockId: startLeafId, focusOffset: s };
+  }
+
+  let next = tree;
+  next = setBlockText(next, startLeafId, (start.text ?? '').slice(0, startOffset));
+  next = renderBlock(next, startLeafId);
+  next = setBlockText(next, endLeafId, (end.text ?? '').slice(endOffset));
+  next = renderBlock(next, endLeafId);
+
+  // 中间叶子整块删除（在未删除的树上收集，再统一移除）
+  const toRemove: string[] = [];
+  let leaf = getNextLeaf(next, startLeafId);
+  while (leaf && leaf.id !== endLeafId) {
+    toRemove.push(leaf.id);
+    leaf = getNextLeaf(next, leaf.id);
+  }
+  for (const id of toRemove) {
+    next = removeBlock(next, id);
+  }
+  next = removeEmptyContainers(next);
+  return { tree: next, focusBlockId: startLeafId, focusOffset: startOffset };
+}
+
 // ============================================
 // 块转换检测（前缀 → 目标类型）
 // ============================================

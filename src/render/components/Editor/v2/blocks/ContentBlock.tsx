@@ -8,7 +8,12 @@
 import React, { useCallback, useLayoutEffect, useRef } from 'react';
 
 import { escapeHtml } from '../../../../editor/kernel';
-import { getCursorOffsets, setCursorAtOffset } from '../../../../editor/kernel/selection';
+import {
+  getCursorOffsets,
+  nearestContentSpan,
+  offsetInBlock,
+  setCursorAtOffset,
+} from '../../../../editor/kernel/selection';
 import type { InlineFormatStyle } from '../../../../editor/controllers';
 import type { InputEventResult } from '../types';
 
@@ -22,6 +27,12 @@ interface ContentBlockProps {
   onInput: (blockId: string, text: string, cursorOffset: number) => InputEventResult;
   onEnter: (blockId: string, offset: number) => void;
   onBackspaceAtStart: (blockId: string) => void;
+  onDeleteRange: (
+    startBlockId: string,
+    startOffset: number,
+    endBlockId: string,
+    endOffset: number
+  ) => void;
   onTab: (blockId: string) => boolean;
   onShiftTab: (blockId: string) => boolean;
   onFormat: (blockId: string, style: InlineFormatStyle, start: number, end: number) => void;
@@ -29,6 +40,30 @@ interface ContentBlockProps {
   onRedo: () => void;
   registerDom: (blockId: string, el: HTMLElement) => void;
   unregisterDom: (blockId: string) => void;
+}
+
+/** 检测跨块文本选区（anchor/focus 位于不同内容块） */
+function getCrossBlockSelection(): {
+  startBlockId: string;
+  startOffset: number;
+  endBlockId: string;
+  endOffset: number;
+} | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+  const range = sel.getRangeAt(0);
+  const startSpan = nearestContentSpan(range.startContainer);
+  const endSpan = nearestContentSpan(range.endContainer);
+  if (!startSpan || !endSpan) return null;
+  const startId = startSpan.getAttribute('data-block-id');
+  const endId = endSpan.getAttribute('data-block-id');
+  if (!startId || !endId || startId === endId) return null;
+  return {
+    startBlockId: startId,
+    startOffset: offsetInBlock(startSpan, range.startContainer, range.startOffset),
+    endBlockId: endId,
+    endOffset: offsetInBlock(endSpan, range.endContainer, range.endOffset),
+  };
 }
 
 const ContentBlock: React.FC<ContentBlockProps> = ({
@@ -40,6 +75,7 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
   onInput,
   onEnter,
   onBackspaceAtStart,
+  onDeleteRange,
   onTab,
   onShiftTab,
   onFormat,
@@ -187,12 +223,21 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLSpanElement>) => {
+      // 跨块选区：Backspace/Delete 走块树级删除（浏览器无法正确同步多块模型）
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        const cross = getCrossBlockSelection();
+        if (cross) {
+          e.preventDefault();
+          onDeleteRange(cross.startBlockId, cross.startOffset, cross.endBlockId, cross.endOffset);
+          return;
+        }
+      }
       handleEnterKey(e);
       handleBackspaceKey(e);
       handleTabKey(e);
       handleFormatShortcut(e);
     },
-    [handleEnterKey, handleBackspaceKey, handleTabKey, handleFormatShortcut]
+    [handleEnterKey, handleBackspaceKey, handleTabKey, handleFormatShortcut, onDeleteRange]
   );
 
   const html = inlineHtml ?? escapeHtml(text);

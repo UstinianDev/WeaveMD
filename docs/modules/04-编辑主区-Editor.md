@@ -107,22 +107,21 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H。
 - v2 Normal 模式暂无查找高亮（替换功能正常；Source 模式由 Monaco 高亮）。
 - 撤销/重做后光标回到重建树首块。
 - 段落级 MD Source 视图（工具栏入口）未迁移。
-- 跨块鼠标拖选受浏览器编辑宿主边界限制（多个独立 contentEditable span 无法拖拽跨选；
-  退格链可用，Ctrl+A 可全选文档）。
-- v1 渲染路径保留为回退（`window.__EDITOR_V2__ === false`），退役清理为独立任务。
+- v1 回退路径已退役（v2 唯一路径，见 spec 13.13）。
 
 ## 9. 验证与测试
 
-- Vitest：内核/控制器/组件 315 例（含往返属性测试、六条退出规则矩阵、输入链路、
+- Vitest：内核/控制器/组件 226 例（含往返属性测试、六条退出规则矩阵、输入链路、
   marktext 语法外观断言、代码块提交/退出、列表与引用退出）。
 - Playwright 真实 Chromium E2E（`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
-  + `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`）22 例：
+  + `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`
+  + `e2e/cross-block-selection.spec.ts`）23 例：
   空文档输入、`# ` 标题转换、`**` 加粗渲染、标记保留、列表转换、中文输入、marktext 语法符号
   渲染与不可选中（标题 marker 聚焦显隐、任务复选框、引用竖线、列表 marker 计算样式断言）、
   标题 marker 并排、空标题行点击聚焦、列表项 marker 与内容并排且任务项无多余圆点、
   列表末尾空项退格退出、代码块语言提交与空代码块回车退出（保留）/退格一键删除、
   代码块后空行 Backspace 受保护（删除代码块后可删）、引用空行回车退出、列表/标题退格链、
-  浮动工具栏（选区加粗、块类型下拉转换）。
+  浮动工具栏（选区加粗、块类型下拉转换）、跨块鼠标拖选删除。
 - 运行：`npm run test` / `npx playwright test`。
 
 ## 10. v1 基线（回退路径，历史实现）

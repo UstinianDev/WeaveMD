@@ -4,13 +4,6 @@
 
 import { create } from 'zustand';
 import type { LanguageType, PageWidth, ThemeType } from '../../shared/types';
-import {
-  initialMarkdownBlockState,
-  transitionMarkdownBlockState,
-  type BlockInfo,
-  type MarkdownBlockState,
-  type MarkdownBlockStateEvent,
-} from '../services/markdownBlockDetector';
 
 interface UIStore {
   theme: ThemeType;
@@ -27,7 +20,6 @@ interface UIStore {
   isHistoryPanelOpen: boolean;
   isSourceCodeMode: boolean;
   isFindReplaceOpen: boolean;
-  markdownBlockState: MarkdownBlockState;
   editorDraftFlusher: (() => void | Promise<void>) | null;
   beforeToggleSourceMode: (() => void) | null;
 
@@ -47,14 +39,6 @@ interface UIStore {
   toggleSourceCodeMode: () => void;
   toggleFindReplace: () => void;
   setBeforeToggleSourceMode: (callback: (() => void) | null) => void;
-  setMarkdownBlockState: (state: MarkdownBlockState) => void;
-  setMdSourceBlockId: (blockId: string | null) => void;
-  clearMdSourceBlockId: () => void;
-  transitionMarkdownBlockState: (
-    blocks: BlockInfo[],
-    event: MarkdownBlockStateEvent
-  ) => MarkdownBlockState;
-  resetMarkdownBlockState: () => void;
   setEditorDraftFlusher: (flusher: (() => void | Promise<void>) | null) => void;
   flushEditorDraft: () => Promise<void>;
   persistSettings: () => void;
@@ -76,7 +60,6 @@ export const useUIStore = create<UIStore>((set, get) => ({
   isHistoryPanelOpen: false,
   isSourceCodeMode: false,
   isFindReplaceOpen: false,
-  markdownBlockState: initialMarkdownBlockState,
   editorDraftFlusher: null,
   beforeToggleSourceMode: null,
 
@@ -155,32 +138,6 @@ export const useUIStore = create<UIStore>((set, get) => ({
   setBeforeToggleSourceMode: (callback) => set({ beforeToggleSourceMode: callback }),
 
   toggleFindReplace: () => set((s) => ({ isFindReplaceOpen: !s.isFindReplaceOpen })),
-
-  setMarkdownBlockState: (markdownBlockState) => set({ markdownBlockState }),
-
-  setMdSourceBlockId: (blockId) =>
-    set((state) => ({
-      markdownBlockState: {
-        ...state.markdownBlockState,
-        mdSourceBlockId: blockId,
-      },
-    })),
-
-  clearMdSourceBlockId: () =>
-    set((state) => ({
-      markdownBlockState: {
-        ...state.markdownBlockState,
-        mdSourceBlockId: null,
-      },
-    })),
-
-  transitionMarkdownBlockState: (blocks, event) => {
-    const nextState = transitionMarkdownBlockState(blocks, get().markdownBlockState, event);
-    set({ markdownBlockState: nextState });
-    return nextState;
-  },
-
-  resetMarkdownBlockState: () => set({ markdownBlockState: initialMarkdownBlockState }),
 
   setEditorDraftFlusher: (editorDraftFlusher) => set({ editorDraftFlusher }),
 

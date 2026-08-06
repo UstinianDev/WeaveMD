@@ -900,3 +900,26 @@ ESLint（0 error，1 个既有 warning）、`vite build` 均通过。
 
 **验证**：`vitest run` 315 例、Playwright E2E 22/22、`tsc --noEmit`、ESLint（0 error）、
 `vite build` 全部通过。
+
+### 13.13 v1 回退退役与跨块鼠标拖选（2026-08-06）
+
+**v1 回退退役**：v2 成为唯一路径，删除 `__EDITOR_V2__` 开关及相关代码：
+- 删除 v1 渲染组件（EditorScrollContainer 558 行、FloatingToolbarWYSIWYG 578 行、
+  FloatingToolbar 426 行、blocks/、BlockRenderer、Minimap 死代码）与 v1 服务
+  （blockTree/blockTreeBuilder/blockTreeSerializer/lineMarkdown/markdownBlockDetector）
+  及对应测试；uiStore 移除 v1 块状态机。
+- EditorView 由 1920 行重写为薄编排器（约 250 行）：保留 Monaco 主题、Source 模式、
+  快捷键、查找替换、大纲导航；Normal 模式导航由 EditorV2 自行注册。
+
+**跨块鼠标拖选**：
+- 拖选：mousedown 记录锚点（caretRangeFromPoint），跨入不同 `.block-content` span 时用
+  Range API 扩展选区，mouseup 延迟重放（浏览器原生拖选被编辑宿主边界截断并覆盖）。
+- 删除：Backspace/Delete 检测跨块选区（`getCrossBlockSelection`）→ 内核
+  `deleteLeafRange`（保留前后块区间文本、整块删除中间叶子、清理空容器）。
+- 修复按需渲染下的 DOM 陈旧问题：React 状态可能陈旧 + memo 跳过重渲染时，
+  `dangerouslySetInnerHTML` 虚拟去重会漏更新，删除后按模型强制同步受影响块 DOM。
+
+**验证**：`vitest run` 226 例（新增 deleteLeafRange 4 例）、新增
+`e2e/cross-block-selection.spec.ts`（拖选跨块 + Backspace 删除）、
+Playwright Chromium E2E 23/23；`tsc --noEmit`、ESLint（0 error，0 warning）、
+`vite build` 全部通过。

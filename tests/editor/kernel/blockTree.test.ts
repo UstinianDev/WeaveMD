@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   appendChild,
   createDocumentTree,
+  deleteLeafRange,
   detectBlockConversion,
   getAllBlocksInOrder,
   getNextLeaf,
@@ -16,6 +17,7 @@ import {
   setBlockText,
   splitLeaf,
 } from '../../../src/render/editor/kernel/blockTree';
+import { markdownToState } from '../../../src/render/editor/kernel/markdownToState';
 
 describe('blockTree — 基础结构', () => {
   it('createDocumentTree 只有根容器', () => {
@@ -180,5 +182,52 @@ describe('blockTree — detectBlockConversion', () => {
   it('支持非断行空格分隔符（中文输入法）', () => {
     expect(detectBlockConversion('#\u00A0标题')?.type).toBe('heading');
     expect(detectBlockConversion('-\u00A0item')?.type).toBe('bullet-list');
+  });
+});
+
+describe('blockTree — deleteLeafRange（跨块选区删除）', () => {
+  it('同块内删除区间文本', () => {
+    const tree = markdownToState('hello world');
+    const leaf = Object.values(tree.blocks).find((b) => b.text !== null)!;
+    const result = deleteLeafRange(tree, leaf.id, 0, leaf.id, 5);
+    expect(result).not.toBeNull();
+    expect(result!.tree.blocks[leaf.id]?.text).toBe(' world');
+  });
+
+  it('跨块删除：保留前块前段与后块后段', () => {
+    const tree = markdownToState('第一段\n\n第二段');
+    const leaves = Object.values(tree.blocks).filter((b) => b.text !== null);
+    const [a, b] = leaves;
+    const result = deleteLeafRange(tree, a.id, 1, b.id, 2);
+    expect(result).not.toBeNull();
+    expect(result!.tree.blocks[a.id]?.text).toBe('第');
+    expect(result!.tree.blocks[b.id]?.text).toBe('段');
+    expect(result!.focusBlockId).toBe(a.id);
+  });
+
+  it('跨块删除整行：startOffset 0 / endOffset 末尾', () => {
+    const tree = markdownToState('第一行\n\n第二行');
+    const leaves = Object.values(tree.blocks).filter((b) => b.text !== null);
+    const [a, b] = leaves;
+    const result = deleteLeafRange(tree, a.id, 0, b.id, 3);
+    expect(result).not.toBeNull();
+    expect(result!.tree.blocks[a.id]?.text).toBe('');
+    expect(result!.tree.blocks[b.id]?.text).toBe('');
+  });
+
+  it('跨块删除：中间叶子与空容器一并移除', () => {
+    const tree = markdownToState('甲\n\n- 乙\n\n丙');
+    const first = Object.values(tree.blocks).find((b) => b.type === 'paragraph' && b.text === '甲')!;
+    const last = Object.values(tree.blocks).find((b) => b.type === 'paragraph' && b.text === '丙')!;
+    const result = deleteLeafRange(tree, first.id, 1, last.id, 0);
+    expect(result).not.toBeNull();
+    expect(result!.tree.blocks[first.id]?.text).toBe('甲');
+    expect(result!.tree.blocks[last.id]?.text).toBe('丙');
+    // 中间的列表容器被整体清理
+    expect(
+      Object.values(result!.tree.blocks).some(
+        (b) => b.type === 'bullet-list' || b.type === 'list-item'
+      )
+    ).toBe(false);
   });
 });

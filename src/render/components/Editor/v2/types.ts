@@ -11,6 +11,13 @@ export interface BlockHandlers {
   onInput: (blockId: string, text: string, cursorOffset: number) => InputEventResult;
   onEnter: (blockId: string, offset: number) => void;
   onBackspaceAtStart: (blockId: string) => void;
+  /** 跨块选区删除（Backspace/Delete） */
+  onDeleteRange: (
+    startBlockId: string,
+    startOffset: number,
+    endBlockId: string,
+    endOffset: number
+  ) => void;
   onTab: (blockId: string) => boolean;
   onShiftTab: (blockId: string) => boolean;
   onFormat: (blockId: string, style: InlineFormatStyle, start: number, end: number) => void;
