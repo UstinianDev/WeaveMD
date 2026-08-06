@@ -5,7 +5,7 @@
 // 受控渲染策略：输入中的文本变化不触发 React 重渲染（DOM 已由浏览器修改），
 // 仅当行内渲染结果变化（inlineHtml 缓存更新）时才重渲染并恢复光标。
 
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useLayoutEffect, useRef } from 'react';
 
 import { escapeHtml } from '../../../../editor/kernel';
 import { getCursorOffsets, setCursorAtOffset } from '../../../../editor/selection';
@@ -50,31 +50,34 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
 }) => {
   const ref = useRef<HTMLSpanElement>(null);
   const lastDomTextRef = useRef<string | null>(null);
+  const composingRef = useRef(false);
 
-  useEffect(() => {
+  // 同步注册 DOM：EditorV2 的 useLayoutEffect（子先于父）在渲染后立即查询注册表
+  useLayoutEffect(() => {
     if (ref.current) {
       registerDom(blockId, ref.current);
     }
     return () => unregisterDom(blockId);
   }, [blockId, registerDom, unregisterDom]);
 
-  // 外部重渲染（inlineHtml 变化）后恢复光标
+  // 外部重渲染（inlineHtml 变化）后恢复光标。
+  // 用 useLayoutEffect：在浏览器 paint 前同步恢复 focus/selection，
+  // 避免用户（或自动化输入）在渲染后立即按键时丢失目标。
   const pendingOffsetRef = useRef<number | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (pendingOffsetRef.current !== null && ref.current) {
       setCursorAtOffset(ref.current, pendingOffsetRef.current);
       pendingOffsetRef.current = null;
     }
   });
 
-  const handleInput = useCallback(
-    (e: React.FormEvent<HTMLSpanElement>) => {
-      const el = e.currentTarget;
+  const processInput = useCallback(
+    (el: HTMLSpanElement) => {
       const domText = el.textContent ?? '';
       if (lastDomTextRef.current === domText) return;
       lastDomTextRef.current = domText;
       const before = getCursorOffsets(el);
-      // 更新模型；若行内渲染结果变化，需要 React 重渲染
+      // 更新模型；仅当行内渲染结果变化时才需要 React 重渲染
       const result = onInput(blockId, domText, before.start);
       if (result.needRender) {
         // 重渲染后由 effect 恢复光标
@@ -82,6 +85,28 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
       }
     },
     [blockId, onInput]
+  );
+
+  const handleInput = useCallback(
+    (e: React.FormEvent<HTMLSpanElement>) => {
+      // IME 组合期间跳过：compositionend 后统一处理，避免打断中文输入
+      if (composingRef.current) return;
+      processInput(e.currentTarget);
+    },
+    [processInput]
+  );
+
+  const handleCompositionStart = useCallback(() => {
+    composingRef.current = true;
+  }, []);
+
+  const handleCompositionEnd = useCallback(
+    (e: React.CompositionEvent<HTMLSpanElement>) => {
+      composingRef.current = false;
+      // compositionend 后浏览器可能不再触发 input，手动同步一次
+      processInput(e.currentTarget);
+    },
+    [processInput]
   );
 
   const handleKeyDown = useCallback(
@@ -157,6 +182,8 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
       suppressContentEditableWarning
       spellCheck={false}
       onInput={handleInput}
+      onCompositionStart={handleCompositionStart}
+      onCompositionEnd={handleCompositionEnd}
       onKeyDown={handleKeyDown}
       dangerouslySetInnerHTML={{ __html: displayHtml }}
     />

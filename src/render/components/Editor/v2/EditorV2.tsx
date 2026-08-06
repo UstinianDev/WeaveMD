@@ -6,7 +6,7 @@
 // - 事件路由：输入/回车/退格/格式化 → 控制器 → setTree
 // - 撤销/重做（editorStore content 快照栈）、大纲导航与滚动高亮、链接打开、代码块语言
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { EditorInstance } from '../../../editor/editorInstance';
 import type { EditorActionResult } from '../../../editor/editorInstance';
@@ -64,8 +64,8 @@ const EditorV2: React.FC<EditorV2Props> = ({
     setTree(instanceRef.current!.tree);
   }, [content]);
 
-  // 树变化后恢复光标
-  useEffect(() => {
+  // 树变化后恢复光标（useLayoutEffect：paint 前同步，供 ContentBlock 立即使用）
+  useLayoutEffect(() => {
     const pending = pendingFocusRef.current;
     if (!pending) return;
     pendingFocusRef.current = null;
@@ -105,6 +105,13 @@ const EditorV2: React.FC<EditorV2Props> = ({
       if (!instance) return { needRender: false };
       const result = inputCtrl.handleInput(instance, blockId, text, cursorOffset);
       if (result.needRender) {
+        // 块转换后原块 id 失效且组件重挂载：焦点恢复必须走 EditorV2 层
+        if (result.converted && result.focusBlockId) {
+          pendingFocusRef.current = {
+            blockId: result.focusBlockId,
+            offset: result.cursorOffset ?? 0,
+          };
+        }
         setTree(instance.tree);
       }
       syncContent();

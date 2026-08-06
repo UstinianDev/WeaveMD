@@ -1824,6 +1824,24 @@ html.dark .code-fence-content .token.variable {
   pointer-events: none;
 }
 
+/* v2 行内语法标记（marktext .mu-syntax 等价物）：灰显、不可选，保留在 DOM 中
+   保证 textContent 与源文本一致（编辑/序列化不丢标记） */
+.md-syntax {
+  color: var(--text-muted, #888888);
+  opacity: 0.55;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* v2 内容块：占满块宽（空块仅含零宽空格时宽度为 0，点击/聚焦困难） */
+.block-content {
+  display: inline-block;
+  width: 100%;
+  min-height: 1.2em;
+  outline: none;
+  cursor: text;
+}
+
 /* ============================================ */
 /* WYSIWYG Inline Formatting Styles (Task 2)   */
 /* ============================================ */

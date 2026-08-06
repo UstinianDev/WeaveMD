@@ -54,7 +54,8 @@ function renderFragment(text: string): string {
 
     // 反斜杠转义
     if (ch === '\\' && i + 1 < text.length && ESCAPABLE_CHARS.has(text[i + 1])) {
-      result += escapeHtml(text[i + 1]);
+      // 转义字符保留在 DOM 中（灰色语法），保证 textContent 与源文本一致
+      result += `<span class="md-syntax">${escapeHtml('\\' + text[i + 1])}</span>`;
       i += 2;
       continue;
     }
@@ -67,7 +68,7 @@ function renderFragment(text: string): string {
       const end = text.indexOf(close, i + run);
       if (end !== -1) {
         const code = text.slice(i + run, end);
-        result += `<code class="inline-code">${escapeHtml(code)}</code>`;
+        result += `<code class="inline-code"><span class="md-syntax">${escapeHtml(close)}</span>${escapeHtml(code)}<span class="md-syntax">${escapeHtml(close)}</span></code>`;
         i = end + run;
         continue;
       }
@@ -108,7 +109,7 @@ function renderFragment(text: string): string {
     if (ch === '~' && text[i + 1] === '~') {
       const end = text.indexOf('~~', i + 2);
       if (end !== -1) {
-        result += `<del>${renderFragment(text.slice(i + 2, end))}</del>`;
+        result += `<del><span class="md-syntax">~~</span>${renderFragment(text.slice(i + 2, end))}<span class="md-syntax">~~</span></del>`;
         i = end + 2;
         continue;
       }
@@ -118,7 +119,7 @@ function renderFragment(text: string): string {
     if (ch === '=' && text[i + 1] === '=') {
       const end = text.indexOf('==', i + 2);
       if (end !== -1) {
-        result += `<mark>${renderFragment(text.slice(i + 2, end))}</mark>`;
+        result += `<mark><span class="md-syntax">==</span>${renderFragment(text.slice(i + 2, end))}<span class="md-syntax">==</span></mark>`;
         i = end + 2;
         continue;
       }
@@ -137,9 +138,9 @@ function renderFragment(text: string): string {
         // 简单非空 + 无空白包围检查
         if (inner.length > 0) {
           if (double) {
-            result += `<strong>${renderFragment(inner)}</strong>`;
+            result += `<strong><span class="md-syntax">${escapeHtml(marker)}</span>${renderFragment(inner)}<span class="md-syntax">${escapeHtml(marker)}</span></strong>`;
           } else {
-            result += `<em>${renderFragment(inner)}</em>`;
+            result += `<em><span class="md-syntax">${escapeHtml(marker)}</span>${renderFragment(inner)}<span class="md-syntax">${escapeHtml(marker)}</span></em>`;
           }
           i = end + marker.length;
           continue;
@@ -197,7 +198,7 @@ function renderImageLink(
     );
   } else {
     push(
-      `<a class="inline-link" href="${escapeHtml(safe)}" target="_blank" rel="noopener noreferrer"${titleAttr}>${renderFragment(label)}</a>`
+      `<a class="inline-link" href="${escapeHtml(safe)}" target="_blank" rel="noopener noreferrer"${titleAttr}><span class="md-syntax">[</span>${renderFragment(label)}<span class="md-syntax">](${escapeHtml(safe)})</span></a>`
     );
   }
   return parenEnd - start + 1;

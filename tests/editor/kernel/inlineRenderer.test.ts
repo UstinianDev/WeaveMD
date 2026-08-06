@@ -27,32 +27,44 @@ describe('inlineRenderer — 基础转义与安全', () => {
 
 describe('inlineRenderer — 行内语法', () => {
   it('加粗与斜体', () => {
-    expect(renderInline('**bold**')).toBe('<strong>bold</strong>');
-    expect(renderInline('*italic*')).toBe('<em>italic</em>');
-    expect(renderInline('__bold__')).toBe('<strong>bold</strong>');
-    expect(renderInline('_italic_')).toBe('<em>italic</em>');
+    expect(renderInline('**bold**')).toBe(
+      '<strong><span class="md-syntax">**</span>bold<span class="md-syntax">**</span></strong>'
+    );
+    expect(renderInline('*italic*')).toBe(
+      '<em><span class="md-syntax">*</span>italic<span class="md-syntax">*</span></em>'
+    );
+    expect(renderInline('__bold__')).toBe(
+      '<strong><span class="md-syntax">__</span>bold<span class="md-syntax">__</span></strong>'
+    );
+    expect(renderInline('_italic_')).toBe(
+      '<em><span class="md-syntax">_</span>italic<span class="md-syntax">_</span></em>'
+    );
   });
 
   it('嵌套强调', () => {
     expect(renderInline('**bold *nested* end**')).toBe(
-      '<strong>bold <em>nested</em> end</strong>'
+      '<strong><span class="md-syntax">**</span>bold <em><span class="md-syntax">*</span>nested<span class="md-syntax">*</span></em> end<span class="md-syntax">**</span></strong>'
     );
   });
 
   it('删除线与高亮', () => {
-    expect(renderInline('~~gone~~')).toBe('<del>gone</del>');
-    expect(renderInline('==mark==')).toBe('<mark>mark</mark>');
+    expect(renderInline('~~gone~~')).toBe(
+      '<del><span class="md-syntax">~~</span>gone<span class="md-syntax">~~</span></del>'
+    );
+    expect(renderInline('==mark==')).toBe(
+      '<mark><span class="md-syntax">==</span>mark<span class="md-syntax">==</span></mark>'
+    );
   });
 
   it('行内代码不解析内部语法', () => {
     expect(renderInline('`**not bold**`')).toBe(
-      '<code class="inline-code">**not bold**</code>'
+      '<code class="inline-code"><span class="md-syntax">`</span>**not bold**<span class="md-syntax">`</span></code>'
     );
   });
 
   it('链接与图片', () => {
     expect(renderInline('[text](https://example.com)')).toBe(
-      '<a class="inline-link" href="https://example.com" target="_blank" rel="noopener noreferrer">text</a>'
+      '<a class="inline-link" href="https://example.com" target="_blank" rel="noopener noreferrer"><span class="md-syntax">[</span>text<span class="md-syntax">](https://example.com)</span></a>'
     );
     expect(renderInline('![alt](https://example.com/a.png)')).toBe(
       '<img class="inline-image" src="https://example.com/a.png" alt="alt">'
@@ -74,7 +86,9 @@ describe('inlineRenderer — 行内语法', () => {
   });
 
   it('反斜杠转义', () => {
-    expect(renderInline('\\*literal\\*')).toBe('*literal*');
+    expect(renderInline('\\*literal\\*')).toBe(
+      '<span class="md-syntax">\\*</span>literal<span class="md-syntax">\\*</span>'
+    );
   });
 
   it('下划线在单词内不作为强调（路径场景）', () => {
@@ -83,5 +97,12 @@ describe('inlineRenderer — 行内语法', () => {
 
   it('普通文本原样', () => {
     expect(renderInline('hello world 中文 测试')).toBe('hello world 中文 测试');
+  });
+
+  it('渲染结果 textContent 与源文本一致（输入不丢标记）', () => {
+    const html = renderInline('**bold** and `code` and [link](https://x.com)');
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    expect(container.textContent).toBe('**bold** and `code` and [link](https://x.com)');
   });
 });
