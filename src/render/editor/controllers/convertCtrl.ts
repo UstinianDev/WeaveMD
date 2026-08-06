@@ -279,6 +279,18 @@ function exitBlockquote(
     return { changedBlockIds: [quote.id], focus: { blockId: quote.id, offset: 0 } };
   }
 
+  // 末尾空行退格 → 退出引用：空段落移到引用之后（对齐列表末尾空项行为，光标在引用下方）
+  const isLastContent =
+    quote.childrenIds[quote.childrenIds.length - 1] === content.id;
+  if (isLastContent && (content.text ?? '') === '') {
+    const p = makeParagraph(tree, '');
+    tree = insertBlockAfter(tree, quote.id, p);
+    tree = renderFor(p, tree);
+    tree = removeBlock(tree, content.id);
+    instance.tree = tree;
+    return { changedBlockIds: [quote.id], focus: { blockId: p.id, offset: 0 } };
+  }
+
   // 内容移到引用前（作为独立段落）
   const paragraph = makeParagraph(tree, content.text ?? '');
   tree = insertBlockBefore(tree, quote.id, paragraph);

@@ -133,10 +133,42 @@ test('空代码块回车 → 退出代码块并可在下方继续输入', async 
 
   await page.keyboard.press('Enter');
   await page.waitForTimeout(200);
-  // 空代码块被撤销，光标落在下方段落
-  await expect(page.locator('.code-fence-block')).toHaveCount(0);
+  // 代码块保留，光标落在下方段落
+  await expect(page.locator('.code-fence-block')).toHaveCount(1);
   await page.keyboard.type('hello', { delay: 20 });
-  await expect(page.locator('p.paragraph-block')).toContainText('hello');
+  const state = await page.locator('.editor-content-area').evaluate((el) => {
+    const active = document.activeElement;
+    return {
+      activeInCode: !!active && !!active.closest('.code-fence-block'),
+      helloInParagraph: Array.from(el.querySelectorAll('p.paragraph-block')).some(
+        (p) => (p.textContent ?? '').includes('hello')
+      ),
+    };
+  });
+  expect(state.activeInCode).toBe(false);
+  expect(state.helloInParagraph).toBe(true);
+});
+
+test('空代码块退格 → 保留代码块并聚焦下方段落', async ({ page }) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('```java ', { delay: 20 });
+  await page.waitForTimeout(300);
+  await expect(page.locator('.code-fence-block')).toHaveCount(1);
+
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(200);
+  await expect(page.locator('.code-fence-block')).toHaveCount(1);
+  const state = await page.locator('.editor-content-area').evaluate((el) => {
+    const active = document.activeElement;
+    return {
+      activeInCode: !!active && !!active.closest('.code-fence-block'),
+      activeTag: active ? active.tagName : null,
+    };
+  });
+  expect(state.activeInCode).toBe(false);
+  expect(state.activeTag).toBe('SPAN');
 });
 
 test('```java + 回车 → 提交为代码块（语言 java）', async ({ page }) => {
@@ -148,4 +180,30 @@ test('```java + 回车 → 提交为代码块（语言 java）', async ({ page }
   await page.waitForTimeout(300);
   await expect(page.locator('.code-fence-block')).toHaveCount(1);
   await expect(page.locator('.code-fence-language-select')).toHaveValue('java');
+});
+
+test('引用空行回车 → 退出引用并可在下方继续输入', async ({ page }) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('> 引用', { delay: 20 });
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(200);
+  // 第二次回车（空引用行）→ 退出引用
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(200);
+  await page.keyboard.type('正文', { delay: 20 });
+  const state = await page.locator('.editor-content-area').evaluate((el) => {
+    const active = document.activeElement;
+    return {
+      activeInQuote: !!active && !!active.closest('.blockquote-block'),
+      quoteCount: el.querySelectorAll('blockquote.blockquote-block').length,
+      paragraphs: Array.from(el.querySelectorAll('p.paragraph-block')).map(
+        (p) => p.textContent
+      ),
+    };
+  });
+  expect(state.activeInQuote).toBe(false);
+  expect(state.quoteCount).toBe(1);
+  expect(state.paragraphs.some((t) => (t ?? '').includes('正文'))).toBe(true);
 });

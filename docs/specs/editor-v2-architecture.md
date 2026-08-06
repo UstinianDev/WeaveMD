@@ -833,3 +833,20 @@ Playwright + 真实 Chromium E2E（`e2e/editor.spec.ts`，renderer-only vite 配
 空代码块回车退出、末尾空列表项退出列表），`vitest run` 309 例通过；新增
 `e2e/exit-behavior.spec.ts` 4 例（列表退出 / ```java 空格提交 / 空代码块回车退出 / ```java 回车提交），
 Playwright Chromium E2E 14/14 通过；`tsc --noEmit`、ESLint（0 error）、`vite build` 均通过。
+
+### 13.10 引用退出补齐与代码块退格语义修订（2026-08-06）
+
+用户反馈：引用存在与列表相同的问题（无法从空行退出）；代码块后的空行 Backspace 删不掉，
+且空代码块 Backspace 会误删整个代码块。真实 Chromium 复现定位并修复：
+
+| # | 问题 | 根因 | 修复 |
+| - | ---- | ---- | ---- |
+| 1 | 引用空行无法退出（与列表同源） | `enterCtrl` 缺少 blockquote 分支，空引用行回车走通用拆分，新空行仍在引用内 | `enterCtrl` 新增引用分支：空行回车 → 退出引用（`convertBlockToParagraph`）；非空回车保持引用内拆分。`exitBlockquote` 对末尾空行改为把空段落移到**引用之后**（对齐列表末尾空项行为） |
+| 2a | 空代码块 Backspace 误删整个代码块 | `removeCodeBlock` 直接删除代码块 | 空代码块 Backspace/Enter 统一改为**保留代码块**、光标移到下一内容块（无后续块则前一块末尾）；`mergeParagraph` 增加保护：前块为代码块时禁止文本合并（空段落直接移除，非空段落不处理） |
+| 2b | 代码块后空段落 Backspace 删不掉/行为异常 | 空代码块退出后剩余空段落无前块可合并（Backspace 无操作）；或合并把光标带进代码块 | 空代码块退出不再删除代码块，代码块后空段落始终可通过 Backspace 删除（空段落移除、光标回代码块） |
+| 2c | 树未变化时焦点恢复失效 | `applyAction` 中 `setTree` 传入同一引用 → React 跳过重渲染 → `useLayoutEffect` 焦点恢复不执行 | `applyAction` 检测 `instance.tree === prevTree` 时立即恢复焦点（`setCursorAtOffset`） |
+
+**验证**：新增控制器测试 3 例（空代码块退格保留、引用空行回车退出、引用末尾空行退格移到
+引用后），`vitest run` 312 例通过；`e2e/exit-behavior.spec.ts` 扩充至 6 例（新增空代码块
+退格保留、引用空行回车退出），Playwright Chromium E2E 16/16 通过；`tsc --noEmit`、
+ESLint（0 error）、`vite build` 均通过。

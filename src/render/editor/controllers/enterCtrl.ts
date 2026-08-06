@@ -15,10 +15,10 @@ import {
   appendChild,
   detectFenceLine,
   getNextLeaf,
+  getPrevLeaf,
   insertBlockAfter,
   makeListItem,
   makeParagraph,
-  removeBlock,
   replaceBlock,
   setBlockText,
   splitLeaf,
@@ -36,7 +36,7 @@ export function handleEnter(
   if (!block || block.text === null) return null;
   const parent = block.parentId ? instance.tree.blocks[block.parentId] : undefined;
 
-  // 代码块：空内容回车 → 退出代码块（撤销围栏，光标移到下一块）；否则插入换行
+  // 代码块：空内容回车 → 退出代码块（保留代码块，光标移到下一块）；否则插入换行
   if (block.type === 'code-block') {
     if ((block.text ?? '') === '') {
       return exitEmptyCodeBlock(instance, block);
@@ -82,6 +82,24 @@ export function handleEnter(
     return {
       changedBlockIds: [blockId, paragraph.id],
       focus: { blockId: paragraph.id, offset: 0 },
+    };
+  }
+
+  // 引用内容：空行回车 → 退出引用（对齐列表空项回车行为）；否则在引用内拆分
+  if (parent?.type === 'blockquote') {
+    const beforeText = (block.text ?? '').slice(0, offset);
+    const afterText = (block.text ?? '').slice(offset);
+    if (beforeText === '' && afterText === '') {
+      return convertBlockToParagraph(instance, block.id);
+    }
+    const result = splitLeaf(instance.tree, blockId, offset);
+    let tree = result.tree;
+    const newLeaf = tree.blocks[result.newLeafId];
+    tree = setInlineHtml(tree, newLeaf.id, renderBlockHtml(newLeaf));
+    instance.tree = tree;
+    return {
+      changedBlockIds: [blockId, newLeaf.id],
+      focus: { blockId: newLeaf.id, offset: 0 },
     };
   }
 
@@ -131,21 +149,24 @@ function enterInListItem(
   };
 }
 
-/** 空代码块回车：撤销围栏，光标移到下一个内容块（无后续块则保留空段落） */
+/** 空代码块回车：保留代码块，光标移到下一个内容块（无后续块则回退到前一块末尾） */
 function exitEmptyCodeBlock(
   instance: EditorInstance,
   block: BlockNodeV2
 ): EditorActionResult | null {
-  let tree = instance.tree;
-  const nextLeaf = getNextLeaf(tree, block.id);
-  tree = removeBlock(tree, block.id);
-  instance.tree = tree;
+  const nextLeaf = getNextLeaf(instance.tree, block.id);
   if (nextLeaf) {
-    return { changedBlockIds: [block.id], focus: { blockId: nextLeaf.id, offset: 0 } };
+    return {
+      changedBlockIds: [],
+      focus: { blockId: nextLeaf.id, offset: 0 },
+    };
   }
-  const p = makeParagraph(tree, '');
-  tree = appendChild(tree, tree.root.id, p);
-  tree = setInlineHtml(tree, p.id, renderBlockHtml(p));
-  instance.tree = tree;
-  return { changedBlockIds: [block.id], focus: { blockId: p.id, offset: 0 } };
+  const prevLeaf = getPrevLeaf(instance.tree, block.id);
+  if (prevLeaf) {
+    return {
+      changedBlockIds: [],
+      focus: { blockId: prevLeaf.id, offset: prevLeaf.text?.length ?? 0 },
+    };
+  }
+  return null;
 }
