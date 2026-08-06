@@ -19,7 +19,7 @@ import {
   replaceBlock,
   setBlockText,
   splitLeaf,
-  renderInline,
+  renderBlockHtml,
   setInlineHtml,
 } from '../kernel';
 import { convertBlockToParagraph } from './convertCtrl';
@@ -38,7 +38,7 @@ export function handleEnter(
     const text = block.text ?? '';
     const newText = `${text.slice(0, offset)}\n${text.slice(offset)}`;
     let tree = setBlockText(instance.tree, blockId, newText);
-    tree = setInlineHtml(tree, blockId, escapeHtmlText(newText));
+    tree = setInlineHtml(tree, blockId, renderBlockHtml({ type: block.type, text: newText }));
     instance.tree = tree;
     return { changedBlockIds: [blockId], focus: { blockId, offset: offset + 1 } };
   }
@@ -55,7 +55,7 @@ export function handleEnter(
     const newLeaf = tree.blocks[result.newLeafId];
     const paragraph = makeParagraph(tree, newLeaf?.text ?? '');
     tree = replaceBlock(tree, result.newLeafId, paragraph);
-    tree = setInlineHtml(tree, paragraph.id, renderInline(paragraph.text ?? ''));
+    tree = setInlineHtml(tree, paragraph.id, renderBlockHtml(paragraph));
     instance.tree = tree;
     return {
       changedBlockIds: [blockId, paragraph.id],
@@ -67,7 +67,7 @@ export function handleEnter(
   const result = splitLeaf(instance.tree, blockId, offset);
   let tree = result.tree;
   const newLeaf = tree.blocks[result.newLeafId];
-  tree = setInlineHtml(tree, newLeaf.id, renderInline(newLeaf.text ?? ''));
+  tree = setInlineHtml(tree, newLeaf.id, renderBlockHtml(newLeaf));
   instance.tree = tree;
   return {
     changedBlockIds: [blockId, newLeaf.id],
@@ -96,24 +96,15 @@ function enterInListItem(
 
   // 续行：当前项保留 beforeText，新项承载 afterText
   let next = setBlockText(tree, content.id, beforeText);
-  next = setInlineHtml(next, content.id, renderInline(beforeText));
+  next = setInlineHtml(next, content.id, renderBlockHtml({ type: content.type, text: beforeText }));
   const newItem = makeListItem(next, item.meta?.taskChecked !== undefined ? { taskChecked: false } : undefined);
   next = insertBlockAfter(next, item.id, newItem);
   const paragraph = makeParagraph(next, afterText);
   next = appendChild(next, newItem.id, paragraph);
-  next = setInlineHtml(next, paragraph.id, renderInline(afterText));
+  next = setInlineHtml(next, paragraph.id, renderBlockHtml(paragraph));
   instance.tree = next;
   return {
     changedBlockIds: [content.id, newItem.id],
     focus: { blockId: paragraph.id, offset: 0 },
   };
-}
-
-function escapeHtmlText(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }

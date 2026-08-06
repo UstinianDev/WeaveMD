@@ -18,6 +18,7 @@ import {
   replaceBlock,
   setBlockText,
   setInlineHtml,
+  getPrevLeaf,
 } from '../kernel';
 import { convertBlockToParagraph } from './convertCtrl';
 
@@ -53,7 +54,7 @@ function mergeParagraph(
   block: BlockNodeV2
 ): EditorActionResult | null {
   const tree = instance.tree;
-  const prevLeaf = getPrevLeafAcrossContainers(tree, block.id);
+  const prevLeaf = getPrevLeaf(tree, block.id);
 
   if (prevLeaf && prevLeaf.parentId === block.parentId && prevLeaf.text !== null) {
     // 同父：合并文本
@@ -92,42 +93,10 @@ function removeCodeBlock(
     return { changedBlockIds: [p.id], focus: { blockId: p.id, offset: 0 } };
   }
 
-  const prevLeaf = getPrevLeafAcrossContainers(tree, block.id);
+  const prevLeaf = getPrevLeaf(tree, block.id);
   tree = removeBlock(tree, block.id);
   instance.tree = tree;
   const focusBlockId = prevLeaf?.id ?? block.id;
   const focusOffset = prevLeaf?.text?.length ?? 0;
   return { changedBlockIds: [block.id], focus: { blockId: focusBlockId, offset: focusOffset } };
 }
-
-/** 文档序前一个叶子块（跨容器） */
-function getPrevLeafAcrossContainers(
-  tree: import('../kernel').BlockTreeV2,
-  id: string
-): BlockNodeV2 | null {
-  const block = tree.blocks[id];
-  if (!block) return null;
-  let cursor: BlockNodeV2 | null = block;
-  while (cursor) {
-    const prev = cursor.prevId ? tree.blocks[cursor.prevId] : null;
-    if (prev) {
-      return lastLeafOf(tree, prev.id);
-    }
-    cursor = cursor.parentId ? tree.blocks[cursor.parentId] : null;
-  }
-  return null;
-}
-
-function lastLeafOf(tree: import('../kernel').BlockTreeV2, id: string): BlockNodeV2 | null {
-  const block = tree.blocks[id];
-  if (!block) return null;
-  if (block.text !== null) return block;
-  for (let i = block.childrenIds.length - 1; i >= 0; i--) {
-    const found = lastLeafOf(tree, block.childrenIds[i]);
-    if (found) return found;
-  }
-  return null;
-}
-
-// 供 listCtrl 等复用
-export { getPrevLeafAcrossContainers };
