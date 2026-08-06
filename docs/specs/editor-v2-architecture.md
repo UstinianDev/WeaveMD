@@ -710,6 +710,8 @@ Source → Normal：content → markdownToState → 块树 → 渲染
 - v2 Normal 模式暂无查找高亮（替换功能正常；Source 模式高亮由 Monaco 提供）。
 - 撤销/重做后光标回到重建树首块（块 ID 重建，位置保持待优化）。
 - 段落级 MD Source 视图（v1 `mdSourceBlockId`）未迁移到 v2。
+- 跨块鼠标拖选受浏览器编辑宿主边界限制（独立 contentEditable span 无法拖拽跨选；
+  退格链已可用，Ctrl+A 可全选；跨块选区层为独立任务）。
 - v1 渲染路径与 `src/render/services/` 保留（`window.__EDITOR_V2__ === false` 可回退）；
   v1 退役删除建议作为独立任务，先做手工验收。
 
