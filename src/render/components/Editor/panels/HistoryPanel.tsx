@@ -3,11 +3,11 @@
 // ============================================
 
 import React, { useEffect, useMemo, useState } from 'react';
-import type { IFile } from '../../../shared/types';
-import { useAuthStore } from '../../stores/authStore';
-import { useEditorStore } from '../../stores/editorStore';
-import { useHistoryStore } from '../../stores/historyStore';
-import { useUIStore } from '../../stores/uiStore';
+import type { IFile } from '../../../../shared/types';
+import { useAuthStore } from '../../../stores/authStore';
+import { useEditorStore } from '../../../stores/editorStore';
+import { useHistoryStore } from '../../../stores/historyStore';
+import { useUIStore } from '../../../stores/uiStore';
 
 interface HistoryPanelProps {
   isOpen: boolean;

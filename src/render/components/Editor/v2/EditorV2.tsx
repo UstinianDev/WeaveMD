@@ -13,7 +13,7 @@ import type { EditorActionResult } from '../../../editor/editorInstance';
 import type { BlockTreeV2 } from '../../../editor/kernel';
 import { updateMeta } from '../../../editor/kernel';
 import { extractHeadingOutline } from '../../../editor/kernel/outline';
-import { setCursorAtOffset } from '../../../editor/selection';
+import { setCursorAtOffset } from '../../../editor/kernel/selection';
 import { useEditorStore } from '../../../stores/editorStore';
 import {
   inputCtrl,

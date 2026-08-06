@@ -13,8 +13,8 @@
 
 import React, { useCallback, useEffect, useRef } from 'react';
 
-import type { BlockTree } from '../../services/blockTree';
-import { getAllBlocksInOrder } from '../../services/blockTree';
+import type { BlockTree } from '../../../services/blockTree';
+import { getAllBlocksInOrder } from '../../../services/blockTree';
 
 // ============================================
 // Constants

@@ -8,7 +8,7 @@
 import React, { useCallback, useLayoutEffect, useRef } from 'react';
 
 import { escapeHtml } from '../../../../editor/kernel';
-import { getCursorOffsets, setCursorAtOffset } from '../../../../editor/selection';
+import { getCursorOffsets, setCursorAtOffset } from '../../../../editor/kernel/selection';
 import type { InlineFormatStyle } from '../../../../editor/controllers';
 import type { InputEventResult } from '../types';
 

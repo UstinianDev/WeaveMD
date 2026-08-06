@@ -37,7 +37,7 @@ import {
   replaceAll,
   validateRegex,
   type MatchResult,
-} from '../../services/searchEngine';
+} from '../../../services/searchEngine';
 
 // ============================================
 // Types
