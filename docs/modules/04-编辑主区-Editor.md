@@ -109,14 +109,14 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H。
 
 ## 9. 验证与测试
 
-- Vitest：内核/控制器/组件 309 例（含往返属性测试、六条退出规则矩阵、输入链路、
-  marktext 语法外观断言、代码块提交/退出与列表退出）。
+- Vitest：内核/控制器/组件 312 例（含往返属性测试、六条退出规则矩阵、输入链路、
+  marktext 语法外观断言、代码块提交/退出、列表与引用退出）。
 - Playwright 真实 Chromium E2E（`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
-  + `e2e/exit-behavior.spec.ts`）14 例：
+  + `e2e/exit-behavior.spec.ts`）16 例：
   空文档输入、`# ` 标题转换、`**` 加粗渲染、标记保留、列表转换、中文输入、marktext 语法符号
   渲染与不可选中（标题 marker 聚焦显隐、任务复选框、引用竖线、列表 marker 计算样式断言）、
   标题 marker 并排、空标题行点击聚焦、列表项 marker 与内容并排且任务项无多余圆点、
-  列表末尾空项退格退出、代码块语言提交与空代码块回车退出。
+  列表末尾空项退格退出、代码块语言提交与空代码块回车/退格退出（保留代码块）、引用空行回车退出。
 - 运行：`npm run test` / `npx playwright test`。
 
 ## 10. v1 基线（回退路径，历史实现）

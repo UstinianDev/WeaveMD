@@ -87,10 +87,18 @@ const EditorV2: React.FC<EditorV2Props> = ({
     (action: (instance: EditorInstance) => EditorActionResult | null): boolean => {
       const instance = instanceRef.current;
       if (!instance) return false;
+      const prevTree = instance.tree;
       const result = action(instance);
       if (!result) return false;
       if (result.focus) {
-        pendingFocusRef.current = result.focus;
+        if (instance.tree === prevTree) {
+          // 树未变化（如空代码块 Enter/Backspace 仅移动光标）：立即恢复焦点，
+          // 否则 setTree 同引用会跳过重渲染，焦点恢复 effect 不执行
+          const el = domRegistryRef.current.get(result.focus.blockId);
+          if (el) setCursorAtOffset(el, result.focus.offset);
+        } else {
+          pendingFocusRef.current = result.focus;
+        }
       }
       setTree(instance.tree);
       syncContent();

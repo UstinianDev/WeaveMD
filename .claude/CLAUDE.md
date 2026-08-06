@@ -107,8 +107,13 @@ marktext/muya. v1 (container-level contentEditable, below) remains as fallback
     (` ```lang `) requires a trailing space for instant conversion, or Enter to commit
     (`detectFenceLine`); typing backticks skips autoPair so the fence isn't consumed early.
     Code-block conversion appends an empty paragraph below (when last); Enter on an EMPTY
-    code block exits it (caret moves to the next block), while Enter on non-empty content
-    still inserts a newline.
+    code block moves the caret to the next block (code block is KEPT — Backspace does the
+    same; do not delete the code block on empty Backspace), while Enter on non-empty
+    content still inserts a newline. Empty quote lines exit via Enter/Backspace (empty
+    trailing quote line moves the paragraph after the quote, mirroring the list behavior).
+    Note: `applyAction` must restore focus immediately when the tree reference is unchanged
+    (`instance.tree === prevTree`), otherwise React skips the re-render and the focus
+    restore `useLayoutEffect` never runs.
 - **Source Code Mode**: Full-screen Monaco (`SourceCodeEditor.tsx`). Toggle via `Ctrl+\`` or View menu.
 - **Find & Replace**: Typora-style inline bar (`FindReplaceBar.tsx`); replace works in v2 via content rebuild.
 

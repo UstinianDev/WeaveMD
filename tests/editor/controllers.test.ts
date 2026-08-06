@@ -104,7 +104,7 @@ describe('inputCtrl — 前缀转换（升格）', () => {
     expect(result?.focus?.blockId).toBe(code.id);
   });
 
-  it('空代码块回车 → 退出代码块并聚焦下一段落', () => {
+  it('空代码块回车 → 退出代码块（保留代码块）并聚焦下一段落', () => {
     const instance = new EditorInstance('x');
     const id = paragraphId(instance);
     inputCtrl.handleInput(instance, id, '```js ', 6);
@@ -112,11 +112,26 @@ describe('inputCtrl — 前缀转换（升格）', () => {
       (b) => b.type === 'code-block'
     )!.id;
     const result = enterCtrl.handleEnter(instance, codeId, 0);
-    expect(instance.tree.blocks[codeId]).toBeUndefined();
-    expect(instance.getMarkdown()).toBe('');
+    // 代码块保留
+    expect(instance.tree.blocks[codeId]?.type).toBe('code-block');
     expect(result?.focus).toBeTruthy();
     const focusBlock = instance.tree.blocks[result!.focus!.blockId];
     expect(focusBlock?.type).toBe('paragraph');
+    // 光标在代码块下方的空段落，且不在代码块内
+    expect(focusBlock?.parentId).toBe(instance.tree.root.id);
+  });
+
+  it('空代码块退格 → 保留代码块并聚焦下一段落', () => {
+    const instance = new EditorInstance('x');
+    const id = paragraphId(instance);
+    inputCtrl.handleInput(instance, id, '```js ', 6);
+    const codeId = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'code-block'
+    )!.id;
+    const result = backspaceCtrl.handleBackspaceAtStart(instance, codeId);
+    expect(instance.tree.blocks[codeId]?.type).toBe('code-block');
+    expect(result?.focus).toBeTruthy();
+    expect(instance.tree.blocks[result!.focus!.blockId]?.type).toBe('paragraph');
   });
 
   it('输入 --- 分割线 → thematic-break', () => {
@@ -168,6 +183,26 @@ describe('enterCtrl — 回车', () => {
     expect(instance.tree.blocks[codeId].text).toBe('a\nbc');
     expect(result?.focus?.offset).toBe(2);
   });
+
+  it('引用空行回车 → 退出引用（光标移到引用后的空段落）', () => {
+    const instance = new EditorInstance('> 引用');
+    const contentId = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'paragraph' && b.text === '引用'
+    )!.id;
+    const enterResult = enterCtrl.handleEnter(instance, contentId, 3);
+    const emptyId = enterResult!.focus!.blockId;
+    // 第一次回车：空行仍在引用内
+    const quote = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'blockquote'
+    )!;
+    expect(instance.tree.blocks[emptyId]?.parentId).toBe(quote.id);
+    // 第二次回车（空行）：退出引用，光标在引用后的根级段落
+    const exitResult = enterCtrl.handleEnter(instance, emptyId, 0);
+    const focusBlock = instance.tree.blocks[exitResult!.focus!.blockId];
+    expect(focusBlock?.type).toBe('paragraph');
+    expect(focusBlock?.parentId).toBe(instance.tree.root.id);
+    expect(instance.tree.blocks[quote.id]?.type).toBe('blockquote');
+  });
 });
 
 describe('backspaceCtrl — 六条退出规则（SPEC-EDIT-EXIT）', () => {
@@ -200,13 +235,14 @@ describe('backspaceCtrl — 六条退出规则（SPEC-EDIT-EXIT）', () => {
     expect(instance.getMarkdown()).toBe('quote');
   });
 
-  it('空代码块退格 → 移除（唯一块转空段落）', () => {
+  it('空代码块退格 → 保留代码块（唯一块时回退无操作）', () => {
     const instance = new EditorInstance('```\n```');
     const codeId = Object.keys(instance.tree.blocks).find(
       (bid) => instance.tree.blocks[bid].type === 'code-block'
     )!;
-    backspaceCtrl.handleBackspaceAtStart(instance, codeId);
-    expect(instance.getMarkdown()).toBe('');
+    const result = backspaceCtrl.handleBackspaceAtStart(instance, codeId);
+    expect(instance.tree.blocks[codeId]?.type).toBe('code-block');
+    expect(result).toBeNull();
   });
 
   it('普通空段落退格 → 合并到前块', () => {
@@ -239,6 +275,22 @@ describe('backspaceCtrl — 六条退出规则（SPEC-EDIT-EXIT）', () => {
     expect(focusBlock?.type).toBe('paragraph');
     expect(focusBlock?.parentId).toBe(instance.tree.root.id);
     expect(instance.getMarkdown()).toBe('1. 一级标题');
+  });
+
+  it('引用末尾空行退格 → 空段落移到引用后（光标出引用）', () => {
+    const instance = new EditorInstance('> 引用');
+    const contentId = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'paragraph' && b.text === '引用'
+    )!.id;
+    const enterResult = enterCtrl.handleEnter(instance, contentId, 3);
+    const emptyId = enterResult!.focus!.blockId;
+    const result = backspaceCtrl.handleBackspaceAtStart(instance, emptyId);
+    const focusBlock = instance.tree.blocks[result!.focus!.blockId];
+    expect(focusBlock?.type).toBe('paragraph');
+    expect(focusBlock?.parentId).toBe(instance.tree.root.id);
+    expect(
+      Object.values(instance.tree.blocks).some((b) => b.type === 'blockquote')
+    ).toBe(true);
   });
 });
 
