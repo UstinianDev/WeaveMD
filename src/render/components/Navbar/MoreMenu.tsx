@@ -5,14 +5,14 @@
 import React from 'react';
 import { useI18n } from '../../i18n';
 import type { DropdownItem as DropdownItemType } from '../Common/Dropdown';
-import Dropdown from '../Common/Dropdown';
+import NavMenu from './NavMenu';
 
 interface MoreMenuProps {
   onFindReplace: () => void;
-  onEditHistory: () => void;
+  onOpenHistory: () => void;
 }
 
-const MoreMenu: React.FC<MoreMenuProps> = ({ onFindReplace, onEditHistory }) => {
+const MoreMenu: React.FC<MoreMenuProps> = ({ onFindReplace, onOpenHistory }) => {
   const { t } = useI18n();
   const items: DropdownItemType[] = [
     {
@@ -23,20 +23,17 @@ const MoreMenu: React.FC<MoreMenuProps> = ({ onFindReplace, onEditHistory }) => 
     { type: 'divider' },
     {
       label: t('navbar.editHistory'),
-      onClick: onEditHistory,
+      onClick: onOpenHistory,
     },
   ];
 
   return (
-    <Dropdown
-      trigger={
-        <span className="navbar-menu-trigger text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] transition-colors cursor-pointer select-none px-1">
-          ⋮
-        </span>
-      }
+    <NavMenu
+      trigger={<span>⋮</span>}
       items={items}
       position="bottom-right"
       width={180}
+      triggerClassName="px-1"
     />
   );
 };

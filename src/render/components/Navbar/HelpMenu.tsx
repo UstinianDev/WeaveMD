@@ -6,7 +6,7 @@ import React from 'react';
 import { APP_VERSION } from '../../../shared/constants';
 import { useI18n } from '../../i18n';
 import type { DropdownItem as DropdownItemType } from '../Common/Dropdown';
-import Dropdown from '../Common/Dropdown';
+import NavMenu from './NavMenu';
 
 interface HelpMenuProps {
   onOpenSettings: () => void;
@@ -26,17 +26,7 @@ const HelpMenu: React.FC<HelpMenuProps> = ({ onOpenSettings }) => {
     },
   ];
 
-  return (
-    <Dropdown
-      trigger={
-        <span className="navbar-menu-trigger text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] transition-colors cursor-pointer select-none">
-          {t('navbar.help')} ▾
-        </span>
-      }
-      items={items}
-      width={160}
-    />
-  );
+  return <NavMenu label="navbar.help" items={items} width={160} />;
 };
 
 export default HelpMenu;

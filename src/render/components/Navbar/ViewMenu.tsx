@@ -11,7 +11,7 @@ import React from 'react';
 import { useI18n } from '../../i18n';
 import { useUIStore } from '../../stores/uiStore';
 import type { DropdownItem as DropdownItemType } from '../Common/Dropdown';
-import Dropdown from '../Common/Dropdown';
+import NavMenu from './NavMenu';
 
 const ViewMenu: React.FC = () => {
   const isSourceCodeMode = useUIStore((s) => s.isSourceCodeMode);
@@ -35,17 +35,7 @@ const ViewMenu: React.FC = () => {
     },
   ];
 
-  return (
-    <Dropdown
-      trigger={
-        <span className="navbar-menu-trigger text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] transition-colors cursor-pointer select-none">
-          {t('navbar.view')} ▾
-        </span>
-      }
-      items={items}
-      width={220}
-    />
-  );
+  return <NavMenu label="navbar.view" items={items} width={220} />;
 };
 
 export default ViewMenu;
