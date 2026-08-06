@@ -20,6 +20,7 @@ import {
   enterCtrl,
   backspaceCtrl,
   clickCtrl,
+  convertCtrl,
   listCtrl,
   formatCtrl,
   type InlineFormatStyle,
@@ -27,6 +28,7 @@ import {
 import EditorScrollContainer, {
   type EditorScrollContainerHandle,
 } from './EditorScrollContainer';
+import FloatingToolbar, { type BlockTypeOption } from './FloatingToolbar';
 import type { BlockHandlers } from './types';
 
 interface EditorV2Props {
@@ -48,6 +50,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
   }
   const [tree, setTree] = useState<BlockTreeV2>(() => instanceRef.current!.tree);
   const scrollRef = useRef<EditorScrollContainerHandle>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const domRegistryRef = useRef<Map<string, HTMLElement>>(new Map());
   const pendingFocusRef = useRef<{ blockId: string; offset: number } | null>(null);
   const lastSyncedContentRef = useRef(content);
@@ -158,8 +161,42 @@ const EditorV2: React.FC<EditorV2Props> = ({
     [applyAction]
   );
   const onFormat = useCallback(
-    (blockId: string, style: InlineFormatStyle, start: number, end: number) => {
-      applyAction((instance) => formatCtrl.formatRange(instance, blockId, style, start, end));
+    (blockId: string, style: InlineFormatStyle, start: number, end: number, url?: string) => {
+      applyAction((instance) =>
+        formatCtrl.formatRange(instance, blockId, style, start, end, url ? { url } : undefined)
+      );
+    },
+    [applyAction]
+  );
+
+  // 浮动工具栏：块类型转换（正文 ↔ H1-H6，仅根级 paragraph/heading）
+  const onConvertBlock = useCallback(
+    (blockId: string, target: BlockTypeOption) => {
+      const instance = instanceRef.current;
+      if (!instance) return;
+      const block = instance.tree.blocks[blockId];
+      if (!block || block.parentId !== instance.tree.root.id) return;
+      if (target === 'paragraph') {
+        if (block.type === 'heading') {
+          applyAction((inst) => convertCtrl.convertBlockToParagraph(inst, blockId));
+        }
+        return;
+      }
+      const level = Number(target.slice(1)) as 1 | 2 | 3 | 4 | 5 | 6;
+      if (block.type === 'heading') {
+        applyAction((inst) => {
+          inst.tree = updateMeta(inst.tree, blockId, { headingLevel: level });
+          return { changedBlockIds: [blockId], focus: { blockId, offset: 0 } };
+        });
+      } else if (block.type === 'paragraph') {
+        applyAction((inst) =>
+          convertCtrl.convertParagraphToBlock(inst, blockId, {
+            type: 'heading',
+            meta: { headingLevel: level },
+            prefixLength: 0,
+          })
+        );
+      }
     },
     [applyAction]
   );
@@ -258,12 +295,18 @@ const EditorV2: React.FC<EditorV2Props> = ({
   }, []);
 
   return (
-    <div className="relative w-full h-full" onClick={handleContainerClick}>
+    <div ref={containerRef} className="relative w-full h-full" onClick={handleContainerClick}>
       <EditorScrollContainer
         ref={scrollRef}
         tree={tree}
         handlers={handlers}
         onScroll={handleScroll}
+      />
+      <FloatingToolbar
+        editorContainerRef={containerRef}
+        tree={tree}
+        onFormat={onFormat}
+        onConvertBlock={onConvertBlock}
       />
     </div>
   );
