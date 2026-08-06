@@ -88,7 +88,7 @@
   "navbar.deleteFolderFailed": "Failed to delete folder",
   "navbar.selectFolderFirst": "Select a folder in the sidebar first",
   "navbar.confirmDeleteFile": "Delete the current file?",
-  "navbar.confirmDeleteFolder": "Delete the selected folder?"
+  "navbar.confirmDeleteFolder": "Delete the selected folder?",
   "settings.title": "Settings",
   "settings.system": "System",
   "settings.account": "Account",

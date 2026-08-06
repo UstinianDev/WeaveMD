@@ -88,7 +88,7 @@
   "navbar.deleteFolderFailed": "删除文件夹失败",
   "navbar.selectFolderFirst": "请先在左侧栏选择一个文件夹",
   "navbar.confirmDeleteFile": "您确认要删除当前页面的文件吗",
-  "navbar.confirmDeleteFolder": "您确认要删除选中文件夹吗"
+  "navbar.confirmDeleteFolder": "您确认要删除选中文件夹吗",
   "settings.title": "设置",
   "settings.system": "系统",
   "settings.account": "账号",
