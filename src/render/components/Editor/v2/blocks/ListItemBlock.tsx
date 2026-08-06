@@ -29,13 +29,13 @@ const ListItemBlock: React.FC<ListItemBlockProps> = ({ block, tree, handlers, in
   return (
     <div
       data-block-id={block.id}
-      className="list-item flex items-start gap-2 mb-1 text-[var(--text-primary)]"
+      className="list-item-block flex items-start gap-2 mb-1 text-[var(--text-primary)]"
     >
       <span
         className={
           isTask
-            ? 'task-checkbox inline-flex items-center justify-center w-5 h-5 mt-0.5 border border-[var(--border-color)] rounded text-xs select-none flex-shrink-0 bg-[var(--bg-secondary)] text-[var(--text-primary)]'
-            : 'list-marker text-[14px] leading-[1.65] font-medium text-[var(--text-secondary)] min-w-[1.5em] text-center flex-shrink-0 select-none'
+            ? `task-checkbox${block.meta?.taskChecked ? ' task-checkbox--checked' : ''}`
+            : 'list-marker text-[14px] leading-[1.65] font-medium min-w-[1.5em] text-center flex-shrink-0 select-none'
         }
         contentEditable={false}
         suppressContentEditableWarning
@@ -45,10 +45,10 @@ const ListItemBlock: React.FC<ListItemBlockProps> = ({ block, tree, handlers, in
                 e.stopPropagation();
                 handlers.onToggleTask(block.id);
               }
-            : undefined
+          : undefined
         }
       >
-        {isTask ? (block.meta?.taskChecked ? '✓' : '') : marker}
+        {isTask ? '' : marker}
       </span>
       <div className="flex-1 min-w-0">
         {block.childrenIds.map((childId) => (

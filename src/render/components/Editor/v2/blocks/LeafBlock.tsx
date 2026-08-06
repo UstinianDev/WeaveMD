@@ -6,6 +6,7 @@
 import React from 'react';
 
 import type { BlockNodeV2 } from '../../../../editor/kernel';
+import { setCursorAtOffset } from '../../../../editor/kernel/selection';
 import ContentBlock from './ContentBlock';
 import type { BlockHandlers } from '../types';
 
@@ -28,12 +29,27 @@ const LeafBlock: React.FC<LeafBlockProps> = ({ block, handlers }) => {
     case 'heading': {
       const level = block.meta?.headingLevel ?? 1;
       const tag = `h${level}` as keyof React.JSX.IntrinsicElements;
+      const handleHeadingClick = (e: React.MouseEvent<HTMLElement>) => {
+        // 点击落在标题容器（如 # 级别提示伪元素区域）时，聚焦内容 span 并放置光标，
+        // 避免 marker 区域不可点击导致空标题行无法选中（marktext 整行可编辑）。
+        if (e.target !== e.currentTarget) return;
+        const span = e.currentTarget.querySelector<HTMLElement>('.block-content');
+        if (!span) return;
+        e.preventDefault();
+        const offset =
+          e.clientX < span.getBoundingClientRect().left
+            ? 0
+            : (span.textContent ?? '').replace(/\u200B/g, '').length;
+        setCursorAtOffset(span, offset);
+      };
       return React.createElement(
         tag,
         {
           'data-block-id': block.id,
+          'data-level': level,
           className: `heading-block ${HEADING_SIZE[level] ?? HEADING_SIZE[1]} text-[var(--text-primary)] tracking-tight`,
           'data-placeholder': `Heading ${level}`,
+          onClick: handleHeadingClick,
         },
         <ContentBlock blockId={block.id} text={block.text ?? ''} inlineHtml={block.inlineHtml} placeholder={`Heading ${level}`} {...handlers} />
       );

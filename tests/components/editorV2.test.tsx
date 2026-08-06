@@ -26,11 +26,12 @@ describe('EditorV2 — 渲染结构', () => {
 
     expect(container.querySelector('h1.heading-block')).not.toBeNull();
     expect(container.querySelector('h1.heading-block')?.textContent).toBe('Heading');
+    expect(container.querySelector('h1.heading-block')?.getAttribute('data-level')).toBe('1');
     expect(container.querySelector('p.paragraph-block')).not.toBeNull();
     // DOM textContent 保留 markdown 标记（与源一致，编辑不丢标记）
     expect(container.querySelector('p.paragraph-block')?.textContent).toBe('Plain **bold** text');
     expect(container.querySelector('p.paragraph-block strong')).not.toBeNull();
-    expect(container.querySelectorAll('.list-item').length).toBe(2);
+    expect(container.querySelectorAll('.list-item-block').length).toBe(2);
     expect(container.querySelector('blockquote.blockquote-block')).not.toBeNull();
     expect(container.querySelector('.code-fence-block')).not.toBeNull();
     expect(container.querySelector('.code-fence-content')?.textContent).toBe('const a = 1;');
@@ -86,5 +87,16 @@ describe('EditorV2 — 渲染结构', () => {
     const content = container.querySelector('span.block-content');
     expect(content).not.toBeNull();
     expect(content?.hasAttribute('data-empty')).toBe(false);
+  });
+
+  it('任务列表勾选渲染 task-checkbox--checked 类且不可选中', () => {
+    const { container } = render(
+      <EditorV2 content={'- [x] done\n- [ ] todo'} onContentChange={() => {}} />
+    );
+    const checkboxes = container.querySelectorAll('.task-checkbox');
+    expect(checkboxes.length).toBe(2);
+    expect(checkboxes[0]?.classList.contains('task-checkbox--checked')).toBe(true);
+    expect(checkboxes[1]?.classList.contains('task-checkbox--checked')).toBe(false);
+    expect(checkboxes[0]?.getAttribute('contenteditable')).toBe('false');
   });
 });

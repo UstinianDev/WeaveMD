@@ -33,6 +33,8 @@ html.light-header {
   --modal-bg: #ffffff;
   --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.08);
   --shadow-dropdown: 0 4px 16px rgba(0, 0, 0, 0.08);
+  /* marktext 默认主题引用竖线色（按主题可覆盖） */
+  --quote-bar-color: #42d392;
 }
 
 /* --- Light Theme (Dark navbar + White content area) --- */
@@ -1417,6 +1419,61 @@ html.light .markdown-block-rendered code {
   border-radius: 4px;
 }
 
+/* Heading level marker (marktext-style # hint)
+   光标在标题内时显示灰色 #×n，失焦时塌陷隐藏（对应 muya MU_GRAY/MU_HIDE）。
+   用 CSS 伪元素实现：不进入 textContent，不影响序列化/光标偏移，天然不可选中。 */
+.heading-block {
+  display: flex;
+  align-items: baseline;
+}
+
+.heading-block .block-content {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.heading-block::before {
+  color: var(--text-muted);
+  font-size: 0;
+  opacity: 0;
+  margin-right: 0;
+  flex: none;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
+}
+
+.heading-block:focus-within::before {
+  font-size: inherit;
+  opacity: 1;
+  margin-right: 0.35em;
+}
+
+h1.heading-block::before {
+  content: '#';
+}
+
+h2.heading-block::before {
+  content: '##';
+}
+
+h3.heading-block::before {
+  content: '###';
+}
+
+h4.heading-block::before {
+  content: '####';
+}
+
+h5.heading-block::before {
+  content: '#####';
+}
+
+h6.heading-block::before {
+  content: '######';
+}
+
 /* Paragraph block styles */
 .paragraph-block {
   color: var(--text-primary);
@@ -1435,13 +1492,43 @@ html.light .markdown-block-rendered code {
 
 .list-bullet,
 .list-marker {
+  color: var(--text-sub);
   user-select: none;
   -webkit-user-select: none;
 }
 
-/* Task checkbox (read-only visual) */
+/* Task checkbox (marktext-style: 空心圆，勾选态 accent 背景 + 白色 ✓)
+   与 .md-syntax 相同策略：contentEditable=false + user-select:none，不可选中。 */
 .task-checkbox {
-  cursor: default;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 3px;
+  flex-shrink: 0;
+  border: 2px solid var(--text-sub);
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.task-checkbox--checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.task-checkbox--checked::after {
+  content: '✓';
+  font-weight: 700;
 }
 
 /* Code fence block */
@@ -1732,6 +1819,7 @@ html.dark .code-fence-content .token.variable {
 /* Blockquote block */
 .blockquote-block {
   scroll-margin-top: 24px;
+  border-left: 3px solid var(--quote-bar-color, #42d392);
 }
 
 /* Empty block placeholder */
@@ -1758,11 +1846,11 @@ html.dark .code-fence-content .token.variable {
    BEFORE the placeholder text, not after it. z-index: -1 within the
    stacking context created by position: relative keeps ::before below
    the non-positioned text content. */
-.editor-content-area [data-block-id][data-placeholder][data-empty='true'] {
+.editor-content-area [data-block-id][data-placeholder][data-empty='true']:not(.heading-block) {
   position: relative;
 }
 
-.editor-content-area [data-block-id][data-placeholder][data-empty='true']::before {
+.editor-content-area [data-block-id][data-placeholder][data-empty='true']:not(.heading-block)::before {
   content: attr(data-placeholder);
   position: absolute;
   top: 0;
@@ -1809,8 +1897,9 @@ html.dark .code-fence-content .token.variable {
   -webkit-tap-highlight-color: transparent !important;
 }
 
-/* Block styles within contentEditable container */
-.editor-content-area [data-block-id] {
+/* Block styles within contentEditable container
+   blockquote 除外：引用块需要显示左侧竖线（见 .blockquote-block） */
+.editor-content-area [data-block-id]:not(blockquote) {
   outline: none !important;
   border: none !important;
 }

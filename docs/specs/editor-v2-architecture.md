@@ -777,3 +777,44 @@ Playwright + 真实 Chromium E2E（`e2e/editor.spec.ts`，renderer-only vite 配
 
 **运行 E2E**：`npx playwright test`（自动启动 renderer-only vite server，需要已安装
 `@playwright/test` 与 chromium）。
+
+### 13.7 语法渲染对齐 marktext（2026-08-06）
+
+用户对照 marktext 与 WeaveMD 截图，要求块语法渲染形式对齐 marktext 默认主题，且
+渲染后的语法符号不可鼠标选中；代码块格式保持不变。经确认仅做**样式层 + 组件微调**
+（不改 v2 块树 / 序列化 / 输入链路）：
+
+| 语法 | 对齐方案 | 实现 |
+| ---- | ---- | ---- |
+| n 级标题提示 | 光标在标题内时左侧显示灰色 `#`×n，失焦塌陷隐藏（对应 muya `MU_GRAY` / `MU_HIDE`） | `LeafBlock` 标题加 `data-level`；CSS `h1~h6.heading-block::before` + `:focus-within` 显隐（`font-size:0` 塌陷；伪元素不进入 textContent，不影响序列化/光标偏移，天然不可选中） |
+| 无序/有序列表 | marker 深灰色（`--text-sub`，对照截图确认 marktext 为深灰而非浅灰） | `.list-marker { color: var(--text-sub) }`（替代组件内 Tailwind 色值） |
+| 任务复选框 | 18×18 空心圆（深灰 2px 边框），勾选态 accent 背景 + 白色 ✓（对照截图确认 marktext 为圆形） | `ListItemBlock` 勾选时加 `task-checkbox--checked` 类；CSS `border-radius: 50%` + `::after` 绘制 ✓；保持 `user-select:none` + `contentEditable={false}` |
+| 引用 | 3px 绿色竖线（`--quote-bar-color: #42d392`，可按主题覆盖）；文字非斜体（对照截图确认 marktext 引用非斜体） | `BlockquoteBlock` 移除 Tailwind 边框类与 `italic`；CSS `.blockquote-block { border-left: 3px solid var(--quote-bar-color) }` |
+| 代码块 | 格式不变 | `CodeBlock.tsx` 未改动 |
+
+**关键发现/修复**：全局规则 `.editor-content-area [data-block-id] { border: none !important }`
+会清除所有块边框（旧 `border-l-4` 引用边框实际从未显示）；改为
+`[data-block-id]:not(blockquote)`，仅放行引用竖线，其余块（含代码块）保持原样。
+
+**验证**：新增组件测试 1 例（标题 `data-level` 断言 + `- [x]` 复选框类断言）；
+新增 E2E 1 例（标题 marker 聚焦显隐/颜色、复选框尺寸与 accent 背景、引用 3px 绿色竖线、
+列表 marker 灰色与 `user-select:none`，真实 Chromium 计算样式断言）。
+全量 `vitest run` 305 例通过；`tsc --noEmit` 与 ESLint（0 error，1 个既有 warning）通过；
+`vite build` 成功；Playwright Chromium E2E 7/7 通过。
+
+### 13.8 渲染缺陷修复：列表类名冲突 / 标题 marker 换行 / 空标题不可点击（2026-08-06）
+
+用户截图反馈三个问题，逐一定位并修复（均通过真实 Chromium 测量验证）：
+
+| # | 问题 | 根因 | 修复 |
+| - | ---- | ---- | ---- |
+| 1 | 有序→任务列表区：语法符号与内容不并排，且符号后出现加粗圆点 | v2 列表项类名 `list-item` 与 Tailwind 工具类 `list-item`（`display: list-item`）冲突，覆盖了 `flex`；`display:list-item` 自带原生 marker 小圆点，子元素（marker span / 内容）被垂直堆叠 | 类名改为 `list-item-block`（globals.css 已有该自定义类）；测试与 E2E 选择器同步更新 |
+| 2 | 删除二级标题全部内容后，点击空行无法选中 | 标题聚焦后 `#` 提示伪元素占据左侧区域（`pointer-events:none`），点击该区域落到 h2 容器（非 contentEditable）导致失焦 | `LeafBlock` 标题增加点击处理：点击容器任意处（`e.target === currentTarget`）聚焦内容 span 并放置光标（marker 左侧→开头，其余→末尾），对齐 marktext 整行可编辑 |
+| 3 | n 级标题 marker（`#`×n）与内容分两行 | `.block-content` 为 `display:inline-block; width:100%`，前插行内 `::before` 后总宽超 100%，内容 span 被挤到下一行 | 标题改为 `display:flex; align-items:baseline`；`.block-content` 在标题内 `flex:1 1 auto; width:auto`，marker 与内容始终同排 |
+
+**附带修复**：通用空块占位符规则（`[data-empty='true']::before`）会覆盖标题的 `#` 提示
+（更高优先级），改为 `:not(.heading-block)` 排除标题，空标题聚焦时仍显示级别提示。
+
+**验证**：新增 `e2e/marktext-rendering.spec.ts` 3 例（标题 marker 并排 / 空标题点击聚焦 /
+列表项 flex 与任务项无多余圆点）。全量 `vitest run` 305 例、`tsc --noEmit`、ESLint
+（0 error）、`vite build` 均通过；Playwright Chromium E2E 10/10 通过。

@@ -72,6 +72,7 @@ BlockNodeV2 = {
 | 焦点恢复 | 块转换/重渲染替换 DOM 后，`useLayoutEffect` + 同步 DOM 注册在 paint 前恢复 focus/selection |
 | 空文档可编辑 | 文档始终至少一个空段落（marktext scrollPage 语义） |
 | 空块占位 | 空内容块 `data-empty="true"` + CSS `::before` 显示占位符；`.block-content` 占满块宽 |
+| marktext 语法外观 | 标题光标提示（`#`×n，`:focus-within` 显隐）、无序/有序/任务列表（深灰 marker、圆形任务复选框）、引用（绿色竖线、非斜体）对齐 marktext 默认主题；`.md-syntax` / `.list-marker` / `.task-checkbox` / 标题 `::before` 均不可选中（详见 spec 13.7） |
 
 ## 6. 交互控制器
 
@@ -108,9 +109,12 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H。
 
 ## 9. 验证与测试
 
-- Vitest：内核/控制器/组件 304 例（含往返属性测试、六条退出规则矩阵、输入链路）。
-- Playwright 真实 Chromium E2E（`e2e/editor.spec.ts`）6 例：空文档输入、`# ` 标题转换、
-  `**` 加粗渲染、标记保留、列表转换、中文输入。
+- Vitest：内核/控制器/组件 305 例（含往返属性测试、六条退出规则矩阵、输入链路、
+  marktext 语法外观断言）。
+- Playwright 真实 Chromium E2E（`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`）10 例：
+  空文档输入、`# ` 标题转换、`**` 加粗渲染、标记保留、列表转换、中文输入、marktext 语法符号
+  渲染与不可选中（标题 marker 聚焦显隐、任务复选框、引用竖线、列表 marker 计算样式断言）、
+  标题 marker 并排、空标题行点击聚焦、列表项 marker 与内容并排且任务项无多余圆点。
 - 运行：`npm run test` / `npx playwright test`。
 
 ## 10. v1 基线（回退路径，历史实现）
