@@ -22,12 +22,11 @@ import {
   makeThematicBreak,
   removeBlock,
   replaceBlock,
-  setInlineHtml,
-  renderBlockHtml,
+  renderBlock,
 } from '../kernel';
 
 function renderFor(block: BlockNodeV2, tree: BlockTreeV2): BlockTreeV2 {
-  return setInlineHtml(tree, block.id, renderBlockHtml(block));
+  return renderBlock(tree, block.id);
 }
 
 /** 替换块并写入行内缓存 */
@@ -35,6 +34,111 @@ function replaceAndRender(tree: BlockTreeV2, id: string, node: BlockNodeV2): Blo
   let next = replaceBlock(tree, id, node);
   next = renderFor(next.blocks[node.id], next);
   return next;
+}
+
+/** 把多个子块提升到容器之前（保持顺序） */
+function liftChildrenBefore(
+  tree: BlockTreeV2,
+  containerId: string,
+  children: string[]
+): BlockTreeV2 {
+  let next = tree;
+  for (const childId of children) {
+    next = insertBlockBefore(next, containerId, next.blocks[childId]);
+  }
+  return next;
+}
+
+/** 在 refId 之后插入空段落（供退出列表/引用时承接光标） */
+function createEmptyParagraphAfter(
+  tree: BlockTreeV2,
+  refId: string
+): { tree: BlockTreeV2; paragraph: BlockNodeV2 } {
+  const paragraph = makeParagraph(tree, '');
+  let next = insertBlockAfter(tree, refId, paragraph);
+  next = renderFor(paragraph, next);
+  return { tree: next, paragraph };
+}
+
+/** 删除空列表项：末项 → 列表后补空段落退出；中间项 → 光标移到下一项开头 */
+function exitEmptyListItem(
+  instance: EditorInstance,
+  tree: BlockTreeV2,
+  list: BlockNodeV2,
+  listItem: BlockNodeV2,
+  nextItem: BlockNodeV2 | null
+): EditorActionResult | null {
+  let next = removeBlock(tree, listItem.id);
+  if (!nextItem) {
+    const created = createEmptyParagraphAfter(next, list.id);
+    next = created.tree;
+    instance.tree = next;
+    return {
+      changedBlockIds: [list.id],
+      focus: { blockId: created.paragraph.id, offset: 0 },
+    };
+  }
+  const nextContentId = nextItem.childrenIds[0];
+  instance.tree = next;
+  return nextContentId
+    ? {
+        changedBlockIds: [list.id, listItem.id],
+        focus: { blockId: nextContentId, offset: 0 },
+      }
+    : { changedBlockIds: [list.id, listItem.id] };
+}
+
+/** 构造列表：list > item > paragraph(text)，返回新叶子段落 */
+function buildList(
+  tree: BlockTreeV2,
+  blockId: string,
+  conversion: BlockConversionV2,
+  text: string
+): { tree: BlockTreeV2; leafId: string } {
+  const listType =
+    conversion.type === 'ordered-list'
+      ? 'ordered-list'
+      : conversion.type === 'task-list'
+        ? 'task-list'
+        : 'bullet-list';
+  const list = makeList(tree, listType, {
+    listMarker: conversion.meta?.listMarker ?? '-',
+    orderedStart: conversion.meta?.orderedStart ?? 1,
+    orderedDelimiter: conversion.meta?.orderedDelimiter ?? '.',
+    loose: false,
+  });
+  let next = replaceBlock(tree, blockId, list);
+  const item = makeListItem(
+    next,
+    conversion.type === 'task-list'
+      ? { taskChecked: conversion.meta?.taskChecked ?? false }
+      : undefined
+  );
+  next = appendChild(next, list.id, item);
+  const paragraph = makeParagraph(next, text);
+  next = appendChild(next, item.id, paragraph);
+  next = renderFor(paragraph, next);
+  return { tree: next, leafId: paragraph.id };
+}
+
+/** 构造引用：blockquote > paragraph(text)，返回新叶子段落 */
+function buildBlockquote(
+  tree: BlockTreeV2,
+  blockId: string,
+  text: string
+): { tree: BlockTreeV2; leafId: string } {
+  const quote = makeBlockquote(tree);
+  let next = replaceBlock(tree, blockId, quote);
+  const paragraph = makeParagraph(next, text);
+  next = appendChild(next, quote.id, paragraph);
+  next = renderFor(paragraph, next);
+  return { tree: next, leafId: paragraph.id };
+}
+
+/** 代码块后补空段落（无后续块时），保证可退出继续输入 */
+function ensureTrailingParagraph(tree: BlockTreeV2, refId: string): BlockTreeV2 {
+  if (getNextLeaf(tree, refId)) return tree;
+  return createEmptyParagraphAfter(tree, refId).tree;
 }
 
 /**
@@ -61,39 +165,15 @@ export function convertParagraphToBlock(
     case 'bullet-list':
     case 'ordered-list':
     case 'task-list': {
-      const listType =
-        conversion.type === 'ordered-list'
-          ? 'ordered-list'
-          : conversion.type === 'task-list'
-            ? 'task-list'
-            : 'bullet-list';
-      const list = makeList(tree, listType, {
-        listMarker: conversion.meta?.listMarker ?? '-',
-        orderedStart: conversion.meta?.orderedStart ?? 1,
-        orderedDelimiter: conversion.meta?.orderedDelimiter ?? '.',
-        loose: false,
-      });
-      tree = replaceBlock(tree, blockId, list);
-      const item = makeListItem(
-        tree,
-        conversion.type === 'task-list'
-          ? { taskChecked: conversion.meta?.taskChecked ?? false }
-          : undefined
-      );
-      tree = appendChild(tree, list.id, item);
-      const paragraph = makeParagraph(tree, text);
-      tree = appendChild(tree, item.id, paragraph);
-      tree = renderFor(paragraph, tree);
-      blockId = paragraph.id;
+      const built = buildList(tree, blockId, conversion, text);
+      tree = built.tree;
+      blockId = built.leafId;
       break;
     }
     case 'blockquote': {
-      const quote = makeBlockquote(tree);
-      tree = replaceBlock(tree, blockId, quote);
-      const paragraph = makeParagraph(tree, text);
-      tree = appendChild(tree, quote.id, paragraph);
-      tree = renderFor(paragraph, tree);
-      blockId = paragraph.id;
+      const built = buildBlockquote(tree, blockId, text);
+      tree = built.tree;
+      blockId = built.leafId;
       break;
     }
     case 'code-block': {
@@ -105,12 +185,7 @@ export function convertParagraphToBlock(
       );
       tree = replaceAndRender(tree, blockId, code);
       blockId = code.id;
-      // 代码块后自动补空段落：保证回车/方向键能退出代码块继续输入（marktext 行为）
-      if (!getNextLeaf(tree, blockId)) {
-        const trailing = makeParagraph(tree, '');
-        tree = insertBlockAfter(tree, blockId, trailing);
-        tree = renderFor(trailing, tree);
-      }
+      tree = ensureTrailingParagraph(tree, blockId);
       break;
     }
     case 'thematic-break': {
@@ -174,9 +249,9 @@ export function convertBlockToParagraph(
  * - 首项 → 子块提升到 list 前，删除该 list-item
  * - 其他 → 子块移入前一个 list-item，删除当前 list-item
  */
-function exitListItem(instance: EditorInstance, content: BlockNodeV2): EditorActionResult | null {
+function exitListItem(instance: EditorInstance, leaf: BlockNodeV2): EditorActionResult | null {
   let tree = instance.tree;
-  const listItem = tree.blocks[content.parentId!];
+  const listItem = tree.blocks[leaf.parentId!];
   if (!listItem) return null;
   const list = listItem.parentId ? tree.blocks[listItem.parentId] : undefined;
   if (!list) return null;
@@ -192,26 +267,22 @@ function exitListItem(instance: EditorInstance, content: BlockNodeV2): EditorAct
     if (list.childrenIds.length === 1) {
       tree = removeBlock(tree, list.id);
     }
-    const p = makeParagraph(tree, '');
-    tree = appendChild(tree, tree.root.id, p);
-    tree = renderFor(p, tree);
+    const paragraph = makeParagraph(tree, '');
+    tree = appendChild(tree, tree.root.id, paragraph);
+    tree = renderFor(paragraph, tree);
     instance.tree = tree;
-    return { changedBlockIds: [list.id], focus: { blockId: p.id, offset: 0 } };
+    return { changedBlockIds: [list.id], focus: { blockId: paragraph.id, offset: 0 } };
   }
 
   if (list.childrenIds.length === 1) {
     // 唯一项：子块提升到 list 前
-    for (const childId of children) {
-      tree = insertBlockBefore(tree, list.id, tree.blocks[childId]);
-    }
+    tree = liftChildrenBefore(tree, list.id, children);
     tree = removeBlock(tree, list.id);
     focusBlockId = children[0];
     focusAtStart = true;
   } else if (!prevItem) {
     // 首项：子块提升到 list 前，移除 list-item
-    for (const childId of children) {
-      tree = insertBlockBefore(tree, list.id, tree.blocks[childId]);
-    }
+    tree = liftChildrenBefore(tree, list.id, children);
     tree = removeBlock(tree, listItem.id);
     focusBlockId = children[0];
     focusAtStart = true;
@@ -222,27 +293,7 @@ function exitListItem(instance: EditorInstance, content: BlockNodeV2): EditorAct
     );
     const nextItem = listItem.nextId ? tree.blocks[listItem.nextId] : null;
     if (allEmpty) {
-      // 末项为空 → 退出整个列表：删除该项，列表后补空段落，光标移到左边缘；
-      // 中间项为空 → 仅移除该项，光标移到下一项内容开头
-      tree = removeBlock(tree, listItem.id);
-      if (!nextItem) {
-        const p = makeParagraph(tree, '');
-        tree = insertBlockAfter(tree, list.id, p);
-        tree = renderFor(p, tree);
-        instance.tree = tree;
-        return {
-          changedBlockIds: [list.id],
-          focus: { blockId: p.id, offset: 0 },
-        };
-      }
-      const nextContentId = nextItem.childrenIds[0];
-      instance.tree = tree;
-      return nextContentId
-        ? {
-            changedBlockIds: [list.id, listItem.id],
-            focus: { blockId: nextContentId, offset: 0 },
-          }
-        : { changedBlockIds: [list.id, listItem.id] };
+      return exitEmptyListItem(instance, tree, list, listItem, nextItem);
     }
     for (const childId of children) {
       tree = appendChild(tree, prevItem.id, tree.blocks[childId]);
@@ -271,15 +322,15 @@ function exitListItem(instance: EditorInstance, content: BlockNodeV2): EditorAct
  */
 function exitBlockquote(
   instance: EditorInstance,
-  content: BlockNodeV2
+  leaf: BlockNodeV2
 ): EditorActionResult | null {
   let tree = instance.tree;
-  const quote = tree.blocks[content.parentId!];
+  const quote = tree.blocks[leaf.parentId!];
   if (!quote) return null;
 
   if (quote.childrenIds.length === 1) {
     // 唯一内容：引用降级为段落
-    const paragraph = makeParagraph(tree, content.text ?? '');
+    const paragraph = makeParagraph(tree, leaf.text ?? '');
     tree = replaceAndRender(tree, quote.id, paragraph);
     instance.tree = tree;
     return {
@@ -290,21 +341,23 @@ function exitBlockquote(
 
   // 末尾空行退格 → 退出引用：空段落移到引用之后（对齐列表末尾空项行为，光标在引用下方）
   const isLastContent =
-    quote.childrenIds[quote.childrenIds.length - 1] === content.id;
-  if (isLastContent && (content.text ?? '') === '') {
-    const p = makeParagraph(tree, '');
-    tree = insertBlockAfter(tree, quote.id, p);
-    tree = renderFor(p, tree);
-    tree = removeBlock(tree, content.id);
+    quote.childrenIds[quote.childrenIds.length - 1] === leaf.id;
+  if (isLastContent && (leaf.text ?? '') === '') {
+    const { tree: next, paragraph } = createEmptyParagraphAfter(tree, quote.id);
+    tree = next;
+    tree = removeBlock(tree, leaf.id);
     instance.tree = tree;
-    return { changedBlockIds: [quote.id], focus: { blockId: p.id, offset: 0 } };
+    return {
+      changedBlockIds: [quote.id],
+      focus: { blockId: paragraph.id, offset: 0 },
+    };
   }
 
   // 内容移到引用前（作为独立段落）
-  const paragraph = makeParagraph(tree, content.text ?? '');
+  const paragraph = makeParagraph(tree, leaf.text ?? '');
   tree = insertBlockBefore(tree, quote.id, paragraph);
   tree = renderFor(paragraph, tree);
-  tree = removeBlock(tree, content.id);
+  tree = removeBlock(tree, leaf.id);
   instance.tree = tree;
   return { changedBlockIds: [quote.id], focus: { blockId: paragraph.id, offset: 0 } };
 }

@@ -12,7 +12,17 @@ import {
   type BlockTypeV2,
   isLeafBlockType,
 } from './types';
-import { ATX_HEADING_RE, THEMATIC_BREAK_RE } from './markdownSyntax';
+import {
+  ATX_HEADING_RE,
+  BQ_CONV_RE,
+  FENCE_CONV_CORE_RE,
+  FENCE_OPEN_CORE_RE,
+  OL_ITEM_RE,
+  TASK_ITEM_RE,
+  THEMATIC_BREAK_RE,
+  UL_ITEM_RE,
+} from './markdownSyntax';
+import { renderBlockHtml } from './inlineRenderer';
 
 // ============================================
 // ID 生成（稳定、文档内唯一）
@@ -248,6 +258,20 @@ export function getPrevLeaf(tree: BlockTreeV2, id: string): BlockNodeV2 | null {
   return null;
 }
 
+/** 删除/退出后选择相邻叶子作为焦点（next 优先或 prev 优先），供控制器共用 */
+export function adjacentLeafFocus(
+  tree: BlockTreeV2,
+  id: string,
+  prefer: 'next' | 'prev'
+): { blockId: string; offset: number } | null {
+  const next = getNextLeaf(tree, id);
+  const prev = getPrevLeaf(tree, id);
+  const leaf = prefer === 'next' ? (next ?? prev) : (prev ?? next);
+  if (!leaf) return null;
+  const offset = leaf === next ? 0 : (leaf.text?.length ?? 0);
+  return { blockId: leaf.id, offset };
+}
+
 // ============================================
 // 结构操作（不可变）
 // ============================================
@@ -462,6 +486,18 @@ export function setInlineHtml(tree: BlockTreeV2, id: string, html: string): Bloc
   return next;
 }
 
+/** 更新叶子文本的行内缓存（统一 renderBlockHtml + setInlineHtml 模式） */
+export function renderBlock(
+  tree: BlockTreeV2,
+  id: string,
+  text?: string
+): BlockTreeV2 {
+  const block = tree.blocks[id];
+  if (!block) return tree;
+  const content = text ?? block.text ?? '';
+  return setInlineHtml(tree, id, renderBlockHtml({ type: block.type, text: content }));
+}
+
 /** 更新块元数据 */
 export function updateMeta(
   tree: BlockTreeV2,
@@ -527,21 +563,13 @@ export function mergeLeafIntoPrev(tree: BlockTreeV2, leafId: string): BlockTreeV
 // 与 SPEC-EDIT-EXIT 及 v1 lineMarkdown 对齐：
 // 分隔符支持普通空格 / Tab / 非断行空格（U+00A0，中文输入法）。
 
-const TASK_CONV_RE = /^[-*+][ \t\u00A0]+\[([ xX\u00A0])\][ \t\u00A0]+([\s\S]*)$/;
-const UL_CONV_RE = /^([-*+])[ \t\u00A0]+([\s\S]*)$/;
-const OL_CONV_RE = /^(\d{1,9})([.)])[ \t\u00A0]+([\s\S]*)$/;
-const BQ_CONV_RE = /^>[ \t\u00A0]+([\s\S]*)$/;
-// 围栏行即时转换需要尾随空格（与其他前缀一致，如 `# ` / `- `）；
-// 仅输入 ```lang 尚未提交时不转换，避免逐字符输入时围栏被提前消费导致语言/内容错乱。
-const FENCE_CONV_RE = /^(`{3,}|~{3,})([^\n]*?)[ \t\u00A0]+$/;
-
 /** 判断整行是否为围栏语法行（如 ```java），供回车提交代码块使用 */
 export function detectFenceLine(text: string): {
   marker: string;
   lang: string;
   prefixLength: number;
 } | null {
-  const fence = text.match(/^(`{3,}|~{3,})([^\n]*)$/);
+  const fence = text.match(FENCE_OPEN_CORE_RE);
   if (!fence) return null;
   return {
     marker: fence[1],
@@ -560,30 +588,30 @@ export function detectBlockConversion(text: string): BlockConversionV2 | null {
     };
   }
 
-  const task = text.match(TASK_CONV_RE);
+  const task = text.match(TASK_ITEM_RE);
   if (task) {
     return {
       type: 'task-list',
-      meta: { taskChecked: task[1].toLowerCase() === 'x', listMarker: '-' },
-      prefixLength: text.length - task[2].length,
+      meta: { taskChecked: task[3].toLowerCase() === 'x', listMarker: '-' },
+      prefixLength: text.length - task[5].length,
     };
   }
 
-  const ul = text.match(UL_CONV_RE);
+  const ul = text.match(UL_ITEM_RE);
   if (ul) {
     return {
       type: 'bullet-list',
       meta: { listMarker: ul[1] as '-' | '*' | '+' },
-      prefixLength: text.length - ul[2].length,
+      prefixLength: text.length - ul[3].length,
     };
   }
 
-  const ol = text.match(OL_CONV_RE);
+  const ol = text.match(OL_ITEM_RE);
   if (ol) {
     return {
       type: 'ordered-list',
       meta: { orderedStart: parseInt(ol[1], 10), orderedDelimiter: ol[2] as '.' | ')' },
-      prefixLength: text.length - ol[3].length,
+      prefixLength: text.length - ol[4].length,
     };
   }
 
@@ -595,7 +623,7 @@ export function detectBlockConversion(text: string): BlockConversionV2 | null {
     };
   }
 
-  const fence = text.match(FENCE_CONV_RE);
+  const fence = text.match(FENCE_CONV_CORE_RE);
   if (fence) {
     return {
       type: 'code-block',

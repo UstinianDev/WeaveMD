@@ -12,14 +12,13 @@ import type { EditorInstance } from '../editorInstance';
 import type { EditorActionResult } from '../editorInstance';
 import type { BlockNodeV2 } from '../kernel';
 import {
-  getNextLeaf,
+  adjacentLeafFocus,
   getPrevLeaf,
   makeParagraph,
+  renderBlock,
   removeBlock,
-  renderInline,
   replaceBlock,
   setBlockText,
-  setInlineHtml,
 } from '../kernel';
 import { convertBlockToParagraph } from './convertCtrl';
 
@@ -66,7 +65,7 @@ function mergeParagraph(
     // 合并到前一个内容块（跨容器也合并：列表项内容 / 引用内容，实现"退格跳回上一行"）
     const merged = `${prevLeaf.text}${block.text ?? ''}`;
     let next = setBlockText(tree, prevLeaf.id, merged);
-    next = setInlineHtml(next, prevLeaf.id, renderInline(merged));
+    next = renderBlock(next, prevLeaf.id, merged);
     next = removeBlock(next, block.id);
     instance.tree = next;
     return {
@@ -89,26 +88,16 @@ function removeCodeBlock(
   block: BlockNodeV2
 ): EditorActionResult | null {
   let tree = instance.tree;
-  const prevLeaf = getPrevLeaf(tree, block.id);
-  const nextLeaf = getNextLeaf(tree, block.id);
+  const focus = adjacentLeafFocus(tree, block.id, 'prev');
   tree = removeBlock(tree, block.id);
   instance.tree = tree;
-  if (prevLeaf) {
-    return {
-      changedBlockIds: [block.id],
-      focus: { blockId: prevLeaf.id, offset: prevLeaf.text?.length ?? 0 },
-    };
-  }
-  if (nextLeaf) {
-    return {
-      changedBlockIds: [block.id],
-      focus: { blockId: nextLeaf.id, offset: 0 },
-    };
+  if (focus) {
+    return { changedBlockIds: [block.id], focus };
   }
   // 唯一块：转为空段落（保留输入位置）
   const p = makeParagraph(tree, '');
   let next = replaceBlock(tree, block.id, p);
-  next = setInlineHtml(next, p.id, renderInline(''));
+  next = renderBlock(next, p.id, '');
   instance.tree = next;
   return { changedBlockIds: [p.id], focus: { blockId: p.id, offset: 0 } };
 }

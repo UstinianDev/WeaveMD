@@ -5,7 +5,7 @@
 // 对齐 marktext inputHandler 管线（autoPair → text → checkNeedRender → convertIfNeeded）。
 
 import type { EditorInstance } from '../editorInstance';
-import { detectBlockConversion, renderBlockHtml, setInlineHtml } from '../kernel';
+import { detectBlockConversion, renderBlock } from '../kernel';
 import { convertParagraphToBlock } from './convertCtrl';
 
 export interface InputResult {
@@ -68,7 +68,7 @@ export function handleInput(
     }
   }
 
-  let tree = setInlineHtml(instance.tree, blockId, renderBlockHtml({ type: block.type, text }));
+  let tree = renderBlock(instance.tree, blockId, text);
   const nextBlocks = { ...tree.blocks };
   nextBlocks[blockId] = { ...nextBlocks[blockId], text };
   tree = { ...tree, blocks: nextBlocks };
