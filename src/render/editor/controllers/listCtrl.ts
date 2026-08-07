@@ -4,17 +4,28 @@
 // Tab：列表项缩进为前一列表项的子项（无前项不处理）。
 // Shift+Tab：嵌套列表项凸出到外层列表。
 
-import type { EditorInstance } from '../editorInstance';
-import type { EditorActionResult } from '../editorInstance';
-import { appendChild, insertBlockAfter, makeList, removeBlock } from '../kernel';
+import type { EditorActionResult, EditorInstance } from '../editorInstance';
+import type { BlockNodeV2, BlockTreeV2 } from '../kernel';
+import { appendChild, defaultListMeta, insertBlockAfter, makeList, removeBlock } from '../kernel';
+
+/** 解析 block → list-item → list 父链上下文；不在列表内返回 null */
+function resolveListContext(
+  tree: BlockTreeV2,
+  blockId: string
+): { item: BlockNodeV2; list: BlockNodeV2 } | null {
+  const block = tree.blocks[blockId];
+  if (!block || block.text === null) return null;
+  const item = block.parentId ? tree.blocks[block.parentId] : undefined;
+  if (!item || item.type !== 'list-item') return null;
+  const list = item.parentId ? tree.blocks[item.parentId] : undefined;
+  if (!list) return null;
+  return { item, list };
+}
 
 export function handleTab(instance: EditorInstance, blockId: string): EditorActionResult | null {
-  const block = instance.tree.blocks[blockId];
-  if (!block || block.text === null) return null;
-  const item = block.parentId ? instance.tree.blocks[block.parentId] : undefined;
-  if (!item || item.type !== 'list-item') return null;
-  const list = item.parentId ? instance.tree.blocks[item.parentId] : undefined;
-  if (!list) return null;
+  const ctx = resolveListContext(instance.tree, blockId);
+  if (!ctx) return null;
+  const { item, list } = ctx;
   const prevItem = item.prevId ? instance.tree.blocks[item.prevId] : null;
   if (!prevItem) return null;
 
@@ -23,18 +34,18 @@ export function handleTab(instance: EditorInstance, blockId: string): EditorActi
     ? tree.blocks[prevItem.childrenIds[prevItem.childrenIds.length - 1]]
     : undefined;
 
-  if (lastChild && (lastChild.type === 'bullet-list' || lastChild.type === 'ordered-list' || lastChild.type === 'task-list')) {
+  if (
+    lastChild &&
+    (lastChild.type === 'bullet-list' ||
+      lastChild.type === 'ordered-list' ||
+      lastChild.type === 'task-list')
+  ) {
     // 前项已有子列表：把当前项追加到子列表
     tree = appendChild(tree, lastChild.id, item);
   } else {
     // 创建子列表
     const listType = list.type as 'bullet-list' | 'ordered-list' | 'task-list';
-    const subList = makeList(tree, listType, {
-      listMarker: list.meta?.listMarker ?? '-',
-      orderedStart: list.meta?.orderedStart ?? 1,
-      orderedDelimiter: list.meta?.orderedDelimiter ?? '.',
-      loose: false,
-    });
+    const subList = makeList(tree, listType, defaultListMeta(list.meta));
     tree = appendChild(tree, prevItem.id, subList);
     tree = appendChild(tree, subList.id, item);
   }
@@ -47,12 +58,9 @@ export function handleShiftTab(
   instance: EditorInstance,
   blockId: string
 ): EditorActionResult | null {
-  const block = instance.tree.blocks[blockId];
-  if (!block || block.text === null) return null;
-  const item = block.parentId ? instance.tree.blocks[block.parentId] : undefined;
-  if (!item || item.type !== 'list-item') return null;
-  const list = item.parentId ? instance.tree.blocks[item.parentId] : undefined;
-  if (!list) return null;
+  const ctx = resolveListContext(instance.tree, blockId);
+  if (!ctx) return null;
+  const { item, list } = ctx;
   // 仅嵌套列表（list 的父是 list-item）可凸出
   const outerItem = list.parentId ? instance.tree.blocks[list.parentId] : undefined;
   if (!outerItem || outerItem.type !== 'list-item') return null;

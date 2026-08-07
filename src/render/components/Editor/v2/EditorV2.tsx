@@ -8,31 +8,28 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { EditorInstance } from '../../../editor/editorInstance';
-import type { EditorActionResult } from '../../../editor/editorInstance';
-import type { BlockMetaV2, BlockTreeV2 } from '../../../editor/kernel';
-import { deleteLeafRange, updateMeta } from '../../../editor/kernel';
-import { extractHeadingOutline } from '../../../editor/kernel/outline';
 import {
-  nearestContentSpan,
-  setCursorAtOffset,
-} from '../../../editor/kernel/selection';
-import { useEditorStore } from '../../../stores/editorStore';
-import {
-  inputCtrl,
-  enterCtrl,
   backspaceCtrl,
   clickCtrl,
   convertCtrl,
-  listCtrl,
+  enterCtrl,
   formatCtrl,
+  inputCtrl,
+  listCtrl,
   type InlineFormatStyle,
 } from '../../../editor/controllers';
-import EditorScrollContainer, {
-  type EditorScrollContainerHandle,
-} from './EditorScrollContainer';
+import type { EditorActionResult } from '../../../editor/editorInstance';
+import { EditorInstance } from '../../../editor/editorInstance';
+import type { BlockMetaV2, BlockTreeV2 } from '../../../editor/kernel';
+import { deleteLeafRange, toDisplayHtml, updateMeta } from '../../../editor/kernel';
+import { extractHeadingOutline } from '../../../editor/kernel/outline';
+import { setCursorAtOffset } from '../../../editor/kernel/selection';
+import { useEditorStore } from '../../../stores/editorStore';
+import EditorScrollContainer, { type EditorScrollContainerHandle } from './EditorScrollContainer';
 import FloatingToolbar, { type BlockTypeOption } from './FloatingToolbar';
 import type { BlockHandlers } from './types';
+import { useCrossBlockDragSelection } from './useCrossBlockDragSelection';
+import { useOutlineNavigation } from './useOutlineNavigation';
 
 interface EditorV2Props {
   content: string;
@@ -54,13 +51,9 @@ const EditorV2: React.FC<EditorV2Props> = ({
   const [tree, setTree] = useState<BlockTreeV2>(() => instanceRef.current!.tree);
   const scrollRef = useRef<EditorScrollContainerHandle>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const dragStartRef = useRef<{ startContainer: Node; startOffset: number } | null>(null);
-  const lastDragRangeRef = useRef<Range | null>(null);
   const domRegistryRef = useRef<Map<string, HTMLElement>>(new Map());
   const pendingFocusRef = useRef<{ blockId: string; offset: number } | null>(null);
   const lastSyncedContentRef = useRef(content);
-  const onActiveHeadingChangeRef = useRef(onActiveHeadingChange);
-  onActiveHeadingChangeRef.current = onActiveHeadingChange;
 
   const outline = useMemo(() => extractHeadingOutline(tree), [tree]);
 
@@ -83,81 +76,8 @@ const EditorV2: React.FC<EditorV2Props> = ({
     }
   }, [tree]);
 
-  // 跨块鼠标拖选：拖过不同内容块时用 Range API 扩展选区
-  // （浏览器原生拖选被编辑宿主边界截断，见 spec 13.13）
-  useEffect(() => {
-    const container = containerRef.current;
-    // eslint-disable-next-line no-console
-    console.log('[drag] effect', !!container);
-    if (!container) return;
-
-    const caretRangeAtPoint = (x: number, y: number): Range | null => {
-      if (typeof document.caretRangeFromPoint === 'function') {
-        return document.caretRangeFromPoint(x, y);
-      }
-      const pos = document.caretPositionFromPoint?.(x, y);
-      if (!pos) return null;
-      const range = document.createRange();
-      range.setStart(pos.offsetNode, pos.offset);
-      return range;
-    };
-
-    const handleMouseDown = (e: MouseEvent) => {
-      const span = (e.target as HTMLElement).closest('span.block-content');
-      if (!span || !container.contains(span)) return;
-      const range = caretRangeAtPoint(e.clientX, e.clientY);
-      if (!range) return;
-      dragStartRef.current = {
-        startContainer: range.startContainer,
-        startOffset: range.startOffset,
-      };
-    };
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const dragStart = dragStartRef.current;
-      if (!dragStart) return;
-      const range = caretRangeAtPoint(e.clientX, e.clientY);
-      if (!range) return;
-      const startSpan = nearestContentSpan(dragStart.startContainer);
-      const endSpan = nearestContentSpan(range.startContainer);
-      // 同块内由浏览器原生选择；仅跨块时程序化扩展
-      if (!startSpan || !endSpan || startSpan === endSpan) return;
-      const sel = window.getSelection();
-      if (!sel) return;
-      const next = document.createRange();
-      next.setStart(dragStart.startContainer, dragStart.startOffset);
-      next.setEnd(range.startContainer, range.startOffset);
-      sel.removeAllRanges();
-      sel.addRange(next);
-      // 记录跨块 Range：mouseup 时重新应用（原生拖选可能覆盖中间状态）
-      lastDragRangeRef.current = next.cloneRange();
-    };
-
-    const handleMouseUp = () => {
-      const lastRange = lastDragRangeRef.current;
-      dragStartRef.current = null;
-      lastDragRangeRef.current = null;
-      if (lastRange) {
-        // 延迟到下一帧重放：浏览器原生拖选会在 mouseup 同步收尾并覆盖选区
-        requestAnimationFrame(() => {
-          const sel = window.getSelection();
-          if (sel) {
-            sel.removeAllRanges();
-            sel.addRange(lastRange);
-          }
-        });
-      }
-    };
-
-    document.addEventListener('mousedown', handleMouseDown);
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      document.removeEventListener('mousedown', handleMouseDown);
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, []);
+  // 跨块鼠标拖选（浏览器原生拖选被编辑宿主边界截断，见 spec 13.13）
+  useCrossBlockDragSelection(containerRef);
 
   const syncContent = useCallback(() => {
     const markdown = instanceRef.current?.getMarkdown() ?? '';
@@ -246,8 +166,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
         const el = domRegistryRef.current.get(blockId);
         const block = instanceRef.current?.tree.blocks[blockId];
         if (!el || !block || block.text === null) continue;
-        const html = block.inlineHtml ?? '';
-        const display = html === '' ? '\u200B' : html;
+        const display = toDisplayHtml(block.inlineHtml, block.text);
         if (el.innerHTML !== display) {
           el.innerHTML = display;
         }
@@ -374,32 +293,13 @@ const EditorV2: React.FC<EditorV2Props> = ({
     ]
   );
 
-  // 大纲导航：lineNumber / headingIndex → 滚动到标题块
-  useEffect(() => {
-    onNavigateReady?.((lineNumber, headingIndex) => {
-      const target =
-        outline.find((item) => item.lineNumber === lineNumber) ?? outline[headingIndex];
-      if (target) {
-        scrollRef.current?.scrollToBlock(target.id);
-      }
-    });
-  }, [onNavigateReady, outline]);
-
-  // 滚动高亮：视口顶部 + 10px 检测当前标题（与 v1 规则一致）
-  const handleScroll = useCallback(
-    (_scrollTop: number, containerEl: HTMLElement) => {
-      const detectLine = containerEl.getBoundingClientRect().top + 10;
-      let activeIndex: number | null = null;
-      outline.forEach((item, index) => {
-        const el = containerEl.querySelector(`[data-block-id="${item.id}"]`);
-        if (el && el.getBoundingClientRect().top <= detectLine) {
-          activeIndex = index;
-        }
-      });
-      onActiveHeadingChangeRef.current?.(activeIndex);
-    },
-    [outline]
-  );
+  // 大纲导航与滚动高亮（注册导航 + 视口检测当前标题）
+  const handleScroll = useOutlineNavigation({
+    outline,
+    onNavigateReady,
+    onActiveHeadingChange,
+    scrollRef,
+  });
 
   // 链接：Ctrl/Cmd+Click 经 IPC 在系统浏览器打开
   const handleContainerClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {

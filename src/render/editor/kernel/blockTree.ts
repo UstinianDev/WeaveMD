@@ -4,14 +4,7 @@
 // 不可变块树：所有操作返回新树（结构共享），不修改入参。
 // 兄弟关系用 prevId/nextId 链表表达，父子关系用 childrenIds 表达。
 
-import {
-  type BlockConversionV2,
-  type BlockMetaV2,
-  type BlockNodeV2,
-  type BlockTreeV2,
-  type BlockTypeV2,
-  isLeafBlockType,
-} from './types';
+import { renderBlockHtml } from './inlineRenderer';
 import {
   ATX_HEADING_RE,
   BQ_CONV_RE,
@@ -22,7 +15,14 @@ import {
   THEMATIC_BREAK_RE,
   UL_ITEM_RE,
 } from './markdownSyntax';
-import { renderBlockHtml } from './inlineRenderer';
+import {
+  type BlockConversionV2,
+  type BlockMetaV2,
+  type BlockNodeV2,
+  type BlockTreeV2,
+  type BlockTypeV2,
+  isLeafBlockType,
+} from './types';
 
 // ============================================
 // ID 生成（稳定、文档内唯一）
@@ -30,15 +30,20 @@ import { renderBlockHtml } from './inlineRenderer';
 
 let idCounter = 0;
 
-export function generateBlockId(tree: BlockTreeV2): string {
+/** 生成唯一块 id（exists 判定碰撞，prefix 区分来源） */
+export function newBlockId(exists: (id: string) => boolean, prefix: string): string {
   for (;;) {
-    const id = `b${Date.now().toString(36)}${(idCounter++).toString(36)}${Math.random()
+    const id = `${prefix}${Date.now().toString(36)}${(idCounter++).toString(36)}${Math.random()
       .toString(36)
       .slice(2, 6)}`;
-    if (!tree.blocks[id]) {
+    if (!exists(id)) {
       return id;
     }
   }
+}
+
+export function generateBlockId(tree: BlockTreeV2): string {
+  return newBlockId((id) => !!tree.blocks[id], 'b');
 }
 
 // ============================================
@@ -130,6 +135,16 @@ export function makeList(
   meta: BlockMetaV2 = {}
 ): BlockNodeV2 {
   return createBlock(tree, { type, meta });
+}
+
+/** 列表容器元数据默认值（source 中已定义字段覆盖默认，undefined 回退默认） */
+export function defaultListMeta(source?: BlockMetaV2): BlockMetaV2 {
+  return {
+    listMarker: source?.listMarker ?? '-',
+    orderedStart: source?.orderedStart ?? 1,
+    orderedDelimiter: source?.orderedDelimiter ?? '.',
+    loose: false,
+  };
 }
 
 /** 创建列表项容器块 */
@@ -250,7 +265,7 @@ export function getPrevLeaf(tree: BlockTreeV2, id: string): BlockNodeV2 | null {
     }
     const parent = getParent(tree, cursor.id);
     if (!parent || parent.type === 'document') {
-      // 到达根：回退到父块本身（容器块无文本，由调用方决定）
+      // 到根为止无 prev 兄弟：返回 null（由调用方决定后续行为）
       return null;
     }
     cursor = parent;
@@ -323,32 +338,34 @@ function detachNode(tree: BlockTreeV2, nodeId: string): void {
   }
 }
 
+/** 放置样板：确保 node 存在于克隆树 → 从旧位置摘除 → 设新父块，返回放置后的节点 */
+function placeNode(nextTree: BlockTreeV2, node: BlockNodeV2, parentId: string): BlockNodeV2 {
+  const nodeId = node.id;
+  if (!nextTree.blocks[nodeId]) {
+    nextTree.blocks[nodeId] = cloneNode(node);
+  }
+  detachNode(nextTree, nodeId);
+  const inserted = nextTree.blocks[nodeId];
+  inserted.parentId = parentId;
+  return inserted;
+}
+
 /** 把 node 作为 parentId 的子块插入到 refId 之后（refId 必须与 node 同父） */
-export function insertBlockAfter(
-  tree: BlockTreeV2,
-  refId: string,
-  node: BlockNodeV2
-): BlockTreeV2 {
+export function insertBlockAfter(tree: BlockTreeV2, refId: string, node: BlockNodeV2): BlockTreeV2 {
   const ref = tree.blocks[refId];
   if (!ref || !ref.parentId) return tree;
-  const next = cloneTree(tree);
-  const refCloned = next.blocks[refId];
-  const parent = next.blocks[ref.parentId];
+  const nextTree = cloneTree(tree);
+  const refCloned = nextTree.blocks[refId];
+  const parent = nextTree.blocks[ref.parentId];
   if (!parent) return tree;
 
   const nodeId = node.id;
-  if (!next.blocks[nodeId]) {
-    next.blocks[nodeId] = cloneNode(node);
-  }
-  detachNode(next, nodeId);
-
-  const inserted = next.blocks[nodeId];
-  inserted.parentId = parent.id;
+  placeNode(nextTree, node, parent.id);
   const refNextId = refCloned.nextId;
-  linkAfter(next, refId, refNextId, nodeId);
+  linkAfter(nextTree, refId, refNextId, nodeId);
   const index = parent.childrenIds.indexOf(refId);
   parent.childrenIds.splice(index + 1, 0, nodeId);
-  return next;
+  return nextTree;
 }
 
 /** 把 node 作为 parentId 的子块插入到 refId 之前 */
@@ -364,19 +381,14 @@ export function insertBlockBefore(
     return insertBlockAfter(tree, prev.id, node);
   }
   // ref 是第一个子块：把 node 插到最前
-  const next = cloneTree(tree);
-  const parent = next.blocks[ref.parentId];
+  const nextTree = cloneTree(tree);
+  const parent = nextTree.blocks[ref.parentId];
   if (!parent) return tree;
   const nodeId = node.id;
-  if (!next.blocks[nodeId]) {
-    next.blocks[nodeId] = cloneNode(node);
-  }
-  detachNode(next, nodeId);
-  const inserted = next.blocks[nodeId];
-  inserted.parentId = parent.id;
-  linkAfter(next, null, refId, nodeId);
+  placeNode(nextTree, node, parent.id);
+  linkAfter(nextTree, null, refId, nodeId);
   parent.childrenIds.unshift(nodeId);
-  return next;
+  return nextTree;
 }
 
 /** 追加为 parentId 的最后子块 */
@@ -389,36 +401,31 @@ export function appendChild(tree: BlockTreeV2, parentId: string, node: BlockNode
   if (lastChildId) {
     return insertBlockAfter(tree, lastChildId, node);
   }
-  const next = cloneTree(tree);
-  const parentCloned = next.blocks[parentId];
+  const nextTree = cloneTree(tree);
+  const parentCloned = nextTree.blocks[parentId];
   const nodeId = node.id;
-  if (!next.blocks[nodeId]) {
-    next.blocks[nodeId] = cloneNode(node);
-  }
-  detachNode(next, nodeId);
-  const inserted = next.blocks[nodeId];
-  inserted.parentId = parentId;
+  const inserted = placeNode(nextTree, node, parentId);
   inserted.prevId = null;
   inserted.nextId = null;
   parentCloned.childrenIds = [nodeId];
-  return next;
+  return nextTree;
 }
 
 /** 移除块及其整个子树 */
 export function removeBlock(tree: BlockTreeV2, id: string): BlockTreeV2 {
   const block = tree.blocks[id];
   if (!block || !block.parentId) return tree;
-  const next = cloneTree(tree);
-  const target = next.blocks[id];
-  const parent = target.parentId ? next.blocks[target.parentId] : undefined;
+  const nextTree = cloneTree(tree);
+  const target = nextTree.blocks[id];
+  const parent = target.parentId ? nextTree.blocks[target.parentId] : undefined;
   if (!parent) return tree;
 
   // 兄弟链
-  if (target.prevId && next.blocks[target.prevId]) {
-    next.blocks[target.prevId].nextId = target.nextId;
+  if (target.prevId && nextTree.blocks[target.prevId]) {
+    nextTree.blocks[target.prevId].nextId = target.nextId;
   }
-  if (target.nextId && next.blocks[target.nextId]) {
-    next.blocks[target.nextId].prevId = target.prevId;
+  if (target.nextId && nextTree.blocks[target.nextId]) {
+    nextTree.blocks[target.nextId].prevId = target.prevId;
   }
   parent.childrenIds = parent.childrenIds.filter((cid) => cid !== id);
 
@@ -427,75 +434,76 @@ export function removeBlock(tree: BlockTreeV2, id: string): BlockTreeV2 {
   const collect = (node: BlockNodeV2) => {
     removedIds.add(node.id);
     for (const childId of node.childrenIds) {
-      const child = next.blocks[childId];
+      const child = nextTree.blocks[childId];
       if (child) collect(child);
     }
   };
   collect(target);
   for (const removedId of removedIds) {
-    delete next.blocks[removedId];
+    delete nextTree.blocks[removedId];
   }
-  return next;
+  return nextTree;
 }
 
 /** 用新节点替换 id 块（保留位置与父子关系） */
 export function replaceBlock(tree: BlockTreeV2, id: string, node: BlockNodeV2): BlockTreeV2 {
   const block = tree.blocks[id];
   if (!block) return tree;
-  const next = cloneTree(tree);
+  const nextTree = cloneTree(tree);
   const nodeId = node.id;
-  if (!next.blocks[nodeId]) {
-    next.blocks[nodeId] = cloneNode(node);
+  if (!nextTree.blocks[nodeId]) {
+    nextTree.blocks[nodeId] = cloneNode(node);
   }
-  const replacement = next.blocks[nodeId];
+  const replacement = nextTree.blocks[nodeId];
   replacement.parentId = block.parentId;
   replacement.prevId = block.prevId;
   replacement.nextId = block.nextId;
   // 兄弟引用
-  if (replacement.prevId && next.blocks[replacement.prevId]) {
-    next.blocks[replacement.prevId].nextId = nodeId;
+  if (replacement.prevId && nextTree.blocks[replacement.prevId]) {
+    nextTree.blocks[replacement.prevId].nextId = nodeId;
   }
-  if (replacement.nextId && next.blocks[replacement.nextId]) {
-    next.blocks[replacement.nextId].prevId = nodeId;
+  if (replacement.nextId && nextTree.blocks[replacement.nextId]) {
+    nextTree.blocks[replacement.nextId].prevId = nodeId;
   }
   if (replacement.parentId) {
-    const parent = next.blocks[replacement.parentId];
+    const parent = nextTree.blocks[replacement.parentId];
     if (parent) {
       parent.childrenIds = parent.childrenIds.map((cid) => (cid === id ? nodeId : cid));
     }
   }
-  delete next.blocks[id];
-  return next;
+  delete nextTree.blocks[id];
+  return nextTree;
 }
 
 /** 更新叶子块文本（清空行内缓存） */
 export function setBlockText(tree: BlockTreeV2, id: string, text: string): BlockTreeV2 {
   const block = tree.blocks[id];
   if (!block || block.text === text) return tree;
-  const next = cloneTree(tree);
-  next.blocks[id] = { ...next.blocks[id], text, inlineHtml: null };
-  return next;
+  const nextTree = cloneTree(tree);
+  nextTree.blocks[id] = { ...nextTree.blocks[id], text, inlineHtml: null };
+  return nextTree;
 }
 
 /** 写入行内渲染缓存（不视为内容变更） */
 export function setInlineHtml(tree: BlockTreeV2, id: string, html: string): BlockTreeV2 {
   const block = tree.blocks[id];
   if (!block) return tree;
-  const next = cloneTree(tree);
-  next.blocks[id] = { ...next.blocks[id], inlineHtml: html };
-  return next;
+  const nextTree = cloneTree(tree);
+  nextTree.blocks[id] = { ...nextTree.blocks[id], inlineHtml: html };
+  return nextTree;
 }
 
 /** 更新叶子文本的行内缓存（统一 renderBlockHtml + setInlineHtml 模式） */
-export function renderBlock(
-  tree: BlockTreeV2,
-  id: string,
-  text?: string
-): BlockTreeV2 {
+export function renderBlock(tree: BlockTreeV2, id: string, text?: string): BlockTreeV2 {
   const block = tree.blocks[id];
   if (!block) return tree;
   const content = text ?? block.text ?? '';
   return setInlineHtml(tree, id, renderBlockHtml({ type: block.type, text: content }));
+}
+
+/** 更新叶子块文本并同步行内缓存（setBlockText + renderBlock 组合） */
+export function setBlockTextAndRender(tree: BlockTreeV2, id: string, text: string): BlockTreeV2 {
+  return renderBlock(setBlockText(tree, id, text), id);
 }
 
 /** 更新块元数据 */
@@ -506,12 +514,12 @@ export function updateMeta(
 ): BlockTreeV2 {
   const block = tree.blocks[id];
   if (!block) return tree;
-  const next = cloneTree(tree);
-  next.blocks[id] = {
-    ...next.blocks[id],
-    meta: { ...(next.blocks[id].meta ?? {}), ...patch },
+  const nextTree = cloneTree(tree);
+  nextTree.blocks[id] = {
+    ...nextTree.blocks[id],
+    meta: { ...(nextTree.blocks[id].meta ?? {}), ...patch },
   };
-  return next;
+  return nextTree;
 }
 
 /**
@@ -532,14 +540,14 @@ export function splitLeaf(
   const clamped = Math.max(0, Math.min(offset, text.length));
   const left = text.slice(0, clamped);
   const right = text.slice(clamped);
-  let next = setBlockText(tree, leafId, left);
-  const newLeaf = createBlock(next, {
+  let nextTree = setBlockText(tree, leafId, left);
+  const newLeaf = createBlock(nextTree, {
     type: block.type,
     text: right,
     meta: block.meta ? { ...block.meta } : undefined,
   });
-  next = insertBlockAfter(next, leafId, newLeaf);
-  return { tree: next, newLeafId: newLeaf.id };
+  nextTree = insertBlockAfter(nextTree, leafId, newLeaf);
+  return { tree: nextTree, newLeafId: newLeaf.id };
 }
 
 /**
@@ -552,25 +560,25 @@ export function mergeLeafIntoPrev(tree: BlockTreeV2, leafId: string): BlockTreeV
   const prev = getPrev(tree, leafId);
   if (!prev || prev.text === null) return tree;
 
-  let next = setBlockText(tree, prev.id, `${prev.text}${block.text}`);
-  next = removeBlock(next, leafId);
-  return next;
+  let nextTree = setBlockText(tree, prev.id, `${prev.text}${block.text}`);
+  nextTree = removeBlock(nextTree, leafId);
+  return nextTree;
 }
 
 /** 清理空容器（列表项/列表/引用），自底向上移除 */
 export function removeEmptyContainers(tree: BlockTreeV2): BlockTreeV2 {
-  let next = tree;
-  const containers = getAllBlocksInOrder(next).filter((b) =>
+  let nextTree = tree;
+  const containers = getAllBlocksInOrder(nextTree).filter((b) =>
     ['list-item', 'bullet-list', 'ordered-list', 'task-list', 'blockquote'].includes(b.type)
   );
   for (const container of [...containers].reverse()) {
-    const current = next.blocks[container.id];
+    const current = nextTree.blocks[container.id];
     if (!current) continue;
     if (current.childrenIds.length === 0) {
-      next = removeBlock(next, current.id);
+      nextTree = removeBlock(nextTree, current.id);
     }
   }
-  return next;
+  return nextTree;
 }
 
 /**
@@ -592,29 +600,29 @@ export function deleteLeafRange(
     const text = start.text ?? '';
     const s = Math.max(0, Math.min(startOffset, text.length));
     const e = Math.max(s, Math.min(endOffset, text.length));
-    let next = setBlockText(tree, startLeafId, `${text.slice(0, s)}${text.slice(e)}`);
-    next = renderBlock(next, startLeafId);
-    return { tree: next, focusBlockId: startLeafId, focusOffset: s };
+    let nextTree = setBlockText(tree, startLeafId, `${text.slice(0, s)}${text.slice(e)}`);
+    nextTree = renderBlock(nextTree, startLeafId);
+    return { tree: nextTree, focusBlockId: startLeafId, focusOffset: s };
   }
 
-  let next = tree;
-  next = setBlockText(next, startLeafId, (start.text ?? '').slice(0, startOffset));
-  next = renderBlock(next, startLeafId);
-  next = setBlockText(next, endLeafId, (end.text ?? '').slice(endOffset));
-  next = renderBlock(next, endLeafId);
+  let nextTree = tree;
+  nextTree = setBlockText(nextTree, startLeafId, (start.text ?? '').slice(0, startOffset));
+  nextTree = renderBlock(nextTree, startLeafId);
+  nextTree = setBlockText(nextTree, endLeafId, (end.text ?? '').slice(endOffset));
+  nextTree = renderBlock(nextTree, endLeafId);
 
   // 中间叶子整块删除（在未删除的树上收集，再统一移除）
   const toRemove: string[] = [];
-  let leaf = getNextLeaf(next, startLeafId);
+  let leaf = getNextLeaf(nextTree, startLeafId);
   while (leaf && leaf.id !== endLeafId) {
     toRemove.push(leaf.id);
-    leaf = getNextLeaf(next, leaf.id);
+    leaf = getNextLeaf(nextTree, leaf.id);
   }
   for (const id of toRemove) {
-    next = removeBlock(next, id);
+    nextTree = removeBlock(nextTree, id);
   }
-  next = removeEmptyContainers(next);
-  return { tree: next, focusBlockId: startLeafId, focusOffset: startOffset };
+  nextTree = removeEmptyContainers(nextTree);
+  return { tree: nextTree, focusBlockId: startLeafId, focusOffset: startOffset };
 }
 
 // ============================================
@@ -638,62 +646,68 @@ export function detectFenceLine(text: string): {
   };
 }
 
-export function detectBlockConversion(text: string): BlockConversionV2 | null {
-  const heading = text.match(ATX_HEADING_RE);
-  if (heading) {
-    return {
+/** 块转换规则表：正则命中后构造转换结果（数组顺序即匹配优先级） */
+const CONVERSION_RULES: Array<{
+  re: RegExp;
+  build: (m: RegExpMatchArray, text: string) => BlockConversionV2;
+}> = [
+  {
+    re: ATX_HEADING_RE,
+    build: (m, text) => ({
       type: 'heading',
-      meta: { headingLevel: heading[1].length as 1 | 2 | 3 | 4 | 5 | 6 },
-      prefixLength: text.length - heading[2].length,
-    };
-  }
-
-  const task = text.match(TASK_ITEM_RE);
-  if (task) {
-    return {
+      meta: { headingLevel: m[1].length as 1 | 2 | 3 | 4 | 5 | 6 },
+      prefixLength: text.length - m[2].length,
+    }),
+  },
+  {
+    re: TASK_ITEM_RE,
+    build: (m, text) => ({
       type: 'task-list',
-      meta: { taskChecked: task[3].toLowerCase() === 'x', listMarker: '-' },
-      prefixLength: text.length - task[5].length,
-    };
-  }
-
-  const ul = text.match(UL_ITEM_RE);
-  if (ul) {
-    return {
+      meta: { taskChecked: m[3].toLowerCase() === 'x', listMarker: '-' },
+      prefixLength: text.length - m[5].length,
+    }),
+  },
+  {
+    re: UL_ITEM_RE,
+    build: (m, text) => ({
       type: 'bullet-list',
-      meta: { listMarker: ul[1] as '-' | '*' | '+' },
-      prefixLength: text.length - ul[3].length,
-    };
-  }
-
-  const ol = text.match(OL_ITEM_RE);
-  if (ol) {
-    return {
+      meta: { listMarker: m[1] as '-' | '*' | '+' },
+      prefixLength: text.length - m[3].length,
+    }),
+  },
+  {
+    re: OL_ITEM_RE,
+    build: (m, text) => ({
       type: 'ordered-list',
-      meta: { orderedStart: parseInt(ol[1], 10), orderedDelimiter: ol[2] as '.' | ')' },
-      prefixLength: text.length - ol[4].length,
-    };
-  }
-
-  const bq = text.match(BQ_CONV_RE);
-  if (bq) {
-    return {
+      meta: { orderedStart: parseInt(m[1], 10), orderedDelimiter: m[2] as '.' | ')' },
+      prefixLength: text.length - m[4].length,
+    }),
+  },
+  {
+    re: BQ_CONV_RE,
+    build: (m, text) => ({
       type: 'blockquote',
-      prefixLength: text.length - bq[1].length,
-    };
-  }
-
-  const fence = text.match(FENCE_CONV_CORE_RE);
-  if (fence) {
-    return {
+      prefixLength: text.length - m[1].length,
+    }),
+  },
+  {
+    re: FENCE_CONV_CORE_RE,
+    build: (m, text) => ({
       type: 'code-block',
       meta: {
-        fenceLanguage: fence[2].trim() || undefined,
-        fenceMarker: fence[1],
+        fenceLanguage: m[2].trim() || undefined,
+        fenceMarker: m[1],
       },
       // 围栏转换消费整行
       prefixLength: text.length,
-    };
+    }),
+  },
+];
+
+export function detectBlockConversion(text: string): BlockConversionV2 | null {
+  for (const rule of CONVERSION_RULES) {
+    const match = text.match(rule.re);
+    if (match) return rule.build(match, text);
   }
 
   if (THEMATIC_BREAK_RE.test(text)) {

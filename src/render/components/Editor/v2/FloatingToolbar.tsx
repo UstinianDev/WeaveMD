@@ -97,12 +97,53 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /** 从选区节点向上找最近的 block-content 内容 span（限制在编辑器容器内） */
-function nearestContentSpan(
-  node: Node | null,
-  container: HTMLElement
-): HTMLElement | null {
+function nearestContentSpan(node: Node | null, container: HTMLElement): HTMLElement | null {
   const span = kernelNearestContentSpan(node);
   return span && container.contains(span) ? span : null;
+}
+
+/** 选区判定结果：hide=立即隐藏，fade=延迟隐藏，show=显示并携带选区与位置 */
+type ToolbarState =
+  | { kind: 'hide' }
+  | { kind: 'fade' }
+  | { kind: 'show'; selection: SelectionState; position: { top: number; left: number } };
+
+/** 由当前选区计算工具栏状态（纯函数，供事件回调装配） */
+function computeToolbarState(
+  sel: Selection | null,
+  container: HTMLElement,
+  toolbarWidth: number,
+  toolbarHeight: number
+): ToolbarState {
+  if (!sel || sel.rangeCount === 0) return { kind: 'hide' };
+  if (sel.isCollapsed) return { kind: 'fade' };
+  const range = sel.getRangeAt(0);
+  const anchorSpan = nearestContentSpan(sel.anchorNode, container);
+  const focusSpan = nearestContentSpan(sel.focusNode, container);
+  if (!anchorSpan || !focusSpan || !container.contains(range.commonAncestorContainer)) {
+    return { kind: 'hide' };
+  }
+  const blockId = anchorSpan.getAttribute('data-block-id');
+  if (!blockId) return { kind: 'hide' };
+  const rect = range.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) return { kind: 'fade' };
+  const offsets = getCursorOffsets(anchorSpan);
+  const left = clamp(
+    rect.left + rect.width / 2 - toolbarWidth / 2,
+    8,
+    window.innerWidth - toolbarWidth - 8
+  );
+  const top = clamp(rect.top - toolbarHeight - 8, 8, window.innerHeight - toolbarHeight - 8);
+  return {
+    kind: 'show',
+    selection: {
+      blockId,
+      start: offsets.start,
+      end: offsets.end,
+      anchorText: anchorSpan.textContent ?? '',
+    },
+    position: { top, left },
+  };
 }
 
 const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
@@ -140,53 +181,23 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     const container = editorContainerRef.current;
     if (!container) return;
     const handleSelectionChange = () => {
-      const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) {
+      const state = computeToolbarState(
+        window.getSelection(),
+        container,
+        toolbarRef.current?.offsetWidth ?? 320,
+        toolbarRef.current?.offsetHeight ?? 40
+      );
+      if (state.kind === 'hide') {
         setVisible(false);
         return;
       }
-      if (sel.isCollapsed) {
+      if (state.kind === 'fade') {
         scheduleHide();
         return;
       }
-      const range = sel.getRangeAt(0);
-      const anchorSpan = nearestContentSpan(sel.anchorNode, container);
-      const focusSpan = nearestContentSpan(sel.focusNode, container);
-      if (!anchorSpan || !focusSpan || !container.contains(range.commonAncestorContainer)) {
-        setVisible(false);
-        return;
-      }
-      const blockId = anchorSpan.getAttribute('data-block-id');
-      if (!blockId) {
-        setVisible(false);
-        return;
-      }
-      const rect = range.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) {
-        scheduleHide();
-        return;
-      }
-      const offsets = getCursorOffsets(anchorSpan);
       cancelHide();
-      setSelection({
-        blockId,
-        start: offsets.start,
-        end: offsets.end,
-        anchorText: anchorSpan.textContent ?? '',
-      });
-      const toolbarWidth = toolbarRef.current?.offsetWidth ?? 320;
-      const toolbarHeight = toolbarRef.current?.offsetHeight ?? 40;
-      const left = clamp(
-        rect.left + rect.width / 2 - toolbarWidth / 2,
-        8,
-        window.innerWidth - toolbarWidth - 8
-      );
-      const top = clamp(
-        rect.top - toolbarHeight - 8,
-        8,
-        window.innerHeight - toolbarHeight - 8
-      );
-      setPosition({ top, left });
+      setSelection(state.selection);
+      setPosition(state.position);
       setVisible(true);
     };
 
@@ -209,7 +220,6 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       const level = Math.min(6, Math.max(1, block.meta?.headingLevel ?? 1));
       return `h${level}` as BlockTypeOption;
     }
-    if (block.type === 'paragraph') return 'paragraph';
     return 'paragraph';
   }, [selection, tree]);
 

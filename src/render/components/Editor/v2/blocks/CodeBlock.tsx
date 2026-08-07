@@ -32,20 +32,28 @@ const LANGUAGE_OPTIONS = [
   { value: 'java', label: 'java' },
 ] as const;
 
+/** 语言别名归一化表（compact 形式：去空格/下划线/连字符后小写） */
+const LANGUAGE_ALIASES: Record<string, string> = {
+  plaintext: 'plaintext',
+  plain: 'plaintext',
+  text: 'plaintext',
+  txt: 'plaintext',
+  sh: 'shell',
+  bash: 'shell',
+  shell: 'shell',
+  zsh: 'shell',
+  md: 'markdown',
+  js: 'javascript',
+  ts: 'typescript',
+  yml: 'yaml',
+};
+
 function normalizeLanguage(language?: string): string {
   if (!language) return 'plaintext';
   const normalized = language.trim().toLowerCase();
   const compact = normalized.replace(/[\s_-]+/g, '');
-  if (compact === 'plaintext' || compact === 'plain' || compact === 'text' || compact === 'txt') {
-    return 'plaintext';
-  }
-  if (compact === 'sh' || compact === 'bash' || compact === 'shell' || compact === 'zsh') {
-    return 'shell';
-  }
-  if (compact === 'md') return 'markdown';
-  if (compact === 'js') return 'javascript';
-  if (compact === 'ts') return 'typescript';
-  if (compact === 'yml') return 'yaml';
+  const alias = LANGUAGE_ALIASES[compact];
+  if (alias) return alias;
   return LANGUAGE_OPTIONS.some((option) => option.value === normalized) ? normalized : 'plaintext';
 }
 
@@ -61,7 +69,10 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ block, handlers }) => {
   }, [block.text]);
 
   return (
-    <div data-block-id={block.id} className="code-fence-block code-fence-block--inactive relative mb-4 overflow-hidden">
+    <div
+      data-block-id={block.id}
+      className="code-fence-block code-fence-block--inactive relative mb-4 overflow-hidden"
+    >
       <div className="code-fence-header" contentEditable={false} suppressContentEditableWarning>
         <div className="code-fence-window-controls" aria-hidden="true">
           <span className="code-fence-window-dot code-fence-window-dot--close" />

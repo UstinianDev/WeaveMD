@@ -8,15 +8,14 @@
 //   code-block 空 → 删除代码块（一键 Backspace）
 //   paragraph → 合并到前一个内容块
 
-import type { EditorInstance } from '../editorInstance';
-import type { EditorActionResult } from '../editorInstance';
+import type { EditorActionResult, EditorInstance } from '../editorInstance';
 import type { BlockNodeV2 } from '../kernel';
 import {
   adjacentLeafFocus,
   getPrevLeaf,
   makeParagraph,
-  renderBlock,
   removeBlock,
+  renderBlock,
   replaceBlock,
   setBlockText,
 } from '../kernel';
@@ -49,10 +48,7 @@ export function handleBackspaceAtStart(
   return null;
 }
 
-function mergeParagraph(
-  instance: EditorInstance,
-  block: BlockNodeV2
-): EditorActionResult | null {
+function mergeParagraph(instance: EditorInstance, block: BlockNodeV2): EditorActionResult | null {
   const tree = instance.tree;
   const prevLeaf = getPrevLeaf(tree, block.id);
 
@@ -74,19 +70,12 @@ function mergeParagraph(
     };
   }
 
-  // 无前兄弟：若为空块则清空保留，否则不处理
-  if ((block.text ?? '') === '') {
-    instance.tree = tree;
-    return null;
-  }
+  // 无前兄弟：不处理
   return null;
 }
 
 /** 空代码块退格：删除代码块，光标移到前一块末尾（无前块则下一块开头；唯一块转空段落） */
-function removeCodeBlock(
-  instance: EditorInstance,
-  block: BlockNodeV2
-): EditorActionResult | null {
+function removeCodeBlock(instance: EditorInstance, block: BlockNodeV2): EditorActionResult | null {
   let tree = instance.tree;
   const focus = adjacentLeafFocus(tree, block.id, 'prev');
   tree = removeBlock(tree, block.id);
