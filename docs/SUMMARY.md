@@ -6,28 +6,28 @@
 
 WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优先、本地存储、多账号隔离）。
 
-| 属性 | 值 |
-| ---- | ---- |
-| 桌面框架 | Electron + Vite + Electron Builder |
-| 前端 | React 18 + TypeScript + Tailwind |
-| 状态管理 | Zustand v4 |
-| 数据存储 | SQLite（better-sqlite3） |
-| 编辑器 | 自研块树内核（v2，照搬 marktext/muya 架构）+ Monaco（Source 模式） |
+| 属性     | 值                                                                 |
+| -------- | ------------------------------------------------------------------ |
+| 桌面框架 | Electron + Vite + Electron Builder                                 |
+| 前端     | React 18 + TypeScript + Tailwind                                   |
+| 状态管理 | Zustand v4                                                         |
+| 数据存储 | SQLite（better-sqlite3）                                           |
+| 编辑器   | 自研块树内核（v2，照搬 marktext/muya 架构）+ Monaco（Source 模式） |
 
 ## 2. 模块文档索引
 
-| 模块 | 文档 | 核心内容 |
-| ---- | ---- | ---- |
-| 加载页面 | [modules/01-加载页面-Splash.md](./modules/01-加载页面-Splash.md) | 启动动画、跳转机制 |
-| 认证系统 | [modules/02-认证系统-Auth.md](./modules/02-认证系统-Auth.md) | 注册/登录、JWT、多账号隔离 |
-| 顶部导航栏 | [modules/03-顶部导航栏-Navbar.md](./modules/03-顶部导航栏-Navbar.md) | 菜单、快捷键、窗口控制、文件系统同步 |
-| 编辑主区 | [modules/04-编辑主区-Editor.md](./modules/04-编辑主区-Editor.md) | 双模式编辑、块树、浮动工具栏、导航/查找/撤销 |
-| 设置界面 | [modules/05-设置界面-Settings.md](./modules/05-设置界面-Settings.md) | 语言、主题、账号 |
-| 窗口控制 | [modules/06-窗口控制-Window.md](./modules/06-窗口控制-Window.md) | frameless 窗口、IPC、拖拽区 |
-| 数据持久化 | [modules/07-数据持久化层-Database.md](./modules/07-数据持久化层-Database.md) | SQLite Schema、CRUD、文件保存 |
-| IPC 机制 | [modules/08-IPC通信机制.md](./modules/08-IPC通信机制.md) | 安全架构、preload 类型定义 |
-| 国际化 | [modules/09-国际化-i18n.md](./modules/09-国际化-i18n.md) | Provider、多语言 |
-| 导出功能 | [modules/10-导出功能-Export.md](./modules/10-导出功能-Export.md) | MD/Word/PDF 导出 |
+| 模块       | 文档                                                                         | 核心内容                                     |
+| ---------- | ---------------------------------------------------------------------------- | -------------------------------------------- |
+| 加载页面   | [modules/01-加载页面-Splash.md](./modules/01-加载页面-Splash.md)             | 启动动画、跳转机制                           |
+| 认证系统   | [modules/02-认证系统-Auth.md](./modules/02-认证系统-Auth.md)                 | 注册/登录、JWT、多账号隔离                   |
+| 顶部导航栏 | [modules/03-顶部导航栏-Navbar.md](./modules/03-顶部导航栏-Navbar.md)         | 菜单、快捷键、窗口控制、文件系统同步         |
+| 编辑主区   | [modules/04-编辑主区-Editor.md](./modules/04-编辑主区-Editor.md)             | 双模式编辑、块树、浮动工具栏、导航/查找/撤销 |
+| 设置界面   | [modules/05-设置界面-Settings.md](./modules/05-设置界面-Settings.md)         | 语言、主题、账号                             |
+| 窗口控制   | [modules/06-窗口控制-Window.md](./modules/06-窗口控制-Window.md)             | frameless 窗口、IPC、拖拽区                  |
+| 数据持久化 | [modules/07-数据持久化层-Database.md](./modules/07-数据持久化层-Database.md) | SQLite Schema、CRUD、文件保存                |
+| IPC 机制   | [modules/08-IPC通信机制.md](./modules/08-IPC通信机制.md)                     | 安全架构、preload 类型定义                   |
+| 国际化     | [modules/09-国际化-i18n.md](./modules/09-国际化-i18n.md)                     | Provider、多语言                             |
+| 导出功能   | [modules/10-导出功能-Export.md](./modules/10-导出功能-Export.md)             | MD/Word/PDF 导出                             |
 
 ## 3. 编辑主区 v2（当前主线）
 
