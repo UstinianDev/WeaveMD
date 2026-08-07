@@ -11,5 +11,6 @@ Thumbs.db
 .env.local
 .trae/
 .dbg/
+.qoder/
 test-results/
 playwright-report/

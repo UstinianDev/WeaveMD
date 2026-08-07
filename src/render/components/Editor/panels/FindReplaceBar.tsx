@@ -1,4 +1,4 @@
-// ============================================
+/// ============================================
 // WeaveMD — Find & Replace Inline Bar (Typora-style)
 // ============================================
 // Inline search bar rendered inside the editor's

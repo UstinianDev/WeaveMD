@@ -60,6 +60,9 @@ BlockNodeV2 = {
 - `markdownToState(M)`：块级解析（围栏/表格/ATX/Setext/引用递归/列表嵌套/分割线/段落兜底）。
 - `stateToMarkdown(tree)`：逐行序列化（列表标记归一化 `-`、围栏自动加长、Setext 保留）。
 - **规范化往返不变量**：`stateToMarkdown(markdownToState(M)) === M`（规范输入）。
+- **尾部代码块补偿**（SPEC-EDIT-CBTP）：解析期若整树最后叶子为 code-block，自动在其
+  同父容器末尾补空 paragraph（与编辑期 `ensureTrailingParagraph` 镜像），代码块后的
+  保护空行在重载/模式切换后不丢失；文本输出不变。
 - 行内渲染：`inlineRenderer` 保留语法标记（`<span class="md-syntax">`），DOM
   `textContent` 与源文本一致——编辑/序列化不丢标记。
 
