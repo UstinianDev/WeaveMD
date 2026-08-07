@@ -1,6 +1,6 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 版本：v2.0 | 最后更新：2026-08-06
+> 模块编号：04 | 优先级：P0 | 版本：v2.1 | 最后更新：2026-08-07
 > 设计规范：[specs/editor-v2-architecture.md](../specs/editor-v2-architecture.md)
 > 退出规则：[specs/markdown-block-exit-rules.md](../specs/markdown-block-exit-rules.md)
 > 参考实现：marktext/muya（架构照搬）
@@ -114,17 +114,18 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H。
 
 ## 9. 验证与测试
 
-- Vitest：内核/控制器/组件 226 例（含往返属性测试、六条退出规则矩阵、输入链路、
-  marktext 语法外观断言、代码块提交/退出、列表与引用退出）。
+- Vitest：内核/控制器/组件 238 例（含往返属性测试、六条退出规则矩阵、输入链路、
+  marktext 语法外观断言、代码块提交/退出、列表与引用退出、尾部代码块补偿 SPEC-EDIT-CBTP）。
 - Playwright 真实 Chromium E2E（`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
   + `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`
-  + `e2e/cross-block-selection.spec.ts`）23 例：
+  + `e2e/cross-block-selection.spec.ts`）25 例：
   空文档输入、`# ` 标题转换、`**` 加粗渲染、标记保留、列表转换、中文输入、marktext 语法符号
   渲染与不可选中（标题 marker 聚焦显隐、任务复选框、引用竖线、列表 marker 计算样式断言）、
   标题 marker 并排、空标题行点击聚焦、列表项 marker 与内容并排且任务项无多余圆点、
   列表末尾空项退格退出、代码块语言提交与空代码块回车退出（保留）/退格一键删除、
   代码块后空行 Backspace 受保护（删除代码块后可删）、引用空行回车退出、列表/标题退格链、
-  浮动工具栏（选区加粗、块类型下拉转换）、跨块鼠标拖选删除。
+  浮动工具栏（选区加粗、块类型下拉转换）、跨块鼠标拖选删除、代码块尾随保护空行
+  重载后恢复且 Backspace 受保护（SPEC-EDIT-CBTP）。
 - 运行：`npm run test` / `npx playwright test`。
 
 ## 10. v1 基线（回退路径，历史实现）
