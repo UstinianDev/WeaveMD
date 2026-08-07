@@ -22,14 +22,13 @@ export function getCursorOffsets(contentEl: HTMLElement): CursorOffsets {
   };
 }
 
-function offsetBeforeRange(
-  contentEl: HTMLElement,
-  range: Range,
-  isStart: boolean
-): number {
+function offsetBeforeRange(contentEl: HTMLElement, range: Range, isStart: boolean): number {
   const pre = range.cloneRange();
   pre.selectNodeContents(contentEl);
-  pre.setEnd(isStart ? range.startContainer : range.endContainer, isStart ? range.startOffset : range.endOffset);
+  pre.setEnd(
+    isStart ? range.startContainer : range.endContainer,
+    isStart ? range.startOffset : range.endOffset
+  );
   return stripZeroWidth(pre.toString()).length;
 }
 
@@ -81,29 +80,8 @@ export function setCursorAtOffset(contentEl: HTMLElement, offset: number): void 
   selection.addRange(range);
 }
 
-/** 从选区所在 DOM 查找最近的 data-block-id */
-export function getBlockIdFromSelection(root: HTMLElement): string | null {
-  void root;
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0 || !selection.anchorNode) return null;
-  const el =
-    selection.anchorNode.nodeType === Node.ELEMENT_NODE
-      ? (selection.anchorNode as Element)
-      : selection.anchorNode.parentElement;
-  if (!el) return null;
-  const blockEl = el.closest('[data-block-id]');
-  if (!blockEl) return null;
-  const id = blockEl.getAttribute('data-block-id');
-  // 容器块（list-item 等）的 data-block-id 也命中，需要确认是叶子内容区
-  return id;
-}
-
 /** 计算指定 DOM 端点相对内容块的文本偏移（跨块选区删除用，排除零宽空格） */
-export function offsetInBlock(
-  contentEl: HTMLElement,
-  node: Node,
-  offset: number
-): number {
+export function offsetInBlock(contentEl: HTMLElement, node: Node, offset: number): number {
   const range = document.createRange();
   range.selectNodeContents(contentEl);
   range.setEnd(node, offset);
@@ -113,7 +91,30 @@ export function offsetInBlock(
 /** 从 DOM 节点向上找最近的 block-content 内容 span（跨块选区/工具栏共用） */
 export function nearestContentSpan(node: Node | null): HTMLElement | null {
   if (!node) return null;
-  const el =
-    node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
+  const el = node.nodeType === Node.ELEMENT_NODE ? (node as HTMLElement) : node.parentElement;
   return el ? (el.closest('span.block-content') as HTMLElement | null) : null;
+}
+
+/** 检测跨块文本选区（anchor/focus 位于不同内容块），供 Backspace/Delete 块树级删除 */
+export function getCrossBlockSelection(): {
+  startBlockId: string;
+  startOffset: number;
+  endBlockId: string;
+  endOffset: number;
+} | null {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+  const range = sel.getRangeAt(0);
+  const startSpan = nearestContentSpan(range.startContainer);
+  const endSpan = nearestContentSpan(range.endContainer);
+  if (!startSpan || !endSpan) return null;
+  const startId = startSpan.getAttribute('data-block-id');
+  const endId = endSpan.getAttribute('data-block-id');
+  if (!startId || !endId || startId === endId) return null;
+  return {
+    startBlockId: startId,
+    startOffset: offsetInBlock(startSpan, range.startContainer, range.startOffset),
+    endBlockId: endId,
+    endOffset: offsetInBlock(endSpan, range.endContainer, range.endOffset),
+  };
 }

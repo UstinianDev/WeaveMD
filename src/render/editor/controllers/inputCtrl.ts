@@ -5,7 +5,7 @@
 // 对齐 marktext inputHandler 管线（autoPair → text → checkNeedRender → convertIfNeeded）。
 
 import type { EditorInstance } from '../editorInstance';
-import { detectBlockConversion, renderBlock } from '../kernel';
+import { detectBlockConversion, setBlockTextAndRender } from '../kernel';
 import { convertParagraphToBlock } from './convertCtrl';
 
 export interface InputResult {
@@ -68,11 +68,7 @@ export function handleInput(
     }
   }
 
-  let tree = renderBlock(instance.tree, blockId, text);
-  const nextBlocks = { ...tree.blocks };
-  nextBlocks[blockId] = { ...nextBlocks[blockId], text };
-  tree = { ...tree, blocks: nextBlocks };
-  instance.tree = tree;
+  instance.tree = setBlockTextAndRender(instance.tree, blockId, text);
 
   // 代码块：原样显示（escapeHtml），输入无需重渲染
   if (block.type === 'code-block') {

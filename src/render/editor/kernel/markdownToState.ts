@@ -16,7 +16,7 @@
 // 实现说明：解析阶段使用内部可变 Builder 构建树（一次性构建，非编辑操作），
 // 完成后转换为不可变 BlockTreeV2。
 
-import { createDocumentTree, getLastLeaf } from './blockTree';
+import { createDocumentTree, getLastLeaf, newBlockId } from './blockTree';
 import {
   ATX_HEADING_RE,
   FENCE_OPEN_CORE_RE,
@@ -60,7 +60,6 @@ function stripHeadingClosing(text: string): string {
 
 class Builder {
   private blocks: Record<string, BlockNodeV2> = {};
-  private seq = 0;
   readonly root: BlockNodeV2;
 
   constructor() {
@@ -78,10 +77,7 @@ class Builder {
   }
 
   private genId(): string {
-    for (;;) {
-      const id = `k${Date.now().toString(36)}${(this.seq++).toString(36)}`;
-      if (!this.blocks[id]) return id;
-    }
+    return newBlockId((id) => !!this.blocks[id], 'k');
   }
 
   addBlock(type: BlockNodeV2['type'], text: string | null, meta?: BlockMetaV2): BlockNodeV2 {
@@ -216,7 +212,7 @@ export function markdownToState(markdown: string): BlockTreeV2 {
   return builder.toTree();
 }
 
-/** 解析 lines[start..] 中的块并挂到 parent 下，返回下一行索引 */
+/** 解析 lines[start..] 中的块并挂到 parent 下，返回下一行索引（主循环仅分派到各块类型子解析器） */
 function parseBlocks(
   builder: Builder,
   parent: BlockNodeV2,
@@ -244,12 +240,7 @@ function parseBlocks(
 
     const atx = line.match(ATX_HEADING_RE);
     if (atx) {
-      const level = atx[1].length as 1 | 2 | 3 | 4 | 5 | 6;
-      const heading = builder.addBlock('heading', stripHeadingClosing(atx[2]), {
-        headingLevel: level,
-      });
-      builder.attach(parent, heading);
-      i++;
+      i = parseAtxHeading(builder, parent, i, atx);
       continue;
     }
 
@@ -264,15 +255,35 @@ function parseBlocks(
     }
 
     if (THEMATIC_BREAK_RE.test(line)) {
-      const hr = builder.addBlock('thematic-break', '---');
-      builder.attach(parent, hr);
-      i++;
+      i = parseThematicBreak(builder, parent, i);
       continue;
     }
 
     i = parseParagraph(builder, parent, lines, i);
   }
   return i;
+}
+
+/** ATX 标题（单行），返回下一行索引 */
+function parseAtxHeading(
+  builder: Builder,
+  parent: BlockNodeV2,
+  start: number,
+  atx: RegExpMatchArray
+): number {
+  const level = atx[1].length as 1 | 2 | 3 | 4 | 5 | 6;
+  const heading = builder.addBlock('heading', stripHeadingClosing(atx[2]), {
+    headingLevel: level,
+  });
+  builder.attach(parent, heading);
+  return start + 1;
+}
+
+/** 分割线（单行），返回下一行索引 */
+function parseThematicBreak(builder: Builder, parent: BlockNodeV2, start: number): number {
+  const hr = builder.addBlock('thematic-break', '---');
+  builder.attach(parent, hr);
+  return start + 1;
 }
 
 /** 围栏代码块 */

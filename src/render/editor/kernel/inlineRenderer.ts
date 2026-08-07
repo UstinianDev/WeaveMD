@@ -9,7 +9,24 @@
 
 import type { BlockNodeV2 } from './types';
 
-const ESCAPABLE_CHARS = new Set(['\\', '`', '*', '_', '[', ']', '{', '}', '<', '>', '~', '|', '#', '+', '-', '=']);
+const ESCAPABLE_CHARS = new Set([
+  '\\',
+  '`',
+  '*',
+  '_',
+  '[',
+  ']',
+  '{',
+  '}',
+  '<',
+  '>',
+  '~',
+  '|',
+  '#',
+  '+',
+  '-',
+  '=',
+]);
 
 const SAFE_URL_RE = /^(https?:|mailto:|data:image\/(png|jpe?g|gif|webp);base64,|#|\/|\.\/|\.\.\/)/i;
 
@@ -53,8 +70,8 @@ function isIntrawordUnderscore(text: string, index: number): boolean {
   return isWordChar(prev) && isWordChar(next);
 }
 
-/** 找到与 [ 匹配的 ]（考虑嵌套与转义，简化实现） */
-function findMatchingBracket(text: string, openIndex: number): number {
+/** 找到与 open 匹配的 close（考虑嵌套与反斜杠转义，简化实现） */
+function findMatching(text: string, openIndex: number, open: string, close: string): number {
   let depth = 0;
   for (let i = openIndex; i < text.length; i++) {
     const ch = text[i];
@@ -62,26 +79,8 @@ function findMatchingBracket(text: string, openIndex: number): number {
       i++;
       continue;
     }
-    if (ch === '[') depth++;
-    else if (ch === ']') {
-      depth--;
-      if (depth === 0) return i;
-    }
-  }
-  return -1;
-}
-
-/** 找到与 ( 匹配的 )（考虑嵌套括号） */
-function findClosingParen(text: string, openIndex: number): number {
-  let depth = 0;
-  for (let i = openIndex; i < text.length; i++) {
-    const ch = text[i];
-    if (ch === '\\') {
-      i++;
-      continue;
-    }
-    if (ch === '(') depth++;
-    else if (ch === ')') {
+    if (ch === open) depth++;
+    else if (ch === close) {
       depth--;
       if (depth === 0) return i;
     }
@@ -92,7 +91,10 @@ function findClosingParen(text: string, openIndex: number): number {
 /** 反斜杠转义 */
 function tryEscape(text: string, i: number): TokenResult | null {
   if (text[i] === '\\' && i + 1 < text.length && ESCAPABLE_CHARS.has(text[i + 1])) {
-    return { html: `<span class="md-syntax">${escapeHtml('\\' + text[i + 1])}</span>`, next: i + 2 };
+    return {
+      html: `<span class="md-syntax">${escapeHtml('\\' + text[i + 1])}</span>`,
+      next: i + 2,
+    };
   }
   return null;
 }
@@ -112,15 +114,20 @@ function tryInlineCode(text: string, i: number): TokenResult | null {
   };
 }
 
+/** 外链 <a> 统一属性（新窗口打开 + noopener，titleAttr 为预转义的 title 属性串） */
+function renderLink(href: string, innerHtml: string, titleAttr = ''): string {
+  return `<a class="inline-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer"${titleAttr}>${innerHtml}</a>`;
+}
+
 /** 图片或链接：[text](url "title") / ![alt](url "title") */
 function renderImageLink(text: string, start: number, isImage: boolean): TokenResult | null {
   const openBracket = isImage ? start + 1 : start;
   if (text[openBracket] !== '[') return null;
-  const closeBracket = findMatchingBracket(text, openBracket);
+  const closeBracket = findMatching(text, openBracket, '[', ']');
   if (closeBracket === -1) return null;
   if (text[closeBracket + 1] !== '(') return null;
 
-  const parenEnd = findClosingParen(text, closeBracket + 1);
+  const parenEnd = findMatching(text, closeBracket + 1, '(', ')');
   if (parenEnd === -1) return null;
   const args = text.slice(closeBracket + 2, parenEnd);
 
@@ -136,7 +143,11 @@ function renderImageLink(text: string, start: number, isImage: boolean): TokenRe
   const titleAttr = title !== undefined ? ` title="${escapeHtml(title)}"` : '';
   const html = isImage
     ? `<img class="inline-image" src="${escapeHtml(safe)}" alt="${escapeHtml(label)}"${titleAttr}>`
-    : `<a class="inline-link" href="${escapeHtml(safe)}" target="_blank" rel="noopener noreferrer"${titleAttr}><span class="md-syntax">[</span>${renderFragment(label)}<span class="md-syntax">](${escapeHtml(safe)})</span></a>`;
+    : renderLink(
+        safe,
+        `<span class="md-syntax">[</span>${renderFragment(label)}<span class="md-syntax">](${escapeHtml(safe)})</span>`,
+        titleAttr
+      );
   return { html, next: parenEnd + 1 };
 }
 
@@ -162,29 +173,19 @@ function tryAutoLink(text: string, i: number): TokenResult | null {
   const inner = text.slice(i + 1, end);
   if (!/^(https?:\/\/|mailto:)[^\s<>]+$/i.test(inner)) return null;
   return {
-    html: `<a class="inline-link" href="${escapeHtml(inner)}" target="_blank" rel="noopener noreferrer">${escapeHtml(inner)}</a>`,
+    html: renderLink(inner, escapeHtml(inner)),
     next: end + 1,
   };
 }
 
-/** 删除线 ~~text~~ */
-function tryDel(text: string, i: number): TokenResult | null {
-  if (text[i] !== '~' || text[i + 1] !== '~') return null;
-  const end = text.indexOf('~~', i + 2);
+/** 成对标记：~~删除线~~ / ==高亮== */
+function tryPairedMarker(text: string, i: number, marker: string, tag: string): TokenResult | null {
+  const ch = marker[0];
+  if (text[i] !== ch || text[i + 1] !== ch) return null;
+  const end = text.indexOf(marker, i + 2);
   if (end === -1) return null;
   return {
-    html: `<del><span class="md-syntax">~~</span>${renderFragment(text.slice(i + 2, end))}<span class="md-syntax">~~</span></del>`,
-    next: end + 2,
-  };
-}
-
-/** 高亮 ==text== */
-function tryHighlight(text: string, i: number): TokenResult | null {
-  if (text[i] !== '=' || text[i + 1] !== '=') return null;
-  const end = text.indexOf('==', i + 2);
-  if (end === -1) return null;
-  return {
-    html: `<mark><span class="md-syntax">==</span>${renderFragment(text.slice(i + 2, end))}<span class="md-syntax">==</span></mark>`,
+    html: `<${tag}><span class="md-syntax">${marker}</span>${renderFragment(text.slice(i + 2, end))}<span class="md-syntax">${marker}</span></${tag}>`,
     next: end + 2,
   };
 }
@@ -219,6 +220,12 @@ export function renderInline(text: string): string {
   return renderFragment(text);
 }
 
+/** 展示 HTML：行内缓存优先，回退转义；空内容用零宽占位保持 contentEditable 光标 */
+export function toDisplayHtml(inlineHtml: string | null, text: string): string {
+  const html = inlineHtml ?? escapeHtml(text);
+  return html === '' ? '\u200B' : html;
+}
+
 function renderFragment(text: string): string {
   let result = '';
   let i = 0;
@@ -231,8 +238,8 @@ function renderFragment(text: string): string {
       tryImage(text, i) ??
       tryLink(text, i) ??
       tryAutoLink(text, i) ??
-      tryDel(text, i) ??
-      tryHighlight(text, i) ??
+      tryPairedMarker(text, i, '~~', 'del') ??
+      tryPairedMarker(text, i, '==', 'mark') ??
       tryEmphasis(text, i);
 
     if (token) {

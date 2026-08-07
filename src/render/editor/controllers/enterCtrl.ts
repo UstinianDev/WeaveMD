@@ -8,12 +8,11 @@
 //   heading → 拆分，右半转段落
 //   paragraph → 拆分
 
-import type { EditorInstance } from '../editorInstance';
-import type { EditorActionResult } from '../editorInstance';
-import type { BlockNodeV2 } from '../kernel';
+import type { EditorActionResult, EditorInstance } from '../editorInstance';
+import type { BlockNodeV2, BlockTreeV2 } from '../kernel';
 import {
-  appendChild,
   adjacentLeafFocus,
+  appendChild,
   detectFenceLine,
   insertBlockAfter,
   makeListItem,
@@ -70,46 +69,45 @@ export function handleEnter(
 
   // 标题：拆分，右半转段落
   if (block.type === 'heading') {
-    const result = splitLeaf(instance.tree, blockId, offset);
-    let tree = result.tree;
-    const newLeaf = tree.blocks[result.newLeafId];
-    const paragraph = makeParagraph(tree, newLeaf?.text ?? '');
-    tree = replaceBlock(tree, result.newLeafId, paragraph);
-    tree = renderBlock(tree, paragraph.id);
-    instance.tree = tree;
-    return {
-      changedBlockIds: [blockId, paragraph.id],
-      focus: { blockId: paragraph.id, offset: 0 },
-    };
+    return splitAndFocusNewLeaf(instance, blockId, offset, (tree, newLeafId) => {
+      const newLeaf = tree.blocks[newLeafId];
+      const paragraph = makeParagraph(tree, newLeaf?.text ?? '');
+      return { tree: replaceBlock(tree, newLeafId, paragraph), focusId: paragraph.id };
+    });
   }
 
   // 引用内容：空行回车 → 退出引用（对齐列表空项回车行为）；否则在引用内拆分
   if (parent?.type === 'blockquote') {
-    const beforeText = (block.text ?? '').slice(0, offset);
-    const afterText = (block.text ?? '').slice(offset);
-    if (beforeText === '' && afterText === '') {
+    if ((block.text ?? '') === '') {
       return convertBlockToParagraph(instance, block.id);
     }
-    const result = splitLeaf(instance.tree, blockId, offset);
-    let tree = result.tree;
-    const newLeaf = tree.blocks[result.newLeafId];
-    tree = renderBlock(tree, newLeaf.id);
-    instance.tree = tree;
-    return {
-      changedBlockIds: [blockId, newLeaf.id],
-      focus: { blockId: newLeaf.id, offset: 0 },
-    };
+    return splitAndFocusNewLeaf(instance, blockId, offset);
   }
 
   // 引用/段落：通用拆分
+  return splitAndFocusNewLeaf(instance, blockId, offset);
+}
+
+/** 拆分叶子并聚焦新块开头：splitLeaf → （可选变换）→ 渲染新块 */
+function splitAndFocusNewLeaf(
+  instance: EditorInstance,
+  blockId: string,
+  offset: number,
+  transform?: (tree: BlockTreeV2, newLeafId: string) => { tree: BlockTreeV2; focusId: string }
+): EditorActionResult {
   const result = splitLeaf(instance.tree, blockId, offset);
   let tree = result.tree;
-  const newLeaf = tree.blocks[result.newLeafId];
-    tree = renderBlock(tree, newLeaf.id);
+  let focusId = result.newLeafId;
+  if (transform) {
+    const transformed = transform(tree, result.newLeafId);
+    tree = transformed.tree;
+    focusId = transformed.focusId;
+  }
+  tree = renderBlock(tree, focusId);
   instance.tree = tree;
   return {
-    changedBlockIds: [blockId, newLeaf.id],
-    focus: { blockId: newLeaf.id, offset: 0 },
+    changedBlockIds: [blockId, focusId],
+    focus: { blockId: focusId, offset: 0 },
   };
 }
 
@@ -128,14 +126,17 @@ function enterInListItem(
   const afterText = (content.text ?? '').slice(offset);
 
   // 空列表项回车 → 退出列表（SPEC 二/三/四）
-  if (beforeText === '' && afterText === '') {
+  if ((content.text ?? '') === '') {
     return convertBlockToParagraph(instance, content.id);
   }
 
   // 续行：当前项保留 beforeText，新项承载 afterText
   let next = setBlockText(tree, content.id, beforeText);
   next = renderBlock(next, content.id, beforeText);
-  const newItem = makeListItem(next, item.meta?.taskChecked !== undefined ? { taskChecked: false } : undefined);
+  const newItem = makeListItem(
+    next,
+    item.meta?.taskChecked !== undefined ? { taskChecked: false } : undefined
+  );
   next = insertBlockAfter(next, item.id, newItem);
   const paragraph = makeParagraph(next, afterText);
   next = appendChild(next, newItem.id, paragraph);

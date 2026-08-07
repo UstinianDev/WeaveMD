@@ -7,14 +7,13 @@
 
 import React, { useCallback, useLayoutEffect, useRef } from 'react';
 
-import { escapeHtml } from '../../../../editor/kernel';
+import type { InlineFormatStyle } from '../../../../editor/controllers';
+import { toDisplayHtml } from '../../../../editor/kernel';
 import {
+  getCrossBlockSelection,
   getCursorOffsets,
-  nearestContentSpan,
-  offsetInBlock,
   setCursorAtOffset,
 } from '../../../../editor/kernel/selection';
-import type { InlineFormatStyle } from '../../../../editor/controllers';
 import type { InputEventResult } from '../types';
 
 interface ContentBlockProps {
@@ -40,30 +39,6 @@ interface ContentBlockProps {
   onRedo: () => void;
   registerDom: (blockId: string, el: HTMLElement) => void;
   unregisterDom: (blockId: string) => void;
-}
-
-/** 检测跨块文本选区（anchor/focus 位于不同内容块） */
-function getCrossBlockSelection(): {
-  startBlockId: string;
-  startOffset: number;
-  endBlockId: string;
-  endOffset: number;
-} | null {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
-  const range = sel.getRangeAt(0);
-  const startSpan = nearestContentSpan(range.startContainer);
-  const endSpan = nearestContentSpan(range.endContainer);
-  if (!startSpan || !endSpan) return null;
-  const startId = startSpan.getAttribute('data-block-id');
-  const endId = endSpan.getAttribute('data-block-id');
-  if (!startId || !endId || startId === endId) return null;
-  return {
-    startBlockId: startId,
-    startOffset: offsetInBlock(startSpan, range.startContainer, range.startOffset),
-    endBlockId: endId,
-    endOffset: offsetInBlock(endSpan, range.endContainer, range.endOffset),
-  };
 }
 
 const ContentBlock: React.FC<ContentBlockProps> = ({
@@ -240,8 +215,7 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
     [handleEnterKey, handleBackspaceKey, handleTabKey, handleFormatShortcut, onDeleteRange]
   );
 
-  const html = inlineHtml ?? escapeHtml(text);
-  const displayHtml = html === '' ? '\u200B' : html;
+  const displayHtml = toDisplayHtml(inlineHtml, text);
   const isEmpty = text === '';
   const style: React.CSSProperties = raw
     ? { whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '13px', lineHeight: 1.6 }
