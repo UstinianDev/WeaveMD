@@ -137,8 +137,8 @@ describe('markdown round-trip — 代码块与表格', () => {
 
   it('代码内容含围栏时自动加长', () => {
     const result = roundTrip('```\ninner ``` fence\n```');
-    // 内容含 ``` → 序列化用更长的围栏包裹，重解析后语义等价
-    expect(markdownToState(result).root.childrenIds.length).toBe(1);
+    // 内容含 ``` → 序列化用更长的围栏包裹，重解析后语义等价（SPEC-EDIT-CBTP：尾部代码块规范化补保护空行）
+    expect(markdownToState(result).root.childrenIds.length).toBe(2);
     expect(stateToMarkdown(markdownToState(result))).toBe(result);
   });
 

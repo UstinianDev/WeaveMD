@@ -14,15 +14,15 @@
 对 `src/render/components/Editor/` 与 `src/render/services/` 的全面审查，确认当前编辑主区
 存在以下结构性问题：
 
-| # | 问题 | 证据 | 影响 |
-| - | ---- | ---- | ---- |
-| E1 | 容器级 contentEditable：整个 `editor-content-area` 一个 contenteditable，所有块都是其子元素 | `EditorScrollContainer.tsx` 中 `contentEditable` 在容器层，块组件只读渲染 | 光标/选区管理脆弱，必须用 TreeWalker、零宽空格、`focusBlockCursor` setTimeout 等大量 workaround；跨块 DOM 操作（格式化、删除）极易越界 |
-| E2 | EditorView 巨型组件：输入/回车/退格/转换/同步/导航/查找全部耦合 | `EditorView.tsx` 1686 行，30+ 个 useCallback | 逻辑无法独立测试，状态流难以追踪，任何交互改动都牵一发动全身 |
-| E3 | 渲染与模型脱节：块内容依赖 `renderedHtml` 缓存 + `dangerouslySetInnerHTML` 恢复，真实文本只存在于 DOM | `BlockNode.renderedHtml`、渲染 effect 依赖 `[version]` 并扫描全部块 | 出现 O(N²) 重扫、stale ID、缓存失效等复杂状态；序列化依赖 DOM 反推（`domToMarkdown`），无法保证无损 |
-| E4 | 块模型扁平：所有块都是顶层兄弟，无容器嵌套 | `BlockTree.rootBlockIds` 一维数组，`parentId/childrenIds` 未实际使用 | 不支持列表嵌套（子列表/列表内代码块/引用内列表）、表格多行结构等 CommonMark 基本结构 |
-| E5 | 代码块是旁路：textarea 独立编辑，与统一编辑模型隔离 | `CodeFenceBlock.tsx` 中 textarea `onKeyDown` stopPropagation | 代码块无法参与统一的块操作（空退、合并、tab），行为与其他块不一致 |
-| E6 | 格式化依赖 `document.execCommand` + Range 直接操作 DOM | `FloatingToolbarWYSIWYG.tsx` | execCommand 已废弃，行为跨平台不一致，且绕过了块模型，破坏 WYSIWYG 一致性 |
-| E7 | 块转换规则分散：pending 灰化、回车提交、退格回退逻辑分布在 input/enter/backspace 三个 handler 中，且有双路径（pending + fallback） | `handleBlockInput/handleBlockEnter/handleBlockDelete/handleBlockConvertToParagraph` | 六种块的退出边界条件（SPEC-EDIT-EXIT）与进入规则无法统一验证 |
+| #   | 问题                                                                                                                               | 证据                                                                                | 影响                                                                                                                                   |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| E1  | 容器级 contentEditable：整个 `editor-content-area` 一个 contenteditable，所有块都是其子元素                                        | `EditorScrollContainer.tsx` 中 `contentEditable` 在容器层，块组件只读渲染           | 光标/选区管理脆弱，必须用 TreeWalker、零宽空格、`focusBlockCursor` setTimeout 等大量 workaround；跨块 DOM 操作（格式化、删除）极易越界 |
+| E2  | EditorView 巨型组件：输入/回车/退格/转换/同步/导航/查找全部耦合                                                                    | `EditorView.tsx` 1686 行，30+ 个 useCallback                                        | 逻辑无法独立测试，状态流难以追踪，任何交互改动都牵一发动全身                                                                           |
+| E3  | 渲染与模型脱节：块内容依赖 `renderedHtml` 缓存 + `dangerouslySetInnerHTML` 恢复，真实文本只存在于 DOM                              | `BlockNode.renderedHtml`、渲染 effect 依赖 `[version]` 并扫描全部块                 | 出现 O(N²) 重扫、stale ID、缓存失效等复杂状态；序列化依赖 DOM 反推（`domToMarkdown`），无法保证无损                                    |
+| E4  | 块模型扁平：所有块都是顶层兄弟，无容器嵌套                                                                                         | `BlockTree.rootBlockIds` 一维数组，`parentId/childrenIds` 未实际使用                | 不支持列表嵌套（子列表/列表内代码块/引用内列表）、表格多行结构等 CommonMark 基本结构                                                   |
+| E5  | 代码块是旁路：textarea 独立编辑，与统一编辑模型隔离                                                                                | `CodeFenceBlock.tsx` 中 textarea `onKeyDown` stopPropagation                        | 代码块无法参与统一的块操作（空退、合并、tab），行为与其他块不一致                                                                      |
+| E6  | 格式化依赖 `document.execCommand` + Range 直接操作 DOM                                                                             | `FloatingToolbarWYSIWYG.tsx`                                                        | execCommand 已废弃，行为跨平台不一致，且绕过了块模型，破坏 WYSIWYG 一致性                                                              |
+| E7  | 块转换规则分散：pending 灰化、回车提交、退格回退逻辑分布在 input/enter/backspace 三个 handler 中，且有双路径（pending + fallback） | `handleBlockInput/handleBlockEnter/handleBlockDelete/handleBlockConvertToParagraph` | 六种块的退出边界条件（SPEC-EDIT-EXIT）与进入规则无法统一验证                                                                           |
 
 ### 1.2 重做目标
 
@@ -45,7 +45,7 @@
 - **事件中心**：`EventCenter` 统一注册/注销 DOM 监听（带 eventId），内容块监听
   input/keydown/keyup/click/blur/focus/composition*，控制器各自处理。
 - **输入管线**：`inputHandler → autoPair → text 更新 → checkNeedRender → update → setSelection
-  → convertIfNeeded`；`convertIfNeeded` 用正则检测列表/标题/引用/代码/分割线前缀后执行块转换。
+→ convertIfNeeded`；`convertIfNeeded` 用正则检测列表/标题/引用/代码/分割线前缀后执行块转换。
 - **行内渲染**：`inlineRenderer`（lexer + token renderer 系列）负责把 text 渲染为富文本 DOM。
 
 WeaveMD 不整体移植 muya（其为 Vue 无关的 1000+ 文件 JS 库，依赖 katex/mermaid/vega 等），
@@ -147,18 +147,18 @@ lineMarkdown.ts / markdown.ts / searchEngine.ts` 保留到 M4 完成后再退役
 // src/render/editor/kernel/types.ts
 
 export type BlockTypeV2 =
-  | 'document'            // 根容器
-  | 'paragraph'           // 叶子块（含文本）
-  | 'heading'             // 叶子块
-  | 'code-block'          // 叶子块（围栏代码）
-  | 'html-block'          // 叶子块（原始 HTML，只读展示）
-  | 'thematic-break'      // 叶子块（分割线）
-  | 'blockquote'          // 容器块
-  | 'bullet-list'         // 容器块
-  | 'ordered-list'        // 容器块
-  | 'task-list'           // 容器块
-  | 'list-item'           // 容器块（列表项，包裹内容）
-  | 'table';              // v2 首版为叶子块（原始文本），M4 可选升级为容器块
+  | 'document' // 根容器
+  | 'paragraph' // 叶子块（含文本）
+  | 'heading' // 叶子块
+  | 'code-block' // 叶子块（围栏代码）
+  | 'html-block' // 叶子块（原始 HTML，只读展示）
+  | 'thematic-break' // 叶子块（分割线）
+  | 'blockquote' // 容器块
+  | 'bullet-list' // 容器块
+  | 'ordered-list' // 容器块
+  | 'task-list' // 容器块
+  | 'list-item' // 容器块（列表项，包裹内容）
+  | 'table'; // v2 首版为叶子块（原始文本），M4 可选升级为容器块
 
 export interface BlockNodeV2 {
   /** 稳定 ID（构建时生成，重排不变） */
@@ -176,19 +176,19 @@ export interface BlockNodeV2 {
   /** 块级元数据 */
   meta?: {
     headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
-    fenceLanguage?: string;      // code-block
+    fenceLanguage?: string; // code-block
     listMarker?: '-' | '*' | '+'; // bullet-list
-    orderedStart?: number;       // ordered-list 起始编号
+    orderedStart?: number; // ordered-list 起始编号
     orderedDelimiter?: '.' | ')';
-    taskChecked?: boolean;       // task-list-item
-    loose?: boolean;             // 列表是否松散
+    taskChecked?: boolean; // task-list-item
+    loose?: boolean; // 列表是否松散
   };
   /** 渲染缓存：行内富文本 HTML（由 inlineRenderer 生成，可为 null 表示待渲染） */
   inlineHtml: string | null;
 }
 
 export interface BlockTreeV2 {
-  root: BlockNodeV2;             // document 根
+  root: BlockNodeV2; // document 根
   blocks: Record<string, BlockNodeV2>;
 }
 
@@ -206,10 +206,10 @@ export interface SelectionV2 {
 
 ### 3.2 容器块与叶子块划分
 
-| 分类 | 类型 | 子块规则 |
-| ---- | ---- | -------- |
+| 分类   | 类型                                                                               | 子块规则                          |
+| ------ | ---------------------------------------------------------------------------------- | --------------------------------- |
 | 容器块 | document / blockquote / bullet-list / ordered-list / task-list / list-item / table | `childrenIds` 非空；自身无 `text` |
-| 叶子块 | paragraph / heading / code-block / html-block / thematic-break | `text` 非空；`childrenIds` 为空 |
+| 叶子块 | paragraph / heading / code-block / html-block / thematic-break                     | `text` 非空；`childrenIds` 为空   |
 
 容器嵌套规则（与 CommonMark 对齐）：
 
@@ -229,28 +229,24 @@ export function getChildren(tree: BlockTreeV2, id: string): BlockNodeV2[];
 export function getPrev(tree: BlockTreeV2, id: string): BlockNodeV2 | null;
 export function getNext(tree: BlockTreeV2, id: string): BlockNodeV2 | null;
 export function getParent(tree: BlockTreeV2, id: string): BlockNodeV2 | null;
-export function getFirstLeaf(tree: BlockTreeV2, id: string): BlockNodeV2 | null;   // DFS 首个叶子
+export function getFirstLeaf(tree: BlockTreeV2, id: string): BlockNodeV2 | null; // DFS 首个叶子
 export function getLastLeaf(tree: BlockTreeV2, id: string): BlockNodeV2 | null;
-export function getNextLeaf(tree: BlockTreeV2, id: string): BlockNodeV2 | null;   // 文档序下一个叶子
+export function getNextLeaf(tree: BlockTreeV2, id: string): BlockNodeV2 | null; // 文档序下一个叶子
 export function getPrevLeaf(tree: BlockTreeV2, id: string): BlockNodeV2 | null;
-export function getAllBlocksInOrder(tree: BlockTreeV2): BlockNodeV2[];            // 文档序（前序）
+export function getAllBlocksInOrder(tree: BlockTreeV2): BlockNodeV2[]; // 文档序（前序）
 
-export function insertBlockAfter(
-  tree: BlockTreeV2,
-  refId: string,
-  node: BlockNodeV2
-): BlockTreeV2;
-export function insertBlockBefore(
-  tree: BlockTreeV2,
-  refId: string,
-  node: BlockNodeV2
-): BlockTreeV2;
+export function insertBlockAfter(tree: BlockTreeV2, refId: string, node: BlockNodeV2): BlockTreeV2;
+export function insertBlockBefore(tree: BlockTreeV2, refId: string, node: BlockNodeV2): BlockTreeV2;
 export function appendChild(tree: BlockTreeV2, parentId: string, node: BlockNodeV2): BlockTreeV2;
 export function removeBlock(tree: BlockTreeV2, id: string): BlockTreeV2;
 export function replaceBlock(tree: BlockTreeV2, id: string, node: BlockNodeV2): BlockTreeV2;
 export function setBlockText(tree: BlockTreeV2, id: string, text: string): BlockTreeV2;
 export function setInlineHtml(tree: BlockTreeV2, id: string, html: string): BlockTreeV2;
-export function updateMeta(tree: BlockTreeV2, id: string, patch: Partial<BlockNodeV2['meta']>): BlockTreeV2;
+export function updateMeta(
+  tree: BlockTreeV2,
+  id: string,
+  patch: Partial<BlockNodeV2['meta']>
+): BlockTreeV2;
 
 /** 将一段文本按块树结构切分：splitLeaf(tree, leafId, offset) → 左右两个叶子 */
 export function splitLeaf(tree: BlockTreeV2, leafId: string, offset: number): BlockTreeV2;
@@ -260,7 +256,15 @@ export function mergeLeafIntoPrev(tree: BlockTreeV2, leafId: string): BlockTreeV
 
 /** 根据 text 内容决定叶子块应转换成的类型（供控制器查询） */
 export function detectBlockConversion(text: string): {
-  type: 'paragraph' | 'heading' | 'bullet-list' | 'ordered-list' | 'task-list' | 'blockquote' | 'code-block' | 'thematic-break';
+  type:
+    | 'paragraph'
+    | 'heading'
+    | 'bullet-list'
+    | 'ordered-list'
+    | 'task-list'
+    | 'blockquote'
+    | 'code-block'
+    | 'thematic-break';
   meta?: BlockNodeV2['meta'];
   prefixLength: number;
 } | null;
@@ -276,7 +280,7 @@ export function detectBlockConversion(text: string): {
 
 按行/块级规则依次尝试，命中即消费：
 
-```
+````
 空白行（跳过，用于块分隔）
 → 围栏代码块（``` / ~~~，含语言标识，直到闭合围栏）
 → HTML 块（<div> 等，可选支持）
@@ -288,7 +292,7 @@ export function detectBlockConversion(text: string): {
 → 代码块（4 空格缩进，可选支持）
 → 分割线（--- / *** / ___，独立成块）
 → 段落（兜底，连续非空行合并，行内再解析）
-```
+````
 
 列表块解析须支持：
 
@@ -311,19 +315,21 @@ stateToMarkdown(markdownToState(M)) === M（按规范化的行尾与块间隔）
   `heading` → `#{level} ` + text；`bullet-list > list-item` → `- ` + text）。
 - 容器块的嵌套缩进由序列化器按层级计算（列表子项 2 空格/4 空格，与解析器互逆）。
 - 块间以空行分隔（loose list 项间空行由 `loose` meta 控制）。
-- 代码块序列化：``` + 语言 + 内容 + ```；内容含围栏时自动选择更长围栏。
+- 代码块序列化：`+ 语言 + 内容 +`；内容含围栏时自动选择更长围栏。
 
 **规范化往返定义（M1 定稿）**：`stateToMarkdown(markdownToState(M)) === M` 对所有
 "规范输入"严格成立；非规范输入输出语义等价的规范化形式。已知归一化清单：
 
-| 输入 | 输出（规范化） | 说明 |
-| ---- | -------------- | ---- |
-| 块间无空行（`# H\np`） | 补空行（`# H\n\np`） | 块边界显式化 |
-| 标题 closing `#`（`# Title #`） | 剥离（`# Title`） | CommonMark 语义 |
-| 无序列表 `*` / `+` 标记 | 统一 `-` | marktext 行为 |
-| 分割线 `***` / `___` | 统一 `---` | 语义等价 |
-| 文档首尾空行 | 剥离 | 无信息量 |
-| 空文档（纯空白） | `''` | 无信息量 |
+| 输入                            | 输出（规范化）                         | 说明                                       |
+| ------------------------------- | -------------------------------------- | ------------------------------------------ |
+| 块间无空行（`# H\np`）          | 补空行（`# H\n\np`）                   | 块边界显式化                               |
+| 标题 closing `#`（`# Title #`） | 剥离（`# Title`）                      | CommonMark 语义                            |
+| 无序列表 `*` / `+` 标记         | 统一 `-`                               | marktext 行为                              |
+| 分割线 `***` / `___`            | 统一 `---`                             | 语义等价                                   |
+| 文档首尾空行                    | 剥离                                   | 无信息量                                   |
+| 空文档（纯空白）                | `''`                                   | 无信息量                                   |
+| 以围栏代码块收尾的文档          | 块树末尾补空 paragraph（文本输出不变） | 代码块尾随保护空行持久化（SPEC-EDIT-CBTP） |
+| 引用内末尾代码块                | 引用尾部序列化出一行裸 `>`             | SPEC-EDIT-CBTP B3 边缘场景，语义等价       |
 
 ### 4.3 行内渲染（inlineRenderer）
 
@@ -419,7 +425,7 @@ compositionstart/compositionend，按事件类型路由到对应控制器。
 1. 有选区（非折叠）：删除选区文本（浏览器默认，不干预）。
 2. 光标在文本起点：
    a. 叶子在列表项内且为首个内容：删除列表标记 → 列表项转 paragraph（或列表项移除后
-      列表缩级），对应"撤销圆点/数字/复选框"；
+   列表缩级），对应"撤销圆点/数字/复选框"；
    b. 叶子在引用块内且为唯一内容：引用块降级为 paragraph；
    c. 空 paragraph 块：与前一叶子合并（跨块时 `mergeLeafIntoPrev`；跨容器时降级容器）；
    d. 标题：降级为 paragraph（内容保留）；
@@ -439,15 +445,15 @@ compositionstart/compositionend，按事件类型路由到对应控制器。
 
 统一由 `detectBlockConversion(text)` 驱动，取代 v1 的 pending 灰化 + 双路径提交：
 
-| 输入前缀 | 转换 | 说明 |
-| ------- | ---- | ---- |
-| `# ` ~ `###### ` | heading(level) | 前缀随回车/输入即时提交；删除前缀字符（含空格）→ 回 paragraph |
-| `- ` / `* ` / `+ ` | bullet-list > list-item > paragraph | 后续行 Enter 续行 |
-| `1. ` / `1) ` | ordered-list（start=1, delimiter） | 续行自动递增 |
-| `- [ ] ` / `- [x] ` | task-list > task-list-item > paragraph | checked 由标记决定 |
-| `> ` | blockquote > paragraph | 连续 `>` 续行 |
-| ` ``` lang` | code-block(lang) | 完整围栏自动闭合；空内容 Backspace 退出 |
-| `---` / `***` / `___` | thematic-break | 独立成块 |
+| 输入前缀              | 转换                                   | 说明                                                          |
+| --------------------- | -------------------------------------- | ------------------------------------------------------------- |
+| `# ` ~ `###### `      | heading(level)                         | 前缀随回车/输入即时提交；删除前缀字符（含空格）→ 回 paragraph |
+| `- ` / `* ` / `+ `    | bullet-list > list-item > paragraph    | 后续行 Enter 续行                                             |
+| `1. ` / `1) `         | ordered-list（start=1, delimiter）     | 续行自动递增                                                  |
+| `- [ ] ` / `- [x] `   | task-list > task-list-item > paragraph | checked 由标记决定                                            |
+| `> `                  | blockquote > paragraph                 | 连续 `>` 续行                                                 |
+| ` ``` lang`           | code-block(lang)                       | 完整围栏自动闭合；空内容 Backspace 退出                       |
+| `---` / `***` / `___` | thematic-break                         | 独立成块                                                      |
 
 **v2 移除 v1 的 pendingTypeChange 机制**：前缀输入即时转换块类型（marktext 行为），
 删除语法前缀时即时降级。块内不渲染灰色前缀；语法标记由块渲染提供（列表标记/引用竖线）。
@@ -492,12 +498,8 @@ compositionstart/compositionend，按事件类型路由到对应控制器。
 ```ts
 export function getCursorOffsets(contentEl: HTMLElement): { start: number; end: number };
 export function setCursorAtOffset(contentEl: HTMLElement, offset: number): void;
-export function setSelectionRange(
-  contentEl: HTMLElement,
-  start: number,
-  end: number
-): void;
-export function getBlockFromSelection(): string | null;   // 返回 data-block-id
+export function setSelectionRange(contentEl: HTMLElement, start: number, end: number): void;
+export function getBlockFromSelection(): string | null; // 返回 data-block-id
 ```
 
 `cursorCtrl` 保证：任何块树修改触发的重渲染完成后，调用 `setCursorAtOffset` 恢复光标。
@@ -547,13 +549,13 @@ v2 采用**块树快照栈**（简单、可靠），替代 v1 的 content 快照
 
 ### 9.3 周边组件适配
 
-| 组件 | v2 适配 |
-| ---- | ------- |
-| OutlinePanel | 标题树仍由 `extractOutline(content)` 生成；导航改为"查找 heading 块 → 滚动到其 ContentBlock"；高亮由滚动位置检测（复用 v1 的 +10px 规则） |
-| Minimap | 遍历块树计算块类型色带（替代 v1 DOM 扫描），点击导航同大纲 |
-| FindReplaceBar | 仍在 `content` 文本层工作（searchEngine 复用）；替换后 `updateContent → 重建块树`，v2 保持"整树重建"简单路径（性能见 12 节风险） |
-| FloatingToolbar | 选区来自 DOM；格式化改走 formatCtrl（文本层操作），工具栏 UI 不变 |
-| StatusBar | 光标位置由 v2 cursor 事件提供（块 → 行号映射） |
+| 组件            | v2 适配                                                                                                                                   |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| OutlinePanel    | 标题树仍由 `extractOutline(content)` 生成；导航改为"查找 heading 块 → 滚动到其 ContentBlock"；高亮由滚动位置检测（复用 v1 的 +10px 规则） |
+| Minimap         | 遍历块树计算块类型色带（替代 v1 DOM 扫描），点击导航同大纲                                                                                |
+| FindReplaceBar  | 仍在 `content` 文本层工作（searchEngine 复用）；替换后 `updateContent → 重建块树`，v2 保持"整树重建"简单路径（性能见 12 节风险）          |
+| FloatingToolbar | 选区来自 DOM；格式化改走 formatCtrl（文本层操作），工具栏 UI 不变                                                                         |
+| StatusBar       | 光标位置由 v2 cursor 事件提供（块 → 行号映射）                                                                                            |
 
 ### 9.4 模式切换
 
@@ -568,12 +570,12 @@ Source → Normal：content → markdownToState → 块树 → 渲染
 
 ## 10. 实施分期
 
-| 阶段 | 内容 | 交付物 | 风险 |
-| ---- | ---- | ------ | ---- |
-| M1 | 内核数据模型 + 双向转换 + 行内渲染（纯函数） | `kernel/types.ts`、`blockTree.ts`、`markdownToState.ts`、`stateToMarkdown.ts`、`inlineRenderer.ts` + 单元测试 | 低：纯函数，不触碰 UI |
-| M2 | 渲染骨架：新块组件 + ContentBlock + EditorScrollContainer 重构 + EditorView 接入 | 渲染层重构，双模式可切换、可编辑基础文本 | 中：首次 UI 切换，保留旧实现可回退 |
-| M3 | 核心交互控制器：input / enter / backspace / click / format / list + 块转换与退出规则 | 控制器 + 集成测试（jsdom 模拟输入） | 高：编辑行为回归面大 |
-| M4 | 系统集成：撤销/重做、大纲/Minimap/查找适配、代码块编辑、自动保存 flush、v1 服务退役 | 全量测试 + 手工验收清单 | 中：跨模块联调 |
+| 阶段 | 内容                                                                                 | 交付物                                                                                                        | 风险                               |
+| ---- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| M1   | 内核数据模型 + 双向转换 + 行内渲染（纯函数）                                         | `kernel/types.ts`、`blockTree.ts`、`markdownToState.ts`、`stateToMarkdown.ts`、`inlineRenderer.ts` + 单元测试 | 低：纯函数，不触碰 UI              |
+| M2   | 渲染骨架：新块组件 + ContentBlock + EditorScrollContainer 重构 + EditorView 接入     | 渲染层重构，双模式可切换、可编辑基础文本                                                                      | 中：首次 UI 切换，保留旧实现可回退 |
+| M3   | 核心交互控制器：input / enter / backspace / click / format / list + 块转换与退出规则 | 控制器 + 集成测试（jsdom 模拟输入）                                                                           | 高：编辑行为回归面大               |
+| M4   | 系统集成：撤销/重做、大纲/Minimap/查找适配、代码块编辑、自动保存 flush、v1 服务退役  | 全量测试 + 手工验收清单                                                                                       | 中：跨模块联调                     |
 
 **实施原则**：
 
@@ -607,13 +609,13 @@ Source → Normal：content → markdownToState → 块树 → 渲染
 
 ## 12. 风险与回退
 
-| 风险 | 缓解 |
-| ---- | ---- |
+| 风险                                    | 缓解                                                                          |
+| --------------------------------------- | ----------------------------------------------------------------------------- |
 | 编辑交互回归面大（光标、IME、跨块选择） | 新旧并行开关；M3 按交互矩阵逐项验收；IME 用 `isComposed` 守卫并补中文输入测试 |
-| 大文档性能（10000+ 行） | 局部渲染（只渲染受影响块）；行内渲染缓存；find/replace 重建整树仅限低频操作 |
-| 序列化无损性破坏用户数据 | M1 属性测试 + 语料库快照测试；保存仍走 markdown 文本，任何时刻可回退 v1 |
-| 与 v1 功能差距（MD Source、空块占位等） | M2-M4 逐项对照 REQUIREMENTS EDIT-01~12 验收清单 |
-| 工作量大 | 分期实施、每期独立可交付；文档先行确保设计一致 |
+| 大文档性能（10000+ 行）                 | 局部渲染（只渲染受影响块）；行内渲染缓存；find/replace 重建整树仅限低频操作   |
+| 序列化无损性破坏用户数据                | M1 属性测试 + 语料库快照测试；保存仍走 markdown 文本，任何时刻可回退 v1       |
+| 与 v1 功能差距（MD Source、空块占位等） | M2-M4 逐项对照 REQUIREMENTS EDIT-01~12 验收清单                               |
+| 工作量大                                | 分期实施、每期独立可交付；文档先行确保设计一致                                |
 
 ---
 
@@ -628,13 +630,13 @@ Source → Normal：content → markdownToState → 块树 → 渲染
 
 内核纯函数层已按本规范实现并通过测试：
 
-| 文件 | 内容 |
-| ---- | ---- |
-| `src/render/editor/kernel/types.ts` | BlockTypeV2 / BlockNodeV2 / BlockTreeV2 / CursorV2 / SelectionV2 / BlockConversionV2 与分型判定 |
-| `src/render/editor/kernel/blockTree.ts` | 不可变块树操作集（链表 + 父子）、`splitLeaf / mergeLeafIntoPrev / detectBlockConversion` |
-| `src/render/editor/kernel/markdownToState.ts` | 块级解析器（围栏/表格/ATX/Setext/引用/列表嵌套/分割线/段落兜底） |
-| `src/render/editor/kernel/stateToMarkdown.ts` | 逐行序列化器（标记归一化、围栏自动加长、Setext 保留、blockquote 前缀） |
-| `src/render/editor/kernel/inlineRenderer.ts` | 行内渲染（强调/代码/链接/图片/自动链接/转义），HTML 转义 + 链接协议白名单 |
+| 文件                                          | 内容                                                                                            |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `src/render/editor/kernel/types.ts`           | BlockTypeV2 / BlockNodeV2 / BlockTreeV2 / CursorV2 / SelectionV2 / BlockConversionV2 与分型判定 |
+| `src/render/editor/kernel/blockTree.ts`       | 不可变块树操作集（链表 + 父子）、`splitLeaf / mergeLeafIntoPrev / detectBlockConversion`        |
+| `src/render/editor/kernel/markdownToState.ts` | 块级解析器（围栏/表格/ATX/Setext/引用/列表嵌套/分割线/段落兜底）                                |
+| `src/render/editor/kernel/stateToMarkdown.ts` | 逐行序列化器（标记归一化、围栏自动加长、Setext 保留、blockquote 前缀）                          |
+| `src/render/editor/kernel/inlineRenderer.ts`  | 行内渲染（强调/代码/链接/图片/自动链接/转义），HTML 转义 + 链接协议白名单                       |
 
 **M1 验证**：`tests/editor/kernel/` 3 个文件 71 例（树操作 15 / 往返 41 / 行内 15）；
 全量 `vitest run` 260 例通过；`tsc --noEmit` 无错误。
@@ -649,14 +651,14 @@ Source → Normal：content → markdownToState → 块树 → 渲染
 
 渲染层已按第 5 节实施，与 v1 并行、可回退：
 
-| 文件 | 内容 |
-| ---- | ---- |
-| `src/render/editor/selection.ts` | 光标/选区 DOM 读写（偏移 ↔ 文本节点，排除零宽空格） |
-| `src/render/editor/editorInstance.ts` | EditorInstance 宿主：内容装载、行内缓存、基础输入/回车拆分/空块退格 |
-| `src/render/components/Editor/v2/EditorV2.tsx` | v2 入口：树状态、事件路由、DOM 注册表、光标恢复、内容同步 |
-| `src/render/components/Editor/v2/EditorScrollContainer.tsx` | 滚动视口（容器非 contentEditable） |
-| `src/render/components/Editor/v2/BlockRenderer.tsx` | 容器/叶子递归分发 |
-| `src/render/components/Editor/v2/blocks/` | ContentBlock（唯一 contentEditable）、LeafBlock、CodeBlock、ListItemBlock、BlockquoteBlock |
+| 文件                                                        | 内容                                                                                       |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `src/render/editor/selection.ts`                            | 光标/选区 DOM 读写（偏移 ↔ 文本节点，排除零宽空格）                                        |
+| `src/render/editor/editorInstance.ts`                       | EditorInstance 宿主：内容装载、行内缓存、基础输入/回车拆分/空块退格                        |
+| `src/render/components/Editor/v2/EditorV2.tsx`              | v2 入口：树状态、事件路由、DOM 注册表、光标恢复、内容同步                                  |
+| `src/render/components/Editor/v2/EditorScrollContainer.tsx` | 滚动视口（容器非 contentEditable）                                                         |
+| `src/render/components/Editor/v2/BlockRenderer.tsx`         | 容器/叶子递归分发                                                                          |
+| `src/render/components/Editor/v2/blocks/`                   | ContentBlock（唯一 contentEditable）、LeafBlock、CodeBlock、ListItemBlock、BlockquoteBlock |
 
 **接入方式**：`EditorView` Normal Mode 按 `window.__EDITOR_V2__ !== false` 渲染 v2，
 设为 `false` 刷新即回退 v1（M4 验收后删除 v1 路径）。v1 文件未改动。
@@ -671,15 +673,15 @@ Source → Normal：content → markdownToState → 块树 → 渲染
 
 按第 6 节实施全部控制器，交互行为对齐 marktext：
 
-| 控制器 | 内容 |
-| ------ | ---- |
-| `controllers/inputCtrl.ts` | autoPair（`(` `[` `{` `` ` `` `'` `"` 自动补全、光标居中）、文本更新、前缀即时转换触发 |
-| `controllers/convertCtrl.ts` | 升格（paragraph → heading/list/blockquote/code-block/thematic-break）与降格（六条退出规则） |
-| `controllers/enterCtrl.ts` | 代码块换行、列表续行新列表项、空列表项回车退出、标题右半转段落、引用内拆分 |
-| `controllers/backspaceCtrl.ts` | 光标在内容起点即触发：标题转正文、列表项退出、引用降级、空代码块移除、段落合并前块 |
-| `controllers/clickCtrl.ts` | 任务复选框切换（v1 缺失的"可打勾"交互） |
-| `controllers/listCtrl.ts` | Tab 缩进为前项子列表、Shift+Tab 凸出（嵌套列表空后自动移除） |
-| `controllers/formatCtrl.ts` | 文本层格式化（bold/italic/strike/highlight/code/link），取代 execCommand |
+| 控制器                         | 内容                                                                                        |
+| ------------------------------ | ------------------------------------------------------------------------------------------- |
+| `controllers/inputCtrl.ts`     | autoPair（`(` `[` `{` `` ` `` `'` `"` 自动补全、光标居中）、文本更新、前缀即时转换触发      |
+| `controllers/convertCtrl.ts`   | 升格（paragraph → heading/list/blockquote/code-block/thematic-break）与降格（六条退出规则） |
+| `controllers/enterCtrl.ts`     | 代码块换行、列表续行新列表项、空列表项回车退出、标题右半转段落、引用内拆分                  |
+| `controllers/backspaceCtrl.ts` | 光标在内容起点即触发：标题转正文、列表项退出、引用降级、空代码块移除、段落合并前块          |
+| `controllers/clickCtrl.ts`     | 任务复选框切换（v1 缺失的"可打勾"交互）                                                     |
+| `controllers/listCtrl.ts`      | Tab 缩进为前项子列表、Shift+Tab 凸出（嵌套列表空后自动移除）                                |
+| `controllers/formatCtrl.ts`    | 文本层格式化（bold/italic/strike/highlight/code/link），取代 execCommand                    |
 
 **接入**：`ContentBlock` 键盘事件（Enter/Backspace/Tab/Shift+Tab/Ctrl+B/I/E/Shift+S/Shift+H）
 路由到对应控制器；`EditorV2` 统一执行"操作 → 更新树 → 恢复光标 → 同步内容"。
@@ -695,15 +697,15 @@ Source → Normal：content → markdownToState → 块树 → 渲染
 
 按第 8、9 节完成系统集成：
 
-| 集成项 | 实现 |
-| ------ | ---- |
-| 撤销/重做 | 经 `editorStore` content 快照栈（v2 每次编辑序列化同步，天然与 v1 undo 栈兼容）；ContentBlock 拦截 Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z 并调 store，TopBar 按钮同样生效 |
-| 大纲导航 | 新增 `kernel/outline.ts`（`extractHeadingOutline`：DFS 标题 + 序列化行号）；`onNavigateReady` 按 lineNumber/headingIndex → `scrollToBlock` |
-| 滚动高亮 | EditorScrollContainer 滚动事件 + 视口顶部 +10px 检测 → `onActiveHeadingChange`（与 v1 规则一致） |
-| 代码块语言/复制 | v2 CodeBlock 语言下拉（别名归一化）+ 复制按钮；`onFenceLanguageChange` 更新 meta |
-| 链接打开 | Ctrl/Cmd+Click `a.inline-link` → `window.weaveMD.link.openExternal`（IPC 白名单） |
-| 空块占位 | ContentBlock 空文本挂 `data-empty="true"`，复用现有 `::before` 占位符 CSS |
-| Find & Replace | 复用现有 FindReplaceBar（content 文本层），替换 → updateContent → v2 重建树 |
+| 集成项          | 实现                                                                                                                                                              |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 撤销/重做       | 经 `editorStore` content 快照栈（v2 每次编辑序列化同步，天然与 v1 undo 栈兼容）；ContentBlock 拦截 Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z 并调 store，TopBar 按钮同样生效 |
+| 大纲导航        | 新增 `kernel/outline.ts`（`extractHeadingOutline`：DFS 标题 + 序列化行号）；`onNavigateReady` 按 lineNumber/headingIndex → `scrollToBlock`                        |
+| 滚动高亮        | EditorScrollContainer 滚动事件 + 视口顶部 +10px 检测 → `onActiveHeadingChange`（与 v1 规则一致）                                                                  |
+| 代码块语言/复制 | v2 CodeBlock 语言下拉（别名归一化）+ 复制按钮；`onFenceLanguageChange` 更新 meta                                                                                  |
+| 链接打开        | Ctrl/Cmd+Click `a.inline-link` → `window.weaveMD.link.openExternal`（IPC 白名单）                                                                                 |
+| 空块占位        | ContentBlock 空文本挂 `data-empty="true"`，复用现有 `::before` 占位符 CSS                                                                                         |
+| Find & Replace  | 复用现有 FindReplaceBar（content 文本层），替换 → updateContent → v2 重建树                                                                                       |
 
 **已知限制（记录，后续任务）**：
 
@@ -720,32 +722,32 @@ Source → Normal：content → markdownToState → 块树 → 渲染
 
 **验收清单（REQUIREMENTS EDIT-01~12 对照）**：
 
-| 需求 | 状态 |
-| ---- | ---- |
-| EDIT-01 双模式编辑 | ✅ Normal（v2）/ Source（Monaco） |
-| EDIT-02 块内 contentEditable | ✅ 仅内容块可编辑 |
-| EDIT-03 Block Tree 数据模型 | ✅ v2 块树（不可变 + 嵌套） |
-| EDIT-04 实时格式化渲染 | ✅ formatCtrl + inlineRenderer |
-| EDIT-05 MD Source 切换 | ⚠️ 工具栏入口未迁移（快捷键与源码模式可用） |
-| EDIT-06 段落操作 | ✅ Enter/Backspace 完整规则 |
-| EDIT-07 撤销/重做 | ✅ Ctrl+Z/Y + 按钮 |
-| EDIT-08 自动保存 | ✅ 1200ms + 切换前 flush |
-| EDIT-09 代码块 | ✅ 语言下拉 + 复制 + 独立编辑路径 |
-| EDIT-10 空块占位 | ✅ data-empty + CSS ::before |
-| EDIT-11 结构转换 | ✅ 六种前缀即时转换 + 退出规则 |
-| EDIT-12 超链接 | ✅ Ctrl+Click 外部打开 + 链接对话框（formatCtrl link） |
+| 需求                         | 状态                                                   |
+| ---------------------------- | ------------------------------------------------------ |
+| EDIT-01 双模式编辑           | ✅ Normal（v2）/ Source（Monaco）                      |
+| EDIT-02 块内 contentEditable | ✅ 仅内容块可编辑                                      |
+| EDIT-03 Block Tree 数据模型  | ✅ v2 块树（不可变 + 嵌套）                            |
+| EDIT-04 实时格式化渲染       | ✅ formatCtrl + inlineRenderer                         |
+| EDIT-05 MD Source 切换       | ⚠️ 工具栏入口未迁移（快捷键与源码模式可用）            |
+| EDIT-06 段落操作             | ✅ Enter/Backspace 完整规则                            |
+| EDIT-07 撤销/重做            | ✅ Ctrl+Z/Y + 按钮                                     |
+| EDIT-08 自动保存             | ✅ 1200ms + 切换前 flush                               |
+| EDIT-09 代码块               | ✅ 语言下拉 + 复制 + 独立编辑路径                      |
+| EDIT-10 空块占位             | ✅ data-empty + CSS ::before                           |
+| EDIT-11 结构转换             | ✅ 六种前缀即时转换 + 退出规则                         |
+| EDIT-12 超链接               | ✅ Ctrl+Click 外部打开 + 链接对话框（formatCtrl link） |
 
 ### 13.5 真实运行缺陷修复（2026-08-06）
 
 用户实测反馈"编辑主区无法输入、markdown 无法实时渲染为富文本"。经排查定位到三个
 真实运行缺陷并修复（对齐 marktext 行为）：
 
-| # | 根因 | 修复 |
-| - | ---- | ---- |
-| R1 | 空文档渲染为不可编辑的占位 div（无 contentEditable、无输入处理），新建文件后无法输入 | `EditorInstance` 保证文档始终至少一个空 paragraph（marktext scrollPage 语义）；`getMarkdown` 对唯一空段落返回 `''`，保持往返 |
-| R2 | 每次输入都触发 React 重渲染 + `dangerouslySetInnerHTML` 重写 DOM，打断浏览器编辑状态与 IME | `inputCtrl` 引入 marktext `checkNeedRender` 思路：仅当 autoPair 补全或文本含格式语法标记（`hasFormatSyntax`）时才重渲染；纯文本输入仅同步模型（DOM 已由浏览器更新） |
-| R3 | 无 IME 守卫，中文输入（composition）期间每次拼音都重渲染打断组合 | ContentBlock 监听 compositionstart/end，组合期间跳过 input，结束后统一同步 |
-| R4 | 行内渲染隐藏语法标记（`**bold**` → `<strong>bold</strong>`），DOM textContent 与源文本不一致，在已渲染格式中继续输入会丢失标记 | inlineRenderer 按 marktext 范式保留语法标记：`<span class="md-syntax">**</span>` 灰显包裹，DOM textContent 与源文本始终一致；新增 `.md-syntax` 样式（灰显、不可选） |
+| #   | 根因                                                                                                                           | 修复                                                                                                                                                                |
+| --- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1  | 空文档渲染为不可编辑的占位 div（无 contentEditable、无输入处理），新建文件后无法输入                                           | `EditorInstance` 保证文档始终至少一个空 paragraph（marktext scrollPage 语义）；`getMarkdown` 对唯一空段落返回 `''`，保持往返                                        |
+| R2  | 每次输入都触发 React 重渲染 + `dangerouslySetInnerHTML` 重写 DOM，打断浏览器编辑状态与 IME                                     | `inputCtrl` 引入 marktext `checkNeedRender` 思路：仅当 autoPair 补全或文本含格式语法标记（`hasFormatSyntax`）时才重渲染；纯文本输入仅同步模型（DOM 已由浏览器更新） |
+| R3  | 无 IME 守卫，中文输入（composition）期间每次拼音都重渲染打断组合                                                               | ContentBlock 监听 compositionstart/end，组合期间跳过 input，结束后统一同步                                                                                          |
+| R4  | 行内渲染隐藏语法标记（`**bold**` → `<strong>bold</strong>`），DOM textContent 与源文本不一致，在已渲染格式中继续输入会丢失标记 | inlineRenderer 按 marktext 范式保留语法标记：`<span class="md-syntax">**</span>` 灰显包裹，DOM textContent 与源文本始终一致；新增 `.md-syntax` 样式（灰显、不可选） |
 
 **验证**：新增 `tests/components/editorV2Input.test.tsx` 7 例（空文档输入、逐字符连续输入、
 IME 组合、前缀转换、实时加粗渲染、列表转换、标记保留）；
@@ -760,10 +762,10 @@ IME 组合、前缀转换、实时加粗渲染、列表转换、标记保留）�
 Playwright + 真实 Chromium E2E（`e2e/editor.spec.ts`，renderer-only vite 配置
 `vite.test.config.ts`，mock Electron API 直达编辑主区）。验证中发现并修复：
 
-| # | 问题 | 修复 |
-| - | ---- | ---- |
-| E2E-1 | 空内容块 span 宽度为 0（仅零宽空格），Playwright 判定不可见；真实浏览器中点击命中困难 | `.block-content { display:inline-block; width:100%; min-height:1.2em; cursor:text }` |
-| E2E-2 | 块转换替换 DOM 后焦点丢失（旧节点卸载、新节点未注册），后续按键丢失 | `registerDom` 改 `useLayoutEffect` 同步注册；`inputCtrl` 返回转换后 `focusBlockId`，EditorV2 统一恢复焦点；恢复 effect 改 `useLayoutEffect`（paint 前同步） |
+| #     | 问题                                                                                  | 修复                                                                                                                                                        |
+| ----- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| E2E-1 | 空内容块 span 宽度为 0（仅零宽空格），Playwright 判定不可见；真实浏览器中点击命中困难 | `.block-content { display:inline-block; width:100%; min-height:1.2em; cursor:text }`                                                                        |
+| E2E-2 | 块转换替换 DOM 后焦点丢失（旧节点卸载、新节点未注册），后续按键丢失                   | `registerDom` 改 `useLayoutEffect` 同步注册；`inputCtrl` 返回转换后 `focusBlockId`，EditorV2 统一恢复焦点；恢复 effect 改 `useLayoutEffect`（paint 前同步） |
 
 **E2E 覆盖**（6 例全部通过）：
 
@@ -786,13 +788,13 @@ Playwright + 真实 Chromium E2E（`e2e/editor.spec.ts`，renderer-only vite 配
 渲染后的语法符号不可鼠标选中；代码块格式保持不变。经确认仅做**样式层 + 组件微调**
 （不改 v2 块树 / 序列化 / 输入链路）：
 
-| 语法 | 对齐方案 | 实现 |
-| ---- | ---- | ---- |
-| n 级标题提示 | 光标在标题内时左侧显示灰色 `#`×n，失焦塌陷隐藏（对应 muya `MU_GRAY` / `MU_HIDE`） | `LeafBlock` 标题加 `data-level`；CSS `h1~h6.heading-block::before` + `:focus-within` 显隐（`font-size:0` 塌陷；伪元素不进入 textContent，不影响序列化/光标偏移，天然不可选中） |
-| 无序/有序列表 | marker 深灰色（`--text-sub`，对照截图确认 marktext 为深灰而非浅灰） | `.list-marker { color: var(--text-sub) }`（替代组件内 Tailwind 色值） |
-| 任务复选框 | 18×18 空心圆（深灰 2px 边框），勾选态 accent 背景 + 白色 ✓（对照截图确认 marktext 为圆形） | `ListItemBlock` 勾选时加 `task-checkbox--checked` 类；CSS `border-radius: 50%` + `::after` 绘制 ✓；保持 `user-select:none` + `contentEditable={false}` |
-| 引用 | 3px 绿色竖线（`--quote-bar-color: #42d392`，可按主题覆盖）；文字非斜体（对照截图确认 marktext 引用非斜体） | `BlockquoteBlock` 移除 Tailwind 边框类与 `italic`；CSS `.blockquote-block { border-left: 3px solid var(--quote-bar-color) }` |
-| 代码块 | 格式不变 | `CodeBlock.tsx` 未改动 |
+| 语法          | 对齐方案                                                                                                   | 实现                                                                                                                                                                           |
+| ------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| n 级标题提示  | 光标在标题内时左侧显示灰色 `#`×n，失焦塌陷隐藏（对应 muya `MU_GRAY` / `MU_HIDE`）                          | `LeafBlock` 标题加 `data-level`；CSS `h1~h6.heading-block::before` + `:focus-within` 显隐（`font-size:0` 塌陷；伪元素不进入 textContent，不影响序列化/光标偏移，天然不可选中） |
+| 无序/有序列表 | marker 深灰色（`--text-sub`，对照截图确认 marktext 为深灰而非浅灰）                                        | `.list-marker { color: var(--text-sub) }`（替代组件内 Tailwind 色值）                                                                                                          |
+| 任务复选框    | 18×18 空心圆（深灰 2px 边框），勾选态 accent 背景 + 白色 ✓（对照截图确认 marktext 为圆形）                 | `ListItemBlock` 勾选时加 `task-checkbox--checked` 类；CSS `border-radius: 50%` + `::after` 绘制 ✓；保持 `user-select:none` + `contentEditable={false}`                         |
+| 引用          | 3px 绿色竖线（`--quote-bar-color: #42d392`，可按主题覆盖）；文字非斜体（对照截图确认 marktext 引用非斜体） | `BlockquoteBlock` 移除 Tailwind 边框类与 `italic`；CSS `.blockquote-block { border-left: 3px solid var(--quote-bar-color) }`                                                   |
+| 代码块        | 格式不变                                                                                                   | `CodeBlock.tsx` 未改动                                                                                                                                                         |
 
 **关键发现/修复**：全局规则 `.editor-content-area [data-block-id] { border: none !important }`
 会清除所有块边框（旧 `border-l-4` 引用边框实际从未显示）；改为
@@ -808,11 +810,11 @@ Playwright + 真实 Chromium E2E（`e2e/editor.spec.ts`，renderer-only vite 配
 
 用户截图反馈三个问题，逐一定位并修复（均通过真实 Chromium 测量验证）：
 
-| # | 问题 | 根因 | 修复 |
-| - | ---- | ---- | ---- |
-| 1 | 有序→任务列表区：语法符号与内容不并排，且符号后出现加粗圆点 | v2 列表项类名 `list-item` 与 Tailwind 工具类 `list-item`（`display: list-item`）冲突，覆盖了 `flex`；`display:list-item` 自带原生 marker 小圆点，子元素（marker span / 内容）被垂直堆叠 | 类名改为 `list-item-block`（globals.css 已有该自定义类）；测试与 E2E 选择器同步更新 |
-| 2 | 删除二级标题全部内容后，点击空行无法选中 | 标题聚焦后 `#` 提示伪元素占据左侧区域（`pointer-events:none`），点击该区域落到 h2 容器（非 contentEditable）导致失焦 | `LeafBlock` 标题增加点击处理：点击容器任意处（`e.target === currentTarget`）聚焦内容 span 并放置光标（marker 左侧→开头，其余→末尾），对齐 marktext 整行可编辑 |
-| 3 | n 级标题 marker（`#`×n）与内容分两行 | `.block-content` 为 `display:inline-block; width:100%`，前插行内 `::before` 后总宽超 100%，内容 span 被挤到下一行 | 标题改为 `display:flex; align-items:baseline`；`.block-content` 在标题内 `flex:1 1 auto; width:auto`，marker 与内容始终同排 |
+| #   | 问题                                                        | 根因                                                                                                                                                                                    | 修复                                                                                                                                                          |
+| --- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | 有序→任务列表区：语法符号与内容不并排，且符号后出现加粗圆点 | v2 列表项类名 `list-item` 与 Tailwind 工具类 `list-item`（`display: list-item`）冲突，覆盖了 `flex`；`display:list-item` 自带原生 marker 小圆点，子元素（marker span / 内容）被垂直堆叠 | 类名改为 `list-item-block`（globals.css 已有该自定义类）；测试与 E2E 选择器同步更新                                                                           |
+| 2   | 删除二级标题全部内容后，点击空行无法选中                    | 标题聚焦后 `#` 提示伪元素占据左侧区域（`pointer-events:none`），点击该区域落到 h2 容器（非 contentEditable）导致失焦                                                                    | `LeafBlock` 标题增加点击处理：点击容器任意处（`e.target === currentTarget`）聚焦内容 span 并放置光标（marker 左侧→开头，其余→末尾），对齐 marktext 整行可编辑 |
+| 3   | n 级标题 marker（`#`×n）与内容分两行                        | `.block-content` 为 `display:inline-block; width:100%`，前插行内 `::before` 后总宽超 100%，内容 span 被挤到下一行                                                                       | 标题改为 `display:flex; align-items:baseline`；`.block-content` 在标题内 `flex:1 1 auto; width:auto`，marker 与内容始终同排                                   |
 
 **附带修复**：通用空块占位符规则（`[data-empty='true']::before`）会覆盖标题的 `#` 提示
 （更高优先级），改为 `:not(.heading-block)` 排除标题，空标题聚焦时仍显示级别提示。
@@ -825,15 +827,15 @@ Playwright + 真实 Chromium E2E（`e2e/editor.spec.ts`，renderer-only vite 配
 
 用户反馈两类问题并附截图，经真实 Chromium 复现定位并修复：
 
-| # | 问题 | 根因 | 修复 |
-| - | ---- | ---- | ---- |
-| 1 | 有序列表 `1. a` + Enter 生成空 `2.`，退格删除 `2.` 后光标仍停留在列表缩进内；再回车导致 `1.` 被删除而内容保留 | `exitListItem` 对非首空项走"合并到前项"分支，空段落被并入上一项，光标留在列表内 | `exitListItem` 增加"空项"分支：末尾空项 → 删除该项并在列表后补空段落，光标移到列表外左边缘（列表保留）；中间空项 → 仅移除该项，光标移到下一项开头。同时修复唯一空项分支的 stale 引用判断（`childrenIds.length === 1`） |
-| 2a | 逐字符输入 ` ```java ` 时第 3 个反引号即触发转换，语言为空、内容变成 `` `java ``，源码模式显示异常 | `FENCE_CONV_RE` 不要求尾随空格，围栏被提前消费；反引号 autoPair 干扰围栏输入 | 围栏即时转换要求尾随空格（与其他前缀一致）；新增 `detectFenceLine` 供 ` ```lang ` + Enter 提交；输入反引号围栏时跳过 autoPair |
-| 2b | 代码块内回车只能增加代码块内空行，无法退出继续输入其他内容；代码块下方无空行 | 转换仅替换段落，无尾随空段落；Enter 在 code-block 内恒插入换行 | 代码块转换后若无后续块，自动在其后插入空段落；代码块内容为空时 Enter 撤销代码块并把光标移到下一内容块 |
+| #   | 问题                                                                                                          | 根因                                                                            | 修复                                                                                                                                                                                                                   |
+| --- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | 有序列表 `1. a` + Enter 生成空 `2.`，退格删除 `2.` 后光标仍停留在列表缩进内；再回车导致 `1.` 被删除而内容保留 | `exitListItem` 对非首空项走"合并到前项"分支，空段落被并入上一项，光标留在列表内 | `exitListItem` 增加"空项"分支：末尾空项 → 删除该项并在列表后补空段落，光标移到列表外左边缘（列表保留）；中间空项 → 仅移除该项，光标移到下一项开头。同时修复唯一空项分支的 stale 引用判断（`childrenIds.length === 1`） |
+| 2a  | 逐字符输入 ` ```java ` 时第 3 个反引号即触发转换，语言为空、内容变成 `` `java ``，源码模式显示异常            | `FENCE_CONV_RE` 不要求尾随空格，围栏被提前消费；反引号 autoPair 干扰围栏输入    | 围栏即时转换要求尾随空格（与其他前缀一致）；新增 `detectFenceLine` 供 ` ```lang ` + Enter 提交；输入反引号围栏时跳过 autoPair                                                                                          |
+| 2b  | 代码块内回车只能增加代码块内空行，无法退出继续输入其他内容；代码块下方无空行                                  | 转换仅替换段落，无尾随空段落；Enter 在 code-block 内恒插入换行                  | 代码块转换后若无后续块，自动在其后插入空段落；代码块内容为空时 Enter 撤销代码块并把光标移到下一内容块                                                                                                                  |
 
 **验证**：新增控制器测试 4 例（围栏尾随空格转换 + 自动补空段落、` ```lang ` 回车提交、
 空代码块回车退出、末尾空列表项退出列表），`vitest run` 309 例通过；新增
-`e2e/exit-behavior.spec.ts` 4 例（列表退出 / ```java 空格提交 / 空代码块回车退出 / ```java 回车提交），
+`e2e/exit-behavior.spec.ts` 4 例（列表退出 / `java 空格提交 / 空代码块回车退出 / `java 回车提交），
 Playwright Chromium E2E 14/14 通过；`tsc --noEmit`、ESLint（0 error）、`vite build` 均通过。
 
 ### 13.10 引用退出补齐与代码块退格语义修订（2026-08-06）
@@ -841,12 +843,12 @@ Playwright Chromium E2E 14/14 通过；`tsc --noEmit`、ESLint（0 error）、`v
 用户反馈：引用存在与列表相同的问题（无法从空行退出）；代码块后的空行 Backspace 删不掉，
 且空代码块 Backspace 会误删整个代码块。真实 Chromium 复现定位并修复：
 
-| # | 问题 | 根因 | 修复 |
-| - | ---- | ---- | ---- |
-| 1 | 引用空行无法退出（与列表同源） | `enterCtrl` 缺少 blockquote 分支，空引用行回车走通用拆分，新空行仍在引用内 | `enterCtrl` 新增引用分支：空行回车 → 退出引用（`convertBlockToParagraph`）；非空回车保持引用内拆分。`exitBlockquote` 对末尾空行改为把空段落移到**引用之后**（对齐列表末尾空项行为） |
-| 2a | 空代码块 Backspace 一键删除（用户澄清需求） | 上一版误改为"保留代码块" | 恢复 `removeCodeBlock`：空代码块 Backspace 一键删除（光标前块末尾 → 无前块则下一块开头 → 唯一块转空段落）；**Enter 仍为退出**（保留代码块，光标移到下一块）；`mergeParagraph` 增加保护：前块为代码块时禁止文本合并（空段落直接移除，非空段落不处理） |
-| 2b | 代码块后空段落 Backspace 行为（用户澄清：需受保护） | 误实现为"可删除/并入代码块" | `mergeParagraph` 对前块为代码块的段落**整体保护**：Backspace 不删除、不并入（对齐 v1 `protectedAfterCodeFence` 语义）；删除代码块本身后，该空行恢复为普通段落可正常合并 |
-| 2c | 树未变化时焦点恢复失效 | `applyAction` 中 `setTree` 传入同一引用 → React 跳过重渲染 → `useLayoutEffect` 焦点恢复不执行 | `applyAction` 检测 `instance.tree === prevTree` 时立即恢复焦点（`setCursorAtOffset`） |
+| #   | 问题                                                | 根因                                                                                          | 修复                                                                                                                                                                                                                                                 |
+| --- | --------------------------------------------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | 引用空行无法退出（与列表同源）                      | `enterCtrl` 缺少 blockquote 分支，空引用行回车走通用拆分，新空行仍在引用内                    | `enterCtrl` 新增引用分支：空行回车 → 退出引用（`convertBlockToParagraph`）；非空回车保持引用内拆分。`exitBlockquote` 对末尾空行改为把空段落移到**引用之后**（对齐列表末尾空项行为）                                                                  |
+| 2a  | 空代码块 Backspace 一键删除（用户澄清需求）         | 上一版误改为"保留代码块"                                                                      | 恢复 `removeCodeBlock`：空代码块 Backspace 一键删除（光标前块末尾 → 无前块则下一块开头 → 唯一块转空段落）；**Enter 仍为退出**（保留代码块，光标移到下一块）；`mergeParagraph` 增加保护：前块为代码块时禁止文本合并（空段落直接移除，非空段落不处理） |
+| 2b  | 代码块后空段落 Backspace 行为（用户澄清：需受保护） | 误实现为"可删除/并入代码块"                                                                   | `mergeParagraph` 对前块为代码块的段落**整体保护**：Backspace 不删除、不并入（对齐 v1 `protectedAfterCodeFence` 语义）；删除代码块本身后，该空行恢复为普通段落可正常合并                                                                              |
+| 2c  | 树未变化时焦点恢复失效                              | `applyAction` 中 `setTree` 传入同一引用 → React 跳过重渲染 → `useLayoutEffect` 焦点恢复不执行 | `applyAction` 检测 `instance.tree === prevTree` 时立即恢复焦点（`setCursorAtOffset`）                                                                                                                                                                |
 
 **验证**：控制器测试覆盖空代码块退格删除、代码块后空段落受保护、删除代码块后空段落恢复
 可删、引用空行回车退出、引用末尾空行退格移到引用后，`vitest run` 314 例通过；
@@ -859,14 +861,15 @@ ESLint（0 error）、`vite build` 均通过。
 
 **退格链修复**（真实 Chromium 复现定位）：
 
-| 问题 | 根因 | 修复 |
-| ---- | ---- | ---- |
-| 空标题降级为段落后焦点丢失，后续退格无效 | `convertBlockToParagraph` 的 heading/quote 分支用旧块 id 作为焦点目标，而 `replaceBlock` 已把旧 id 移除（注册表查不到） | 焦点改用 `paragraph.id`（新块 id） |
-| 列表项降级后光标落在内容末尾而非开头 | `exitListItem` 统一按 `text.length` 计算焦点偏移 | 提升类分支（唯一项/首项）焦点偏移为 0，对齐 SPEC"光标保持在开头" |
-| 段落前是列表项时退格无反应（无法跳回上一行） | `mergeParagraph` 要求同父才合并，跨列表边界被跳过 | 允许跨容器合并到前一个内容块（列表项/引用内容），实现"退格跳回上一行" |
-| `setCursorAtOffset(span, 0)` 光标落在 offset 1 | 循环条件 `charCount >= 0` 在第一个字符后即触发 | `remaining > 0 && charCount >= remaining`，offset 0 时光标位于文本起点 |
+| 问题                                           | 根因                                                                                                                    | 修复                                                                   |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| 空标题降级为段落后焦点丢失，后续退格无效       | `convertBlockToParagraph` 的 heading/quote 分支用旧块 id 作为焦点目标，而 `replaceBlock` 已把旧 id 移除（注册表查不到） | 焦点改用 `paragraph.id`（新块 id）                                     |
+| 列表项降级后光标落在内容末尾而非开头           | `exitListItem` 统一按 `text.length` 计算焦点偏移                                                                        | 提升类分支（唯一项/首项）焦点偏移为 0，对齐 SPEC"光标保持在开头"       |
+| 段落前是列表项时退格无反应（无法跳回上一行）   | `mergeParagraph` 要求同父才合并，跨列表边界被跳过                                                                       | 允许跨容器合并到前一个内容块（列表项/引用内容），实现"退格跳回上一行"  |
+| `setCursorAtOffset(span, 0)` 光标落在 offset 1 | 循环条件 `charCount >= 0` 在第一个字符后即触发                                                                          | `remaining > 0 && charCount >= remaining`，offset 0 时光标位于文本起点 |
 
 **v2 浮动工具栏**（marktext 风格，新增 `src/render/components/Editor/v2/FloatingToolbar.tsx`）：
+
 - 触发规则与 marktext 一致：文本选区非折叠且位于编辑器内容块内时，出现在选区上方居中；
   收起/滚动/移出编辑器即隐藏（带延迟，允许点击工具栏）。
 - 最左侧为**块类型下拉**：正文 / H1-H6（显示当前块类型；转换仅作用于根级 paragraph/heading，
@@ -904,6 +907,7 @@ ESLint（0 error，1 个既有 warning）、`vite build` 均通过。
 ### 13.13 v1 回退退役与跨块鼠标拖选（2026-08-06）
 
 **v1 回退退役**：v2 成为唯一路径，删除 `__EDITOR_V2__` 开关及相关代码：
+
 - 删除 v1 渲染组件（EditorScrollContainer 558 行、FloatingToolbarWYSIWYG 578 行、
   FloatingToolbar 426 行、blocks/、BlockRenderer、Minimap 死代码）与 v1 服务
   （blockTree/blockTreeBuilder/blockTreeSerializer/lineMarkdown/markdownBlockDetector）
@@ -912,6 +916,7 @@ ESLint（0 error，1 个既有 warning）、`vite build` 均通过。
   快捷键、查找替换、大纲导航；Normal 模式导航由 EditorV2 自行注册。
 
 **跨块鼠标拖选**：
+
 - 拖选：mousedown 记录锚点（caretRangeFromPoint），跨入不同 `.block-content` span 时用
   Range API 扩展选区，mouseup 延迟重放（浏览器原生拖选被编辑宿主边界截断并覆盖）。
 - 删除：Backspace/Delete 检测跨块选区（`getCrossBlockSelection`）→ 内核

@@ -1,6 +1,7 @@
 // ============================================
 // WeaveMD - 列表退出与代码块退出回归（真实 Chromium）
 // 覆盖：有序列表末尾空项退格退出 / ```lang 提交代码块 / 代码块下方空段落 / 空代码块回车退出
+// SPEC-EDIT-CBTP 6.2：应用重载后代码块尾随保护空行恢复（可聚焦 / Backspace 受保护）
 // ============================================
 import { expect, test } from '@playwright/test';
 
@@ -15,6 +16,24 @@ function mockApi(): void {
   localStorage.setItem('weavemd_user', JSON.stringify(MOCK_USER));
 
   const ok = (data?: unknown) => ({ success: true, data });
+
+  // mock 磁盘存储：localStorage 持久化，跨 page.reload() 存活，
+  // 供"保存 → 重载 → 重新打开"场景回灌 content（SPEC-EDIT-CBTP 6.2）。
+  // 注意：字面量须与测试侧 E2E_DISK_KEY 保持一致（addInitScript 序列化函数体，
+  // 无法引用外层常量）。
+  const DISK_KEY = 'weavemd_e2e_disk_files';
+  const readDisk = (): Record<string, string> => {
+    try {
+      return JSON.parse(localStorage.getItem(DISK_KEY) ?? '{}') as Record<string, string>;
+    } catch {
+      return {};
+    }
+  };
+  const writeDisk = (disk: Record<string, string>): void => {
+    localStorage.setItem(DISK_KEY, JSON.stringify(disk));
+  };
+  const baseName = (p: string): string => p.split(/[\\/]/).pop() ?? p;
+
   const win = window as unknown as { weaveMD?: Record<string, unknown> };
   win.weaveMD = {
     auth: {
@@ -27,14 +46,35 @@ function mockApi(): void {
     history: { list: async () => ok([]), get: async () => ok() },
     file: {
       create: async () => ok(),
-      open: async () => ok(),
+      // 打开文件：从 mock 磁盘存储回灌最近写入的文件（无落盘记录时返回空）
+      open: async () => {
+        const disk = readDisk();
+        const paths = Object.keys(disk);
+        if (paths.length === 0) return ok();
+        const path = paths[paths.length - 1];
+        return ok({ path, name: baseName(path), content: disk[path] ?? '' });
+      },
       save: async () => ok(),
       delete: async () => ok(),
       list: async () => ok([]),
       get: async () => ok(),
-      write: async () => ok(),
-      readDisk: async () => ok({ path: 'C:\\playwright\\n.md', name: 'n.md', content: '' }),
-      deleteDisk: async () => ok(),
+      write: async (path: unknown, content: unknown) => {
+        const disk = readDisk();
+        disk[String(path)] = String(content ?? '');
+        writeDisk(disk);
+        return ok();
+      },
+      readDisk: async (path: unknown) => {
+        const p = typeof path === 'string' && path !== '' ? path : 'C:\\playwright\\n.md';
+        const disk = readDisk();
+        return ok({ path: p, name: baseName(p), content: disk[p] ?? '' });
+      },
+      deleteDisk: async (path: unknown) => {
+        const disk = readDisk();
+        delete disk[String(path)];
+        writeDisk(disk);
+        return ok();
+      },
     },
     folder: {
       createFolder: async () => ok(),
@@ -65,6 +105,57 @@ async function openEditor(page: import('@playwright/test').Page): Promise<void> 
   await page.waitForSelector('span.block-content[contenteditable="true"]');
 }
 
+// ============================================
+// 应用重载场景辅助（SPEC-EDIT-CBTP 6.2）
+// ============================================
+
+/** 与 mockApi 内 DISK_KEY 一致（mock 侧因序列化限制须内联字面量） */
+const E2E_DISK_KEY = 'weavemd_e2e_disk_files';
+
+/** 等待 MainPage 自动保存（1200ms debounce）把含 marker 的内容写入 mock 磁盘存储 */
+async function waitForDiskSave(
+  page: import('@playwright/test').Page,
+  marker: string
+): Promise<void> {
+  await page.waitForFunction(
+    ({ key, expected }) => {
+      try {
+        const disk = JSON.parse(localStorage.getItem(key) ?? '{}') as Record<string, string>;
+        return Object.values(disk).some((content) => content.includes(expected));
+      } catch {
+        return false;
+      }
+    },
+    { key: E2E_DISK_KEY, expected: marker }
+  );
+}
+
+/** reload 丢失内存态后重新打开文件：编辑器从保存文本重建块树（走 markdownToState 补偿） */
+async function reloadAndReopen(page: import('@playwright/test').Page): Promise<void> {
+  await page.reload();
+  await page.waitForSelector('header');
+  await page.keyboard.press('Control+o');
+  await page.waitForSelector('span.block-content[contenteditable="true"]');
+}
+
+/** 读取编辑区块树结构（根块类型 + 末块空标记/文本），不比较块 ID 避免噪音 */
+async function readBlockStructure(page: import('@playwright/test').Page): Promise<{
+  classes: string[];
+  trailingEmpty: string | null;
+  trailingText: string;
+}> {
+  return page.locator('.editor-content-area').evaluate((el) => {
+    const roots = Array.from(el.querySelectorAll(':scope > [data-block-id]'));
+    const last = roots[roots.length - 1];
+    const span = last ? last.querySelector('span.block-content') : null;
+    return {
+      classes: roots.map((b) => b.className),
+      trailingEmpty: span ? span.getAttribute('data-empty') : null,
+      trailingText: (span?.textContent ?? '').replace(/\u200B/g, ''),
+    };
+  });
+}
+
 test('有序列表末尾空项退格 → 光标退出列表且列表保留', async ({ page }) => {
   await openEditor(page);
   const editable = page.locator('span.block-content[contenteditable="true"]').first();
@@ -84,8 +175,7 @@ test('有序列表末尾空项退格 → 光标退出列表且列表保留', asy
     const rootBlocks = Array.from(el.querySelectorAll(':scope > [data-block-id]'));
     return {
       rootTypes: rootBlocks.map((b) => b.className),
-      activeInList:
-        !!active && !!active.closest('.list-item-block'),
+      activeInList: !!active && !!active.closest('.list-item-block'),
       activeTag: active ? active.tagName : null,
     };
   });
@@ -140,8 +230,8 @@ test('空代码块回车 → 退出代码块并可在下方继续输入', async 
     const active = document.activeElement;
     return {
       activeInCode: !!active && !!active.closest('.code-fence-block'),
-      helloInParagraph: Array.from(el.querySelectorAll('p.paragraph-block')).some(
-        (p) => (p.textContent ?? '').includes('hello')
+      helloInParagraph: Array.from(el.querySelectorAll('p.paragraph-block')).some((p) =>
+        (p.textContent ?? '').includes('hello')
       ),
     };
   });
@@ -237,9 +327,7 @@ test('引用空行回车 → 退出引用并可在下方继续输入', async ({ 
     return {
       activeInQuote: !!active && !!active.closest('.blockquote-block'),
       quoteCount: el.querySelectorAll('blockquote.blockquote-block').length,
-      paragraphs: Array.from(el.querySelectorAll('p.paragraph-block')).map(
-        (p) => p.textContent
-      ),
+      paragraphs: Array.from(el.querySelectorAll('p.paragraph-block')).map((p) => p.textContent),
     };
   });
   expect(state.activeInQuote).toBe(false);
@@ -329,4 +417,73 @@ test('标题删除链：删光二级标题后连续退格光标跳回一级标�
   expect(state.activeInH1).toBe(true);
   expect(state.selCollapsed).toBe(true);
   expect(state.h1Text).toBe('一级标题');
+});
+
+// ============================================
+// SPEC-EDIT-CBTP 6.2：应用重载后代码块尾随保护空行
+// ============================================
+
+test('```js 代码块 → 应用重载 → 代码块后空行恢复且点击可聚焦', async ({ page }) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('```js ', { delay: 20 });
+  await page.waitForTimeout(300);
+  await expect(page.locator('.code-fence-block')).toHaveCount(1);
+  // 语言选择器把别名 js 归一化为 javascript（CodeBlock.normalizeLanguage，预期行为）
+  await expect(page.locator('.code-fence-language-select')).toHaveValue('javascript');
+
+  // 等自动保存落盘后再重载（reload 丢失内存块树，仅 mock 磁盘存储存活）
+  await waitForDiskSave(page, '```js');
+  await reloadAndReopen(page);
+
+  // 从保存文本重建的块树：code-fence-block + 解析期补偿的空 paragraph
+  const state = await readBlockStructure(page);
+  expect(state.classes).toEqual([
+    expect.stringContaining('code-fence-block'),
+    expect.stringContaining('paragraph-block'),
+  ]);
+  expect(state.trailingEmpty).toBe('true');
+  expect(state.trailingText).toBe('');
+  await expect(page.locator('.code-fence-block')).toHaveCount(1);
+  await expect(page.locator('.code-fence-language-select')).toHaveValue('javascript');
+  await expect(page.locator('p.paragraph-block span.block-content[data-empty="true"]')).toHaveCount(
+    1
+  );
+
+  // 空行点击可聚焦
+  const trailing = page.locator('p.paragraph-block span.block-content').last();
+  await trailing.click();
+  await page.waitForTimeout(100);
+  const focused = await trailing.evaluate((el) => document.activeElement === el);
+  expect(focused).toBe(true);
+});
+
+test('重载后代码块尾随空行 Backspace 受保护（块树不变）', async ({ page }) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('```js ', { delay: 20 });
+  await page.waitForTimeout(300);
+  await expect(page.locator('.code-fence-block')).toHaveCount(1);
+
+  await waitForDiskSave(page, '```js');
+  await reloadAndReopen(page);
+
+  const before = await readBlockStructure(page);
+
+  // 空行上 Backspace → 前块为 code-block，mergeParagraph 保护：不合并、不删除
+  const trailing = page.locator('p.paragraph-block span.block-content').last();
+  await trailing.click();
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(200);
+
+  // 块树不变化：结构快照一致，代码块与空块（data-empty）均仍在
+  const after = await readBlockStructure(page);
+  expect(after).toEqual(before);
+  await expect(page.locator('.code-fence-block')).toHaveCount(1);
+  await expect(page.locator('p.paragraph-block')).toHaveCount(1);
+  await expect(page.locator('p.paragraph-block span.block-content[data-empty="true"]')).toHaveCount(
+    1
+  );
 });
