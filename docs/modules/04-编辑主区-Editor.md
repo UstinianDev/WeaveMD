@@ -1,8 +1,9 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 版本：v2.1 | 最后更新：2026-08-07
+> 模块编号：04 | 优先级：P0 | 版本：v2.2 | 最后更新：2026-08-08
 > 设计规范：[specs/editor-v2-architecture.md](../specs/editor-v2-architecture.md)
 > 退出规则：[specs/markdown-block-exit-rules.md](../specs/markdown-block-exit-rules.md)
+> 浮动工具栏/跨块拖选：[specs/floating-toolbar-refactor.md](../specs/floating-toolbar-refactor.md)
 > 参考实现：marktext/muya（架构照搬）
 
 ---
@@ -14,8 +15,11 @@
 - **Normal Mode（v2）**：自研块树内核 → 块内 `contentEditable` WYSIWYG。支持直接编辑、
   Enter 拆块/列表续行、Backspace 六条退出规则、实时富文本渲染（语法标记保留）、
   autoPair、IME 兼容、任务复选框、Tab 缩进/凸出、格式化快捷键。
-- **浮动工具栏（marktext 风格，v2）**：文本选区非折叠时出现在选区上方；最左侧为块类型
-  下拉（正文 / H1-H6），其余为加粗 / 斜体 / 删除线 / 行内代码 / 链接 / 高亮（详见 spec 13.11）。
+- **浮动工具栏（marktext 风格，v2，SPEC-EDIT-FT v1.0）**：文本选区非折叠时出现在选区上方；
+  **仅单一语法类型选区显示**（跨类型如 h1+h2 隐藏，`selectionSyntaxTypesConsistent` 判定）；
+  最左侧为自定义块类型下拉（正文 / H1-H6 / 代码块 / 引用 / 三类列表，`syntaxTypeToOption`
+  一一对应，不可转目标置灰），其余为加粗 / 斜体 / 删除线 / 行内代码 / 链接 / 高亮。
+  块转换经 `canConvertBlock` 矩阵分发（kernel/syntaxType.ts 提供 `resolveSyntaxType`）。
 - **Source Code Mode**：全屏 Monaco 编辑原始 markdown（`Ctrl+\`` 或 View 菜单）。
 - **Find & Replace**：Typora 风格 inline bar，双模式可用（v2 Normal 无高亮，见限制）。
 
@@ -65,6 +69,9 @@ BlockNodeV2 = {
   保护空行在重载/模式切换后不丢失；文本输出不变。
 - 行内渲染：`inlineRenderer` 保留语法标记（`<span class="md-syntax">`），DOM
   `textContent` 与源文本一致——编辑/序列化不丢标记。
+- 语法类型解析：`kernel/syntaxType.ts` 提供 `resolveSyntaxType(tree, blockId)`（纯函数）——
+  沿父链聚合"用户感知语法类型"（heading 优先自身；paragraph 聚合到最近列表/引用容器），
+  供工具栏 G1 一致性判定与 G3② 类型映射复用。
 
 ## 5. 实时渲染与输入保障（关键机制）
 
@@ -86,7 +93,7 @@ BlockNodeV2 = {
 | inputCtrl | autoPair（`(` `[` `{` `` ` `` `'` `"`）、文本更新、前缀转换触发 |
 | enterCtrl | 代码块换行、列表续行新项、空列表项回车退出、标题右半转段落、引用内拆分 |
 | backspaceCtrl | 光标在内容起点即触发：标题转正文、列表项退出、引用降级、空代码块移除、段落合并前块（SPEC-EDIT-EXIT 六条规则） |
-| convertCtrl | 升格（paragraph → 六种结构块）/ 降格 |
+| convertCtrl | 升格（paragraph → 六种结构块）/ 降格；浮动工具栏转换经 `canConvertBlock` 矩阵（heading 仅 h1-h6/paragraph 互切，quote/list 仅退位 paragraph，code-block 只读） |
 | clickCtrl | 任务复选框切换 |
 | listCtrl | Tab 缩进为前项子列表、Shift+Tab 凸出 |
 | formatCtrl | 文本层格式化（bold/italic/strike/highlight/code/link），取代 execCommand |
@@ -114,18 +121,19 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H。
 
 ## 9. 验证与测试
 
-- Vitest：内核/控制器/组件 238 例（含往返属性测试、六条退出规则矩阵、输入链路、
-  marktext 语法外观断言、代码块提交/退出、列表与引用退出、尾部代码块补偿 SPEC-EDIT-CBTP）。
+- Vitest：内核/控制器/组件 **289 例**（含往返属性测试、六条退出规则矩阵、输入链路、
+  marktext 语法外观断言、代码块提交/退出、列表与引用退出、尾部代码块补偿 SPEC-EDIT-CBTP、
+  `resolveSyntaxType` 判定矩阵 21 例、浮动工具栏 G1/G3 22 例、`onConvertBlock` 转换矩阵 8 例）。
 - Playwright 真实 Chromium E2E（`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
   + `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`
-  + `e2e/cross-block-selection.spec.ts`）25 例：
+  + `e2e/cross-block-selection.spec.ts`）**28 例**：
   空文档输入、`# ` 标题转换、`**` 加粗渲染、标记保留、列表转换、中文输入、marktext 语法符号
   渲染与不可选中（标题 marker 聚焦显隐、任务复选框、引用竖线、列表 marker 计算样式断言）、
   标题 marker 并排、空标题行点击聚焦、列表项 marker 与内容并排且任务项无多余圆点、
   列表末尾空项退格退出、代码块语言提交与空代码块回车退出（保留）/退格一键删除、
   代码块后空行 Backspace 受保护（删除代码块后可删）、引用空行回车退出、列表/标题退格链、
-  浮动工具栏（选区加粗、块类型下拉转换）、跨块鼠标拖选删除、代码块尾随保护空行
-  重载后恢复且 Backspace 受保护（SPEC-EDIT-CBTP）。
+  浮动工具栏（选区加粗、块类型下拉展开/选择、h1+h2 不显示、代码块只读）、
+  跨块鼠标拖选正反双向删除、代码块尾随保护空行重载后恢复且 Backspace 受保护（SPEC-EDIT-CBTP）。
 - 运行：`npm run test` / `npx playwright test`。
 
 ## 10. v1 基线（回退路径，历史实现）

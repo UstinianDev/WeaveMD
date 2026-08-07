@@ -1,10 +1,33 @@
 # 浮动工具栏与跨块选择重构规范（Floating Toolbar & Cross-block Selection）
 
-> 规范编号：SPEC-EDIT-FT | 版本：v0.1（草案，待评审后实施）| 更新：2026-08-07
+> 规范编号：SPEC-EDIT-FT | 版本：v1.0（已实施）| 更新：2026-08-08
 > 关联需求：REQUIREMENTS.md EDIT-11（结构转换）、EDIT-13（语法渲染对齐）
 > 关联模块：[docs/modules/04-编辑主区-Editor.md](../modules/04-编辑主区-Editor.md)
 > 关联规范：[SPEC-EDITOR-V2](./editor-v2-architecture.md)（13.11 浮动工具栏、13.13 跨块拖选）、
 > [SPEC-EDIT-EXIT](./markdown-block-exit-rules.md)
+> 实施证据：[docs/testing/spec-edit-ft.tdd.md](../testing/spec-edit-ft.tdd.md)
+
+---
+
+## 0. 实施记录（v1.0，2026-08-08）
+
+本规范按 TDD 完成实施（G1/G2/G3①/G3② 验收全部通过；全量回归绿：
+Vitest 289 / E2E 28 / tsc / eslint / vite build）。实施中的偏差回到本规范更新如下：
+
+| # | 规范约定（v0.1） | 实际实现 | 说明 |
+| - | ---------------- | -------- | ---- |
+| 1 | G1 判定在 `computeToolbarState` 内联校验 | 新增导出纯函数 `selectionSyntaxTypesConsistent` + `syntaxTypeToOption`；`computeToolbarState` 增 `tree` 参数 | 便于组件测试直接覆盖（tests/components/floatingToolbarV2.test.tsx） |
+| 2 | G3① 原生 select 或自定义下拉二选一 | **采用自定义下拉**（`.block-type-trigger` / `.block-type-menu` / `[data-value=…]`） | 统一暗色主题与后续图标扩展；e2e 选择器同步更新 |
+| 3 | G3③ 转换矩阵 | `types.ts` 新增 `canConvertBlock` 纯矩阵；`EditorV2.onConvertBlock` 重写为 `canConvertBlock + resolveSyntaxType` 前置校验分发 | 放开"仅根级"限制（支持引用/列表内容退位）；升格（→列表/引用/代码块）仍仅根级 paragraph |
+| 4 | D3「浏览器 Range 自带方向归一化」 | **方向归一化不成立**：Chromium 中 `setStart(下方块)+setEnd(上方块)` 反向时 range 塌陷到 end 点，须显式检测 `collapsed` 并交换端点 | 关键发现，见 4.4.3 修订 |
+| 5 | D1「帧间相同则跳过」 | 按 focus 块去重会丢同块内 offset 精度（拖到块末尾选区不完整）→ 仅保留 rAF 坐标合并，不再按块跳过 | 实测回归修正 |
+| 6 | D4「重放前校验跨块即信任」 | 收紧为「跨块**且文本非空**」才信任；纯跨块空文本（Chromium 裁剪产物）仍重放 | 见 4.4.4 修订 |
+| 7 | mouseup 仅重放一次 | 末帧坐标可能被 rAF 帧消费且事件坐标在 headless 不可靠 → `lastMovePointRef` 兜底 + **连续 3 帧重放**对抗原生收尾时序 | 新增，见 4.4.6 |
+
+**Chromium 限制（重要）**：Selection 跨多个独立 contentEditable 宿主时，`toString()`
+只返回 **anchor 宿主内文本**，但 Range 边界保留跨块。因此反向拖选 anchor 停在块末尾时
+`sel.toString()` 为空（选区本身正确）。G2 用例据此改为与正向对称的验证方式：
+`startId ≠ endId` + Backspace 块树级删除锚点块内容。
 
 ---
 
@@ -194,22 +217,31 @@ export type BlockTypeOption =
   `data-block-id` 容器，把 focus 收敛到该块内容 span 的末尾（`selectNodeContents` +
   `collapse(false)`），保证反向拖选经过标题/列表 marker 区域也能持续推进。
 
-#### 4.4.3 方向无关（D2/D3）
+#### 4.4.3 方向无关（D2/D3，实施修订）
 
-- Range 一律 `setStart(锚点)` + `setEnd(当前点)`：浏览器 Range 自带方向归一化，
-  从下往上拖时锚点（下方）作为 start、当前点（上方）作为 end 自动成立，无需分支。
+- Range 一律 `setStart(锚点)` + `setEnd(当前点)`；**修订**：Chromium 中从下往上拖时
+  `setEnd` 到 start 之前的块会**塌陷到 end 点**（`collapsed === true`，非自动归一化），
+  必须显式交换端点再写入。故每次构造后检查 `next.collapsed`，为真则交换 start/end。
 - 每次有效更新都同步 `lastDragRangeRef`（含拖回锚点块时）。
 
-#### 4.4.4 收尾校验（D4）
+#### 4.4.4 收尾校验（D4，实施修订）
 
 - `mouseup`：先 `cancelAnimationFrame` 清理待处理帧；rAF 重放前校验——
-  若当前 `window.getSelection()` 已是跨块选区（起止块不同）则信任现有选区；
-  否则才重放 `lastDragRangeRef`。避免覆盖浏览器正确结果或重放过期 Range。
+  **修订**：仅当当前 `window.getSelection()` 已是"跨块 **且文本非空**"的完整选区才信任
+  （避免重放覆盖浏览器正确结果）；跨块但文本为空（Chromium 裁剪产物，见第 0 节）仍重放
+  `lastDragRangeRef` 修正。
+- 重放采用**连续 3 帧**（原生拖选在 mouseup 同步收尾且时序不可控，单帧可能被覆盖）。
 
 #### 4.4.5 工具栏与拖选联动
 
 - 拖选期间的 `selectionchange` 仍由 FloatingToolbar 消费；因已加 rAF 节流，事件频率
   被压到每帧一次，配合 G1 类型一致性判定，跨不同类型拖选时工具栏不会弹出，卡顿面收窄。
+
+#### 4.4.6 末帧兜底（实施新增）
+
+- `mousemove` 仅更新 ref，rAF 帧消费后 `pendingPoint` 清空；若 `mouseup` 前最后坐标已被
+  消费，且本次确为拖选（新增 `dragMovedRef` 标记，区分"纯点击"与"拖选"），用
+  `lastMovePointRef`（最后一次 mousemove 坐标）补一帧——headless 下 mouseup 事件坐标不可靠。
 
 ---
 
@@ -254,11 +286,13 @@ export type BlockTypeOption =
 | 代码块 / 引用 / 有序 / 无序 / 任务列表选中 → 下拉显示对应类型 | G3② |
 | 现有 `e2e/floating-toolbar.spec.ts`（3 例）+ `cross-block-selection.spec.ts`（1 例）不回归 | 回归 |
 
-### 6.3 回归门禁
+### 6.3 回归门禁（已通过）
 
-- `vitest run` 全量（含存量往返/退出规则/内核用例）通过；
+- `vitest run` 全量 **289/289** 通过（含存量往返/退出规则/内核用例 + 新增
+  floatingToolbarV2 22 例、editorV2Convert 8 例、syntaxType 21 例）；
 - `tsc --noEmit`、ESLint（0 error）、`vite build` 通过；
-- `npx playwright test` 存量 25 例 + 新增用例全部通过；
+- `npx playwright test` **28/28** 通过（存量 21 例 + 新增 floating-toolbar 2 例、
+  cross-block-selection 2 例等）；
 - 块树序列化/往返不变量、SPEC-EDIT-EXIT 六条退出规则、SPEC-EDIT-CBTP 行为零变化。
 
 ---
@@ -275,14 +309,14 @@ export type BlockTypeOption =
 
 ---
 
-## 8. 验收标准
+## 8. 验收标准（已达成）
 
 - G1：选中 h1 + h2 无工具栏；选中同类型跨块选区工具栏正常出现。
-- G2：从下往上、从上往下均可跨块选中不同语法类型内容，拖选过程无卡顿。
-- G3①：点击块类型下拉可展开并选择。
+- G2：从下往上、从上往下均可跨块选中不同语法类型内容，拖选过程无卡顿（rAF 节流）。
+- G3①：点击块类型下拉可展开并选择（自定义下拉面板）。
 - G3②：段落/标题（各级）/代码块/引用/有序/无序/任务列表选中后，下拉均显示正确类型；
-  标题级别互切、段落↔结构块转换与既有行为一致，禁用项不可点。
-- 全量回归门禁（6.3）通过；既有 25 例 E2E 与 238 例 Vitest 不回归。
+  标题级别互切、段落↔结构块转换与既有行为一致，禁用项置灰不可点。
+- 全量回归门禁（6.3）通过；存量 E2E 与 Vitest 不回归。
 
 ---
 
