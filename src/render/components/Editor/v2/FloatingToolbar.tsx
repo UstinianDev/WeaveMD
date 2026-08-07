@@ -13,8 +13,15 @@ import {
   getCursorOffsets,
   nearestContentSpan as kernelNearestContentSpan,
 } from '../../../editor/kernel/selection';
+import { resolveSyntaxType, resolveSyntaxTypesInRange } from '../../../editor/kernel/syntaxType';
+import type { SyntaxType } from '../../../editor/kernel/syntaxType';
+import {
+  BLOCK_TYPE_OPTIONS,
+  canConvertBlock,
+  type BlockTypeOption,
+} from './types';
 
-export type BlockTypeOption = 'paragraph' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
+export type { BlockTypeOption };
 
 interface FloatingToolbarProps {
   /** 编辑器容器（判定选区是否在编辑器内） */
@@ -36,16 +43,6 @@ interface SelectionState {
   end: number;
   anchorText: string;
 }
-
-const BLOCK_OPTIONS: Array<{ value: BlockTypeOption; label: string }> = [
-  { value: 'paragraph', label: '正文' },
-  { value: 'h1', label: 'H1 一级标题' },
-  { value: 'h2', label: 'H2 二级标题' },
-  { value: 'h3', label: 'H3 三级标题' },
-  { value: 'h4', label: 'H4 四级标题' },
-  { value: 'h5', label: 'H5 五级标题' },
-  { value: 'h6', label: 'H6 六级标题' },
-];
 
 interface FormatButton {
   style: InlineFormatStyle;
@@ -102,6 +99,52 @@ function nearestContentSpan(node: Node | null, container: HTMLElement): HTMLElem
   return span && container.contains(span) ? span : null;
 }
 
+/** 语法类型相等判定（heading 需 level 相等，其余同 type 即相等） */
+function sameSyntaxType(a: SyntaxType, b: SyntaxType): boolean {
+  if (a.type !== b.type) return false;
+  if (a.type === 'heading' && b.type === 'heading') return a.level === b.level;
+  return true;
+}
+
+/** 由 SyntaxType 映射为下拉选项（SPEC-EDIT-FT G3②）；无对应选项时回落 paragraph */
+export function syntaxTypeToOption(st: SyntaxType): BlockTypeOption {
+  switch (st.type) {
+    case 'heading':
+      return `h${st.level}` as BlockTypeOption;
+    case 'code-block':
+      return 'code-block';
+    case 'blockquote':
+      return 'blockquote';
+    case 'bullet-list':
+      return 'bullet-list';
+    case 'ordered-list':
+      return 'ordered-list';
+    case 'task-list':
+      return 'task-list';
+    default:
+      // paragraph / thematic-break / table
+      return 'paragraph';
+  }
+}
+
+/**
+ * 跨块选区语法类型一致性判定（SPEC-EDIT-FT G1）。
+ * 端点顺序无关：end 在 start 之前时按文档序重试；枚举区间内叶子全部同类型才一致。
+ */
+export function selectionSyntaxTypesConsistent(
+  tree: BlockTreeV2,
+  startLeafId: string,
+  endLeafId: string
+): boolean {
+  let types = resolveSyntaxTypesInRange(tree, startLeafId, endLeafId);
+  if (types === null) {
+    types = resolveSyntaxTypesInRange(tree, endLeafId, startLeafId);
+  }
+  if (!types || types.length === 0) return false;
+  const first = types[0];
+  return types.every((t) => sameSyntaxType(t, first));
+}
+
 /** 选区判定结果：hide=立即隐藏，fade=延迟隐藏，show=显示并携带选区与位置 */
 type ToolbarState =
   | { kind: 'hide' }
@@ -113,7 +156,8 @@ function computeToolbarState(
   sel: Selection | null,
   container: HTMLElement,
   toolbarWidth: number,
-  toolbarHeight: number
+  toolbarHeight: number,
+  tree: BlockTreeV2
 ): ToolbarState {
   if (!sel || sel.rangeCount === 0) return { kind: 'hide' };
   if (sel.isCollapsed) return { kind: 'fade' };
@@ -124,7 +168,14 @@ function computeToolbarState(
     return { kind: 'hide' };
   }
   const blockId = anchorSpan.getAttribute('data-block-id');
-  if (!blockId) return { kind: 'hide' };
+  const focusBlockId = focusSpan.getAttribute('data-block-id');
+  if (!blockId || !focusBlockId) return { kind: 'hide' };
+  // G1：跨块选区需全部叶子语法类型一致，否则隐藏
+  if (blockId !== focusBlockId) {
+    if (!selectionSyntaxTypesConsistent(tree, blockId, focusBlockId)) {
+      return { kind: 'hide' };
+    }
+  }
   const rect = range.getBoundingClientRect();
   if (rect.width === 0 && rect.height === 0) return { kind: 'fade' };
   const offsets = getCursorOffsets(anchorSpan);
@@ -185,7 +236,8 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         window.getSelection(),
         container,
         toolbarRef.current?.offsetWidth ?? 320,
-        toolbarRef.current?.offsetHeight ?? 40
+        toolbarRef.current?.offsetHeight ?? 40,
+        tree
       );
       if (state.kind === 'hide') {
         setVisible(false);
@@ -210,18 +262,25 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       container.removeEventListener('scroll', handleScroll, true);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
-  }, [editorContainerRef, cancelHide, scheduleHide]);
+  }, [editorContainerRef, cancelHide, scheduleHide, tree]);
 
   const currentType: BlockTypeOption = useMemo(() => {
     if (!selection) return 'paragraph';
-    const block = tree.blocks[selection.blockId];
-    if (!block) return 'paragraph';
-    if (block.type === 'heading') {
-      const level = Math.min(6, Math.max(1, block.meta?.headingLevel ?? 1));
-      return `h${level}` as BlockTypeOption;
-    }
-    return 'paragraph';
+    return syntaxTypeToOption(resolveSyntaxType(tree, selection.blockId));
   }, [selection, tree]);
+
+  const currentSyntax: SyntaxType = useMemo(() => {
+    if (!selection) return { type: 'paragraph' };
+    return resolveSyntaxType(tree, selection.blockId);
+  }, [selection, tree]);
+
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const currentLabel =
+    BLOCK_TYPE_OPTIONS.find((o) => o.value === currentType)?.label ?? '正文';
+
+  useEffect(() => {
+    if (!visible) setDropdownOpen(false);
+  }, [visible]);
 
   const activeFormats = useMemo(() => {
     if (!selection) return new Set<InlineFormatStyle>();
@@ -273,24 +332,56 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       onMouseLeave={() => scheduleHide(300)}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      {/* 块类型下拉：正文 / H1-H6 */}
-      <select
-        className="h-7 px-1.5 mr-1 rounded border text-xs font-medium bg-transparent outline-none cursor-pointer"
-        style={{
-          borderColor: 'var(--border-color)',
-          color: 'var(--text-primary)',
-        }}
-        value={currentType}
-        title="块类型"
-        onMouseDown={(e) => e.preventDefault()}
-        onChange={(e) => handleBlockChange(e.target.value as BlockTypeOption)}
-      >
-        {BLOCK_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+      {/* 块类型下拉：正文 / H1-H6 / 代码块 / 引用 / 列表（自定义面板，SPEC-EDIT-FT G3①） */}
+      <div className="block-type-dropdown relative" onMouseDown={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          title="块类型"
+          className="block-type-trigger h-7 px-1.5 mr-1 rounded border text-xs font-medium bg-transparent outline-none cursor-pointer whitespace-nowrap"
+          style={{
+            borderColor: 'var(--border-color)',
+            color: 'var(--text-primary)',
+          }}
+          onClick={() => setDropdownOpen((o) => !o)}
+        >
+          {currentLabel}
+        </button>
+        {dropdownOpen && (
+          <div
+            className="block-type-menu absolute left-0 top-full mt-1 z-50 rounded-lg shadow-lg py-1 min-w-[170px] max-h-72 overflow-y-auto"
+            style={{
+              backgroundColor: 'var(--bg-secondary)',
+              border: '1px solid var(--border-color)',
+            }}
+          >
+            {BLOCK_TYPE_OPTIONS.map((option) => {
+              const disabled = !canConvertBlock(currentSyntax, option.value);
+              const isCurrent = option.value === currentType;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  data-value={option.value}
+                  disabled={disabled}
+                  className={`block-type-option w-full text-left px-3 py-1.5 text-xs cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${
+                    isCurrent ? 'font-bold' : ''
+                  }`}
+                  style={{
+                    color: isCurrent ? 'var(--accent)' : 'var(--text-primary)',
+                    backgroundColor: 'transparent',
+                  }}
+                  onClick={() => {
+                    setDropdownOpen(false);
+                    handleBlockChange(option.value);
+                  }}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       <div className="w-px h-4 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
 
