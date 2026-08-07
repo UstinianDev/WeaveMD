@@ -13,4 +13,5 @@ export {
 export { markdownToState } from './markdownToState';
 export * from './selection';
 export { stateToMarkdown } from './stateToMarkdown';
+export * from './syntaxType';
 export * from './types';
