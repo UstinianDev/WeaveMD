@@ -44,10 +44,14 @@
   内容后连续退格光标跳回上一行
 - 代码块尾随保护空行持久化（SPEC-EDIT-CBTP）：`markdownToState` 解析期若整树最后
   叶子为 code-block 自动补尾随空段落，重载/模式切换后不丢失；文本输出不变
-- 浮动工具栏（spec 13.11）：选区触发，最左块类型下拉（正文/H1-H6）+ 格式按钮
-- 跨块鼠标拖选（spec 13.13）：拖过不同内容块自动扩展选区（Range API）；
-  Backspace/Delete 走 `deleteLeafRange` 块树级删除（含空容器清理）；
-  删除后按模型强制同步受影响块 DOM（按需渲染下 React 状态可能陈旧）
+- 浮动工具栏（SPEC-EDIT-FT v1.0）：选区触发且**仅单一语法类型显示**（h1+h2 不显示）；
+  自定义块类型下拉（正文/H1-H6/代码块/引用/三类列表，`canConvertBlock` 矩阵置灰，
+  `syntaxTypeToOption` 映射）——纯函数 `selectionSyntaxTypesConsistent` / `resolveSyntaxType`
+  均在 kernel/syntaxType.ts 与 FloatingToolbar 导出，组件测试直接覆盖
+- 跨块鼠标拖选（spec 13.13）：rAF 节流 + 反向显式交换端点 + 非内容区回退 + mouseup
+  末帧兜底/3 帧重放（`useCrossBlockDragSelection.ts`）；Backspace/Delete 走
+  `deleteLeafRange` 块树级删除；**注意**：Chromium 对跨编辑宿主 Selection.toString()
+  只返回 anchor 块内文本（Range 边界保留跨块），拖选验证须用块 id + Backspace 而非文本
 - 焦点恢复：`applyAction` 树未变时立即恢复；降级转换焦点用新块 id
 - **v1 回退路径已退役（2026-08-06）**：v2 为唯一路径，`__EDITOR_V2__` 开关已移除，
   v1 组件/服务/测试已删除（EditorView 1920 行重写为薄编排器）
@@ -55,7 +59,7 @@
 ## 关键文件
 
 - `src/render/editor/kernel/` — blockTree / markdownToState / stateToMarkdown /
-  inlineRenderer / outline / selection
+  inlineRenderer / outline / selection / syntaxType（resolveSyntaxType）
 - `src/render/editor/controllers/` — input / enter / backspace / convert / click / list / format
 - `src/render/editor/editorInstance.ts` — 内核宿主（内容加载、markdown 同步）
 - `src/render/components/Editor/v2/EditorV2.tsx` — v2 入口（状态、事件路由、焦点恢复、撤销）

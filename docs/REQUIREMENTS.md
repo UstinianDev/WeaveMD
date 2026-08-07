@@ -123,13 +123,13 @@
 | EDIT-08 | 自动保存             | ✅   | 1200ms debounce + 切换/关闭前 flush                                                                       |
 | EDIT-09 | 代码块               | ✅   | 语言下拉 + 复制按钮，独立编辑路径（不误判标题前缀）；尾随保护空行重载后经解析期补偿恢复（SPEC-EDIT-CBTP） |
 | EDIT-10 | 空块占位             | ✅   | 空内容块 `data-empty` + CSS `::before`；空文档始终可编辑                                                  |
-| EDIT-11 | 结构转换             | ✅   | 六种前缀即时转换（`#`/`-`/`1.`/`- [ ]`/`>`/` ``` `）                                                      |
+| EDIT-11 | 结构转换             | ✅   | 六种前缀即时转换（`#`/`-`/`1.`/`- [ ]`/`>`/` ``` `）；浮动工具栏下拉按 `canConvertBlock` 转换矩阵分发（SPEC-EDIT-FT） |
 | EDIT-12 | 超链接交互           | ✅   | Ctrl+Click 经 IPC 打开；hover tooltip；链接对话框                                                         |
 
 **输入与渲染保障（真实 Chromium E2E 验证，`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
 
 - `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`
-- `e2e/cross-block-selection.spec.ts` 23/23 通过）**：
+- `e2e/cross-block-selection.spec.ts` 等 28/28 通过）**：
 
 * 空文档可直接输入；连续输入不被重渲染打断（按需重渲染 + IME 守卫）
 * `# 标题`、`- 列表`、`**加粗**` 即时渲染为富文本
@@ -141,6 +141,7 @@
   代码块下方自动补空段落（Backspace 受保护，删除代码块后才可删）、空代码块回车退出（保留）/
   退格一键删除；引用空行回车可退出引用
 * 退格链：删光标题内容后连续退格光标跳回上一行；段落退格可合并进前一个列表项内容
-* 浮动工具栏：选区触发（marktext 风格），最左侧块类型下拉（正文/H1-H6）+ 行内格式按钮
-* 跨块鼠标拖选：拖过不同内容块生成跨块选区，Backspace/Delete 块树级删除
+* 浮动工具栏（SPEC-EDIT-FT）：选区触发（marktext 风格）；**仅单一语法类型选区显示**（h1+h2 不显示）；
+  块类型下拉自定义面板可展开，段落/标题/代码块/引用/三类列表一一对应，不可转目标置灰
+* 跨块鼠标拖选：正反双向跨块（rAF 节流、反向端点交换），Backspace/Delete 块树级删除
 * 代码块尾随保护空行持久化：重载后空行恢复、可聚焦、Backspace 仍受保护（SPEC-EDIT-CBTP，往返不变量与存储文本不变）
