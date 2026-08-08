@@ -12,7 +12,7 @@
 import type { EditorInstance } from '../editorInstance';
 import type { EditorActionResult } from '../editorInstance';
 import {
-  findIntersectingStyleToken,
+  findIntersectingStyleTokens,
   isBoundedWrap,
   renderBlock,
   setBlockText,
@@ -97,23 +97,43 @@ export function formatRange(
     };
   } else {
     const [open, close] = MARKERS[style];
-    // Step 0：选区标记归一化 —— 与选区相交的同风格 token，且选区覆盖其边界标记
-    // 且完全落在 token span 内（越界 → case C 保守处理）时，剥离标记解除
-    const target = findIntersectingStyleToken(text, style, s, e);
-    if (
-      target &&
-      target.start <= s &&
-      e <= target.end &&
-      (s < target.contentStart || e > target.contentEnd)
-    ) {
-      newText =
-        text.slice(0, target.start) +
-        text.slice(target.contentStart, target.contentEnd) +
-        text.slice(target.end);
-      cursorOffset = target.start;
+    // Step 0：选区标记归一化（FT3 §4.1 G1 + C10 跨 token 逐 token 拆分）。
+    // 对每个与选区相交的同风格成对 token，若选区覆盖其 open/close 边界标记，
+    // 或选区完全落在其内容区内 → 整 token 剥离（open/close 一并移除）解除。
+    // 多个 token 同时满足时逐 token 处理，杜绝任何 `****…****` 叠加。
+    const targets = findIntersectingStyleTokens(text, style, s, e);
+    const toStrip = targets.filter((t) => {
+      const touchesOpen = s < t.contentStart && t.start < e;
+      const touchesClose = e > t.contentEnd && t.end > s;
+      const insideContent = t.contentStart <= s && e <= t.contentEnd;
+      return touchesOpen || touchesClose || insideContent;
+    });
+    if (toStrip.length > 0) {
+      // 收集全部 open/close 标记区间（token 间互不重叠），降序剥离文本
+      const ranges: Array<[number, number]> = [];
+      for (const t of toStrip) {
+        ranges.push([t.start, t.contentStart], [t.contentEnd, t.end]);
+      }
+      ranges.sort((a, b) => b[0] - a[0]);
+      let stripped = text;
+      for (const [a, b] of ranges) {
+        stripped = stripped.slice(0, a) + stripped.slice(b);
+      }
+      const ascRanges = [...ranges].sort((a, b) => a[0] - b[0]);
+      const removedBefore = (x: number): number => {
+        let removed = 0;
+        for (const [a, b] of ascRanges) {
+          if (b <= x) removed += b - a;
+          else if (a < x) removed += x - a;
+          else break;
+        }
+        return removed;
+      };
+      newText = stripped;
+      cursorOffset = toStrip[0].start;
       selection = {
-        start: target.start,
-        end: target.start + (target.contentEnd - target.contentStart),
+        start: s - removedBefore(s),
+        end: e - removedBefore(e),
       };
     } else {
       const step1 = toggleOff(text, s, e, selected, before, after, open, close);

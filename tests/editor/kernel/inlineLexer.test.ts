@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   findIntersectingStyleToken,
+  findIntersectingStyleTokens,
   tokenizeInline,
 } from '../../../src/render/editor/kernel/inlineLexer';
 import type { InlineToken } from '../../../src/render/editor/kernel/inlineLexer';
@@ -282,5 +283,28 @@ describe('inlineLexer — findIntersectingStyleToken', () => {
 
   it('链接/图片（无开闭标记）不命中', () => {
     expect(findIntersectingStyleToken('[l](https://x.com)', 'bold', 1, 2)).toBeNull();
+  });
+});
+
+describe('inlineLexer — findIntersectingStyleTokens（复数，C10 逐 token）', () => {
+  it('`a **b** c **d** e` 选区 `[4,13)` 命中两个 strong token', () => {
+    const tokens = findIntersectingStyleTokens('a **b** c **d** e', 'bold', 4, 13);
+    expect(tokens.map((t) => [t.start, t.end])).toEqual([
+      [2, 7],
+      [10, 15],
+    ]);
+  });
+
+  it('选区只跨一个 token 时返回单个', () => {
+    const tokens = findIntersectingStyleTokens('a **b** c', 'bold', 4, 9);
+    expect(tokens.map((t) => [t.start, t.end])).toEqual([[2, 7]]);
+  });
+
+  it('无相交返回空数组', () => {
+    expect(findIntersectingStyleTokens('123', 'bold', 0, 3)).toEqual([]);
+  });
+
+  it('普通文本含孤立标记（不成对）不命中', () => {
+    expect(findIntersectingStyleTokens('a**b', 'bold', 0, 4)).toEqual([]);
   });
 });

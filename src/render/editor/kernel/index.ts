@@ -12,6 +12,7 @@ export {
 } from './inlineRenderer';
 export {
   findIntersectingStyleToken,
+  findIntersectingStyleTokens,
   isBoundedWrap,
   STYLE_TOKEN_TYPE,
   tokenizeInline,
