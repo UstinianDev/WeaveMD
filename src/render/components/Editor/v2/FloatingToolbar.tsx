@@ -211,6 +211,17 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   const [selection, setSelection] = useState<SelectionState | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // SPEC-EDIT-DSF 4.3：rAF 节流与可见性去重（避免拖选期间每帧重复 setVisible）
+  const latestSelectionRef = useRef<Selection | null>(null);
+  const rafIdRef = useRef<number | null>(null);
+  const visibleRef = useRef(false);
+
+  const setVisibleGuarded = useCallback((value: boolean) => {
+    if (visibleRef.current !== value) {
+      visibleRef.current = value;
+      setVisible(value);
+    }
+  }, []);
 
   const cancelHide = useCallback(() => {
     if (hideTimerRef.current) {
@@ -222,25 +233,28 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   const scheduleHide = useCallback(
     (delay = 180) => {
       cancelHide();
-      hideTimerRef.current = setTimeout(() => setVisible(false), delay);
+      hideTimerRef.current = setTimeout(() => setVisibleGuarded(false), delay);
     },
-    [cancelHide]
+    [cancelHide, setVisibleGuarded]
   );
 
-  // 选区变化：非折叠且在编辑器内容块内 → 显示；收起/移出 → 延迟隐藏
+  // 选区变化：非折叠且在编辑器内容块内 → 显示；收起/移出 → 延迟隐藏。
+  // SPEC-EDIT-DSF 4.3：事件仅写入 latestSelectionRef 并调度一帧（rAF id 去重，
+  // 已有待处理帧则复用），帧内才执行 computeToolbarState + setState → 渲染 ≤ 每帧一次。
   useEffect(() => {
     const container = editorContainerRef.current;
     if (!container) return;
-    const handleSelectionChange = () => {
+
+    const flushSelection = () => {
       const state = computeToolbarState(
-        window.getSelection(),
+        latestSelectionRef.current,
         container,
         toolbarRef.current?.offsetWidth ?? 320,
         toolbarRef.current?.offsetHeight ?? 40,
         tree
       );
       if (state.kind === 'hide') {
-        setVisible(false);
+        setVisibleGuarded(false);
         return;
       }
       if (state.kind === 'fade') {
@@ -250,19 +264,32 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       cancelHide();
       setSelection(state.selection);
       setPosition(state.position);
-      setVisible(true);
+      setVisibleGuarded(true);
     };
 
-    const handleScroll = () => setVisible(false);
+    const handleSelectionChange = () => {
+      latestSelectionRef.current = window.getSelection();
+      if (rafIdRef.current !== null) return;
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = null;
+        flushSelection();
+      });
+    };
+
+    const handleScroll = () => setVisibleGuarded(false);
 
     document.addEventListener('selectionchange', handleSelectionChange);
     container.addEventListener('scroll', handleScroll, true);
     return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
       document.removeEventListener('selectionchange', handleSelectionChange);
       container.removeEventListener('scroll', handleScroll, true);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
-  }, [editorContainerRef, cancelHide, scheduleHide, tree]);
+  }, [editorContainerRef, cancelHide, scheduleHide, tree, setVisibleGuarded]);
 
   const currentType: BlockTypeOption = useMemo(() => {
     if (!selection) return 'paragraph';
@@ -301,9 +328,9 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       } else {
         onFormat(selection.blockId, button.style, selection.start, selection.end);
       }
-      setVisible(false);
+      setVisibleGuarded(false);
     },
-    [selection, onFormat]
+    [selection, onFormat, setVisibleGuarded]
   );
 
   const handleBlockChange = useCallback(
@@ -311,9 +338,9 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       if (selection && target !== currentType) {
         onConvertBlock(selection.blockId, target);
       }
-      setVisible(false);
+      setVisibleGuarded(false);
     },
-    [selection, currentType, onConvertBlock]
+    [selection, currentType, onConvertBlock, setVisibleGuarded]
   );
 
   if (!visible || !selection) return null;

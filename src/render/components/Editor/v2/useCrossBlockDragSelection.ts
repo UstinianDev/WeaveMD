@@ -10,6 +10,12 @@
 //   最近 content span 末尾，连续 N 帧未命中才停止更新；
 // - D3 方向无关：Range 一律 setStart(锚点) + setEnd(当前点)，每次有效更新同步 lastDragRange；
 // - D4 收尾校验：mouseup 清理待处理帧，重放前校验当前选区已是跨块则信任现有选区。
+//
+// SPEC-EDIT-DSF 4.1/4.2（Phase 3）：
+// - 4.1 端点级变化检测：lastAppliedRangeRef 记录上一帧实际写入的端点，
+//   rAF 帧内与目标端点比对（areRangeEndpointsEqual），全等则跳过 removeAllRanges + addRange；
+// - 4.2 温和抑制原生拖选竞争：不 preventDefault，同块由浏览器原生选择，
+//   鼠标静止时端点不变 → 彻底停写，不再与原生拖选竞争触发 selectionchange。
 
 import type { RefObject } from 'react';
 import { useEffect, useRef } from 'react';
@@ -18,6 +24,42 @@ import { nearestContentSpan } from '../../../editor/kernel/selection';
 
 /** 连续命中非内容区的帧数上限：超过即停止更新，回到编辑器内自动恢复 */
 const MISS_FRAME_LIMIT = 6;
+
+/** 选区端点快照（SPEC-EDIT-DSF 4.1：端点级变化检测） */
+export interface RangeEndpoint {
+  startNode: Node | null;
+  startOffset: number;
+  endNode: Node | null;
+  endOffset: number;
+}
+
+function nodesEqual(a: Node | null, b: Node | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  try {
+    if (typeof a.isEqualNode === 'function') {
+      return a.isEqualNode(b);
+    }
+  } catch {
+    // isEqualNode 不可用时降级为引用相等（上方 a === b 已处理）
+  }
+  return false;
+}
+
+/**
+ * SPEC-EDIT-DSF 4.1：判定两帧选区端点是否完全相同。
+ * 节点"引用相同或 isEqualNode 相等"且 offset 相同 → true；prev 为空 → false（首帧必须写入）。
+ * 纯函数，不依赖 DOM 全局，可独立测试。
+ */
+export function areRangeEndpointsEqual(prev: RangeEndpoint | null, next: RangeEndpoint): boolean {
+  if (!prev) return false;
+  return (
+    nodesEqual(prev.startNode, next.startNode) &&
+    prev.startOffset === next.startOffset &&
+    nodesEqual(prev.endNode, next.endNode) &&
+    prev.endOffset === next.endOffset
+  );
+}
 
 export function useCrossBlockDragSelection(containerRef: RefObject<HTMLDivElement>): void {
   const dragStartRef = useRef<{ startContainer: Node; startOffset: number } | null>(null);
@@ -32,6 +74,8 @@ export function useCrossBlockDragSelection(containerRef: RefObject<HTMLDivElemen
   const missCountRef = useRef(0);
   // 本次按下后是否发生过拖拽移动（区分"纯点击"与"拖选"）
   const dragMovedRef = useRef(false);
+  // 上一帧实际写入 selection 的端点（SPEC-EDIT-DSF 4.1：静止帧跳过重建）
+  const lastAppliedRangeRef = useRef<RangeEndpoint | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -104,12 +148,23 @@ export function useCrossBlockDragSelection(containerRef: RefObject<HTMLDivElemen
       lastFocusSpanRef.current = endSpan;
       lastDragRangeRef.current = next.cloneRange();
 
-      // 仅跨块时程序化设置选区；同块由浏览器原生选择
+      // 仅跨块时程序化设置选区；同块由浏览器原生选择。
+      // SPEC-EDIT-DSF 4.1：端点级变化检测——端点全等则跳过 removeAllRanges + addRange，
+      // 鼠标静止时彻底停写（不再与原生拖选竞争触发 selectionchange）。
       if (startSpan !== endSpan) {
-        const sel = window.getSelection();
-        if (sel) {
-          sel.removeAllRanges();
-          sel.addRange(next);
+        const candidate: RangeEndpoint = {
+          startNode: next.startContainer,
+          startOffset: next.startOffset,
+          endNode: next.endContainer,
+          endOffset: next.endOffset,
+        };
+        if (!areRangeEndpointsEqual(lastAppliedRangeRef.current, candidate)) {
+          const sel = window.getSelection();
+          if (sel) {
+            sel.removeAllRanges();
+            sel.addRange(next);
+          }
+          lastAppliedRangeRef.current = candidate;
         }
       }
     };
@@ -133,6 +188,7 @@ export function useCrossBlockDragSelection(containerRef: RefObject<HTMLDivElemen
       pendingPointRef.current = null;
       missCountRef.current = 0;
       dragMovedRef.current = false;
+      lastAppliedRangeRef.current = null;
     };
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -170,6 +226,7 @@ export function useCrossBlockDragSelection(containerRef: RefObject<HTMLDivElemen
       pendingPointRef.current = null;
       lastMovePointRef.current = null;
       dragMovedRef.current = false;
+      lastAppliedRangeRef.current = null;
       if (lastRange) {
         // 连续多帧重放：浏览器原生拖选会在 mouseup 同步收尾并覆盖选区，
         // 且其收尾时序不可控，多帧重放确保最终生效。

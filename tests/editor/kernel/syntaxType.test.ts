@@ -23,6 +23,7 @@ import {
   resolveSyntaxTypesInRange,
   type SyntaxType,
 } from '../../../src/render/editor/kernel/syntaxType';
+import { selectionSyntaxTypesConsistent } from '../../../src/render/components/Editor/v2/FloatingToolbar';
 
 /** 构造树并返回挂到根下的容器/叶子块 */
 function buildRoot(): BlockTreeV2 {
@@ -204,16 +205,13 @@ describe('resolveSyntaxTypesInRange', () => {
     expect(types).toEqual([{ type: 'blockquote' }, { type: 'blockquote' }]);
   });
 
-  it('h1 + paragraph 混合 → 类型不同（供 G1 判定不一致）', () => {
+  it('h1 + paragraph 混合 → null（短路：与首个类型不同立即返回，供 G1 判定不一致）', () => {
     let tree = buildRoot();
     const h = makeHeading(tree, 1, 't');
     tree = appendChild(tree, tree.root.id, h);
     const p = makeParagraph(tree, 't');
     tree = appendChild(tree, tree.root.id, p);
-    const types = resolveSyntaxTypesInRange(tree, h.id, p.id);
-    expect(types).toHaveLength(2);
-    expect(types![0]).toEqual({ type: 'heading', level: 1 });
-    expect(types![1]).toEqual({ type: 'paragraph' });
+    expect(resolveSyntaxTypesInRange(tree, h.id, p.id)).toBeNull();
   });
 
   it('同列表两项 → [bullet-list, bullet-list]', () => {
@@ -244,5 +242,61 @@ describe('resolveSyntaxTypesInRange', () => {
     const types = resolveSyntaxTypesInRange(tree, p1.id, p3.id) as SyntaxType[];
     expect(types).toHaveLength(3);
     expect(types.every((t) => t.type === 'paragraph')).toBe(true);
+  });
+});
+
+// ============ SPEC-EDIT-DSF 4.4 短路与区间上限 ============
+describe('resolveSyntaxTypesInRange 短路与上限（SPEC-EDIT-DSF 4.4）', () => {
+  it('[heading + paragraph] 区间 → selectionSyntaxTypesConsistent 为 false（提前返回）', () => {
+    let tree = buildRoot();
+    const h = makeHeading(tree, 1, 't');
+    tree = appendChild(tree, tree.root.id, h);
+    const p = makeParagraph(tree, 't');
+    tree = appendChild(tree, tree.root.id, p);
+    expect(selectionSyntaxTypesConsistent(tree, h.id, p.id)).toBe(false);
+  });
+
+  it('超过区间叶子数上限（501 个 paragraph）→ resolveSyntaxTypesInRange 为 null', () => {
+    let tree = buildRoot();
+    const ids: string[] = [];
+    for (let i = 0; i < 501; i++) {
+      const p = makeParagraph(tree, `p${i}`);
+      tree = appendChild(tree, tree.root.id, p);
+      ids.push(p.id);
+    }
+    expect(resolveSyntaxTypesInRange(tree, ids[0], ids[500])).toBeNull();
+  });
+
+  it('超过区间叶子数上限（501 个 paragraph）→ selectionSyntaxTypesConsistent 为 false', () => {
+    let tree = buildRoot();
+    const ids: string[] = [];
+    for (let i = 0; i < 501; i++) {
+      const p = makeParagraph(tree, `p${i}`);
+      tree = appendChild(tree, tree.root.id, p);
+      ids.push(p.id);
+    }
+    expect(selectionSyntaxTypesConsistent(tree, ids[0], ids[500])).toBe(false);
+  });
+
+  it('恰好达到上限（500 个 paragraph）→ 仍一致（不误伤合法选区）', () => {
+    let tree = buildRoot();
+    const ids: string[] = [];
+    for (let i = 0; i < 500; i++) {
+      const p = makeParagraph(tree, `p${i}`);
+      tree = appendChild(tree, tree.root.id, p);
+      ids.push(p.id);
+    }
+    expect(selectionSyntaxTypesConsistent(tree, ids[0], ids[499])).toBe(true);
+  });
+
+  it('同类型多块 heading 区间 → 仍一致（不回归）', () => {
+    let tree = buildRoot();
+    const ids: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const h = makeHeading(tree, 2, `h${i}`);
+      tree = appendChild(tree, tree.root.id, h);
+      ids.push(h.id);
+    }
+    expect(selectionSyntaxTypesConsistent(tree, ids[0], ids[4])).toBe(true);
   });
 });

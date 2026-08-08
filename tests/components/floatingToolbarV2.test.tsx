@@ -3,7 +3,7 @@
 // 覆盖 G1 显示条件 / G3② 类型映射 / 转换矩阵 / G3① 自定义下拉交互
 // ============================================
 import { act, fireEvent, render } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { BlockTreeV2 } from '../../src/render/editor/kernel';
 import {
@@ -27,6 +27,70 @@ import {
   selectionSyntaxTypesConsistent,
   syntaxTypeToOption,
 } from '../../src/render/components/Editor/v2/FloatingToolbar';
+
+// jsdom 不按真实帧时机触发 rAF，测试环境统一让 rAF 回调同步执行，
+// 保证事件→渲染的确定性；节流专项用例内再覆盖为可控的收集 stub。
+vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+  cb(performance.now());
+  return 1;
+});
+vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+// ============ 共享选区夹具（FloatingToolbar 交互 + rAF 节流用例共用） ============
+interface Fixture {
+  tree: BlockTreeV2;
+  span: HTMLSpanElement;
+  ref: React.RefObject<HTMLDivElement>;
+  onConvertBlock: ReturnType<typeof vi.fn>;
+  onFormat: ReturnType<typeof vi.fn>;
+}
+
+function setup(blockId: string, tree: BlockTreeV2, text = 'hello world'): Fixture {
+  const container = document.createElement('div');
+  container.id = 'editor-container';
+  const span = document.createElement('span');
+  span.className = 'block-content';
+  span.textContent = text;
+  span.dataset.blockId = blockId;
+  container.appendChild(span);
+  document.body.appendChild(container);
+  const ref = { current: container } as React.RefObject<HTMLDivElement>;
+  return {
+    tree,
+    span,
+    ref,
+    onConvertBlock: vi.fn(),
+    onFormat: vi.fn(),
+  };
+}
+
+function mockSelection(span: HTMLSpanElement): void {
+  const range = document.createRange();
+  range.selectNodeContents(span);
+  const rect = {
+    left: 0,
+    top: 0,
+    width: 200,
+    height: 20,
+    right: 200,
+    bottom: 20,
+  } as DOMRect;
+  // jsdom 的 Range 未实现 getBoundingClientRect，需在实例上定义
+  Object.defineProperty(range, 'getBoundingClientRect', { value: () => rect });
+  const sel = {
+    rangeCount: 1,
+    isCollapsed: false,
+    anchorNode: span.firstChild,
+    focusNode: span.firstChild,
+    getRangeAt: () => range,
+  } as unknown as Selection;
+  vi.spyOn(window, 'getSelection').mockReturnValue(sel);
+}
+
+/** 无选区（工具栏应立即隐藏） */
+function mockNoSelection(): void {
+  vi.spyOn(window, 'getSelection').mockReturnValue(null as unknown as Selection);
+}
 
 // ============ 转换矩阵（SPEC-EDIT-FT 4.3.3） ============
 describe('canConvertBlock — 转换矩阵', () => {
@@ -239,56 +303,6 @@ describe('selectionSyntaxTypesConsistent — 跨块类型一致性', () => {
 
 // ============ G3① 自定义下拉 + 工具栏显示（jsdom 选区模拟） ============
 describe('FloatingToolbar — 下拉交互', () => {
-  interface Fixture {
-    tree: BlockTreeV2;
-    span: HTMLSpanElement;
-    ref: React.RefObject<HTMLDivElement>;
-    onConvertBlock: ReturnType<typeof vi.fn>;
-    onFormat: ReturnType<typeof vi.fn>;
-  }
-
-  function setup(blockId: string, tree: BlockTreeV2, text = 'hello world'): Fixture {
-    const container = document.createElement('div');
-    container.id = 'editor-container';
-    const span = document.createElement('span');
-    span.className = 'block-content';
-    span.textContent = text;
-    span.dataset.blockId = blockId;
-    container.appendChild(span);
-    document.body.appendChild(container);
-    const ref = { current: container } as React.RefObject<HTMLDivElement>;
-    return {
-      tree,
-      span,
-      ref,
-      onConvertBlock: vi.fn(),
-      onFormat: vi.fn(),
-    };
-  }
-
-  function mockSelection(span: HTMLSpanElement): void {
-    const range = document.createRange();
-    range.selectNodeContents(span);
-    const rect = {
-      left: 0,
-      top: 0,
-      width: 200,
-      height: 20,
-      right: 200,
-      bottom: 20,
-    } as DOMRect;
-    // jsdom 的 Range 未实现 getBoundingClientRect，需在实例上定义
-    Object.defineProperty(range, 'getBoundingClientRect', { value: () => rect });
-    const sel = {
-      rangeCount: 1,
-      isCollapsed: false,
-      anchorNode: span.firstChild,
-      focusNode: span.firstChild,
-      getRangeAt: () => range,
-    } as unknown as Selection;
-    vi.spyOn(window, 'getSelection').mockReturnValue(sel);
-  }
-
   async function fireSelectionChange(): Promise<void> {
     await act(async () => {
       document.dispatchEvent(new Event('selectionchange'));
@@ -357,5 +371,156 @@ describe('FloatingToolbar — 下拉交互', () => {
     expect(h1.disabled).toBe(true);
     fireEvent.click(paragraphBtn);
     expect(onConvertBlock).not.toHaveBeenCalled();
+  });
+});
+
+// ============ selectionchange rAF 节流（SPEC-EDIT-DSF 4.3） ============
+describe('FloatingToolbar — selectionchange rAF 节流', () => {
+  let rafCalls: FrameRequestCallback[];
+  let rafSpy: ReturnType<typeof vi.fn>;
+  let cancelSpy: ReturnType<typeof vi.fn>;
+
+  /** 用收集式 stub 接管 rAF，逐帧手动 flush 以验证合并/节流 */
+  function installRafCollector(): void {
+    rafCalls = [];
+    rafSpy = vi.fn();
+    rafSpy.mockImplementation((cb: FrameRequestCallback) => {
+      rafCalls.push(cb);
+      return rafCalls.length;
+    });
+    cancelSpy = vi.fn();
+    vi.stubGlobal('requestAnimationFrame', rafSpy);
+    vi.stubGlobal('cancelAnimationFrame', cancelSpy);
+  }
+
+  function flushFrame(index: number): void {
+    const cb = rafCalls[index];
+    if (cb) act(() => cb(performance.now()));
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('同一帧内连续 N 次 selectionchange 合并为单次 rAF 计算', () => {
+    installRafCollector();
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref, onConvertBlock, onFormat } = setup(p.id, tree);
+    mockSelection(span);
+    const { container } = render(
+      <FloatingToolbar
+        editorContainerRef={ref}
+        tree={tree}
+        onFormat={onFormat}
+        onConvertBlock={onConvertBlock}
+      />
+    );
+
+    for (let i = 0; i < 10; i++) {
+      act(() => {
+        document.dispatchEvent(new Event('selectionchange'));
+      });
+    }
+    // 合并：10 次事件只调度 1 帧（computeToolbarState ≤ 1 次）
+    expect(rafSpy).toHaveBeenCalledTimes(1);
+
+    flushFrame(0);
+    expect(container.querySelector('.floating-toolbar-v2')).not.toBeNull();
+  });
+
+  it('拖选期间事件跨帧合并：事件数显著大于帧数，工具栏不逐帧重建', () => {
+    installRafCollector();
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref, onConvertBlock, onFormat } = setup(p.id, tree);
+    mockSelection(span);
+    const { container } = render(
+      <FloatingToolbar
+        editorContainerRef={ref}
+        tree={tree}
+        onFormat={onFormat}
+        onConvertBlock={onConvertBlock}
+      />
+    );
+
+    for (let i = 0; i < 10; i++) {
+      act(() => {
+        document.dispatchEvent(new Event('selectionchange'));
+      });
+    }
+    expect(rafSpy).toHaveBeenCalledTimes(1);
+    flushFrame(0);
+    const toolbarNode = container.querySelector('.floating-toolbar-v2');
+    expect(toolbarNode).not.toBeNull();
+
+    // 第 2 帧内再 10 次事件 → 再调度 1 帧，且工具栏节点不被重建
+    for (let i = 0; i < 10; i++) {
+      act(() => {
+        document.dispatchEvent(new Event('selectionchange'));
+      });
+    }
+    expect(rafSpy).toHaveBeenCalledTimes(2);
+    flushFrame(1);
+    expect(container.querySelector('.floating-toolbar-v2')).toBe(toolbarNode);
+  });
+
+  it('同帧内最新选区覆盖先前选区（合并只保留最新一次）', () => {
+    installRafCollector();
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref, onConvertBlock, onFormat } = setup(p.id, tree);
+    const { container } = render(
+      <FloatingToolbar
+        editorContainerRef={ref}
+        tree={tree}
+        onFormat={onFormat}
+        onConvertBlock={onConvertBlock}
+      />
+    );
+
+    mockSelection(span);
+    act(() => {
+      document.dispatchEvent(new Event('selectionchange'));
+    });
+    mockNoSelection();
+    act(() => {
+      document.dispatchEvent(new Event('selectionchange'));
+    });
+
+    expect(rafSpy).toHaveBeenCalledTimes(1);
+    flushFrame(0);
+    // 同一帧内最后写入的是"无选区" → 最终隐藏
+    expect(container.querySelector('.floating-toolbar-v2')).toBeNull();
+  });
+
+  it('卸载时取消待执行 rAF，避免回调泄漏', () => {
+    installRafCollector();
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref, onConvertBlock, onFormat } = setup(p.id, tree);
+    mockSelection(span);
+    const { unmount } = render(
+      <FloatingToolbar
+        editorContainerRef={ref}
+        tree={tree}
+        onFormat={onFormat}
+        onConvertBlock={onConvertBlock}
+      />
+    );
+
+    act(() => {
+      document.dispatchEvent(new Event('selectionchange'));
+    });
+    expect(rafSpy).toHaveBeenCalledTimes(1);
+
+    unmount();
+    expect(cancelSpy).toHaveBeenCalledTimes(1);
+    expect(cancelSpy).toHaveBeenCalledWith(1);
   });
 });

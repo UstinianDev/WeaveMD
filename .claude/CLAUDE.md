@@ -52,6 +52,9 @@
   末帧兜底/3 帧重放（`useCrossBlockDragSelection.ts`）；Backspace/Delete 走
   `deleteLeafRange` 块树级删除；**注意**：Chromium 对跨编辑宿主 Selection.toString()
   只返回 anchor 块内文本（Range 边界保留跨块），拖选验证须用块 id + Backspace 而非文本
+- 拖选闪烁优化（SPEC-EDIT-DSF）：`lastAppliedRangeRef` 端点级变化检测（端点全等跳过
+  重建，静止不再 selection 风暴）；`FloatingToolbar` selectionchange 改 rAF 合并
+  （渲染 ≤ 每帧一次）；`resolveSyntaxTypesInRange` 边枚举边比对短路 + 500 叶上限
 - 焦点恢复：`applyAction` 树未变时立即恢复；降级转换焦点用新块 id
 - **v1 回退路径已退役（2026-08-06）**：v2 为唯一路径，`__EDITOR_V2__` 开关已移除，
   v1 组件/服务/测试已删除（EditorView 1920 行重写为薄编排器）
