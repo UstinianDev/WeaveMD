@@ -286,6 +286,55 @@ describe('formatCtrl — C10 跨多 token 逐 token 拆分（FT3 §4.1 扩展）
   });
 });
 
+describe('formatCtrl — 跨风格叠加（bold+italic `***`，C11）', () => {
+  it('`**a**` 全选点 italic → `***a***` 且无 `****`', () => {
+    const instance = new EditorInstance('**a**');
+    apply(instance, 'italic', 0, 5);
+    expect(instance.getMarkdown()).toBe('***a***');
+    expect(instance.getMarkdown()).not.toContain('****');
+  });
+
+  it('`*a*` 全选点 bold → `***a***` 且无 `****`', () => {
+    const instance = new EditorInstance('*a*');
+    apply(instance, 'bold', 0, 3);
+    expect(instance.getMarkdown()).toBe('***a***');
+    expect(instance.getMarkdown()).not.toContain('****');
+  });
+
+  it('`***a***` 全选点 bold → 解除为 `*a*`', () => {
+    const instance = new EditorInstance('***a***');
+    apply(instance, 'bold', 0, 7);
+    expect(instance.getMarkdown()).toBe('*a*');
+  });
+
+  it('`***a***` 全选点 italic → 解除为 `**a**`', () => {
+    const instance = new EditorInstance('***a***');
+    apply(instance, 'italic', 0, 7);
+    expect(instance.getMarkdown()).toBe('**a**');
+  });
+
+  it('`***a***` 选内容 `a` 点 italic（case A）→ 解除为 `**a**`', () => {
+    const instance = new EditorInstance('***a***');
+    apply(instance, 'italic', 3, 4);
+    expect(instance.getMarkdown()).toBe('**a**');
+  });
+
+  it('`***a***` 选内容 `a` 点 bold（case A）→ 解除为 `*a*`', () => {
+    const instance = new EditorInstance('***a***');
+    apply(instance, 'bold', 3, 4);
+    expect(instance.getMarkdown()).toBe('*a*');
+  });
+
+  it('stripSameStylePairs：`***a***` 去 italic → `**a**`、去 bold → `*a*`', () => {
+    expect(stripSameStylePairs('***a***', 'italic')).toBe('**a**');
+    expect(stripSameStylePairs('***a***', 'bold')).toBe('*a*');
+  });
+
+  it('stripInlineSyntax：橡皮擦 `***a***` 全区间 → `a`', () => {
+    expect(stripInlineSyntax('***a***', 0, 7)).toBe('a');
+  });
+});
+
 describe('formatCtrl — selection 契约（FT3 §4.3 G3 前半）', () => {
   it('case B 解除返回 selection 映射（content 区间）', () => {
     const instance = new EditorInstance('**123**');

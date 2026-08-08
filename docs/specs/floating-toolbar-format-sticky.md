@@ -142,6 +142,9 @@ Step 0 · 选区标记归一化（新增）：
 | `**abc**` | `ab`（`[2,4)`，内容区内部分选区） | 解除 → `abc`（case A 补全，绝不产生 `****`） |
 | `a **b** c` | `b** c`（跨 token，覆盖 close） | C10 逐 token → 解除为 `a b c` |
 | `a **b** c **d** e` | `b** c **d`（`[4,13)`，跨两 token） | C10 逐 token → 解除为 `a b c d e` |
+| `**a**` | `a`（内容区）点斜体 | 跨风格叠加 → `***a***`（C12 三连嵌套） |
+| `***a***` | 全选 / 内容 `a` 点 bold | 解除 → `*a*`（C12） |
+| `***a***` | 全选 / 内容 `a` 点 italic | 解除 → `**a**`（C12） |
 
 > 各成对样式（`*`/`~~`/`==`/`` ` ``/`<u>`/`$`）同矩阵适配；link/image 不走 toggle（现状不变）。
 
@@ -364,3 +367,24 @@ Step 0 · 选区标记归一化（新增）：
   - case A 补全：`**abc**` 选区 `[2,4)`（内容区内部分选区）→ 解除为 `abc`（原：叠加 `****`）。
 - E2E 新增 FT3-E6：跨多 token 选区点加粗 → 两 token 均解除、无 `****`、`strong` 计数 0。
 - 全量门禁：Vitest 447 例、Playwright 43 例全绿；tsc/eslint/vite build 通过。
+
+### 9.9 C12 跨风格叠加（bold+italic 三连 `***`，2026-08-09）
+
+- **问题**：对 `**a**`（strong）内内容点斜体，text 层正确生成 `***a***`（既有 toggle 叠加），
+  但 lexer `matchEmphasis` 只识别 `*`/`**`，把三连星解析成 strong 包裹 `*a` 字面 → 斜体不渲染、星号异常。
+- `kernel/inlineLexer.ts` `matchEmphasis`：新增三连 `***` / `___` 识别，解析为**外层 em（openLen 1）+ 内层 strong（openLen 2）**
+  的嵌套 token（`contentStart=start+1` / `contentStart=start+3`），使渲染、strip、Step 0 按各风格逐层贯通：
+  - 渲染：`renderInline('***a***')` → `<em>*<strong>**a**</strong>*</em>`（无字面残缺）；
+  - 解除：`***a***` 全选点 bold → `*a*`；点 italic → `**a**`；选内容 `a` 点 bold/italic 同理（case A）；
+  - 橡皮擦 / 去重：`stripInlineSyntax` / `stripSameStylePairs` 逐层剥离。
+- 保守边界：四连开头（`****abc****`）与 close 后紧跟同字符（`***a****`）不闭合；紧邻前一字符为词字符时退化为既有
+  double/单分支（避免 `a___b___c` intraword 行为变化）。
+- 行为矩阵补充（跨风格，G1 延伸）：
+  | 原文 | 选区 | 期望 |
+  | ---- | ---- | ---- |
+  | `**a**` | `a`（`[2,3)` 内容区） | 斜体叠加 → `***a***` |
+  | `*a*` | 全选 | 加粗叠加 → `***a***` |
+  | `***a***` | 全选 / 内容 `a` | 点 bold → `*a*`；点 italic → `**a**` |
+- E2E 新增 FT3-E7：加粗后再斜体 → `***` 渲染 em 内嵌 strong、无字面 `*` 污染。
+- 全量门禁：Vitest 460 例、Playwright 44 例全绿；tsc/eslint/vite build（render）通过。
+- 遗留：`***` 选区全选时工具栏 B/I active 高亮判定（`isBoundedWrap` 不可延伸规则）不显示双高亮，交互面后续处理。

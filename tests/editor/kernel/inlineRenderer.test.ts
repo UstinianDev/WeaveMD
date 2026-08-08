@@ -53,6 +53,15 @@ describe('inlineRenderer — 行内语法', () => {
     );
   });
 
+  it('三连星（加粗+斜体叠加）渲染为 em 内嵌 strong，无字面残缺', () => {
+    expect(renderInline('***both***')).toBe(
+      '<em><span class="md-syntax">*</span><strong><span class="md-syntax">**</span>both<span class="md-syntax">**</span></strong><span class="md-syntax">*</span></em>'
+    );
+    expect(renderInline('___both___')).toContain('<strong>');
+    expect(renderInline('___both___')).toContain('<em>');
+    expect(renderInline('***both***')).not.toContain('***both***');
+  });
+
   it('删除线与高亮', () => {
     expect(renderInline('~~gone~~')).toBe(
       '<del><span class="md-syntax">~~</span>gone<span class="md-syntax">~~</span></del>'

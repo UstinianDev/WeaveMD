@@ -100,7 +100,7 @@ BlockNodeV2 = {
 | convertCtrl | 升格（paragraph → 六种结构块）/ 降格；浮动工具栏转换经 `canConvertBlock` 矩阵（heading 仅 h1-h6/paragraph 互切，quote/list 仅退位 paragraph，code-block 只读） |
 | clickCtrl | 任务复选框切换 |
 | listCtrl | Tab 缩进为前项子列表、Shift+Tab 凸出 |
-| formatCtrl | 文本层格式化（bold/italic/strike/highlight/code/link/underline/math/image），取代 execCommand；`formatRange` toggle（Step 0 选区归一化 + 双形态，含部分标记覆盖 → 解除、跨多 token 逐 token 拆分，SPEC-EDIT-FT3）、`clearFormat` 橡皮擦清除选区全部行内标记，image/link 插入 `[label](url)` / `![alt](url)`（SPEC-EDIT-FT2） |
+| formatCtrl | 文本层格式化（bold/italic/strike/highlight/code/link/underline/math/image），取代 execCommand；`formatRange` toggle（Step 0 选区归一化 + 双形态，含部分标记覆盖 → 解除、跨多 token 逐 token 拆分、跨风格三连 `***` 叠加，SPEC-EDIT-FT3）、`clearFormat` 橡皮擦清除选区全部行内标记，image/link 插入 `[label](url)` / `![alt](url)`（SPEC-EDIT-FT2） |
 | inlineLexer | `kernel/inlineLexer.ts`：行内 token 结构化识别（strong/em/underline/strike/mark/code/link/image/autolink/escape/math），`inlineRenderer` 消费它渲染富文本；`isBoundedWrap` 共享 activeTest 与 toggle-off 边界 |
 | katex | `kernel/katex.ts`：`renderMath(expr)` → `.math-inline` + `.katex` HTML，失败回退字面量 |
 
@@ -128,21 +128,22 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
 - 行内标记（SPEC-EDIT-FT2）：`.md-syntax` 默认隐藏、块聚焦灰显；编辑依赖聚焦灰显边界 +
   橡皮擦（⌫）显式清除；选区切开标记时残体保留为字面量；display math 与图片粘贴上传在范围外。
 - 格式应用（SPEC-EDIT-FT3）：Step 0 选区归一化杜绝同语法叠加（选中部分标记再点 → 解除，
-  跨多个同风格 token 的选区逐 token 拆分解除，C10）；格式应用后驻留（点击工具栏外 /
-  滚动 / Escape / 键入退出，块转换仍退出）；键盘快捷键仍折叠光标不触发驻留。
+  跨多个同风格 token 的选区逐 token 拆解除，C10）；跨风格叠加（C12：加粗后再斜体生成三连
+  `***`，lexer 解析 em 内嵌 strong，渲染无字面残留，解除逐层剥离）；格式应用后驻留（点击
+  工具栏外 / 滚动 / Escape / 键入退出，块转换仍退出）；键盘快捷键仍折叠光标不触发驻留。
 
 ## 9. 验证与测试
 
-- Vitest：内核/控制器/组件 **447 例**（含往返属性测试、六条退出规则矩阵、输入链路、
+- Vitest：内核/控制器/组件 **460 例**（含往返属性测试、六条退出规则矩阵、输入链路、
   marktext 语法外观断言、代码块提交/退出、列表与引用退出、尾部代码块补偿 SPEC-EDIT-CBTP、
   `resolveSyntaxType` 判定矩阵 26 例、浮动工具栏 G1/G3 节流与驻留（含 FT2 按钮分组/新功能、
-  FT3 sticky/部分标记归一化/跨 token 拆分）、`onConvertBlock` 转换矩阵 8 例、拖选端点变化检测 11 例、
+  FT3 sticky/部分标记归一化/跨 token 拆分/三连 `***` 跨风格叠加）、`onConvertBlock` 转换矩阵 8 例、拖选端点变化检测 11 例、
   FT2：inlineLexer / inlineStrip / katex / formatCtrl toggle+clearFormat / roundTrip、
   FT3：Step 0 归一化矩阵（含 C10 跨 token）/ selection 恢复（selection.test + contentBlockRestore）/
   editorV2StickyFormat 集成 / CSS 静态断言（ft2Css 8 例）/ EditorV2 快捷键接线（editorV2Format 5 例））。
 - Playwright 真实 Chromium E2E（`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
   + `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`
-   + `e2e/cross-block-selection.spec.ts`）**43 例**：
+   + `e2e/cross-block-selection.spec.ts`）**44 例**：
   空文档输入、`# ` 标题转换、`**` 加粗渲染、标记保留、列表转换、中文输入、marktext 语法符号
   渲染与不可选中（标题 marker 聚焦显隐、任务复选框、引用竖线、列表 marker 计算样式断言）、
   标题 marker 并排、空标题行点击聚焦、列表项 marker 与内容并排且任务项无多余圆点、
@@ -154,6 +155,7 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
   FT2：工具栏计算样式（字号/间距/行距/总高）、加粗 toggle 无双层、`.md-syntax` 隐藏/聚焦灰显、
   `==高亮==` 黄色 mark、下划线/图片/数学/橡皮擦全流程（SPEC-EDIT-FT2）、
   FT3：部分标记选区加粗/高亮不叠加（无 `****`/`====`）、跨多 token 选区逐 token 解除、
+  加粗后再斜体三连 `***` 渲染 em 内嵌 strong（无字面 `*` 污染）、
   工具栏驻留 + 点击外/Escape 退出（SPEC-EDIT-FT3）。
 - 运行：`npm run test` / `npx playwright test`。
 

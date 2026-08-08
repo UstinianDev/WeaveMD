@@ -303,19 +303,60 @@ function matchPaired(text: string, i: number, bound: number, marker: string): In
   };
 }
 
-/** 加粗 / 斜体 */
+/** 加粗 / 斜体 / 加粗+斜体（`**x**` / `*x*` / `***x***`，下划线同理） */
 function matchEmphasis(text: string, i: number, bound: number): InlineToken | null {
   const ch = text[i];
   if (ch !== '*' && ch !== '_') return null;
   if (i + 1 >= bound) return null;
-  const double = text[i + 1] === ch;
-  const marker = double ? ch + ch : ch;
-  const searchFrom = i + marker.length;
   const isUnderscore = ch === '_';
   if (isUnderscore && isIntrawordUnderscore(text, i)) return null;
+
+  // 三连 `***`：先尝试，紧邻前一字符为词字符时退化为既有 double/单分支
+  // （避免 intraword 场景 `a___b___c` 行为变化）；四连开头（text[i+3]===ch）
+  // 与 close 后紧跟同字符（`***a****`）均不闭合，保守降级。
+  const canTriple =
+    text[i + 1] === ch &&
+    text[i + 2] === ch &&
+    text[i + 3] !== ch &&
+    !(i > 0 && isWordChar(text[i - 1]));
+  const double = !canTriple && text[i + 1] === ch;
+  const marker = canTriple ? ch + ch + ch : double ? ch + ch : ch;
+  const searchFrom = i + marker.length;
   const end = findMarker(text, marker, searchFrom, bound);
   if (end === -1) return null;
   if (end === searchFrom) return null;
+  if (canTriple && end + marker.length < bound && text[end + marker.length] === ch) {
+    return null;
+  }
+
+  if (canTriple) {
+    // `***x***` → em 外层（openLen 1）+ 内层 strong（openLen 2），
+    // 使 strip / Step 0 按各自风格逐层剥离，渲染层嵌套贯通。
+    const innerOpen = i + 1;
+    const innerEnd = end + 2;
+    return {
+      type: 'em',
+      start: i,
+      end: end + marker.length,
+      openLen: 1,
+      closeLen: 1,
+      contentStart: innerOpen,
+      contentEnd: innerEnd,
+      children: [
+        {
+          type: 'strong',
+          start: innerOpen,
+          end: innerEnd,
+          openLen: 2,
+          closeLen: 2,
+          contentStart: i + 3,
+          contentEnd: end,
+          children: tokenizeInline(text, i + 3, end),
+        },
+      ],
+    };
+  }
+
   return {
     type: double ? 'strong' : 'em',
     start: i,

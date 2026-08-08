@@ -604,3 +604,39 @@ test('FT3-E6: 跨多 token 选区点加粗 → 两 token 均解除，无 ****（
   await expect(editable).not.toContainText('****');
   await expect(page.locator('strong')).toHaveCount(0);
 });
+
+test('FT3-E7: 加粗后再斜体 → `***` 渲染 em 内嵌 strong，无字面语法符号残留（C11 跨风格叠加）', async ({
+  page,
+}) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('abc', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="加粗"]').click();
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('**abc**');
+  await expect(page.locator('strong')).toHaveCount(1);
+
+  // 工具栏驻留、内容仍选中 → 直接点斜体
+  await expect(toolbar).toBeVisible();
+  const selCollapsed = await page.evaluate(() => window.getSelection()?.isCollapsed);
+  expect(selCollapsed).toBe(false);
+  await toolbar.locator('button[title="斜体"]').click();
+  await page.waitForTimeout(300);
+
+  // 叠加为 `***abc***`：em 内嵌 strong，abc 无字面 `*` 污染
+  await expect(editable).toHaveText('***abc***');
+  await expect(page.locator('em')).toHaveCount(1);
+  await expect(page.locator('em strong')).toHaveCount(1);
+  const strongInnerText = await page.locator('em strong').evaluate((el) =>
+    Array.from(el.childNodes)
+      .filter((n) => n.nodeType === Node.TEXT_NODE)
+      .map((n) => n.textContent ?? '')
+      .join('')
+  );
+  expect(strongInnerText).toBe('abc');
+});
