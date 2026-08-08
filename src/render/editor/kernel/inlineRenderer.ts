@@ -113,7 +113,7 @@ function renderTokenList(tokens: InlineToken[], text: string, from: number, to: 
 /**
  * 把纯文本渲染为行内富文本 HTML。
  * 支持：转义、行内代码、图片/链接（含标题）、自动链接、删除线、高亮、
- * 加粗、斜体；`\n` → `<br>`。
+ * 加粗、斜体（含三连 `***`/`___` 加粗+斜体叠加，em 内嵌 strong）；`\n` → `<br>`。
  */
 export function renderInline(text: string): string {
   return renderTokenList(tokenizeInline(text), text, 0, text.length);

@@ -69,6 +69,53 @@ describe('inlineLexer — 加粗 / 斜体', () => {
   });
 });
 
+describe('inlineLexer — 加粗+斜体叠加（三连 `***`）', () => {
+  it('`***abc***` 解析为 em 包裹内层 strong', () => {
+    const tokens = tokenizeInline('***abc***');
+    expect(tokens).toHaveLength(1);
+    const em = tokens[0];
+    expect(em.type).toBe('em');
+    expect(em.start).toBe(0);
+    expect(em.end).toBe(9);
+    expect(em.openLen).toBe(1);
+    expect(em.closeLen).toBe(1);
+    expect(em.contentStart).toBe(1);
+    expect(em.contentEnd).toBe(8);
+    const strong = em.children?.find((c) => c.type === 'strong');
+    expect(strong).toBeDefined();
+    expect(strong?.start).toBe(1);
+    expect(strong?.end).toBe(8);
+    expect(strong?.openLen).toBe(2);
+    expect(strong?.closeLen).toBe(2);
+    expect(strong?.contentStart).toBe(3);
+    expect(strong?.contentEnd).toBe(6);
+  });
+
+  it('`___abc___` 同样解析为 em 内嵌 strong', () => {
+    const tokens = tokenizeInline('___abc___');
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0].type).toBe('em');
+    expect(tokens[0].children?.find((c) => c.type === 'strong')).toBeDefined();
+  });
+
+  it('四连星 `****abc****` 仅识别中间 `**abc**` 为 strong（不产生三连叠加误判）', () => {
+    const tokens = tokenizeInline('****abc****');
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0].type).toBe('strong');
+    expect(tokens[0].start).toBe(2);
+    expect(tokens[0].end).toBe(9);
+    expect(tokens[0].contentStart).toBe(4);
+    expect(tokens[0].contentEnd).toBe(7);
+  });
+
+  it('`***abc***` 全选：bold 命中内层 strong、italic 命中外层 em', () => {
+    expect(findIntersectingStyleToken('***abc***', 'bold', 0, 9)?.type).toBe('strong');
+    expect(findIntersectingStyleToken('***abc***', 'italic', 0, 9)?.type).toBe('em');
+    expect(findIntersectingStyleToken('***abc***', 'bold', 0, 9)?.start).toBe(1);
+    expect(findIntersectingStyleToken('***abc***', 'italic', 0, 9)?.start).toBe(0);
+  });
+});
+
 describe('inlineLexer — 嵌套', () => {
   it('嵌套强调产生 children', () => {
     const tokens = tokenizeInline('**a *b* c**');
