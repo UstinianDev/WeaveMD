@@ -631,11 +631,14 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
       const btn = container.querySelector(`button[title="${title}"]`) as HTMLButtonElement;
       expect(btn).not.toBeNull();
       fireEvent.click(btn);
+      // FT3：工具栏路径固定传 restoreSelection=true（第 6 参）
       expect(onFormat).toHaveBeenCalledWith(
         p.id,
         style,
         expect.any(Number),
-        expect.any(Number)
+        expect.any(Number),
+        undefined,
+        true
       );
     }
 
@@ -664,7 +667,8 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
       'image',
       expect.any(Number),
       expect.any(Number),
-      'https://example.com/a.png'
+      'https://example.com/a.png',
+      true
     );
     promptSpy.mockRestore();
   });
@@ -683,7 +687,8 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
     const eraser = container.querySelector('button[title="橡皮擦"]') as HTMLButtonElement;
     expect(eraser).not.toBeNull();
     fireEvent.click(eraser);
-    expect(onClearFormat).toHaveBeenCalledWith(p.id, expect.any(Number), expect.any(Number));
+    // FT3：橡皮擦路径固定传 restoreSelection=true（第 4 参）
+    expect(onClearFormat).toHaveBeenCalledWith(p.id, expect.any(Number), expect.any(Number), true);
   });
 
   it('TB5: italic activeTest 边界——*a** 不激活 italic；*a* 激活；**a** 不激活 italic', async () => {
@@ -852,6 +857,172 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
     await fireSelectionChange();
     expect(container.querySelector('.floating-toolbar-v2')).toBeNull();
     vi.restoreAllMocks();
+  });
+});
+
+// =============================================================
+// SPEC-EDIT-FT3 阶段 D：工具栏驻留（G3）
+// 点格式/橡皮擦 → 驻留不退出（restoreSelection=true）；点工具栏外 /
+// Escape → 退出；块类型转换维持退出（回归锁定）；非 sticky 跟随不变
+// =============================================================
+describe('FloatingToolbar — FT3 工具栏驻留', () => {
+  beforeAll(() => {
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(performance.now());
+      return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  });
+  afterAll(() => {
+    vi.unstubAllGlobals();
+  });
+  afterEach(() => {
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  async function fireSelectionChange(): Promise<void> {
+    await act(async () => {
+      document.dispatchEvent(new Event('selectionchange'));
+    });
+  }
+
+  function renderToolbar(
+    tree: BlockTreeV2,
+    span: HTMLSpanElement,
+    ref: React.RefObject<HTMLDivElement>,
+    onFormat: ReturnType<typeof vi.fn>,
+    onConvertBlock: ReturnType<typeof vi.fn>,
+    onClearFormat: ReturnType<typeof vi.fn>
+  ) {
+    mockSelection(span);
+    return render(
+      <FloatingToolbar
+        editorContainerRef={ref}
+        tree={tree}
+        onFormat={onFormat}
+        onConvertBlock={onConvertBlock}
+        onClearFormat={onClearFormat}
+      />
+    );
+  }
+
+  it('T1: 点击加粗后工具栏驻留且 onFormat 传 restoreSelection=true', async () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref } = setup(p.id, tree);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
+    await fireSelectionChange();
+    expect(container.querySelector('.floating-toolbar-v2')).not.toBeNull();
+
+    const bold = container.querySelector('button[title="加粗"]') as HTMLButtonElement;
+    fireEvent.click(bold);
+    expect(onFormat).toHaveBeenCalledWith(
+      p.id,
+      'bold',
+      expect.any(Number),
+      expect.any(Number),
+      undefined,
+      true
+    );
+    // FT3 行为变更：格式应用后不再强隐 → 工具栏驻留
+    expect(container.querySelector('.floating-toolbar-v2')).not.toBeNull();
+  });
+
+  it('T1b: 点击橡皮擦后工具栏驻留且 onClearFormat 传 restoreSelection=true', async () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref } = setup(p.id, tree);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
+    await fireSelectionChange();
+
+    const eraser = container.querySelector('button[title="橡皮擦"]') as HTMLButtonElement;
+    fireEvent.click(eraser);
+    expect(onClearFormat).toHaveBeenCalledWith(p.id, expect.any(Number), expect.any(Number), true);
+    expect(container.querySelector('.floating-toolbar-v2')).not.toBeNull();
+  });
+
+  it('T2: 块类型转换后工具栏仍隐藏（回归锁定）', async () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref } = setup(p.id, tree);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
+    await fireSelectionChange();
+
+    const trigger = container.querySelector('.block-type-trigger') as HTMLButtonElement;
+    fireEvent.click(trigger);
+    const h2 = container.querySelector('[data-value="h2"]') as HTMLButtonElement;
+    fireEvent.click(h2);
+    expect(onConvertBlock).toHaveBeenCalledWith(p.id, 'h2');
+    expect(container.querySelector('.floating-toolbar-v2')).toBeNull();
+  });
+
+  it('T3: 工具栏可见时 Escape → 隐藏', async () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref } = setup(p.id, tree);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
+    await fireSelectionChange();
+    expect(container.querySelector('.floating-toolbar-v2')).not.toBeNull();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(container.querySelector('.floating-toolbar-v2')).toBeNull();
+  });
+
+  it('T4: sticky 后点击工具栏外 → 隐藏且 selectionchange 不重显（suppress 消费一次）', async () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref } = setup(p.id, tree);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
+    await fireSelectionChange();
+    // 进入 sticky：点击加粗后驻留
+    const bold = container.querySelector('button[title="加粗"]') as HTMLButtonElement;
+    fireEvent.click(bold);
+    expect(container.querySelector('.floating-toolbar-v2')).not.toBeNull();
+
+    // 点击工具栏外（document.body）
+    fireEvent.mouseDown(document.body);
+    expect(container.querySelector('.floating-toolbar-v2')).toBeNull();
+
+    // 浏览器随后因选区变化触发 selectionchange → suppress 阻止重显
+    await fireSelectionChange();
+    expect(container.querySelector('.floating-toolbar-v2')).toBeNull();
+  });
+
+  it('T5: 非 sticky 时点击工具栏外 → 不隐藏（普通选中跟随保留）', async () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref } = setup(p.id, tree);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
+    await fireSelectionChange();
+    expect(container.querySelector('.floating-toolbar-v2')).not.toBeNull();
+
+    fireEvent.mouseDown(document.body);
+    expect(container.querySelector('.floating-toolbar-v2')).not.toBeNull();
   });
 });
 

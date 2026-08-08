@@ -24,7 +24,7 @@ import type { BlockMetaV2, BlockTreeV2 } from '../../../editor/kernel';
 import { deleteLeafRange, toDisplayHtml, updateMeta } from '../../../editor/kernel';
 import { resolveSyntaxType } from '../../../editor/kernel/syntaxType';
 import { extractHeadingOutline } from '../../../editor/kernel/outline';
-import { setCursorAtOffset } from '../../../editor/kernel/selection';
+import { setCursorAtOffset, setRangeAtOffset } from '../../../editor/kernel/selection';
 import { useEditorStore } from '../../../stores/editorStore';
 import EditorScrollContainer, { type EditorScrollContainerHandle } from './EditorScrollContainer';
 import FloatingToolbar, { type BlockTypeOption } from './FloatingToolbar';
@@ -55,6 +55,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const domRegistryRef = useRef<Map<string, HTMLElement>>(new Map());
   const pendingFocusRef = useRef<{ blockId: string; offset: number } | null>(null);
+  const pendingRangeRef = useRef<{ blockId: string; start: number; end: number } | null>(null);
   const lastSyncedContentRef = useRef(content);
 
   const outline = useMemo(() => extractHeadingOutline(tree), [tree]);
@@ -69,6 +70,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
 
   // 树变化后恢复光标（useLayoutEffect：paint 前同步，供 ContentBlock 立即使用）
   useLayoutEffect(() => {
+    if (pendingRangeRef.current) return;
     const pending = pendingFocusRef.current;
     if (!pending) return;
     pendingFocusRef.current = null;
@@ -96,7 +98,14 @@ const EditorV2: React.FC<EditorV2Props> = ({
       const prevTree = instance.tree;
       const result = action(instance);
       if (!result) return false;
-      if (result.focus) {
+      if (result.selection) {
+        if (instance.tree === prevTree) {
+          const el = domRegistryRef.current.get(result.selection.blockId);
+          if (el) setRangeAtOffset(el, result.selection.start, result.selection.end);
+        } else {
+          pendingRangeRef.current = result.selection;
+        }
+      } else if (result.focus) {
         if (instance.tree === prevTree) {
           // 树未变化（如空代码块 Enter/Backspace 仅移动光标）：立即恢复焦点，
           // 否则 setTree 同引用会跳过重渲染，焦点恢复 effect 不执行
@@ -195,9 +204,16 @@ const EditorV2: React.FC<EditorV2Props> = ({
     [applyAction]
   );
   const onFormat = useCallback(
-    (blockId: string, style: InlineFormatStyle, start: number, end: number, url?: string) => {
+    (
+      blockId: string,
+      style: InlineFormatStyle,
+      start: number,
+      end: number,
+      url?: string,
+      restoreSelection?: boolean
+    ) => {
       applyAction((instance) =>
-        formatCtrl.formatRange(instance, blockId, style, start, end, url ? { url } : undefined)
+        formatCtrl.formatRange(instance, blockId, style, start, end, { url, restoreSelection })
       );
     },
     [applyAction]
@@ -205,11 +221,18 @@ const EditorV2: React.FC<EditorV2Props> = ({
 
   // SPEC-EDIT-FT2 4.5.4：橡皮擦——清除选区全部行内标记
   const onClearFormat = useCallback(
-    (blockId: string, start: number, end: number) => {
+    (blockId: string, start: number, end: number, _restoreSelection?: boolean) => {
       applyAction((instance) => formatCtrl.clearFormat(instance, blockId, start, end));
     },
     [applyAction]
   );
+
+  const getPendingRange = useCallback(() => {
+    const pending = pendingRangeRef.current;
+    if (!pending) return null;
+    pendingRangeRef.current = null;
+    return { start: pending.start, end: pending.end };
+  }, []);
 
   // 浮动工具栏：块类型转换（正文 ↔ H1-H6，仅根级 paragraph/heading）
   // 块元数据更新助手：updateMeta → setTree → 同步内容（消除重复模式）
@@ -309,6 +332,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
       onShiftTab,
       onFormat,
       onClearFormat,
+      getPendingRange,
       onToggleTask,
       onUndo,
       onRedo,
@@ -325,6 +349,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
       onShiftTab,
       onFormat,
       onClearFormat,
+      getPendingRange,
       onToggleTask,
       onUndo,
       onRedo,
