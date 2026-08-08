@@ -13,6 +13,7 @@ import {
   getCrossBlockSelection,
   getCursorOffsets,
   setCursorAtOffset,
+  setRangeAtOffset,
 } from '../../../../editor/kernel/selection';
 import type { InputEventResult } from '../types';
 
@@ -35,6 +36,7 @@ interface ContentBlockProps {
   onTab: (blockId: string) => boolean;
   onShiftTab: (blockId: string) => boolean;
   onFormat: (blockId: string, style: InlineFormatStyle, start: number, end: number, url?: string) => void;
+  getPendingRange?: () => { start: number; end: number } | null;
   onUndo: () => void;
   onRedo: () => void;
   registerDom: (blockId: string, el: HTMLElement) => void;
@@ -54,6 +56,7 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
   onTab,
   onShiftTab,
   onFormat,
+  getPendingRange,
   onUndo,
   onRedo,
   registerDom,
@@ -79,6 +82,10 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
     if (pendingOffsetRef.current !== null && ref.current) {
       setCursorAtOffset(ref.current, pendingOffsetRef.current);
       pendingOffsetRef.current = null;
+    }
+    const pendingRange = getPendingRange?.();
+    if (pendingRange && ref.current) {
+      setRangeAtOffset(ref.current, pendingRange.start, pendingRange.end);
     }
   });
 

@@ -33,11 +33,17 @@ interface FloatingToolbarProps {
     style: InlineFormatStyle,
     start: number,
     end: number,
-    url?: string
+    url?: string,
+    restoreSelection?: boolean
   ) => void;
   onConvertBlock: (blockId: string, target: BlockTypeOption) => void;
   /** SPEC-EDIT-FT2 4.5.4：橡皮擦（清除选区行内标记） */
-  onClearFormat?: (blockId: string, start: number, end: number) => void;
+  onClearFormat?: (
+    blockId: string,
+    start: number,
+    end: number,
+    restoreSelection?: boolean
+  ) => void;
 }
 
 interface SelectionState {
@@ -240,6 +246,10 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   const latestSelectionRef = useRef<Selection | null>(null);
   const rafIdRef = useRef<number | null>(null);
   const visibleRef = useRef(false);
+  // SPEC-EDIT-FT3 4.3：格式/清除后工具栏驻留；点击工具栏外/滚动/Escape/键入退出
+  const stickyRef = useRef(false);
+  // 点击工具栏外 → hide 后，浏览器随后的 selectionchange 不得重显（消费一次）
+  const suppressSelectionRef = useRef(false);
 
   const setVisibleGuarded = useCallback((value: boolean) => {
     if (visibleRef.current !== value) {
@@ -247,6 +257,12 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       setVisible(value);
     }
   }, []);
+
+  /** FT3：隐藏并退出驻留语义（块转换/滚动/点击外部/Escape 共用） */
+  const hideToolbar = useCallback(() => {
+    setVisibleGuarded(false);
+    stickyRef.current = false;
+  }, [setVisibleGuarded]);
 
   const cancelHide = useCallback(() => {
     if (hideTimerRef.current) {
@@ -271,6 +287,11 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     if (!container) return;
 
     const flushSelection = () => {
+      // FT3：点击工具栏外触发的隐藏后，浏览器随后的 selectionchange 不得重显
+      if (suppressSelectionRef.current) {
+        suppressSelectionRef.current = false;
+        return;
+      }
       const state = computeToolbarState(
         latestSelectionRef.current,
         container,
@@ -301,7 +322,10 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       });
     };
 
-    const handleScroll = () => setVisibleGuarded(false);
+    const handleScroll = () => {
+      stickyRef.current = false;
+      setVisibleGuarded(false);
+    };
 
     document.addEventListener('selectionchange', handleSelectionChange);
     container.addEventListener('scroll', handleScroll, true);
@@ -315,6 +339,26 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
   }, [editorContainerRef, cancelHide, scheduleHide, tree, setVisibleGuarded]);
+
+  // SPEC-EDIT-FT3 4.3：驻留退出条件——点击工具栏外任意位置（capture 阶段）与 Escape
+  useEffect(() => {
+    const handleMouseDown = (e: MouseEvent) => {
+      if (!stickyRef.current) return;
+      if (toolbarRef.current?.contains(e.target as Node)) return;
+      suppressSelectionRef.current = true;
+      hideToolbar();
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (visibleRef.current) hideToolbar();
+    };
+    document.addEventListener('mousedown', handleMouseDown, true);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown, true);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [hideToolbar]);
 
   const currentType: BlockTypeOption = useMemo(() => {
     if (!selection) return 'paragraph';
@@ -351,26 +395,29 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
           button.style === 'link' ? '输入链接 URL' : '输入图片 URL'
         );
         if (url === null) return;
-        onFormat(selection.blockId, button.style, selection.start, selection.end, url);
+        onFormat(selection.blockId, button.style, selection.start, selection.end, url, true);
       } else {
-        onFormat(selection.blockId, button.style, selection.start, selection.end);
+        onFormat(selection.blockId, button.style, selection.start, selection.end, undefined, true);
       }
-      setVisibleGuarded(false);
+      // FT3：格式应用后驻留，不退出；由 restoreSelection 保持选区非折叠以维持显示
+      stickyRef.current = true;
     },
-    [selection, onFormat, setVisibleGuarded]
+    [selection, onFormat]
   );
 
   const handleClearFormat = useCallback(() => {
     if (!selection || !onClearFormat) return;
-    onClearFormat(selection.blockId, selection.start, selection.end);
-    setVisibleGuarded(false);
-  }, [selection, onClearFormat, setVisibleGuarded]);
+    onClearFormat(selection.blockId, selection.start, selection.end, true);
+    stickyRef.current = true;
+  }, [selection, onClearFormat]);
 
   const handleBlockChange = useCallback(
     (target: BlockTypeOption) => {
       if (selection && target !== currentType) {
         onConvertBlock(selection.blockId, target);
       }
+      // 块结构转换后工具栏不再适用：维持现状退出并清理 sticky
+      stickyRef.current = false;
       setVisibleGuarded(false);
     },
     [selection, currentType, onConvertBlock, setVisibleGuarded]
