@@ -18,7 +18,7 @@
   行内渲染、选区）+ `controllers/`（七类交互）
 - `src/render/components/Editor/v2/` — v2 渲染层：EditorV2（宿主）、`blocks/`
   （ContentBlock 是唯一 contentEditable）、FloatingToolbar
-- `src/render/components/Editor/` — EditorView（双模式编排，v2 默认）+ v1 回退组件
+- `src/render/components/Editor/` — EditorView 薄编排器（v2 唯一）
 - `src/render/stores/ services/ styles/` — Zustand / markdown 服务 / globals.css
 - `docs/` — REQUIREMENTS / TECH_STACK / SUMMARY / modules/ / specs/
 
@@ -48,6 +48,9 @@
   自定义块类型下拉（正文/H1-H6/代码块/引用/三类列表，`canConvertBlock` 矩阵置灰，
   `syntaxTypeToOption` 映射）——纯函数 `selectionSyntaxTypesConsistent` / `resolveSyntaxType`
   均在 kernel/syntaxType.ts 与 FloatingToolbar 导出，组件测试直接覆盖
+- 行内格式（SPEC-EDIT-FT2）：inlineLexer + 双形态 toggle（加粗两次回原文，永不产生 `****`）+
+  橡皮擦；叠加收敛（SPEC-EDIT-FT3）：Step 0 选区归一化 + 跨 token 拆分解除 + 跨风格三连 `***`
+  渲染/剥离（详情见 specs/floating-toolbar-ux-and-inline-format.md / format-sticky.md）
 - 跨块鼠标拖选（spec 13.13）：rAF 节流 + 反向显式交换端点 + 非内容区回退 + mouseup
   末帧兜底/3 帧重放（`useCrossBlockDragSelection.ts`）；Backspace/Delete 走
   `deleteLeafRange` 块树级删除；**注意**：Chromium 对跨编辑宿主 Selection.toString()
@@ -68,7 +71,7 @@
 - `src/render/components/Editor/v2/EditorV2.tsx` — v2 入口（状态、事件路由、焦点恢复、撤销）
 - `src/render/components/Editor/v2/blocks/ContentBlock.tsx` — 唯一 contentEditable 表面
 - `src/render/components/Editor/v2/FloatingToolbar.tsx` — 浮动工具栏
-- `src/render/components/Editor/EditorView.tsx` — 双模式编排（v2 默认）
+- `src/render/components/Editor/EditorView.tsx` — 薄编排器（v2 唯一）
 
 ## 已知限制（详见 spec 13.x）
 
