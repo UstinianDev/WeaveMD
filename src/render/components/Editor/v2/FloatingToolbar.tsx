@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { InlineFormatStyle } from '../../../editor/controllers';
 import type { BlockTreeV2 } from '../../../editor/kernel';
+import { isBoundedWrap } from '../../../editor/kernel';
 import {
   getCursorOffsets,
   nearestContentSpan as kernelNearestContentSpan,
@@ -35,6 +36,8 @@ interface FloatingToolbarProps {
     url?: string
   ) => void;
   onConvertBlock: (blockId: string, target: BlockTypeOption) => void;
+  /** SPEC-EDIT-FT2 4.5.4：橡皮擦（清除选区行内标记） */
+  onClearFormat?: (blockId: string, start: number, end: number) => void;
 }
 
 interface SelectionState {
@@ -48,45 +51,66 @@ interface FormatButton {
   style: InlineFormatStyle;
   label: string;
   title: string;
+  group: 'char' | 'object';
   className?: string;
   activeTest?: (text: string) => boolean;
 }
 
-const FORMAT_BUTTONS: FormatButton[] = [
+/** SPEC-EDIT-FT2 4.6：字符格式组 */
+const CHAR_BUTTONS: FormatButton[] = [
   {
     style: 'bold',
     label: 'B',
     title: '加粗',
+    group: 'char',
     className: 'font-bold',
-    activeTest: (t) => t.startsWith('**') && t.endsWith('**'),
+    activeTest: (t) => isBoundedWrap(t, '**', '**'),
   },
   {
     style: 'italic',
     label: 'I',
     title: '斜体',
+    group: 'char',
     className: 'italic',
-    activeTest: (t) => t.startsWith('*') && t.endsWith('*') && !t.startsWith('**'),
+    activeTest: (t) => isBoundedWrap(t, '*', '*'),
+  },
+  {
+    style: 'underline',
+    label: 'U',
+    title: '下划线',
+    group: 'char',
+    className: 'underline',
+    activeTest: (t) => isBoundedWrap(t, '<u>', '</u>'),
   },
   {
     style: 'strike',
     label: 'S',
     title: '删除线',
+    group: 'char',
     className: 'line-through',
-    activeTest: (t) => t.startsWith('~~') && t.endsWith('~~'),
+    activeTest: (t) => isBoundedWrap(t, '~~', '~~'),
   },
   {
     style: 'code',
     label: '</>',
     title: '行内代码',
-    activeTest: (t) => t.startsWith('`') && t.endsWith('`'),
+    group: 'char',
+    activeTest: (t) => isBoundedWrap(t, '`', '`'),
   },
-  { style: 'link', label: '🔗', title: '链接' },
   {
     style: 'highlight',
     label: 'H',
     title: '高亮',
-    activeTest: (t) => t.startsWith('==') && t.endsWith('=='),
+    group: 'char',
+    activeTest: (t) => isBoundedWrap(t, '==', '=='),
   },
+];
+
+/** SPEC-EDIT-FT2 4.6：对象插入组（弹 URL 输入） */
+const OBJECT_BUTTONS: FormatButton[] = [
+  { style: 'link', label: '🔗', title: '链接', group: 'object' },
+  { style: 'image', label: '🖼', title: '图片', group: 'object' },
+  { style: 'math', label: '∑', title: '数学公式', group: 'object' },
 ];
 
 function clamp(value: number, min: number, max: number): number {
@@ -202,6 +226,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   tree,
   onFormat,
   onConvertBlock,
+  onClearFormat,
 }) => {
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number }>({
@@ -312,7 +337,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   const activeFormats = useMemo(() => {
     if (!selection) return new Set<InlineFormatStyle>();
     const set = new Set<InlineFormatStyle>();
-    for (const button of FORMAT_BUTTONS) {
+    for (const button of [...CHAR_BUTTONS, ...OBJECT_BUTTONS]) {
       if (button.activeTest?.(selection.anchorText)) set.add(button.style);
     }
     return set;
@@ -321,10 +346,12 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   const handleFormat = useCallback(
     (button: FormatButton) => {
       if (!selection) return;
-      if (button.style === 'link') {
-        const url = window.prompt('输入链接 URL');
+      if (button.style === 'link' || button.style === 'image') {
+        const url = window.prompt(
+          button.style === 'link' ? '输入链接 URL' : '输入图片 URL'
+        );
         if (url === null) return;
-        onFormat(selection.blockId, 'link', selection.start, selection.end, url);
+        onFormat(selection.blockId, button.style, selection.start, selection.end, url);
       } else {
         onFormat(selection.blockId, button.style, selection.start, selection.end);
       }
@@ -332,6 +359,12 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     },
     [selection, onFormat, setVisibleGuarded]
   );
+
+  const handleClearFormat = useCallback(() => {
+    if (!selection || !onClearFormat) return;
+    onClearFormat(selection.blockId, selection.start, selection.end);
+    setVisibleGuarded(false);
+  }, [selection, onClearFormat, setVisibleGuarded]);
 
   const handleBlockChange = useCallback(
     (target: BlockTypeOption) => {
@@ -348,7 +381,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   return (
     <div
       ref={toolbarRef}
-      className="floating-toolbar-v2 fixed z-[100] flex items-center gap-0.5 px-1.5 py-1 rounded-lg shadow-lg select-none"
+      className="floating-toolbar-v2 fixed z-[100] shadow-lg select-none"
       style={{
         top: `${position.top}px`,
         left: `${position.left}px`,
@@ -364,7 +397,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         <button
           type="button"
           title="块类型"
-          className="block-type-trigger h-7 px-1.5 mr-1 rounded border text-xs font-medium bg-transparent outline-none cursor-pointer whitespace-nowrap"
+          className="block-type-trigger rounded border font-medium bg-transparent outline-none cursor-pointer whitespace-nowrap"
           style={{
             borderColor: 'var(--border-color)',
             color: 'var(--text-primary)',
@@ -375,7 +408,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         </button>
         {dropdownOpen && (
           <div
-            className="block-type-menu absolute left-0 top-full mt-1 z-50 rounded-lg shadow-lg py-1 min-w-[170px] max-h-72 overflow-y-auto"
+            className="block-type-menu absolute left-0 top-full mt-1 z-50 rounded-lg shadow-lg py-1 max-h-72 overflow-y-auto"
             style={{
               backgroundColor: 'var(--bg-secondary)',
               border: '1px solid var(--border-color)',
@@ -390,7 +423,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
                   type="button"
                   data-value={option.value}
                   disabled={disabled}
-                  className={`block-type-option w-full text-left px-3 py-1.5 text-xs cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${
+                  className={`block-type-option w-full text-left cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${
                     isCurrent ? 'font-bold' : ''
                   }`}
                   style={{
@@ -410,13 +443,14 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         )}
       </div>
 
-      <div className="w-px h-4 mx-1" style={{ backgroundColor: 'var(--border-color)' }} />
+      <div className="ft-divider" style={{ backgroundColor: 'var(--border-color)' }} />
 
-      {FORMAT_BUTTONS.map((button) => {
+      {CHAR_BUTTONS.map((button) => {
         const isActive = activeFormats.has(button.style);
         return (
           <button
             key={button.style}
+            type="button"
             title={button.title}
             onMouseDown={(e) => e.preventDefault()}
             onClick={(e) => {
@@ -424,7 +458,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
               e.stopPropagation();
               handleFormat(button);
             }}
-            className={`w-8 h-7 flex items-center justify-center rounded text-xs transition-colors duration-100 ${button.className ?? ''}`}
+            className={`ft-btn ${button.className ?? ''}`}
             style={{
               color: isActive ? 'var(--accent)' : 'var(--text-sub)',
               backgroundColor: isActive ? 'var(--bg-tertiary)' : 'transparent',
@@ -442,6 +476,56 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
           </button>
         );
       })}
+
+      <div className="ft-divider" style={{ backgroundColor: 'var(--border-color)' }} />
+
+      {OBJECT_BUTTONS.map((button) => (
+        <button
+          key={button.style}
+          type="button"
+          title={button.title}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleFormat(button);
+          }}
+          className="ft-btn"
+          style={{ color: 'var(--text-sub)', backgroundColor: 'transparent' }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = 'transparent';
+          }}
+        >
+          {button.label}
+        </button>
+      ))}
+
+      <div className="ft-divider" style={{ backgroundColor: 'var(--border-color)' }} />
+
+      {/* 橡皮擦：清除选区全部行内标记（SPEC-EDIT-FT2 4.5.4） */}
+      <button
+        type="button"
+        title="橡皮擦"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          handleClearFormat();
+        }}
+        className="ft-btn"
+        style={{ color: 'var(--text-sub)', backgroundColor: 'transparent' }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = 'transparent';
+        }}
+      >
+        ⌫
+      </button>
     </div>
   );
 };

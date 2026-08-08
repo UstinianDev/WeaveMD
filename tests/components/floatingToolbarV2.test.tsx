@@ -524,3 +524,334 @@ describe('FloatingToolbar — selectionchange rAF 节流', () => {
     expect(cancelSpy).toHaveBeenCalledWith(1);
   });
 });
+
+// =============================================================
+// SPEC-EDIT-FT2 阶段 3：工具栏分组 / 新按钮 / 橡皮擦 / activeTest
+// =============================================================
+describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => {
+  beforeAll(() => {
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(performance.now());
+      return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  });
+  afterAll(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function fireSelectionChange(): Promise<void> {
+    await act(async () => {
+      document.dispatchEvent(new Event('selectionchange'));
+    });
+  }
+
+  function renderToolbar(
+    tree: BlockTreeV2,
+    span: HTMLSpanElement,
+    ref: React.RefObject<HTMLDivElement>,
+    onFormat: ReturnType<typeof vi.fn>,
+    onConvertBlock: ReturnType<typeof vi.fn>,
+    onClearFormat: ReturnType<typeof vi.fn>
+  ) {
+    mockSelection(span);
+    return render(
+      <FloatingToolbar
+        editorContainerRef={ref}
+        tree={tree}
+        onFormat={onFormat}
+        onConvertBlock={onConvertBlock}
+        onClearFormat={onClearFormat}
+      />
+    );
+  }
+
+  it('TB1: 按钮集合与顺序 = 块下拉 → 分隔线 → B/I/U/S/</>/H → 分隔线 → 🔗/🖼/∑ → 分隔线 → ⌫', async () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref } = setup(p.id, tree);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
+    await fireSelectionChange();
+
+    const toolbar = container.querySelector('.floating-toolbar-v2');
+    expect(toolbar).not.toBeNull();
+
+    // 从工具栏 DOM 中收集：块类型触发按钮 + 各分隔线 + 格式按钮 title
+    const trigger = toolbar?.querySelector('.block-type-trigger');
+    expect(trigger).not.toBeNull();
+    const buttons = Array.from(toolbar?.querySelectorAll('button') ?? []).map((b) =>
+      (b as HTMLButtonElement).title
+    );
+    // 去掉块类型下拉面板选项（面板此时未展开，不在 DOM），只取工具栏直接按钮
+    const fmtButtons = buttons.filter(
+      (t) =>
+        t === '加粗' ||
+        t === '斜体' ||
+        t === '下划线' ||
+        t === '删除线' ||
+        t === '行内代码' ||
+        t === '高亮' ||
+        t === '链接' ||
+        t === '图片' ||
+        t === '数学公式' ||
+        t === '橡皮擦'
+    );
+    expect(fmtButtons).toEqual([
+      '加粗',
+      '斜体',
+      '下划线',
+      '删除线',
+      '行内代码',
+      '高亮',
+      '链接',
+      '图片',
+      '数学公式',
+      '橡皮擦',
+    ]);
+
+    const dividers = toolbar?.querySelectorAll('.ft-divider');
+    expect(dividers?.length).toBe(3);
+  });
+
+  it('TB2: 下划线 / 数学按钮点击 → onFormat(blockId, underline|math, s, e)', async () => {
+    async function clickAndExpect(style: 'underline' | 'math', title: string): Promise<void> {
+      let tree = createDocumentTree();
+      const p = makeParagraph(tree, 'hello world');
+      tree = appendChild(tree, tree.root.id, p);
+      const { span, ref } = setup(p.id, tree);
+      const onFormat = vi.fn();
+      const onConvertBlock = vi.fn();
+      const onClearFormat = vi.fn();
+      const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
+      await fireSelectionChange();
+      const btn = container.querySelector(`button[title="${title}"]`) as HTMLButtonElement;
+      expect(btn).not.toBeNull();
+      fireEvent.click(btn);
+      expect(onFormat).toHaveBeenCalledWith(
+        p.id,
+        style,
+        expect.any(Number),
+        expect.any(Number)
+      );
+    }
+
+    await clickAndExpect('underline', '下划线');
+    await clickAndExpect('math', '数学公式');
+  });
+
+  it('TB3: 图片按钮点击 → prompt 获取 URL 后 onFormat(blockId, image, s, e, url)', async () => {
+    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('https://example.com/a.png');
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref } = setup(p.id, tree);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
+    await fireSelectionChange();
+
+    const img = container.querySelector('button[title="图片"]') as HTMLButtonElement;
+    expect(img).not.toBeNull();
+    fireEvent.click(img);
+    expect(promptSpy).toHaveBeenCalled();
+    expect(onFormat).toHaveBeenCalledWith(
+      p.id,
+      'image',
+      expect.any(Number),
+      expect.any(Number),
+      'https://example.com/a.png'
+    );
+    promptSpy.mockRestore();
+  });
+
+  it('TB4: 橡皮擦点击 → onClearFormat(blockId, s, e)', async () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref } = setup(p.id, tree);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
+    await fireSelectionChange();
+
+    const eraser = container.querySelector('button[title="橡皮擦"]') as HTMLButtonElement;
+    expect(eraser).not.toBeNull();
+    fireEvent.click(eraser);
+    expect(onClearFormat).toHaveBeenCalledWith(p.id, expect.any(Number), expect.any(Number));
+  });
+
+  it('TB5: italic activeTest 边界——*a** 不激活 italic；*a* 激活；**a** 不激活 italic', async () => {
+    async function activeColorFor(text: string): Promise<string | undefined> {
+      let tree = createDocumentTree();
+      const p = makeParagraph(tree, text);
+      tree = appendChild(tree, tree.root.id, p);
+      const containerEl = document.createElement('div');
+      containerEl.id = 'editor-container-' + Math.random();
+      const s = document.createElement('span');
+      s.className = 'block-content';
+      s.textContent = text;
+      s.dataset.blockId = p.id;
+      containerEl.appendChild(s);
+      document.body.appendChild(containerEl);
+      const onFormat = vi.fn();
+      const onConvertBlock = vi.fn();
+      const onClearFormat = vi.fn();
+      const { container } = render(
+        <FloatingToolbar
+          editorContainerRef={{ current: containerEl } as React.RefObject<HTMLDivElement>}
+          tree={tree}
+          onFormat={onFormat}
+          onConvertBlock={onConvertBlock}
+          onClearFormat={onClearFormat}
+        />
+      );
+      mockSelection(s);
+      await fireSelectionChange();
+      const italic = container.querySelector('button[title="斜体"]') as HTMLButtonElement;
+      return italic?.style.color;
+    }
+
+    // `*a**`：不是以 `*` 完整闭合的 italic（边界不可延伸），不激活
+    expect(await activeColorFor('*a**')).not.toBe('var(--accent)');
+    // `**a**`：是 bold 而非 italic，不激活
+    expect(await activeColorFor('**a**')).not.toBe('var(--accent)');
+    // `*a*`：合法 italic，激活
+    expect(await activeColorFor('*a*')).toBe('var(--accent)');
+  });
+
+  it('TB6: bold 激活与 toggle 一致——**a** 激活 bold；==a== 激活 highlight', async () => {
+    async function colorFor(title: string, text: string): Promise<string | undefined> {
+      let tree = createDocumentTree();
+      const p = makeParagraph(tree, text);
+      tree = appendChild(tree, tree.root.id, p);
+      const containerEl = document.createElement('div');
+      containerEl.id = 'editor-container-' + Math.random();
+      const s = document.createElement('span');
+      s.className = 'block-content';
+      s.textContent = text;
+      s.dataset.blockId = p.id;
+      containerEl.appendChild(s);
+      document.body.appendChild(containerEl);
+      const onFormat = vi.fn();
+      const onConvertBlock = vi.fn();
+      const onClearFormat = vi.fn();
+      const { container } = render(
+        <FloatingToolbar
+          editorContainerRef={{ current: containerEl } as React.RefObject<HTMLDivElement>}
+          tree={tree}
+          onFormat={onFormat}
+          onConvertBlock={onConvertBlock}
+          onClearFormat={onClearFormat}
+        />
+      );
+      mockSelection(s);
+      await fireSelectionChange();
+      const btn = container.querySelector(`button[title="${title}"]`) as HTMLButtonElement;
+      return btn?.style.color;
+    }
+
+    expect(await colorFor('加粗', '**a**')).toBe('var(--accent)');
+    expect(await colorFor('高亮', '==a==')).toBe('var(--accent)');
+    expect(await colorFor('加粗', '==a==')).not.toBe('var(--accent)');
+  });
+
+  it('TB7: 折叠选区工具栏不显示（橡皮擦可达性依赖显示条件）', async () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref } = setup(p.id, tree);
+    // 折叠选区
+    const range = document.createRange();
+    range.setStart(span.firstChild as Node, 0);
+    range.collapse(true);
+    Object.defineProperty(range, 'getBoundingClientRect', {
+      value: () =>
+        ({ left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 }) as DOMRect,
+    });
+    const sel = {
+      rangeCount: 1,
+      isCollapsed: true,
+      anchorNode: span.firstChild,
+      focusNode: span.firstChild,
+      getRangeAt: () => range,
+    } as unknown as Selection;
+    vi.spyOn(window, 'getSelection').mockReturnValue(sel);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container } = render(
+      <FloatingToolbar
+        editorContainerRef={ref}
+        tree={tree}
+        onFormat={onFormat}
+        onConvertBlock={onConvertBlock}
+        onClearFormat={onClearFormat}
+      />
+    );
+    await fireSelectionChange();
+    // 折叠选区 → fade 延迟隐藏：等待 hide 定时器后工具栏隐藏
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 220));
+    });
+    expect(container.querySelector('.floating-toolbar-v2')).toBeNull();
+  });
+
+  it('TB8: 既有下拉/类型映射用例不回归（G1 显示条件在混合选区仍隐藏）', async () => {
+    let tree = createDocumentTree();
+    const h1 = makeHeading(tree, 1, 'a');
+    tree = appendChild(tree, tree.root.id, h1);
+    const h2 = makeHeading(tree, 2, 'b');
+    tree = appendChild(tree, tree.root.id, h2);
+    const span1 = document.createElement('span');
+    span1.className = 'block-content';
+    span1.textContent = 'a';
+    span1.dataset.blockId = h1.id;
+    const span2 = document.createElement('span');
+    span2.className = 'block-content';
+    span2.textContent = 'b';
+    span2.dataset.blockId = h2.id;
+    const containerEl = document.createElement('div');
+    containerEl.id = 'editor-container-3';
+    containerEl.appendChild(span1);
+    containerEl.appendChild(span2);
+    document.body.appendChild(containerEl);
+
+    const range = document.createRange();
+    range.setStart(span1.firstChild as Node, 0);
+    range.setEnd(span2.firstChild as Node, 1);
+    Object.defineProperty(range, 'getBoundingClientRect', {
+      value: () =>
+        ({ left: 0, top: 0, width: 200, height: 20, right: 200, bottom: 20 }) as DOMRect,
+    });
+    const sel = {
+      rangeCount: 1,
+      isCollapsed: false,
+      anchorNode: span1.firstChild,
+      focusNode: span2.firstChild,
+      getRangeAt: () => range,
+    } as unknown as Selection;
+    vi.spyOn(window, 'getSelection').mockReturnValue(sel);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container } = render(
+      <FloatingToolbar
+        editorContainerRef={{ current: containerEl } as React.RefObject<HTMLDivElement>}
+        tree={tree}
+        onFormat={onFormat}
+        onConvertBlock={onConvertBlock}
+        onClearFormat={onClearFormat}
+      />
+    );
+    await fireSelectionChange();
+    expect(container.querySelector('.floating-toolbar-v2')).toBeNull();
+    vi.restoreAllMocks();
+  });
+});
+

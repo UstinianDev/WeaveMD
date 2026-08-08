@@ -46,13 +46,20 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 - 拖选闪烁优化（SPEC-EDIT-DSF，v0.1 已实施）：`lastAppliedRangeRef` 端点级变化检测（端点
   全等跳过写入，静止不再重建 selection）+ `selectionchange` rAF 合并（工具栏渲染 ≤ 每帧一次）
   + 一致性判定短路/上限（`resolveSyntaxTypesInRange` 边枚举边比对，反向多类型 O(1) 判定）
+- 行内格式化增强（SPEC-EDIT-FT2，v1.0 已实施）：inlineLexer 结构化 token 识别 +
+  underline/math/image 渲染（KaTeX）；`formatRange` 双形态 toggle（加粗两次回原文，永不产生
+  `****`）；橡皮擦清除选区全部标记；工具栏分组（字符格式/对象插入/橡皮擦）+ 共享
+  `isBoundedWrap` activeTest；`.md-syntax` 方案 B（默认隐藏、聚焦灰显）、`==高亮==` 黄色
+  highlight 主题变量、工具栏尺寸收敛 globals.css；Ctrl+U / Ctrl+Shift+M 快捷键
 
 ## 4. 验证与测试
 
-- Vitest：309 例（内核/控制器/组件，含往返不变式、退出规则矩阵、输入链路、跨块删除、
-  代码块尾随空行补偿、浮动工具栏显示/转换矩阵、拖选闪烁的端点变化检测与 rAF 节流）
-- Playwright 真实 Chromium E2E：30 例（输入/IME/富文本渲染/语法外观/退出与退格链/
-  浮动工具栏/跨块拖选/代码块尾随空行重载恢复/反向跨类型拖选与 selectionchange 收敛）
+- Vitest：392 例（内核/控制器/组件，含往返不变式、退出规则矩阵、输入链路、跨块删除、
+  代码块尾随空行补偿、浮动工具栏显示/转换矩阵、拖选闪烁的端点变化检测与 rAF 节流、
+  FT2 的 inlineLexer/strip/katex/toggle/clearFormat、CSS 静态断言、快捷键接线）
+- Playwright 真实 Chromium E2E：38 例（输入/IME/富文本渲染/语法外观/退出与退格链/
+  浮动工具栏/跨块拖选/代码块尾随空行重载恢复/反向跨类型拖选与 selectionchange 收敛/
+  FT2 工具栏计算样式/标记隐藏与聚焦灰显/黄色高亮/下划线/图片/数学/橡皮擦）
 - 质量门禁：`tsc --noEmit` + `vitest run` + ESLint(0 error) + `vite build` + `npx playwright test`
 
 > 各模块详细实现见 `docs/modules/`，需求见 `docs/REQUIREMENTS.md`，技术选型见 `docs/TECH_STACK.md`。

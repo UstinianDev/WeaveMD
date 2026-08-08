@@ -217,3 +217,179 @@ test('G3②：代码块选中 → 下拉显示"代码块"且其余目标禁用',
     toolbar.locator('.block-type-menu [data-value="h1"]')
   ).toBeDisabled();
 });
+
+// ============================================================
+// SPEC-EDIT-FT2 阶段 5：G1 尺寸 / G2 标记隐藏 / G3 新功能
+// ============================================================
+test('FT2-E1: 工具栏计算样式——字号≥14px、容器 gap≥6px、下拉项 padding/行高≥8px、总高≥40px', async ({
+  page,
+}) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('hello world', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+
+  const btn = toolbar.locator('button[title="加粗"]');
+  const btnFont = await btn.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  expect(btnFont).toBeGreaterThanOrEqual(14);
+
+  const containerGap = await toolbar.evaluate((el) =>
+    parseFloat(getComputedStyle(el).columnGap || getComputedStyle(el).gap)
+  );
+  expect(containerGap).toBeGreaterThanOrEqual(6);
+
+  await toolbar.locator('.block-type-trigger').click();
+  const option = toolbar.locator('.block-type-menu [data-value="h1"]');
+  const optPad = await option.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+  });
+  expect(optPad).toBeGreaterThanOrEqual(16); // 8px*2
+
+  const height = await toolbar.evaluate((el) => el.getBoundingClientRect().height);
+  expect(height).toBeGreaterThanOrEqual(40);
+});
+
+test('FT2-E2: 加粗两次回到原文，绝不产生 ****', async ({ page }) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('a', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="加粗"]').click();
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('**a**');
+  // 再次全选 → 解除
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar2 = page.locator('.floating-toolbar-v2');
+  await expect(toolbar2).toBeVisible();
+  await toolbar2.locator('button[title="加粗"]').click();
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('a');
+  await expect(editable).not.toContainText('****');
+});
+
+test('FT2-E3: 应用格式后 .md-syntax 默认不可见；DOM textContent 与源一致；块聚焦后灰显', async ({
+  page,
+}) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('加粗文本', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="加粗"]').click();
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('**加粗文本**');
+
+  // 加粗后光标仍在块内（聚焦）→ .md-syntax 灰显（opacity 0.55）
+  const mdSyntax = page.locator('.md-syntax').first();
+  await expect(mdSyntax).toHaveCount(1);
+  const faded = await mdSyntax.evaluate((el) => getComputedStyle(el).opacity === '0.55');
+  expect(faded).toBe(true);
+
+  // 点击编辑区外失焦 → .md-syntax 不可见（font-size 0 或 opacity 0）
+  await page.locator('header').click({ position: { x: 5, y: 5 } });
+  await page.waitForTimeout(300);
+  const hidden = await mdSyntax.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return parseFloat(cs.fontSize) === 0 || cs.opacity === '0';
+  });
+  expect(hidden).toBe(true);
+});
+
+test('FT2-E4: ==高亮== → mark 计算背景为黄色（浅色 rgb(255,235,59)）', async ({ page }) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('==高亮==', { delay: 20 });
+  await page.waitForTimeout(300);
+  const mark = page.locator('mark');
+  await expect(mark).toHaveCount(1);
+  const bg = await mark.evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(bg).toBe('rgb(255, 235, 59)');
+});
+
+test('FT2-E5: 下划线按钮 → <u> 渲染且无可见 <u> 文本', async ({ page }) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('下划线文本', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="下划线"]').click();
+  await page.waitForTimeout(300);
+  await expect(page.locator('u')).toHaveCount(1);
+  await expect(editable).toHaveText('<u>下划线文本</u>');
+});
+
+test('FT2-E6: 图片按钮（dialog 输入 URL）→ ![alt](url) 插入并渲染 img.inline-image', async ({
+  page,
+}) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('图片文本', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  page.once('dialog', async (d) => {
+    await d.accept('https://example.com/a.png');
+  });
+  await toolbar.locator('button[title="图片"]').click();
+  await page.waitForTimeout(300);
+  // img 无文本内容（textContent 为空），断言 alt/src 与数量
+  const img = page.locator('img.inline-image');
+  await expect(img).toHaveCount(1);
+  await expect(img).toHaveAttribute('alt', '图片文本');
+  await expect(img).toHaveAttribute('src', 'https://example.com/a.png');
+});
+
+test('FT2-E7: 数学按钮 → $x^2$ 渲染为 .katex 且无可见 $', async ({ page }) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('x^2', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="数学公式"]').click();
+  await page.waitForTimeout(500);
+  await expect(page.locator('.math-inline .katex')).toHaveCount(1);
+});
+
+test('FT2-E8: 橡皮擦 → 清除选区全部行内格式为纯文本', async ({ page }) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('加粗文本', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="加粗"]').click();
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('**加粗文本**');
+  // 全选 → 橡皮擦清除
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar2 = page.locator('.floating-toolbar-v2');
+  await expect(toolbar2).toBeVisible();
+  await toolbar2.locator('button[title="橡皮擦"]').click();
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('加粗文本');
+});

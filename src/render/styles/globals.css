@@ -35,6 +35,9 @@ html.light-header {
   --shadow-dropdown: 0 4px 16px rgba(0, 0, 0, 0.08);
   /* marktext 默认主题引用竖线色（按主题可覆盖） */
   --quote-bar-color: #42d392;
+  /* SPEC-EDIT-FT2 G2③：行内高亮（==高亮==）黄色系 */
+  --highlight-bg: #ffeb3b;
+  --highlight-text: #1a1a1a;
 }
 
 /* --- Light Theme (Dark navbar + White content area) --- */
@@ -58,6 +61,9 @@ html.light {
   --modal-bg: #ffffff;
   --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.08);
   --shadow-dropdown: 0 4px 16px rgba(0, 0, 0, 0.08);
+  /* SPEC-EDIT-FT2 G2③ */
+  --highlight-bg: #ffeb3b;
+  --highlight-text: #1a1a1a;
 }
 
 /* --- Dark Theme --- */
@@ -81,6 +87,9 @@ html.dark {
   --modal-bg: #1a1a1a;
   --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.4);
   --shadow-dropdown: 0 4px 16px rgba(0, 0, 0, 0.3);
+  /* SPEC-EDIT-FT2 G2③ */
+  --highlight-bg: rgba(255, 235, 59, 0.35);
+  --highlight-text: #ffffff;
 }
 
 /* --- Custom Theme (uses dark theme as base, user-customizable) --- */
@@ -104,6 +113,9 @@ html.custom {
   --modal-bg: #1a1a1a;
   --shadow-modal: 0 4px 24px rgba(0, 0, 0, 0.4);
   --shadow-dropdown: 0 4px 16px rgba(0, 0, 0, 0.3);
+  /* SPEC-EDIT-FT2 G2③ */
+  --highlight-bg: rgba(255, 235, 59, 0.35);
+  --highlight-text: #ffffff;
 }
 
 /* --- High Contrast Theme --- */
@@ -127,6 +139,9 @@ html.high-contrast {
   --modal-bg: #111111;
   --shadow-modal: 0 4px 24px rgba(255, 255, 255, 0.1);
   --shadow-dropdown: 0 4px 16px rgba(255, 255, 255, 0.1);
+  /* SPEC-EDIT-FT2 G2③ */
+  --highlight-bg: #ffeb3b;
+  --highlight-text: #1a1a1a;
 }
 
 /* Base Styles */
@@ -1913,13 +1928,20 @@ html.dark .code-fence-content .token.variable {
   pointer-events: none;
 }
 
-/* v2 行内语法标记（marktext .mu-syntax 等价物）：灰显、不可选，保留在 DOM 中
-   保证 textContent 与源文本一致（编辑/序列化不丢标记） */
+/* v2 行内语法标记（marktext .mu-syntax 等价物）：默认隐藏（不可选，保留在 DOM
+   保证 textContent 与源文本一致），块聚焦时灰显可见编辑边界（方案 B，SPEC-EDIT-FT2） */
 .md-syntax {
-  color: var(--text-muted, #888888);
-  opacity: 0.55;
+  font-size: 0;
+  opacity: 0;
   user-select: none;
   -webkit-user-select: none;
+}
+
+.block-content:focus .md-syntax,
+.block-content:focus-within .md-syntax {
+  font-size: inherit;
+  opacity: 0.55;
+  color: var(--text-muted, #888888);
 }
 
 /* v2 内容块：占满块宽（空块仅含零宽空格时宽度为 0，点击/聚焦困难） */
@@ -1936,8 +1958,8 @@ html.dark .code-fence-content .token.variable {
 /* ============================================ */
 
 mark {
-  background: color-mix(in srgb, var(--accent) 25%, transparent);
-  color: inherit;
+  background: var(--highlight-bg);
+  color: var(--highlight-text);
   border-radius: 3px;
   padding: 0;
 }
@@ -1996,4 +2018,69 @@ span.comment-marker {
     transparent 100%
   );
   border-left: 3px solid var(--accent);
+}
+
+/* ============================================ */
+/* SPEC-EDIT-FT2 阶段 2：浮动工具栏尺寸（G1）    */
+/* 尺寸样式收敛于 globals.css，组件不再使用 Tailwind 尺寸类 */
+/* ============================================ */
+
+.floating-toolbar-v2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 14px;
+  border-radius: 8px;
+  user-select: none;
+}
+
+.floating-toolbar-v2 .ft-btn {
+  width: 36px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  background: transparent;
+  transition: background-color 100ms;
+}
+
+.block-type-trigger {
+  height: 32px;
+  padding: 0 8px;
+  font-size: 14px;
+}
+
+.block-type-option {
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+.block-type-menu {
+  min-width: 200px;
+}
+
+.ft-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+}
+
+/* ============================================ */
+/* SPEC-EDIT-FT2 阶段 2：行内对象类              */
+/* ============================================ */
+
+.inline-image {
+  max-width: 100%;
+  display: inline-block;
+}
+
+.math-inline {
+  display: inline-block;
+  vertical-align: middle;
 }

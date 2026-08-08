@@ -928,3 +928,30 @@ ESLint（0 error，1 个既有 warning）、`vite build` 均通过。
 `e2e/cross-block-selection.spec.ts`（拖选跨块 + Backspace 删除）、
 Playwright Chromium E2E 23/23；`tsc --noEmit`、ESLint（0 error，0 warning）、
 `vite build` 全部通过。
+
+### 13.14 行内格式化增强（SPEC-EDIT-FT2，2026-08-08）
+
+**内核**：
+
+- 新增 `kernel/inlineLexer.ts`：`InlineToken` 结构化识别（strong/em/underline/strike/mark/
+  code/link/image/autolink/escape/math），`inlineRenderer.renderFragment` 改消费 lexer
+  （输出逐字节不变，存量金标准测试守护）；`isBoundedWrap` 供 activeTest 与 toggle-off 共享。
+- 新增 `kernel/katex.ts`（`renderMath`，KaTeX + `.math-inline` 包装，失败回退字面量）、
+  `kernel/inlineStrip.ts`（`stripSameStylePairs`/`stripInlineSyntax`）。
+- `formatCtrl`：`InlineFormatStyle` 扩至 9 种；`formatRange` 双形态 toggle（形态 A 选区外
+  标记、形态 B 全选包裹区），永不产生 `****`；新增 `clearFormat`；image 走 `![alt](url)`。
+- `$` 入 `ESCAPABLE_CHARS`；math 打开/闭合判定严格化。
+
+**组件/CSS**：
+
+- FloatingToolbar 分组：字符格式（B/I/U/S/</>/H）→ 对象插入（🔗/🖼/∑）→ 橡皮擦（⌫）；
+  activeTest 用 `isBoundedWrap`；image/link 弹 prompt；橡皮擦 `onClearFormat`。
+- `types.ts`/`ContentBlock`/`EditorV2`：`onFormat` 补 `url?`、新增 `onClearFormat`、
+  Ctrl+U / Ctrl+Shift+M 快捷键。
+- globals.css：`.md-syntax` 方案 B（默认隐藏、聚焦灰显）、mark 黄色主题变量（5 主题块）、
+  工具栏尺寸类（`.floating-toolbar-v2`/`.ft-btn`/`.block-type-*`/`.ft-divider`）、
+  `.inline-image`/`.math-inline`。
+
+**验证**：`vitest run` 392 例（新增 inlineLexer/katex/inlineStrip/formatCtrl toggle+
+clearFormat/ft2Css/editorV2Format 等）、Playwright E2E 38/38（含 FT2 新增 8 例）、
+`tsc --noEmit`、ESLint（0 error）、`vite build` 全部通过。
