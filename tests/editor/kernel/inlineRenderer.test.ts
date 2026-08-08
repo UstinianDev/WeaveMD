@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { escapeHtml, renderInline, safeUrl } from '../../../src/render/editor/kernel/inlineRenderer';
+
+vi.mock('katex', () => ({
+  default: {
+    renderToString: vi.fn((expr: string) => `<span class="katex">${expr}</span>`),
+  },
+}));
 
 describe('inlineRenderer — 基础转义与安全', () => {
   it('转义 HTML 特殊字符', () => {
@@ -104,5 +110,73 @@ describe('inlineRenderer — 行内语法', () => {
     const container = document.createElement('div');
     container.innerHTML = html;
     expect(container.textContent).toBe('**bold** and `code` and [link](https://x.com)');
+  });
+});
+
+describe('inlineRenderer — 下划线 / 数学（阶段 1 新增）', () => {
+  it('IR1 下划线渲染为 <u> 富文本且 textContent 保留', () => {
+    expect(renderInline('<u>x</u>')).toBe(
+      '<u><span class="md-syntax">&lt;u&gt;</span>x<span class="md-syntax">&lt;/u&gt;</span></u>'
+    );
+    const container = document.createElement('div');
+    container.innerHTML = renderInline('<u>x</u>');
+    expect(container.textContent).toBe('<u>x</u>');
+  });
+
+  it('IR2 数学公式渲染为 math-inline + KaTeX HTML，$ 不可见', () => {
+    const html = renderInline('$x^2$');
+    expect(html).toContain('<span class="math-inline">');
+    expect(html).toContain('<span class="katex">x^2</span>');
+    expect(html).toContain('<span class="md-syntax">$</span>');
+  });
+
+  it('IR3 cost $5 不误判为数学', () => {
+    expect(renderInline('cost $5')).toBe('cost $5');
+  });
+
+  it('IR4 $ x$ / 未闭合 $ 不误判为数学', () => {
+    expect(renderInline('$ x$')).toBe('$ x$');
+    expect(renderInline('$x')).toBe('$x');
+  });
+
+  it('IR5 \\$ 转义为字面量（$ 属于 ESCAPABLE_CHARS）', () => {
+    expect(renderInline('\\$5')).toBe('<span class="md-syntax">\\$</span>5');
+  });
+
+  it('IR6 katex 异常回退为转义字面量，不抛错', async () => {
+    const katexMock = (await import('katex')).default as unknown as {
+      renderToString: ReturnType<typeof vi.fn>;
+    };
+    katexMock.renderToString.mockImplementationOnce(() => {
+      throw new Error('katex fail');
+    });
+    expect(renderInline('$x^2$')).toBe(
+      '<span class="md-syntax">$</span>x^2<span class="md-syntax">$</span>'
+    );
+  });
+
+  it('IR7 含 u/math 文本 textContent 与源串一致', () => {
+    const source = '<u>u</u> and $x$';
+    const html = renderInline(source);
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    expect(container.textContent).toBe(source);
+  });
+
+  it('IR8 金标准不回归（既有断言由上方用例覆盖）', () => {
+    expect(renderInline('**bold** and *italic*')).toContain('<strong>');
+    expect(renderInline('~~gone~~')).toContain('<del>');
+    expect(renderInline('==mark==')).toContain('<mark>');
+    expect(renderInline('`c`')).toContain('inline-code');
+    expect(renderInline('[l](https://x.com)')).toContain('inline-link');
+    expect(renderInline('![a](https://x.com/a.png)')).toContain('inline-image');
+    expect(renderInline('<https://x.com>')).toContain('href="https://x.com"');
+  });
+
+  it('IR9 underline 精确小写，不干扰 autolink', () => {
+    // autolink 仍是 autolink
+    expect(renderInline('<https://x.com>')).toContain('href="https://x.com"');
+    // 大写 <U> 不解析为 underline
+    expect(renderInline('<U>x</U>')).toBe('&lt;U&gt;x&lt;/U&gt;');
   });
 });
