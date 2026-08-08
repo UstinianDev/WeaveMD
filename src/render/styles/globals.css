@@ -2028,22 +2028,22 @@ span.comment-marker {
 .floating-toolbar-v2 {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  font-size: 14px;
+  gap: 4px;
+  padding: 3px 6px;
+  font-size: 13px;
   border-radius: 8px;
   user-select: none;
 }
 
 .floating-toolbar-v2 .ft-btn {
-  width: 36px;
-  height: 32px;
+  width: 32px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1;
   cursor: pointer;
   background: transparent;
@@ -2051,24 +2051,24 @@ span.comment-marker {
 }
 
 .block-type-trigger {
-  height: 32px;
-  padding: 0 8px;
-  font-size: 14px;
+  height: 28px;
+  padding: 0 6px;
+  font-size: 13px;
 }
 
 .block-type-option {
-  padding: 8px 12px;
-  font-size: 14px;
+  padding: 6px 10px;
+  font-size: 13px;
 }
 
 .block-type-menu {
-  min-width: 200px;
+  min-width: 176px;
 }
 
 .ft-divider {
   width: 1px;
-  height: 20px;
-  margin: 0 4px;
+  height: 16px;
+  margin: 0 2px;
 }
 
 /* ============================================ */

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { tokenizeInline } from '../../../src/render/editor/kernel/inlineLexer';
+import {
+  findIntersectingStyleToken,
+  tokenizeInline,
+} from '../../../src/render/editor/kernel/inlineLexer';
 import type { InlineToken } from '../../../src/render/editor/kernel/inlineLexer';
 
 function simplify(tokens: InlineToken[]): unknown[] {
@@ -193,5 +196,91 @@ describe('inlineLexer — 前置文本下的绝对偏移', () => {
     expect(tokens[0].end).toBe(9);
     expect(tokens[0].contentStart).toBe(4);
     expect(tokens[0].contentEnd).toBe(8);
+  });
+});
+
+describe('inlineLexer — STYLE_TOKEN_TYPE 映射', () => {
+  it('bold↔strong / italic↔em / strike↔del / highlight↔mark / code↔code / underline↔underline / math↔math', async () => {
+    const { STYLE_TOKEN_TYPE } = await import(
+      '../../../src/render/editor/kernel/inlineLexer'
+    );
+    expect(STYLE_TOKEN_TYPE).toEqual({
+      bold: 'strong',
+      italic: 'em',
+      strike: 'del',
+      highlight: 'mark',
+      code: 'code',
+      underline: 'underline',
+      math: 'math',
+    });
+  });
+});
+
+describe('inlineLexer — findIntersectingStyleToken', () => {
+  it('`**123**` 选区 `[2,7)` 命中 strong（含部分 close 标记）', () => {
+    const t = findIntersectingStyleToken('**123**', 'bold', 2, 7);
+    expect(t).not.toBeNull();
+    expect(t?.type).toBe('strong');
+    expect(t?.start).toBe(0);
+    expect(t?.end).toBe(7);
+    expect(t?.contentStart).toBe(2);
+    expect(t?.contentEnd).toBe(5);
+  });
+
+  it('`**123**` 选区 `[0,5)` 命中 strong（含部分 open 标记）', () => {
+    const t = findIntersectingStyleToken('**123**', 'bold', 0, 5);
+    expect(t?.type).toBe('strong');
+    expect(t?.start).toBe(0);
+    expect(t?.end).toBe(7);
+  });
+
+  it('`**123**` 选区 `[0,7)` 命中 strong（完整 token）', () => {
+    const t = findIntersectingStyleToken('**123**', 'bold', 0, 7);
+    expect(t?.type).toBe('strong');
+  });
+
+  it('`**123**` 选区 `[2,5)` 命中 strong（内容区）', () => {
+    const t = findIntersectingStyleToken('**123**', 'bold', 2, 5);
+    expect(t?.type).toBe('strong');
+  });
+
+  it('普通文本无相交返回 null', () => {
+    expect(findIntersectingStyleToken('123', 'bold', 0, 3)).toBeNull();
+  });
+
+  it('`a **b** c` 选区 `[4,9)`（跨 token）仍命中相交的 strong', () => {
+    const t = findIntersectingStyleToken('a **b** c', 'bold', 4, 9);
+    expect(t?.type).toBe('strong');
+    expect(t?.start).toBe(2);
+    expect(t?.end).toBe(7);
+  });
+
+  it('各成对样式映射命中', () => {
+    expect(findIntersectingStyleToken('*i*', 'italic', 1, 3)?.type).toBe('em');
+    expect(findIntersectingStyleToken('~~s~~', 'strike', 2, 4)?.type).toBe('del');
+    expect(findIntersectingStyleToken('==h==', 'highlight', 2, 4)?.type).toBe('mark');
+    expect(findIntersectingStyleToken('`c`', 'code', 1, 3)?.type).toBe('code');
+    expect(findIntersectingStyleToken('<u>x</u>', 'underline', 3, 7)?.type).toBe('underline');
+    expect(findIntersectingStyleToken('$x$', 'math', 1, 3)?.type).toBe('math');
+  });
+
+  it('children 递归命中（绝对偏移）：`<u>**b**</u>` 选区 `[4,9)` → strong', () => {
+    const t = findIntersectingStyleToken('<u>**b**</u>', 'bold', 4, 9);
+    expect(t?.type).toBe('strong');
+    expect(t?.start).toBe(3);
+    expect(t?.end).toBe(8);
+    expect(t?.contentStart).toBe(5);
+    expect(t?.contentEnd).toBe(6);
+  });
+
+  it('返回文档序第一个相交 token（嵌套同风格选外层）', () => {
+    const t = findIntersectingStyleToken('**a *b* c**', 'bold', 4, 7);
+    expect(t?.type).toBe('strong');
+    expect(t?.start).toBe(0);
+    expect(t?.end).toBe(11);
+  });
+
+  it('链接/图片（无开闭标记）不命中', () => {
+    expect(findIntersectingStyleToken('[l](https://x.com)', 'bold', 1, 2)).toBeNull();
   });
 });

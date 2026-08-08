@@ -45,6 +45,17 @@ export interface InlineToken {
   isImage?: boolean;
 }
 
+/** 格式化样式名 → 行内 token 类型映射（bold↔strong 等），供 toggle 归一化/去重共用 */
+export const STYLE_TOKEN_TYPE: Record<string, InlineTokenType> = {
+  bold: 'strong',
+  italic: 'em',
+  strike: 'del',
+  highlight: 'mark',
+  code: 'code',
+  underline: 'underline',
+  math: 'math',
+};
+
 export const ESCAPABLE_CHARS = new Set([
   '\\',
   '`',
@@ -362,4 +373,38 @@ export function tokenizeInline(text: string, start = 0, end = text.length): Inli
     }
   }
   return tokens;
+}
+
+/**
+ * 找出与选区 [s, e) 相交的同风格成对 token（openLen>0 && closeLen>0），
+ * 返回文档序第一个（DFS 递归含 children，偏移为绝对偏移），无则 null。
+ * 供 formatCtrl 的 Step 0 选区归一化（FT3 §4.1 case B 判定）使用。
+ */
+function findIntersectingStyle(
+  tokens: InlineToken[],
+  tokenType: InlineTokenType,
+  s: number,
+  e: number
+): InlineToken | null {
+  for (const token of tokens) {
+    if (token.openLen > 0 && token.closeLen > 0 && token.type === tokenType) {
+      if (token.start < e && token.end > s) return token;
+    }
+    if (token.children) {
+      const child = findIntersectingStyle(token.children, tokenType, s, e);
+      if (child) return child;
+    }
+  }
+  return null;
+}
+
+export function findIntersectingStyleToken(
+  text: string,
+  style: string,
+  s: number,
+  e: number
+): InlineToken | null {
+  const tokenType = STYLE_TOKEN_TYPE[style];
+  if (!tokenType) return null;
+  return findIntersectingStyle(tokenizeInline(text), tokenType, s, e);
 }
