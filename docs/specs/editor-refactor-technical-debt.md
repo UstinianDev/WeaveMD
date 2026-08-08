@@ -102,8 +102,7 @@
 ## 6. 实现记录
 
 三批次已全部实施完成，零行为变更，门禁与基线一致（vitest 238/238、playwright 25/25、
-tsc 0、eslint 0、vite build 全绿；tests/ 与 e2e/ 零改动）。合规审计见
-`docs/testing/spec-refactor-editor.comply.md`。
+tsc 0、eslint 0、vite build 全绿；tests/ 与 e2e/ 零改动）。
 
 - 批次一（17 项）：X1-X7、N1-N3、D1、D5、D7、D9、P2、P4、P5 全部完成。
 - 批次二（12 项）：D2-D4、D6、D8、D10、L2-L5、N4、P3 全部完成。

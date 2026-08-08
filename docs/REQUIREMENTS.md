@@ -105,7 +105,7 @@
 
 ---
 
-## 附录 A：编辑器核心实现状态（2026-08-06，v2 重做后）
+## 附录 A：编辑器核心实现状态（2026-08-09 更新）
 
 编辑主区已完成 v2 深度重做（架构照搬 marktext/muya），设计见
 [specs/editor-v2-architecture.md](./specs/editor-v2-architecture.md)。
@@ -116,7 +116,7 @@
 | EDIT-01 | 双模式编辑           | ✅   | Normal（v2 块树 WYSIWYG）/ Source（Monaco）                                                               |
 | EDIT-02 | 块内 contentEditable | ✅   | 仅叶子块内容区可编辑，替代 v1 容器级                                                                      |
 | EDIT-03 | Block Tree 数据模型  | ✅   | v2 块树：不可变、容器/叶子分型、链表结构、支持嵌套                                                        |
-| EDIT-04 | 实时格式化渲染       | ✅   | 行内渲染保留语法标记（`.md-syntax`），输入/编辑不丢标记                                                   |
+| EDIT-04 | 实时格式化渲染       | ✅   | 行内渲染保留语法标记（`.md-syntax`），输入/编辑不丢标记；同风格/跨风格叠加（`****`/三连 `***`）经选区归一化处理（SPEC-EDIT-FT3） |
 | EDIT-05 | MD Source 切换       | ⚠️   | 工具栏入口未迁移（快捷键与源码模式可用），后续任务                                                        |
 | EDIT-06 | 段落操作             | ✅   | Enter 拆分/续行、Backspace 六条退出规则（SPEC-EDIT-EXIT）                                                 |
 | EDIT-07 | 撤销/重做            | ✅   | Ctrl+Z/Y + 按钮，经 editorStore 快照栈                                                                    |
@@ -126,10 +126,10 @@
 | EDIT-11 | 结构转换             | ✅   | 六种前缀即时转换（`#`/`-`/`1.`/`- [ ]`/`>`/` ``` `）；浮动工具栏下拉按 `canConvertBlock` 转换矩阵分发（SPEC-EDIT-FT） |
 | EDIT-12 | 超链接交互           | ✅   | Ctrl+Click 经 IPC 打开；hover tooltip；链接对话框                                                         |
 
-**输入与渲染保障（真实 Chromium E2E 验证，`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
+**输入与渲染保障（真实 Chromium E2E 44 例全绿，`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
 
 - `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`
-- `e2e/cross-block-selection.spec.ts` 等 30/30 通过）**：
+- `e2e/cross-block-selection.spec.ts`）**：
 
 * 空文档可直接输入；连续输入不被重渲染打断（按需重渲染 + IME 守卫）
 * `# 标题`、`- 列表`、`**加粗**` 即时渲染为富文本
@@ -141,8 +141,9 @@
   代码块下方自动补空段落（Backspace 受保护，删除代码块后才可删）、空代码块回车退出（保留）/
   退格一键删除；引用空行回车可退出引用
 * 退格链：删光标题内容后连续退格光标跳回上一行；段落退格可合并进前一个列表项内容
-* 浮动工具栏（SPEC-EDIT-FT）：选区触发（marktext 风格）；**仅单一语法类型选区显示**（h1+h2 不显示）；
-  块类型下拉自定义面板可展开，段落/标题/代码块/引用/三类列表一一对应，不可转目标置灰
+* 浮动工具栏（SPEC-EDIT-FT2/FT3）：选区触发（marktext 风格）；**仅单一语法类型选区显示**（h1+h2 不显示）；
+  块类型下拉自定义面板可展开，段落/标题/代码块/引用/三类列表一一对应，不可转目标置灰；
+  行内格式（加粗/斜体/高亮/下划线/数学/橡皮擦等）应用后驻留且不产生双层/三连叠加（Step 0 选区归一化）
 * 跨块鼠标拖选：正反双向跨块（rAF 节流、反向端点交换），Backspace/Delete 块树级删除；
   拖选闪烁优化（SPEC-EDIT-DSF）：端点级变化检测（静止不再重建 selection）+ selectionchange
   rAF 合并（工具栏渲染 ≤ 每帧一次）+ 一致性判定短路/上限

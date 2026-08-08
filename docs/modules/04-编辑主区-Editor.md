@@ -159,8 +159,8 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
   工具栏驻留 + 点击外/Escape 退出（SPEC-EDIT-FT3）。
 - 运行：`npm run test` / `npx playwright test`。
 
-## 10. v1 基线（回退路径，历史实现）
+## 10. v1 基线（历史实现，已退役删除）
 
 v1 采用容器级 contentEditable + `renderedHtml` 缓存，存在输入打断、IME 失效、
-标记丢失等结构性问题（详见规范文档 13.5 的 R1-R4）。已由 v2 替代；通过
-`window.__EDITOR_V2__ = false` 可临时回退，退役清理为独立任务。
+标记丢失等结构性问题（详见规范文档 13.5 的 R1-R4）。已由 v2 完全替代，
+`__EDITOR_V2__` 开关与 v1 组件/服务/测试均已删除（v2 唯一路径，2026-08-06）。

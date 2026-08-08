@@ -1,6 +1,6 @@
 # WeaveMD 技术选型文档
 
-> 版本：v2.6 | 最后更新：2026-08-08
+> 版本：v2.7 | 最后更新：2026-08-09
 
 ---
 
@@ -72,8 +72,9 @@ marktext/muya），不依赖 Monaco：
 - 仅叶子块内容区 `contentEditable`（替代 v1 容器级），支持列表/引用嵌套
 - 解析期规范化补偿（SPEC-EDIT-CBTP）：整树最后叶子为代码块时自动补尾随空段落，
   保护空行重载后不丢失（文本输出不变）
-- v2 浮动工具栏（marktext 风格，SPEC-EDIT-FT v1.0）：选区触发且仅单一语法类型显示；
+- v2 浮动工具栏（marktext 风格，SPEC-EDIT-FT）：选区触发且仅单一语法类型显示；
   自定义块类型下拉（`canConvertBlock` 矩阵 + `syntaxTypeToOption` 映射）+ 行内格式按钮
+- 行内格式驻留/不叠层（SPEC-EDIT-FT2）+ 选区归一化与跨风格叠加收敛（SPEC-EDIT-FT3）
 - 跨块拖选（SPEC-EDIT-FT）：rAF 节流 + 反向端点交换 + 非内容区回退，正反双向跨块；
   拖选闪烁优化（SPEC-EDIT-DSF）：端点级变化检测（静止不重建）+ selectionchange rAF 合并 +
   一致性判定短路/上限
@@ -193,7 +194,7 @@ src/
 │   │   └── editorInstance.ts # 内核宿主
 │   ├── components/  # UI 组件
 │   │   ├── Auth/    # 认证界面
-│   │   ├── Editor/  # 编辑器（v2 渲染层在 Editor/v2/，v1 保留回退）
+│   │   ├── Editor/  # 编辑器（v2 唯一路径，v1 已退役删除）
 │   │   ├── Navbar/  # 顶部导航
 │   │   ├── Settings/ # 设置模态框
 │   │   └── Common/  # 通用组件
