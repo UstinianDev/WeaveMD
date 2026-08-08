@@ -203,6 +203,14 @@ const EditorV2: React.FC<EditorV2Props> = ({
     [applyAction]
   );
 
+  // SPEC-EDIT-FT2 4.5.4：橡皮擦——清除选区全部行内标记
+  const onClearFormat = useCallback(
+    (blockId: string, start: number, end: number) => {
+      applyAction((instance) => formatCtrl.clearFormat(instance, blockId, start, end));
+    },
+    [applyAction]
+  );
+
   // 浮动工具栏：块类型转换（正文 ↔ H1-H6，仅根级 paragraph/heading）
   // 块元数据更新助手：updateMeta → setTree → 同步内容（消除重复模式）
   const applyMetaUpdate = useCallback(
@@ -300,6 +308,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
       onTab,
       onShiftTab,
       onFormat,
+      onClearFormat,
       onToggleTask,
       onUndo,
       onRedo,
@@ -315,6 +324,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
       onTab,
       onShiftTab,
       onFormat,
+      onClearFormat,
       onToggleTask,
       onUndo,
       onRedo,
@@ -358,6 +368,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
         tree={tree}
         onFormat={onFormat}
         onConvertBlock={onConvertBlock}
+        onClearFormat={onClearFormat}
       />
     </div>
   );

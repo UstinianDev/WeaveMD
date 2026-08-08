@@ -1,6 +1,7 @@
 # 浮动工具栏体验优化与行内格式化增强规范
 
-> 规范编号：SPEC-EDIT-FT2 | 版本：v0.1（草案，待评审）| 更新：2026-08-08
+> 规范编号：SPEC-EDIT-FT2 | 版本：v1.0（已实施，2026-08-08）| 更新：2026-08-08
+> 实施证据：[docs/testing/spec-edit-ft2.tdd.md](../testing/spec-edit-ft2.tdd.md)
 > 关联需求：REQUIREMENTS.md EDIT-04（实时格式化渲染）、EDIT-13（语法渲染对齐 marktext）
 > 关联规范：[SPEC-EDIT-FT](./floating-toolbar-refactor.md)、[SPEC-EDITOR-V2](./editor-v2-architecture.md)
 > 参考实现：marktext/marktext（https://github.com/marktext/marktext，格式工具栏与行内格式化行为）
@@ -363,4 +364,58 @@ mark {
 
 ## 9. 实施记录
 
-> 待实施后按里程碑回写（对照 SPEC-EDITOR-V2 13.x 的格式）。
+> 按里程碑回写（对照 SPEC-EDITOR-V2 13.x 的格式）。实施证据见
+> [docs/testing/spec-edit-ft2.tdd.md](../testing/spec-edit-ft2.tdd.md)。
+
+### 9.1 阶段 0~1 内核（2026-08-08）
+
+- 新增依赖 `katex` + `@types/katex`；抽取 `kernel/inlineLexer.ts`
+  （`InlineToken`/`tokenizeInline`/`isBoundedWrap`），`inlineRenderer.renderFragment`
+  改为消费 lexer（输出逐字节不变，存量 108 行金标准测试守护）。
+- `kernel/katex.ts`：`renderMath(expr)` 成功包装 `.math-inline` + 两侧 `.md-syntax` `$`，
+  失败回退转义字面量（`throwOnError: false` + try/catch）。
+- `kernel/inlineStrip.ts`：`stripSameStylePairs` / `stripInlineSyntax`（与 lexer 同识别规则）。
+- `formatCtrl`：`InlineFormatStyle` 扩至 9 种（含 underline/math/image）；`formatRange` 加
+  toggle 双形态（形态 A 选区外标记、形态 B 全选包裹区）；`clearFormat` 新增；image 走
+  link 式插入分支（`![alt](url)`）。
+- `$` 加入 `ESCAPABLE_CHARS`（`\$` 转义）；underline `<u>`/`</u>` 精确小写匹配；
+  math 打开/闭合判定（前字符非词字符、表达式非空且首尾非空格、不含 `\n`）。
+
+### 9.2 阶段 2 样式（2026-08-08）
+
+- 5 个主题块新增 `--highlight-bg/--highlight-text`（浅色 `#ffeb3b`/`#1a1a1a`；
+  dark/custom `rgba(255,235,59,0.35)`/`#fff`；high-contrast `#ffeb3b`/`#1a1a1a`）。
+- `.md-syntax` 改方案 B：默认 `font-size: 0; opacity: 0; user-select: none`（隐藏保留 DOM），
+  `.block-content:focus`（含 `:focus-within`）灰显 `opacity: 0.55`。
+- `mark` 高亮改用 `var(--highlight-bg)` / `var(--highlight-text)`（黄色系）。
+- 工具栏尺寸收敛 globals.css：`.floating-toolbar-v2`（gap 6px、padding 6px 8px、字号 14px）、
+  `.ft-btn`（36×32px）、`.block-type-trigger`（高 32px）、`.block-type-option`
+  （padding 8px 12px）、`.block-type-menu`（min-width 200px）、`.ft-divider`（1×20px）。
+- 新增 `.inline-image` / `.math-inline` 规则。
+
+### 9.3 阶段 3 工具栏（2026-08-08）
+
+- 按钮分组：`CHAR_BUTTONS`（B/I/U/S/</>/H）→ `.ft-divider` → `OBJECT_BUTTONS`
+  （🔗/🖼/∑）→ `.ft-divider` → 橡皮擦（⌫）。
+- `activeTest` 改用共享 `isBoundedWrap`（与 formatCtrl toggle-off 同边界规则，
+  含 italic 不误判 bold `**` 边界）。
+- `handleFormat`：link/image 弹 `window.prompt` 后 `onFormat(..., url)`；underline/math 直传；
+  橡皮擦 `onClick` → `onClearFormat`（折叠选区防御）。
+- 尺寸类从 Tailwind 迁移至 globals.css（保留 `.floating-toolbar-v2`/`.block-type-*`/
+  `[data-value]`/`[title]` 选择器，E2E 选择器零变化）。
+
+### 9.4 阶段 4 接线（2026-08-08）
+
+- `types.ts`：`BlockHandlers.onFormat` 补 `url?`；新增 `onClearFormat`。
+- `ContentBlock.tsx`：`onFormat` 补 `url?`；`handleFormatShortcut` 增 Ctrl+U（underline）、
+  Ctrl+Shift+M（math），置于 z/y 撤销重做之后。
+- `EditorV2.tsx`：新增 `onClearFormat` useCallback
+  （`formatCtrl.clearFormat`），注册进 handlers 并传给 FloatingToolbar。
+
+### 9.5 已知限制（回写）
+
+- 部分重叠/混合边界（如选区切开 `**`）保守处理：`stripInlineSyntax` 保留跨界残体为字面量。
+- 隐藏标记编辑依赖聚焦灰显边界 + 橡皮擦显式清除（无「标记全隐藏」失焦风险）。
+- 列表间互转（bullet→task 等）与 heading→列表/引用/代码块转换：下拉置灰，列为后续任务。
+- KaTeX 体积与首屏：仅含 `$` 的块触发 `renderToString`；动态拆包列为后续优化。
+- display math（`$$...$$` 块级）与图片粘贴上传在本次范围外。

@@ -91,7 +91,9 @@ export interface BlockHandlers {
   ) => void;
   onTab: (blockId: string) => boolean;
   onShiftTab: (blockId: string) => boolean;
-  onFormat: (blockId: string, style: InlineFormatStyle, start: number, end: number) => void;
+  onFormat: (blockId: string, style: InlineFormatStyle, start: number, end: number, url?: string) => void;
+  /** SPEC-EDIT-FT2 4.5.4：清除选区全部行内标记 */
+  onClearFormat: (blockId: string, start: number, end: number) => void;
   onToggleTask: (listItemId: string) => void;
   onUndo: () => void;
   onRedo: () => void;

@@ -34,7 +34,7 @@ interface ContentBlockProps {
   ) => void;
   onTab: (blockId: string) => boolean;
   onShiftTab: (blockId: string) => boolean;
-  onFormat: (blockId: string, style: InlineFormatStyle, start: number, end: number) => void;
+  onFormat: (blockId: string, style: InlineFormatStyle, start: number, end: number, url?: string) => void;
   onUndo: () => void;
   onRedo: () => void;
   registerDom: (blockId: string, el: HTMLElement) => void;
@@ -176,6 +176,7 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
         b: 'bold',
         i: 'italic',
         e: 'code',
+        u: 'underline',
       };
       if (e.shiftKey && key === 's') {
         e.preventDefault();
@@ -185,6 +186,12 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
       if (e.shiftKey && key === 'h') {
         e.preventDefault();
         onFormat(blockId, 'highlight', start, end);
+        return;
+      }
+      // SPEC-EDIT-FT2 4.7：Ctrl+Shift+M 数学公式
+      if (e.shiftKey && key === 'm') {
+        e.preventDefault();
+        onFormat(blockId, 'math', start, end);
         return;
       }
       const style = styleByKey[key];

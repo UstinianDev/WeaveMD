@@ -100,10 +100,13 @@ BlockNodeV2 = {
 | convertCtrl | 升格（paragraph → 六种结构块）/ 降格；浮动工具栏转换经 `canConvertBlock` 矩阵（heading 仅 h1-h6/paragraph 互切，quote/list 仅退位 paragraph，code-block 只读） |
 | clickCtrl | 任务复选框切换 |
 | listCtrl | Tab 缩进为前项子列表、Shift+Tab 凸出 |
-| formatCtrl | 文本层格式化（bold/italic/strike/highlight/code/link），取代 execCommand |
+| formatCtrl | 文本层格式化（bold/italic/strike/highlight/code/link/underline/math/image），取代 execCommand；`formatRange` 双形态 toggle（标记在选区外 / 全选包裹区解除），`clearFormat` 橡皮擦清除选区全部行内标记，image/link 插入 `[label](url)` / `![alt](url)`（SPEC-EDIT-FT2） |
+| inlineLexer | `kernel/inlineLexer.ts`：行内 token 结构化识别（strong/em/underline/strike/mark/code/link/image/autolink/escape/math），`inlineRenderer` 消费它渲染富文本；`isBoundedWrap` 共享 activeTest 与 toggle-off 边界 |
+| katex | `kernel/katex.ts`：`renderMath(expr)` → `.math-inline` + `.katex` HTML，失败回退字面量 |
 
 快捷键：Enter / Backspace / Tab / Shift+Tab / Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z /
-Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H。
+Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
+**Ctrl+U（下划线）/ Ctrl+Shift+M（数学公式，SPEC-EDIT-FT2）**。
 
 ## 7. 与周边模块集成
 
@@ -122,16 +125,20 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H。
 - 撤销/重做后光标回到重建树首块。
 - 段落级 MD Source 视图（工具栏入口）未迁移。
 - v1 回退路径已退役（v2 唯一路径，见 spec 13.13）。
+- 行内标记（SPEC-EDIT-FT2）：`.md-syntax` 默认隐藏、块聚焦灰显；编辑依赖聚焦灰显边界 +
+  橡皮擦（⌫）显式清除；选区切开标记时残体保留为字面量；display math 与图片粘贴上传在范围外。
 
 ## 9. 验证与测试
 
-- Vitest：内核/控制器/组件 **309 例**（含往返属性测试、六条退出规则矩阵、输入链路、
+- Vitest：内核/控制器/组件 **392 例**（含往返属性测试、六条退出规则矩阵、输入链路、
   marktext 语法外观断言、代码块提交/退出、列表与引用退出、尾部代码块补偿 SPEC-EDIT-CBTP、
-  `resolveSyntaxType` 判定矩阵 26 例、浮动工具栏 G1/G3 节流 26 例、`onConvertBlock` 转换矩阵 8 例、
-  拖选端点变化检测 11 例）。
+  `resolveSyntaxType` 判定矩阵 26 例、浮动工具栏 G1/G3 节流 34 例（含 FT2 按钮分组/新功能）、
+  `onConvertBlock` 转换矩阵 8 例、拖选端点变化检测 11 例、
+  FT2：inlineLexer / inlineStrip / katex / formatCtrl toggle+clearFormat / roundTrip、
+  CSS 静态断言（ft2Css 7 例）、EditorV2 快捷键接线（editorV2Format 5 例））。
 - Playwright 真实 Chromium E2E（`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
   + `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`
-  + `e2e/cross-block-selection.spec.ts`）**30 例**：
+  + `e2e/cross-block-selection.spec.ts`）**38 例**：
   空文档输入、`# ` 标题转换、`**` 加粗渲染、标记保留、列表转换、中文输入、marktext 语法符号
   渲染与不可选中（标题 marker 聚焦显隐、任务复选框、引用竖线、列表 marker 计算样式断言）、
   标题 marker 并排、空标题行点击聚焦、列表项 marker 与内容并排且任务项无多余圆点、
@@ -139,7 +146,9 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H。
   代码块后空行 Backspace 受保护（删除代码块后可删）、引用空行回车退出、列表/标题退格链、
   浮动工具栏（选区加粗、块类型下拉展开/选择、h1+h2 不显示、代码块只读）、
   跨块鼠标拖选正反双向删除、反向跨多类型拖选 + selectionchange 计数收敛（SPEC-EDIT-DSF）、
-  代码块尾随保护空行重载后恢复且 Backspace 受保护（SPEC-EDIT-CBTP）。
+  代码块尾随保护空行重载后恢复且 Backspace 受保护（SPEC-EDIT-CBTP）、
+  FT2：工具栏计算样式（字号/间距/行距/总高）、加粗 toggle 无双层、`.md-syntax` 隐藏/聚焦灰显、
+  `==高亮==` 黄色 mark、下划线/图片/数学/橡皮擦全流程（SPEC-EDIT-FT2）。
 - 运行：`npm run test` / `npx playwright test`。
 
 ## 10. v1 基线（回退路径，历史实现）
