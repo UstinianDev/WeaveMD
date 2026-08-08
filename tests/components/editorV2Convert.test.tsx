@@ -7,6 +7,14 @@ import { describe, expect, it, vi } from 'vitest';
 
 import EditorV2 from '../../src/render/components/Editor/v2/EditorV2';
 
+// jsdom 不按真实帧时机触发 rAF，测试环境统一让 rAF 回调同步执行，
+// 保证 selectionchange（SPEC-EDIT-DSF 4.3 rAF 节流）后的工具栏渲染确定性。
+vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+  cb(performance.now());
+  return 1;
+});
+vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
 interface Fixture {
   container: HTMLElement;
   onContentChange: ReturnType<typeof vi.fn>;

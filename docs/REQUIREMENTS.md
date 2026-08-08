@@ -1,6 +1,6 @@
 # WeaveMD 需求文档
 
-> 版本：v2.5 | 最后更新：2026-08-07
+> 版本：v2.6 | 最后更新：2026-08-08
 
 ---
 
@@ -129,7 +129,7 @@
 **输入与渲染保障（真实 Chromium E2E 验证，`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
 
 - `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`
-- `e2e/cross-block-selection.spec.ts` 等 28/28 通过）**：
+- `e2e/cross-block-selection.spec.ts` 等 30/30 通过）**：
 
 * 空文档可直接输入；连续输入不被重渲染打断（按需重渲染 + IME 守卫）
 * `# 标题`、`- 列表`、`**加粗**` 即时渲染为富文本
@@ -143,5 +143,7 @@
 * 退格链：删光标题内容后连续退格光标跳回上一行；段落退格可合并进前一个列表项内容
 * 浮动工具栏（SPEC-EDIT-FT）：选区触发（marktext 风格）；**仅单一语法类型选区显示**（h1+h2 不显示）；
   块类型下拉自定义面板可展开，段落/标题/代码块/引用/三类列表一一对应，不可转目标置灰
-* 跨块鼠标拖选：正反双向跨块（rAF 节流、反向端点交换），Backspace/Delete 块树级删除
+* 跨块鼠标拖选：正反双向跨块（rAF 节流、反向端点交换），Backspace/Delete 块树级删除；
+  拖选闪烁优化（SPEC-EDIT-DSF）：端点级变化检测（静止不再重建 selection）+ selectionchange
+  rAF 合并（工具栏渲染 ≤ 每帧一次）+ 一致性判定短路/上限
 * 代码块尾随保护空行持久化：重载后空行恢复、可聚焦、Backspace 仍受保护（SPEC-EDIT-CBTP，往返不变量与存储文本不变）

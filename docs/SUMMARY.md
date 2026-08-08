@@ -43,13 +43,16 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
   块转换按 `canConvertBlock` 矩阵分发（kernel/syntaxType.ts 提供 `resolveSyntaxType`）
 - 跨块鼠标拖选（rAF 节流 + 反向端点交换 + 非内容区回退，正向/反向均跨块）+ 块树级删除；
   **v1 回退路径已退役**（v2 唯一路径）
+- 拖选闪烁优化（SPEC-EDIT-DSF，v0.1 已实施）：`lastAppliedRangeRef` 端点级变化检测（端点
+  全等跳过写入，静止不再重建 selection）+ `selectionchange` rAF 合并（工具栏渲染 ≤ 每帧一次）
+  + 一致性判定短路/上限（`resolveSyntaxTypesInRange` 边枚举边比对，反向多类型 O(1) 判定）
 
 ## 4. 验证与测试
 
-- Vitest：289 例（内核/控制器/组件，含往返不变式、退出规则矩阵、输入链路、跨块删除、
-  代码块尾随空行补偿、浮动工具栏显示/转换矩阵）
-- Playwright 真实 Chromium E2E：28 例（输入/IME/富文本渲染/语法外观/退出与退格链/
-  浮动工具栏/跨块拖选/代码块尾随空行重载恢复）
+- Vitest：309 例（内核/控制器/组件，含往返不变式、退出规则矩阵、输入链路、跨块删除、
+  代码块尾随空行补偿、浮动工具栏显示/转换矩阵、拖选闪烁的端点变化检测与 rAF 节流）
+- Playwright 真实 Chromium E2E：30 例（输入/IME/富文本渲染/语法外观/退出与退格链/
+  浮动工具栏/跨块拖选/代码块尾随空行重载恢复/反向跨类型拖选与 selectionchange 收敛）
 - 质量门禁：`tsc --noEmit` + `vitest run` + ESLint(0 error) + `vite build` + `npx playwright test`
 
 > 各模块详细实现见 `docs/modules/`，需求见 `docs/REQUIREMENTS.md`，技术选型见 `docs/TECH_STACK.md`。

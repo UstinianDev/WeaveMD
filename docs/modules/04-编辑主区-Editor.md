@@ -1,9 +1,10 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 版本：v2.2 | 最后更新：2026-08-08
+> 模块编号：04 | 优先级：P0 | 版本：v2.3 | 最后更新：2026-08-08
 > 设计规范：[specs/editor-v2-architecture.md](../specs/editor-v2-architecture.md)
 > 退出规则：[specs/markdown-block-exit-rules.md](../specs/markdown-block-exit-rules.md)
 > 浮动工具栏/跨块拖选：[specs/floating-toolbar-refactor.md](../specs/floating-toolbar-refactor.md)
+> 拖选闪烁优化：[specs/drag-selection-flicker.md](../specs/drag-selection-flicker.md)
 > 参考实现：marktext/muya（架构照搬）
 
 ---
@@ -22,6 +23,9 @@
   块转换经 `canConvertBlock` 矩阵分发（kernel/syntaxType.ts 提供 `resolveSyntaxType`）。
 - **Source Code Mode**：全屏 Monaco 编辑原始 markdown（`Ctrl+\`` 或 View 菜单）。
 - **Find & Replace**：Typora 风格 inline bar，双模式可用（v2 Normal 无高亮，见限制）。
+- **拖选闪烁优化（SPEC-EDIT-DSF）**：端点级变化检测（`lastAppliedRangeRef`，静止不重建
+  selection）+ selectionchange rAF 合并（工具栏渲染 ≤ 每帧一次）+ 一致性判定短路/上限，
+  消除反向跨块拖选的光标闪烁与渲染风暴。
 
 ## 2. 总体架构
 
@@ -121,19 +125,21 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H。
 
 ## 9. 验证与测试
 
-- Vitest：内核/控制器/组件 **289 例**（含往返属性测试、六条退出规则矩阵、输入链路、
+- Vitest：内核/控制器/组件 **309 例**（含往返属性测试、六条退出规则矩阵、输入链路、
   marktext 语法外观断言、代码块提交/退出、列表与引用退出、尾部代码块补偿 SPEC-EDIT-CBTP、
-  `resolveSyntaxType` 判定矩阵 21 例、浮动工具栏 G1/G3 22 例、`onConvertBlock` 转换矩阵 8 例）。
+  `resolveSyntaxType` 判定矩阵 26 例、浮动工具栏 G1/G3 节流 26 例、`onConvertBlock` 转换矩阵 8 例、
+  拖选端点变化检测 11 例）。
 - Playwright 真实 Chromium E2E（`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
   + `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`
-  + `e2e/cross-block-selection.spec.ts`）**28 例**：
+  + `e2e/cross-block-selection.spec.ts`）**30 例**：
   空文档输入、`# ` 标题转换、`**` 加粗渲染、标记保留、列表转换、中文输入、marktext 语法符号
   渲染与不可选中（标题 marker 聚焦显隐、任务复选框、引用竖线、列表 marker 计算样式断言）、
   标题 marker 并排、空标题行点击聚焦、列表项 marker 与内容并排且任务项无多余圆点、
   列表末尾空项退格退出、代码块语言提交与空代码块回车退出（保留）/退格一键删除、
   代码块后空行 Backspace 受保护（删除代码块后可删）、引用空行回车退出、列表/标题退格链、
   浮动工具栏（选区加粗、块类型下拉展开/选择、h1+h2 不显示、代码块只读）、
-  跨块鼠标拖选正反双向删除、代码块尾随保护空行重载后恢复且 Backspace 受保护（SPEC-EDIT-CBTP）。
+  跨块鼠标拖选正反双向删除、反向跨多类型拖选 + selectionchange 计数收敛（SPEC-EDIT-DSF）、
+  代码块尾随保护空行重载后恢复且 Backspace 受保护（SPEC-EDIT-CBTP）。
 - 运行：`npm run test` / `npx playwright test`。
 
 ## 10. v1 基线（回退路径，历史实现）

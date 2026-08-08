@@ -64,6 +64,117 @@ async function openEditor(page: import('@playwright/test').Page): Promise<void> 
   await page.waitForSelector('span.block-content[contenteditable="true"]');
 }
 
+/**
+ * 选区事件计数探针（SPEC-EDIT-DSF 6.2）：每次 selectionchange 递增 window.__selChangeCount。
+ * 用 addInitScript 在页面加载时注入，保证拖选全程都计入。
+ */
+function selectionCounterProbe(): void {
+  const win = window as unknown as { __selChangeCount?: number };
+  win.__selChangeCount = 0;
+  // selectionchange 事件在 document 上触发且不冒泡，须用 document 级监听
+  document.addEventListener('selectionchange', () => {
+    win.__selChangeCount = (win.__selChangeCount ?? 0) + 1;
+  });
+}
+
+/** 读取当前选区端点所在块信息（含端点块语法类型，用于多类型断言） */
+async function readSelectionInfo(
+  page: import('@playwright/test').Page
+): Promise<{
+  startId: string | null;
+  endId: string | null;
+  startType: string | null;
+  endType: string | null;
+  collapsed: boolean;
+} | null> {
+  return page.evaluate(() => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    const r = sel.getRangeAt(0);
+    const resolve = (node: Node | null): { id: string | null; type: string } | null => {
+      if (!node) return null;
+      const el = (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement) as HTMLElement | null;
+      const span = el?.closest('span.block-content');
+      const type = span?.closest('.heading-block')
+        ? 'heading'
+        : span?.closest('blockquote.blockquote-block')
+          ? 'quote'
+          : span?.closest('.list-item-block')
+            ? 'list'
+            : span?.closest('p.paragraph-block')
+              ? 'paragraph'
+              : 'unknown';
+      return { id: span?.getAttribute('data-block-id') ?? null, type };
+    };
+    const start = resolve(r.startContainer);
+    const end = resolve(r.endContainer);
+    return {
+      startId: start?.id ?? null,
+      endId: end?.id ?? null,
+      startType: start?.type ?? null,
+      endType: end?.type ?? null,
+      collapsed: sel.isCollapsed,
+    };
+  });
+}
+
+/** 构造跨三种语法类型文档：H1 标题 + 正文段落 + 引用 */
+async function typeMultiTypeDoc(page: import('@playwright/test').Page): Promise<void> {
+  const first = page.locator('span.block-content[contenteditable="true"]').first();
+  await first.click();
+  await page.keyboard.type('# 一级标题', { delay: 20 });
+  await page.keyboard.press('Enter');
+  const second = page.locator('span.block-content[contenteditable="true"]').nth(1);
+  await second.click();
+  await page.keyboard.type('正文段落', { delay: 20 });
+  await page.keyboard.press('Enter');
+  const third = page.locator('span.block-content[contenteditable="true"]').nth(2);
+  await third.click();
+  await page.keyboard.type('> 引用内容', { delay: 20 });
+  await page.waitForTimeout(400);
+}
+
+/** 读取探针计数 */
+async function readSelCount(page: import('@playwright/test').Page): Promise<number> {
+  return page.evaluate(
+    () => (window as unknown as { __selChangeCount: number }).__selChangeCount
+  );
+}
+
+/** 反向跨块拖选：从下方引用块右端向上拖到上方标题块左端 */
+async function reverseDragMultiType(page: import('@playwright/test').Page): Promise<void> {
+  const h1Span = page.locator('h1.heading-block span.block-content');
+  const quoteSpan = page.locator('blockquote.blockquote-block span.block-content');
+  const h1Box = await h1Span.boundingBox();
+  const quoteBox = await quoteSpan.boundingBox();
+  expect(h1Box).not.toBeNull();
+  expect(quoteBox).not.toBeNull();
+  const startX = quoteBox!.x + quoteBox!.width - 2;
+  const startY = quoteBox!.y + quoteBox!.height / 2;
+  const endX = h1Box!.x + 2;
+  const endY = h1Box!.y + h1Box!.height / 2;
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  // 分段移动（每步一帧），模拟真实鼠标高频 mousemove 拖到终点
+  const STEPS = 20;
+  for (let i = 1; i <= STEPS; i++) {
+    await page.mouse.move(
+      startX + ((endX - startX) * i) / STEPS,
+      startY + ((endY - startY) * i) / STEPS
+    );
+    await page.waitForTimeout(16);
+  }
+  // 终点静止重复移动段：保持按住，在同一坐标重复触发 mousemove（每帧一次）。
+  // 真实场景下鼠标几乎不动（选区端点保持不变）时，旧实现（无端点级变化检测）
+  // 仍会每帧 removeAllRanges + addRange 重建 selection → 持续触发 selectionchange
+  // 风暴（P1 根因 2.2）；新实现端点级检测发现端点全等则跳过写入（P1 核心）。
+  for (let j = 0; j < 30; j++) {
+    await page.mouse.move(endX, endY);
+    await page.waitForTimeout(16);
+  }
+  await page.mouse.up();
+}
+
 test('跨块鼠标拖选并退格删除', async ({ page }) => {
   await openEditor(page);
   const editable = page.locator('span.block-content[contenteditable="true"]').first();
@@ -129,6 +240,69 @@ test('跨块鼠标拖选并退格删除', async ({ page }) => {
   expect(state.text).not.toContain('第一行');
   expect(state.text).not.toContain('第二行');
   expect(state.paragraphs).toBeGreaterThan(0);
+});
+
+test('P3：反向跨块拖选跨多种语法类型（标题+段落+引用）仍成立 + Backspace 块树级删除', async ({
+  page,
+}) => {
+  await openEditor(page);
+  await typeMultiTypeDoc(page);
+  await reverseDragMultiType(page);
+  await page.waitForTimeout(400);
+
+  // 反向选区成立：起点/终点落在不同语法类型块上，选区非折叠
+  const selInfo = await readSelectionInfo(page);
+  expect(selInfo).not.toBeNull();
+  expect(selInfo?.collapsed).toBe(false);
+  expect(selInfo?.startId).not.toBe(selInfo?.endId);
+  expect(selInfo?.startId).not.toBeNull();
+  expect(selInfo?.endId).not.toBeNull();
+  // 起点与终点属于不同语法类型（跨类型，P3 核心：反向跨多种类型仍成立）
+  expect(selInfo?.startType).not.toBe(selInfo?.endType);
+  // 覆盖的两种类型都应在 { heading, quote, paragraph, list } 中，避免 'unknown'
+  const types = new Set([selInfo?.startType, selInfo?.endType]);
+  for (const t of types) {
+    expect(['heading', 'quote', 'paragraph', 'list']).toContain(t);
+  }
+
+  // Backspace 块树级删除（SPEC-EDIT-FT G2 不回归）：下方锚点块内容应被删除
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(400);
+  const state = await page.locator('.editor-content-area').evaluate((el) => ({
+    text: (el.textContent ?? '').replace(/\u200B/g, ''),
+    paragraphs: el.querySelectorAll('p.paragraph-block').length,
+    quotes: el.querySelectorAll('blockquote.blockquote-block').length,
+  }));
+  expect(state.text).not.toContain('引用内容');
+  expect(state.paragraphs).toBeGreaterThan(0);
+});
+
+test('P1/P2：反向跨块拖选期间 selectionchange 计数收敛（≤ 帧数上限，静止后不再增长）', async ({
+  page,
+}) => {
+  // 注入计数探针（addInitScript，页面加载时生效）
+  await page.addInitScript(selectionCounterProbe);
+  await openEditor(page);
+  await typeMultiTypeDoc(page);
+
+  // 清零计数后再拖选，确保只统计拖选窗口内的 selectionchange
+  await page.evaluate(() => {
+    (window as unknown as { __selChangeCount: number }).__selChangeCount = 0;
+  });
+
+  await reverseDragMultiType(page);
+  await page.waitForTimeout(500);
+
+  // 静止后计数收敛：再等 500ms，计数不再增长（P1：静止时 selection 不再被反复重建）
+  const countBeforeIdle = await readSelCount(page);
+  await page.waitForTimeout(500);
+  const countAfterIdle = await readSelCount(page);
+  expect(countAfterIdle).toBe(countBeforeIdle);
+
+  // 总量低于明显风暴阈值：拖选全程（约 20 步 × 每步 rAF 1 帧 + mouseup 末帧兜底）
+  // 至多 ~2×帧数级别；阈值取 120 次/秒量级 × 拖选窗口，留合理余量避免 flaky
+  const MAX_SELECTIONCHANGE = 120;
+  expect(countBeforeIdle).toBeLessThanOrEqual(MAX_SELECTIONCHANGE);
 });
 
 test('G2：从下往上跨块拖选 → 反向选区覆盖两不同块', async ({ page }) => {

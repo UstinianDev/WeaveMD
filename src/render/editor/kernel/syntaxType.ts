@@ -29,6 +29,16 @@ function isListType(
   return type === 'bullet-list' || type === 'ordered-list' || type === 'task-list';
 }
 
+/** 语法类型相等判定（heading 需 level 相等，其余同 type 即相等） */
+function sameSyntaxType(a: SyntaxType, b: SyntaxType): boolean {
+  if (a.type !== b.type) return false;
+  if (a.type === 'heading' && b.type === 'heading') return a.level === b.level;
+  return true;
+}
+
+/** 一致性判定区间叶子数上限（SPEC-EDIT-DSF 4.4）：超过直接判定不一致，避免极端大选区每帧 O(N) 遍历 */
+const MAX_RANGE_LEAF_COUNT = 500;
+
 /** 叶子块的父链容器解析（paragraph 聚合到引用/列表） */
 function resolveContainerSyntaxType(tree: BlockTreeV2, leaf: BlockNodeV2): SyntaxType {
   const parent = leaf.parentId ? tree.blocks[leaf.parentId] : undefined;
@@ -76,10 +86,11 @@ export function resolveSyntaxType(tree: BlockTreeV2, blockId: string): SyntaxTyp
 }
 
 /**
- * 跨块选区类型一致性判定：枚举文档序 [startLeafId, endLeafId] 区间内全部叶子块的语法类型。
+ * 跨块选区类型一致性判定：枚举文档序 [startLeafId, endLeafId] 区间内叶子块的语法类型。
  * - startId === endId → 单元素数组；
  * - end 在 start 之前（不可达）→ 返回 null（调用方按"不一致"处理）；
- * - 否则按 getNextLeaf 步进（含端点）逐个解析。
+ * - 边枚举边比对（SPEC-EDIT-DSF 4.4）：一旦出现与首个类型不同的叶子立即返回 null，不构造完整数组；
+ * - 区间叶子数超过 MAX_RANGE_LEAF_COUNT → 直接返回 null（调用方按"不一致"处理）。
  */
 export function resolveSyntaxTypesInRange(
   tree: BlockTreeV2,
@@ -92,8 +103,10 @@ export function resolveSyntaxTypesInRange(
   const types: SyntaxType[] = [];
   let currentId: string | null = startLeafId;
   let guard = 0;
-  while (currentId && guard < 10000) {
-    types.push(resolveSyntaxType(tree, currentId));
+  while (currentId && guard < MAX_RANGE_LEAF_COUNT) {
+    const type = resolveSyntaxType(tree, currentId);
+    if (types.length > 0 && !sameSyntaxType(type, types[0])) return null;
+    types.push(type);
     if (currentId === endLeafId) return types;
     const nextLeaf = getNextLeaf(tree, currentId);
     if (!nextLeaf) return null;
