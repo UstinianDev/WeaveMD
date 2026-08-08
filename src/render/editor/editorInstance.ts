@@ -19,6 +19,8 @@ export interface EditorActionResult {
   changedBlockIds: string[];
   /** 重渲染后应恢复的光标位置 */
   focus?: { blockId: string; offset: number };
+  /** 重渲染后应恢复的选区（与 getCursorOffsets 口径一致，含 .md-syntax 标记字符；存在时优先于 focus） */
+  selection?: { blockId: string; start: number; end: number };
 }
 
 export class EditorInstance {

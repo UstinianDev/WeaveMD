@@ -221,7 +221,7 @@ test('G3②：代码块选中 → 下拉显示"代码块"且其余目标禁用',
 // ============================================================
 // SPEC-EDIT-FT2 阶段 5：G1 尺寸 / G2 标记隐藏 / G3 新功能
 // ============================================================
-test('FT2-E1: 工具栏计算样式——字号≥14px、容器 gap≥6px、下拉项 padding/行高≥8px、总高≥40px', async ({
+test('FT2-E1: 工具栏计算样式——字号13px、容器 gap 4~5px、按钮 32×28px、总高 clientHeight ≤ 34px（SPEC-EDIT-FT3 G4）', async ({
   page,
 }) => {
   await openEditor(page);
@@ -234,13 +234,23 @@ test('FT2-E1: 工具栏计算样式——字号≥14px、容器 gap≥6px、下�
   await expect(toolbar).toBeVisible();
 
   const btn = toolbar.locator('button[title="加粗"]');
-  const btnFont = await btn.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
-  expect(btnFont).toBeGreaterThanOrEqual(14);
+  const btnStyle = await btn.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return {
+      font: parseFloat(cs.fontSize),
+      width: parseFloat(cs.width),
+      height: parseFloat(cs.height),
+    };
+  });
+  expect(btnStyle.font).toBe(13);
+  expect(btnStyle.width).toBe(32);
+  expect(btnStyle.height).toBe(28);
 
   const containerGap = await toolbar.evaluate((el) =>
     parseFloat(getComputedStyle(el).columnGap || getComputedStyle(el).gap)
   );
-  expect(containerGap).toBeGreaterThanOrEqual(6);
+  expect(containerGap).toBeGreaterThanOrEqual(4);
+  expect(containerGap).toBeLessThanOrEqual(5);
 
   await toolbar.locator('.block-type-trigger').click();
   const option = toolbar.locator('.block-type-menu [data-value="h1"]');
@@ -248,10 +258,11 @@ test('FT2-E1: 工具栏计算样式——字号≥14px、容器 gap≥6px、下�
     const cs = getComputedStyle(el);
     return parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
   });
-  expect(optPad).toBeGreaterThanOrEqual(16); // 8px*2
+  expect(optPad).toBeGreaterThanOrEqual(12); // 6px*2
 
-  const height = await toolbar.evaluate((el) => el.getBoundingClientRect().height);
-  expect(height).toBeGreaterThanOrEqual(40);
+  // 总高口径：按钮 28px + 容器垂直 padding 3px×2 = 34px（含 padding 不含 border）
+  const height = await toolbar.evaluate((el) => el.clientHeight);
+  expect(height).toBeLessThanOrEqual(34);
 });
 
 test('FT2-E2: 加粗两次回到原文，绝不产生 ****', async ({ page }) => {

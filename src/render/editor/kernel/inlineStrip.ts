@@ -13,18 +13,8 @@
 //     即整 token 剥离；区间外 token 原样保留（其内文不剥离）。
 // 嵌套内容经 children 递归（绝对偏移）。
 
-import { tokenizeInline } from './inlineLexer';
-import type { InlineToken, InlineTokenType } from './inlineLexer';
-
-const STYLE_TO_TOKEN: Record<string, InlineTokenType> = {
-  bold: 'strong',
-  italic: 'em',
-  strike: 'del',
-  highlight: 'mark',
-  code: 'code',
-  underline: 'underline',
-  math: 'math',
-};
+import { STYLE_TOKEN_TYPE, tokenizeInline } from './inlineLexer';
+import type { InlineToken } from './inlineLexer';
 
 /** 无标记结构（无开/闭标记可剥离）的 token 类型 */
 function hasMarkers(token: InlineToken): boolean {
@@ -49,7 +39,7 @@ function stripToken(text: string, token: InlineToken, mode: StripMode): string {
 
   const stripThis =
     mode.kind === 'style'
-      ? token.type === STYLE_TO_TOKEN[mode.style]
+      ? token.type === STYLE_TOKEN_TYPE[mode.style]
       : token.start < mode.e && token.end > mode.s;
 
   if (stripThis) {

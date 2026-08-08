@@ -36,12 +36,11 @@ function stripZeroWidth(text: string): string {
   return text.replace(/\u200B/g, '');
 }
 
-/** 把光标设置到 contentEl 的指定偏移（TreeWalker 定位文本节点） */
-export function setCursorAtOffset(contentEl: HTMLElement, offset: number): void {
-  const selection = window.getSelection();
-  if (!selection) return;
-  // 重渲染替换 DOM 后必须恢复编辑焦点（否则后续按键丢失）
-  contentEl.focus({ preventScroll: true });
+/** 偏移 → DOM 边界点（TreeWalker 定位文本节点，跳过零宽空格，越界收敛到元素末尾） */
+export function offsetToDomPoint(
+  contentEl: HTMLElement,
+  offset: number
+): { node: Node; offset: number } {
   const textWalker = document.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT);
   let remaining = Math.max(0, offset);
   let textNode: Text | null;
@@ -55,27 +54,46 @@ export function setCursorAtOffset(contentEl: HTMLElement, offset: number): void 
       let position = 0;
       for (let i = 0; i < value.length; i++) {
         if (value[i] !== '\u200B') charCount++;
-        // remaining 为 0 时光标应位于文本起点（offset 0），
+        // remaining 为 0 时点应位于文本起点（offset 0），
         // 避免 `charCount >= 0` 在第一个字符后就误定位到 offset 1
         if (remaining > 0 && charCount >= remaining) {
           position = i + 1;
           break;
         }
       }
-      const range = document.createRange();
-      range.setStart(textNode, position);
-      range.collapse(true);
-      selection.removeAllRanges();
-      selection.addRange(range);
-      return;
+      return { node: textNode, offset: position };
     }
     remaining -= effectiveLength;
   }
 
-  // 兜底：光标放到元素末尾
+  // 兜底：偏移超出内容长度时定位到元素末尾
+  return { node: contentEl, offset: contentEl.childNodes.length };
+}
+
+/** 把光标设置到 contentEl 的指定偏移（collapse 单点） */
+export function setCursorAtOffset(contentEl: HTMLElement, offset: number): void {
+  const selection = window.getSelection();
+  if (!selection) return;
+  // 重渲染替换 DOM 后必须恢复编辑焦点（否则后续按键丢失）
+  contentEl.focus({ preventScroll: true });
+  const point = offsetToDomPoint(contentEl, offset);
   const range = document.createRange();
-  range.selectNodeContents(contentEl);
-  range.collapse(false);
+  range.setStart(point.node, point.offset);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+/** 把选区设置到 contentEl 的 [start, end) 偏移（与 getCursorOffsets 口径一致，反向自动归一化） */
+export function setRangeAtOffset(contentEl: HTMLElement, start: number, end: number): void {
+  const selection = window.getSelection();
+  if (!selection) return;
+  contentEl.focus({ preventScroll: true });
+  const startPoint = offsetToDomPoint(contentEl, Math.min(start, end));
+  const endPoint = offsetToDomPoint(contentEl, Math.max(start, end));
+  const range = document.createRange();
+  range.setStart(startPoint.node, startPoint.offset);
+  range.setEnd(endPoint.node, endPoint.offset);
   selection.removeAllRanges();
   selection.addRange(range);
 }

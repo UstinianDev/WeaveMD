@@ -11,7 +11,9 @@ export {
   toDisplayHtml,
 } from './inlineRenderer';
 export {
+  findIntersectingStyleToken,
   isBoundedWrap,
+  STYLE_TOKEN_TYPE,
   tokenizeInline,
 } from './inlineLexer';
 export type { InlineToken, InlineTokenType } from './inlineLexer';

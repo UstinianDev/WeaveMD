@@ -79,29 +79,39 @@ describe('SPEC-EDIT-FT2 CSS: mark 高亮黄色', () => {
   });
 });
 
-describe('SPEC-EDIT-FT2 CSS: 工具栏尺寸（G1）', () => {
-  it('CS5: .floating-toolbar-v2 尺寸规则存在（gap≥6px / 按钮字号≥14px / 高度构成≥40px）', () => {
+describe('SPEC-EDIT-FT3 CSS: 工具栏尺寸缩小（G4，SPEC-EDIT-FT3 §4.4）', () => {
+  it('CS5: .floating-toolbar-v2 尺寸规则存在（gap=4px / 字号13px / padding 3px 6px）', () => {
     const b = blockText('.floating-toolbar-v2');
-    expect(b).toMatch(/gap:\s*6px/);
-    expect(b).toMatch(/font-size:\s*14px/);
-    // 容器 padding（6px top+bottom） + 按钮 height 32px = 44px ≥ 40px
-    expect(b).toMatch(/padding:\s*6px/);
+    expect(b).toMatch(/gap:\s*4px/);
+    expect(b).toMatch(/font-size:\s*13px/);
+    expect(b).toMatch(/padding:\s*3px\s+6px/);
   });
 
-  it('CS5b: 工具栏按钮与下拉尺寸类存在', () => {
+  it('CS5b: 工具栏按钮与下拉尺寸类存在（按钮32×28 / trigger 28+px6 / option 6px 10px / menu 176px / divider 1×16 margin 0 2px）', () => {
     const btn = blockText('.floating-toolbar-v2 .ft-btn');
-    expect(btn).toMatch(/width:\s*36px/);
-    expect(btn).toMatch(/height:\s*32px/);
-    expect(btn).toMatch(/font-size:\s*14px/);
+    expect(btn).toMatch(/width:\s*32px/);
+    expect(btn).toMatch(/height:\s*28px/);
+    expect(btn).toMatch(/font-size:\s*13px/);
     const trigger = blockText('.block-type-trigger');
-    expect(trigger).toMatch(/height:\s*32px/);
-    expect(trigger).toMatch(/font-size:\s*14px/);
+    expect(trigger).toMatch(/height:\s*28px/);
+    expect(trigger).toMatch(/padding:\s*0\s+6px/);
+    expect(trigger).toMatch(/font-size:\s*13px/);
     const option = blockText('.block-type-option');
-    expect(option).toMatch(/padding:\s*8px\s+12px/);
+    expect(option).toMatch(/padding:\s*6px\s+10px/);
+    expect(option).toMatch(/font-size:\s*13px/);
     const menu = blockText('.block-type-menu');
-    expect(menu).toMatch(/min-width:\s*200px/);
+    expect(menu).toMatch(/min-width:\s*176px/);
     const divider = blockText('.ft-divider');
-    expect(divider).toMatch(/height:\s*20px/);
+    expect(divider).toMatch(/width:\s*1px/);
+    expect(divider).toMatch(/height:\s*16px/);
+    expect(divider).toMatch(/margin:\s*0\s+2px/);
+  });
+
+  it('CS5c: 总高构成 ≤ 34px（按钮 28px + 容器垂直 padding 3px×2，含 padding 不含 border）', () => {
+    const btn = blockText('.floating-toolbar-v2 .ft-btn');
+    const container = blockText('.floating-toolbar-v2');
+    expect(btn).toMatch(/height:\s*28px/);
+    expect(container).toMatch(/padding:\s*3px\s+6px/);
   });
 });
 

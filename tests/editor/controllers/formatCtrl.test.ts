@@ -17,9 +17,19 @@ function apply(
   style: Parameters<typeof formatCtrl.formatRange>[2],
   start: number,
   end: number,
-  options: { url?: string } = {}
+  options: { url?: string; restoreSelection?: boolean } = {}
 ): void {
   formatCtrl.formatRange(instance, paragraphId(instance), style, start, end, options);
+}
+
+function applyResult(
+  instance: EditorInstance,
+  style: Parameters<typeof formatCtrl.formatRange>[2],
+  start: number,
+  end: number,
+  options: { url?: string; restoreSelection?: boolean } = {}
+): ReturnType<typeof formatCtrl.formatRange> {
+  return formatCtrl.formatRange(instance, paragraphId(instance), style, start, end, options);
 }
 
 describe('formatCtrl — Toggle-off（Step 1）', () => {
@@ -78,11 +88,10 @@ describe('formatCtrl — Toggle-on（Step 2）与光标', () => {
     expect(instance.getMarkdown()).toBe('a**bc');
   });
 
-  it('toggle-on 先清理同风格标记对（杜绝二层嵌套）', () => {
-    // 选区自身含完整包裹标记但边界不可延伸时（如选中已包裹区再扩选），走 Step 2 去重
+  it('F11 存量变更：选区覆盖完整 token 及部分标记 → 解除为 `a already c`', () => {
     const instance = new EditorInstance('a **already** c');
     apply(instance, 'bold', 2, 13);
-    expect(instance.getMarkdown()).toBe('a **already** c');
+    expect(instance.getMarkdown()).toBe('a already c');
   });
 
   it('underline 选区包裹', () => {
@@ -168,6 +177,124 @@ describe('formatCtrl — clearFormat（橡皮擦）', () => {
     const instance = new EditorInstance('abc');
     const result = formatCtrl.clearFormat(instance, paragraphId(instance), 1, 1);
     expect(result).toBeNull();
+  });
+});
+
+describe('formatCtrl — Step 0 选区归一化（FT3 §4.1 G1）', () => {
+  it('`**123**` 选区 `[2,7)`（含部分 close 标记）→ 解除为 123', () => {
+    const instance = new EditorInstance('**123**');
+    apply(instance, 'bold', 2, 7);
+    expect(instance.getMarkdown()).toBe('123');
+  });
+
+  it('`**123**` 选区 `[0,5)`（含部分 open 标记）→ 解除为 123', () => {
+    const instance = new EditorInstance('**123**');
+    apply(instance, 'bold', 0, 5);
+    expect(instance.getMarkdown()).toBe('123');
+  });
+
+  it('`**123**` 选区 `[0,7)`（完整 token）→ 解除为 123', () => {
+    const instance = new EditorInstance('**123**');
+    apply(instance, 'bold', 0, 7);
+    expect(instance.getMarkdown()).toBe('123');
+  });
+
+  it('`**123**` 选区 `[2,5)`（内容区，形态 A）→ 解除为 123', () => {
+    const instance = new EditorInstance('**123**');
+    apply(instance, 'bold', 2, 5);
+    expect(instance.getMarkdown()).toBe('123');
+  });
+
+  it('`123` 全选 → 包裹为 **123**', () => {
+    const instance = new EditorInstance('123');
+    apply(instance, 'bold', 0, 3);
+    expect(instance.getMarkdown()).toBe('**123**');
+  });
+
+  it('`a **b** c` 选区 `[4,9)`（跨 token）→ 保守包裹无崩溃', () => {
+    const instance = new EditorInstance('a **b** c');
+    expect(() => apply(instance, 'bold', 4, 9)).not.toThrow();
+  });
+
+  it('各成对样式 case B：`*i*`/`~~s~~`/`==h==`/`` `c` ``/`<u>x</u>`/`$x$` 覆盖标记均解除', () => {
+    const cases: Array<[string, Parameters<typeof formatCtrl.formatRange>[2], number, number, string]> = [
+      ['*i*', 'italic', 1, 3, 'i'],
+      ['~~s~~', 'strike', 2, 4, 's'],
+      ['==h==', 'highlight', 2, 4, 'h'],
+      ['`c`', 'code', 1, 3, 'c'],
+      ['<u>x</u>', 'underline', 3, 7, 'x'],
+      ['$x$', 'math', 1, 3, 'x'],
+    ];
+    for (const [text, style, s, e, expected] of cases) {
+      const instance = new EditorInstance(text);
+      apply(instance, style, s, e);
+      expect(instance.getMarkdown()).toBe(expected);
+    }
+  });
+
+  it('italic 不误判 bold 边界（`**a**` 内选 `*` 区不解除）', () => {
+    const instance = new EditorInstance('**a**');
+    apply(instance, 'italic', 2, 3);
+    expect(instance.getMarkdown()).toBe('***a***');
+  });
+});
+
+describe('formatCtrl — selection 契约（FT3 §4.3 G3 前半）', () => {
+  it('case B 解除返回 selection 映射（content 区间）', () => {
+    const instance = new EditorInstance('**123**');
+    const result = applyResult(instance, 'bold', 2, 7, { restoreSelection: true });
+    expect(instance.getMarkdown()).toBe('123');
+    expect(result?.selection).toMatchObject({ start: 0, end: 3 });
+    expect(result?.selection?.blockId).toBe(paragraphId(instance));
+  });
+
+  it('形态 A 解除返回 selection 映射', () => {
+    const instance = new EditorInstance('**123**');
+    const result = applyResult(instance, 'bold', 2, 5, { restoreSelection: true });
+    expect(instance.getMarkdown()).toBe('123');
+    expect(result?.selection).toMatchObject({ start: 0, end: 3 });
+    expect(result?.selection?.blockId).toBe(paragraphId(instance));
+  });
+
+  it('Step 2 包裹返回 selection 映射（含 open 偏移）', () => {
+    const instance = new EditorInstance('123');
+    const result = applyResult(instance, 'bold', 0, 3, { restoreSelection: true });
+    expect(instance.getMarkdown()).toBe('**123**');
+    expect(result?.selection).toMatchObject({ start: 2, end: 5 });
+    expect(result?.selection?.blockId).toBe(paragraphId(instance));
+  });
+
+  it('link 分支返回 selection 映射（内容区间）', () => {
+    const instance = new EditorInstance('ab');
+    const result = applyResult(instance, 'link', 0, 2, { url: 'u', restoreSelection: true });
+    expect(instance.getMarkdown()).toBe('[ab](u)');
+    expect(result?.selection).toMatchObject({ start: 1, end: 3 });
+    expect(result?.selection?.blockId).toBe(paragraphId(instance));
+  });
+
+  it('restoreSelection 缺省 false 时不返回 selection，维持 focus（键盘路径折叠不变）', () => {
+    const instance = new EditorInstance('**123**');
+    const result = applyResult(instance, 'bold', 2, 7);
+    expect(instance.getMarkdown()).toBe('123');
+    expect(result?.selection).toBeUndefined();
+    expect(result?.focus).toEqual({ blockId: paragraphId(instance), offset: 0 });
+  });
+
+  it('restoreSelection false 时包裹仍只返回 focus', () => {
+    const instance = new EditorInstance('123');
+    const result = applyResult(instance, 'bold', 0, 3);
+    expect(instance.getMarkdown()).toBe('**123**');
+    expect(result?.selection).toBeUndefined();
+    expect(result?.focus).toEqual({ blockId: paragraphId(instance), offset: 7 });
+  });
+
+  it('clearFormat 返回 selection（content 区间映射）', () => {
+    const instance = new EditorInstance('**bold** and *italic*');
+    const result = formatCtrl.clearFormat(instance, paragraphId(instance), 0, 20);
+    expect(instance.getMarkdown()).toBe('bold and italic');
+    expect(result?.selection).toMatchObject({ start: 0, end: 15 });
+    expect(result?.selection?.blockId).toBe(paragraphId(instance));
+    expect(result?.selection?.blockId).toBe(paragraphId(instance));
   });
 });
 
