@@ -415,8 +415,9 @@ mark {
 ### 9.5 已知限制（回写）
 
 - 部分重叠/混合边界（如选区切开 `**`）保守处理：`stripInlineSyntax` 保留跨界残体为字面量。
-  （SPEC-EDIT-FT3 已解决「选区覆盖 content + 部分边界标记」的 case B 场景；跨多个同风格
-  token / 部分重叠选区仍保守，见 [SPEC-EDIT-FT3](./floating-toolbar-format-sticky.md) §9.7。）
+  （SPEC-EDIT-FT3 已解决「选区覆盖 content + 部分边界标记」的 case B 与跨多个同风格 token
+  覆盖标记的逐 token 拆分（C10）；选区不覆盖标记的极端部分重叠仍保守，见
+  [SPEC-EDIT-FT3](./floating-toolbar-format-sticky.md) §9.7/§9.8。）
 - 隐藏标记编辑依赖聚焦灰显边界 + 橡皮擦显式清除（无「标记全隐藏」失焦风险）。
 - 列表间互转（bullet→task 等）与 heading→列表/引用/代码块转换：下拉置灰，列为后续任务。
 - KaTeX 体积与首屏：仅含 `$` 的块触发 `renderToString`；动态拆包列为后续优化。

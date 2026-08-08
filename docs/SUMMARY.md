@@ -52,20 +52,21 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
   `isBoundedWrap` activeTest；`.md-syntax` 方案 B（默认隐藏、聚焦灰显）、`==高亮==` 黄色
   highlight 主题变量、工具栏尺寸收敛 globals.css；Ctrl+U / Ctrl+Shift+M 快捷键
 - 格式应用交互修正（SPEC-EDIT-FT3，v1.0 已实施）：Step 0 选区归一化（选中渲染内容及部分
-  语法符号再点格式 → 解除，绝不叠加 `****…****`/`====…====`）；格式应用后恢复选区保持选中、
+  语法符号再点格式 → 解除，绝不叠加 `****…****`/`====…====`）；跨多个同风格 token 的选区
+  逐 token 拆分解除（C10，case A 内容内部分选区一并补全）；格式应用后恢复选区保持选中、
   工具栏驻留（点击工具栏外/滚动/Escape/键入退出，块转换仍退出）；工具栏尺寸回调
   （按钮 32×28px、字号 13px、总高 ≤34px）
 
 ## 4. 验证与测试
 
-- Vitest：436 例（内核/控制器/组件，含往返不变式、退出规则矩阵、输入链路、跨块删除、
+- Vitest：447 例（内核/控制器/组件，含往返不变式、退出规则矩阵、输入链路、跨块删除、
   代码块尾随空行补偿、浮动工具栏显示/转换矩阵/驻留、拖选闪烁的端点变化检测与 rAF 节流、
-  FT2 的 inlineLexer/strip/katex/toggle/clearFormat、FT3 的 Step0 归一化矩阵/选区恢复/集成、
-  CSS 静态断言、快捷键接线）
-- Playwright 真实 Chromium E2E：42 例（输入/IME/富文本渲染/语法外观/退出与退格链/
+  FT2 的 inlineLexer/strip/katex/toggle/clearFormat、FT3 的 Step0 归一化矩阵/跨 token 拆分/
+  选区恢复/集成、CSS 静态断言、快捷键接线）
+- Playwright 真实 Chromium E2E：43 例（输入/IME/富文本渲染/语法外观/退出与退格链/
   浮动工具栏/跨块拖选/代码块尾随空行重载恢复/反向跨类型拖选与 selectionchange 收敛/
   FT2 工具栏计算样式/标记隐藏与聚焦灰显/黄色高亮/下划线/图片/数学/橡皮擦/
-  FT3 部分标记不叠加/工具栏驻留与点击外/Escape 退出）
+  FT3 部分标记不叠加/跨多 token 逐 token 解除/工具栏驻留与点击外/Escape 退出）
 - 质量门禁：`tsc --noEmit` + `vitest run` + ESLint(0 error) + `vite build` + `npx playwright test`
 
 > 各模块详细实现见 `docs/modules/`，需求见 `docs/REQUIREMENTS.md`，技术选型见 `docs/TECH_STACK.md`。

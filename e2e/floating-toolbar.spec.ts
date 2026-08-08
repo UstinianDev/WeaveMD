@@ -580,3 +580,27 @@ test('FT3-E5: 加粗后按 Escape → 工具栏退出（SPEC-EDIT-FT3 G3）', as
   await page.waitForTimeout(300);
   await expect(toolbar).toHaveCount(0);
 });
+
+test('FT3-E6: 跨多 token 选区点加粗 → 两 token 均解除，无 ****（C10 逐 token 拆分）', async ({
+  page,
+}) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('a **b** c **d** e', { delay: 20 });
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('a **b** c **d** e');
+
+  // 选中覆盖 token1 close 与 token2 open 的区间 [4,13)
+  await selectTextRange(page, 4, 13);
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="加粗"]').click();
+  await page.waitForTimeout(300);
+
+  // 两个 token 均解除为纯文本，无双层标记
+  await expect(editable).toHaveText('a b c d e');
+  await expect(editable).not.toContainText('****');
+  await expect(page.locator('strong')).toHaveCount(0);
+});

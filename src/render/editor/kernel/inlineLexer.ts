@@ -376,26 +376,36 @@ export function tokenizeInline(text: string, start = 0, end = text.length): Inli
 }
 
 /**
- * 找出与选区 [s, e) 相交的同风格成对 token（openLen>0 && closeLen>0），
- * 返回文档序第一个（DFS 递归含 children，偏移为绝对偏移），无则 null。
- * 供 formatCtrl 的 Step 0 选区归一化（FT3 §4.1 case B 判定）使用。
+ * 收集与选区 [s, e) 相交的同风格成对 token（openLen>0 && closeLen>0），
+ * 文档序（DFS 递归含 children，偏移为绝对偏移），无则空数组。
+ * 供 formatCtrl 的 Step 0 选区归一化（FT3 §4.1 case B 判定 + C10 跨 token 逐 token 拆分）。
  */
-function findIntersectingStyle(
+export function findIntersectingStyleTokens(
+  text: string,
+  style: string,
+  s: number,
+  e: number
+): InlineToken[] {
+  const tokenType = STYLE_TOKEN_TYPE[style];
+  if (!tokenType) return [];
+  const out: InlineToken[] = [];
+  collectIntersectingStyle(tokenizeInline(text), tokenType, s, e, out);
+  return out;
+}
+
+function collectIntersectingStyle(
   tokens: InlineToken[],
   tokenType: InlineTokenType,
   s: number,
-  e: number
-): InlineToken | null {
+  e: number,
+  out: InlineToken[]
+): void {
   for (const token of tokens) {
     if (token.openLen > 0 && token.closeLen > 0 && token.type === tokenType) {
-      if (token.start < e && token.end > s) return token;
+      if (token.start < e && token.end > s) out.push(token);
     }
-    if (token.children) {
-      const child = findIntersectingStyle(token.children, tokenType, s, e);
-      if (child) return child;
-    }
+    if (token.children) collectIntersectingStyle(token.children, tokenType, s, e, out);
   }
-  return null;
 }
 
 export function findIntersectingStyleToken(
@@ -404,7 +414,5 @@ export function findIntersectingStyleToken(
   s: number,
   e: number
 ): InlineToken | null {
-  const tokenType = STYLE_TOKEN_TYPE[style];
-  if (!tokenType) return null;
-  return findIntersectingStyle(tokenizeInline(text), tokenType, s, e);
+  return findIntersectingStyleTokens(text, style, s, e)[0] ?? null;
 }

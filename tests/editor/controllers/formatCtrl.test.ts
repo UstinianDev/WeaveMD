@@ -211,9 +211,10 @@ describe('formatCtrl — Step 0 选区归一化（FT3 §4.1 G1）', () => {
     expect(instance.getMarkdown()).toBe('**123**');
   });
 
-  it('`a **b** c` 选区 `[4,9)`（跨 token）→ 保守包裹无崩溃', () => {
+  it('`a **b** c` 选区 `[4,9)`（跨 token 覆盖 close）→ 解除为 `a b c`', () => {
     const instance = new EditorInstance('a **b** c');
-    expect(() => apply(instance, 'bold', 4, 9)).not.toThrow();
+    apply(instance, 'bold', 4, 9);
+    expect(instance.getMarkdown()).toBe('a b c');
   });
 
   it('各成对样式 case B：`*i*`/`~~s~~`/`==h==`/`` `c` ``/`<u>x</u>`/`$x$` 覆盖标记均解除', () => {
@@ -236,6 +237,52 @@ describe('formatCtrl — Step 0 选区归一化（FT3 §4.1 G1）', () => {
     const instance = new EditorInstance('**a**');
     apply(instance, 'italic', 2, 3);
     expect(instance.getMarkdown()).toBe('***a***');
+  });
+});
+
+describe('formatCtrl — C10 跨多 token 逐 token 拆分（FT3 §4.1 扩展）', () => {
+  it('`a **b** c **d** e` 选区覆盖两个 token 的边界标记 → 两 token 均解除为 `a b c d e`', () => {
+    const instance = new EditorInstance('a **b** c **d** e');
+    apply(instance, 'bold', 4, 13);
+    expect(instance.getMarkdown()).toBe('a b c d e');
+  });
+
+  it('选区从 token1 内容区跨到 token2 open 标记 → 两 token 均解除', () => {
+    const instance = new EditorInstance('a **b** c **d** e');
+    apply(instance, 'bold', 4, 12);
+    expect(instance.getMarkdown()).toBe('a b c d e');
+  });
+
+  it('跨多 token 高亮（`==b==`）同样逐 token 解除', () => {
+    const instance = new EditorInstance('a ==b== c ==d== e');
+    apply(instance, 'highlight', 2, 11);
+    expect(instance.getMarkdown()).toBe('a b c d e');
+  });
+
+  it('选区跨 token 但只触 open 侧标记（从 close 内部到 token 外）→ 解除该 token', () => {
+    const instance = new EditorInstance('a **b** c');
+    apply(instance, 'bold', 3, 9);
+    expect(instance.getMarkdown()).toBe('a b c');
+  });
+
+  it('case A 补全：`**abc**` 选区 `[2,4)`（内容区内部分选区）→ 解除为 `abc`，绝不产生 `****`', () => {
+    const instance = new EditorInstance('**abc**');
+    apply(instance, 'bold', 2, 4);
+    expect(instance.getMarkdown()).toBe('abc');
+    expect(instance.getMarkdown()).not.toContain('****');
+  });
+
+  it('selection 契约：跨多 token 解除返回映射到 content 区间', () => {
+    const instance = new EditorInstance('a **b** c **d** e');
+    const result = applyResult(instance, 'bold', 4, 13, { restoreSelection: true });
+    expect(instance.getMarkdown()).toBe('a b c d e');
+    expect(result?.selection).toMatchObject({ start: 2, end: 7 });
+  });
+
+  it('跨 token 解除后不产生双层标记（`****` 不出现）', () => {
+    const instance = new EditorInstance('a **b** c');
+    apply(instance, 'bold', 4, 9);
+    expect(instance.getMarkdown()).not.toContain('****');
   });
 });
 

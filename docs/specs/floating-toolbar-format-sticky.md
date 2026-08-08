@@ -113,7 +113,11 @@ Step 0 · 选区标记归一化（新增）：
       → 把选区扩展为 [T.start, T.end)（完整 token）→ 按「全选包裹区」解除
         newText = text 移除 T 的 open/close（剥离标记，保留 content）
         选区落回 content 区间。
-  case C：无同风格 token 相交（含跨多个 token / 普通文本）
+  case C：选区与同风格 token 相交但覆盖其 open/close 标记，或选区完全落在其内容区内
+      → 该 token 整 token 剥离解除（open/close 一并移除）。
+      **跨多个同风格 token** 时逐 token 拆分（C10）：每个满足上述判定的相交 token 均剥离，
+      绝不产生 `****…****` / `====…====` 叠加。
+  case D：无同风格 token 相交，或选区只截取 token 纯内容但不覆盖标记
       → 现状：stripSameStylePairs + 包裹（case 中完整 token 仍去重）。
 ```
 
@@ -135,7 +139,9 @@ Step 0 · 选区标记归一化（新增）：
 | `**123**` | `[0,7)`（整标记） | 解除 → `123` |
 | `**123**` | `123`（`[2,5)`） | 解除 → `123` |
 | `123` | `123` | 包裹 → `**123**` |
-| `a **b** c` | `b** c`（跨 token） | case C 保守：包裹内完整 token 去重，残体保留（已知限制） |
+| `**abc**` | `ab`（`[2,4)`，内容区内部分选区） | 解除 → `abc`（case A 补全，绝不产生 `****`） |
+| `a **b** c` | `b** c`（跨 token，覆盖 close） | C10 逐 token → 解除为 `a b c` |
+| `a **b** c **d** e` | `b** c **d`（`[4,13)`，跨两 token） | C10 逐 token → 解除为 `a b c d e` |
 
 > 各成对样式（`*`/`~~`/`==`/`` ` ``/`<u>`/`$`）同矩阵适配；link/image 不走 toggle（现状不变）。
 
@@ -212,7 +218,7 @@ Step 0 · 选区标记归一化（新增）：
 
 1. **Toggle 归一化矩阵**（formatCtrl，4.1 行为矩阵全量覆盖，各成对样式 × 场景）：
    `**123**` 选区 `123**`/`**123`/整标记/`123` → 均解除为 `123`；`123` 全选 → 包裹；
-   italic `*` 不误判 bold `**`；跨 token（`a **b** c` 选 `b** c`）保守不叠加、无崩溃。
+   italic `*` 不误判 bold `**`；跨 token（`a **b** c` 选 `b** c`）逐 token 解除、无叠加（C10）。
 2. **恢复选区**：`formatRange` 包裹/解除后 `selection.start/end` 映射正确；
    `setRangeAtOffset` 恢复选区到 content 区间。
 3. **工具栏驻留**（组件）：点击格式按钮后 `setVisibleGuarded(false)` 不再被调用；
@@ -252,7 +258,7 @@ Step 0 · 选区标记归一化（新增）：
 | 回退 | 改动集中在 formatCtrl、lexer 辅助、selection 工具、工具栏组件、CSS，均可整体还原；块树与序列化零改动 |
 
 **已知限制**（实施后回写）：
-- 跨多个同风格 token / 部分重叠的选区仍采用保守处理（case C），不保证语义级完美；
+- 选区与 token 相交但不覆盖其标记、也不完全落在内容区的极端部分重叠场景（case D）保守处理，不保证语义级完美；
 - 键盘快捷键（`Ctrl+B` 等）仍折叠光标，不触发工具栏驻留；
 - display math（`$$…$$`）、图片粘贴、列表间互转等 FT2 既有范围外事项不变。
 
@@ -336,10 +342,25 @@ Step 0 · 选区标记归一化（新增）：
 - `e2e/floating-toolbar.spec.ts`：新增 `selectTextRange` 辅助（TreeWalker 按 textContent
   偏移构造 Range，与 `kernel/selection` 同口径）与 FT3-E1（G1 部分标记不叠加）、
   FT3-E2（G2 高亮无残留）、FT3-E3（G3 驻留 + 点击外退出）、FT3-E5（Escape 退出）。
-- 全量门禁：Vitest 436 例、Playwright 41 例（38 存量 + 3 新增用例）全绿；tsc/eslint/vite build 通过。
+- 全量门禁：Vitest 436 例、Playwright 42 例（38 存量 + 4 新增用例 FT3-E1/E2/E3/E5）全绿；
+  tsc/eslint/vite build 通过。
 
 ### 9.7 已知限制（回写）
 
-- 跨多个同风格 token / 部分重叠选区的 Toggle 采用保守处理（case C），不保证语义级完美；
+- 选区与 token 相交但不覆盖其标记、也不完全落在内容区的极端部分重叠场景（case D）保守处理；
 - 键盘快捷键（Ctrl+B 等）仍折叠光标，不触发工具栏驻留；
 - display math（`$$…$$`）、图片粘贴、列表间互转等 FT2 范围外事项不变。
+
+### 9.8 C10 跨多 token 逐 token 拆分（2026-08-08）
+
+- `kernel/inlineLexer.ts`：新增 `findIntersectingStyleTokens`（复数，DFS 递归含 children，
+  文档序返回全部与选区相交的同风格成对 token）；`findIntersectingStyleToken`（单数）改为复用之。
+- `formatCtrl.ts` Step 0 归一化统一化：对每个相交 token，若覆盖 open/close 边界标记
+  （`touchesOpen`/`touchesClose`）或选区完全落在内容区内（`insideContent`）→ 整 token 剥离。
+  收集全部 open/close 标记区间，降序剥离文本；恢复选区经 `removedBefore(x)` 前缀剥离量映射。
+- 行为矩阵扩展（G1 完整落地）：
+  - `a **b** c` 选区 `[4,9)`（跨 token 覆盖 close）→ 解除为 `a b c`（原：保守包裹叠加）；
+  - `a **b** c **d** e` 选区 `[4,13)` / `[4,12)`（跨两 token）→ 均解除为 `a b c d e`；
+  - case A 补全：`**abc**` 选区 `[2,4)`（内容区内部分选区）→ 解除为 `abc`（原：叠加 `****`）。
+- E2E 新增 FT3-E6：跨多 token 选区点加粗 → 两 token 均解除、无 `****`、`strong` 计数 0。
+- 全量门禁：Vitest 447 例、Playwright 43 例全绿；tsc/eslint/vite build 通过。

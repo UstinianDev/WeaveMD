@@ -17,15 +17,16 @@
 | C7 | A3 驻留触发 | 按钮点击后 300ms 工具栏仍在 | 立即隐藏 | ✅ |
 | C8 | A4 点击外/Escape | 点击工具栏外 / Escape → 隐藏 | 驻留不退出 | ✅ |
 | C9 | A4 键入退出 | 键入字符 → 隐藏 | — | ✅ |
-| C10 | B1 多 token 保守 | 跨多个同风格 token 的部分重叠选区 → 不破坏 | — | ✅ |
+| C10 | B1 多 token 逐 token 拆分 | 跨多个同风格 token 覆盖标记的选区 → 各 token 均解除，绝不 `****`/`====` | 原保守包裹叠加双层 | ✅ |
+| C11 | case A 补全 | 选区落在 token 内容区内（部分内容）→ 解除，绝不 `****` | 原叠加 `****ab**c**` | ✅ |
 
 ## 2. 交付统计
 
 | 阶段 | 生产文件 | 测试文件 | 说明 |
 | --- | --- | --- | --- |
-| A | `controllers/formatCtrl.ts`（Step0 归一化 + selection 恢复）、`controllers/selection.ts`（StickySelectionUtil 模块） | `selection.test.ts`（sticky 3 例）、`formatCtrl.step0.test.ts`（4 例）、`contentBlockRestore.test.tsx`（2 例）、`editorV2StickyFormat.test.tsx`（1 例）、`ft2Css.test.ts`（回写 8 例） | 单测 + 集成 |
+| A | `controllers/formatCtrl.ts`（Step0 归一化 + selection 恢复）、`controllers/selection.ts`（StickySelectionUtil 模块）、`kernel/inlineLexer.ts`（`findIntersectingStyleTokens` 复数） | `selection.test.ts`（sticky 3 例）、`formatCtrl.step0.test.ts`（4 例）、`contentBlockRestore.test.tsx`（2 例）、`editorV2StickyFormat.test.tsx`（1 例）、`ft2Css.test.ts`（回写 8 例）、`formatCtrl.test.ts`（C10/C11 +7）、`inlineLexer.test.ts`（复数 +4） | 单测 + 集成 |
 | B | `FloatingToolbar.tsx`（sticky/驻留/退出路径）、`globals.css`（FT2-E1 尺寸 8→10）、`ContentBlock.tsx`（RestoreSelection hook） | `floatingToolbar.sticky.test.tsx`（4 例）、`floatingToolbarV2.test.tsx`（回写）、`editorV2.sticky.test.tsx`（1 例） | 组件 |
-| E | — | `e2e/floating-toolbar.spec.ts`（FT3-E1/E2/E3/E5 共 4 例） | E2E 42 例 |
+| E | — | `e2e/floating-toolbar.spec.ts`（FT3-E1/E2/E3/E5/E6 共 5 例） | E2E 43 例 |
 
 ## 3. 红/绿证据（片段）
 
@@ -40,23 +41,24 @@ formatCtrl.formatRange({ text: 'abc', markdown: '**ab', start: 0, end: 3, target
 Tests  4 passed (4)
 
 # GREEN：全量回归
-Tests  436 passed (436)
-Running 17 tests using 1 worker      # e2e/floating-toolbar.spec.ts（13 → 17）
-Tests  42 passed (42)                # 全量 E2E（38 存量 + 4 新增）
+Tests  447 passed (447)
+Running 18 tests using 1 worker      # e2e/floating-toolbar.spec.ts（13 → 18）
+Tests  43 passed (43)                # 全量 E2E（38 存量 + 5 新增）
 ```
 
 ## 4. 验收核对
 
 - [x] 部分标记选区不产生 `****`/`====`（case B 归一化解除）
+- [x] 跨多个同风格 token 覆盖标记选区逐 token 拆分（C10），各 token 均解除、无叠加
+- [x] case A 补全：选区落在 token 内容区内（部分内容）→ 解除，绝不 `****`（C11）
 - [x] 格式应用后选区恢复保持选中（StickySelectionUtil + RestoreSelection）
 - [x] 工具栏格式应用后驻留；点击外/滚动/Escape/键入退出；块转换仍退出
-- [x] 跨多个同风格 token 部分重叠保守处理（不破坏、不发散）
 - [x] `tsc --noEmit` 通过、ESLint 0 error、`vite build` 通过
-- [x] 全量门禁：Vitest 436/436、Playwright 42/42（无回归）
-- [x] 文档同步：FT3 §9、FT2 §9.5、modules/04、SUMMARY
+- [x] 全量门禁：Vitest 447/447、Playwright 43/43（无回归）
+- [x] 文档同步：FT3 §4.1/§7/§9.7/§9.8、FT2 §9.5、modules/04、SUMMARY
 
 ## 5. 遗留问题
 
-- 跨多个同风格 token 的部分重叠选区（C10）采用保守跳过，极端长选区的逐 token 拆分列为后续任务。
+- 选区与 token 相交但不覆盖其标记、也不完全落在内容区的极端部分重叠场景（case D）保守处理。
 - 工具栏在显示器边缘的溢出自适应为既有限制，非本期范围。
 - 提交（checkpoint commit）需用户授权后执行；本证据已按 TDD 流程记录。
