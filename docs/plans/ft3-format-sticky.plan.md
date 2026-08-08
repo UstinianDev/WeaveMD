@@ -1,6 +1,6 @@
 # 实施计划：SPEC-EDIT-FT3 浮动工具栏格式应用交互修正
 
-> 计划编号：PLAN-EDIT-FT3 | 状态：执行中 | 更新：2026-08-08
+> 计划编号：PLAN-EDIT-FT3 | 状态：**已完成（全部子任务交付，门禁全绿）** | 更新：2026-08-08
 > 关联规范：[docs/specs/floating-toolbar-format-sticky.md](../specs/floating-toolbar-format-sticky.md)
 > 执行引擎：TDD 红绿循环（tdd-workflow）；并行智能体见 `.opencode/agent/`
 
