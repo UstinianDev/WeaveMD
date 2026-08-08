@@ -1,6 +1,7 @@
 # 浮动工具栏格式应用交互修正规范
 
-> 规范编号：SPEC-EDIT-FT3 | 版本：v0.1（草稿，评审中）| 更新：2026-08-08
+> 规范编号：SPEC-EDIT-FT3 | 版本：v1.0（已实施，2026-08-08）| 更新：2026-08-08
+> 实施证据：[docs/testing/spec-edit-ft3.tdd.md](../testing/spec-edit-ft3.tdd.md)
 > 关联需求：REQUIREMENTS.md EDIT-04（实时格式化渲染）、EDIT-13（语法渲染对齐 marktext）
 > 关联规范：[SPEC-EDIT-FT2](./floating-toolbar-ux-and-inline-format.md)（本规范修正其遗留问题）、
 > [SPEC-EDIT-FT](./floating-toolbar-refactor.md)、[SPEC-EDIT-DSF](./drag-selection-flicker.md)、
@@ -275,9 +276,70 @@ Step 0 · 选区标记归一化（新增）：
 
 ## 9. 实施记录
 
-> 按里程碑回写（对照 SPEC-EDIT-FT2 §9 的格式）。实施证据待补（建议
-> [docs/testing/spec-edit-ft3.tdd.md](../testing/spec-edit-ft3.tdd.md)）。
+> 按里程碑回写（对照 SPEC-EDIT-FT2 §9 的格式）。实施证据见
+> [docs/testing/spec-edit-ft3.tdd.md](../testing/spec-edit-ft3.tdd.md)。
 
-### 9.1 待实施
+### 9.1 阶段 0 内核：Step 0 选区归一化（G1，2026-08-08）
 
-- （占位）Step 0 选区归一化、恢复选区链路、工具栏驻留、尺寸缩小、测试与 E2E 回写。
+- `kernel/inlineLexer.ts`：提升共享映射 `STYLE_TOKEN_TYPE`（bold↔strong、italic↔em、
+  strike↔del、highlight↔mark、code↔code、underline↔underline、math↔math）；
+  新增纯函数 `findIntersectingStyleToken(text, style, s, e)`（DFS 递归含 children 的同风格
+  paired token，过滤相交 `t.start < e && t.end > s`，返回文档序第一个）。
+- `kernel/inlineStrip.ts`：删除本地 `STYLE_TO_TOKEN`，改用共享映射（去重）。
+- `formatCtrl`：`FormatRangeOptions` 增 `restoreSelection?: boolean`；Step 0 置于 Step 1 前——
+  case B（`T.start <= s && e <= T.end` 且覆盖边界标记 `s < T.contentStart || e > T.contentEnd`）
+  → 剥离 open/close 解除并返回 `selection`；toggleOff 形态 A/B、Step 2 包裹、link/image、
+  `clearFormat` 均补充 `selection` 映射（仅 `restoreSelection` 时返回，键盘路径缺省折叠）。
+- 行为矩阵落地：`**123**` 选区 `[2,7)`/`[0,5)`/`[0,7)`/`[2,5)` → 均解除为 `123`，绝不产生
+  `****…****`；存量用例 `'a **already** c'` 选区 `[2,13)` 期望由「不变」改为「解除为
+  `a already c`」（决议 4，明示行为变更）。
+
+### 9.2 阶段 1 选区恢复内核（G3 基础，2026-08-08）
+
+- `kernel/selection.ts`：抽取 `offsetToDomPoint(contentEl, offset)`（复用 TreeWalker 定位
+  循环：remaining>0、零宽空格跳过、`.md-syntax` 标记字符计入偏移）；`setCursorAtOffset`
+  基于它（collapse 单点，行为不变）；新增 `setRangeAtOffset(contentEl, start, end)`
+  （focus + 两点定位 + addRange，反向/越界 clamp 不抛错）。
+- `editorInstance.ts`：`EditorActionResult` 增 `selection?: { blockId; start; end }`
+  （存在时优先于 `focus`）。
+
+### 9.3 阶段 2 接线：恢复选区链路（G3，2026-08-08）
+
+- `v2/types.ts`：`BlockHandlers.onFormat` 增第 6 参 `restoreSelection?: boolean`；
+  `onClearFormat` 增第 4 参；新增 `getPendingRange?: () => { start; end } | null`。
+- `EditorV2.tsx`：新增 `pendingRangeRef`；`applyAction` 检测 `result.selection` →
+  树未变化立即 `setRangeAtOffset`，否则写 pendingRangeRef（恢复选区优先于折叠光标）；
+  onFormat/onClearFormat 透传 `restoreSelection`；handlers 增 `getPendingRange`
+  （读后即清空，消费一次）。
+- `ContentBlock.tsx`：props 增 `getPendingRange?`，在无依赖 useLayoutEffect 中恢复选区。
+  渲染链路零穿透（LeafBlock/CodeBlock 以 `{...handlers}` 展开）。
+
+### 9.4 阶段 3 工具栏驻留（G3，2026-08-08）
+
+- `FloatingToolbar.tsx`：`handleFormat`/`handleClearFormat` 移除末尾强隐、置 `stickyRef`、
+  传 `restoreSelection: true`；`handleBlockChange` 维持退出（块转换后清理 sticky）；
+  新增 `stickyRef`/`suppressSelectionRef` + `document mousedown(capture)`（sticky 且点工具栏外
+  → 隐藏 + suppress）与 `keydown Escape` 监听（可见时隐藏）；`flushSelection` 顶部消费
+  suppress（阻断「点击后 selectionchange 重显」竞态）；滚动隐藏顺带清 sticky。
+- 非 sticky 的普通选中「跟随」行为不变（单测锁定）。
+
+### 9.5 阶段 4 尺寸缩小（G4，2026-08-08）
+
+- `globals.css` FT2 阶段 2 尺寸块更新：容器 gap 4px、padding 3px 6px、字号 13px；
+  按钮 32×28px；trigger 高 28px px 6px；option padding 6px 10px；menu min-width 176px；
+  divider 1×16px margin 0 2px。总高口径：按钮 28px + padding 3px×2 = 34px。
+- 同步回写 `tests/styles/ft2Css.test.ts`（CS5/CS5b/CS5c）与 E2E `FT2-E1`
+  （字号 13px、gap 4~5px、按钮 32×28、clientHeight ≤ 34）。
+
+### 9.6 阶段 5 E2E 与文档（2026-08-08）
+
+- `e2e/floating-toolbar.spec.ts`：新增 `selectTextRange` 辅助（TreeWalker 按 textContent
+  偏移构造 Range，与 `kernel/selection` 同口径）与 FT3-E1（G1 部分标记不叠加）、
+  FT3-E2（G2 高亮无残留）、FT3-E3（G3 驻留 + 点击外退出）、FT3-E5（Escape 退出）。
+- 全量门禁：Vitest 436 例、Playwright 41 例（38 存量 + 3 新增用例）全绿；tsc/eslint/vite build 通过。
+
+### 9.7 已知限制（回写）
+
+- 跨多个同风格 token / 部分重叠选区的 Toggle 采用保守处理（case C），不保证语义级完美；
+- 键盘快捷键（Ctrl+B 等）仍折叠光标，不触发工具栏驻留；
+- display math（`$$…$$`）、图片粘贴、列表间互转等 FT2 范围外事项不变。

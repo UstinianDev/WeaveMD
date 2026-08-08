@@ -73,6 +73,61 @@ async function selectBlockType(
   await toolbar.locator(`.block-type-menu [data-value="${value}"]`).click();
 }
 
+/**
+ * SPEC-EDIT-FT3：按块文本偏移（textContent 口径，含 .md-syntax 标记字符、
+ * 跳过零宽空格 \u200B）构造真实 Range 选区——与 kernel/selection.ts offsetToDomPoint 同口径。
+ */
+async function selectTextRange(
+  page: import('@playwright/test').Page,
+  start: number,
+  end: number
+): Promise<void> {
+  await page.evaluate(
+    (offsets: { start: number; end: number }) => {
+      const el = document.querySelector<HTMLElement>(
+        'span.block-content[contenteditable="true"]'
+      );
+      if (!el) return;
+      const findPoint = (offset: number): { node: Node; offset: number } => {
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        let remaining = Math.max(0, offset);
+        let textNode: Text | null;
+        while ((textNode = walker.nextNode() as Text | null) !== null) {
+          const value = textNode.nodeValue ?? '';
+          const effectiveLength = value.replace(/\u200B/g, '').length;
+          if (remaining <= effectiveLength) {
+            let charCount = 0;
+            let position = 0;
+            for (let i = 0; i < value.length; i++) {
+              if (value[i] !== '\u200B') charCount++;
+              if (remaining > 0 && charCount >= remaining) {
+                position = i + 1;
+                break;
+              }
+            }
+            return { node: textNode, offset: position };
+          }
+          remaining -= effectiveLength;
+        }
+        return { node: el, offset: el.childNodes.length };
+      };
+      const sp = findPoint(offsets.start);
+      const ep = findPoint(offsets.end);
+      const range = document.createRange();
+      range.setStart(sp.node, sp.offset);
+      range.setEnd(ep.node, ep.offset);
+      const sel = window.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    },
+    { start, end }
+  );
+}
+
+/** 全选当前块内容并删除，回到空段落（供同一测试内多场景复用） */
+
 test('选中文本后浮动工具栏出现并可加粗', async ({ page }) => {
   await openEditor(page);
   const editable = page.locator('span.block-content[contenteditable="true"]').first();
@@ -403,4 +458,125 @@ test('FT2-E8: 橡皮擦 → 清除选区全部行内格式为纯文本', async (
   await toolbar2.locator('button[title="橡皮擦"]').click();
   await page.waitForTimeout(300);
   await expect(editable).toHaveText('加粗文本');
+});
+
+// ============================================================
+// SPEC-EDIT-FT3：G1 不叠加 / G2 无残留 / G3 工具栏驻留退出
+// ============================================================
+test('FT3-E1: 选中部分语法标记再点加粗 → 解除且绝不产生 ****（SPEC-EDIT-FT3 G1）', async ({
+  page,
+}) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('123', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="加粗"]').click();
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('**123**');
+
+  // 选中 123**（含右侧部分标记）→ 点加粗 → 解除为 123
+  await selectTextRange(page, 2, 7);
+  await page.waitForTimeout(300);
+  const toolbar2 = page.locator('.floating-toolbar-v2');
+  await expect(toolbar2).toBeVisible();
+  await toolbar2.locator('button[title="加粗"]').click();
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('123');
+  await expect(editable).not.toContainText('****');
+
+  // 重新加粗 → 选中 **123（含左侧部分标记）→ 点加粗 → 解除
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar3 = page.locator('.floating-toolbar-v2');
+  await expect(toolbar3).toBeVisible();
+  await toolbar3.locator('button[title="加粗"]').click();
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('**123**');
+  await selectTextRange(page, 0, 5);
+  await page.waitForTimeout(300);
+  const toolbar4 = page.locator('.floating-toolbar-v2');
+  await expect(toolbar4).toBeVisible();
+  await toolbar4.locator('button[title="加粗"]').click();
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('123');
+  await expect(editable).not.toContainText('****');
+});
+
+test('FT3-E2: 高亮部分标记再点 → 无 ==== 双层、无残留 mark（SPEC-EDIT-FT3 G2）', async ({
+  page,
+}) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('123', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="高亮"]').click();
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('==123==');
+  await expect(page.locator('mark')).toHaveCount(1);
+
+  // 选中 123==（含右侧部分标记）→ 点高亮 → 解除，无 mark 残留
+  await selectTextRange(page, 2, 7);
+  await page.waitForTimeout(300);
+  const toolbar2 = page.locator('.floating-toolbar-v2');
+  await expect(toolbar2).toBeVisible();
+  await toolbar2.locator('button[title="高亮"]').click();
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('123');
+  await expect(editable).not.toContainText('====');
+  await expect(page.locator('mark')).toHaveCount(0);
+});
+
+test('FT3-E3: 加粗后工具栏驻留且 B 高亮；点击工具栏外退出（SPEC-EDIT-FT3 G3）', async ({
+  page,
+}) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('123', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="加粗"]').click();
+  await page.waitForTimeout(300);
+
+  // 工具栏驻留且内容保持选中
+  await expect(toolbar).toBeVisible();
+  const selCollapsed = await page.evaluate(() => window.getSelection()?.isCollapsed);
+  expect(selCollapsed).toBe(false);
+  // 加粗按钮 active（style 含 --accent）
+  const activeStyle = await toolbar
+    .locator('button[title="加粗"]')
+    .evaluate((el) => el.getAttribute('style') ?? '');
+  expect(activeStyle).toContain('var(--accent)');
+
+  // 点击工具栏外（页面 header）→ 退出
+  await page.locator('header').click({ position: { x: 5, y: 5 } });
+  await page.waitForTimeout(300);
+  await expect(toolbar).toHaveCount(0);
+});
+
+test('FT3-E5: 加粗后按 Escape → 工具栏退出（SPEC-EDIT-FT3 G3）', async ({ page }) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('123', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="加粗"]').click();
+  await page.waitForTimeout(300);
+  await expect(toolbar).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  await expect(toolbar).toHaveCount(0);
 });
