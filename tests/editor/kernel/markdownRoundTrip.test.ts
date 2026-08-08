@@ -187,6 +187,18 @@ describe('markdown round-trip — 组合与边界', () => {
     expectRoundTrip('**bold** and *italic* and `code`');
   });
 
+  it('RT1 下划线语法往返不变', () => {
+    expectRoundTrip('<u>下划线</u>');
+  });
+
+  it('RT2 行内数学语法往返不变', () => {
+    expectRoundTrip('$x^2$');
+  });
+
+  it('RT3 图片语法往返不变', () => {
+    expectRoundTrip('![alt](https://example.com/a.png)');
+  });
+
   it('转义字符保留', () => {
     expectRoundTrip('\\*not italic\\* and \\# not heading');
   });
