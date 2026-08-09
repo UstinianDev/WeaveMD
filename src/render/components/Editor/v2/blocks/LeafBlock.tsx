@@ -6,7 +6,7 @@
 import React from 'react';
 
 import type { BlockNodeV2 } from '../../../../editor/kernel';
-import { setCursorAtOffset } from '../../../../editor/kernel/selection';
+import { setCursorAtOffset, stripZeroWidth } from '../../../../editor/kernel/selection';
 import ContentBlock from './ContentBlock';
 import type { BlockHandlers } from '../types';
 
@@ -39,7 +39,7 @@ const LeafBlock: React.FC<LeafBlockProps> = ({ block, handlers }) => {
         const offset =
           e.clientX < span.getBoundingClientRect().left
             ? 0
-            : (span.textContent ?? '').replace(/\u200B/g, '').length;
+            : stripZeroWidth(span.textContent ?? '').length;
         setCursorAtOffset(span, offset);
       };
       return React.createElement(

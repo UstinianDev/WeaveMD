@@ -36,7 +36,7 @@ function offsetBeforeRange(contentEl: HTMLElement, range: Range, isStart: boolea
   return stripZeroWidth(pre.toString()).length;
 }
 
-function stripZeroWidth(text: string): string {
+export export function stripZeroWidth(text: string): string {
   return text.replace(/\u200B/g, '');
 }
 
