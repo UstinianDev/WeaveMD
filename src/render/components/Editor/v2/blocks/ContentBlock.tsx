@@ -92,7 +92,7 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
     }
   });
 
-  const processInput = useCallback(
+  const syncDomToModel = useCallback(
     (el: HTMLSpanElement) => {
       const domText = el.textContent ?? '';
       if (lastDomTextRef.current === domText) return;
@@ -112,9 +112,9 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
     (e: React.FormEvent<HTMLSpanElement>) => {
       // IME 组合期间跳过：compositionend 后统一处理，避免打断中文输入
       if (composingRef.current) return;
-      processInput(e.currentTarget);
+      syncDomToModel(e.currentTarget);
     },
-    [processInput]
+    [syncDomToModel]
   );
 
   const handleCompositionStart = useCallback(() => {
@@ -125,9 +125,9 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
     (e: React.CompositionEvent<HTMLSpanElement>) => {
       composingRef.current = false;
       // compositionend 后浏览器可能不再触发 input，手动同步一次
-      processInput(e.currentTarget);
+      syncDomToModel(e.currentTarget);
     },
-    [processInput]
+    [syncDomToModel]
   );
 
   const handleEnterKey = useCallback(
