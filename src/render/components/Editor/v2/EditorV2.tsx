@@ -381,7 +381,14 @@ const EditorV2: React.FC<EditorV2Props> = ({
   }, []);
 
   return (
-    <div ref={containerRef} className="relative w-full h-full" onClick={handleContainerClick}>
+    // onDragStart 阻止原生"拖拽移动选区"（contentEditable 默认允许），
+    // 避免含 markdown 标记的选区被拖走破坏语法；跨块拖选走 mousedown/mousemove 自实现，不受影响。
+    <div
+      ref={containerRef}
+      className="relative w-full h-full"
+      onClick={handleContainerClick}
+      onDragStart={(e) => e.preventDefault()}
+    >
       <EditorScrollContainer
         ref={scrollRef}
         tree={tree}

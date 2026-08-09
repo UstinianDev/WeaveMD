@@ -50,7 +50,11 @@
   均在 kernel/syntaxType.ts 与 FloatingToolbar 导出，组件测试直接覆盖
 - 行内格式（SPEC-EDIT-FT2）：inlineLexer + 双形态 toggle（加粗两次回原文，永不产生 `****`）+
   橡皮擦；叠加收敛（SPEC-EDIT-FT3）：Step 0 选区归一化 + 跨 token 拆分解除 + 跨风格三连 `***`
-  渲染/剥离（详情见 specs/floating-toolbar-ux-and-inline-format.md / format-sticky.md）
+  渲染/剥离；相邻混合强调（SPEC-EDIT-FT4）：close run 拆分（`**12*3***`）+ open 三连拆分
+  （`***12*3**`）均解析为 strong 内嵌 em，渲染无字面残体（详情见
+  specs/floating-toolbar-ux-and-inline-format.md / format-sticky.md）
+- 原生拖拽移动选区已禁用：EditorV2 根容器 `onDragStart` preventDefault（含标记选区不被拖走）；
+  跨块拖选走 `useCrossBlockDragSelection`（mousedown/mousemove），不受影响
 - 跨块鼠标拖选（spec 13.13）：rAF 节流 + 反向显式交换端点 + 非内容区回退 + mouseup
   末帧兜底/3 帧重放（`useCrossBlockDragSelection.ts`）；Backspace/Delete 走
   `deleteLeafRange` 块树级删除；**注意**：Chromium 对跨编辑宿主 Selection.toString()

@@ -1,6 +1,6 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 版本：v2.3 | 最后更新：2026-08-08
+> 模块编号：04 | 优先级：P0 | 版本：v2.4 | 最后更新：2026-08-09
 > 设计规范：[specs/editor-v2-architecture.md](../specs/editor-v2-architecture.md)
 > 退出规则：[specs/markdown-block-exit-rules.md](../specs/markdown-block-exit-rules.md)
 > 浮动工具栏/跨块拖选：[specs/floating-toolbar-refactor.md](../specs/floating-toolbar-refactor.md)
@@ -134,7 +134,11 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
 - 跨风格叠加（SPEC-EDIT-FT4 / G-①）：选区含**异风格**边界标记（如 `**123**` 选 `3**` 点斜体）
   先折叠到纯内容再叠加（formatCtrl `foldCrossStyleMarkers`，U1 叠加语义）；lexer 支持相邻混合
   强调（`**12*3***` → strong 内嵌 em，close run 拆分）；`**abc**` 选 `ab` 纯内容选区同样归一化
-  合并（U6）。e2e FT4-E1/E2 断言无字面 `*` 残体。
+  合并（U6）；lexer 另支持 **open 三连拆分**（`***12*3**` = strong 内嵌 em，渲染无字面残体）。
+  e2e FT4-E1/E2 断言无字面 `*` 残体。
+- 原生拖拽移动选区禁用（2026-08-09）：EditorV2 根容器 `onDragStart` preventDefault，阻止
+  contentEditable 默认"选中含 `.md-syntax` 标记的选区被拖走/跨行移动"；跨块拖选走
+  `useCrossBlockDragSelection`（mousedown/mousemove）不受影响。e2e `drag-selection-move.spec.ts`。
 - 拖选/选区标记偏移安全（SPEC-EDIT-FT4 / G-②）：`selection.ts` 提供 `snapSelectionToContent` /
   `deleteSelectionContent` / `snapOffsetInText`（依赖 `tokenizeInline`），ContentBlock `handleKeyDown`
   对单块内含标记选区 Backspace/Delete 走程序化删除（选 `粗**` → `**加**`，无未闭合残体）、
@@ -142,18 +146,19 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
 
 ## 9. 验证与测试
 
-- Vitest：内核/控制器/组件 **487 例**（含往返属性测试、六条退出规则矩阵、输入链路、
+- Vitest：内核/控制器/组件 **493 例**（含往返属性测试、六条退出规则矩阵、输入链路、
   marktext 语法外观断言、代码块提交/退出、列表与引用退出、尾部代码块补偿 SPEC-EDIT-CBTP、
   `resolveSyntaxType` 判定矩阵 26 例、浮动工具栏 G1/G3 节流与驻留（含 FT2 按钮分组/新功能、
   FT3 sticky/部分标记归一化/跨 token 拆分/三连 `***` 跨风格叠加）、`onConvertBlock` 转换矩阵 8 例、拖选端点变化检测 11 例、
   FT2：inlineLexer / inlineStrip / katex / formatCtrl toggle+clearFormat / roundTrip、
   FT3：Step 0 归一化矩阵（含 C10 跨 token）/ selection 恢复（selection.test + contentBlockRestore）/
-  editorV2StickyFormat 集成 / CSS 静态断言（ft2Css 8 例）/ EditorV2 快捷键接线（editorV2Format 5 例）、
+  editorV2StickyFormat 集成 / CSS 静态断言（ft2Css 8 例）/ EditorV2 快捷键接线（editorV2Format 6 例，含拖拽禁用事件断言）、
   FT4：formatCtrl 跨风格折叠 6 例 + inlineLexer 相邻混合强调 + inlineRenderer 两两组合渲染 +
-  selection 标记吸附 11 例 + ContentBlock 删除/方向键吸附 4 例（PLAN-EDIT-FT4））。
+  selection 标记吸附 11 例 + ContentBlock 删除/方向键吸附 4 例（PLAN-EDIT-FT4）+ open 三连拆分 3 例）。
 - Playwright 真实 Chromium E2E（`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
   + `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`
-   + `e2e/cross-block-selection.spec.ts` + `e2e/drag-selection-markers.spec.ts`）**51 例**：
+   + `e2e/cross-block-selection.spec.ts` + `e2e/drag-selection-markers.spec.ts`
+   + `e2e/drag-selection-move.spec.ts`）**52 例**：
   空文档输入、`# ` 标题转换、`**` 加粗渲染、标记保留、列表转换、中文输入、marktext 语法符号
   渲染与不可选中（标题 marker 聚焦显隐、任务复选框、引用竖线、列表 marker 计算样式断言）、
   标题 marker 并排、空标题行点击聚焦、列表项 marker 与内容并排且任务项无多余圆点、
@@ -169,7 +174,8 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
   工具栏驻留 + 点击外/Escape 退出（SPEC-EDIT-FT3）、
   FT4：`**123**` 选 `3**` 点斜体 → strong 内嵌 em 无字面 `*` 残体（FT4-E1）、
   `**12*3***` 选 `*3*` 点下划线 → `<u>` 剥离标记后纯内容（FT4-E2）、
-  拖选含 close 标记 Backspace/斜体/下划线/光标恢复无残体移位（DSG-R1/R2/R3/P，SPEC-EDIT-FT4）。
+  拖选含 close 标记 Backspace/斜体/下划线/光标恢复无残体移位（DSG-R1/R2/R3/P，SPEC-EDIT-FT4）、
+  含标记选区拖拽移动被阻止（drag-selection-move，DSM-R1）。
 - 运行：`npm run test` / `npx playwright test`。
 
 ## 10. v1 基线（历史实现，已退役删除）

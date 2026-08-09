@@ -3,7 +3,7 @@
 > 日期：2026-08-09 | 需求：[docs/requirements.devflow.md](../requirements.devflow.md) §4.3 / §7
 > 计划：[docs/plan.md](../plan.md)（PLAN-EDIT-FT4）
 > 风险等级：L3（编辑器核心交互/内核行为修改；本文件由复现智能体 AGT-0 维护）
-> 状态：AGT-B / AGT-C 已闭环；AGT-D（G-② 删除/格式化/光标路径）已闭环（5/5 e2e GREEN，2026-08-09）
+> 状态：AGT-B / AGT-C 已闭环；AGT-D（G-② 删除/格式化/光标路径）已闭环（5/5 e2e GREEN，2026-08-09）；收尾增量修复已闭环（§3.4：U6 产物 open 三连拆分 + 原生拖拽移动禁用，2026-08-09）
 
 ## 1. 任务 → 测试目标 → 红/绿证据映射
 
@@ -62,6 +62,14 @@
 - **FT4-E1**（`e2e/floating-toolbar.spec.ts`）：`**123**` 选 `3**`（含 close 标记）点斜体 → 文本 `**12*3***`、`strong em` 嵌套、em 内文本 `3`、剥离 `.md-syntax` 后无裸星。
 - **FT4-E2**：`**12*3***` 选 `*3*`（em 全 token）点下划线 → `**12*<u>3</u>***`，`<u>` 剥离标记后纯内容 `3`、无 `*` 残体（`<u>` 标记本身按架构渲染为 u 内 `.md-syntax` 灰显，对标 FT2-E5）。
 - **门禁结果**：`vite build` 通过（electron-builder 因 better-sqlite3 原生模块文件占用 EBUSY 跳过，非代码问题）· playwright 51/51 · vitest 487 · 覆盖率全量 95.45%（改动文件口径全部 ≥80%：inlineLexer 98.03 / inlineRenderer 98.41 / formatCtrl 94.8 / selection 94.28 / ContentBlock 91.39，`@vitest/coverage-v8`，§6 确认点 5 已实施）。
+
+## 3.4 收尾增量修复（2026-08-09，FT4 闭环后用户回归发现）
+
+- **U6 纯内容选区产物 open 三连拆分**（`src/render/editor/kernel/inlineLexer.ts`）：`**123**` 选内容前部 `12` 点 italic 的产物 `***12*3**`（strong open `**` + em open `*`，em 内容在 strong 内容开头闭合）此前被 lexer 解析为「字面 `*` + strong(`**12*3**`)」，渲染出现开头孤立 `*` 残体。新增 `matchOpenTripleSplit`：三连 open 无三连 close 时，取 strong close `**` + 内容区首枚单星 em close，构造 `strong[0,9)` 内嵌 `em[2,6)`。渲染 `<strong>**<em>*12*</em>3**</strong>` 无残体、textContent 与源一致；再选斜体内容点 italic 正确回退 `**123**`。与 AGT-B 的 close run 拆分对称。
+  - 测试：inlineLexer +2（`***12*3**` / `***a*b**` 结构断言）、inlineRenderer +1（渲染无残体 + textContent）、formatCtrl +2（叠加产物 + 回退闭环）。
+- **原生拖拽移动选区禁用**（`src/render/components/Editor/v2/EditorV2.tsx`）：contentEditable 原生允许「选中含 `.md-syntax` 标记的选区 → 拖拽移动到别处/别行」，标记被当普通文本拖走破坏语法。根容器新增 `onDragStart={(e) => e.preventDefault()}` 全量阻止原生拖拽移动；跨块拖选走 mousedown/mousemove 自实现（`useCrossBlockDragSelection`），不受影响。
+  - 测试：组件单测 +1（dragstart 被 preventDefault，editorV2Format.test.tsx）；e2e 新增 `e2e/drag-selection-move.spec.ts`（DSM-R1：含标记选区存在时根容器 dragstart defaultPrevented=true）。修复前该用例 RED（defaultPrevented=false）已实测确认。注：Chromium contentEditable 原生文本拖拽的 drop 阶段无法用 Playwright 合成鼠标（CDP Input.dispatchMouseEvent）稳定触发，故采用事件级断言 + 组件单测共同守护。
+- **全量门禁**：vitest 493/493 · tsc 0 error · playwright 全量 52/52（新增 DSM-R1 1 例；cross-block-selection / floating-toolbar / drag-selection-markers / editor / exit-behavior / marktext-rendering 全绿）。
 
 ## 4. 遗留问题 / 风险
 

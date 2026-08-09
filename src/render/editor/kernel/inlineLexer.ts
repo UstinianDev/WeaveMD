@@ -343,6 +343,45 @@ function hasPendingInnerEmphasis(text: string, from: number, to: number, ch: str
   return false;
 }
 
+/**
+ * 非对称 open 三连：`***x*y**` → strong 外层（open `**`）+ em 内层（open `*`，
+ * 内容在 strong 内容开头闭合）。与 close run 拆分（AGT-B）对称，覆盖
+ * `**123**` 选内容前部点 italic 的产物形态 `***12*3**` 的干净渲染。
+ */
+function matchOpenTripleSplit(
+  text: string,
+  i: number,
+  searchFrom: number,
+  bound: number,
+  ch: string
+): InlineToken | null {
+  const strongClose = findMarker(text, ch + ch, searchFrom, bound);
+  if (strongClose === -1) return null;
+  const emClose = findMarker(text, ch, searchFrom, strongClose);
+  if (emClose === -1) return null;
+  return {
+    type: 'strong',
+    start: i,
+    end: strongClose + 2,
+    openLen: 2,
+    closeLen: 2,
+    contentStart: searchFrom,
+    contentEnd: strongClose,
+    children: [
+      {
+        type: 'em',
+        start: i + 2,
+        end: emClose + 1,
+        openLen: 1,
+        closeLen: 1,
+        contentStart: searchFrom,
+        contentEnd: emClose,
+        children: tokenizeInline(text, searchFrom, emClose),
+      },
+    ],
+  };
+}
+
 /** 加粗 / 斜体 / 加粗+斜体（`**x**` / `*x*` / `***x***`，下划线同理） */
 function matchEmphasis(text: string, i: number, bound: number): InlineToken | null {
   const ch = text[i];
@@ -363,7 +402,16 @@ function matchEmphasis(text: string, i: number, bound: number): InlineToken | nu
   const marker = canTriple ? ch + ch + ch : double ? ch + ch : ch;
   const searchFrom = i + marker.length;
   const end = findMarker(text, marker, searchFrom, bound);
-  if (end === -1) return null;
+  if (end === -1) {
+    // 三连 open 但无三连 close：尝试非对称拆分（strong `**` + em `*`，
+    // em 内容在 strong 内容开头闭合），覆盖 `**123**` 选内容前部点 italic
+    // 的产物形态 `***12*3**`（与 close run 拆分 AGT-B 对称）。
+    if (canTriple) {
+      const split = matchOpenTripleSplit(text, i, searchFrom, bound, ch);
+      if (split) return split;
+    }
+    return null;
+  }
   if (end === searchFrom) return null;
   if (canTriple && end + marker.length < bound && text[end + marker.length] === ch) {
     return null;
