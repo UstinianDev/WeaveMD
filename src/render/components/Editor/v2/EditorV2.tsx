@@ -21,7 +21,7 @@ import {
 import type { EditorActionResult } from '../../../editor/editorInstance';
 import { EditorInstance } from '../../../editor/editorInstance';
 import type { BlockMetaV2, BlockNodeV2, BlockTreeV2 } from '../../../editor/kernel';
-import { deleteLeafRange, toDisplayHtml, updateMeta } from '../../../editor/kernel';
+import { deleteLeafRange, updateMeta } from '../../../editor/kernel';
 import { resolveSyntaxType } from '../../../editor/kernel/syntaxType';
 import { extractHeadingOutline } from '../../../editor/kernel/outline';
 import { setCursorAtOffset, setRangeAtOffset } from '../../../editor/kernel/selection';
@@ -31,6 +31,7 @@ import FloatingToolbar, { type BlockTypeOption } from './FloatingToolbar';
 import { canConvertBlock } from './types';
 import type { BlockHandlers } from './types';
 import { useCrossBlockDragSelection } from './useCrossBlockDragSelection';
+import { useDomRegistry } from './useDomRegistry';
 import { useOutlineNavigation } from './useOutlineNavigation';
 
 interface EditorV2Props {
@@ -53,7 +54,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
   const [tree, setTree] = useState<BlockTreeV2>(() => instanceRef.current!.tree);
   const scrollRef = useRef<EditorScrollContainerHandle>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const domRegistryRef = useRef<Map<string, HTMLElement>>(new Map());
+  const { registerDom, unregisterDom, getBlockEl, forceSyncBlockDom } = useDomRegistry();
   const pendingFocusRef = useRef<{ blockId: string; offset: number } | null>(null);
   const pendingRangeRef = useRef<{ blockId: string; start: number; end: number } | null>(null);
   const lastSyncedContentRef = useRef(content);
@@ -74,11 +75,11 @@ const EditorV2: React.FC<EditorV2Props> = ({
     const pending = pendingFocusRef.current;
     if (!pending) return;
     pendingFocusRef.current = null;
-    const el = domRegistryRef.current.get(pending.blockId);
+    const el = getBlockEl(pending.blockId);
     if (el) {
       setCursorAtOffset(el, pending.offset);
     }
-  }, [tree]);
+  }, [tree, getBlockEl]);
 
   // 跨块鼠标拖选（浏览器原生拖选被编辑宿主边界截断，见 spec 13.13）
   useCrossBlockDragSelection(containerRef);
@@ -109,7 +110,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
       if (!result) return false;
       if (result.selection) {
         if (instance.tree === prevTree) {
-          const el = domRegistryRef.current.get(result.selection.blockId);
+          const el = getBlockEl(result.selection.blockId);
           if (el) setRangeAtOffset(el, result.selection.start, result.selection.end);
         } else {
           pendingRangeRef.current = result.selection;
@@ -118,7 +119,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
         if (instance.tree === prevTree) {
           // 树未变化（如空代码块 Enter/Backspace 仅移动光标）：立即恢复焦点，
           // 否则 setTree 同引用会跳过重渲染，焦点恢复 effect 不执行
-          const el = domRegistryRef.current.get(result.focus.blockId);
+          const el = getBlockEl(result.focus.blockId);
           if (el) setCursorAtOffset(el, result.focus.offset);
         } else {
           pendingFocusRef.current = result.focus;
@@ -127,7 +128,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
       commitTree(instance);
       return true;
     },
-    [commitTree]
+    [commitTree, getBlockEl]
   );
 
   const onInput = useCallback(
@@ -181,17 +182,14 @@ const EditorV2: React.FC<EditorV2Props> = ({
         };
       });
       // 按需渲染下 React 状态可能陈旧、memo 跳过重渲染，需按模型强制同步受影响块 DOM
-      for (const blockId of [startBlockId, endBlockId]) {
-        const el = domRegistryRef.current.get(blockId);
-        const block = instanceRef.current?.tree.blocks[blockId];
-        if (!el || !block || block.text === null) continue;
-        const display = toDisplayHtml(block.inlineHtml, block.text);
-        if (el.innerHTML !== display) {
-          el.innerHTML = display;
+      const instance = instanceRef.current;
+      if (instance) {
+        for (const blockId of [startBlockId, endBlockId]) {
+          forceSyncBlockDom(instance, blockId);
         }
       }
     },
-    [applyAction]
+    [applyAction, forceSyncBlockDom]
   );
   const onTab = useCallback(
     (blockId: string) => {
@@ -355,13 +353,6 @@ const EditorV2: React.FC<EditorV2Props> = ({
     },
     [applyMetaUpdate]
   );
-  const registerDom = useCallback((blockId: string, el: HTMLElement) => {
-    domRegistryRef.current.set(blockId, el);
-  }, []);
-  const unregisterDom = useCallback((blockId: string) => {
-    domRegistryRef.current.delete(blockId);
-  }, []);
-
   const handlers: BlockHandlers = useMemo(
     () => ({
       onInput,
