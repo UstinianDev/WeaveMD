@@ -46,13 +46,15 @@ function liftChildrenBefore(
   return next;
 }
 
-/** 在 refId 之后插入空段落（供退出列表/引用时承接光标） */
-function createEmptyParagraphAfter(
+/** 后置空段落（供退出列表/引用时承接光标）：refId 有值 → insertBlockAfter；无值 → append 到 root */
+function appendEmptyParagraph(
   tree: BlockTreeV2,
-  refId: string
+  refId?: string
 ): { tree: BlockTreeV2; paragraph: BlockNodeV2 } {
   const paragraph = makeParagraph(tree, '');
-  let next = insertBlockAfter(tree, refId, paragraph);
+  let next = refId
+    ? insertBlockAfter(tree, refId, paragraph)
+    : appendChild(tree, tree.root.id, paragraph);
   next = renderBlock(next, paragraph.id);
   return { tree: next, paragraph };
 }
@@ -67,7 +69,7 @@ function exitEmptyListItem(
 ): EditorActionResult | null {
   let next = removeBlock(tree, listItem.id);
   if (!nextItem) {
-    const created = createEmptyParagraphAfter(next, list.id);
+    const created = appendEmptyParagraph(next, list.id);
     next = created.tree;
     instance.tree = next;
     return {
@@ -130,7 +132,7 @@ function buildBlockquote(
 /** 代码块后补空段落（无后续块时），保证可退出继续输入 */
 function ensureTrailingParagraph(tree: BlockTreeV2, refId: string): BlockTreeV2 {
   if (getNextLeaf(tree, refId)) return tree;
-  return createEmptyParagraphAfter(tree, refId).tree;
+  return appendEmptyParagraph(tree, refId).tree;
 }
 
 /**
@@ -256,11 +258,10 @@ function exitListItem(instance: EditorInstance, leaf: BlockNodeV2): EditorAction
     if (list.childrenIds.length === 1) {
       tree = removeBlock(tree, list.id);
     }
-    const paragraph = makeParagraph(tree, '');
-    tree = appendChild(tree, tree.root.id, paragraph);
-    tree = renderBlock(tree, paragraph.id);
+    const appended = appendEmptyParagraph(tree);
+    tree = appended.tree;
     instance.tree = tree;
-    return { changedBlockIds: [list.id], focus: { blockId: paragraph.id, offset: 0 } };
+    return { changedBlockIds: [list.id], focus: { blockId: appended.paragraph.id, offset: 0 } };
   }
 
   if (list.childrenIds.length === 1) {
@@ -329,7 +330,7 @@ function exitBlockquote(instance: EditorInstance, leaf: BlockNodeV2): EditorActi
   // 末尾空行退格 → 退出引用：空段落移到引用之后（对齐列表末尾空项行为，光标在引用下方）
   const isLastContent = quote.childrenIds[quote.childrenIds.length - 1] === leaf.id;
   if (isLastContent && (leaf.text ?? '') === '') {
-    const { tree: next, paragraph } = createEmptyParagraphAfter(tree, quote.id);
+    const { tree: next, paragraph } = appendEmptyParagraph(tree, quote.id);
     tree = next;
     tree = removeBlock(tree, leaf.id);
     instance.tree = tree;
