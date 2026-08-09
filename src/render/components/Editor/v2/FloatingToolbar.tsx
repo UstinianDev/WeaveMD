@@ -14,11 +14,7 @@ import {
   getCursorOffsets,
   nearestContentSpan as kernelNearestContentSpan,
 } from '../../../editor/kernel/selection';
-import {
-  resolveSyntaxType,
-  resolveSyntaxTypesInRange,
-  sameSyntaxType,
-} from '../../../editor/kernel/syntaxType';
+import { resolveSyntaxType, resolveSyntaxTypesInRange } from '../../../editor/kernel/syntaxType';
 import type { SyntaxType } from '../../../editor/kernel/syntaxType';
 import {
   BLOCK_TYPE_OPTIONS,
@@ -167,9 +163,7 @@ export function selectionSyntaxTypesConsistent(
   if (types === null) {
     types = resolveSyntaxTypesInRange(tree, endLeafId, startLeafId);
   }
-  if (!types || types.length === 0) return false;
-  const first = types[0];
-  return types.every((t) => sameSyntaxType(t, first));
+  return types !== null && types.length > 0;
 }
 
 /** 选区判定结果：hide=立即隐藏，fade=延迟隐藏，show=显示并携带选区与位置 */
