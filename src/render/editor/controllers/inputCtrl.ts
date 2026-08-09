@@ -52,21 +52,11 @@ export function handleInput(
   let text = stripZeroWidth(domText);
   if (text === oldText) return { needRender: false };
 
-  let finalOffset = cursorOffset;
   // autoPair：单字符插入开括号时自动补闭括号
-  let autoPairApplied = false;
-  if (text.length === oldText.length + 1 && cursorOffset > 0) {
-    const inserted = text[cursorOffset - 1];
-    const close = AUTO_PAIRS[inserted];
-    const nextChar = text[cursorOffset] ?? '';
-    // 反引号围栏（如 ```java）不做成对自动补齐，避免围栏被 autoPair 干扰
-    const isFenceLike = inserted === '`' && /^`{2,}/.test(text);
-    if (close && nextChar !== close && !isFenceLike) {
-      text = `${text.slice(0, cursorOffset)}${close}${text.slice(cursorOffset)}`;
-      finalOffset = cursorOffset + 1;
-      autoPairApplied = true;
-    }
-  }
+  const autoPair = applyAutoPair(text, cursorOffset, oldText.length);
+  text = autoPair.text;
+  const finalOffset = autoPair.cursorOffset;
+  const autoPairApplied = autoPair.applied;
 
   instance.tree = setBlockTextAndRender(instance.tree, blockId, text);
 
@@ -77,18 +67,8 @@ export function handleInput(
 
   // 块转换：仅 paragraph 参与前缀检测
   if (block.type === 'paragraph') {
-    const conversion = detectBlockConversion(text);
-    if (conversion) {
-      const result = convertParagraphToBlock(instance, blockId, conversion);
-      if (result?.focus) {
-        return {
-          needRender: true,
-          cursorOffset: result.focus.offset,
-          converted: true,
-          focusBlockId: result.focus.blockId,
-        };
-      }
-    }
+    const converted = tryConvertParagraph(instance, blockId, text);
+    if (converted) return converted;
   }
 
   // 按需重渲染：autoPair 补全了 DOM 中不存在的字符，必须重渲染；
@@ -96,4 +76,46 @@ export function handleInput(
   // 否则 DOM 已由浏览器更新，仅同步模型即可（避免打断输入）。
   const needRender = autoPairApplied || hasFormatSyntax(text);
   return { needRender, cursorOffset: finalOffset };
+}
+
+/** autoPair：单字符插入开括号时自动补闭括号；返回补全后的文本/偏移与是否应用 */
+function applyAutoPair(
+  text: string,
+  cursorOffset: number,
+  oldLength: number
+): { text: string; cursorOffset: number; applied: boolean } {
+  if (text.length !== oldLength + 1 || cursorOffset <= 0) {
+    return { text, cursorOffset, applied: false };
+  }
+  const inserted = text[cursorOffset - 1];
+  const close = AUTO_PAIRS[inserted];
+  const nextChar = text[cursorOffset] ?? '';
+  // 反引号围栏（如 ```java）不做成对自动补齐，避免围栏被 autoPair 干扰
+  const isFenceLike = inserted === '`' && /^`{2,}/.test(text);
+  if (!close || nextChar === close || isFenceLike) {
+    return { text, cursorOffset, applied: false };
+  }
+  return {
+    text: `${text.slice(0, cursorOffset)}${close}${text.slice(cursorOffset)}`,
+    cursorOffset: cursorOffset + 1,
+    applied: true,
+  };
+}
+
+/** 块转换：仅 paragraph 参与前缀检测；发生转换返回对应 InputResult，否则 null */
+function tryConvertParagraph(
+  instance: EditorInstance,
+  blockId: string,
+  text: string
+): InputResult | null {
+  const conversion = detectBlockConversion(text);
+  if (!conversion) return null;
+  const result = convertParagraphToBlock(instance, blockId, conversion);
+  if (!result?.focus) return null;
+  return {
+    needRender: true,
+    cursorOffset: result.focus.offset,
+    converted: true,
+    focusBlockId: result.focus.blockId,
+  };
 }
