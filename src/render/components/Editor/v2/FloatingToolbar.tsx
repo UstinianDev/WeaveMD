@@ -167,6 +167,52 @@ export function selectionSyntaxTypesConsistent(
   return types !== null && types.length > 0;
 }
 
+interface ToolbarButtonProps {
+  title: string;
+  label: string;
+  className?: string;
+  active?: boolean;
+  onClick: () => void;
+}
+
+/**
+ * 工具栏按钮：CHAR / OBJECT / 橡皮擦 三处共用（SPEC-EDIT-FT2 4.6）。
+ * active 时 accent 色 + bg-tertiary 驻留；hover 进 bg-tertiary。
+ */
+function ToolbarButton({
+  title,
+  label,
+  className,
+  active = false,
+  onClick,
+}: ToolbarButtonProps) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onClick();
+      }}
+      className={'ft-btn ' + (className ?? '')}
+      style={{
+        color: active ? 'var(--accent)' : 'var(--text-sub)',
+        backgroundColor: active ? 'var(--bg-tertiary)' : 'transparent',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.backgroundColor = active ? 'var(--bg-tertiary)' : 'transparent';
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 /** 选区判定结果：hide=立即隐藏，fade=延迟隐藏，show=显示并携带选区与位置 */
 type ToolbarState =
   | { kind: 'hide' }
@@ -484,87 +530,32 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
 
       <div className="ft-divider" style={{ backgroundColor: 'var(--border-color)' }} />
 
-      {CHAR_BUTTONS.map((button) => {
-        const isActive = activeFormats.has(button.style);
-        return (
-          <button
-            key={button.style}
-            type="button"
-            title={button.title}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              handleFormat(button);
-            }}
-            className={`ft-btn ${button.className ?? ''}`}
-            style={{
-              color: isActive ? 'var(--accent)' : 'var(--text-sub)',
-              backgroundColor: isActive ? 'var(--bg-tertiary)' : 'transparent',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = isActive
-                ? 'var(--bg-tertiary)'
-                : 'transparent';
-            }}
-          >
-            {button.label}
-          </button>
-        );
-      })}
+      {CHAR_BUTTONS.map((button) => (
+        <ToolbarButton
+          key={button.style}
+          title={button.title}
+          label={button.label}
+          className={button.className}
+          active={activeFormats.has(button.style)}
+          onClick={() => handleFormat(button)}
+        />
+      ))}
 
       <div className="ft-divider" style={{ backgroundColor: 'var(--border-color)' }} />
 
       {OBJECT_BUTTONS.map((button) => (
-        <button
+        <ToolbarButton
           key={button.style}
-          type="button"
           title={button.title}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            handleFormat(button);
-          }}
-          className="ft-btn"
-          style={{ color: 'var(--text-sub)', backgroundColor: 'transparent' }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = 'transparent';
-          }}
-        >
-          {button.label}
-        </button>
+          label={button.label}
+          onClick={() => handleFormat(button)}
+        />
       ))}
 
       <div className="ft-divider" style={{ backgroundColor: 'var(--border-color)' }} />
 
       {/* 橡皮擦：清除选区全部行内标记（SPEC-EDIT-FT2 4.5.4） */}
-      <button
-        type="button"
-        title="橡皮擦"
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          handleClearFormat();
-        }}
-        className="ft-btn"
-        style={{ color: 'var(--text-sub)', backgroundColor: 'transparent' }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.backgroundColor = 'transparent';
-        }}
-      >
-        ⌫
-      </button>
+      <ToolbarButton title="橡皮擦" label="⌫" onClick={handleClearFormat} />
     </div>
   );
 };
