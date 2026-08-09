@@ -213,7 +213,7 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
     [blockId, onUndo, onRedo, onFormat]
   );
 
-  const handleKeyDown = useCallback(
+  const handleDeleteKey = useCallback(
     (e: React.KeyboardEvent<HTMLSpanElement>) => {
       // 跨块选区：Backspace/Delete 走块树级删除（浏览器无法正确同步多块模型）
       if (e.key === 'Backspace' || e.key === 'Delete') {
@@ -221,7 +221,7 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
         if (cross) {
           e.preventDefault();
           onDeleteRange(cross.startBlockId, cross.startOffset, cross.endBlockId, cross.endOffset);
-          return;
+          return true;
         }
         // FT4（AGT-D / DSG-R1）：单块内非折叠选区覆盖标记字符时，拦截原生删除，
         // 吸附到内容边界后程序化删除，杜绝未闭合标记残体（`**加粗**` 选 `粗**` → `**加**`）。
@@ -237,10 +237,17 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
                 pendingOffsetRef.current = result.cursor;
               }
             }
-            return;
+            return true;
           }
         }
       }
+      return false;
+    },
+    [onDeleteRange, blockId, onInput, text, raw]
+  );
+
+  const handleArrowKeySnap = useCallback(
+    (e: React.KeyboardEvent<HTMLSpanElement>) => {
       // FT4（AGT-D / DSG-R3b）：方向键导航目标落入标记内部时吸附到内容边界，
       // 阻止 Chromium 原生把光标移入 `.md-syntax` 标记中间（否则键入分裂标记）。
       if (
@@ -260,17 +267,26 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
             if (snapped !== target) {
               e.preventDefault();
               setCursorAtOffset(e.currentTarget, snapped);
-              return;
+              return true;
             }
           }
         }
       }
+      return false;
+    },
+    [raw, text]
+  );
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLSpanElement>) => {
+      if (handleDeleteKey(e)) return;
+      if (handleArrowKeySnap(e)) return;
       handleEnterKey(e);
       handleBackspaceKey(e);
       handleTabKey(e);
       handleFormatShortcut(e);
     },
-    [handleEnterKey, handleBackspaceKey, handleTabKey, handleFormatShortcut, onDeleteRange, blockId, onInput, text, raw]
+    [handleDeleteKey, handleArrowKeySnap, handleEnterKey, handleBackspaceKey, handleTabKey, handleFormatShortcut]
   );
 
   const displayHtml = toDisplayHtml(inlineHtml, text);
