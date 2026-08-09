@@ -8,6 +8,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { InlineFormatStyle } from '../../../editor/controllers';
+import { MARKERS } from '../../../editor/controllers/formatCtrl';
 import type { BlockTreeV2 } from '../../../editor/kernel';
 import { isBoundedWrap } from '../../../editor/kernel';
 import {
@@ -70,7 +71,7 @@ const CHAR_BUTTONS: FormatButton[] = [
     title: '加粗',
     group: 'char',
     className: 'font-bold',
-    activeTest: (t) => isBoundedWrap(t, '**', '**'),
+    activeTest: (t) => isBoundedWrap(t, ...MARKERS.bold),
   },
   {
     style: 'italic',
@@ -78,7 +79,7 @@ const CHAR_BUTTONS: FormatButton[] = [
     title: '斜体',
     group: 'char',
     className: 'italic',
-    activeTest: (t) => isBoundedWrap(t, '*', '*'),
+    activeTest: (t) => isBoundedWrap(t, ...MARKERS.italic),
   },
   {
     style: 'underline',
@@ -86,7 +87,7 @@ const CHAR_BUTTONS: FormatButton[] = [
     title: '下划线',
     group: 'char',
     className: 'underline',
-    activeTest: (t) => isBoundedWrap(t, '<u>', '</u>'),
+    activeTest: (t) => isBoundedWrap(t, ...MARKERS.underline),
   },
   {
     style: 'strike',
@@ -94,21 +95,21 @@ const CHAR_BUTTONS: FormatButton[] = [
     title: '删除线',
     group: 'char',
     className: 'line-through',
-    activeTest: (t) => isBoundedWrap(t, '~~', '~~'),
+    activeTest: (t) => isBoundedWrap(t, ...MARKERS.strike),
   },
   {
     style: 'code',
     label: '</>',
     title: '行内代码',
     group: 'char',
-    activeTest: (t) => isBoundedWrap(t, '`', '`'),
+    activeTest: (t) => isBoundedWrap(t, ...MARKERS.code),
   },
   {
     style: 'highlight',
     label: 'H',
     title: '高亮',
     group: 'char',
-    activeTest: (t) => isBoundedWrap(t, '==', '=='),
+    activeTest: (t) => isBoundedWrap(t, ...MARKERS.highlight),
   },
 ];
 
