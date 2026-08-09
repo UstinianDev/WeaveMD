@@ -14,7 +14,11 @@ import {
   getCursorOffsets,
   nearestContentSpan as kernelNearestContentSpan,
 } from '../../../editor/kernel/selection';
-import { resolveSyntaxType, resolveSyntaxTypesInRange } from '../../../editor/kernel/syntaxType';
+import {
+  resolveSyntaxType,
+  resolveSyntaxTypesInRange,
+  sameSyntaxType,
+} from '../../../editor/kernel/syntaxType';
 import type { SyntaxType } from '../../../editor/kernel/syntaxType';
 import {
   BLOCK_TYPE_OPTIONS,
@@ -127,13 +131,6 @@ function clamp(value: number, min: number, max: number): number {
 function nearestContentSpan(node: Node | null, container: HTMLElement): HTMLElement | null {
   const span = kernelNearestContentSpan(node);
   return span && container.contains(span) ? span : null;
-}
-
-/** 语法类型相等判定（heading 需 level 相等，其余同 type 即相等） */
-function sameSyntaxType(a: SyntaxType, b: SyntaxType): boolean {
-  if (a.type !== b.type) return false;
-  if (a.type === 'heading' && b.type === 'heading') return a.level === b.level;
-  return true;
 }
 
 /** 由 SyntaxType 映射为下拉选项（SPEC-EDIT-FT G3②）；无对应选项时回落 paragraph */
