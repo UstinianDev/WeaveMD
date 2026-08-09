@@ -355,3 +355,57 @@ describe('inlineLexer — findIntersectingStyleTokens（复数，C10 逐 token�
     expect(findIntersectingStyleTokens('a**b', 'bold', 0, 4)).toEqual([]);
   });
 });
+
+describe('inlineLexer — 相邻混合强调（PLAN-EDIT-FT4）', () => {
+  it('`**12*3***` 解析为 strong 内嵌 em（close run 拆分）', () => {
+    const tokens = tokenizeInline('**12*3***');
+    expect(tokens).toHaveLength(1);
+    const strong = tokens[0];
+    expect(strong.type).toBe('strong');
+    expect(strong.start).toBe(0);
+    expect(strong.end).toBe(9);
+    expect(strong.openLen).toBe(2);
+    expect(strong.closeLen).toBe(2);
+    expect(strong.contentStart).toBe(2);
+    expect(strong.contentEnd).toBe(7);
+    const em = strong.children?.find((c) => c.type === 'em');
+    expect(em).toBeDefined();
+    expect(em?.start).toBe(4);
+    expect(em?.end).toBe(7);
+    expect(em?.contentStart).toBe(5);
+    expect(em?.contentEnd).toBe(6);
+  });
+
+  it('`**加*粗***` 中文相邻混合强调无字面残体', () => {
+    const tokens = tokenizeInline('**加*粗***');
+    expect(tokens).toHaveLength(1);
+    const strong = tokens[0];
+    expect(strong.type).toBe('strong');
+    const em = strong.children?.find((c) => c.type === 'em');
+    expect(em).toBeDefined();
+    expect(em?.contentStart).toBe(4);
+    expect(em?.contentEnd).toBe(5);
+  });
+
+  it('`__12_3___` 下划线相邻混合：不抛错且识别出 strong', () => {
+    const tokens = tokenizeInline('__12_3___');
+    expect(tokens.length).toBeGreaterThan(0);
+    expect(tokens[0].type).toBe('strong');
+    expect(tokens[0].contentEnd).toBeLessThanOrEqual(7);
+  });
+
+  it('两两风格嵌套组合可识别（bold+strike / highlight+bold / bold+math / underline+italic）', () => {
+    expect(tokenizeInline('**~~x~~**')[0]?.children?.find((c) => c.type === 'del')).toBeDefined();
+    expect(tokenizeInline('==**x**==')[0]?.children?.find((c) => c.type === 'strong')).toBeDefined();
+    expect(tokenizeInline('**$x$**')[0]?.children?.find((c) => c.type === 'math')).toBeDefined();
+    expect(tokenizeInline('<u>*x*</u>')[0]?.children?.find((c) => c.type === 'em')).toBeDefined();
+  });
+
+  it('未闭合/孤立标记保守回退不抛错', () => {
+    expect(() => tokenizeInline('**x')).not.toThrow();
+    expect(tokenizeInline('**x')).toEqual([]);
+    expect(tokenizeInline('a**b')).toEqual([]);
+    expect(tokenizeInline('***x')).toEqual([]);
+    expect(() => tokenizeInline('a * b')).not.toThrow();
+  });
+});

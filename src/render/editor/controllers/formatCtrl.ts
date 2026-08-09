@@ -45,6 +45,55 @@ const MARKERS: Record<Exclude<InlineFormatStyle, 'link' | 'image'>, [string, str
 
 const IMAGE_PLACEHOLDER = '图片';
 
+/**
+ * 跨风格成对标记（用于 FT4 选区边界折叠）。按长度降序排列，
+ * 保证 `**` 优先于 `*`、`__` 优先于 `_` 匹配。
+ */
+const CROSS_STYLE_MARKERS: Array<{ open: string; close: string }> = [
+  { open: '**', close: '**' },
+  { open: '__', close: '__' },
+  { open: '~~', close: '~~' },
+  { open: '==', close: '==' },
+  { open: '<u>', close: '</u>' },
+  { open: '$', close: '$' },
+  { open: '`', close: '`' },
+  { open: '*', close: '*' },
+  { open: '_', close: '_' },
+];
+
+/**
+ * 跨风格边界标记折叠（FT4 G-① / AGT-B）：
+ * 选区首尾与其他风格成对标记相邻时，将该标记移出选区，保证新风格只包裹纯内容。
+ * 例：`**ab**` 选 `b**` 点 underline → `**a<u>b</u>**`（close `**` 留在 `<u>` 外）。
+ * 保守条件：尾部 close 需 before 中存在配对 open，头部 open 需 after 中存在配对 close；
+ * 折叠后 core 为空时回退原选区（不产生空包裹）。
+ */
+function foldCrossStyleMarkers(
+  selected: string,
+  before: string,
+  after: string,
+  styleOpen: string
+): { core: string; head: string; tail: string } {
+  let core = selected;
+  let head = '';
+  let tail = '';
+  for (const m of CROSS_STYLE_MARKERS) {
+    if (m.open === styleOpen) continue;
+    if (core.endsWith(m.close) && before.includes(m.open)) {
+      tail = m.close + tail;
+      core = core.slice(0, core.length - m.close.length);
+    }
+    if (core.startsWith(m.open) && after.includes(m.close)) {
+      head = head + m.open;
+      core = core.slice(m.open.length);
+    }
+  }
+  if (core.length === 0) {
+    return { core: selected, head: '', tail: '' };
+  }
+  return { core, head, tail };
+}
+
 export interface FormatRangeOptions {
   url?: string;
   title?: string;
@@ -142,18 +191,20 @@ export function formatRange(
         cursorOffset = step1.cursorOffset;
         selection = step1.selection;
       } else {
-        // Step 2：先去掉选区内该风格的同风格标记对，再包裹
-        const deduped = stripSameStylePairs(selected, style);
+        // Step 2：先去掉选区内该风格的同风格标记对，再包裹；
+        // 跨风格边界标记折叠（FT4）：选区首尾他风格标记移出选区，新风格只包纯内容。
+        const fold = foldCrossStyleMarkers(selected, before, after, open);
+        const deduped = stripSameStylePairs(fold.core, style);
         if (s === e) {
           newText = `${before}${open}${close}${after}`;
           cursorOffset = s + open.length;
           selection = { start: s + open.length, end: s + open.length };
         } else {
-          newText = `${before}${open}${deduped}${close}${after}`;
-          cursorOffset = s + open.length + deduped.length + close.length;
+          newText = `${before}${fold.head}${open}${deduped}${close}${fold.tail}${after}`;
+          cursorOffset = s + fold.head.length + open.length + deduped.length + close.length + fold.tail.length;
           selection = {
-            start: s + open.length,
-            end: s + open.length + deduped.length,
+            start: s + fold.head.length + open.length,
+            end: s + fold.head.length + open.length + deduped.length,
           };
         }
       }
