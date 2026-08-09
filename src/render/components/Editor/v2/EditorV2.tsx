@@ -89,6 +89,15 @@ const EditorV2: React.FC<EditorV2Props> = ({
     onContentChange(markdown);
   }, [onContentChange]);
 
+  // 统一的变更管线：写入树 → 同步内容（setTree 先于 syncContent，顺序不可变）
+  const commitTree = useCallback(
+    (instance: EditorInstance) => {
+      setTree(instance.tree);
+      syncContent();
+    },
+    [syncContent]
+  );
+
   // 统一的块操作入口：执行操作 → 更新树 → 记录焦点 → 同步内容。
   // 返回是否处理了事件（供 Tab 等决定是否 preventDefault）。
   const applyAction = useCallback(
@@ -115,11 +124,10 @@ const EditorV2: React.FC<EditorV2Props> = ({
           pendingFocusRef.current = result.focus;
         }
       }
-      setTree(instance.tree);
-      syncContent();
+      commitTree(instance);
       return true;
     },
-    [syncContent]
+    [commitTree]
   );
 
   const onInput = useCallback(
@@ -241,10 +249,9 @@ const EditorV2: React.FC<EditorV2Props> = ({
       const instance = instanceRef.current;
       if (!instance) return;
       instance.tree = updateMeta(instance.tree, blockId, meta);
-      setTree(instance.tree);
-      syncContent();
+      commitTree(instance);
     },
-    [syncContent]
+    [commitTree]
   );
 
   const onConvertBlock = useCallback(
