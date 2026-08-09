@@ -21,6 +21,7 @@ import {
   tokenizeInline,
 } from '../kernel';
 import type { InlineToken } from '../kernel';
+import { clamp } from './shared';
 
 export type InlineFormatStyle =
   | 'bold'
@@ -99,10 +100,6 @@ export interface FormatRangeOptions {
   title?: string;
   /** 为 true 时返回恢复选区（selection 字段），缺省 false 维持 focus（键盘路径折叠光标） */
   restoreSelection?: boolean;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(value, max));
 }
 
 /**
