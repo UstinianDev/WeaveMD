@@ -5,25 +5,11 @@
 // Shift+Tab：嵌套列表项凸出到外层列表。
 
 import type { EditorActionResult, EditorInstance } from '../editorInstance';
-import type { BlockNodeV2, BlockTreeV2 } from '../kernel';
 import { appendChild, defaultListMeta, insertBlockAfter, makeList, removeBlock } from '../kernel';
-
-/** 解析 block → list-item → list 父链上下文；不在列表内返回 null */
-function resolveListContext(
-  tree: BlockTreeV2,
-  blockId: string
-): { item: BlockNodeV2; list: BlockNodeV2 } | null {
-  const block = tree.blocks[blockId];
-  if (!block || block.text === null) return null;
-  const item = block.parentId ? tree.blocks[block.parentId] : undefined;
-  if (!item || item.type !== 'list-item') return null;
-  const list = item.parentId ? tree.blocks[item.parentId] : undefined;
-  if (!list) return null;
-  return { item, list };
-}
+import { getListContext } from './shared';
 
 export function handleTab(instance: EditorInstance, blockId: string): EditorActionResult | null {
-  const ctx = resolveListContext(instance.tree, blockId);
+  const ctx = getListContext(instance.tree, blockId);
   if (!ctx) return null;
   const { item, list } = ctx;
   const prevItem = item.prevId ? instance.tree.blocks[item.prevId] : null;
@@ -58,7 +44,7 @@ export function handleShiftTab(
   instance: EditorInstance,
   blockId: string
 ): EditorActionResult | null {
-  const ctx = resolveListContext(instance.tree, blockId);
+  const ctx = getListContext(instance.tree, blockId);
   if (!ctx) return null;
   const { item, list } = ctx;
   // 仅嵌套列表（list 的父是 list-item）可凸出
