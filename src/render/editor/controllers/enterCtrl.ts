@@ -23,6 +23,7 @@ import {
   splitLeaf,
 } from '../kernel';
 import { convertBlockToParagraph, convertParagraphToBlock } from './convertCtrl';
+import { getListContext } from './shared';
 
 export function handleEnter(
   instance: EditorInstance,
@@ -117,10 +118,9 @@ function enterInListItem(
   offset: number
 ): EditorActionResult | null {
   const tree = instance.tree;
-  const item = tree.blocks[content.parentId!];
-  if (!item) return null;
-  const list = item.parentId ? tree.blocks[item.parentId] : undefined;
-  if (!list) return null;
+  const ctx = getListContext(tree, content.id);
+  if (!ctx) return null;
+  const { item } = ctx;
 
   const beforeText = (content.text ?? '').slice(0, offset);
   const afterText = (content.text ?? '').slice(offset);

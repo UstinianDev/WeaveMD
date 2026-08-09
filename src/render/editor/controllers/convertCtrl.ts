@@ -24,6 +24,7 @@ import {
   renderBlock,
   replaceBlock,
 } from '../kernel';
+import { getListContext, getQuoteContext } from './shared';
 
 /** 替换块并写入行内缓存 */
 function replaceAndRender(tree: BlockTreeV2, id: string, node: BlockNodeV2): BlockTreeV2 {
@@ -242,10 +243,9 @@ export function convertBlockToParagraph(
  */
 function exitListItem(instance: EditorInstance, leaf: BlockNodeV2): EditorActionResult | null {
   let tree = instance.tree;
-  const listItem = tree.blocks[leaf.parentId!];
-  if (!listItem) return null;
-  const list = listItem.parentId ? tree.blocks[listItem.parentId] : undefined;
-  if (!list) return null;
+  const ctx = getListContext(tree, leaf.id);
+  if (!ctx) return null;
+  const { item: listItem, list } = ctx;
 
   const prevItem = listItem.prevId ? tree.blocks[listItem.prevId] : null;
   const children = [...listItem.childrenIds];
@@ -312,7 +312,7 @@ function exitListItem(instance: EditorInstance, leaf: BlockNodeV2): EditorAction
  */
 function exitBlockquote(instance: EditorInstance, leaf: BlockNodeV2): EditorActionResult | null {
   let tree = instance.tree;
-  const quote = tree.blocks[leaf.parentId!];
+  const quote = getQuoteContext(tree, leaf.id);
   if (!quote) return null;
 
   if (quote.childrenIds.length === 1) {
