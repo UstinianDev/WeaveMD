@@ -20,7 +20,7 @@ import {
 } from '../../../editor/controllers';
 import type { EditorActionResult } from '../../../editor/editorInstance';
 import { EditorInstance } from '../../../editor/editorInstance';
-import type { BlockMetaV2, BlockTreeV2 } from '../../../editor/kernel';
+import type { BlockMetaV2, BlockNodeV2, BlockTreeV2 } from '../../../editor/kernel';
 import { deleteLeafRange, toDisplayHtml, updateMeta } from '../../../editor/kernel';
 import { resolveSyntaxType } from '../../../editor/kernel/syntaxType';
 import { extractHeadingOutline } from '../../../editor/kernel/outline';
@@ -254,6 +254,69 @@ const EditorV2: React.FC<EditorV2Props> = ({
     [commitTree]
   );
 
+  // 浮动工具栏：块类型转换（正文 ↔ H1-H6，仅根级 paragraph/heading）——三分支拆分
+  const convertToParagraph = useCallback(
+    (instance: EditorInstance, blockId: string, block: BlockNodeV2) => {
+      if (block.type === 'heading') {
+        applyAction((inst) => convertCtrl.convertBlockToParagraph(inst, blockId));
+        return;
+      }
+      // 列表项内容 / 引用内容降级退出（convertCtrl 已覆盖 exitListItem/exitBlockquote）
+      if (
+        block.parentId &&
+        (instance.tree.blocks[block.parentId]?.type === 'list-item' ||
+          instance.tree.blocks[block.parentId]?.type === 'blockquote')
+      ) {
+        applyAction((inst) => convertCtrl.convertBlockToParagraph(inst, blockId));
+      }
+    },
+    [applyAction]
+  );
+
+  const convertToHeading = useCallback(
+    (
+      instance: EditorInstance,
+      blockId: string,
+      block: BlockNodeV2,
+      level: 1 | 2 | 3 | 4 | 5 | 6,
+      isRootBlock: boolean
+    ) => {
+      if (block.type === 'heading') {
+        applyMetaUpdate(blockId, { headingLevel: level });
+      } else if (block.type === 'paragraph' && isRootBlock) {
+        applyAction((inst) =>
+          convertCtrl.convertParagraphToBlock(inst, blockId, {
+            type: 'heading',
+            meta: { headingLevel: level },
+            prefixLength: 0,
+          })
+        );
+      }
+    },
+    [applyAction, applyMetaUpdate]
+  );
+
+  // 列表 / 引用 / 代码块升格：仅根级段落
+  const convertToStructure = useCallback(
+    (
+      instance: EditorInstance,
+      blockId: string,
+      target: BlockTypeOption,
+      isRootBlock: boolean
+    ) => {
+      if (instance.tree.blocks[blockId]?.type === 'paragraph' && isRootBlock) {
+        const conversionType = target as 'bullet-list' | 'ordered-list' | 'task-list' | 'blockquote' | 'code-block';
+        applyAction((inst) =>
+          convertCtrl.convertParagraphToBlock(inst, blockId, {
+            type: conversionType,
+            prefixLength: 0,
+          })
+        );
+      }
+    },
+    [applyAction]
+  );
+
   const onConvertBlock = useCallback(
     (blockId: string, target: BlockTypeOption) => {
       const instance = instanceRef.current;
@@ -266,49 +329,19 @@ const EditorV2: React.FC<EditorV2Props> = ({
       if (!canConvertBlock(current, target)) return;
 
       if (target === 'paragraph') {
-        if (block.type === 'heading') {
-          applyAction((inst) => convertCtrl.convertBlockToParagraph(inst, blockId));
-          return;
-        }
-        // 列表项内容 / 引用内容降级退出（convertCtrl 已覆盖 exitListItem/exitBlockquote）
-        if (
-          block.parentId &&
-          (instance.tree.blocks[block.parentId]?.type === 'list-item' ||
-            instance.tree.blocks[block.parentId]?.type === 'blockquote')
-        ) {
-          applyAction((inst) => convertCtrl.convertBlockToParagraph(inst, blockId));
-        }
+        convertToParagraph(instance, blockId, block);
         return;
       }
 
       if (target.startsWith('h')) {
         const level = Number(target.slice(1)) as 1 | 2 | 3 | 4 | 5 | 6;
-        if (block.type === 'heading') {
-          applyMetaUpdate(blockId, { headingLevel: level });
-        } else if (block.type === 'paragraph' && isRootBlock) {
-          applyAction((inst) =>
-            convertCtrl.convertParagraphToBlock(inst, blockId, {
-              type: 'heading',
-              meta: { headingLevel: level },
-              prefixLength: 0,
-            })
-          );
-        }
+        convertToHeading(instance, blockId, block, level, isRootBlock);
         return;
       }
 
-      // 列表 / 引用 / 代码块升格：仅根级段落
-      if (block.type === 'paragraph' && isRootBlock) {
-        const conversionType = target as 'bullet-list' | 'ordered-list' | 'task-list' | 'blockquote' | 'code-block';
-        applyAction((inst) =>
-          convertCtrl.convertParagraphToBlock(inst, blockId, {
-            type: conversionType,
-            prefixLength: 0,
-          })
-        );
-      }
+      convertToStructure(instance, blockId, target, isRootBlock);
     },
-    [applyAction, applyMetaUpdate]
+    [convertToParagraph, convertToHeading, convertToStructure]
   );
   const onUndo = useCallback(() => {
     useEditorStore.getState().undo();
