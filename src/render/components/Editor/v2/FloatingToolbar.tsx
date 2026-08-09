@@ -17,6 +17,7 @@ import {
 } from '../../../editor/kernel/selection';
 import { resolveSyntaxType, resolveSyntaxTypesInRange } from '../../../editor/kernel/syntaxType';
 import type { SyntaxType } from '../../../editor/kernel/syntaxType';
+import { clamp } from '../../../editor/controllers/shared';
 import {
   BLOCK_TYPE_OPTIONS,
   canConvertBlock,
@@ -120,10 +121,6 @@ const OBJECT_BUTTONS: FormatButton[] = [
   { style: 'image', label: '🖼', title: '图片', group: 'object' },
   { style: 'math', label: '∑', title: '数学公式', group: 'object' },
 ];
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(value, max));
-}
 
 /** 从选区节点向上找最近的 block-content 内容 span（限制在编辑器容器内） */
 function nearestContentSpan(node: Node | null, container: HTMLElement): HTMLElement | null {
