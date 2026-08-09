@@ -6,7 +6,7 @@
 // - 事件路由：输入/回车/退格/格式化 → 控制器 → setTree
 // - 撤销/重做（editorStore content 快照栈）、大纲导航与滚动高亮、链接打开、代码块语言
 
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 
 import {
   backspaceCtrl,
@@ -33,6 +33,7 @@ import type { BlockHandlers } from './types';
 import { useContentSync } from './useContentSync';
 import { useCrossBlockDragSelection } from './useCrossBlockDragSelection';
 import { useDomRegistry } from './useDomRegistry';
+import { useFocusRestore } from './useFocusRestore';
 import { useOutlineNavigation } from './useOutlineNavigation';
 
 interface EditorV2Props {
@@ -56,24 +57,15 @@ const EditorV2: React.FC<EditorV2Props> = ({
   const scrollRef = useRef<EditorScrollContainerHandle>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { registerDom, unregisterDom, getBlockEl, forceSyncBlockDom } = useDomRegistry();
-  const pendingFocusRef = useRef<{ blockId: string; offset: number } | null>(null);
-  const pendingRangeRef = useRef<{ blockId: string; start: number; end: number } | null>(null);
 
   const { syncContent } = useContentSync({ content, onContentChange, instanceRef, setTree });
 
-  const outline = useMemo(() => extractHeadingOutline(tree), [tree]);
+  const { getPendingRange, setPendingFocus, setPendingRange } = useFocusRestore({
+    tree,
+    getBlockEl,
+  });
 
-  // 树变化后恢复光标（useLayoutEffect：paint 前同步，供 ContentBlock 立即使用）
-  useLayoutEffect(() => {
-    if (pendingRangeRef.current) return;
-    const pending = pendingFocusRef.current;
-    if (!pending) return;
-    pendingFocusRef.current = null;
-    const el = getBlockEl(pending.blockId);
-    if (el) {
-      setCursorAtOffset(el, pending.offset);
-    }
-  }, [tree, getBlockEl]);
+  const outline = useMemo(() => extractHeadingOutline(tree), [tree]);
 
   // 跨块鼠标拖选（浏览器原生拖选被编辑宿主边界截断，见 spec 13.13）
   useCrossBlockDragSelection(containerRef);
@@ -101,7 +93,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
           const el = getBlockEl(result.selection.blockId);
           if (el) setRangeAtOffset(el, result.selection.start, result.selection.end);
         } else {
-          pendingRangeRef.current = result.selection;
+          setPendingRange(result.selection);
         }
       } else if (result.focus) {
         if (instance.tree === prevTree) {
@@ -110,13 +102,13 @@ const EditorV2: React.FC<EditorV2Props> = ({
           const el = getBlockEl(result.focus.blockId);
           if (el) setCursorAtOffset(el, result.focus.offset);
         } else {
-          pendingFocusRef.current = result.focus;
+          setPendingFocus(result.focus);
         }
       }
       commitTree(instance);
       return true;
     },
-    [commitTree, getBlockEl]
+    [commitTree, getBlockEl, setPendingFocus, setPendingRange]
   );
 
   const onInput = useCallback(
@@ -127,17 +119,17 @@ const EditorV2: React.FC<EditorV2Props> = ({
       if (result.needRender) {
         // 块转换后原块 id 失效且组件重挂载：焦点恢复必须走 EditorV2 层
         if (result.converted && result.focusBlockId) {
-          pendingFocusRef.current = {
+          setPendingFocus({
             blockId: result.focusBlockId,
             offset: result.cursorOffset ?? 0,
-          };
+          });
         }
         setTree(instance.tree);
       }
       syncContent();
       return result;
     },
-    [syncContent]
+    [setPendingFocus, setTree, syncContent]
   );
   const onEnter = useCallback(
     (blockId: string, offset: number) => {
@@ -220,13 +212,6 @@ const EditorV2: React.FC<EditorV2Props> = ({
     },
     [applyAction]
   );
-
-  const getPendingRange = useCallback(() => {
-    const pending = pendingRangeRef.current;
-    if (!pending) return null;
-    pendingRangeRef.current = null;
-    return { start: pending.start, end: pending.end };
-  }, []);
 
   // 浮动工具栏：块类型转换（正文 ↔ H1-H6，仅根级 paragraph/heading）
   // 块元数据更新助手：updateMeta → setTree → 同步内容（消除重复模式）
