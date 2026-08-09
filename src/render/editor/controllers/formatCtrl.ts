@@ -131,80 +131,23 @@ export function formatRange(
   let selection: { start: number; end: number } | null = null;
 
   if (style === 'link' || style === 'image') {
-    // link/image 不走 toggle：直接插入 `[label](url)` / `![alt](url)`
-    const url = options.url ?? '';
-    const label = selected || (style === 'image' ? IMAGE_PLACEHOLDER : url);
-    const prefix = style === 'image' ? '!' : '';
-    newText = `${before}${prefix}[${label}](${url})${after}`;
-    cursorOffset = s + prefix.length + 1 + label.length + 2 + url.length + 1;
-    selection = {
-      start: s + prefix.length + 1,
-      end: s + prefix.length + 1 + label.length,
-    };
+    const applied = applyLinkOrImage(text, s, e, selected, before, after, style, options);
+    newText = applied.newText;
+    cursorOffset = applied.cursorOffset;
+    selection = applied.selection;
   } else {
-    const [open, close] = MARKERS[style];
-    // Step 0：选区标记归一化（FT3 §4.1 G1 + C10 跨 token 逐 token 拆分）。
-    // 对每个与选区相交的同风格成对 token，若选区覆盖其 open/close 边界标记，
-    // 或选区完全落在其内容区内 → 整 token 剥离（open/close 一并移除）解除。
-    // 多个 token 同时满足时逐 token 处理，杜绝任何 `****…****` 叠加。
-    const targets = findIntersectingStyleTokens(text, style, s, e);
-    const toStrip = targets.filter((t) => {
-      const touchesOpen = s < t.contentStart && t.start < e;
-      const touchesClose = e > t.contentEnd && t.end > s;
-      const insideContent = t.contentStart <= s && e <= t.contentEnd;
-      return touchesOpen || touchesClose || insideContent;
-    });
-    if (toStrip.length > 0) {
-      // 收集全部 open/close 标记区间（token 间互不重叠），降序剥离文本
-      const ranges: Array<[number, number]> = [];
-      for (const t of toStrip) {
-        ranges.push([t.start, t.contentStart], [t.contentEnd, t.end]);
-      }
-      ranges.sort((a, b) => b[0] - a[0]);
-      let stripped = text;
-      for (const [a, b] of ranges) {
-        stripped = stripped.slice(0, a) + stripped.slice(b);
-      }
-      const ascRanges = [...ranges].sort((a, b) => a[0] - b[0]);
-      const removedBefore = (x: number): number => {
-        let removed = 0;
-        for (const [a, b] of ascRanges) {
-          if (b <= x) removed += b - a;
-          else if (a < x) removed += x - a;
-          else break;
-        }
-        return removed;
-      };
-      newText = stripped;
-      cursorOffset = toStrip[0].start;
-      selection = {
-        start: s - removedBefore(s),
-        end: e - removedBefore(e),
-      };
+    // Step 0：选区标记归一化（FT3 §4.1）——同风格相交 token 覆盖边界时剥离解除
+    const stripped = stripOverlappingTokens(text, style, s, e);
+    if (stripped) {
+      newText = stripped.newText;
+      cursorOffset = stripped.cursorOffset;
+      selection = stripped.selection;
     } else {
-      const step1 = toggleOff(text, s, e, selected, before, after, open, close);
-      if (step1) {
-        newText = step1.newText;
-        cursorOffset = step1.cursorOffset;
-        selection = step1.selection;
-      } else {
-        // Step 2：先去掉选区内该风格的同风格标记对，再包裹；
-        // 跨风格边界标记折叠（FT4）：选区首尾他风格标记移出选区，新风格只包纯内容。
-        const fold = foldCrossStyleMarkers(selected, before, after, open);
-        const deduped = stripSameStylePairs(fold.core, style);
-        if (s === e) {
-          newText = `${before}${open}${close}${after}`;
-          cursorOffset = s + open.length;
-          selection = { start: s + open.length, end: s + open.length };
-        } else {
-          newText = `${before}${fold.head}${open}${deduped}${close}${fold.tail}${after}`;
-          cursorOffset = s + fold.head.length + open.length + deduped.length + close.length + fold.tail.length;
-          selection = {
-            start: s + fold.head.length + open.length,
-            end: s + fold.head.length + open.length + deduped.length,
-          };
-        }
-      }
+      // Step 1 解除（toggle-off）→ Step 2 应用（toggle-on）
+      const toggled = applyMarkStyleToggle(text, style, s, e, selected, before, after);
+      newText = toggled.newText;
+      cursorOffset = toggled.cursorOffset;
+      selection = toggled.selection;
     }
   }
 
@@ -220,6 +163,119 @@ export function formatRange(
   return {
     changedBlockIds: [blockId],
     focus: { blockId, offset: cursorOffset },
+  };
+}
+
+/** link/image 不走 toggle：直接插入 `[label](url)` / `![alt](url)` */
+function applyLinkOrImage(
+  text: string,
+  s: number,
+  e: number,
+  selected: string,
+  before: string,
+  after: string,
+  style: InlineFormatStyle,
+  options: FormatRangeOptions
+): { newText: string; cursorOffset: number; selection: { start: number; end: number } } {
+  const url = options.url ?? '';
+  const label = selected || (style === 'image' ? IMAGE_PLACEHOLDER : url);
+  const prefix = style === 'image' ? '!' : '';
+  return {
+    newText: `${before}${prefix}[${label}](${url})${after}`,
+    cursorOffset: s + prefix.length + 1 + label.length + 2 + url.length + 1,
+    selection: {
+      start: s + prefix.length + 1,
+      end: s + prefix.length + 1 + label.length,
+    },
+  };
+}
+
+/**
+ * Step 0：选区标记归一化（FT3 §4.1 G1 + C10 跨 token 逐 token 拆分）。
+ * 对每个与选区相交的同风格成对 token，若选区覆盖其 open/close 边界标记，
+ * 或选区完全落在其内容区内 → 整 token 剥离（open/close 一并移除）解除。
+ * 多个 token 同时满足时逐 token 处理，杜绝任何 `****…****` 叠加。
+ * 无待剥离 token 时返回 null（进入 Step 1/2 toggle）。
+ */
+function stripOverlappingTokens(
+  text: string,
+  style: Exclude<InlineFormatStyle, 'link' | 'image'>,
+  s: number,
+  e: number
+): {
+  newText: string;
+  cursorOffset: number;
+  selection: { start: number; end: number };
+} | null {
+  const targets = findIntersectingStyleTokens(text, style, s, e);
+  const toStrip = targets.filter((t) => {
+    const touchesOpen = s < t.contentStart && t.start < e;
+    const touchesClose = e > t.contentEnd && t.end > s;
+    const insideContent = t.contentStart <= s && e <= t.contentEnd;
+    return touchesOpen || touchesClose || insideContent;
+  });
+  if (toStrip.length === 0) return null;
+  // 收集全部 open/close 标记区间（token 间互不重叠），降序剥离文本
+  const ranges: Array<[number, number]> = [];
+  for (const t of toStrip) {
+    ranges.push([t.start, t.contentStart], [t.contentEnd, t.end]);
+  }
+  ranges.sort((a, b) => b[0] - a[0]);
+  let stripped = text;
+  for (const [a, b] of ranges) {
+    stripped = stripped.slice(0, a) + stripped.slice(b);
+  }
+  const ascRanges = [...ranges].sort((a, b) => a[0] - b[0]);
+  const removedBefore = (x: number): number => {
+    let removed = 0;
+    for (const [a, b] of ascRanges) {
+      if (b <= x) removed += b - a;
+      else if (a < x) removed += x - a;
+      else break;
+    }
+    return removed;
+  };
+  return {
+    newText: stripped,
+    cursorOffset: toStrip[0].start,
+    selection: {
+      start: s - removedBefore(s),
+      end: e - removedBefore(e),
+    },
+  };
+}
+
+/** Step 1（解除）→ Step 2（应用）toggle 两形态 */
+function applyMarkStyleToggle(
+  text: string,
+  style: Exclude<InlineFormatStyle, 'link' | 'image'>,
+  s: number,
+  e: number,
+  selected: string,
+  before: string,
+  after: string
+): { newText: string; cursorOffset: number; selection: { start: number; end: number } } {
+  const [open, close] = MARKERS[style];
+  const step1 = toggleOff(text, s, e, selected, before, after, open, close);
+  if (step1) return step1;
+  // Step 2：先去掉选区内该风格的同风格标记对，再包裹；
+  // 跨风格边界标记折叠（FT4）：选区首尾他风格标记移出选区，新风格只包纯内容。
+  const fold = foldCrossStyleMarkers(selected, before, after, open);
+  const deduped = stripSameStylePairs(fold.core, style);
+  if (s === e) {
+    return {
+      newText: `${before}${open}${close}${after}`,
+      cursorOffset: s + open.length,
+      selection: { start: s + open.length, end: s + open.length },
+    };
+  }
+  return {
+    newText: `${before}${fold.head}${open}${deduped}${close}${fold.tail}${after}`,
+    cursorOffset: s + fold.head.length + open.length + deduped.length + close.length + fold.tail.length,
+    selection: {
+      start: s + fold.head.length + open.length,
+      end: s + fold.head.length + open.length + deduped.length,
+    },
   };
 }
 
