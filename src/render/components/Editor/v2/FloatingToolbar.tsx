@@ -22,6 +22,7 @@ import {
   canConvertBlock,
   type BlockTypeOption,
 } from './types';
+import { createRafThrottle } from './rafThrottle';
 
 export type { BlockTypeOption };
 
@@ -282,7 +283,6 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // SPEC-EDIT-DSF 4.3：rAF 节流与可见性去重（避免拖选期间每帧重复 setVisible）
   const latestSelectionRef = useRef<Selection | null>(null);
-  const rafIdRef = useRef<number | null>(null);
   const visibleRef = useRef(false);
   // SPEC-EDIT-FT3 4.3：格式/清除后工具栏驻留；点击工具栏外/滚动/Escape/键入退出
   const stickyRef = useRef(false);
@@ -351,13 +351,11 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       setVisibleGuarded(true);
     };
 
+    const selectionThrottle = createRafThrottle(flushSelection);
+
     const handleSelectionChange = () => {
       latestSelectionRef.current = window.getSelection();
-      if (rafIdRef.current !== null) return;
-      rafIdRef.current = requestAnimationFrame(() => {
-        rafIdRef.current = null;
-        flushSelection();
-      });
+      selectionThrottle.schedule();
     };
 
     const handleScroll = () => {
@@ -368,10 +366,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     document.addEventListener('selectionchange', handleSelectionChange);
     container.addEventListener('scroll', handleScroll, true);
     return () => {
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = null;
-      }
+      selectionThrottle.cancel();
       document.removeEventListener('selectionchange', handleSelectionChange);
       container.removeEventListener('scroll', handleScroll, true);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
