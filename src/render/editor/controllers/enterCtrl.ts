@@ -36,31 +36,13 @@ export function handleEnter(
 
   // 代码块：空内容回车 → 退出代码块（保留代码块，光标移到下一块）；否则插入换行
   if (block.type === 'code-block') {
-    if ((block.text ?? '') === '') {
-      return moveCaretOutOfEmptyCodeBlock(instance, block);
-    }
-    const text = block.text ?? '';
-    const newText = `${text.slice(0, offset)}\n${text.slice(offset)}`;
-    let tree = setBlockText(instance.tree, blockId, newText);
-    tree = renderBlock(tree, blockId, newText);
-    instance.tree = tree;
-    return { changedBlockIds: [blockId], focus: { blockId, offset: offset + 1 } };
+    return handleEnterInCodeBlock(instance, block, offset);
   }
 
   // 段落围栏行（如 ```java）回车 → 提交为代码块（与 marktext ```lang + Enter 一致）
   if (block.type === 'paragraph') {
-    const fence = detectFenceLine(block.text ?? '');
-    if (fence) {
-      const result = convertParagraphToBlock(instance, blockId, {
-        type: 'code-block',
-        meta: {
-          fenceLanguage: fence.lang || undefined,
-          fenceMarker: fence.marker,
-        },
-        prefixLength: fence.prefixLength,
-      });
-      if (result?.focus) return result;
-    }
+    const result = handleEnterAtFenceLine(instance, blockId, block);
+    if (result) return result;
   }
 
   // 列表项内容
@@ -87,6 +69,42 @@ export function handleEnter(
 
   // 引用/段落：通用拆分
   return splitAndFocusNewLeaf(instance, blockId, offset);
+}
+
+/** 代码块内回车：空内容 → 退出代码块（保留代码块，光标移到下一块）；否则插入换行（不拆块） */
+function handleEnterInCodeBlock(
+  instance: EditorInstance,
+  block: BlockNodeV2,
+  offset: number
+): EditorActionResult | null {
+  if ((block.text ?? '') === '') {
+    return moveCaretOutOfEmptyCodeBlock(instance, block);
+  }
+  const text = block.text ?? '';
+  const newText = `${text.slice(0, offset)}\n${text.slice(offset)}`;
+  let tree = setBlockText(instance.tree, block.id, newText);
+  tree = renderBlock(tree, block.id, newText);
+  instance.tree = tree;
+  return { changedBlockIds: [block.id], focus: { blockId: block.id, offset: offset + 1 } };
+}
+
+/** 段落围栏行（如 ```java）回车 → 提交为代码块（与 marktext ```lang + Enter 一致） */
+function handleEnterAtFenceLine(
+  instance: EditorInstance,
+  blockId: string,
+  block: BlockNodeV2
+): EditorActionResult | null {
+  const fence = detectFenceLine(block.text ?? '');
+  if (!fence) return null;
+  const result = convertParagraphToBlock(instance, blockId, {
+    type: 'code-block',
+    meta: {
+      fenceLanguage: fence.lang || undefined,
+      fenceMarker: fence.marker,
+    },
+    prefixLength: fence.prefixLength,
+  });
+  return result?.focus ? result : null;
 }
 
 /** 拆分叶子并聚焦新块开头：splitLeaf → （可选变换）→ 渲染新块 */
