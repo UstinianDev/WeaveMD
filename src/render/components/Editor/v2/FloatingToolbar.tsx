@@ -214,10 +214,10 @@ function ToolbarButton({
   );
 }
 
-/** 选区判定结果：hide=立即隐藏，fade=延迟隐藏，show=显示并携带选区与位置 */
+/** 选区判定结果：hide=立即隐藏，delay-hide=延迟隐藏，show=显示并携带选区与位置 */
 type ToolbarState =
   | { kind: 'hide' }
-  | { kind: 'fade' }
+  | { kind: 'delay-hide' }
   | { kind: 'show'; selection: SelectionState; position: { top: number; left: number } };
 
 /** 由当前选区计算工具栏状态（纯函数，供事件回调装配） */
@@ -229,7 +229,7 @@ function computeToolbarState(
   tree: BlockTreeV2
 ): ToolbarState {
   if (!sel || sel.rangeCount === 0) return { kind: 'hide' };
-  if (sel.isCollapsed) return { kind: 'fade' };
+  if (sel.isCollapsed) return { kind: 'delay-hide' };
   const range = sel.getRangeAt(0);
   const anchorSpan = nearestContentSpan(sel.anchorNode, container);
   const focusSpan = nearestContentSpan(sel.focusNode, container);
@@ -246,7 +246,7 @@ function computeToolbarState(
     }
   }
   const rect = range.getBoundingClientRect();
-  if (rect.width === 0 && rect.height === 0) return { kind: 'fade' };
+  if (rect.width === 0 && rect.height === 0) return { kind: 'delay-hide' };
   const offsets = getCursorOffsets(anchorSpan);
   const left = clamp(
     rect.left + rect.width / 2 - toolbarWidth / 2,
@@ -341,7 +341,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         setVisibleGuarded(false);
         return;
       }
-      if (state.kind === 'fade') {
+      if (state.kind === 'delay-hide') {
         scheduleHide();
         return;
       }
