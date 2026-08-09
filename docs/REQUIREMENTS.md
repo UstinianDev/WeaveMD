@@ -1,6 +1,6 @@
 # WeaveMD 需求文档
 
-> 版本：v2.6 | 最后更新：2026-08-08
+> 版本：v2.7 | 最后更新：2026-08-09
 
 ---
 
@@ -116,7 +116,7 @@
 | EDIT-01 | 双模式编辑           | ✅   | Normal（v2 块树 WYSIWYG）/ Source（Monaco）                                                               |
 | EDIT-02 | 块内 contentEditable | ✅   | 仅叶子块内容区可编辑，替代 v1 容器级                                                                      |
 | EDIT-03 | Block Tree 数据模型  | ✅   | v2 块树：不可变、容器/叶子分型、链表结构、支持嵌套                                                        |
-| EDIT-04 | 实时格式化渲染       | ✅   | 行内渲染保留语法标记（`.md-syntax`），输入/编辑不丢标记；同风格/跨风格叠加（`****`/三连 `***`）经选区归一化处理（SPEC-EDIT-FT3） |
+| EDIT-04 | 实时格式化渲染       | ✅   | 行内渲染保留语法标记（`.md-syntax`），输入/编辑不丢标记；同风格/跨风格叠加（`****`/三连 `***`）经选区归一化处理（SPEC-EDIT-FT3/FT4，含 open 三连 `***12*3**` 拆分） |
 | EDIT-05 | MD Source 切换       | ⚠️   | 工具栏入口未迁移（快捷键与源码模式可用），后续任务                                                        |
 | EDIT-06 | 段落操作             | ✅   | Enter 拆分/续行、Backspace 六条退出规则（SPEC-EDIT-EXIT）                                                 |
 | EDIT-07 | 撤销/重做            | ✅   | Ctrl+Z/Y + 按钮，经 editorStore 快照栈                                                                    |
@@ -126,10 +126,10 @@
 | EDIT-11 | 结构转换             | ✅   | 六种前缀即时转换（`#`/`-`/`1.`/`- [ ]`/`>`/` ``` `）；浮动工具栏下拉按 `canConvertBlock` 转换矩阵分发（SPEC-EDIT-FT） |
 | EDIT-12 | 超链接交互           | ✅   | Ctrl+Click 经 IPC 打开；hover tooltip；链接对话框                                                         |
 
-**输入与渲染保障（真实 Chromium E2E 44 例全绿，`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
-
-- `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`
-- `e2e/cross-block-selection.spec.ts`）**：
+**输入与渲染保障（真实 Chromium E2E 全绿，`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
++ `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`
++ `e2e/cross-block-selection.spec.ts` + `e2e/drag-selection-markers.spec.ts`
++ `e2e/drag-selection-move.spec.ts`）**：
 
 * 空文档可直接输入；连续输入不被重渲染打断（按需重渲染 + IME 守卫）
 * `# 标题`、`- 列表`、`**加粗**` 即时渲染为富文本
@@ -148,3 +148,4 @@
   拖选闪烁优化（SPEC-EDIT-DSF）：端点级变化检测（静止不再重建 selection）+ selectionchange
   rAF 合并（工具栏渲染 ≤ 每帧一次）+ 一致性判定短路/上限
 * 代码块尾随保护空行持久化：重载后空行恢复、可聚焦、Backspace 仍受保护（SPEC-EDIT-CBTP，往返不变量与存储文本不变）
+* 原生拖拽移动选区禁用：含标记选区拖拽不移动（dragstart 被阻止），跨块拖选正常（2026-08-09）

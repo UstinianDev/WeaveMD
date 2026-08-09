@@ -71,4 +71,15 @@ describe('EditorV2 — FT2 快捷键与格式接线', () => {
     const { container } = render(<EditorV2 content="" onContentChange={onContentChange} />);
     expect(container.querySelector('span.block-content')).not.toBeNull();
   });
+
+  it('编辑器根容器阻止原生拖拽移动选区（dragstart 被 preventDefault）', () => {
+    const onContentChange = vi.fn();
+    const { container } = render(<EditorV2 content="" onContentChange={onContentChange} />);
+    const root = container.firstChild as HTMLElement;
+    const prevented = vi.fn();
+    const ev = new Event('dragstart', { bubbles: true, cancelable: true });
+    ev.preventDefault = prevented;
+    root.dispatchEvent(ev);
+    expect(prevented).toHaveBeenCalled();
+  });
 });

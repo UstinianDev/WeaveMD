@@ -1,6 +1,6 @@
 # WeaveMD 项目总结
 
-> 版本：v3.5 | 最后更新：2026-08-08
+> 版本：v3.6 | 最后更新：2026-08-09
 
 ## 1. 项目概览
 
@@ -62,21 +62,27 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
   U1 叠加语义），lexer 支持相邻混合强调（`**12*3***` → strong 内嵌 em，close run 拆分），
   纯内容部分选区（`**abc**` 选 `ab`）同样归一化合并（U6）；删除/光标路径标记偏移安全——
   `snapSelectionToContent`/`deleteSelectionContent`/`snapOffsetInText` + ContentBlock keydown 拦截
-  （选 `粗**` 退格 → `**加**`；方向键落入标记内吸附内容边界，键入不分裂标记）；e2e FT4-E1/E2 +
-  DSG-R1/R2/R3/P 共 7 例转正
+   （选 `粗**` 退格 → `**加**`；方向键落入标记内吸附内容边界，键入不分裂标记）；e2e FT4-E1/E2 +
+   DSG-R1/R2/R3/P 共 7 例转正
+- FT4 收尾增量（2026-08-09）：lexer 支持 **open 三连拆分**（`***12*3**` = strong 内嵌 em，
+  对应 `**123**` 选内容前部 `12` 点斜体的产物，渲染无字面 `*` 残体、再点回退）；根容器
+  `onDragStart` preventDefault **禁用原生拖拽移动选区**（含标记选区不被拖走破坏语法，
+  跨块拖选不受影响，e2e `drag-selection-move.spec.ts`）
 
 ## 4. 验证与测试
 
-- Vitest：487 例（内核/控制器/组件，含往返不变式、退出规则矩阵、输入链路、跨块删除、
+- Vitest：**493 例**（内核/控制器/组件，含往返不变式、退出规则矩阵、输入链路、跨块删除、
   代码块尾随空行补偿、浮动工具栏显示/转换矩阵/驻留、拖选闪烁的端点变化检测与 rAF 节流、
   FT2 的 inlineLexer/strip/katex/toggle/clearFormat、FT3 的 Step0 归一化矩阵/跨 token 拆分/
   选区恢复/集成、三连 `***` 跨风格叠加、CSS 静态断言、快捷键接线、
-  FT4 的 formatCtrl 跨风格折叠/相邻混合强调/两两组合渲染/selection 标记吸附/ContentBlock 删除与方向键吸附）
-- Playwright 真实 Chromium E2E：51 例（输入/IME/富文本渲染/语法外观/退出与退格链/
+  FT4 的 formatCtrl 跨风格折叠/相邻混合强调/两两组合渲染/selection 标记吸附/ContentBlock 删除与方向键吸附/
+  open 三连拆分/拖拽禁用事件断言）
+- Playwright 真实 Chromium E2E：**52 例**（输入/IME/富文本渲染/语法外观/退出与退格链/
   浮动工具栏/跨块拖选/代码块尾随空行重载恢复/反向跨类型拖选与 selectionchange 收敛/
   FT2 工具栏计算样式/标记隐藏与聚焦灰显/黄色高亮/下划线/图片/数学/橡皮擦/
-  FT3 部分标记不叠加/跨多 token 逐 token 解除/加粗后斜体叠加渲染/工具栏驻留与点击外/Escape 退出/
-  FT4 跨风格叠加无字面残体（E1/E2）与拖选含标记删除/格式化/光标恢复无移位（DSG-R1/R2/R3/P））
+   FT3 部分标记不叠加/跨多 token 逐 token 解除/加粗后斜体叠加渲染/工具栏驻留与点击外/Escape 退出/
+   FT4 跨风格叠加无字面残体（E1/E2）与拖选含标记删除/格式化/光标恢复无移位（DSG-R1/R2/R3/P）/
+   原生拖拽移动选区禁用（drag-selection-move））
 - 质量门禁：`tsc --noEmit` + `vitest run` + ESLint(0 error) + `vite build` + `npx playwright test`
   + `vitest --coverage`（改动文件口径 ≥80%，当前全量 95.45%；`@vitest/coverage-v8`）
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 
 import { EditorInstance } from '../../../src/render/editor/editorInstance';
 import { formatCtrl } from '../../../src/render/editor/controllers';
@@ -328,6 +328,18 @@ describe('formatCtrl — 跨风格叠加（bold+italic `***`，C11）', () => {
   it('stripSameStylePairs：`***a***` 去 italic → `**a**`、去 bold → `*a*`', () => {
     expect(stripSameStylePairs('***a***', 'italic')).toBe('**a**');
     expect(stripSameStylePairs('***a***', 'bold')).toBe('*a*');
+  });
+
+  it('`**123**` 选内容前部 `12` 点 italic → `***12*3**`（open 三连拆分产物）', () => {
+    const instance = new EditorInstance('**123**');
+    apply(instance, 'italic', 2, 4);
+    expect(instance.getMarkdown()).toBe('***12*3**');
+  });
+
+  it('`***12*3**` 再选斜体内容 `12` 点 italic → 回退 `**123**`', () => {
+    const instance = new EditorInstance('***12*3**');
+    apply(instance, 'italic', 3, 5);
+    expect(instance.getMarkdown()).toBe('**123**');
   });
 
   it('stripInlineSyntax：橡皮擦 `***a***` 全区间 → `a`', () => {

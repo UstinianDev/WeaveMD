@@ -209,6 +209,18 @@ describe('inlineRenderer — 相邻混合强调渲染（PLAN-EDIT-FT4 / AGT-C）
     expect(html).not.toContain('*粗***</em>');
   });
 
+  it('`***12*3**`（open 三连拆分产物）渲染 strong 内嵌 em，无字面 `*` 残体', () => {
+    const source = '***12*3**';
+    const html = renderInline(source);
+    expect(html).toBe(
+      '<strong><span class="md-syntax">**</span><em><span class="md-syntax">*</span>12<span class="md-syntax">*</span></em>3<span class="md-syntax">**</span></strong>'
+    );
+    expect(html).not.toContain('*<strong>');
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    expect(container.textContent).toBe(source);
+  });
+
   it('两两风格组合渲染：strong+del / mark+strong / strong+math / underline+em', () => {
     const cases: Array<[string, string]> = [
       ['**~~x~~**', '<del>'],

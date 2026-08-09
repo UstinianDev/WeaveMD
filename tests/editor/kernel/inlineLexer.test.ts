@@ -394,6 +394,38 @@ describe('inlineLexer — 相邻混合强调（PLAN-EDIT-FT4）', () => {
     expect(tokens[0].contentEnd).toBeLessThanOrEqual(7);
   });
 
+  it('`***12*3**` 解析为 strong 内嵌 em（open 三连拆分，与 close run 拆分对称）', () => {
+    const tokens = tokenizeInline('***12*3**');
+    expect(tokens).toHaveLength(1);
+    const strong = tokens[0];
+    expect(strong.type).toBe('strong');
+    expect(strong.start).toBe(0);
+    expect(strong.end).toBe(9);
+    expect(strong.openLen).toBe(2);
+    expect(strong.closeLen).toBe(2);
+    expect(strong.contentStart).toBe(3);
+    expect(strong.contentEnd).toBe(7);
+    const em = strong.children?.find((c) => c.type === 'em');
+    expect(em).toBeDefined();
+    expect(em?.start).toBe(2);
+    expect(em?.end).toBe(6);
+    expect(em?.contentStart).toBe(3);
+    expect(em?.contentEnd).toBe(5);
+  });
+
+  it('`***a*b**` 同样识别为 strong 内嵌 em（open 三连拆分）', () => {
+    const tokens = tokenizeInline('***a*b**');
+    expect(tokens).toHaveLength(1);
+    const strong = tokens[0];
+    expect(strong.type).toBe('strong');
+    expect(strong.contentStart).toBe(3);
+    expect(strong.contentEnd).toBe(6);
+    const em = strong.children?.find((c) => c.type === 'em');
+    expect(em).toBeDefined();
+    expect(em?.contentStart).toBe(3);
+    expect(em?.contentEnd).toBe(4);
+  });
+
   it('两两风格嵌套组合可识别（bold+strike / highlight+bold / bold+math / underline+italic）', () => {
     expect(tokenizeInline('**~~x~~**')[0]?.children?.find((c) => c.type === 'del')).toBeDefined();
     expect(tokenizeInline('==**x**==')[0]?.children?.find((c) => c.type === 'strong')).toBeDefined();
