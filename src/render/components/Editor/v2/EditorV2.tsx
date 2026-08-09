@@ -6,7 +6,7 @@
 // - 事件路由：输入/回车/退格/格式化 → 控制器 → setTree
 // - 撤销/重做（editorStore content 快照栈）、大纲导航与滚动高亮、链接打开、代码块语言
 
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import {
   backspaceCtrl,
@@ -30,6 +30,7 @@ import EditorScrollContainer, { type EditorScrollContainerHandle } from './Edito
 import FloatingToolbar, { type BlockTypeOption } from './FloatingToolbar';
 import { canConvertBlock } from './types';
 import type { BlockHandlers } from './types';
+import { useContentSync } from './useContentSync';
 import { useCrossBlockDragSelection } from './useCrossBlockDragSelection';
 import { useDomRegistry } from './useDomRegistry';
 import { useOutlineNavigation } from './useOutlineNavigation';
@@ -57,17 +58,10 @@ const EditorV2: React.FC<EditorV2Props> = ({
   const { registerDom, unregisterDom, getBlockEl, forceSyncBlockDom } = useDomRegistry();
   const pendingFocusRef = useRef<{ blockId: string; offset: number } | null>(null);
   const pendingRangeRef = useRef<{ blockId: string; start: number; end: number } | null>(null);
-  const lastSyncedContentRef = useRef(content);
+
+  const { syncContent } = useContentSync({ content, onContentChange, instanceRef, setTree });
 
   const outline = useMemo(() => extractHeadingOutline(tree), [tree]);
-
-  // 外部内容变化（打开文件 / 撤销 / 源码模式切换 / 查找替换）→ 重建树
-  useEffect(() => {
-    if (content === lastSyncedContentRef.current) return;
-    lastSyncedContentRef.current = content;
-    instanceRef.current?.setContent(content);
-    setTree(instanceRef.current!.tree);
-  }, [content]);
 
   // 树变化后恢复光标（useLayoutEffect：paint 前同步，供 ContentBlock 立即使用）
   useLayoutEffect(() => {
@@ -83,12 +77,6 @@ const EditorV2: React.FC<EditorV2Props> = ({
 
   // 跨块鼠标拖选（浏览器原生拖选被编辑宿主边界截断，见 spec 13.13）
   useCrossBlockDragSelection(containerRef);
-
-  const syncContent = useCallback(() => {
-    const markdown = instanceRef.current?.getMarkdown() ?? '';
-    lastSyncedContentRef.current = markdown;
-    onContentChange(markdown);
-  }, [onContentChange]);
 
   // 统一的变更管线：写入树 → 同步内容（setTree 先于 syncContent，顺序不可变）
   const commitTree = useCallback(
