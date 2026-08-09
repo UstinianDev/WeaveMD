@@ -5,7 +5,7 @@
 // 对齐 marktext inputHandler 管线（autoPair → text → checkNeedRender → convertIfNeeded）。
 
 import type { EditorInstance } from '../editorInstance';
-import { detectBlockConversion, setBlockTextAndRender } from '../kernel';
+import { detectBlockConversion, setBlockTextAndRender, stripZeroWidth } from '../kernel';
 import { convertParagraphToBlock } from './convertCtrl';
 
 export interface InputResult {
@@ -49,7 +49,7 @@ export function handleInput(
   if (!block || block.text === null) return { needRender: false };
 
   const oldText = block.text;
-  let text = domText.replace(/\u200B/g, '');
+  let text = stripZeroWidth(domText);
   if (text === oldText) return { needRender: false };
 
   let finalOffset = cursorOffset;
