@@ -34,7 +34,7 @@ export type InlineFormatStyle =
   | 'math'
   | 'image';
 
-const MARKERS: Record<Exclude<InlineFormatStyle, 'link' | 'image'>, [string, string]> = {
+export const MARKERS: Record<Exclude<InlineFormatStyle, 'link' | 'image'>, [string, string]> = {
   bold: ['**', '**'],
   italic: ['*', '*'],
   strike: ['~~', '~~'],
