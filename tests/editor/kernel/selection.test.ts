@@ -5,9 +5,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  deleteSelectionContent,
   getCursorOffsets,
   setCursorAtOffset,
   setRangeAtOffset,
+  snapSelectionToContent,
 } from '../../../src/render/editor/kernel/selection';
 
 function mountContent(innerHTML: string): HTMLSpanElement {
@@ -81,5 +83,51 @@ describe('setCursorAtOffset — 零回归', () => {
     expect(getCursorOffsets(el)).toEqual({ start: 1, end: 1 });
     setCursorAtOffset(el, 2);
     expect(getCursorOffsets(el)).toEqual({ start: 2, end: 2 });
+  });
+});
+
+describe('snapSelectionToContent — 含标记选区吸附内容边界（PLAN-EDIT-FT4 / AGT-D）', () => {
+  it('选区覆盖 bold close 标记 → 右边界吸附到内容结束（`**加粗**` [3,6) → [3,4)）', () => {
+    expect(snapSelectionToContent('**加粗**', 3, 6)).toEqual([3, 4]);
+  });
+
+  it('选区覆盖 bold open 标记 → 左边界吸附到内容起始（`**加粗**` [0,4) → [2,4)）', () => {
+    expect(snapSelectionToContent('**加粗**', 0, 4)).toEqual([2, 4]);
+  });
+
+  it('纯内容选区不吸附（`**加粗**` [2,4) → null）', () => {
+    expect(snapSelectionToContent('**加粗**', 2, 4)).toBeNull();
+  });
+
+  it('无标记文本不吸附（`加粗` [0,2) → null）', () => {
+    expect(snapSelectionToContent('加粗', 0, 2)).toBeNull();
+  });
+});
+
+describe('deleteSelectionContent — 含标记选区安全删除（PLAN-EDIT-FT4 / AGT-D / DSG-R1）', () => {
+  it('R1：选 `粗**` 删除 → `**加**`（close 标记保留闭合，无未闭合残体）', () => {
+    expect(deleteSelectionContent('**加粗**', 3, 6)).toEqual({ text: '**加**', cursor: 3 });
+  });
+
+  it('选区覆盖整 token 内容 → 整 token（含标记）删除', () => {
+    expect(deleteSelectionContent('**加粗**', 2, 5)).toEqual({ text: '', cursor: 0 });
+  });
+
+  it('普通纯文本选区删除不受影响（`加粗` [0,1) → `粗`）', () => {
+    expect(deleteSelectionContent('加粗', 0, 1)).toEqual({ text: '粗', cursor: 0 });
+  });
+});
+
+describe('setCursorAtOffset — 光标吸附内容边界（PLAN-EDIT-FT4 / AGT-D / DSG-R3b）', () => {
+  it('偏移落入 open 标记内部（offset 1）→ 吸附到内容边界 2', () => {
+    const el = mountContent('<strong><span class="md-syntax">**</span>a<span class="md-syntax">**</span></strong>');
+    setCursorAtOffset(el, 1);
+    expect(getCursorOffsets(el)).toEqual({ start: 2, end: 2 });
+  });
+
+  it('偏移落入 close 标记内部（offset 4）→ 吸附到内容边界 3', () => {
+    const el = mountContent('<strong><span class="md-syntax">**</span>a<span class="md-syntax">**</span></strong>');
+    setCursorAtOffset(el, 4);
+    expect(getCursorOffsets(el)).toEqual({ start: 3, end: 3 });
   });
 });
