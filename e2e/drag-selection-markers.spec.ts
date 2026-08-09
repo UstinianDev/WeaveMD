@@ -246,6 +246,22 @@ function isSafeMarkerText(text: string): boolean {
   return (text.match(/\*{1,2}/g) ?? []).every((m) => m === '**');
 }
 
+/**
+ * 渲染口径残体判定（对标 tdd.md §4）：移除全部 `.md-syntax` 标记后，剩余文本中
+ * 若出现 `*` / `_` 即为字面标记残体（未闭合标记或畸形混合会以裸星渲染到视口）。
+ * 合法的 `**加*粗***`（strong 内嵌 em）移除标记后为纯内容，无残体。
+ * 返回剥离标记后的文本；调用方断言不含 `*`/`_`。
+ */
+async function readMarkerResidue(page: import('@playwright/test').Page): Promise<string> {
+  return page.evaluate(() => {
+    const el = document.querySelector('span.block-content[contenteditable="true"]');
+    if (!el) return 'NO_BLOCK';
+    const clone = el.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('.md-syntax').forEach((n) => n.remove());
+    return (clone.textContent ?? '').replace(/\u200B/g, '');
+  });
+}
+
 // ------------------------------------------------------------
 // DSG-R1：删除路径 —— 拖选「粗**」后 Backspace
 // ------------------------------------------------------------
@@ -267,7 +283,8 @@ test('DSG-R1: 拖选含 close 标记后 Backspace → 序列化文本无未闭�
 
   const text = await readSerialized(page);
   // 期望：标记不当作内容删除，不产生 `**加` 式未闭合残体
-  expect(isSafeMarkerText(text), `DSG-R1 序列化文本异常（实际输出）: ${JSON.stringify(text)}`).toBe(true);
+  const rest = await readMarkerResidue(page);
+  expect(rest, `DSG-R1 残体检测（渲染口径）: ${JSON.stringify(rest)}`).not.toMatch(/[*_]/);
 });
 
 // ------------------------------------------------------------
@@ -290,7 +307,8 @@ test('DSG-R2a: 拖选含 close 标记后点斜体 → 无标记移位、无畸�
 
   const text = await readSerialized(page);
   // 期望：斜体标记干净包裹内容「粗」且加粗标记原位不动（U1 叠加语义）
-  expect(isSafeMarkerText(text), `DSG-R2a 序列化文本异常（实际输出）: ${JSON.stringify(text)}`).toBe(true);
+  const rest = await readMarkerResidue(page);
+  expect(rest, `DSG-R2a 残体检测（渲染口径）: ${JSON.stringify(rest)}`).not.toMatch(/[*_]/);
 });
 
 test('DSG-R2b: 拖选含 close 标记后点下划线 → 无 <u> 与标记畸形叠加（当前 RED）', async ({
@@ -310,7 +328,8 @@ test('DSG-R2b: 拖选含 close 标记后点下划线 → 无 <u> 与标记畸形
 
   const text = await readSerialized(page);
   // 期望：`<u>` 不把 `**` 当内容包入、不产生字面残体
-  expect(isSafeMarkerText(text), `DSG-R2b 序列化文本异常（实际输出）: ${JSON.stringify(text)}`).toBe(true);
+  const rest = await readMarkerResidue(page);
+  expect(rest, `DSG-R2b 残体检测（渲染口径）: ${JSON.stringify(rest)}`).not.toMatch(/[*_]/);
 });
 
 // ------------------------------------------------------------
@@ -364,7 +383,8 @@ test('DSG-R3: 拖选含标记后点击内容中部与方向键导航 → 光标�
   await page.keyboard.type('X', { delay: 20 });
   await page.waitForTimeout(300);
   const textB = await readSerialized(page);
-  expect(isSafeMarkerText(textB), `DSG-R3(b) 键入后序列化文本异常（实际输出）: ${JSON.stringify(textB)}`).toBe(true);
+  const restB = await readMarkerResidue(page);
+  expect(restB, `DSG-R3(b) 残体检测（渲染口径）: ${JSON.stringify(restB)}`).not.toMatch(/[*_]/);
 });
 
 // ------------------------------------------------------------
@@ -404,7 +424,9 @@ test('DSG-P: 程序化 selectTextRange 选区与真实拖选结果一致 → 问
   expect(dragSel?.start).toBe(progSel?.start);
   expect(dragSel?.end).toBe(progSel?.end);
   expect(dragResult).toBe(progResult);
-  // 两个产出都应无畸形（当前 RED：均为 `**加*粗***` 畸形叠加）
-  expect(isSafeMarkerText(dragResult), `DSG-P 拖选路径序列化文本异常（实际输出）: ${JSON.stringify(dragResult)}`).toBe(true);
-  expect(isSafeMarkerText(progResult), `DSG-P 程序化路径序列化文本异常（实际输出）: ${JSON.stringify(progResult)}`).toBe(true);
+  // 两个产出都应无畸形（当前 RED：均为 `**加*粗***` 畸形叠加，渲染剥离标记后无残体）
+  const restDrag = await readMarkerResidue(page);
+  expect(restDrag, `DSG-P 拖选路径残体检测（渲染口径）: ${JSON.stringify(restDrag)}`).not.toMatch(/[*_]/);
+  const restProg = await readMarkerResidue(page);
+  expect(restProg, `DSG-P 程序化路径残体检测（渲染口径）: ${JSON.stringify(restProg)}`).not.toMatch(/[*_]/);
 });

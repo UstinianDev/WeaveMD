@@ -10,10 +10,13 @@ import React, { useCallback, useLayoutEffect, useRef } from 'react';
 import type { InlineFormatStyle } from '../../../../editor/controllers';
 import { toDisplayHtml } from '../../../../editor/kernel';
 import {
+  deleteSelectionContent,
   getCrossBlockSelection,
   getCursorOffsets,
   setCursorAtOffset,
   setRangeAtOffset,
+  snapOffsetInText,
+  snapSelectionToContent,
 } from '../../../../editor/kernel/selection';
 import type { InputEventResult } from '../types';
 
@@ -220,13 +223,54 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
           onDeleteRange(cross.startBlockId, cross.startOffset, cross.endBlockId, cross.endOffset);
           return;
         }
+        // FT4（AGT-D / DSG-R1）：单块内非折叠选区覆盖标记字符时，拦截原生删除，
+        // 吸附到内容边界后程序化删除，杜绝未闭合标记残体（`**加粗**` 选 `粗**` → `**加**`）。
+        if (!raw) {
+          const { start, end } = getCursorOffsets(e.currentTarget);
+          if (start !== end && snapSelectionToContent(text, start, end)) {
+            e.preventDefault();
+            const result = deleteSelectionContent(text, start, end);
+            if (result) {
+              lastDomTextRef.current = result.text;
+              const inputResult = onInput(blockId, result.text, result.cursor);
+              if (inputResult.needRender) {
+                pendingOffsetRef.current = result.cursor;
+              }
+            }
+            return;
+          }
+        }
+      }
+      // FT4（AGT-D / DSG-R3b）：方向键导航目标落入标记内部时吸附到内容边界，
+      // 阻止 Chromium 原生把光标移入 `.md-syntax` 标记中间（否则键入分裂标记）。
+      if (
+        !raw &&
+        (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !e.shiftKey &&
+        !composingRef.current
+      ) {
+        const { start, end } = getCursorOffsets(e.currentTarget);
+        if (start === end) {
+          const target = e.key === 'ArrowLeft' ? Math.max(0, start - 1) : Math.min(text.length, start + 1);
+          if (target !== start) {
+            const snapped = snapOffsetInText(text, target);
+            if (snapped !== target) {
+              e.preventDefault();
+              setCursorAtOffset(e.currentTarget, snapped);
+              return;
+            }
+          }
+        }
       }
       handleEnterKey(e);
       handleBackspaceKey(e);
       handleTabKey(e);
       handleFormatShortcut(e);
     },
-    [handleEnterKey, handleBackspaceKey, handleTabKey, handleFormatShortcut, onDeleteRange]
+    [handleEnterKey, handleBackspaceKey, handleTabKey, handleFormatShortcut, onDeleteRange, blockId, onInput, text, raw]
   );
 
   const displayHtml = toDisplayHtml(inlineHtml, text);
