@@ -21,6 +21,7 @@ import type { RefObject } from 'react';
 import { useEffect, useRef } from 'react';
 
 import { nearestContentSpan } from '../../../editor/kernel/selection';
+import { createRafThrottle } from './rafThrottle';
 
 /** 连续命中非内容区的帧数上限：超过即停止更新，回到编辑器内自动恢复 */
 const MISS_FRAME_LIMIT = 6;
@@ -70,7 +71,6 @@ export function useCrossBlockDragSelection(containerRef: RefObject<HTMLDivElemen
   const lastMovePointRef = useRef<{ x: number; y: number; target: HTMLElement | null } | null>(null);
   // 上一帧的有效 focus 容器（用于非内容区保持与变化检测）
   const lastFocusSpanRef = useRef<HTMLElement | null>(null);
-  const rafIdRef = useRef<number | null>(null);
   const missCountRef = useRef(0);
   // 本次按下后是否发生过拖拽移动（区分"纯点击"与"拖选"）
   const dragMovedRef = useRef(false);
@@ -104,7 +104,6 @@ export function useCrossBlockDragSelection(containerRef: RefObject<HTMLDivElemen
     };
 
     const processPending = (): void => {
-      rafIdRef.current = null;
       const dragStart = dragStartRef.current;
       const point = pendingPointRef.current;
       if (!dragStart || !point) return;
@@ -169,10 +168,10 @@ export function useCrossBlockDragSelection(containerRef: RefObject<HTMLDivElemen
       }
     };
 
+    const dragThrottle = createRafThrottle(processPending);
+
     const scheduleFrame = (): void => {
-      if (rafIdRef.current === null) {
-        rafIdRef.current = requestAnimationFrame(processPending);
-      }
+      dragThrottle.schedule();
     };
 
     const handleMouseDown = (e: MouseEvent) => {
@@ -206,18 +205,12 @@ export function useCrossBlockDragSelection(containerRef: RefObject<HTMLDivElemen
     };
 
     const handleMouseUp = () => {
-      // 先消费最后一次待处理移动，避免 mouseup 丢弃末帧导致选区未扩展
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = null;
-      }
-      // 若最后一个 mousemove 的坐标已被 rAF 帧合并消费（point 为空），
-      // 且本次确为拖选（发生过移动），用最后一次 mousemove 坐标兜底补一帧，
-      // 确保末帧（终点块）一定被处理（事件坐标在 headless 下不可靠）。
+      // 先消费最后一次待处理移动，避免 mouseup 丢弃末帧导致选区未扩展。
+      // flushNow = 取消待处理帧 + 同步 flush。
       if (dragStartRef.current && dragMovedRef.current && !pendingPointRef.current) {
         pendingPointRef.current = lastMovePointRef.current;
       }
-      processPending();
+      dragThrottle.flushNow();
       const lastRange = lastDragRangeRef.current;
       dragStartRef.current = null;
       lastDragRangeRef.current = null;
@@ -262,10 +255,7 @@ export function useCrossBlockDragSelection(containerRef: RefObject<HTMLDivElemen
       document.removeEventListener('mousedown', handleMouseDown);
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = null;
-      }
+      dragThrottle.cancel();
     };
   }, [containerRef]);
 }
