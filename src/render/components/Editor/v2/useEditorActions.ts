@@ -3,7 +3,7 @@
 // ============================================
 // 编辑器动作集：
 // - commitTree 统一变更管线（setTree 先于 syncContent，顺序不可变）
-// - applyAction 统一块操作入口（执行 → 更新树 → 记录焦点/选区 → 同步内容）
+// - applyBlockAction 统一块操作入口（执行 → 更新树 → 记录焦点/选区 → 同步内容）
 // - applyMetaUpdate 块元数据更新助手
 // - 16 个事件回调 + 块类型转换分派器（onConvertBlock）
 // 消费 useDomRegistry / useContentSync / useFocusRestore 的返回值，
@@ -73,7 +73,7 @@ export function useEditorActions({
 
   // 统一的块操作入口：执行操作 → 更新树 → 记录焦点 → 同步内容。
   // 返回是否处理了事件（供 Tab 等决定是否 preventDefault）。
-  const applyAction = useCallback(
+  const applyBlockAction = useCallback(
     (action: (instance: EditorInstance) => EditorActionResult | null): boolean => {
       const instance = instanceRef.current;
       if (!instance) return false;
@@ -125,20 +125,20 @@ export function useEditorActions({
   );
   const onEnter = useCallback(
     (blockId: string, offset: number) => {
-      applyAction((instance) => enterCtrl.handleEnter(instance, blockId, offset));
+      applyBlockAction((instance) => enterCtrl.handleEnter(instance, blockId, offset));
     },
-    [applyAction]
+    [applyBlockAction]
   );
   const onBackspaceAtStart = useCallback(
     (blockId: string) => {
-      applyAction((instance) => backspaceCtrl.handleBackspaceAtStart(instance, blockId));
+      applyBlockAction((instance) => backspaceCtrl.handleBackspaceAtStart(instance, blockId));
     },
-    [applyAction]
+    [applyBlockAction]
   );
   // 跨块选区删除（Backspace/Delete）：块树级删除选区内容
   const onDeleteRange = useCallback(
     (startBlockId: string, startOffset: number, endBlockId: string, endOffset: number) => {
-      applyAction((instance) => {
+      applyBlockAction((instance) => {
         const result = deleteLeafRange(
           instance.tree,
           startBlockId,
@@ -161,25 +161,25 @@ export function useEditorActions({
         }
       }
     },
-    [applyAction, forceSyncBlockDom]
+    [applyBlockAction, forceSyncBlockDom]
   );
   const onTab = useCallback(
     (blockId: string) => {
-      return applyAction((instance) => listCtrl.handleTab(instance, blockId));
+      return applyBlockAction((instance) => listCtrl.handleTab(instance, blockId));
     },
-    [applyAction]
+    [applyBlockAction]
   );
   const onShiftTab = useCallback(
     (blockId: string) => {
-      return applyAction((instance) => listCtrl.handleShiftTab(instance, blockId));
+      return applyBlockAction((instance) => listCtrl.handleShiftTab(instance, blockId));
     },
-    [applyAction]
+    [applyBlockAction]
   );
   const onToggleTask = useCallback(
     (listItemId: string) => {
-      applyAction((instance) => clickCtrl.toggleTaskChecked(instance, listItemId));
+      applyBlockAction((instance) => clickCtrl.toggleTaskChecked(instance, listItemId));
     },
-    [applyAction]
+    [applyBlockAction]
   );
   const onFormat = useCallback(
     (
@@ -190,19 +190,19 @@ export function useEditorActions({
       url?: string,
       restoreSelection?: boolean
     ) => {
-      applyAction((instance) =>
+      applyBlockAction((instance) =>
         formatCtrl.formatRange(instance, blockId, style, start, end, { url, restoreSelection })
       );
     },
-    [applyAction]
+    [applyBlockAction]
   );
 
   // SPEC-EDIT-FT2 4.5.4：橡皮擦——清除选区全部行内标记
   const onClearFormat = useCallback(
     (blockId: string, start: number, end: number, _restoreSelection?: boolean) => {
-      applyAction((instance) => formatCtrl.clearFormat(instance, blockId, start, end));
+      applyBlockAction((instance) => formatCtrl.clearFormat(instance, blockId, start, end));
     },
-    [applyAction]
+    [applyBlockAction]
   );
 
   // 浮动工具栏：块类型转换（正文 ↔ H1-H6，仅根级 paragraph/heading）
@@ -221,7 +221,7 @@ export function useEditorActions({
   const convertToParagraph = useCallback(
     (instance: EditorInstance, blockId: string, block: BlockNodeV2) => {
       if (block.type === 'heading') {
-        applyAction((inst) => convertCtrl.convertBlockToParagraph(inst, blockId));
+        applyBlockAction((inst) => convertCtrl.convertBlockToParagraph(inst, blockId));
         return;
       }
       // 列表项内容 / 引用内容降级退出（convertCtrl 已覆盖 exitListItem/exitBlockquote）
@@ -230,10 +230,10 @@ export function useEditorActions({
         (instance.tree.blocks[block.parentId]?.type === 'list-item' ||
           instance.tree.blocks[block.parentId]?.type === 'blockquote')
       ) {
-        applyAction((inst) => convertCtrl.convertBlockToParagraph(inst, blockId));
+        applyBlockAction((inst) => convertCtrl.convertBlockToParagraph(inst, blockId));
       }
     },
-    [applyAction]
+    [applyBlockAction]
   );
 
   const convertToHeading = useCallback(
@@ -247,7 +247,7 @@ export function useEditorActions({
       if (block.type === 'heading') {
         applyMetaUpdate(blockId, { headingLevel: level });
       } else if (block.type === 'paragraph' && isRootBlock) {
-        applyAction((inst) =>
+        applyBlockAction((inst) =>
           convertCtrl.convertParagraphToBlock(inst, blockId, {
             type: 'heading',
             meta: { headingLevel: level },
@@ -256,7 +256,7 @@ export function useEditorActions({
         );
       }
     },
-    [applyAction, applyMetaUpdate]
+    [applyBlockAction, applyMetaUpdate]
   );
 
   // 列表 / 引用 / 代码块升格：仅根级段落
@@ -269,7 +269,7 @@ export function useEditorActions({
     ) => {
       if (instance.tree.blocks[blockId]?.type === 'paragraph' && isRootBlock) {
         const conversionType = target as 'bullet-list' | 'ordered-list' | 'task-list' | 'blockquote' | 'code-block';
-        applyAction((inst) =>
+        applyBlockAction((inst) =>
           convertCtrl.convertParagraphToBlock(inst, blockId, {
             type: conversionType,
             prefixLength: 0,
@@ -277,7 +277,7 @@ export function useEditorActions({
         );
       }
     },
-    [applyAction]
+    [applyBlockAction]
   );
 
   const onConvertBlock = useCallback(
