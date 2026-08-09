@@ -1,12 +1,12 @@
-# WeaveMD DevFlow 阶段 1 — 需求整理草稿（浮动工具栏行内格式叠加 / 拖选移位）
+# WeaveMD DevFlow 阶段 1 — 需求定稿（浮动工具栏行内格式叠加 / 拖选移位）
 
-> 文档类型：DevFlow 需求整理草稿（未定稿）
+> 文档类型：DevFlow 需求定稿（阶段 1 决策已确认）
 > 阶段：1（需求整理 grilling）| 日期：2026-08-09
 > 关联规范：[SPEC-EDIT-FT3](./specs/floating-toolbar-format-sticky.md)、[SPEC-EDIT-FT2](./specs/floating-toolbar-ux-and-inline-format.md)、
 > [SPEC-EDIT-FT](./specs/floating-toolbar-refactor.md)、[SPEC-EDIT-DSF](./specs/drag-selection-flicker.md)
 > ⚠️ 命名说明：本项目在 Windows（NTFS，大小写不敏感）上，`docs/requirements.md` 与现有
-> `docs/REQUIREMENTS.md` 为**同一文件**，直接写入将覆盖现有产品需求文档。故本草稿暂存于
-> `docs/requirements.devflow.md`，最终落点待用户决策（见"未决问题 U5"）。
+> `docs/REQUIREMENTS.md` 为**同一文件**。经用户决策（U5 → A），本次需求定稿暂存于
+> `docs/requirements.devflow.md`，收尾阶段评估与产品文档合并方案。
 
 ---
 
@@ -29,6 +29,7 @@
 
 - 行内格式（bold/italic/underline/strike/highlight/code/math）跨风格混合选区的归一化逻辑（formatCtrl + inlineLexer）。
 - 相邻混合强调标记的渲染识别扩展（如 `**12*3***`、`**12***3***` 类组合），使其可干净解析、无字面残体。
+- **纯内容部分选区（U6 纳入）**：`**abc**` 选 `ab`（纯内容、不覆盖标记）点异风格 → 同样归一化，包裹时与相邻异风格标记正确合并、不产生畸形序列。
 - 灰度模式下选区/拖选涉及 `.md-syntax` 标记字符时的偏移与操作安全（含拖选路径验证）。
 - 相关 Vitest 单测与 Playwright E2E（含 G-② 的拖选复现用例）。
 - 文档同步：本规范/需求、modules/04、SUMMARY、TDD 证据。
@@ -41,12 +42,12 @@
 - display math `$$…$$`、图片粘贴、列表间互转等既有范围外事项。
 - 键盘快捷键路径（`Ctrl+B` 等）行为（当前与工具栏路径共用 formatCtrl，改动需回归确认，但不改其折叠光标语义）。
 
-## 3. 成功标准（草案，待确认）
+## 3. 成功标准
 
 | 编号 | 验收口径 |
 | --- | --- |
 | S1 | `**123**` 选区含部分/全部异风格标记（如 `3**`、`**123`）点斜体/下划线/高亮 → 文本层不产生未闭合/重叠标记、无字面残体；渲染后非聚焦状态**无可见语法字符**（除 `.md-syntax` 内标记） |
-| S2 | 叠加后相邻混合强调（bold+italic 组合，至少需求中提到的加粗/斜体/下划线组合）渲染正确，`em`/`strong`/`u` 嵌套无字面 `*` 污染（对标 C12 的 E2E 断言方式） |
+| S2 | 叠加后相邻混合强调渲染正确（决策 U2 → B：**全部行内风格的两两组合**——加粗/斜体/下划线/删除线/高亮/数学/代码等任两组合嵌套均无字面 `*` 污染），对标 C12 的 E2E 断言方式 |
 | S3 | 同风格行为零回归：FT3 C10/C11/C12、FT3-E1/E2/E6/E7 及既有 460 Vitest / 44 E2E 全绿 |
 | S4 | 灰度模式拖选复现用例（G-②）确认后，拖选包含标记字符的选区执行格式/删除 → 标记不移位、序列化文本无异常 |
 | S5 | `tsc --noEmit`、ESLint 0 error、`vite build` 通过 |
@@ -93,19 +94,22 @@
 - 灰度显示规则（方案 B）默认不变，除非用户确认调整。
 - 阶段 2 实现前，G-② 需先经 Playwright 拖选复现用例确认具体表现（避免在猜测上设计）。
 
-## 6. 未决问题（待用户决策，见阶段 1 返回清单）
+## 6. 决策记录（阶段 1 用户已确认）
 
-- U1：G-① 选区含异风格标记时的目标语义（叠加保留 vs 覆盖剥离 vs 仅防残体）。
-- U2：相邻混合强调渲染的扩展范围（仅常见组合 vs 全组合）。
-- U3：G-② 根因处理策略（路径层归一化防御 vs DOM 层真正禁止选中）。
-- U4：G-② 是否先补 E2E 拖选复现再进入阶段 2 设计。
-- U5：DevFlow 需求文档落点（`docs/requirements.md` 与 `REQUIREMENTS.md` 在 Windows 上同名冲突）。
+| 编号 | 决策 | 选择 | 影响 |
+| --- | --- | --- | --- |
+| U1 | G-① 选区含异风格标记的目标语义 | **A 叠加语义**：选区折叠到纯内容后应用新格式，格式共存不覆盖 | 需 `formatCtrl` Step 0 扩展 + lexer 相邻混合强调 |
+| U2 | 相邻混合强调渲染扩展范围 | **B 全部两两组合**（含数学/高亮/代码等） | `inlineLexer` 改动面显著扩大，超出识别范围不得抛错、保守回退字面量 |
+| U3 | G-② 根因处理策略 | **A 路径层修复**：不做 DOM 层禁止选中，修复选区/偏移映射对标记安全 | 需 `selection.ts`/操作路径标记偏移处理 |
+| U4 | G-② 是否先 E2E 复现 | **A 先复现**：先写 Playwright 拖选复现用例确认移位路径再设计 | 阶段 2 计划须含 G-② 复现任务 |
+| U5 | DevFlow 需求文档落点 | **A `docs/requirements.devflow.md`**（Windows 上与 REQUIREMENTS.md 同名冲突） | 收尾阶段评估合并 |
+| U6 | 纯内容部分选区（`**abc**` 选 `ab`）点异风格 | **纳入本次范围**：包裹时与相邻异风格标记正确合并、不产生畸形序列 | Phase 2 补充该矩阵与包裹边界处理 |
 
 ## 7. 风险
 
 - 风险等级：**L3**（编辑器核心交互/内核行为修改：formatCtrl + inlineLexer + 可能的 selection/拖选路径）。
-- 涉及的中高风险改动（若进入阶段 2/3）：
+- 涉及的中高风险改动（阶段 2/3 需明确批准）：
   1. `formatCtrl.ts` Step 0 归一化扩展为跨风格（业务逻辑核心，改动需回归 FT3 C10-C12）。
-  2. `inlineLexer.ts` 相邻混合强调解析（行内渲染/剥离/Step 0 共用，改动影响面大）。
+  2. `inlineLexer.ts` 相邻混合强调解析（**U2 → B 全部两两组合**，行内渲染/剥离/Step 0 共用，影响面大）。
   3. 可能的 `selection.ts` / `useCrossBlockDragSelection.ts` 标记偏移处理（G-②）。
 - 不涉及生产部署/密钥/数据迁移（无 L4）。
