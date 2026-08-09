@@ -30,7 +30,7 @@ function isListType(
 }
 
 /** 语法类型相等判定（heading 需 level 相等，其余同 type 即相等） */
-function sameSyntaxType(a: SyntaxType, b: SyntaxType): boolean {
+export function sameSyntaxType(a: SyntaxType, b: SyntaxType): boolean {
   if (a.type !== b.type) return false;
   if (a.type === 'heading' && b.type === 'heading') return a.level === b.level;
   return true;
