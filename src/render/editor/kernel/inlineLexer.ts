@@ -303,6 +303,46 @@ function matchPaired(text: string, i: number, bound: number, marker: string): In
   };
 }
 
+/** 统计 [index, bound) 内与 ch 相同的连续 run 长度 */
+function countMarkerRun(text: string, index: number, bound: number, ch: string): number {
+  let len = 0;
+  while (index + len < bound && text[index + len] === ch) len++;
+  return len;
+}
+
+/**
+ * 检测 [from, to) 内是否存在"未闭合的内层强调 open"。
+ * 用于相邻混合强调（`**12*3***`）的 close run 拆分判定：
+ * 仅当内容区存在无法在本区间闭合的强调 open 时，close run 才允许被拆分。
+ */
+function hasPendingInnerEmphasis(text: string, from: number, to: number, ch: string): boolean {
+  let i = from;
+  while (i < to) {
+    if (text[i] !== ch) {
+      i++;
+      continue;
+    }
+    if (i > from && text[i - 1] === '\\') {
+      i++;
+      continue;
+    }
+    const runLen = countMarkerRun(text, i, to, ch);
+    const runEnd = i + runLen;
+    // run 延伸到区间末尾（紧邻 close run）时不算独立 open
+    if (runEnd < to && text[runEnd] !== ' ' && text[runEnd] !== '\n') {
+      // 下划线遵循 intraword 规则
+      if (ch === '_' && isIntrawordUnderscore(text, i)) {
+        i = runEnd;
+        continue;
+      }
+      const closeIdx = findMarker(text, ch.repeat(runLen), runEnd, to);
+      if (closeIdx === -1) return true;
+    }
+    i = runEnd;
+  }
+  return false;
+}
+
 /** 加粗 / 斜体 / 加粗+斜体（`**x**` / `*x*` / `***x***`，下划线同理） */
 function matchEmphasis(text: string, i: number, bound: number): InlineToken | null {
   const ch = text[i];
@@ -327,6 +367,17 @@ function matchEmphasis(text: string, i: number, bound: number): InlineToken | nu
   if (end === searchFrom) return null;
   if (canTriple && end + marker.length < bound && text[end + marker.length] === ch) {
     return null;
+  }
+
+  // 相邻混合强调：close 处为连续 run 且 run 长于本 token 所需，且内容区存在
+  // 未闭合的内层强调（如 `**12*3***`）时，本 token close 取 run 后缀，
+  // run 前缀留给内层 token 闭合；`****abc****`（无内层待闭合）则保持既有 close 前缀语义。
+  let closeEnd = end;
+  if (!canTriple) {
+    const runLen = countMarkerRun(text, end, bound, ch);
+    if (runLen > marker.length && hasPendingInnerEmphasis(text, searchFrom, end, ch)) {
+      closeEnd = end + runLen - marker.length;
+    }
   }
 
   if (canTriple) {
@@ -360,12 +411,12 @@ function matchEmphasis(text: string, i: number, bound: number): InlineToken | nu
   return {
     type: double ? 'strong' : 'em',
     start: i,
-    end: end + marker.length,
+    end: closeEnd + marker.length,
     openLen: marker.length,
     closeLen: marker.length,
     contentStart: searchFrom,
-    contentEnd: end,
-    children: tokenizeInline(text, searchFrom, end),
+    contentEnd: closeEnd,
+    children: tokenizeInline(text, searchFrom, closeEnd),
   };
 }
 

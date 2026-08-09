@@ -189,3 +189,39 @@ describe('inlineRenderer — 下划线 / 数学（阶段 1 新增）', () => {
     expect(renderInline('<U>x</U>')).toBe('&lt;U&gt;x&lt;/U&gt;');
   });
 });
+
+describe('inlineRenderer — 相邻混合强调渲染（PLAN-EDIT-FT4 / AGT-C）', () => {
+  it('`**12*3***` 渲染为 strong 内嵌 em，无字面 `*` 残体', () => {
+    expect(renderInline('**12*3***')).toBe(
+      '<strong><span class="md-syntax">**</span>12<em><span class="md-syntax">*</span>3<span class="md-syntax">*</span></em><span class="md-syntax">**</span></strong>'
+    );
+    expect(renderInline('**12*3***')).not.toContain('*3*</strong><span class="md-syntax">*</span>');
+  });
+
+  it('`**加*粗***`（DSG-R2a 产物）渲染嵌套无残体，textContent 与源串一致', () => {
+    const source = '**加*粗***';
+    const html = renderInline(source);
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    expect(container.textContent).toBe(source);
+    expect(html).toContain('<strong>');
+    expect(html).toContain('<em>');
+    expect(html).not.toContain('*粗***</em>');
+  });
+
+  it('两两风格组合渲染：strong+del / mark+strong / strong+math / underline+em', () => {
+    const cases: Array<[string, string]> = [
+      ['**~~x~~**', '<del>'],
+      ['==**x**==', '<strong>'],
+      ['**$x$**', '<span class="math'],
+      ['<u>*x*</u>', '<em>'],
+    ];
+    for (const [source, expectContain] of cases) {
+      const html = renderInline(source);
+      expect(html).toContain(expectContain);
+      const container = document.createElement('div');
+      container.innerHTML = html;
+      expect(container.textContent).toBe(source);
+    }
+  });
+});
