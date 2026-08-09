@@ -640,3 +640,84 @@ test('FT3-E7: 加粗后再斜体 → `***` 渲染 em 内嵌 strong，无字面�
   );
   expect(strongInnerText).toBe('abc');
 });
+
+// ============================================
+// PLAN-EDIT-FT4：跨风格叠加（S1）E2E 验收
+// ============================================
+test('FT4-E1: `**123**` 选 `3**`（含 close 标记）点斜体 → strong 内嵌 em，无字面 `*` 残体（PLAN-EDIT-FT4 S1）', async ({
+  page,
+}) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('123', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="加粗"]').click();
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('**123**');
+  await expect(page.locator('strong')).toHaveCount(1);
+
+  // 程序化选区覆盖 close 标记 `**`（含标记偏移 [4,7) = `3**`）
+  await selectTextRange(page, 4, 7);
+  await page.waitForTimeout(300);
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="斜体"]').click();
+  await page.waitForTimeout(400);
+
+  // 文本层：`**12*3***`，strong 内嵌 em（`3` 斜体），加粗标记原位不动
+  await expect(editable).toHaveText('**12*3***');
+  await expect(page.locator('strong em')).toHaveCount(1);
+  const emInner = await page.locator('em').evaluate((el) =>
+    Array.from(el.childNodes)
+      .filter((n) => n.nodeType === Node.TEXT_NODE)
+      .map((n) => n.textContent ?? '')
+      .join('')
+  );
+  expect(emInner).toBe('3');
+
+  // 剥离 .md-syntax 后无裸星（无字面残体）
+  const residue = await page.evaluate(() => {
+    const el = document.querySelector('span.block-content[contenteditable="true"]');
+    if (!el) return 'NO_BLOCK';
+    const clone = el.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('.md-syntax').forEach((n) => n.remove());
+    return (clone.textContent ?? '').replace(/\u200B/g, '');
+  });
+  expect(residue).not.toContain('*');
+});
+
+test('FT4-E2: `**12*3***` 选 `*3*`（em 全 token）点下划线 → `<u>` 内纯内容、无 `.md-syntax` 标记字符（PLAN-EDIT-FT4 S1）', async ({
+  page,
+}) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('**12*3***', { delay: 20 });
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('**12*3***');
+
+  // 程序化选区覆盖 em 标记 `*3*`（含标记偏移 [4,7)）
+  await selectTextRange(page, 4, 7);
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="下划线"]').click();
+  await page.waitForTimeout(400);
+
+  // `<u>` 标记渲染为 u 元素内 `.md-syntax` 灰显（架构如此，对标 FT2-E5）；剥离标记后 u 内为纯内容 `3`，
+  // em 标记 `*` 保留在 `<u>` 外，u 内无 `*` 残体
+  await expect(editable).toHaveText('**12*<u>3</u>***');
+  const u = page.locator('u');
+  await expect(u).toHaveCount(1);
+  const uResidue = await u.evaluate((el) => {
+    const clone = el.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('.md-syntax').forEach((n) => n.remove());
+    return (clone.textContent ?? '').replace(/\u200B/g, '');
+  });
+  expect(uResidue).toBe('3');
+  const uStar = await u.evaluate((el) => (el.textContent ?? '').replace(/\u200B/g, '').includes('*'));
+  expect(uStar).toBe(false);
+});

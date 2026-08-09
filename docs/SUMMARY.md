@@ -57,17 +57,27 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
   生成三连 `***`，lexer 解析为 em 内嵌 strong 并渲染，解除逐层剥离）；格式应用后恢复选区
   保持选中、工具栏驻留（点击工具栏外/滚动/Escape/键入退出，块转换仍退出）；工具栏尺寸
   回调（按钮 32×28px、字号 13px、总高 ≤34px）
+- 跨风格叠加与拖选标记安全（SPEC-EDIT-FT4 / PLAN-EDIT-FT4，v1.0 已实施）：选区含**异风格**
+  边界标记（`**123**` 选 `3**` 点斜体）折叠到纯内容再叠加（formatCtrl `foldCrossStyleMarkers`，
+  U1 叠加语义），lexer 支持相邻混合强调（`**12*3***` → strong 内嵌 em，close run 拆分），
+  纯内容部分选区（`**abc**` 选 `ab`）同样归一化合并（U6）；删除/光标路径标记偏移安全——
+  `snapSelectionToContent`/`deleteSelectionContent`/`snapOffsetInText` + ContentBlock keydown 拦截
+  （选 `粗**` 退格 → `**加**`；方向键落入标记内吸附内容边界，键入不分裂标记）；e2e FT4-E1/E2 +
+  DSG-R1/R2/R3/P 共 7 例转正
 
 ## 4. 验证与测试
 
-- Vitest：460 例（内核/控制器/组件，含往返不变式、退出规则矩阵、输入链路、跨块删除、
+- Vitest：487 例（内核/控制器/组件，含往返不变式、退出规则矩阵、输入链路、跨块删除、
   代码块尾随空行补偿、浮动工具栏显示/转换矩阵/驻留、拖选闪烁的端点变化检测与 rAF 节流、
   FT2 的 inlineLexer/strip/katex/toggle/clearFormat、FT3 的 Step0 归一化矩阵/跨 token 拆分/
-  选区恢复/集成、三连 `***` 跨风格叠加、CSS 静态断言、快捷键接线）
-- Playwright 真实 Chromium E2E：44 例（输入/IME/富文本渲染/语法外观/退出与退格链/
+  选区恢复/集成、三连 `***` 跨风格叠加、CSS 静态断言、快捷键接线、
+  FT4 的 formatCtrl 跨风格折叠/相邻混合强调/两两组合渲染/selection 标记吸附/ContentBlock 删除与方向键吸附）
+- Playwright 真实 Chromium E2E：51 例（输入/IME/富文本渲染/语法外观/退出与退格链/
   浮动工具栏/跨块拖选/代码块尾随空行重载恢复/反向跨类型拖选与 selectionchange 收敛/
   FT2 工具栏计算样式/标记隐藏与聚焦灰显/黄色高亮/下划线/图片/数学/橡皮擦/
-  FT3 部分标记不叠加/跨多 token 逐 token 解除/加粗后斜体叠加渲染/工具栏驻留与点击外/Escape 退出）
+  FT3 部分标记不叠加/跨多 token 逐 token 解除/加粗后斜体叠加渲染/工具栏驻留与点击外/Escape 退出/
+  FT4 跨风格叠加无字面残体（E1/E2）与拖选含标记删除/格式化/光标恢复无移位（DSG-R1/R2/R3/P））
 - 质量门禁：`tsc --noEmit` + `vitest run` + ESLint(0 error) + `vite build` + `npx playwright test`
+  + `vitest --coverage`（改动文件口径 ≥80%，当前全量 95.45%；`@vitest/coverage-v8`）
 
 > 各模块详细实现见 `docs/modules/`，需求见 `docs/REQUIREMENTS.md`，技术选型见 `docs/TECH_STACK.md`。

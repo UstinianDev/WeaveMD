@@ -113,3 +113,19 @@
   2. `inlineLexer.ts` 相邻混合强调解析（**U2 → B 全部两两组合**，行内渲染/剥离/Step 0 共用，影响面大）。
   3. 可能的 `selection.ts` / `useCrossBlockDragSelection.ts` 标记偏移处理（G-②）。
 - 不涉及生产部署/密钥/数据迁移（无 L4）。
+
+## 8. 实施状态（PLAN-EDIT-FT4，2026-08-09 已闭环）
+
+| 需求 | 状态 | 证据 |
+| --- | --- | --- |
+| G-① 跨风格叠加畸形（U1/U2/U6） | ✅ 已修复 | AGT-B/C：lexer 相邻混合强调 + formatCtrl 跨风格折叠；E2E FT4-E1/E2 无字面残体 |
+| G-② 拖选标记移位（U3/U4） | ✅ 已修复 | AGT-D：删除吸附 + 光标/方向键吸附；DSG-R1/R2/R3/P 转正 GREEN |
+| S1 无未闭合/重叠标记、无字面残体 | ✅ | vitest + E2E FT4-E1/E2、DSG 5 例 |
+| S2 两两组合渲染无 `*` 污染 | ✅ | inlineLexer 44 / inlineRenderer 29 断言 |
+| S3 同风格零回归 | ✅ | vitest 487 全绿 · playwright 51 全绿 |
+| S4 拖选含标记不移位 | ✅ | DSG-R1/R2/R3/P 5/5 GREEN（渲染口径残体判定） |
+| S5 tsc / eslint / vite build | ✅ | tsc 通过 · eslint 0 error · `vite build` 通过（electron-builder 因 better-sqlite3 文件占用跳过，非代码问题） |
+| 覆盖率 ≥80%（改动文件口径） | ✅ | 全量 95.45%；ContentBlock 91.39% / formatCtrl 94.8% / inlineLexer 98.03% / inlineRenderer 98.41% / selection 94.28%（`@vitest/coverage-v8`，§6 确认点 5） |
+| U5 文档合并评估 | ⏳ 待办 | `docs/requirements.devflow.md` 与 `REQUIREMENTS.md` 合并方案收尾时评估 |
+
+详细红/绿证据与遗留风险见 [TDD 证据：spec-edit-ft4.tdd.md](./testing/spec-edit-ft4.tdd.md)。

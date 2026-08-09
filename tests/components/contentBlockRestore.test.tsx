@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import ContentBlock from '../../src/render/components/Editor/v2/blocks/ContentBlock';
 import type { InputEventResult } from '../../src/render/components/Editor/v2/types';
 import { getCursorOffsets, setCursorAtOffset } from '../../src/render/editor/kernel/selection';
+import { renderInline } from '../../src/render/editor/kernel/inlineRenderer';
 
 function makeProps(overrides: Record<string, unknown> = {}) {
   return {
@@ -78,5 +79,84 @@ describe('ContentBlock — getPendingRange 恢复选区（FT3 Phase C）', () =>
 
     rerender(<ContentBlock {...makeProps({ getPendingRange: () => null })} />);
     expect(getCursorOffsets(el)).toEqual({ start: 3, end: 3 });
+  });
+});
+
+describe('ContentBlock — 标记安全（PLAN-EDIT-FT4 AGT-D）', () => {
+  it('R1: 选区覆盖 close 标记按 Backspace → 拦截原生删除，onInput 得 `**加**`（无未闭合残体）', () => {
+    const onInput = vi.fn((): InputEventResult => ({ needRender: false }));
+    const { container } = render(
+      <ContentBlock
+        {...makeProps({ text: '**加粗**', inlineHtml: renderInline('**加粗**'), onInput })}
+      />
+    );
+    const el = editable(container);
+    // 选中 `粗**`（含标记偏移 [3,6)）：内容 `加粗` 文本节点 offset 1 起 → close md-syntax 尾
+    const strong = el.querySelector('strong')!;
+    const contentText = strong.childNodes[1] as Text;
+    const closeSyntax = strong.childNodes[2] as Element;
+    const range = document.createRange();
+    range.setStart(contentText, 1);
+    range.setEnd(closeSyntax.firstChild!, 2);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    expect(getCursorOffsets(el)).toEqual({ start: 3, end: 6 });
+
+    const ev = new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true });
+    el.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(onInput).toHaveBeenCalledWith('b1', '**加**', 3);
+  });
+
+  it('R1b: 纯内容选区 Backspace → 不拦截（defaultPrevented 为 false）', () => {
+    const onInput = vi.fn((): InputEventResult => ({ needRender: false }));
+    const { container } = render(
+      <ContentBlock
+        {...makeProps({ text: '**加粗**', inlineHtml: renderInline('**加粗**'), onInput })}
+      />
+    );
+    const el = editable(container);
+    const strong = el.querySelector('strong')!;
+    const contentText = strong.childNodes[1] as Text;
+    const range = document.createRange();
+    range.setStart(contentText, 0);
+    range.setEnd(contentText, 1);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    expect(getCursorOffsets(el)).toEqual({ start: 2, end: 3 });
+
+    const ev = new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true });
+    el.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+    expect(onInput).not.toHaveBeenCalled();
+  });
+
+  it('R3b: 光标在内容边界按方向键尝试进入 close 标记 → 拦截并吸附回内容边界', () => {
+    const onInput = vi.fn((): InputEventResult => ({ needRender: false }));
+    const { container } = render(
+      <ContentBlock
+        {...makeProps({ text: '**加粗**', inlineHtml: renderInline('**加粗**'), onInput })}
+      />
+    );
+    const el = editable(container);
+    setCursorAtOffset(el, 4); // 内容结束（close 标记前）
+    const ev = new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
+    el.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(getCursorOffsets(el)).toEqual({ start: 4, end: 4 });
+  });
+
+  it('R3b-2: 光标在内容开头按方向键尝试进入 open 标记 → 拦截并吸附回内容边界', () => {
+    const { container } = render(
+      <ContentBlock {...makeProps({ text: '**加粗**', inlineHtml: renderInline('**加粗**') })} />
+    );
+    const el = editable(container);
+    setCursorAtOffset(el, 2); // 内容开头（open 标记后）
+    const ev = new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true });
+    el.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(getCursorOffsets(el)).toEqual({ start: 2, end: 2 });
   });
 });
