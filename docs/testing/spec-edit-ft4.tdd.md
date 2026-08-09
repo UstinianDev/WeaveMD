@@ -55,7 +55,13 @@
 - **删除吸附**（`src/render/editor/kernel/selection.ts`）：`snapSelectionToContent` 把覆盖 open/close 标记的选区边界吸附到内容边界；`deleteSelectionContent` 在选区恰好覆盖成对 token 完整内容区时整 token（含标记）删除，否则吸附后删除内容。`ContentBlock.handleKeyDown` 对单块内非折叠选区且命中吸附时 `preventDefault` 程序化删除（DSG-R1：选 `粗**` → `**加**`，无未闭合残体）。
 - **光标/方向键吸附**（selection.ts + ContentBlock.tsx）：`setCursorAtOffset` 经 `snapOffsetInText`（纯文本版，依赖 tokenizeInline）把落点吸附到内容边界；`handleKeyDown` 拦截 ArrowLeft/Right，目标偏移落入标记区间内时 `preventDefault` + 吸附（DSG-R3b：光标不再落 open 标记两星之间，键入不分裂标记）。
 - **e2e 判定口径重定**（`e2e/drag-selection-markers.spec.ts`）：新增 `readMarkerResidue`（剥离 `.md-syntax` 后检查裸 `*`/`_`），5 处断言由文本字面解析改为渲染残体检测，合法 `**加*粗***`（strong 内嵌 em）不再误判。
-- **测试统计**：`tests/editor/kernel/selection.test.ts` 新增 snapSelectionToContent / deleteSelectionContent / 光标吸附 11 例；e2e drag-selection-markers 5/5 passed（57.1s）；vitest 483 通过；tsc / eslint 干净。
+- **测试统计**：`tests/editor/kernel/selection.test.ts` 新增 snapSelectionToContent / deleteSelectionContent / 光标吸附 11 例；`tests/components/contentBlockRestore.test.tsx` 新增删除/方向键吸附 4 例；e2e drag-selection-markers 5/5 passed + floating-toolbar FT4-E1/E2 2 例（S1 叠加验收层，见 §4.2）；vitest 487 通过；playwright 51 通过；tsc / eslint（0 error）干净。
+
+## 3.3 Phase 4 全量门禁（2026-08-09）
+
+- **FT4-E1**（`e2e/floating-toolbar.spec.ts`）：`**123**` 选 `3**`（含 close 标记）点斜体 → 文本 `**12*3***`、`strong em` 嵌套、em 内文本 `3`、剥离 `.md-syntax` 后无裸星。
+- **FT4-E2**：`**12*3***` 选 `*3*`（em 全 token）点下划线 → `**12*<u>3</u>***`，`<u>` 剥离标记后纯内容 `3`、无 `*` 残体（`<u>` 标记本身按架构渲染为 u 内 `.md-syntax` 灰显，对标 FT2-E5）。
+- **门禁结果**：`vite build` 通过（electron-builder 因 better-sqlite3 原生模块文件占用 EBUSY 跳过，非代码问题）· playwright 51/51 · vitest 487 · 覆盖率全量 95.45%（改动文件口径全部 ≥80%：inlineLexer 98.03 / inlineRenderer 98.41 / formatCtrl 94.8 / selection 94.28 / ContentBlock 91.39，`@vitest/coverage-v8`，§6 确认点 5 已实施）。
 
 ## 4. 遗留问题 / 风险
 
@@ -63,7 +69,8 @@
 - ~~R1 的安全删除目标~~：已定死（AGT-D）：选区吸附到内容边界后删除；选区恰好覆盖成对 token 完整内容区 → 整 token 含标记删除，杜绝 `****` 空标记残体。
 - ~~方向键进入标记内部（R3b 光标偏移 1）~~：已收敛（ContentBlock `handleKeyDown` 拦截 + `snapOffsetInText` 吸附，U3 路径层）。剩余：e2e 的 `caretB` 为 soft 断言（未严格锁定最终偏移），吸附生效但具体偏移值可漂移，后续可加精确断言。
 - e2e `readMarkerResidue` 依赖 `.md-syntax` 类名定位标记，样式/结构重构后需同步。
-- 其余 Phase（AGT-A/E/F）的证据待对应智能体补充；本文件为骨架，各阶段完成后回写红/绿统计。
+- U5（DevFlow 需求文档与 `REQUIREMENTS.md` 合并评估）为收尾阶段事项，待阶段收尾处理。
+- 其余 Phase（AGT-A/B/C 证据见 §3.1、AGT-D 见 §3.2、AGT-E 门禁见 §3.3）已全部回写；本文件红/绿统计已同步。
 
 ## 5. 验收核对（Phase 0）
 
@@ -71,5 +78,7 @@
 - [x] 触发路径 × 实际输出已采集（§复现记录）
 - [x] 修复面结论已给出（§3），AGT-D 据此定稿
 - [x] AGT-D 已实施并闭环（§3.2）：e2e 5/5 GREEN · selection 单测 11 例新增 · vitest 483 · tsc/eslint 干净
+- [x] Phase 4 全量门禁（§3.3）：FT4-E1/E2 · playwright 51/51 · vitest 487 · vite build · coverage 95.45%
+- [x] 文档同步：`requirements.devflow.md` §8 实施状态 · `modules/04` · `SUMMARY.md` · `plan.md` 状态已更新为「已完成」
 - [ ] Step 0.2 人工评审门（确认修复面与文件清单）——待总指挥/用户确认
-- [x] 已触碰生产代码（`selection.ts` / `ContentBlock.tsx`）并按 AGT-D 定稿实施；未修改 `docs/plan.md` / `docs/requirements.devflow.md`
+- [x] 已触碰生产代码（`selection.ts` / `ContentBlock.tsx`）并按 AGT-D 定稿实施；`plan.md` / `requirements.devflow.md` 已同步（非本次实施前的未动状态）

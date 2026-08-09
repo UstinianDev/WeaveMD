@@ -1,9 +1,9 @@
 # Implementation Plan: PLAN-EDIT-FT4 跨风格叠加畸形修复 + 灰度拖选标记移位（G-① / G-②）
 
-> 计划编号：**PLAN-EDIT-FT4** | 状态：**待评审（需用户批准后开工）** | 更新：2026-08-09
-> 关联需求：[docs/requirements.devflow.md](requirements.devflow.md)（阶段 1 需求定稿，决策 U1-U5 已确认）
+> 计划编号：**PLAN-EDIT-FT4** | 状态：**✅ 已完成（2026-08-09，AGT-A~F 全部闭环）** | 更新：2026-08-09
+> 关联需求：[docs/requirements.devflow.md](requirements.devflow.md)（阶段 1 需求定稿，决策 U1-U6 已确认）
 > 关联规范：SPEC-EDIT-FT3（C10/C11/C12）、SPEC-EDIT-FT2、SPEC-EDIT-FT、SPEC-EDIT-DSF
-> 执行引擎：TDD 红绿循环（tdd-workflow）｜风险等级：**L3**（需人工确认）
+> 执行引擎：TDD 红绿循环（tdd-workflow）｜风险等级：**L3**（需人工确认，本次已获用户授权执行）
 
 ---
 
@@ -270,13 +270,13 @@ Wave 4（串行）：AGT-E（E2E 转正 + 新增 FT4 用例）→ AGT-F（全量
 
 ## 7. 成功标准映射
 
-| 需求编号 | 验收口径 | 计划落点 |
-| --- | --- | --- |
-| S1 | 选区含异风格标记点格式 → 无未闭合/重叠标记、无字面残体 | Phase 2（Step 0 跨风格折叠）+ Phase 1（lexer 干净解析）+ Phase 4 FT4-E1/E2 |
-| S2 | 叠加后相邻混合强调全部两两组合渲染正确、无字面 `*` 污染 | Phase 1（U2→B 矩阵）+ Phase 4 渲染断言 + E2E |
-| S3 | 同风格零回归（FT3 C10/C11/C12、FT3-E1/E2/E6/E7、460 Vitest / 44 E2E） | §4.4 回归门禁 |
-| S4 | 灰度拖选含标记 → 格式/删除无移位、序列化无异常 | Phase 0 复现（U4）+ Phase 3（U3 路径层）+ DSG 转正用例 |
-| S5 | `tsc --noEmit`、ESLint 0 error、`vite build` 通过 | Phase 4 门禁 |
+| 需求编号 | 验收口径 | 计划落点 | 状态 |
+| --- | --- | --- | --- |
+| S1 | 选区含异风格标记点格式 → 无未闭合/重叠标记、无字面残体 | Phase 2（Step 0 跨风格折叠）+ Phase 1（lexer 干净解析）+ Phase 4 FT4-E1/E2 | ✅ |
+| S2 | 叠加后相邻混合强调全部两两组合渲染正确、无字面 `*` 污染 | Phase 1（U2→B 矩阵）+ Phase 4 渲染断言 + E2E | ✅ |
+| S3 | 同风格零回归（FT3 C10/C11/C12、FT3-E1/E2/E6/E7、460 Vitest / 44 E2E） | §4.4 回归门禁 | ✅ vitest 487 / playwright 51 |
+| S4 | 灰度拖选含标记 → 格式/删除无移位、序列化无异常 | Phase 0 复现（U4）+ Phase 3（U3 路径层）+ DSG 转正用例 | ✅ DSG 5/5 |
+| S5 | `tsc --noEmit`、ESLint 0 error、`vite build` 通过 | Phase 4 门禁 | ✅ |
 
 ---
 
