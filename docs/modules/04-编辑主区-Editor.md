@@ -1,6 +1,6 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 版本：v2.4 | 最后更新：2026-08-09
+> 模块编号：04 | 优先级：P0 | 版本：v2.5 | 最后更新：2026-08-11
 > 设计规范：[specs/editor-v2-architecture.md](../specs/editor-v2-architecture.md)
 > 退出规则：[specs/markdown-block-exit-rules.md](../specs/markdown-block-exit-rules.md)
 > 浮动工具栏/跨块拖选：[specs/floating-toolbar-refactor.md](../specs/floating-toolbar-refactor.md)
@@ -119,6 +119,17 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
 | 代码块 | 语言下拉（别名归一化）+ 复制按钮 |
 | 链接 | Ctrl/Cmd+Click → `window.weaveMD.link.openExternal`（IPC 白名单） |
 
+### 7.1 链接与图片渲染修复（2026-08-11，REQ-EDIT-LINK-IMAGE）
+
+- **链接**：`safeUrl` 放行裸域名（无协议如 `www.baidu.com`）；`normalizeHref` 渲染时自动补
+  `https://`（`href`/`data-href` 补全、`.md-syntax` 保留原始 → `textContent` 与源一致，往返
+  不变量不破）；hover tooltip 改 `attr(data-href)`（原 `--link-tip` 未定义失效）；Ctrl+Click
+  打开不变（走 IPC 白名单）。
+- **图片**：本地绝对路径走自定义 `media://` 协议（主进程 `media-protocol.ts` 映射本地文件，
+  dev/prod 一致显示），替代被 Chromium `webSecurity`/CSP 阻止的 `file://`；CSP `img-src`
+  放行 `https: http: media:`；加载失败经 EditorV2 `onErrorCapture` 事件委托回退
+  `.inline-image-fallback` 占位（无 broken 图标）。
+
 ## 8. 已知限制
 
 - v2 Normal 模式暂无查找高亮（替换功能正常；Source 模式由 Monaco 高亮）。
@@ -146,7 +157,7 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
 
 ## 9. 验证与测试
 
-- Vitest：内核/控制器/组件 **493 例**（含往返属性测试、六条退出规则矩阵、输入链路、
+- Vitest：内核/控制器/组件 **600 例**（含往返属性测试、六条退出规则矩阵、输入链路、
   marktext 语法外观断言、代码块提交/退出、列表与引用退出、尾部代码块补偿 SPEC-EDIT-CBTP、
   `resolveSyntaxType` 判定矩阵 26 例、浮动工具栏 G1/G3 节流与驻留（含 FT2 按钮分组/新功能、
   FT3 sticky/部分标记归一化/跨 token 拆分/三连 `***` 跨风格叠加）、`onConvertBlock` 转换矩阵 8 例、拖选端点变化检测 11 例、
@@ -158,7 +169,7 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
 - Playwright 真实 Chromium E2E（`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
   + `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`
    + `e2e/cross-block-selection.spec.ts` + `e2e/drag-selection-markers.spec.ts`
-   + `e2e/drag-selection-move.spec.ts`）**52 例**：
+   + `e2e/drag-selection-move.spec.ts`）**56 例（50 通过 + 6 既有红）**：
   空文档输入、`# ` 标题转换、`**` 加粗渲染、标记保留、列表转换、中文输入、marktext 语法符号
   渲染与不可选中（标题 marker 聚焦显隐、任务复选框、引用竖线、列表 marker 计算样式断言）、
   标题 marker 并排、空标题行点击聚焦、列表项 marker 与内容并排且任务项无多余圆点、

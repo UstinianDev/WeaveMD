@@ -44,6 +44,7 @@ function mockApi(): void {
       saveFilePath: async () => ok({ path: 'C:\\playwright\\n.md' }),
       openFile: async () => ok(),
       openFolder: async () => ok(),
+      pickImage: async () => 'C:\\playwright\\a.png',
     },
     window: {
       minimize: async () => ok(),
@@ -401,7 +402,7 @@ test('FT2-E5: 下划线按钮 → <u> 渲染且无可见 <u> 文本', async ({ p
   await expect(editable).toHaveText('<u>下划线文本</u>');
 });
 
-test('FT2-E6: 图片按钮（dialog 输入 URL）→ ![alt](url) 插入并渲染 img.inline-image', async ({
+test('FT2-E6: 图片按钮（InsertUrlModal 输入 https URL）→ ![alt](url) 插入并渲染 img.inline-image（G2）', async ({
   page,
 }) => {
   await openEditor(page);
@@ -412,12 +413,15 @@ test('FT2-E6: 图片按钮（dialog 输入 URL）→ ![alt](url) 插入并渲染
   await page.waitForTimeout(300);
   const toolbar = page.locator('.floating-toolbar-v2');
   await expect(toolbar).toBeVisible();
-  page.once('dialog', async (d) => {
-    await d.accept('https://example.com/a.png');
-  });
+  // U5：图片按钮 → InsertUrlModal（替代已失效的 window.prompt），输入 https URL → 确定
   await toolbar.locator('button[title="图片"]').click();
+  const modal = page.locator('.insert-url-modal-overlay');
+  await expect(modal).toBeVisible();
+  await modal.locator('#insert-url-modal-input').click();
+  await page.keyboard.type('https://example.com/a.png', { delay: 10 });
+  await modal.getByRole('button', { name: '确定' }).click();
   await page.waitForTimeout(300);
-  // img 无文本内容（textContent 为空），断言 alt/src 与数量
+  // 网络图受 CSP https: 放行，应能渲染 img（不回退占位）；断言 alt/src 与数量
   const img = page.locator('img.inline-image');
   await expect(img).toHaveCount(1);
   await expect(img).toHaveAttribute('alt', '图片文本');
@@ -720,4 +724,162 @@ test('FT4-E2: `**12*3***` 选 `*3*`（em 全 token）点下划线 → `<u>` 内�
   expect(uResidue).toBe('3');
   const uStar = await u.evaluate((el) => (el.textContent ?? '').replace(/\u200B/g, '').includes('*'));
   expect(uStar).toBe(false);
+});
+
+// ============================================================
+// PLAN-EDIT-LINK-IMAGE\uFF1A\u94FE\u63A5\u8865\u534F\u8BAE / tooltip / media:// \u56FE\u7247 / \u5360\u4F4D\u56DE\u9000\uFF08E2E\uFF09
+// \u8BF4\u660E\uFF1A
+//  1) \u94FE\u63A5/\u56FE\u7247\u7684\u751F\u6210\u8D70\u5DE5\u5177\u680F InsertUrlModal\uFF08U5\uFF09\uFF0C\u4E0D\u7528 raw \u952E\u5165 markdown\u2014\u2014contentEditable
+//     \u4F1A\u5BF9 `[`/`(` \u81EA\u52A8\u8865\u5168\u95ED\u5408\u62EC\u53F7\uFF0Craw \u952E\u5165 `[x](...)` \u4F1A\u88AB\u7834\u574F\uFF08\u5B9E\u6D4B `[]x]()...`\uFF09\u3002
+//  2) renderer-only \u73AF\u5883\u65E0 Electron \u4E3B\u8FDB\u7A0B media handler\uFF0Cmedia:// \u56FE\u7247\u5728 Chromium \u4E2D\u52A0\u8F7D
+//     404 \u2192 \u89E6\u53D1 EditorV2 onErrorCapture \u56DE\u9000\u4E3A .inline-image-fallback\u3002img \u88AB\u66FF\u6362\u4E3A\u77AC\u6001
+//     \uFF08\u4E0B\u6B21\u91CD\u6E32\u67D3\u8986\u76D6\uFF09\uFF0C\u6545\u7528 MutationObserver \u5728 img \u521B\u5EFA\u65F6\u6355\u83B7 src\u3002
+// ============================================================
+test('LINK-IMAGE-E1: \u5DE5\u5177\u680F\u63D2\u5165\u65E0\u534F\u8BAE\u94FE\u63A5 www.baidu.com \u2192 href/data-href \u8865 https:// \u4E14 textContent \u4E0D\u53D8\uFF08G4+G6\uFF09', async ({
+  page,
+}) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('\u94FE\u63A5\u6587\u672C', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+
+  // \u5DE5\u5177\u680F"\u94FE\u63A5"\u2192 \u5F39 InsertUrlModal \u2192 \u8F93\u5165\u88F8\u57DF\u540D \u2192 \u786E\u5B9A
+  await toolbar.locator('button[title="\u94FE\u63A5"]').click();
+  const modal = page.locator('.insert-url-modal-overlay');
+  await expect(modal).toBeVisible();
+  await modal.locator('#insert-url-modal-input').click();
+  await page.keyboard.type('www.baidu.com', { delay: 10 });
+  await modal.getByRole('button', { name: '\u786E\u5B9A' }).click();
+  await page.waitForTimeout(300);
+
+  const link = page.locator('a.inline-link');
+  await expect(link).toHaveCount(1);
+  // G4\uFF1Ahref \u4E0E data-href \u5747\u8865\u5168\u4E3A\u53EF\u6253\u5F00\u7684\u5B8C\u6574 URL
+  await expect(link).toHaveAttribute('href', 'https://www.baidu.com');
+  await expect(link).toHaveAttribute('data-href', 'https://www.baidu.com');
+  // \u94FE\u63A5\u53EF\u89C6\u6587\u5B57\u4E3A label\uFF08\u5265\u79BB .md-syntax \u6807\u8BB0\u5B57\u7B26\uFF09
+  const label = await link.evaluate((el) => {
+    const clone = el.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('.md-syntax').forEach((n) => n.remove());
+    return (clone.textContent ?? '').replace(/\u200B/g, '');
+  });
+  expect(label).toBe('\u94FE\u63A5\u6587\u672C');
+  // G6\uFF1ADOM textContent \u4E0E\u6E90 markdown \u4E00\u81F4\uFF08.md-syntax \u6807\u8BB0\u9690\u85CF\u5B57\u7B26\u4E0D\u5F71\u54CD textContent\uFF09
+  await expect(editable).toHaveText('[\u94FE\u63A5\u6587\u672C](www.baidu.com)');
+});
+
+test('LINK-IMAGE-E2: hover \u94FE\u63A5 \u2192 ::after tooltip content == \u8865\u5168\u540E URL\uFF08G5\uFF09', async ({ page }) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('\u94FE\u63A5\u6587\u672C', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="\u94FE\u63A5"]').click();
+  const modal = page.locator('.insert-url-modal-overlay');
+  await expect(modal).toBeVisible();
+  await modal.locator('#insert-url-modal-input').click();
+  await page.keyboard.type('www.baidu.com', { delay: 10 });
+  await modal.getByRole('button', { name: '\u786E\u5B9A' }).click();
+  await page.waitForTimeout(300);
+
+  const link = page.locator('a.inline-link');
+  await expect(link).toHaveCount(1);
+  await link.hover();
+  await page.waitForTimeout(200);
+
+  const content = await link.evaluate((el) => getComputedStyle(el, '::after').content);
+  expect(content).not.toBe('none');
+  // content \u5E8F\u5217\u5316\u4E3A\u5E26\u5F15\u53F7\u5B57\u7B26\u4E32\uFF0C\u5982 `"https://www.baidu.com"`
+  expect(content.replace(/"/g, '')).toContain('https://www.baidu.com');
+});
+
+test('LINK-IMAGE-E3: \u5DE5\u5177\u680F\u9009\u62E9\u6587\u4EF6\uFF08pickImage=C:\\playwright\\a.png\uFF09\u2192 img src=media://C%3A/... \u4E14\u52A0\u8F7D\u5931\u8D25\u56DE\u9000\u5360\u4F4D\uFF08G1+G3\uFF09', async ({
+  page,
+}) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+
+  // MutationObserver \u6355\u83B7 img.inline-image \u521B\u5EFA\u65F6\u7684 src\uFF08img \u4F1A\u88AB fallback \u66FF\u6362\uFF0C\u9700\u8BB0\u4E0B\u77AC\u6001 src\uFF09
+  await page.evaluate(() => {
+    const win = window as unknown as { __capturedImgSrc?: string[] };
+    win.__capturedImgSrc = [];
+    const obs = new MutationObserver((muts) => {
+      for (const m of muts) {
+        for (const n of m.addedNodes) {
+          const el = n as HTMLElement;
+          if (
+            n.nodeType === 1 &&
+            el.tagName === 'IMG' &&
+            el.classList.contains('inline-image')
+          ) {
+            win.__capturedImgSrc?.push(el.getAttribute('src') ?? '');
+          }
+        }
+      }
+    });
+    obs.observe(document.documentElement, { childList: true, subtree: true });
+  });
+
+  await editable.click();
+  await page.keyboard.type('\u56FE\u7247\u6587\u672C', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+
+  // \u6253\u5F00\u56FE\u7247\u63D2\u5165 modal \u2192 \u9009\u62E9\u6587\u4EF6\uFF08pickImage \u8FD4\u56DE C:\playwright\a.png\uFF09\u2192 \u786E\u5B9A\u63D2\u5165
+  await toolbar.locator('button[title="\u56FE\u7247"]').click();
+  const modal = page.locator('.insert-url-modal-overlay');
+  await expect(modal).toBeVisible();
+  await modal.getByRole('button', { name: '\u9009\u62E9\u6587\u4EF6' }).click();
+  await page.waitForTimeout(200);
+  await expect(modal.locator('#insert-url-modal-input')).toHaveValue('C:\\playwright\\a.png');
+  await modal.getByRole('button', { name: '\u786E\u5B9A' }).click();
+  await page.waitForTimeout(500);
+
+  // G1\uFF1Aimg \u521B\u5EFA\u65F6 src \u4E3A media:// + encodeURIComponent\uFF08\u76D8\u7B26\u5192\u53F7\u7F16\u7801\u3001\u659C\u6760\u4FDD\u7559\uFF09
+  const captured = await page.evaluate(
+    () => (window as unknown as { __capturedImgSrc?: string[] }).__capturedImgSrc ?? []
+  );
+  expect(captured).toContain('media://C%3A/playwright/a.png');
+
+  // G3\uFF1Amedia:// \u5728 renderer-only \u4E0B 404 \u2192 \u56DE\u9000\u5360\u4F4D\uFF0C\u65E0\u6B8B\u7559 broken img
+  const fallback = page.locator('.inline-image-fallback');
+  await expect(fallback).toHaveCount(1, { timeout: 3000 });
+  await expect(fallback).toHaveText('\u56FE\u7247\u6587\u672C'); // alt \u6587\u672C
+  await expect(page.locator('img.inline-image')).toHaveCount(0);
+});
+
+test('LINK-IMAGE-E4: \u63D2\u5165\u4E0D\u5B58\u5728\u56FE\u7247 C:/no-such-file.png \u2192 \u5360\u4F4D\u56DE\u9000\u4E14\u65E0\u6B8B\u7559 img.inline-image\uFF08G3\uFF09', async ({
+  page,
+}) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('\u56FE\u7247\u6587\u672C', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+
+  // \u56FE\u7247 modal \u2192 \u8F93\u5165\u4E0D\u5B58\u5728\u7684\u672C\u5730\u8DEF\u5F84 \u2192 \u786E\u5B9A \u2192 media://C%3A/no-such-file.png \u52A0\u8F7D\u5931\u8D25 \u2192 \u56DE\u9000\u5360\u4F4D
+  await toolbar.locator('button[title="\u56FE\u7247"]').click();
+  const modal = page.locator('.insert-url-modal-overlay');
+  await expect(modal).toBeVisible();
+  await modal.locator('#insert-url-modal-input').click();
+  await page.keyboard.type('C:/no-such-file.png', { delay: 10 });
+  await modal.getByRole('button', { name: '\u786E\u5B9A' }).click();
+
+  const fallback = page.locator('.inline-image-fallback');
+  await expect(fallback).toHaveCount(1, { timeout: 3000 });
+  // 回退占位显示 alt 文本（图片文本），而非 broken 图标
+  await expect(fallback).toHaveText('图片文本');
+  await expect(page.locator('img.inline-image')).toHaveCount(0);
 });
