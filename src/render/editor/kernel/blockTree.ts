@@ -498,7 +498,7 @@ export function renderBlock(tree: BlockTreeV2, id: string, text?: string): Block
   const block = tree.blocks[id];
   if (!block) return tree;
   const content = text ?? block.text ?? '';
-  return setInlineHtml(tree, id, renderBlockHtml({ type: block.type, text: content }));
+  return setInlineHtml(tree, id, renderBlockHtml({ type: block.type, text: content, meta: block.meta }));
 }
 
 /** 更新叶子块文本并同步行内缓存（setBlockText + renderBlock 组合） */
@@ -519,6 +519,10 @@ export function updateMeta(
     ...nextTree.blocks[id],
     meta: { ...(nextTree.blocks[id].meta ?? {}), ...patch },
   };
+  // 代码块语言变更会改变高亮渲染：重算行内缓存（R2 语言切换刷新）
+  if (block.type === 'code-block' && 'fenceLanguage' in patch) {
+    return renderBlock(nextTree, id);
+  }
   return nextTree;
 }
 

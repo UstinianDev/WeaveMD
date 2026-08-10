@@ -646,8 +646,7 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
     await clickAndExpect('math', '数学公式');
   });
 
-  it('TB3: 图片按钮点击 → prompt 获取 URL 后 onFormat(blockId, image, s, e, url)', async () => {
-    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('https://example.com/a.png');
+  it('TB3: 图片按钮点击 → 打开图片 Modal → 输入 URL 确定 → onFormat(blockId, image, s, e, url, true)', async () => {
     let tree = createDocumentTree();
     const p = makeParagraph(tree, 'hello world');
     tree = appendChild(tree, tree.root.id, p);
@@ -661,7 +660,19 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
     const img = container.querySelector('button[title="图片"]') as HTMLButtonElement;
     expect(img).not.toBeNull();
     fireEvent.click(img);
-    expect(promptSpy).toHaveBeenCalled();
+
+    // 打开图片 Modal：标题「插入图片」+ 输入框 + 确定/取消按钮
+    const modal = container.querySelector('.insert-url-modal');
+    expect(modal).not.toBeNull();
+    expect(modal?.querySelector('.insert-url-modal-title')?.textContent).toBe('插入图片');
+
+    const input = container.querySelector('.insert-url-modal-input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'https://example.com/a.png' } });
+    const confirmBtn = Array.from(container.querySelectorAll('button.insert-url-modal-btn')).find(
+      (b) => b.textContent === '确定'
+    ) as HTMLButtonElement;
+    fireEvent.click(confirmBtn);
+
     expect(onFormat).toHaveBeenCalledWith(
       p.id,
       'image',
@@ -670,7 +681,149 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
       'https://example.com/a.png',
       true
     );
-    promptSpy.mockRestore();
+    expect(container.querySelector('.insert-url-modal')).toBeNull();
+  });
+
+  it('TB9: 链接按钮点击 → 打开链接 Modal（标题「插入链接」，无「选择文件」按钮）→ 输入确定 → onFormat link', async () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref } = setup(p.id, tree);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
+    await fireSelectionChange();
+
+    const link = container.querySelector('button[title="链接"]') as HTMLButtonElement;
+    fireEvent.click(link);
+
+    const modal = container.querySelector('.insert-url-modal');
+    expect(modal).not.toBeNull();
+    expect(modal?.querySelector('.insert-url-modal-title')?.textContent).toBe('插入链接');
+    const pickBtn = Array.from(modal?.querySelectorAll('button') ?? []).find(
+      (b) => b.textContent === '选择文件'
+    );
+    expect(pickBtn).toBeUndefined();
+
+    const input = container.querySelector('.insert-url-modal-input') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'https://example.com/doc' } });
+    const confirmBtn = Array.from(container.querySelectorAll('button.insert-url-modal-btn')).find(
+      (b) => b.textContent === '确定'
+    ) as HTMLButtonElement;
+    fireEvent.click(confirmBtn);
+
+    expect(onFormat).toHaveBeenCalledWith(
+      p.id,
+      'link',
+      expect.any(Number),
+      expect.any(Number),
+      'https://example.com/doc',
+      true
+    );
+  });
+
+  it('TB10: 图片 Modal 点「取消」→ onFormat 不被调用且 Modal 关闭', async () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref } = setup(p.id, tree);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
+    await fireSelectionChange();
+
+    fireEvent.click(container.querySelector('button[title="图片"]') as HTMLButtonElement);
+    expect(container.querySelector('.insert-url-modal')).not.toBeNull();
+    const cancelBtn = Array.from(container.querySelectorAll('button.insert-url-modal-btn')).find(
+      (b) => b.textContent === '取消'
+    ) as HTMLButtonElement;
+    fireEvent.click(cancelBtn);
+    expect(onFormat).not.toHaveBeenCalled();
+    expect(container.querySelector('.insert-url-modal')).toBeNull();
+  });
+
+  it('TB10b: 图片 Modal 点「×」关闭 → onFormat 不被调用且 Modal 关闭', async () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref } = setup(p.id, tree);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
+    await fireSelectionChange();
+
+    fireEvent.click(container.querySelector('button[title="图片"]') as HTMLButtonElement);
+    expect(container.querySelector('.insert-url-modal')).not.toBeNull();
+    fireEvent.click(container.querySelector('.insert-url-modal-close') as HTMLButtonElement);
+    expect(onFormat).not.toHaveBeenCalled();
+    expect(container.querySelector('.insert-url-modal')).toBeNull();
+  });
+
+  it('TB10c: 图片 Modal 按 Escape → 关闭，onFormat 不被调用，工具栏保持可见（Modal 期间驻留）', async () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref } = setup(p.id, tree);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
+    await fireSelectionChange();
+
+    fireEvent.click(container.querySelector('button[title="图片"]') as HTMLButtonElement);
+    expect(container.querySelector('.insert-url-modal')).not.toBeNull();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onFormat).not.toHaveBeenCalled();
+    expect(container.querySelector('.insert-url-modal')).toBeNull();
+    // U5：Escape 只关闭 Modal，不隐藏工具栏
+    expect(container.querySelector('.floating-toolbar-v2')).not.toBeNull();
+  });
+
+  it('TB11: 图片 Modal 空 URL 确定 → onFormat 不被调用并提示 URL 不能为空', async () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref } = setup(p.id, tree);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
+    await fireSelectionChange();
+
+    fireEvent.click(container.querySelector('button[title="图片"]') as HTMLButtonElement);
+    const confirmBtn = Array.from(container.querySelectorAll('button.insert-url-modal-btn')).find(
+      (b) => b.textContent === '确定'
+    ) as HTMLButtonElement;
+    fireEvent.click(confirmBtn);
+    expect(onFormat).not.toHaveBeenCalled();
+    expect(container.querySelector('.insert-url-modal-error')).not.toBeNull();
+  });
+
+  it('TB12: 图片 Modal 显示「选择文件」按钮；无 pickImage（测试环境无 bridge）点击不崩溃不回填', async () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref } = setup(p.id, tree);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
+    await fireSelectionChange();
+
+    fireEvent.click(container.querySelector('button[title="图片"]') as HTMLButtonElement);
+    const modal = container.querySelector('.insert-url-modal');
+    const pickBtn = Array.from(modal?.querySelectorAll('button') ?? []).find(
+      (b) => b.textContent === '选择文件'
+    );
+    expect(pickBtn).not.toBeUndefined();
+    await act(async () => {
+      fireEvent.click(pickBtn!);
+    });
+    expect((container.querySelector('.insert-url-modal-input') as HTMLInputElement).value).toBe('');
+    expect(onFormat).not.toHaveBeenCalled();
   });
 
   it('TB4: 橡皮擦点击 → onClearFormat(blockId, s, e)', async () => {

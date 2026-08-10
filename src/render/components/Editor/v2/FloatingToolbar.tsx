@@ -24,6 +24,7 @@ import {
   type BlockTypeOption,
 } from './types';
 import { createRafThrottle } from './rafThrottle';
+import InsertUrlModal from './InsertUrlModal';
 
 export type { BlockTypeOption };
 
@@ -276,6 +277,8 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     left: 0,
   });
   const [selection, setSelection] = useState<SelectionState | null>(null);
+  // U5：link/image 按钮打开 InsertUrlModal（替换失效的 window.prompt）
+  const [insertModal, setInsertModal] = useState<{ style: 'link' | 'image' } | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // SPEC-EDIT-DSF 4.3：rAF 节流与可见性去重（避免拖选期间每帧重复 setVisible）
@@ -322,6 +325,11 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     if (!container) return;
 
     const flushSelection = () => {
+      // U5：Modal 打开期间（输入框获焦会收起选区）不得隐藏工具栏
+      if (insertModal) {
+        cancelHide();
+        return;
+      }
       // FT3：点击工具栏外触发的隐藏后，浏览器随后的 selectionchange 不得重显
       if (suppressSelectionRef.current) {
         suppressSelectionRef.current = false;
@@ -368,11 +376,13 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       container.removeEventListener('scroll', handleScroll, true);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
-  }, [editorContainerRef, cancelHide, scheduleHide, tree, setVisibleGuarded]);
+  }, [editorContainerRef, cancelHide, scheduleHide, tree, setVisibleGuarded, insertModal]);
 
   // SPEC-EDIT-FT3 4.3：驻留退出条件——点击工具栏外任意位置（capture 阶段）与 Escape
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
+      // U5：Modal 打开期间点击 Modal（工具栏根节点之外）不得隐藏工具栏
+      if (insertModal) return;
       if (!stickyRef.current) return;
       if (toolbarRef.current?.contains(e.target as Node)) return;
       suppressSelectionRef.current = true;
@@ -380,6 +390,8 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
+      // U5：Modal 打开期间 Escape 由 Modal 自处理（关闭 Modal 而非隐藏工具栏）
+      if (insertModal) return;
       if (visibleRef.current) hideToolbar();
     };
     document.addEventListener('mousedown', handleMouseDown, true);
@@ -388,7 +400,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       document.removeEventListener('mousedown', handleMouseDown, true);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [hideToolbar]);
+  }, [hideToolbar, insertModal]);
 
   const currentType: BlockTypeOption = useMemo(() => {
     if (!selection) return 'paragraph';
@@ -421,14 +433,11 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     (button: FormatButton) => {
       if (!selection) return;
       if (button.style === 'link' || button.style === 'image') {
-        const url = window.prompt(
-          button.style === 'link' ? '输入链接 URL' : '输入图片 URL'
-        );
-        if (url === null) return;
-        onFormat(selection.blockId, button.style, selection.start, selection.end, url, true);
-      } else {
-        onFormat(selection.blockId, button.style, selection.start, selection.end, undefined, true);
+        // U5：link/image 打开 InsertUrlModal 取 URL（替换禁用环境不可用的 window.prompt）
+        setInsertModal({ style: button.style });
+        return;
       }
+      onFormat(selection.blockId, button.style, selection.start, selection.end, undefined, true);
       // FT3：格式应用后驻留，不退出；由 restoreSelection 保持选区非折叠以维持显示
       stickyRef.current = true;
     },
@@ -456,8 +465,9 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   if (!visible || !selection) return null;
 
   return (
-    <div
-      ref={toolbarRef}
+    <>
+      <div
+        ref={toolbarRef}
       className="floating-toolbar-v2 fixed z-[100] shadow-lg select-none"
       style={{
         top: `${position.top}px`,
@@ -548,7 +558,24 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
 
       {/* 橡皮擦：清除选区全部行内标记（SPEC-EDIT-FT2 4.5.4） */}
       <ToolbarButton title="橡皮擦" label="⌫" onClick={handleClearFormat} />
-    </div>
+      </div>
+      {/* U5：link/image URL 输入 Modal（open=false 时渲染 null，插在 toolbar 之后） */}
+      <InsertUrlModal
+        open={insertModal !== null}
+        title={insertModal?.style === 'link' ? '插入链接' : '插入图片'}
+        showPickImage={insertModal?.style === 'image'}
+        onConfirm={(url) => {
+          if (insertModal && selection) {
+            onFormat(selection.blockId, insertModal.style, selection.start, selection.end, url, true);
+            // FT3：确认插入后驻留，由 restoreSelection 维持选区非折叠
+            stickyRef.current = true;
+          }
+          setInsertModal(null);
+        }}
+        onCancel={() => setInsertModal(null)}
+        pickImage={window.weaveMD?.dialog.pickImage}
+      />
+    </>
   );
 };
 

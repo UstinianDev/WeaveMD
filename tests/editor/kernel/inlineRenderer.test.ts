@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { escapeHtml, renderInline, safeUrl } from '../../../src/render/editor/kernel/inlineRenderer';
+import {
+  escapeHtml,
+  renderBlockHtml,
+  renderInline,
+  safeUrl,
+} from '../../../src/render/editor/kernel/inlineRenderer';
 
 vi.mock('katex', () => ({
   default: {
@@ -277,5 +282,69 @@ describe('inlineRenderer — open 三连拆分剩余区渲染（fix-inline-marke
     const container = document.createElement('div');
     container.innerHTML = html;
     expect(container.textContent).toBe(source);
+  });
+});
+
+describe('inlineRenderer — code-block Prism 高亮（U2）', () => {
+  it('javascript 代码块渲染 Prism token HTML，keyword 被包裹', () => {
+    const html = renderBlockHtml({
+      type: 'code-block',
+      text: 'const a = 1',
+      meta: { fenceLanguage: 'javascript' },
+    });
+    expect(html).toContain('<span class="token keyword">const</span>');
+    expect(html).not.toContain('const a = 1');
+  });
+
+  it('plaintext 语言回退为纯转义，无 token span', () => {
+    expect(
+      renderBlockHtml({
+        type: 'code-block',
+        text: '<div>x</div>',
+        meta: { fenceLanguage: 'plaintext' },
+      })
+    ).toBe('&lt;div&gt;x&lt;/div&gt;');
+  });
+
+  it('无 meta（无语言）回退为纯转义', () => {
+    expect(renderBlockHtml({ type: 'code-block', text: '<div>x</div>' })).toBe(
+      '&lt;div&gt;x&lt;/div&gt;'
+    );
+  });
+
+  it('无 Prism grammar 的语言回退为纯转义，不抛错', () => {
+    const html = renderBlockHtml({
+      type: 'code-block',
+      text: 'foo < bar',
+      meta: { fenceLanguage: 'nosuchlang' },
+    });
+    expect(html).toBe('foo &lt; bar');
+    expect(html).not.toContain('token');
+  });
+
+  it('高亮结果 textContent 与源文本一致（不丢字符）', () => {
+    const source = 'const x = 1;\nconsole.log(x);';
+    const html = renderBlockHtml({
+      type: 'code-block',
+      text: source,
+      meta: { fenceLanguage: 'typescript' },
+    });
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    expect(container.textContent).toBe(source);
+  });
+
+  it('语言别名 js → javascript 高亮生效', () => {
+    const html = renderBlockHtml({
+      type: 'code-block',
+      text: 'const a = 1',
+      meta: { fenceLanguage: 'js' },
+    });
+    expect(html).toContain('<span class="token keyword">const</span>');
+  });
+
+  it('普通 paragraph 类型不受影响，仍走行内渲染', () => {
+    expect(renderBlockHtml({ type: 'paragraph', text: '**bold**' })).toContain('<strong>');
+    expect(renderBlockHtml({ type: 'paragraph', text: '**bold**' })).not.toContain('token');
   });
 });

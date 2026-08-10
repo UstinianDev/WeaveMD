@@ -99,4 +99,23 @@ describe('EditorV2 — 渲染结构', () => {
     expect(checkboxes[1]?.classList.contains('task-checkbox--checked')).toBe(false);
     expect(checkboxes[0]?.getAttribute('contenteditable')).toBe('false');
   });
+
+  it('js 代码块渲染 Prism token span（U2 组件级链路）', () => {
+    const { container } = render(
+      <EditorV2 content={'```js\nconst a = 1;\n```'} onContentChange={() => {}} />
+    );
+    const keyword = container.querySelector('.code-fence-content .token.keyword');
+    expect(keyword).not.toBeNull();
+    expect(keyword?.textContent).toBe('const');
+    // textContent 往返不受 token span 影响（既有断言口径）
+    expect(container.querySelector('.code-fence-content')?.textContent).toBe('const a = 1;');
+  });
+
+  it('plaintext 代码块无 token span（回退转义）', () => {
+    const { container } = render(
+      <EditorV2 content={'```plaintext\nconst a = 1;\n```'} onContentChange={() => {}} />
+    );
+    expect(container.querySelector('.code-fence-content .token')).toBeNull();
+    expect(container.querySelector('.code-fence-content')?.textContent).toBe('const a = 1;');
+  });
 });

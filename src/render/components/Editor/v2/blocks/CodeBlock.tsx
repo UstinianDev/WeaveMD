@@ -2,10 +2,11 @@
 // WeaveMD Editor v2 — CodeBlock
 // ============================================
 // 围栏代码块：语言徽标 + contentEditable 代码区（pre-wrap）。
-// 代码文本不参与行内语法渲染，仅 HTML 转义。
+// 代码文本由 kernel inlineRenderer 用 Prism 高亮渲染 token HTML（plaintext 回退转义）。
 
 import React, { useCallback, useState } from 'react';
 
+import { normalizeFenceLanguage } from '../../../../editor/kernel/fenceLanguage';
 import type { BlockNodeV2 } from '../../../../editor/kernel';
 import type { BlockHandlers } from '../types';
 import ContentBlock from './ContentBlock';
@@ -32,33 +33,8 @@ const LANGUAGE_OPTIONS = [
   { value: 'java', label: 'java' },
 ] as const;
 
-/** 语言别名归一化表（compact 形式：去空格/下划线/连字符后小写） */
-const LANGUAGE_ALIASES: Record<string, string> = {
-  plaintext: 'plaintext',
-  plain: 'plaintext',
-  text: 'plaintext',
-  txt: 'plaintext',
-  sh: 'shell',
-  bash: 'shell',
-  shell: 'shell',
-  zsh: 'shell',
-  md: 'markdown',
-  js: 'javascript',
-  ts: 'typescript',
-  yml: 'yaml',
-};
-
-function normalizeLanguage(language?: string): string {
-  if (!language) return 'plaintext';
-  const normalized = language.trim().toLowerCase();
-  const compact = normalized.replace(/[\s_-]+/g, '');
-  const alias = LANGUAGE_ALIASES[compact];
-  if (alias) return alias;
-  return LANGUAGE_OPTIONS.some((option) => option.value === normalized) ? normalized : 'plaintext';
-}
-
 const CodeBlock: React.FC<CodeBlockProps> = ({ block, handlers }) => {
-  const language = normalizeLanguage(block.meta?.fenceLanguage);
+  const language = normalizeFenceLanguage(block.meta?.fenceLanguage);
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(() => {

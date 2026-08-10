@@ -97,6 +97,21 @@ export function registerAllIpcHandlers(): void {
     return { success: true, data: { path: filePath, name, content } };
   });
 
+  ipcMain.handle(IPC_CHANNELS.DIALOG_PICK_IMAGE, async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return null;
+
+    const result = await dialog.showOpenDialog(win, {
+      title: 'Select Image',
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'] }],
+      properties: ['openFile'],
+    });
+
+    if (result.canceled || result.filePaths.length === 0) return null;
+
+    return result.filePaths[0];
+  });
+
   ipcMain.handle(IPC_CHANNELS.DIALOG_SAVE_FILE, async (_event, { defaultName, filters }) => {
     const win = BrowserWindow.getFocusedWindow();
     if (!win) return { success: false, error: 'No window' };
