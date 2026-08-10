@@ -15,6 +15,7 @@ export {
   findIntersectingStyleToken,
   findIntersectingStyleTokens,
   isBoundedWrap,
+  normalizeHref,
   STYLE_TOKEN_TYPE,
   tokenizeInline,
 } from './inlineLexer';

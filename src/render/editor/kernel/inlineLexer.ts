@@ -87,12 +87,34 @@ export function escapeHtml(text: string): string {
 
 const SAFE_URL_RE = /^(https?:|mailto:|file:|data:image\/(png|jpe?g|gif|webp);base64,|#|\/|\.\/|\.\.\/)/i;
 
-/** 过滤 javascript: / data: 等危险协议（图片 base64 除外）；Windows 绝对路径 / UNC 放行（显示层转 file://） */
+/**
+ * 无协议裸域名（至少含一个点）：`www.baidu.com` / `example.com:8080/x` / `a.io#anch`。
+ * 需 ≥1 个点；每个点分隔段为字母/数字/连字符；可选端口与路径/锚点后缀。
+ * 危险协议（`javascript:` `data:` `vbscript:` 等）以 `:` 开头，段首非字母/数字，
+ * 不匹配本正则（正则要求首字符是 [a-z0-9]，故 `javascript:...` 等被天然拒绝）。
+ */
+const BARE_DOMAIN_RE =
+  /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:\d+)?([/?#][^\s]*)?$/i;
+
+/**
+ * 把 href 规范化为可打开的完整 URL：无协议裸域名补 `https://` 前缀；
+ * 已带协议 / 以 `/` `./` `../` `#` 开头 / Windows 路径 / 其它 → 原样返回。
+ * 仅供渲染 HTML 的 href/data-href 属性使用；序列化层仍输出原始文本。
+ */
+export function normalizeHref(href: string): string {
+  const trimmed = href.trim();
+  if (BARE_DOMAIN_RE.test(trimmed) && !SAFE_URL_RE.test(trimmed)) return 'https://' + trimmed;
+  return trimmed;
+}
+
+/** 过滤 javascript: / data: 等危险协议（图片 base64 除外）；Windows 绝对路径 / UNC、裸域名放行 */
 export function safeUrl(href: string): string | null {
   const trimmed = href.trim();
   if (!trimmed) return null;
   const isWindowsPath = /^[a-zA-Z]:[\\/]/.test(trimmed) || trimmed.startsWith('\\\\');
-  if (!isWindowsPath && !SAFE_URL_RE.test(trimmed)) return null;
+  if (!isWindowsPath && !SAFE_URL_RE.test(trimmed) && !BARE_DOMAIN_RE.test(trimmed)) {
+    return null;
+  }
   return trimmed;
 }
 

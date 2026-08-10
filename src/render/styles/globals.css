@@ -1973,19 +1973,28 @@ a.inline-link {
   position: relative;
 }
 
+/* 链接 hover 提示：显示完整 URL（取自 data-href，即可打开地址）。
+   定位在链接正下方，灰底白字 tooltip，不拦截鼠标事件。 */
 a.inline-link:hover::after {
-  content: var(--link-tip);
+  content: attr(data-href);
   position: absolute;
   top: 100%;
   left: 0;
   margin-top: 4px;
-  color: #2563eb;
-  font-size: 13px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: var(--shadow-modal);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
   font-style: italic;
-  font-weight: bold;
-  line-height: 1.5;
-  padding: 4px 10px;
+  line-height: 1.4;
+  padding: 4px 8px;
   white-space: nowrap;
+  max-width: 480px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   z-index: 50;
   pointer-events: none;
 }
@@ -2071,6 +2080,18 @@ span.comment-marker {
 .inline-image {
   max-width: 100%;
   display: inline-block;
+}
+
+/* 图片加载失败占位（EditorV2 捕获 img error 后替换为 span.inline-image-fallback，G3） */
+.inline-image-fallback {
+  display: inline-block;
+  color: var(--text-muted);
+  border: 1px dashed var(--border-color);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-style: italic;
+  max-width: 100%;
+  overflow-wrap: break-word;
 }
 
 .math-inline {

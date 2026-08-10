@@ -88,6 +88,24 @@ const EditorV2: React.FC<EditorV2Props> = ({
     }
   }, []);
 
+  // 图片加载失败回退（INLINE-IMAGE G3）：捕获阶段委托监听 img.inline-image 的
+  // error 事件，替换为占位 span.inline-image-fallback（alt 或 src 或占位文案）。
+  // 纯 DOM 层替换，不触块树/不改 block.text/不提交编辑器状态；判重防循环。
+  const handleContainerErrorCapture = useCallback((e: React.SyntheticEvent<HTMLDivElement>) => {
+    if (e.type !== 'error') return;
+    const target = e.target as HTMLElement;
+    if (!(target instanceof HTMLImageElement)) return;
+    if (!target.classList.contains('inline-image')) return;
+    if (target.parentElement?.querySelector('.inline-image-fallback')) return;
+
+    const text = target.alt || target.src || '[图片加载失败]';
+    const fallback = document.createElement('span');
+    fallback.className = 'inline-image-fallback';
+    fallback.textContent = text;
+    target.replaceWith(fallback);
+    e.stopPropagation();
+  }, []);
+
   return (
     // onDragStart 阻止原生"拖拽移动选区"（contentEditable 默认允许），
     // 避免含 markdown 标记的选区被拖走破坏语法；跨块拖选走 mousedown/mousemove 自实现，不受影响。
@@ -96,6 +114,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
       className="relative w-full h-full"
       onClick={handleContainerClick}
       onDragStart={(e) => e.preventDefault()}
+      onErrorCapture={handleContainerErrorCapture}
     >
       <EditorScrollContainer
         ref={scrollRef}

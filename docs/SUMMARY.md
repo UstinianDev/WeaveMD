@@ -1,6 +1,6 @@
 # WeaveMD 项目总结
 
-> 版本：v3.6 | 最后更新：2026-08-09
+> 版本：v3.7 | 最后更新：2026-08-11
 
 ## 1. 项目概览
 
@@ -68,16 +68,23 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
   对应 `**123**` 选内容前部 `12` 点斜体的产物，渲染无字面 `*` 残体、再点回退）；根容器
   `onDragStart` preventDefault **禁用原生拖拽移动选区**（含标记选区不被拖走破坏语法，
   跨块拖选不受影响，e2e `drag-selection-move.spec.ts`）
+- 链接渲染与本地图片显示（REQ-EDIT-LINK-IMAGE，2026-08-11）：`safeUrl` 放行裸域名 +
+  `normalizeHref` 无协议链接自动补 `https://`（渲染 href/data-href 补全、`.md-syntax` 保留
+  原始 → textContent 与源一致）；本地图片走自定义 `media://` 协议（主进程
+  `media-protocol.ts` 映射本地文件，dev/prod 一致显示，不再受 `file://` 跨协议/CSP 阻止）、
+  CSP `img-src` 放行 `https: http: media:`、加载失败事件委托回退
+  `.inline-image-fallback` 占位（无 broken 图标）；链接 hover tooltip 修复为
+  `attr(data-href)` 显示完整 URL（原 `--link-tip` 未定义失效），Ctrl+Click 打开不变
 
 ## 4. 验证与测试
 
-- Vitest：**493 例**（内核/控制器/组件，含往返不变式、退出规则矩阵、输入链路、跨块删除、
+- Vitest：**600 例**（内核/控制器/组件，含往返不变式、退出规则矩阵、输入链路、跨块删除、
   代码块尾随空行补偿、浮动工具栏显示/转换矩阵/驻留、拖选闪烁的端点变化检测与 rAF 节流、
   FT2 的 inlineLexer/strip/katex/toggle/clearFormat、FT3 的 Step0 归一化矩阵/跨 token 拆分/
   选区恢复/集成、三连 `***` 跨风格叠加、CSS 静态断言、快捷键接线、
   FT4 的 formatCtrl 跨风格折叠/相邻混合强调/两两组合渲染/selection 标记吸附/ContentBlock 删除与方向键吸附/
   open 三连拆分/拖拽禁用事件断言）
-- Playwright 真实 Chromium E2E：**52 例**（输入/IME/富文本渲染/语法外观/退出与退格链/
+- Playwright 真实 Chromium E2E：**56 例（50 通过 + 6 既有红）**（输入/IME/富文本渲染/语法外观/退出与退格链/
   浮动工具栏/跨块拖选/代码块尾随空行重载恢复/反向跨类型拖选与 selectionchange 收敛/
   FT2 工具栏计算样式/标记隐藏与聚焦灰显/黄色高亮/下划线/图片/数学/橡皮擦/
    FT3 部分标记不叠加/跨多 token 逐 token 解除/加粗后斜体叠加渲染/工具栏驻留与点击外/Escape 退出/

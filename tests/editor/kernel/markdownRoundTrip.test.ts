@@ -199,6 +199,15 @@ describe('markdown round-trip — 组合与边界', () => {
     expectRoundTrip('![alt](https://example.com/a.png)');
   });
 
+  it('RT4 无协议裸域名链接往返不变（editor-link-image-fix：仅渲染层补协议，序列化层用原始文本）', () => {
+    expectRoundTrip('[text](www.baidu.com)');
+    expectRoundTrip('[text](baidu.com:8080/x)');
+  });
+
+  it('RT5 本地图片路径往返不变（serialization 层保持原始路径）', () => {
+    expectRoundTrip('![alt](C:/Users/me/a.png)');
+  });
+
   it('转义字符保留', () => {
     expectRoundTrip('\\*not italic\\* and \\# not heading');
   });

@@ -84,7 +84,7 @@ describe('inlineRenderer — 行内语法', () => {
 
   it('链接与图片', () => {
     expect(renderInline('[text](https://example.com)')).toBe(
-      '<a class="inline-link" href="https://example.com" target="_blank" rel="noopener noreferrer"><span class="md-syntax">[</span>text<span class="md-syntax">](https://example.com)</span></a>'
+      '<a class="inline-link" href="https://example.com" data-href="https://example.com" target="_blank" rel="noopener noreferrer"><span class="md-syntax">[</span>text<span class="md-syntax">](https://example.com)</span></a>'
     );
     expect(renderInline('![alt](https://example.com/a.png)')).toBe(
       '<img class="inline-image" src="https://example.com/a.png" alt="alt">'
@@ -95,14 +95,14 @@ describe('inlineRenderer — 行内语法', () => {
     expect(renderInline('[t](https://x.com "title")')).toContain('title="title"');
   });
 
-  it('本地图片路径：Windows 盘符 / UNC / 相对路径原样保留并转 file://', () => {
-    // Windows 盘符：`C:\...` → file:///C:/...
+  it('本地图片路径：Windows 盘符 / UNC 转 media://，相对 / 网络原样', () => {
+    // Windows 盘符：`C:\...` → media://C%3A/正斜杠路径（契约：盘符保留 `/` 分隔）
     expect(renderInline(String.raw`![alt](C:\Users\me\a.png)`)).toContain(
-      'src="file:///C:/Users/me/a.png"'
+      'src="media://C%3A/Users/me/a.png"'
     );
-    // UNC：`\\server\share` → file://server/share
+    // UNC：`\\server\share` → media:// + 整段编码（契约：`//` → `%2F%2F`）
     expect(renderInline(String.raw`![alt](\\server\share\a.png)`)).toContain(
-      'src="file://server/share/a.png"'
+      'src="media://%2F%2Fserver%2Fshare%2Fa.png"'
     );
     // 站内根路径原样保留；无前导斜杠的相对路径不识别为图片（降级纯文本）
     expect(renderInline('![a](/img/a.png)')).toContain('src="/img/a.png"');
@@ -113,11 +113,11 @@ describe('inlineRenderer — 行内语法', () => {
     );
   });
 
-  it('本地图片路径含空格/中文：Markdown 尖括号包裹（`![a](<...>)`）仍可解析渲染', () => {
+  it('本地图片路径含空格/中文：markdown 尖括号包裹（`![a](<...>)`）转 media:// 编码形态', () => {
     const spaced = String.raw`![alt](<C:\Users\me\My Folder\屏幕截图 2026-08-10 a b.png>)`;
     const html = renderInline(spaced);
     expect(html).toContain(
-      'src="file:///C:/Users/me/My Folder/屏幕截图 2026-08-10 a b.png"'
+      'src="media://C%3A/Users/me/My%20Folder/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-08-10%20a%20b.png"'
     );
     // 未包裹的含空格 URL 不识别为图片（降级纯文本，历史产物不静默误判）
     expect(renderInline(String.raw`![alt](C:\Users\me\a b.png)`)).toBe(
@@ -154,6 +154,28 @@ describe('inlineRenderer — 行内语法', () => {
     const container = document.createElement('div');
     container.innerHTML = html;
     expect(container.textContent).toBe('**bold** and `code` and [link](https://x.com)');
+  });
+
+  it('无协议裸域名链接：href/data-href 补 https://，`.md-syntax` 保留原始 URL', () => {
+    expect(renderInline('[t](www.baidu.com)')).toBe(
+      '<a class="inline-link" href="https://www.baidu.com" data-href="https://www.baidu.com" target="_blank" rel="noopener noreferrer"><span class="md-syntax">[</span>t<span class="md-syntax">](www.baidu.com)</span></a>'
+    );
+  });
+
+  it('裸域名链接与本地图片源文本保存', () => {
+    // 链接：`.md-syntax` 保留原始裸域名（href 补全不影响 textContent）
+    const linkHtml = renderInline('[t](www.baidu.com)');
+    const linkContainer = document.createElement('div');
+    linkContainer.innerHTML = linkHtml;
+    expect(linkContainer.textContent).toBe('[t](www.baidu.com)');
+    // 本地图片：图片 token 无标记 span，src 统一转 media://；alt 保留源 label
+    const imgHtml = renderInline(String.raw`![a](C:\a.png)`);
+    expect(imgHtml).toContain('src="media://C%3A/a.png"');
+    expect(imgHtml).toContain('alt="a"');
+    const imgContainer = document.createElement('div');
+    imgContainer.innerHTML = imgHtml;
+    // 图片不产文本节点，但 alt 属性与源 label 一致；完整往返由 RT5/RT3 覆盖
+    expect(imgContainer.querySelector('img')?.getAttribute('alt')).toBe('a');
   });
 });
 

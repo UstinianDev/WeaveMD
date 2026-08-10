@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   findIntersectingStyleToken,
   findIntersectingStyleTokens,
+  normalizeHref,
+  safeUrl,
   tokenizeInline,
 } from '../../../src/render/editor/kernel/inlineLexer';
 import type { InlineToken } from '../../../src/render/editor/kernel/inlineLexer';
@@ -522,5 +524,57 @@ describe('inlineLexer — open 三连拆分剩余区递归（fix-inline-marker-r
     expect(underline?.start).toBe(8);
     expect(underline?.contentStart).toBe(11);
     expect(underline?.contentEnd).toBe(12);
+  });
+});
+
+describe('inlineLexer — safeUrl 裸域名放行（editor-link-image-fix B1）', () => {
+  it('放行无协议裸域名（至少一个点）', () => {
+    expect(safeUrl('www.baidu.com')).toBe('www.baidu.com');
+    expect(safeUrl('baidu.com:8080/x')).toBe('baidu.com:8080/x');
+    expect(safeUrl('example.com/a#b')).toBe('example.com/a#b');
+    expect(safeUrl('a.io')).toBe('a.io');
+  });
+
+  it('拒绝非域名 href', () => {
+    // 无点 → 不算域名
+    expect(safeUrl('localhost')).toBeNull();
+    // 危险协议（BARE_DOMAIN_RE 首字符要求 [a-z0-9]，不以 a 开头即不匹配）
+    expect(safeUrl('javascript:alert(1)')).toBeNull();
+    expect(safeUrl('data:text/html,x')).toBeNull();
+    expect(safeUrl('vbscript:evil')).toBeNull();
+  });
+
+  it('既有放行不回归：协议 / 根路径 / Windows 路径 / UNC', () => {
+    expect(safeUrl('https://x.com')).toBe('https://x.com');
+    expect(safeUrl('/p')).toBe('/p');
+    expect(safeUrl(String.raw`\\server\share\x`)).toBe(String.raw`\\server\share\x`);
+    expect(safeUrl(String.raw`C:\a.png`)).toBe(String.raw`C:\a.png`);
+  });
+});
+
+describe('inlineLexer — normalizeHref（editor-link-image-fix B1）', () => {
+  it('无协议裸域名补 https:// 前缀', () => {
+    expect(normalizeHref('www.baidu.com')).toBe('https://www.baidu.com');
+    expect(normalizeHref('baidu.com:8080/x')).toBe('https://baidu.com:8080/x');
+  });
+
+  it('已有协议原样返回', () => {
+    expect(normalizeHref('https://x.com')).toBe('https://x.com');
+    expect(normalizeHref('mailto:a@b.com')).toBe('mailto:a@b.com');
+    expect(normalizeHref('mailto:a@b.com')).toBe('mailto:a@b.com');
+  });
+
+  it('相对路径 / 锚点 / Windows 路径原样返回', () => {
+    expect(normalizeHref('/p')).toBe('/p');
+    expect(normalizeHref('./x')).toBe('./x');
+    expect(normalizeHref('../y')).toBe('../y');
+    expect(normalizeHref('#anchor')).toBe('#anchor');
+    expect(normalizeHref(String.raw`C:\a.png`)).toBe(String.raw`C:\a.png`);
+    expect(normalizeHref(String.raw`\\server\share\a.png`)).toBe(String.raw`\\server\share\a.png`);
+  });
+
+  it('空串返回空', () => {
+    expect(normalizeHref('')).toBe('');
+    expect(normalizeHref('   ')).toBe('');
   });
 });

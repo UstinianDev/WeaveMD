@@ -144,7 +144,9 @@ describe('formatCtrl — 图片上添加链接（link 包裹 image）', () => {
     expect(applied).toBe(`![123](<${url}>)`);
     const html = renderInline(applied);
     expect(html).toContain('inline-image');
-    expect(html).toContain('file:///C:/Users/me/My Folder/屏幕截图 2026-08-10 213142.png');
+    expect(html).toContain(
+      'src="media://C%3A/Users/me/My%20Folder/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-08-10%20213142.png"'
+    );
   });
 
   it('link URL 含空格 → 同样尖括号包裹', () => {

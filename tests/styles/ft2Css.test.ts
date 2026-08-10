@@ -123,6 +123,30 @@ describe('SPEC-EDIT-FT2 CSS: 新增行内对象类', () => {
   });
 });
 
+describe('SPEC-EDIT-LINK-IMAGE CSS: tooltip + 图片占位（editor-link-image-fix D1）', () => {
+  it('CL1: a.inline-link:hover::after 用 attr(data-href) 且全文件无 --link-tip 残留', () => {
+    const b = blockText('a.inline-link:hover::after');
+    expect(b).toMatch(/content:\s*attr\(data-href\)/);
+    // 通用提示样式断言
+    expect(b).toMatch(/position:\s*absolute/);
+    expect(b).toMatch(/border-radius/);
+    expect(b).toMatch(/box-shadow/);
+    expect(b).toMatch(/pointer-events:\s*none/);
+    expect(b).toMatch(/z-index/);
+    // --link-tip 已删除
+    expect(b).not.toContain('var(--link-tip)');
+    expect(css).not.toContain('--link-tip');
+  });
+
+  it('CL2: .inline-image-fallback 占位样式存在（灰显 / 虚线 / 圆角 / 斜体）', () => {
+    const b = blockText('.inline-image-fallback');
+    expect(b).toMatch(/display:\s*inline-block/);
+    expect(b).toMatch(/color:\s*var\(--text-muted\)/);
+    expect(b).toMatch(/border-radius/);
+    expect(b).toMatch(/font-style:\s*italic/);
+  });
+});
+
 describe('SPEC-EDIT-CBSS CSS: 代码块字号与内边距（U3）', () => {
   it('CS7: .code-fence-content 字号为 15px', () => {
     const b = blockText('.code-fence-content');

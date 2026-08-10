@@ -7,7 +7,7 @@
 // 结构：基于 inlineLexer 的结构化 token 流渲染；token 映射 HTML 留在本层，
 // token 识别（tryXxx 系列）已下沉到 inlineLexer（渲染与清除共用同一识别路径）。
 
-import { tokenizeInline } from './inlineLexer';
+import { normalizeHref, tokenizeInline } from './inlineLexer';
 import type { InlineToken } from './inlineLexer';
 import { renderMath } from './katex';
 import { normalizeFenceLanguage } from './fenceLanguage';
@@ -37,17 +37,25 @@ export function escapeHtml(text: string): string {
     .replace(/'/g, '&#39;');
 }
 
-/** 外链 <a> 统一属性（新窗口打开 + noopener，titleAttr 为预转义的 title 属性串） */
+/** 外链 <a> 统一属性（新窗口打开 + noopener，titleAttr 为预转义的 title 属性串）。
+ *  href 与 data-href 均用 normalizeHref（无协议裸域名补 https://），保证 Ctrl+Click
+ *  openExternal 拿到完整可打开 URL；tooltip `a.inline-link:hover::after` 读 data-href。 */
 function renderLink(href: string, innerHtml: string, titleAttr = ''): string {
-  return `<a class="inline-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer"${titleAttr}>${innerHtml}</a>`;
+  const normalized = normalizeHref(href);
+  return `<a class="inline-link" href="${escapeHtml(normalized)}" data-href="${escapeHtml(normalized)}" target="_blank" rel="noopener noreferrer"${titleAttr}>${innerHtml}</a>`;
 }
 
-/** Windows 绝对路径（盘符 `C:\` / UNC `\\`）转为 file:// URL，确保 Electron 能加载本地图片 */
+/** Windows 绝对路径（盘符 `C:\` / UNC `\\`）生成 `media://` + encodeURIComponent(正斜杠归一化路径)。
+ *  其余（相对路径 / 网络 URL）原样返回。相对路径经 CSP `'self'` 放行，网络 URL 经 `https:` 放行。 */
 function toImgSrc(href: string): string {
   const normalized = href.replace(/\\/g, '/');
-  if (/^[a-zA-Z]:\//.test(normalized)) return `file:///${normalized}`;
-  if (normalized.startsWith('//')) return `file:${normalized}`;
-  return href;
+  const isDrivePath = /^[a-zA-Z]:\//.test(normalized);
+  const isUnc = normalized.startsWith('//');
+  if (!isDrivePath && !isUnc) return href;
+  const encoded = encodeURIComponent(normalized);
+  // 契约对齐：盘符路径保留 `/` 分隔（例 `media://C%3A/Users/me/a.png`），
+  // UNC 整段全编码（例 `media://%2F%2Fserver%2Fshare%2Fa.png`）。
+  return isDrivePath ? 'media://' + encoded.replace(/%2F/g, '/') : 'media://' + encoded;
 }
 
 /**
