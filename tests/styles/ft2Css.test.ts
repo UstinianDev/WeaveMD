@@ -41,16 +41,17 @@ function blockText(selector: string): string {
   return css.slice(braceStart + 1, i);
 }
 
-describe('SPEC-EDIT-FT2 CSS: .md-syntax 方案 B（隐藏 + 聚焦灰显）', () => {
+describe('SPEC-EDIT-FT2 CSS: .md-syntax 方案 B（始终隐藏，无聚焦灰显）', () => {
   it('CS1: .md-syntax 默认隐藏（font-size: 0 且 opacity: 0）', () => {
     const b = blockText('.md-syntax');
     expect(b).toMatch(/font-size:\s*0/);
     expect(b).toMatch(/opacity:\s*0/);
   });
 
-  it('CS2: .block-content:focus .md-syntax 聚焦灰显（opacity: 0.55）', () => {
-    const b = blockText('.block-content:focus .md-syntax');
-    expect(b).toMatch(/opacity:\s*0\.55/);
+  it('CS2: 无聚焦灰显规则（纯 WYSIWYG——语法标记聚焦时也不显现）', () => {
+    expect(css).not.toContain('.block-content:focus .md-syntax');
+    expect(css).not.toContain('.block-content:focus-within .md-syntax');
+    expect(css).not.toMatch(/opacity:\s*0\.55/);
   });
 });
 

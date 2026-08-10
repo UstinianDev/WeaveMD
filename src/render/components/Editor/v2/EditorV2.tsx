@@ -109,6 +109,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
         onFormat={handlers.onFormat}
         onConvertBlock={onConvertBlock}
         onClearFormat={handlers.onClearFormat}
+        onUnlink={handlers.onUnlink}
       />
     </div>
   );

@@ -10,7 +10,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { InlineFormatStyle } from '../../../editor/controllers';
 import { MARKERS } from '../../../editor/controllers/formatCtrl';
 import type { BlockTreeV2 } from '../../../editor/kernel';
-import { isBoundedWrap } from '../../../editor/kernel';
+import { findIntersectingLinks, isBoundedWrap } from '../../../editor/kernel';
 import {
   getCursorOffsets,
   nearestContentSpan as kernelNearestContentSpan,
@@ -48,6 +48,8 @@ interface FloatingToolbarProps {
     end: number,
     restoreSelection?: boolean
   ) => void;
+  /** 移除链接：光标/选区相交的链接还原为纯文本 label */
+  onUnlink?: (blockId: string, start: number, end: number) => void;
 }
 
 interface SelectionState {
@@ -55,6 +57,8 @@ interface SelectionState {
   start: number;
   end: number;
   anchorText: string;
+  /** 选区（含折叠光标）是否命中链接 token */
+  inLink: boolean;
 }
 
 interface FormatButton {
@@ -227,7 +231,6 @@ function computeToolbarState(
   tree: BlockTreeV2
 ): ToolbarState {
   if (!sel || sel.rangeCount === 0) return { kind: 'hide' };
-  if (sel.isCollapsed) return { kind: 'delay-hide' };
   const range = sel.getRangeAt(0);
   const anchorSpan = nearestContentSpan(sel.anchorNode, container);
   const focusSpan = nearestContentSpan(sel.focusNode, container);
@@ -243,9 +246,17 @@ function computeToolbarState(
       return { kind: 'hide' };
     }
   }
-  const rect = range.getBoundingClientRect();
-  if (rect.width === 0 && rect.height === 0) return { kind: 'delay-hide' };
   const offsets = getCursorOffsets(anchorSpan);
+  const blockText = tree.blocks[blockId]?.text ?? '';
+  const inLink = findIntersectingLinks(blockText, offsets.start, offsets.end).length > 0;
+  if (sel.isCollapsed) {
+    // 折叠光标仅在命中链接时显示（仅「移除链接」操作），否则维持延迟隐藏
+    if (!inLink) return { kind: 'delay-hide' };
+  } else {
+    const rect = range.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return { kind: 'delay-hide' };
+  }
+  const rect = range.getBoundingClientRect();
   const left = clamp(
     rect.left + rect.width / 2 - toolbarWidth / 2,
     8,
@@ -259,6 +270,7 @@ function computeToolbarState(
       start: offsets.start,
       end: offsets.end,
       anchorText: anchorSpan.textContent ?? '',
+      inLink,
     },
     position: { top, left },
   };
@@ -270,6 +282,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   onFormat,
   onConvertBlock,
   onClearFormat,
+  onUnlink,
 }) => {
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number }>({
@@ -450,6 +463,13 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     stickyRef.current = true;
   }, [selection, onClearFormat]);
 
+  const handleUnlink = useCallback(() => {
+    if (!selection || !onUnlink) return;
+    onUnlink(selection.blockId, selection.start, selection.end);
+    // 移除链接后驻留，由 restoreSelection 维持选区非折叠
+    stickyRef.current = true;
+  }, [selection, onUnlink]);
+
   const handleBlockChange = useCallback(
     (target: BlockTypeOption) => {
       if (selection && target !== currentType) {
@@ -463,6 +483,9 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   );
 
   if (!visible || !selection) return null;
+
+  // 折叠光标命中链接：仅显示「移除链接」（其余格式按钮对空选区无意义）
+  const showUnlinkOnly = selection.start === selection.end && selection.inLink;
 
   return (
     <>
@@ -532,32 +555,41 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
 
       <div className="ft-divider" style={{ backgroundColor: 'var(--border-color)' }} />
 
-      {CHAR_BUTTONS.map((button) => (
-        <ToolbarButton
-          key={button.style}
-          title={button.title}
-          label={button.label}
-          className={button.className}
-          active={activeFormats.has(button.style)}
-          onClick={() => handleFormat(button)}
-        />
-      ))}
+      {showUnlinkOnly ? (
+        <ToolbarButton title="移除链接" label="解链" onClick={handleUnlink} />
+      ) : (
+        <>
+          {CHAR_BUTTONS.map((button) => (
+            <ToolbarButton
+              key={button.style}
+              title={button.title}
+              label={button.label}
+              className={button.className}
+              active={activeFormats.has(button.style)}
+              onClick={() => handleFormat(button)}
+            />
+          ))}
 
-      <div className="ft-divider" style={{ backgroundColor: 'var(--border-color)' }} />
+          <div className="ft-divider" style={{ backgroundColor: 'var(--border-color)' }} />
 
-      {OBJECT_BUTTONS.map((button) => (
-        <ToolbarButton
-          key={button.style}
-          title={button.title}
-          label={button.label}
-          onClick={() => handleFormat(button)}
-        />
-      ))}
+          {OBJECT_BUTTONS.map((button) => (
+            <ToolbarButton
+              key={button.style}
+              title={button.title}
+              label={button.label}
+              onClick={() => handleFormat(button)}
+            />
+          ))}
 
-      <div className="ft-divider" style={{ backgroundColor: 'var(--border-color)' }} />
+          <div className="ft-divider" style={{ backgroundColor: 'var(--border-color)' }} />
 
-      {/* 橡皮擦：清除选区全部行内标记（SPEC-EDIT-FT2 4.5.4） */}
-      <ToolbarButton title="橡皮擦" label="⌫" onClick={handleClearFormat} />
+          {/* 选区命中链接时提供移除链接；橡皮擦：清除选区全部行内标记 */}
+          {selection.inLink && (
+            <ToolbarButton title="移除链接" label="解链" onClick={handleUnlink} />
+          )}
+          <ToolbarButton title="橡皮擦" label="⌫" onClick={handleClearFormat} />
+        </>
+      )}
       </div>
       {/* U5：link/image URL 输入 Modal（open=false 时渲染 null，插在 toolbar 之后） */}
       <InsertUrlModal

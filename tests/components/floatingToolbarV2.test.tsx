@@ -552,7 +552,8 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
     ref: React.RefObject<HTMLDivElement>,
     onFormat: ReturnType<typeof vi.fn>,
     onConvertBlock: ReturnType<typeof vi.fn>,
-    onClearFormat: ReturnType<typeof vi.fn>
+    onClearFormat: ReturnType<typeof vi.fn>,
+    onUnlink?: ReturnType<typeof vi.fn>
   ) {
     mockSelection(span);
     return render(
@@ -562,6 +563,7 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
         onFormat={onFormat}
         onConvertBlock={onConvertBlock}
         onClearFormat={onClearFormat}
+        onUnlink={onUnlink}
       />
     );
   }
@@ -1010,6 +1012,52 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
     await fireSelectionChange();
     expect(container.querySelector('.floating-toolbar-v2')).toBeNull();
     vi.restoreAllMocks();
+  });
+
+  it('TB12: 选区命中链接 → 显示「移除链接」按钮 → 点击 → onUnlink(blockId, s, e) 且不触发格式', async () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, '[hello](https://x.io)');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref } = setup(p.id, tree, '[hello](https://x.io)');
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const onUnlink = vi.fn();
+    const { container } = renderToolbar(
+      tree,
+      span,
+      ref,
+      onFormat,
+      onConvertBlock,
+      onClearFormat,
+      onUnlink
+    );
+    await fireSelectionChange();
+
+    const btn = container.querySelector('button[title="移除链接"]') as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    fireEvent.click(btn);
+    expect(onUnlink).toHaveBeenCalledWith(p.id, 0, '[hello](https://x.io)'.length);
+    expect(onFormat).not.toHaveBeenCalled();
+    expect(onClearFormat).not.toHaveBeenCalled();
+  });
+
+  it('TB12b: 未传 onUnlink → 解链按钮点击静默（不抛错，不触发 onFormat/onClearFormat）', async () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, '[hello](https://x.io)');
+    tree = appendChild(tree, tree.root.id, p);
+    const { span, ref } = setup(p.id, tree, '[hello](https://x.io)');
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
+    await fireSelectionChange();
+
+    const btn = container.querySelector('button[title="移除链接"]') as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    expect(() => fireEvent.click(btn)).not.toThrow();
+    expect(onFormat).not.toHaveBeenCalled();
+    expect(onClearFormat).not.toHaveBeenCalled();
   });
 });
 
