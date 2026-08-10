@@ -67,6 +67,7 @@ export const IPC_CHANNELS = {
   DIALOG_SAVE_FILE: 'dialog:save-file',
   DIALOG_OPEN_FOLDER: 'dialog:open-folder',
   DIALOG_SAVE_FILE_PATH: 'dialog:save-file-path',
+  DIALOG_PICK_IMAGE: 'dialog:pick-image',
 
   // Folder
   FOLDER_READ: 'folder:read',

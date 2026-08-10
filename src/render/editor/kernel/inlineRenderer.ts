@@ -10,7 +10,21 @@
 import { tokenizeInline } from './inlineLexer';
 import type { InlineToken } from './inlineLexer';
 import { renderMath } from './katex';
+import { normalizeFenceLanguage } from './fenceLanguage';
 import type { BlockNodeV2 } from './types';
+import Prism from 'prismjs';
+import 'prismjs/components/prism-bash';
+import 'prismjs/components/prism-css';
+import 'prismjs/components/prism-java';
+import 'prismjs/components/prism-json';
+import 'prismjs/components/prism-jsx';
+import 'prismjs/components/prism-markdown';
+import 'prismjs/components/prism-markup';
+import 'prismjs/components/prism-python';
+import 'prismjs/components/prism-sql';
+import 'prismjs/components/prism-tsx';
+import 'prismjs/components/prism-typescript';
+import 'prismjs/components/prism-yaml';
 
 export { safeUrl } from './inlineLexer';
 
@@ -28,10 +42,22 @@ function renderLink(href: string, innerHtml: string, titleAttr = ''): string {
   return `<a class="inline-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer"${titleAttr}>${innerHtml}</a>`;
 }
 
-/** 按块类型生成行内渲染 HTML（代码块原样转义，其余走行内渲染） */
-export function renderBlockHtml(block: Pick<BlockNodeV2, 'type' | 'text'>): string {
+/**
+ * 代码块高亮：非 plaintext 语言且有 Prism grammar 时渲染 token HTML，
+ * 否则回退纯文本转义。Prism.highlight 内部对原文做 HTML 转义。
+ */
+function highlightCode(text: string, language?: string): string {
+  const normalized = normalizeFenceLanguage(language);
+  if (normalized === 'plaintext') return escapeHtml(text);
+  const grammar = Prism.languages[normalized];
+  if (!grammar) return escapeHtml(text);
+  return Prism.highlight(text, grammar, normalized);
+}
+
+/** 按块类型生成行内渲染 HTML（代码块走 Prism 高亮，其余走行内渲染） */
+export function renderBlockHtml(block: Pick<BlockNodeV2, 'type' | 'text' | 'meta'>): string {
   return block.type === 'code-block'
-    ? escapeHtml(block.text ?? '')
+    ? highlightCode(block.text ?? '', block.meta?.fenceLanguage)
     : renderInline(block.text ?? '');
 }
 

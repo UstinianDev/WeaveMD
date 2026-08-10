@@ -575,6 +575,7 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
         },
         'Browser bridge save file path mock.'
       ),
+    pickImage: async () => null,
   },
   account: {
     info: async (userId) => {

@@ -55,6 +55,7 @@ export interface WeaveMDApi {
       defaultName: string,
       filters?: Array<{ name: string; extensions: string[] }>
     ) => Promise<unknown>;
+    pickImage: () => Promise<string | null>;
   };
   folder: {
     readFolder: (path: string) => Promise<unknown>;
@@ -120,6 +121,7 @@ const api: WeaveMDApi = {
     openFolder: () => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_OPEN_FOLDER),
     saveFilePath: (title, defaultName, filters) =>
       ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SAVE_FILE_PATH, { title, defaultName, filters }),
+    pickImage: () => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_PICK_IMAGE),
   },
   folder: {
     readFolder: (path) => ipcRenderer.invoke(IPC_CHANNELS.FOLDER_READ, path),

@@ -121,3 +121,81 @@ describe('SPEC-EDIT-FT2 CSS: 新增行内对象类', () => {
     expect(blockText('.math-inline')).toMatch(/display:\s*inline-block/);
   });
 });
+
+describe('SPEC-EDIT-CBSS CSS: 代码块字号与内边距（U3）', () => {
+  it('CS7: .code-fence-content 字号为 15px', () => {
+    const b = blockText('.code-fence-content');
+    expect(b).toMatch(/font-size:\s*15px/);
+  });
+
+  it('CS8: .code-fence-content pre 内边距上下 20px 左右 24px', () => {
+    const b = blockText('.code-fence-content pre');
+    expect(b).toMatch(/padding:\s*20px\s+24px\s+20px/);
+  });
+
+  it('CS9: .code-fence-textarea 字号同步 15px', () => {
+    const b = blockText('.code-fence-textarea');
+    expect(b).toMatch(/font-size:\s*15px/);
+  });
+});
+
+describe('SPEC-INSERT-URL-MODAL CSS: InsertUrlModal（U4）', () => {
+  // blockText 用行前缀定位存在歧义：.insert-url-modal 会先匹配到
+  // .insert-url-modal-overlay 等带后缀类的规则（与既有 -dot/-dots 同理）。
+  // 此处用「选择器 + 空格 + {」字面量精确定位，花括号配平逻辑与 blockText 一致。
+  function modalBlock(selector: string): string {
+    const token = `${selector} {`;
+    const start = css.indexOf(token);
+    expect(start, `selector ${selector} { should exist`).toBeGreaterThan(-1);
+    const braceStart = css.indexOf('{', start);
+    let depth = 0;
+    let i = braceStart;
+    for (; i < css.length; i++) {
+      if (css[i] === '{') depth++;
+      else if (css[i] === '}') {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+    return css.slice(braceStart + 1, i);
+  }
+
+  it('CM1: .insert-url-modal-overlay fixed 遮罩居中且 z-index 120', () => {
+    const b = blockText('.insert-url-modal-overlay');
+    expect(b).toMatch(/position:\s*fixed/);
+    expect(b).toMatch(/z-index:\s*120/);
+    expect(b).toMatch(/display:\s*flex/);
+    expect(b).toMatch(/align-items:\s*center/);
+    expect(b).toMatch(/justify-content:\s*center/);
+    expect(b).toMatch(/background:\s*rgba\(0,\s*0,\s*0,\s*0\.45\)/);
+  });
+
+  it('CM2: .insert-url-modal 卡片用 --bg-secondary + border + radius + min-width', () => {
+    const b = modalBlock('.insert-url-modal');
+    expect(b).toMatch(/min-width:\s*320px/);
+    expect(b).toMatch(/background:\s*var\(--bg-secondary\)\s*;/);
+    expect(b).toMatch(/border:\s*1px\s+solid\s+var\(--border-color\)/);
+    expect(b).toMatch(/border-radius:\s*12px/);
+  });
+
+  it('CM3: .insert-url-modal-dot 三色窗口控件（红/黄/绿）', () => {
+    const dot = modalBlock('.insert-url-modal-dot');
+    expect(dot).toMatch(/width:\s*12px/);
+    expect(dot).toMatch(/height:\s*12px/);
+    expect(dot).toMatch(/border-radius:\s*999px/);
+    expect(modalBlock('.insert-url-modal-dot--close')).toMatch(/background:\s*#ff5f56/);
+    expect(modalBlock('.insert-url-modal-dot--minimize')).toMatch(/background:\s*#ffbd2e/);
+    expect(modalBlock('.insert-url-modal-dot--zoom')).toMatch(/background:\s*#27c93f/);
+  });
+
+  it('CM4: .insert-url-modal-actions / .insert-url-modal-input / .insert-url-modal-btn 存在', () => {
+    const actions = modalBlock('.insert-url-modal-actions');
+    expect(actions).toMatch(/display:\s*flex/);
+    expect(actions).toMatch(/justify-content:\s*flex-end/);
+    const input = modalBlock('.insert-url-modal-input');
+    expect(input).toMatch(/width:\s*100%/);
+    expect(input).toMatch(/border-radius:\s*var\(--radius-input\)/);
+    expect(modalBlock('.insert-url-modal-btn')).toMatch(/cursor:\s*pointer/);
+    expect(modalBlock('.insert-url-modal-btn--primary')).toMatch(/background:\s*var\(--accent\)/);
+  });
+});

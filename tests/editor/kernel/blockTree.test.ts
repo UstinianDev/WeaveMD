@@ -9,13 +9,17 @@ import {
   getNextLeaf,
   getPrevLeaf,
   insertBlockAfter,
+  makeCodeBlock,
   makeHeading,
   makeParagraph,
   mergeLeafIntoPrev,
   removeBlock,
+  renderBlock,
   replaceBlock,
   setBlockText,
+  setBlockTextAndRender,
   splitLeaf,
+  updateMeta,
 } from '../../../src/render/editor/kernel/blockTree';
 import { markdownToState } from '../../../src/render/editor/kernel/markdownToState';
 
@@ -229,5 +233,44 @@ describe('blockTree — deleteLeafRange（跨块选区删除）', () => {
         (b) => b.type === 'bullet-list' || b.type === 'list-item'
       )
     ).toBe(false);
+  });
+});
+
+describe('blockTree — 代码块高亮渲染（U2）', () => {
+  it('renderBlock 透传 meta：code-block inlineHtml 为 Prism 高亮 HTML', () => {
+    let tree = createDocumentTree();
+    const code = makeCodeBlock(tree, 'const a = 1', 'javascript');
+    tree = appendChild(tree, tree.root.id, code);
+    tree = renderBlock(tree, code.id);
+    expect(tree.blocks[code.id].inlineHtml).toContain(
+      '<span class="token keyword">const</span>'
+    );
+  });
+
+  it('setBlockTextAndRender 代码块文本变更后高亮更新', () => {
+    let tree = createDocumentTree();
+    const code = makeCodeBlock(tree, 'const a = 1', 'javascript');
+    tree = appendChild(tree, tree.root.id, code);
+    tree = renderBlock(tree, code.id);
+    tree = setBlockTextAndRender(tree, code.id, 'const b = 2');
+    const html = tree.blocks[code.id].inlineHtml!;
+    expect(html).toContain('<span class="token keyword">const</span>');
+    expect(html).not.toContain('1');
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    expect(container.textContent).toBe('const b = 2');
+  });
+
+  it('updateMeta 语言变更后 inlineHtml 重算（R2：语言切换刷新）', () => {
+    let tree = createDocumentTree();
+    const code = makeCodeBlock(tree, 'const a = 1', 'plaintext');
+    tree = appendChild(tree, tree.root.id, code);
+    tree = renderBlock(tree, code.id);
+    expect(tree.blocks[code.id].inlineHtml).not.toContain('token');
+    tree = updateMeta(tree, code.id, { fenceLanguage: 'javascript' });
+    expect(tree.blocks[code.id].meta?.fenceLanguage).toBe('javascript');
+    expect(tree.blocks[code.id].inlineHtml).toContain(
+      '<span class="token keyword">const</span>'
+    );
   });
 });

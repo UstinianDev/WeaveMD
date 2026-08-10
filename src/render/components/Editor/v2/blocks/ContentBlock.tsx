@@ -291,8 +291,9 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
 
   const displayHtml = toDisplayHtml(inlineHtml, text);
   const isEmpty = text === '';
+  // 字号由 CSS .code-fence-content 统一控制（R6 双源统一，避免内联覆盖 CSS）
   const style: React.CSSProperties = raw
-    ? { whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '13px', lineHeight: 1.6 }
+    ? { whiteSpace: 'pre-wrap', fontFamily: 'monospace', lineHeight: 1.6 }
     : {};
 
   return (
