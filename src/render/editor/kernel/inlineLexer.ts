@@ -378,6 +378,7 @@ function matchOpenTripleSplit(
         contentEnd: emClose,
         children: tokenizeInline(text, searchFrom, emClose),
       },
+      ...tokenizeInline(text, emClose + 1, strongClose),
     ],
   };
 }
