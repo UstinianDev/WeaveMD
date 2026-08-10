@@ -42,6 +42,14 @@ function renderLink(href: string, innerHtml: string, titleAttr = ''): string {
   return `<a class="inline-link" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer"${titleAttr}>${innerHtml}</a>`;
 }
 
+/** Windows 绝对路径（盘符 `C:\` / UNC `\\`）转为 file:// URL，确保 Electron 能加载本地图片 */
+function toImgSrc(href: string): string {
+  const normalized = href.replace(/\\/g, '/');
+  if (/^[a-zA-Z]:\//.test(normalized)) return `file:///${normalized}`;
+  if (normalized.startsWith('//')) return `file:${normalized}`;
+  return href;
+}
+
 /**
  * 代码块高亮：非 plaintext 语言且有 Prism grammar 时渲染 token HTML，
  * 否则回退纯文本转义。Prism.highlight 内部对原文做 HTML 转义。
@@ -75,7 +83,7 @@ function renderToken(token: InlineToken, text: string): string {
     case 'image': {
       const label = text.slice(token.contentStart, token.contentEnd);
       const titleAttr = token.title !== undefined ? ` title="${escapeHtml(token.title)}"` : '';
-      return `<img class="inline-image" src="${escapeHtml(token.href ?? '')}" alt="${escapeHtml(label)}"${titleAttr}>`;
+      return `<img class="inline-image" src="${escapeHtml(toImgSrc(token.href ?? ''))}" alt="${escapeHtml(label)}"${titleAttr}>`;
     }
     case 'link': {
       const labelHtml = renderTokenList(token.children ?? [], text, token.contentStart, token.contentEnd);

@@ -95,6 +95,36 @@ describe('inlineRenderer — 行内语法', () => {
     expect(renderInline('[t](https://x.com "title")')).toContain('title="title"');
   });
 
+  it('本地图片路径：Windows 盘符 / UNC / 相对路径原样保留并转 file://', () => {
+    // Windows 盘符：`C:\...` → file:///C:/...
+    expect(renderInline(String.raw`![alt](C:\Users\me\a.png)`)).toContain(
+      'src="file:///C:/Users/me/a.png"'
+    );
+    // UNC：`\\server\share` → file://server/share
+    expect(renderInline(String.raw`![alt](\\server\share\a.png)`)).toContain(
+      'src="file://server/share/a.png"'
+    );
+    // 站内根路径原样保留；无前导斜杠的相对路径不识别为图片（降级纯文本）
+    expect(renderInline('![a](/img/a.png)')).toContain('src="/img/a.png"');
+    expect(renderInline('![a](img/a.png)')).toBe('![a](img/a.png)');
+    // https URL 不受影响
+    expect(renderInline('![a](https://x.com/a.png)')).toContain(
+      'src="https://x.com/a.png"'
+    );
+  });
+
+  it('本地图片路径含空格/中文：Markdown 尖括号包裹（`![a](<...>)`）仍可解析渲染', () => {
+    const spaced = String.raw`![alt](<C:\Users\me\My Folder\屏幕截图 2026-08-10 a b.png>)`;
+    const html = renderInline(spaced);
+    expect(html).toContain(
+      'src="file:///C:/Users/me/My Folder/屏幕截图 2026-08-10 a b.png"'
+    );
+    // 未包裹的含空格 URL 不识别为图片（降级纯文本，历史产物不静默误判）
+    expect(renderInline(String.raw`![alt](C:\Users\me\a b.png)`)).toBe(
+      String.raw`![alt](C:\Users\me\a b.png)`
+    );
+  });
+
   it('危险链接降级为纯文本', () => {
     expect(renderInline('[x](javascript:alert(1))')).toBe('[x](javascript:alert(1))');
   });

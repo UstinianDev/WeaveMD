@@ -1928,20 +1928,13 @@ html.dark .code-fence-content .token.variable {
   pointer-events: none;
 }
 
-/* v2 行内语法标记（marktext .mu-syntax 等价物）：默认隐藏（不可选，保留在 DOM
-   保证 textContent 与源文本一致），块聚焦时灰显可见编辑边界（方案 B，SPEC-EDIT-FT2） */
+/* v2 行内语法标记（marktext .mu-syntax 等价物）：始终隐藏（不可选，保留在 DOM
+   保证 textContent 与源文本一致），聚焦/失焦一致保持 WYSIWYG（取消聚焦灰显） */
 .md-syntax {
   font-size: 0;
   opacity: 0;
   user-select: none;
   -webkit-user-select: none;
-}
-
-.block-content:focus .md-syntax,
-.block-content:focus-within .md-syntax {
-  font-size: inherit;
-  opacity: 0.55;
-  color: var(--text-muted, #888888);
 }
 
 /* v2 内容块：占满块宽（空块仅含零宽空格时宽度为 0，点击/聚焦困难） */

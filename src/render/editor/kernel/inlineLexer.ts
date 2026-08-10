@@ -85,13 +85,14 @@ export function escapeHtml(text: string): string {
     .replace(/'/g, '&#39;');
 }
 
-const SAFE_URL_RE = /^(https?:|mailto:|data:image\/(png|jpe?g|gif|webp);base64,|#|\/|\.\/|\.\.\/)/i;
+const SAFE_URL_RE = /^(https?:|mailto:|file:|data:image\/(png|jpe?g|gif|webp);base64,|#|\/|\.\/|\.\.\/)/i;
 
-/** 过滤 javascript: / data: 等危险协议（图片 base64 除外） */
+/** 过滤 javascript: / data: 等危险协议（图片 base64 除外）；Windows 绝对路径 / UNC 放行（显示层转 file://） */
 export function safeUrl(href: string): string | null {
   const trimmed = href.trim();
   if (!trimmed) return null;
-  if (!SAFE_URL_RE.test(trimmed)) return null;
+  const isWindowsPath = /^[a-zA-Z]:[\\/]/.test(trimmed) || trimmed.startsWith('\\\\');
+  if (!isWindowsPath && !SAFE_URL_RE.test(trimmed)) return null;
   return trimmed;
 }
 
@@ -184,9 +185,13 @@ function matchImageOrLink(text: string, i: number, bound: number, isImage: boole
   if (parenEnd === -1) return null;
   const args = text.slice(closeBracket + 2, parenEnd);
 
-  const argMatch = args.match(/^\s*([^\s"']+)(?:\s+["']([^"']*)["'])?\s*$/);
+  // URL 含空格/括号等特殊字符时按 Markdown 标准用 `<...>` 包裹（本地图片路径常见），
+  // 否则 `[^\s"']+` 会在空格处截断导致整 token 无法识别
+  const argMatch = args.match(/^\s*(<[^<>]*>|[^\s"']+)(?:\s+["']([^"']*)["'])?\s*$/);
   if (!argMatch) return null;
-  const safe = safeUrl(argMatch[1]);
+  const rawUrl = argMatch[1];
+  const href = rawUrl.startsWith('<') && rawUrl.endsWith('>') ? rawUrl.slice(1, -1) : rawUrl;
+  const safe = safeUrl(href);
   if (!safe) return null;
 
   const contentStart = openBracket + 1;
@@ -556,4 +561,19 @@ export function findIntersectingStyleToken(
   e: number
 ): InlineToken | null {
   return findIntersectingStyleTokens(text, style, s, e)[0] ?? null;
+}
+
+/** 深度遍历 token 树，收集与 [start,end) 相交的 link token（折叠光标落点计入） */
+export function findIntersectingLinks(text: string, start: number, end: number): InlineToken[] {
+  const s = Math.min(start, end);
+  const e = Math.max(start, end);
+  const hits: InlineToken[] = [];
+  const visit = (tokens: InlineToken[]): void => {
+    for (const t of tokens) {
+      if (t.type === 'link' && t.start < e && t.end > s) hits.push(t);
+      if (t.children) visit(t.children);
+    }
+  };
+  visit(tokenizeInline(text));
+  return hits;
 }

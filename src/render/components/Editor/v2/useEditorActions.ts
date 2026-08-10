@@ -205,6 +205,14 @@ export function useEditorActions({
     [applyBlockAction]
   );
 
+  // 移除链接：光标/选区相交的链接还原为纯文本 label（formatCtrl.unlinkRange）
+  const onUnlink = useCallback(
+    (blockId: string, start: number, end: number) => {
+      applyBlockAction((instance) => formatCtrl.unlinkRange(instance, blockId, start, end));
+    },
+    [applyBlockAction]
+  );
+
   // 浮动工具栏：块类型转换（正文 ↔ H1-H6，仅根级 paragraph/heading）
   // 块元数据更新助手：updateMeta → setTree → 同步内容（消除重复模式）
   const applyMetaUpdate = useCallback(
@@ -328,6 +336,7 @@ export function useEditorActions({
       onShiftTab,
       onFormat,
       onClearFormat,
+      onUnlink,
       getPendingRange,
       onToggleTask,
       onUndo,
@@ -345,6 +354,7 @@ export function useEditorActions({
       onShiftTab,
       onFormat,
       onClearFormat,
+      onUnlink,
       getPendingRange,
       onToggleTask,
       onUndo,

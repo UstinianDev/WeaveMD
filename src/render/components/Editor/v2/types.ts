@@ -101,6 +101,8 @@ export interface BlockHandlers {
   ) => void;
   /** SPEC-EDIT-FT2 4.5.4：清除选区全部行内标记 */
   onClearFormat: (blockId: string, start: number, end: number, restoreSelection?: boolean) => void;
+  /** 移除链接：将光标/选区相交的链接还原为纯文本 label */
+  onUnlink: (blockId: string, start: number, end: number) => void;
   getPendingRange?: () => { start: number; end: number } | null;
   onToggleTask: (listItemId: string) => void;
   onUndo: () => void;

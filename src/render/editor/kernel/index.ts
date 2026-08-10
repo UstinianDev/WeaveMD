@@ -11,6 +11,7 @@ export {
   toDisplayHtml,
 } from './inlineRenderer';
 export {
+  findIntersectingLinks,
   findIntersectingStyleToken,
   findIntersectingStyleTokens,
   isBoundedWrap,

@@ -12,6 +12,7 @@
 import type { EditorInstance } from '../editorInstance';
 import type { EditorActionResult } from '../editorInstance';
 import {
+  findIntersectingLinks,
   findIntersectingStyleTokens,
   isBoundedWrap,
   renderBlock,
@@ -178,15 +179,118 @@ function applyLinkOrImage(
   options: FormatRangeOptions
 ): { newText: string; cursorOffset: number; selection: { start: number; end: number } } {
   const url = options.url ?? '';
-  const label = selected || (style === 'image' ? IMAGE_PLACEHOLDER : url);
-  const prefix = style === 'image' ? '!' : '';
+  const isImage = style === 'image';
+  const prefix = isImage ? '!' : '';
+  // URL 含空白/括号等特殊字符时按 Markdown 标准用 `<...>` 包裹，保证 lexer 能整段识别
+  const writtenUrl = /[\s()<>]/.test(url) ? `<${url}>` : url;
+  let selS = s;
+  let selE = e;
+  let label = selected || (isImage ? IMAGE_PLACEHOLDER : url);
+
+  if (!isImage) {
+    // link 应用到图片：选区与 image token 相交/内含（含折叠光标落在图片范围）
+    // 时扩展覆盖整个 image 语法，产出 `[![alt](img)](url)`（link 包裹 image），
+    // 避免 `![[alt](url)](img)` 畸形。非源码模式下图片 DOM 无文本，选区偏移
+    // 常落在 image 语法范围内而非 label 区间，故不可只依赖 label。
+    const images = collectIntersectingImages(text, s, e);
+    if (images.length > 0) {
+      selS = Math.min(s, ...images.map((t) => t.start));
+      selE = Math.max(e, ...images.map((t) => t.end));
+      label = text.slice(selS, selE);
+    }
+  }
+
   return {
-    newText: `${before}${prefix}[${label}](${url})${after}`,
-    cursorOffset: s + prefix.length + 1 + label.length + 2 + url.length + 1,
+    newText: `${text.slice(0, selS)}${prefix}[${label}](${writtenUrl})${text.slice(selE)}`,
+    cursorOffset: selS + prefix.length + 1 + label.length + 2 + writtenUrl.length + 1,
     selection: {
-      start: s + prefix.length + 1,
-      end: s + prefix.length + 1 + label.length,
+      start: selS + prefix.length + 1,
+      end: selS + prefix.length + 1 + label.length,
     },
+  };
+}
+
+/** 收集与 [start,end) 相交/内含的 image token（折叠光标落点计入，递归 children） */
+function collectIntersectingImages(text: string, start: number, end: number): InlineToken[] {
+  const s = Math.min(start, end);
+  const e = Math.max(start, end);
+  const hits: InlineToken[] = [];
+  const visit = (tokens: InlineToken[]): void => {
+    for (const t of tokens) {
+      if (t.type === 'image' && t.start <= e && t.end >= s) hits.push(t);
+      if (t.children) visit(t.children);
+    }
+  };
+  visit(tokenizeInline(text));
+  return hits;
+}
+
+/**
+ * 提取 link token 的 label 纯文本：成对标记（strong/em/del/mark/underline/math/code）
+ * 剥离标记保留内文；image/link 结构整体保留（`[![a](img)](u)` → `![a](img)`），
+ * 供 unlinkRange 还原，避免橡皮擦语义把相交 image 剥成 alt 文本。
+ */
+function extractLinkLabel(text: string, token: InlineToken): string {
+  const rebuild = (tokens: InlineToken[], from: number, to: number): string => {
+    let out = '';
+    let i = from;
+    for (const t of tokens) {
+      out += text.slice(i, t.start);
+      if (t.type === 'image' || t.type === 'link') {
+        out += text.slice(t.start, t.end);
+      } else if (t.openLen > 0 && t.closeLen > 0) {
+        out += rebuild(t.children ?? [], t.contentStart, t.contentEnd);
+      } else {
+        out += text.slice(t.start, t.end);
+      }
+      i = t.end;
+    }
+    out += text.slice(i, to);
+    return out;
+  };
+  return rebuild(token.children ?? [], token.contentStart, token.contentEnd);
+}
+
+/**
+ * 移除链接：把与 [start,end) 相交的 link token（`[label](url)`）还原为纯文本 label
+ * （嵌套行内标记一并清除，如 `[*b*](u)` → `b`）。无相交链接返回 null。
+ * 多个相交链接全部处理；恢复选区映射到最左链接的 label 区间。
+ */
+export function unlinkRange(
+  instance: EditorInstance,
+  blockId: string,
+  start: number,
+  end: number
+): EditorActionResult | null {
+  const block = instance.tree.blocks[blockId];
+  if (!block || block.text === null) return null;
+  const text = block.text;
+  const s = clamp(start, 0, text.length);
+  const e = clamp(end, s, text.length);
+  const links = findIntersectingLinks(text, s, e);
+  if (links.length === 0) return null;
+
+  const sorted = [...links].sort((a, b) => a.start - b.start);
+  let newText = text;
+  let delta = 0;
+  for (const t of sorted) {
+    const label = extractLinkLabel(text, t);
+    const ns = t.start - delta;
+    const ne = t.end - delta;
+    newText = newText.slice(0, ns) + label + newText.slice(ne);
+    delta += t.end - t.start - label.length;
+  }
+  const firstLabel = extractLinkLabel(text, sorted[0]);
+  const selectionStart = sorted[0].start;
+  const selectionEnd = selectionStart + firstLabel.length;
+
+  let tree = setBlockText(instance.tree, blockId, newText);
+  tree = renderBlock(tree, blockId, newText);
+  instance.tree = tree;
+  return {
+    changedBlockIds: [blockId],
+    selection: { blockId, start: selectionStart, end: selectionEnd },
+    focus: { blockId, offset: selectionEnd },
   };
 }
 
