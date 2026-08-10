@@ -441,3 +441,86 @@ describe('inlineLexer — 相邻混合强调（PLAN-EDIT-FT4）', () => {
     expect(() => tokenizeInline('a * b')).not.toThrow();
   });
 });
+
+describe('inlineLexer — open 三连拆分剩余区递归（fix-inline-marker-remainder）', () => {
+  it('A1 旗舰：`***12*<u>3</u>**` 解析为 strong 内嵌 [em, underline]', () => {
+    const tokens = simplify(tokenizeInline('***12*<u>3</u>**'));
+    expect(tokens).toEqual([
+      {
+        type: 'strong',
+        start: 0,
+        end: 16,
+        openLen: 2,
+        closeLen: 2,
+        contentStart: 3,
+        contentEnd: 14,
+        children: [
+          {
+            type: 'em',
+            start: 2,
+            end: 6,
+            openLen: 1,
+            closeLen: 1,
+            contentStart: 3,
+            contentEnd: 5,
+            children: [],
+          },
+          {
+            type: 'underline',
+            start: 6,
+            end: 14,
+            openLen: 3,
+            closeLen: 4,
+            contentStart: 9,
+            contentEnd: 10,
+            children: [],
+          },
+        ],
+      },
+    ]);
+    const strong = tokenizeInline('***12*<u>3</u>**')[0];
+    expect(strong.children?.map((c) => c.type)).toEqual(['em', 'underline']);
+  });
+
+  it('A2 护栏：`***12*3**` 剩余区纯文本，children 仍仅 em', () => {
+    const strong = tokenizeInline('***12*3**')[0];
+    expect(strong.type).toBe('strong');
+    expect(strong.children?.map((c) => c.type)).toEqual(['em']);
+  });
+
+  it('A3 护栏：`***12*34**` 剩余区纯文本，children 仍仅 em', () => {
+    const strong = tokenizeInline('***12*34**')[0];
+    expect(strong.type).toBe('strong');
+    expect(strong.children?.map((c) => c.type)).toEqual(['em']);
+  });
+
+  it('A4 五种成对标记在剩余区逐一识别（del/mark/underline/code/math）', () => {
+    const cases: Array<[string, string, number, number, number]> = [
+      ['***12*~~3~~**', 'del', 6, 8, 9],
+      ['***12*==3==**', 'mark', 6, 8, 9],
+      ['***12*<u>3</u>**', 'underline', 6, 9, 10],
+      ['***12*`3`**', 'code', 6, 7, 8],
+      ['***12*$3$**', 'math', 6, 7, 8],
+    ];
+    for (const [source, type, start, cs, ce] of cases) {
+      const strong = tokenizeInline(source)[0];
+      const child = strong.children?.find((c) => c.type === type);
+      expect(child, source).toBeDefined();
+      expect(child?.start).toBe(start);
+      expect(child?.contentStart).toBe(cs);
+      expect(child?.contentEnd).toBe(ce);
+    }
+  });
+
+  it('A5 嵌套：`***12*~~<u>3</u>~~**` del 内嵌 underline', () => {
+    const strong = tokenizeInline('***12*~~<u>3</u>~~**')[0];
+    expect(strong.children?.map((c) => c.type)).toEqual(['em', 'del']);
+    const del = strong.children?.find((c) => c.type === 'del');
+    expect(del).toBeDefined();
+    const underline = del?.children?.find((c) => c.type === 'underline');
+    expect(underline).toBeDefined();
+    expect(underline?.start).toBe(8);
+    expect(underline?.contentStart).toBe(11);
+    expect(underline?.contentEnd).toBe(12);
+  });
+});

@@ -237,3 +237,45 @@ describe('inlineRenderer — 相邻混合强调渲染（PLAN-EDIT-FT4 / AGT-C）
     }
   });
 });
+
+describe('inlineRenderer — open 三连拆分剩余区渲染（fix-inline-marker-remainder）', () => {
+  it('B1 旗舰：`***12*<u>3</u>**` 渲染 strong 内嵌 em+u，无字面 <u> 文本', () => {
+    const html = renderInline('***12*<u>3</u>**');
+    expect(html).toBe(
+      '<strong><span class="md-syntax">**</span><em><span class="md-syntax">*</span>12<span class="md-syntax">*</span></em><u><span class="md-syntax">&lt;u&gt;</span>3<span class="md-syntax">&lt;/u&gt;</span></u><span class="md-syntax">**</span></strong>'
+    );
+    expect(html).not.toContain('&lt;u&gt;3&lt;/u&gt;');
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    expect(container.textContent).toBe('***12*<u>3</u>**');
+  });
+
+  it('B2 五种成对标记在剩余区各渲染出目标标签且往返一致', () => {
+    const cases: Array<[string, string]> = [
+      ['***12*~~3~~**', '<del>'],
+      ['***12*==3==**', '<mark>'],
+      ['***12*<u>3</u>**', '<u>'],
+      ['***12*`3`**', '<code class="inline-code">'],
+      ['***12*$3$**', '<span class="math-inline">'],
+    ];
+    for (const [source, expectContain] of cases) {
+      const html = renderInline(source);
+      expect(html, source).toContain(expectContain);
+      expect(html, source).not.toContain('&lt;u&gt;3&lt;/u&gt;');
+      const container = document.createElement('div');
+      container.innerHTML = html;
+      expect(container.textContent, source).toBe(source);
+    }
+  });
+
+  it('B3 嵌套：`***12*~~<u>3</u>~~**` 渲染含 <del> 与 <u>，往返一致', () => {
+    const source = '***12*~~<u>3</u>~~**';
+    const html = renderInline(source);
+    expect(html).toContain('<del>');
+    expect(html).toContain('<u>');
+    expect(html).not.toContain('&lt;u&gt;3&lt;/u&gt;');
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    expect(container.textContent).toBe(source);
+  });
+});

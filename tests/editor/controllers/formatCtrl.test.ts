@@ -2,6 +2,7 @@
 
 import { EditorInstance } from '../../../src/render/editor/editorInstance';
 import { formatCtrl } from '../../../src/render/editor/controllers';
+import { renderInline } from '../../../src/render/editor/kernel/inlineRenderer';
 import { stripSameStylePairs, stripInlineSyntax } from '../../../src/render/editor/kernel';
 
 function paragraphId(instance: EditorInstance): string {
@@ -446,5 +447,44 @@ describe('stripInlineSyntax — 橡皮擦区间清除', () => {
 
   it('区间外标记不动', () => {
     expect(stripInlineSyntax('**keep** x **gone**', 9, 17)).toBe('**keep** x gone');
+  });
+});
+
+describe('formatCtrl — open 三连拆分剩余区叠加（fix-inline-marker-remainder）', () => {
+  it('C1 对 `***12*3**` 的 `3` 点 underline → `***12*<u>3</u>**` 且渲染嵌套正确无字面', () => {
+    const instance = new EditorInstance('***12*3**');
+    apply(instance, 'underline', 6, 7);
+    const markdown = instance.getMarkdown();
+    expect(markdown).toBe('***12*<u>3</u>**');
+    const html = renderInline(markdown);
+    expect(html).toContain('<u>');
+    expect(html).toContain('<em>');
+    expect(html).not.toContain('&lt;u&gt;3&lt;/u&gt;');
+  });
+
+  it('C2 其余风格（strike/highlight/code/math）叠加文本级守卫', () => {
+    const cases: Array<[Parameters<typeof formatCtrl.formatRange>[2], string]> = [
+      ['strike', '***12*~~3~~**'],
+      ['highlight', '***12*==3==**'],
+      ['code', '***12*`3`**'],
+      ['math', '***12*$3$**'],
+    ];
+    for (const [style, expected] of cases) {
+      const instance = new EditorInstance('***12*3**');
+      apply(instance, style, 6, 7);
+      expect(instance.getMarkdown(), style).toBe(expected);
+    }
+  });
+
+  it('C3 橡皮擦整块 clearFormat(0, 16) → `123`（剩余区标记一并清除）', () => {
+    const instance = new EditorInstance('***12*<u>3</u>**');
+    formatCtrl.clearFormat(instance, paragraphId(instance), 0, 16);
+    expect(instance.getMarkdown()).toBe('123');
+  });
+
+  it('C4 区域清除 stripInlineSyntax(..., 9, 10) → `*12*3` 无 `<u>` 残留', () => {
+    const stripped = stripInlineSyntax('***12*<u>3</u>**', 9, 10);
+    expect(stripped).toBe('*12*3');
+    expect(stripped).not.toContain('<u>');
   });
 });

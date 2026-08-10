@@ -37,3 +37,17 @@ describe('formatCtrl — 跨风格边界标记折叠（PLAN-EDIT-FT4 / AGT-B）'
     expect(applyFormat('**a~~b~~c**', 'underline', 2, 9)).toBe('**<u>a~~b~~c</u>**');
   });
 });
+
+describe('formatCtrl — open 三连剩余区选边界叠加（fold 审查探针，fix-inline-marker-remainder）', () => {
+  it('D1 italic(9,14)：`***12*<u>3</u>**` → `***12*<u>*3*</u>**`（close 折出）', () => {
+    expect(applyFormat('***12*<u>3</u>**', 'italic', 9, 14)).toBe('***12*<u>*3*</u>**');
+  });
+
+  it('D2 italic(6,10)：`***12*<u>3</u>**` → `***12*<u>*3*</u>**`（open 折出）', () => {
+    expect(applyFormat('***12*<u>3</u>**', 'italic', 6, 10)).toBe('***12*<u>*3*</u>**');
+  });
+
+  it('D3 strike(9,14)：`***12*<u>3</u>**` → `***12*<u>~~3~~</u>**`（close 折出）', () => {
+    expect(applyFormat('***12*<u>3</u>**', 'strike', 9, 14)).toBe('***12*<u>~~3~~</u>**');
+  });
+});
