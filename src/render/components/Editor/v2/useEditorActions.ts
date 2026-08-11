@@ -23,7 +23,7 @@ import {
   type InlineFormatStyle,
 } from '../../../editor/controllers';
 import type { EditorActionResult, EditorInstance } from '../../../editor/editorInstance';
-import type { BlockMetaV2, BlockNodeV2, BlockTreeV2 } from '../../../editor/kernel';
+import type { BlockMetaV2, BlockNodeV2, BlockTreeV2, ImageAlign } from '../../../editor/kernel';
 import { deleteLeafRange, updateMeta } from '../../../editor/kernel';
 import { resolveSyntaxType } from '../../../editor/kernel/syntaxType';
 import { setCursorAtOffset, setRangeAtOffset } from '../../../editor/kernel/selection';
@@ -213,8 +213,6 @@ export function useEditorActions({
     [applyBlockAction]
   );
 
-  // K3：图片直选插入/对齐/内联/移除由新控制器接线（K6 统一处理）
-
   // K3b：ImageEditTool 确认 → 按 token 精确区间替换为 `![alt](src "title")`
   const onReplaceImage = useCallback(
     (
@@ -226,6 +224,38 @@ export function useEditorActions({
       applyBlockAction((instance) =>
         formatCtrl.replaceImage(instance, blockId, imgStart, imgEnd, img)
       );
+    },
+    [applyBlockAction]
+  );
+
+  // K6：图片直选插入——替换选区为 `![sel](escapedPath)`（formatCtrl.insertImageFromSelection）
+  const onInsertImageFromSelection = useCallback(
+    (blockId: string, start: number, end: number, src: string) => {
+      applyBlockAction((instance) =>
+        formatCtrl.insertImageFromSelection(instance, blockId, start, end, src)
+      );
+    },
+    [applyBlockAction]
+  );
+
+  // K4：图片工具栏——对齐 / 内联 / 移除（formatCtrl 对应控制器）
+  const onAlignImage = useCallback(
+    (blockId: string, align: ImageAlign) => {
+      applyBlockAction((instance) => formatCtrl.alignImage(instance, blockId, align));
+    },
+    [applyBlockAction]
+  );
+
+  const onMakeInline = useCallback(
+    (blockId: string) => {
+      applyBlockAction((instance) => formatCtrl.makeImageInline(instance, blockId));
+    },
+    [applyBlockAction]
+  );
+
+  const onRemoveImage = useCallback(
+    (blockId: string, start: number, end: number) => {
+      applyBlockAction((instance) => formatCtrl.removeImage(instance, blockId, start, end));
     },
     [applyBlockAction]
   );
@@ -355,6 +385,10 @@ export function useEditorActions({
       onClearFormat,
       onUnlink,
       onReplaceImage,
+      onInsertImageFromSelection,
+      onAlignImage,
+      onMakeInline,
+      onRemoveImage,
       getPendingRange,
       onToggleTask,
       onUndo,
@@ -374,6 +408,10 @@ export function useEditorActions({
       onClearFormat,
       onUnlink,
       onReplaceImage,
+      onInsertImageFromSelection,
+      onAlignImage,
+      onMakeInline,
+      onRemoveImage,
       getPendingRange,
       onToggleTask,
       onUndo,

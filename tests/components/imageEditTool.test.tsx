@@ -72,6 +72,19 @@ describe('ImageEditTool — 渲染与双 Tab 切换', () => {
     expect(getAltInput().value).toBe('截图描述');
   });
 
+  // K5：「修改图片」模式——initialSrc/initialTitle 与 initialAlt 一并预填
+  it('initialSrc / initialTitle / initialAlt 一并预填三个输入框', () => {
+    setup({ initialSrc: 'C:/pics/a.png', initialAlt: '截图', initialTitle: '标题' });
+    expect(getSrcInput().value).toBe('C:/pics/a.png');
+    expect(getAltInput().value).toBe('截图');
+    expect(getTitleInput().value).toBe('标题');
+  });
+
+  it('标题为「修改图片」', () => {
+    setup();
+    expect(screen.getByText('修改图片')).not.toBeNull();
+  });
+
   it('fixed 定位使用 position.top/left', () => {
     const { container } = setup({ position: { top: 123, left: 456 } });
     const root = container.querySelector('[data-testid="image-edit-tool"]') as HTMLElement;
@@ -149,6 +162,21 @@ describe('ImageEditTool — link Tab 提交/校验/Escape', () => {
     expect(onConfirm).toHaveBeenCalledWith({ src: 'https://x.io/i.png', alt: '图', title: 't' });
   });
 
+  // K5：未改动字段原样返回（预填值直接进确认回调）
+  it('预填后不修改直接「嵌入」→ onConfirm 携带预填值原样返回', () => {
+    const { onConfirm } = setup({
+      initialSrc: 'C:/pics/a.png',
+      initialAlt: '截图',
+      initialTitle: '标题',
+    });
+    fireEvent.click(screen.getByRole('button', { name: '嵌入' }));
+    expect(onConfirm).toHaveBeenCalledWith({
+      src: 'C:/pics/a.png',
+      alt: '截图',
+      title: '标题',
+    });
+  });
+
   it('Escape → onCancel；点取消按钮 → onCancel；点 × → onCancel', () => {
     const { onCancel } = setup();
     fireEvent.keyDown(document, { key: 'Escape' });
@@ -191,6 +219,19 @@ describe('ImageEditTool — select Tab 本地选择', () => {
       src: 'C:/pics/demo.png',
       alt: 'alt',
       title: '',
+    });
+  });
+
+  // K5：select Tab 本地选择直接应用——预填的 alt/title 原样保留（src 替换为所选路径）
+  it('pickImage resolve 路径 → 预填 alt/title 保留（title 取 initialTitle）', async () => {
+    const pickImage = vi.fn().mockResolvedValue('C:/pics/new.png');
+    const { onConfirm } = setup({ pickImage, initialAlt: '截图', initialTitle: '标题' });
+    fireEvent.click(screen.getByRole('button', { name: '本地选择' }));
+    await pick();
+    expect(onConfirm).toHaveBeenCalledWith({
+      src: 'C:/pics/new.png',
+      alt: '截图',
+      title: '标题',
     });
   });
 
