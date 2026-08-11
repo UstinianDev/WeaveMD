@@ -21,6 +21,8 @@ export interface EditorActionResult {
   focus?: { blockId: string; offset: number };
   /** 重渲染后应恢复的选区（与 getCursorOffsets 口径一致，含 .md-syntax 标记字符；存在时优先于 focus） */
   selection?: { blockId: string; start: number; end: number };
+  /** 覆盖整个图片语法（`![alt](src...)`）的源码区间，仅图片占位/替换类入口返回 */
+  imageRange?: { start: number; end: number };
 }
 
 export class EditorInstance {
