@@ -486,12 +486,13 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       if (button.style === 'image') {
         // K3b：图片不再走 URL Modal——立即插入 `![label]()` 空 src 占位并隐藏工具栏，
         // 随后锚定 ImageEditTool 完成 src/alt/title（marktext 两段式）
+        // 注意：anchorText 取自 DOM textContent，可能带 contentEditable 零宽占位符，需剥离
         onInsertImage?.(selection.blockId, selection.start, selection.end);
         setImageEdit({
           blockId: selection.blockId,
           imgStart: selection.start,
           imgEnd: selection.end,
-          initialAlt: selection.anchorText,
+          initialAlt: selection.anchorText.replace(/\u200B/g, ''),
         });
         setVisibleGuarded(false);
         return;
