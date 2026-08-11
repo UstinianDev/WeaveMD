@@ -6,7 +6,9 @@
 import React from 'react';
 
 import type { BlockNodeV2 } from '../../../../editor/kernel';
+import { parseImageBlockText } from '../../../../editor/kernel';
 import { setCursorAtOffset, stripZeroWidth } from '../../../../editor/kernel/selection';
+import { toDisplayHtml } from '../../../../editor/kernel';
 import ContentBlock from './ContentBlock';
 import type { BlockHandlers } from '../types';
 
@@ -76,6 +78,24 @@ const LeafBlock: React.FC<LeafBlockProps> = ({ block, handlers }) => {
           </div>
         </div>
       );
+    case 'image-block': {
+      // 非编辑块：对齐时外层 div 加 textAlign（内层 HTML 由 renderBlockHtml 生成，
+      // wrapper 不出现为转义文本；img data-start/data-end 为绝对偏移）
+      const parsed = parseImageBlockText(block.text ?? '');
+      const alignStyle: React.CSSProperties | undefined = parsed?.align
+        ? { textAlign: parsed.align }
+        : undefined;
+      return (
+        <div
+          data-block-id={block.id}
+          className="image-block mb-1"
+          style={alignStyle}
+          contentEditable={false}
+          suppressContentEditableWarning
+          dangerouslySetInnerHTML={{ __html: toDisplayHtml(block.inlineHtml, block.text ?? '') }}
+        />
+      );
+    }
     default:
       return null;
   }

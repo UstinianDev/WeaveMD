@@ -14,6 +14,12 @@ function expectRoundTrip(markdown: string): void {
   expect(roundTrip(markdown)).toBe(markdown);
 }
 
+/** 文档序首个非根（叶子/容器）块 */
+function firstChildBlock(markdown: string) {
+  const tree = markdownToState(markdown);
+  return getAllBlocksInOrder(tree).find((b) => b.type !== 'document')!;
+}
+
 describe('markdown round-trip — 基础块', () => {
   it('空文档', () => {
     expectRoundTrip('');
@@ -199,6 +205,10 @@ describe('markdown round-trip — 组合与边界', () => {
     expectRoundTrip('![alt](https://example.com/a.png)');
   });
 
+  it('RT3b 独立图片行解析为 image-block（edit-image-align-toolbar K2）', () => {
+    expect(firstChildBlock('![alt](https://example.com/a.png)').type).toBe('image-block');
+  });
+
   it('RT4 无协议裸域名链接往返不变（editor-link-image-fix：仅渲染层补协议，序列化层用原始文本）', () => {
     expectRoundTrip('[text](www.baidu.com)');
     expectRoundTrip('[text](baidu.com:8080/x)');
@@ -216,6 +226,36 @@ describe('markdown round-trip — 组合与边界', () => {
 
   it('RT7 图片带 title 往返不变', () => {
     expectRoundTrip('![alt](src "title")');
+  });
+
+  it('RT8 裸图行 → image-block 且往返原文不变（K2）', () => {
+    const markdown = '![123](C:/x.png)';
+    expect(firstChildBlock(markdown).type).toBe('image-block');
+    expectRoundTrip(markdown);
+  });
+
+  it('RT9 `<div align="left">` 包裹单图（含 %20 与中文路径）→ image-block 且往返原文不变（K2）', () => {
+    const markdown =
+      '<div align="left">![123](C:\\Users\\屏幕截图%202026-08-11%20003530.png)</div>';
+    expect(firstChildBlock(markdown).type).toBe('image-block');
+    expectRoundTrip(markdown);
+  });
+
+  it('RT10 center / right 包裹单图往返原文不变（K2）', () => {
+    expectRoundTrip('<div align="center">![a](https://x.com/a.png)</div>');
+    expectRoundTrip('<div align="right">![a](https://x.com/a.png)</div>');
+  });
+
+  it('RT11 非规范 div（wrapper 内含多余文本）→ 仍 paragraph 且往返原文不变（K2）', () => {
+    const markdown = '<div align="left">![a](C:/x.png) extra</div>';
+    expect(firstChildBlock(markdown).type).toBe('paragraph');
+    expectRoundTrip(markdown);
+  });
+
+  it('RT12 段落内图片（混合文本）仍为 paragraph，往返原文不变（K2）', () => {
+    const markdown = 'pre ![a](C:/x.png) post';
+    expect(firstChildBlock(markdown).type).toBe('paragraph');
+    expectRoundTrip(markdown);
   });
 
   it('转义字符保留', () => {

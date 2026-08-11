@@ -9,6 +9,7 @@
 
 import { normalizeHref, tokenizeInline } from './inlineLexer';
 import type { InlineToken } from './inlineLexer';
+import { parseImageBlockText } from './imageBlock';
 import { renderMath } from './katex';
 import { normalizeFenceLanguage } from './fenceLanguage';
 import type { BlockNodeV2 } from './types';
@@ -45,14 +46,22 @@ function renderLink(href: string, innerHtml: string, titleAttr = ''): string {
   return `<a class="inline-link" href="${escapeHtml(normalized)}" data-href="${escapeHtml(normalized)}" target="_blank" rel="noopener noreferrer"${titleAttr}>${innerHtml}</a>`;
 }
 
+/** 单层解码 markdown 中的 %XX 转义（`%20` → 空格）。纯正则，非法 `%X` 字面保留不抛错。
+ *  与主进程 media-protocol 的 decodeURIComponent 单次解码契约对称，避免对已转义
+ *  src 二次编码（`%20` → `%2520`）导致路径含字面 `%20` 而加载失败。 */
+function decodeMarkdownEscapes(s: string): string {
+  return s.replace(/%([0-9A-Fa-f]{2})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)));
+}
+
 /** Windows 绝对路径（盘符 `C:\` / UNC `\\`）生成 `media://` + encodeURIComponent(正斜杠归一化路径)。
  *  其余（相对路径 / 网络 URL）原样返回。相对路径经 CSP `'self'` 放行，网络 URL 经 `https:` 放行。 */
-function toImgSrc(href: string): string {
+export function toImgSrc(href: string): string {
   const normalized = href.replace(/\\/g, '/');
   const isDrivePath = /^[a-zA-Z]:\//.test(normalized);
   const isUnc = normalized.startsWith('//');
   if (!isDrivePath && !isUnc) return href;
-  const encoded = encodeURIComponent(normalized);
+  // 先单层解码 markdown 转义，再 encodeURIComponent：已含 `%20` 的 src 不产生 `%2520` 双重编码
+  const encoded = encodeURIComponent(decodeMarkdownEscapes(normalized));
   // 契约对齐：盘符路径保留 `/` 分隔（例 `media://C%3A/Users/me/a.png`），
   // UNC 整段全编码（例 `media://%2F%2Fserver%2Fshare%2Fa.png`）。
   return isDrivePath ? 'media://' + encoded.replace(/%2F/g, '/') : 'media://' + encoded;
@@ -70,15 +79,26 @@ function highlightCode(text: string, language?: string): string {
   return Prism.highlight(text, grammar, normalized);
 }
 
+/** image-block：只渲染内层（wrapper 不出现为转义文本），base=innerStart 使
+ *  img data-start/data-end 为绝对偏移（供点击选中换算）。返回纯 HTML 字符串，
+ *  对齐样式由 LeafBlock 的 image-block case 负责。 */
+function renderImageBlock(text: string): string {
+  const parsed = parseImageBlockText(text);
+  if (!parsed) return renderInline(text);
+  return renderInline(parsed.inner, parsed.innerStart);
+}
+
 /** 按块类型生成行内渲染 HTML（代码块走 Prism 高亮，其余走行内渲染） */
 export function renderBlockHtml(block: Pick<BlockNodeV2, 'type' | 'text' | 'meta'>): string {
+  if (block.type === 'image-block') return renderImageBlock(block.text ?? '');
   return block.type === 'code-block'
     ? highlightCode(block.text ?? '', block.meta?.fenceLanguage)
     : renderInline(block.text ?? '');
 }
 
-/** 单个 token → HTML（映射逻辑保留在 renderer；识别逻辑在 lexer） */
-function renderToken(token: InlineToken, text: string): string {
+/** 单个 token → HTML（映射逻辑保留在 renderer；识别逻辑在 lexer）
+ *  base 为 token 偏移基准（image-block 传入 innerStart，使 img data-start/data-end 为绝对偏移） */
+function renderToken(token: InlineToken, text: string, base = 0): string {
   switch (token.type) {
     case 'escape': {
       return `<span class="md-syntax">${escapeHtml(text.slice(token.start, token.end))}</span>`;
@@ -95,10 +115,10 @@ function renderToken(token: InlineToken, text: string): string {
         return `<span class="md-syntax">![</span><span class="inline-image-empty">${escapeHtml(label)}</span><span class="md-syntax">]()</span>`;
       }
       const titleAttr = token.title !== undefined ? ` title="${escapeHtml(token.title)}"` : '';
-      return `<img class="inline-image" src="${escapeHtml(toImgSrc(token.href ?? ''))}" alt="${escapeHtml(label)}"${titleAttr}>`;
+      return `<img class="inline-image" src="${escapeHtml(toImgSrc(token.href ?? ''))}" alt="${escapeHtml(label)}"${titleAttr} data-start="${token.start + base}" data-end="${token.end + base}">`;
     }
     case 'link': {
-      const labelHtml = renderTokenList(token.children ?? [], text, token.contentStart, token.contentEnd);
+      const labelHtml = renderTokenList(token.children ?? [], text, token.contentStart, token.contentEnd, base);
       const titleAttr = token.title !== undefined ? ` title="${escapeHtml(token.title)}"` : '';
       return renderLink(
         token.href ?? '',
@@ -115,7 +135,7 @@ function renderToken(token: InlineToken, text: string): string {
       return renderTokenText(token.type, marker, token, text);
     }
     case 'underline': {
-      const inner = renderTokenList(token.children ?? [], text, token.contentStart, token.contentEnd);
+      const inner = renderTokenList(token.children ?? [], text, token.contentStart, token.contentEnd, base);
       return `<u><span class="md-syntax">&lt;u&gt;</span>${inner}<span class="md-syntax">&lt;/u&gt;</span></u>`;
     }
     case 'math': {
@@ -124,7 +144,7 @@ function renderToken(token: InlineToken, text: string): string {
     case 'strong':
     case 'em': {
       const marker = text.slice(token.start, token.start + token.openLen);
-      return renderTokenText(token.type, escapeHtml(marker), token, text);
+      return renderTokenText(token.type, escapeHtml(marker), token, text, base);
     }
     default: {
       return escapeHtml(text.slice(token.start, token.end));
@@ -132,13 +152,13 @@ function renderToken(token: InlineToken, text: string): string {
   }
 }
 
-function renderTokenText(tag: string, marker: string, token: InlineToken, text: string): string {
-  const inner = renderTokenList(token.children ?? [], text, token.contentStart, token.contentEnd);
+function renderTokenText(tag: string, marker: string, token: InlineToken, text: string, base = 0): string {
+  const inner = renderTokenList(token.children ?? [], text, token.contentStart, token.contentEnd, base);
   return `<${tag}><span class="md-syntax">${marker}</span>${inner}<span class="md-syntax">${marker}</span></${tag}>`;
 }
 
 /** 按 token 列表渲染 [from, to) 区间；token 未覆盖的间隙按普通文本处理（\n → <br>） */
-function renderTokenList(tokens: InlineToken[], text: string, from: number, to: number): string {
+function renderTokenList(tokens: InlineToken[], text: string, from: number, to: number, base = 0): string {
   let result = '';
   let i = from;
   for (const token of tokens) {
@@ -146,7 +166,7 @@ function renderTokenList(tokens: InlineToken[], text: string, from: number, to: 
       result += text[i] === '\n' ? '<br>' : escapeHtml(text[i]);
       i++;
     }
-    result += renderToken(token, text);
+    result += renderToken(token, text, base);
     i = token.end;
   }
   while (i < to) {
@@ -160,9 +180,10 @@ function renderTokenList(tokens: InlineToken[], text: string, from: number, to: 
  * 把纯文本渲染为行内富文本 HTML。
  * 支持：转义、行内代码、图片/链接（含标题）、自动链接、删除线、高亮、
  * 加粗、斜体（含三连 `***`/`___` 加粗+斜体叠加，em 内嵌 strong）；`\n` → `<br>`。
+ * base 为偏移基准：image-block 渲染时传入 innerStart，img data-start/data-end 为绝对偏移。
  */
-export function renderInline(text: string): string {
-  return renderTokenList(tokenizeInline(text), text, 0, text.length);
+export function renderInline(text: string, base = 0): string {
+  return renderTokenList(tokenizeInline(text), text, 0, text.length, base);
 }
 
 /** 展示 HTML：行内缓存优先，回退转义；空内容用零宽占位保持 contentEditable 光标 */

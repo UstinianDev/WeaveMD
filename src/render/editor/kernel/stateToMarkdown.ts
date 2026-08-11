@@ -27,6 +27,9 @@ export function serializeBlock(block: BlockNodeV2, tree: BlockTreeV2, ctx: Ctx =
       return [ctx.indent + '---'];
     case 'table':
       return (block.text ?? '').split('\n').map((line) => ctx.indent + line);
+    case 'image-block':
+      // text 存整行原文（含可选 `<div align>` 包裹），原样输出保证往返无损
+      return (block.text ?? '').split('\n').map((line) => ctx.indent + line);
     case 'blockquote':
       return serializeBlockquote(block, tree, ctx);
     case 'bullet-list':

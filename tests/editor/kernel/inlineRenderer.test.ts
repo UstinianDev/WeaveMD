@@ -5,6 +5,7 @@ import {
   renderBlockHtml,
   renderInline,
   safeUrl,
+  toImgSrc,
 } from '../../../src/render/editor/kernel/inlineRenderer';
 
 vi.mock('katex', () => ({
@@ -87,7 +88,7 @@ describe('inlineRenderer — 行内语法', () => {
       '<a class="inline-link" href="https://example.com" data-href="https://example.com" target="_blank" rel="noopener noreferrer"><span class="md-syntax">[</span>text<span class="md-syntax">](https://example.com)</span></a>'
     );
     expect(renderInline('![alt](https://example.com/a.png)')).toBe(
-      '<img class="inline-image" src="https://example.com/a.png" alt="alt">'
+      '<img class="inline-image" src="https://example.com/a.png" alt="alt" data-start="0" data-end="33">'
     );
   });
 
@@ -154,9 +155,9 @@ describe('inlineRenderer — 行内语法', () => {
     expect(container.querySelector('.inline-image-empty')?.textContent).toBe('empty');
   });
 
-  it('非空 href 图片输出保持既有 <img class="inline-image"> 不变', () => {
+  it('非空 href 图片输出保持既有 <img class="inline-image"> 不变（含 data-start/data-end 偏移）', () => {
     expect(renderInline('![alt](https://example.com/a.png)')).toBe(
-      '<img class="inline-image" src="https://example.com/a.png" alt="alt">'
+      '<img class="inline-image" src="https://example.com/a.png" alt="alt" data-start="0" data-end="33">'
     );
   });
 
@@ -433,5 +434,92 @@ describe('inlineRenderer — code-block Prism 高亮（U2）', () => {
   it('普通 paragraph 类型不受影响，仍走行内渲染', () => {
     expect(renderBlockHtml({ type: 'paragraph', text: '**bold**' })).toContain('<strong>');
     expect(renderBlockHtml({ type: 'paragraph', text: '**bold**' })).not.toContain('token');
+  });
+});
+
+describe('inlineRenderer — renderBlockHtml image-block（edit-image-align-toolbar K2）', () => {
+  it('wrapper 单图：输出内层 <img>（wrapper 不转义为字面文本），data-start 为 innerStart 绝对偏移', () => {
+    const html = renderBlockHtml({
+      type: 'image-block',
+      text: '<div align="center">![a](C:/x.png)</div>',
+    });
+    expect(html).toContain('<img class="inline-image"');
+    expect(html).not.toContain('&lt;div');
+    expect(html).not.toContain('</div>');
+    expect(html).toContain('data-start="20"');
+    expect(html).toContain('data-end="34"');
+  });
+
+  it('裸图 image-block：data-start=0，data-end 为 inner 长度', () => {
+    const html = renderBlockHtml({ type: 'image-block', text: '![a](C:/x.png)' });
+    expect(html).toContain('<img class="inline-image"');
+    expect(html).toContain('data-start="0"');
+    expect(html).toContain('data-end="14"');
+  });
+
+  it('非独立图文本回退为普通行内渲染（不抛错）', () => {
+    const html = renderBlockHtml({
+      type: 'image-block',
+      text: 'pre ![a](C:/x.png) post',
+    });
+    expect(html).toContain('<img class="inline-image"');
+    expect(html).toContain('data-start="4"');
+  });
+});
+
+describe('inlineRenderer — toImgSrc 单层解码修复（edit-image-align-toolbar K1）', () => {
+  it('未转义空格路径（既有契约不回归）→ media:// + %20', () => {
+    expect(toImgSrc('C:/Users/a b.png')).toBe('media://C%3A/Users/a%20b.png');
+  });
+
+  it('已含 %20 转义的 markdown src 不再双重编码（不含 %25，空格为单层 %20）', () => {
+    const src = 'C:/Users/屏幕截图%202026-08-11%20003530.png';
+    const result = toImgSrc(src);
+    expect(result).not.toContain('%25');
+    expect(result).toBe(
+      'media://C%3A/Users/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-08-11%20003530.png'
+    );
+  });
+
+  it('UNC 含 %20 转义 → 单层编码，不双重编码', () => {
+    expect(toImgSrc('//server/share/a%20b.png')).toBe(
+      'media://%2F%2Fserver%2Fshare%2Fa%20b.png'
+    );
+  });
+
+  it('非法 %XX（如 %2）字面保留，encode 后 %252 形态，不抛错', () => {
+    expect(toImgSrc('C:/Users/a%2.png')).toBe('media://C%3A/Users/a%252.png');
+  });
+
+  it('相对路径 / 网络 URL 原样返回（不触碰）', () => {
+    expect(toImgSrc('img/a.png')).toBe('img/a.png');
+    expect(toImgSrc('https://x.com/a.png')).toBe('https://x.com/a.png');
+    expect(toImgSrc('a b.png')).toBe('a b.png');
+  });
+
+  it('renderInline 集成：已含 %20 的本地路径 src 输出单层 media://', () => {
+    const html = renderInline('![a](<C:/Users/屏幕截图%202026-08-11%20003530.png>)');
+    expect(html).toContain(
+      'src="media://C%3A/Users/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-08-11%20003530.png"'
+    );
+    expect(html).not.toContain('%2520');
+  });
+});
+
+describe('inlineRenderer — img data-start/data-end 偏移（edit-image-align-toolbar K1）', () => {
+  it('整行图片 → data-start=0，data-end=token 区间末端', () => {
+    expect(renderInline('![a](https://x.com/a.png)')).toBe(
+      '<img class="inline-image" src="https://x.com/a.png" alt="a" data-start="0" data-end="25">'
+    );
+  });
+
+  it('混合文本偏移正确（base 透传）', () => {
+    const html = renderInline('pre ![a](https://x.com/a.png) post');
+    expect(html).toContain('data-start="4"');
+    expect(html).toContain('data-end="29"');
+  });
+
+  it('空 href 占位不受影响（无 data 属性、无 <img>）', () => {
+    expect(renderInline('![a]()')).not.toContain('data-start');
   });
 });

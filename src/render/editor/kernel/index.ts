@@ -22,6 +22,7 @@ export {
 export type { InlineToken, InlineTokenType } from './inlineLexer';
 export { renderMath } from './katex';
 export { escapeMarkdownUrl, replaceImageRange } from './imageReplace';
+export * from './imageBlock';
 export { stripInlineSyntax, stripSameStylePairs } from './inlineStrip';
 export { markdownToState } from './markdownToState';
 export * from './selection';

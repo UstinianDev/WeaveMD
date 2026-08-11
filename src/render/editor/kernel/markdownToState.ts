@@ -17,6 +17,7 @@
 // 完成后转换为不可变 BlockTreeV2。
 
 import { createDocumentTree, getLastLeaf, newBlockId } from './blockTree';
+import { parseImageBlockText } from './imageBlock';
 import {
   ATX_HEADING_RE,
   FENCE_OPEN_CORE_RE,
@@ -256,6 +257,14 @@ function parseBlocks(
 
     if (THEMATIC_BREAK_RE.test(line)) {
       i = parseThematicBreak(builder, parent, i);
+      continue;
+    }
+
+    // 独立成块的图片（裸图行 / `<div align>` 包裹单图）：text 存整行原文，往返无损
+    if (parseImageBlockText(line)) {
+      const img = builder.addBlock('image-block', line);
+      builder.attach(parent, img);
+      i++;
       continue;
     }
 

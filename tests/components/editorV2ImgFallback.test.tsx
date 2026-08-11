@@ -42,8 +42,9 @@ describe('EditorV2 — img.inline-image error 回退（G3）', () => {
   });
 
   it('回调后容器已存在 .inline-image-fallback 时不再重复替换（防循环）', () => {
+    // 段落内图片（image-block 为非编辑块、无 .block-content，防循环语义在段落内验证）
     const { container } = render(
-      <EditorV2 content="![a](https://x.example/a.png)" onContentChange={() => {}} />
+      <EditorV2 content="text ![a](https://x.example/a.png)" onContentChange={() => {}} />
     );
 
     const img = container.querySelector('img.inline-image');
