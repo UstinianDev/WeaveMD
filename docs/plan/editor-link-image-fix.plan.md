@@ -27,7 +27,8 @@
 ## 实施步骤
 
 ### 切片 A：主进程 media:// 协议
-- A1 `src/main/index.ts`：顶层（app ready 前、窗口创建前）`protocol.registerSchemesAsPrivileged([{ scheme:'media', privileges:{ standard:true, secure:true, supportFetchAPI:true, stream:true } }])`；whenReady 内、createMainWindow 前调 `registerMediaProtocol()`
+- A1 `src/main/index.ts`：顶层（app ready 前、窗口创建前）`protocol.registerSchemesAsPrivileged([{ scheme:'media', privileges: MEDIA_SCHEME_PRIVILEGES }])`；whenReady 内、createMainWindow 前调 `registerMediaProtocol()`
+  - **⚠️ 2026-08-11 修正（image-media-display-fix）**：原 `standard:true` 已移除。根因：media 作为标准（层级）scheme 时，Chromium 对 host 做规范化，本契约把盘符编码进 host（`media://C%3A/Users/...`，host 解码为 `C:` 非法）→ 请求被拒、图片加载失败（完整应用实测 handler 收不到 request，触发 `.inline-image-fallback`）。改为非 standard 后 URL 原样透传，`decodeMediaUrl` 契约不变。特权集现由 `media-protocol.ts` 导出 `MEDIA_SCHEME_PRIVILEGES = { secure, supportFetchAPI, stream }`（无 standard），回归单测见 `tests/main/mediaProtocol.test.ts`。
 - A2 新增 `src/main/media-protocol.ts`：`registerMediaProtocol()` + `decodeMediaUrl()`；`app.isReady()` 断言；`net.fetch(pathToFileURL(p))` 返回流；catch → 404
 
 ### 切片 B：渲染层 media:// 生成 + 链接放行/补协议

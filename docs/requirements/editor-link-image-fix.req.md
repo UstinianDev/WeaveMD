@@ -64,7 +64,9 @@
 
 **主进程**：
 1. `src/main/index.ts` 模块顶层（`app.whenReady` 之前、创建窗口之前）：
-   `protocol.registerSchemesAsPrivileged([{ scheme: 'media', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }])`。
+   `protocol.registerSchemesAsPrivileged([{ scheme: 'media', privileges: MEDIA_SCHEME_PRIVILEGES }])`，
+   特权集 `{ secure: true, supportFetchAPI: true, stream: true }`（**不含 `standard`**，2026-08-11 修正，
+   见 `.opencode/workflows/devflow/image-media-display-fix/`）。
 2. 新增 `src/main/media-protocol.ts`：`registerMediaProtocol()` 在 `app.whenReady` 后调用
    `protocol.handle('media', …)`：取 `request.url` 去 `media://` 前缀 → `decodeURIComponent` →
    `pathToFileURL(path)` → `net.fetch` 返回文件流；路径非法/文件不存在回 404。仅在 Windows
