@@ -164,6 +164,30 @@ describe('SPEC-EDIT-CBSS CSS: 代码块字号与内边距（U3）', () => {
   });
 });
 
+describe('EDIT-IMAGE-INSERT-MARKTEXT CSS: 空 src 图片占位（K5）', () => {
+  it('CK1: .inline-image-empty 声明存在（inline-block / min 尺寸 / 虚线边框 / 圆角 / 留白 / muted 灰 / 可点击 / 垂直对齐）', () => {
+    const b = blockText('.inline-image-empty');
+    expect(b).toMatch(/display:\s*inline-block/);
+    expect(b).toMatch(/min-width:\s*2\.5em/);
+    expect(b).toMatch(/min-height:\s*1\.4em/);
+    expect(b).toMatch(/border:\s*1px\s+dashed\s+var\(--border-color\)/);
+    expect(b).toMatch(/border-radius:\s*6px/);
+    expect(b).toMatch(/padding:\s*0\s+6px/);
+    expect(b).toMatch(/color:\s*var\(--text-muted\)/);
+    expect(b).toMatch(/cursor:\s*pointer/);
+    expect(b).toMatch(/vertical-align:\s*middle/);
+  });
+
+  it('CK2: 视觉提示图标走 ::before 伪元素（🖼），不写入 DOM 文本节点', () => {
+    const b = blockText('.inline-image-empty::before');
+    expect(b).toMatch(/content:\s*'🖼'/);
+    expect(b).toMatch(/margin-right:\s*4px/);
+    // 图标绝不得出现在 DOM 文本节点：整条选择器必须带 ::before，且规则中不得有内联图标字符兜底
+    const main = blockText('.inline-image-empty');
+    expect(main).not.toContain('🖼');
+  });
+});
+
 describe('SPEC-INSERT-URL-MODAL CSS: InsertUrlModal（U4）', () => {
   // blockText 用行前缀定位存在歧义：.insert-url-modal 会先匹配到
   // .insert-url-modal-overlay 等带后缀类的规则（与既有 -dot/-dots 同理）。

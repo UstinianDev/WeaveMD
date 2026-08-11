@@ -2082,6 +2082,25 @@ span.comment-marker {
   display: inline-block;
 }
 
+/* 空 src 图片占位（renderInline 渲染 span.inline-image-empty，K5）：
+   视觉提示图标走 ::before 伪元素，绝不进入 DOM 文本节点（破坏光标偏移不变量） */
+.inline-image-empty {
+  display: inline-block;
+  min-width: 2.5em;
+  min-height: 1.4em;
+  border: 1px dashed var(--border-color);
+  border-radius: 6px;
+  padding: 0 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.inline-image-empty::before {
+  content: '🖼';
+  margin-right: 4px;
+}
+
 /* 图片加载失败占位（EditorV2 捕获 img error 后替换为 span.inline-image-fallback，G3） */
 .inline-image-fallback {
   display: inline-block;
