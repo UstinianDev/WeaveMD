@@ -33,7 +33,12 @@ export type BlockTypeV2 =
    * 表格。v2 首版为叶子块（text 保存原始 Markdown 文本，整块只读 + 源码编辑），
    * 行级容器化结构留待 M4 可选扩展。
    */
-  | 'table';
+  | 'table'
+  /**
+   * 叶子块：独立成块的图片（text 保存整行原始 Markdown 文本，含可选
+   * `<div align="left|center|right">` 包裹；对齐由 text 内的 wrapper 表达）。
+   */
+  | 'image-block';
 
 /** 块级元数据 */
 export interface BlockMetaV2 {
@@ -122,6 +127,7 @@ export const LEAF_BLOCK_TYPES: readonly BlockTypeV2[] = [
   'html-block',
   'thematic-break',
   'table',
+  'image-block',
 ];
 
 /** 容器块类型集合 */
