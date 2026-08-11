@@ -9,7 +9,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { InlineFormatStyle } from '../../../editor/controllers';
 import { MARKERS } from '../../../editor/controllers/formatCtrl';
-import type { BlockTreeV2 } from '../../../editor/kernel';
+import type { BlockTreeV2, ImageAlign } from '../../../editor/kernel';
 import { findIntersectingLinks, isBoundedWrap, tokenizeInline } from '../../../editor/kernel';
 import {
   getCursorOffsets,
@@ -22,6 +22,7 @@ import {
   BLOCK_TYPE_OPTIONS,
   canConvertBlock,
   type BlockTypeOption,
+  type ImageSelection,
 } from './types';
 import { createRafThrottle } from './rafThrottle';
 import InsertUrlModal from './InsertUrlModal';
@@ -51,8 +52,22 @@ interface FloatingToolbarProps {
   ) => void;
   /** 移除链接：光标/选区相交的链接还原为纯文本 label */
   onUnlink?: (blockId: string, start: number, end: number) => void;
-  /** K3b：图片按钮——立即插入空 src 占位 `![label]()` */
-  onInsertImage?: (blockId: string, start: number, end: number) => void;
+  /** K4：当前选中的图片（点击 img 后由 EditorV2 计算）——非空时渲染图片工具栏并压制文本工具栏 */
+  imageSelection?: ImageSelection | null;
+  /** K4：关闭图片工具栏（EditorV2 清空选中态） */
+  onCloseImage?: () => void;
+  /** K4：「修改图片」点击事件（弹层与预填由本组件自管） */
+  onEditImage?: (sel: ImageSelection) => void;
+  /** K4：对齐独立成块图片（居左/居中/居右） */
+  onAlignImage?: (blockId: string, align: ImageAlign) => void;
+  /** K4：内联图片（解除对齐包裹） */
+  onMakeInline?: (blockId: string) => void;
+  /** K4：移除图片（image-block 整块删除；行内图删区间） */
+  onRemoveImage?: (blockId: string, start: number, end: number) => void;
+  /** K6：图片按钮直选——替换 [start,end) 为 `![sel](src)` */
+  onInsertImageFromSelection?: (blockId: string, start: number, end: number, src: string) => void;
+  /** K6：图片按钮的本地文件选择器（window.weaveMD.dialog.pickImage，取消返回 null） */
+  pickImage?: () => Promise<string | null>;
   /** K3b：ImageEditTool 确认——按 token 区间替换图片 */
   onReplaceImage?: (
     blockId: string,
@@ -60,8 +75,6 @@ interface FloatingToolbarProps {
     imgEnd: number,
     img: { src: string; alt: string; title?: string }
   ) => void;
-  /** K3b：块 DOM 注册表查询（锚定占位图定位 ImageEditTool） */
-  getBlockEl?: (blockId: string) => HTMLElement | undefined;
 }
 
 interface SelectionState {
@@ -71,14 +84,6 @@ interface SelectionState {
   anchorText: string;
   /** 选区（含折叠光标）是否命中链接 token */
   inLink: boolean;
-}
-
-/** K3b：图片占位锚定的弹层状态（marktext ImageEditTool 链路） */
-interface ImageEditState {
-  blockId: string;
-  imgStart: number;
-  imgEnd: number;
-  initialAlt: string;
 }
 
 interface FormatButton {
@@ -195,31 +200,38 @@ interface ToolbarButtonProps {
   label: string;
   className?: string;
   active?: boolean;
+  disabled?: boolean;
+  testId?: string;
   onClick: () => void;
 }
 
 /**
- * 工具栏按钮：CHAR / OBJECT / 橡皮擦 三处共用（SPEC-EDIT-FT2 4.6）。
- * active 时 accent 色 + bg-tertiary 驻留；hover 进 bg-tertiary。
+ * 工具栏按钮：CHAR / OBJECT / 橡皮擦 / 图片工具栏 共用（SPEC-EDIT-FT2 4.6）。
+ * active 时 accent 色 + bg-tertiary 驻留；hover 进 bg-tertiary；disabled 点击 no-op。
  */
 function ToolbarButton({
   title,
   label,
   className,
   active = false,
+  disabled = false,
+  testId,
   onClick,
 }: ToolbarButtonProps) {
   return (
     <button
       type="button"
       title={title}
+      data-testid={testId}
+      disabled={disabled}
       onMouseDown={(e) => e.preventDefault()}
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
+        if (disabled) return;
         onClick();
       }}
-      className={'ft-btn ' + (className ?? '')}
+      className={'ft-btn ' + (className ?? '') + (active ? ' active' : '')}
       style={{
         color: active ? 'var(--accent)' : 'var(--text-sub)',
         backgroundColor: active ? 'var(--bg-tertiary)' : 'transparent',
@@ -303,9 +315,15 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   onConvertBlock,
   onClearFormat,
   onUnlink,
-  onInsertImage,
+  imageSelection,
+  onCloseImage,
+  onEditImage,
+  onAlignImage,
+  onMakeInline,
+  onRemoveImage,
+  onInsertImageFromSelection,
+  pickImage,
   onReplaceImage,
-  getBlockEl,
 }) => {
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number }>({
@@ -315,12 +333,8 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   const [selection, setSelection] = useState<SelectionState | null>(null);
   // U5/K3b：链接按钮打开 InsertUrlModal；图片按钮不再走该 Modal
   const [insertModal, setInsertModal] = useState<{ style: 'link' } | null>(null);
-  // K3b：图片占位锚定的 ImageEditTool 状态（插入占位后记录 token 区间与 alt）
-  const [imageEdit, setImageEdit] = useState<ImageEditState | null>(null);
-  const [imageEditPos, setImageEditPos] = useState<{ top: number; left: number } | null>(null);
-  // 锚定成功后以实际 image token.start/end 修正（精确匹配 replaceImage 的前提）
-  const imageEditStartRef = useRef(0);
-  const imageEditEndRef = useRef(0);
+  // K5：「修改图片」打开的 ImageEditTool 弹层状态（预填来自 imageSelection token）
+  const [editImage, setEditImage] = useState<ImageSelection | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   // K3b：interactionGuard 包裹 ref（覆盖工具栏 + ImageEditTool）
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -370,7 +384,13 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
 
     const flushSelection = () => {
       // U5/K3b：Modal / ImageEditTool 打开期间（输入框获焦会收起选区）不得隐藏工具栏
-      if (insertModal !== null || imageEdit !== null) {
+      if (insertModal !== null || editImage !== null) {
+        cancelHide();
+        return;
+      }
+      // K4：图片选中期间压制文本工具栏的 selectionchange 竞争（图片工具栏
+      // 独立于文本选区渲染，直接由 imageSelection 驱动）
+      if (imageSelection) {
         cancelHide();
         return;
       }
@@ -420,15 +440,20 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       container.removeEventListener('scroll', handleScroll, true);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
-  }, [editorContainerRef, cancelHide, scheduleHide, tree, setVisibleGuarded, insertModal, imageEdit]);
+  }, [editorContainerRef, cancelHide, scheduleHide, tree, setVisibleGuarded, insertModal, editImage, imageSelection]);
 
   // SPEC-EDIT-FT3 4.3：驻留退出条件——点击工具栏外任意位置（capture 阶段）与 Escape
-  // K3b：守卫合并 insertModal / imageEdit（ImageEditTool 自处理自身交互），wrapRef 覆盖两者
-  const isModalOpen = insertModal !== null || imageEdit !== null;
+  // K3b：守卫合并 insertModal / editImage（ImageEditTool 自处理自身交互），wrapRef 覆盖两者
+  const isModalOpen = insertModal !== null || editImage !== null;
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
       // U5/K3b：Modal / ImageEditTool 打开期间点击自身或外部均由弹层处理，不隐工具栏
       if (isModalOpen) return;
+      // K4：图片工具栏打开期间，点击工具栏外任意位置 → 关闭图片选中（恢复文本工具栏）
+      if (imageSelection && !wrapRef.current?.contains(e.target as Node)) {
+        onCloseImage?.();
+        return;
+      }
       if (!stickyRef.current) return;
       if (wrapRef.current?.contains(e.target as Node)) return;
       suppressSelectionRef.current = true;
@@ -438,6 +463,11 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       if (e.key !== 'Escape') return;
       // U5/K3b：Modal / ImageEditTool 打开期间 Escape 由弹层自处理
       if (isModalOpen) return;
+      // K4：Escape 关闭图片工具栏
+      if (imageSelection) {
+        onCloseImage?.();
+        return;
+      }
       if (visibleRef.current) hideToolbar();
     };
     document.addEventListener('mousedown', handleMouseDown, true);
@@ -446,7 +476,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       document.removeEventListener('mousedown', handleMouseDown, true);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [hideToolbar, isModalOpen]);
+  }, [hideToolbar, isModalOpen, imageSelection, onCloseImage]);
 
   const currentType: BlockTypeOption = useMemo(() => {
     if (!selection) return 'paragraph';
@@ -475,6 +505,26 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     return set;
   }, [selection]);
 
+  // K6：图片直选——pickImage → 非空路径替换选区；取消/失败均隐藏工具栏（纯 no-op）
+  const handleInsertImageClick = useCallback(async () => {
+    const sel = selection;
+    if (!sel) return;
+    if (!pickImage) {
+      console.warn('[FloatingToolbar] pickImage 未提供，图片插入为 no-op');
+      hideToolbar();
+      return;
+    }
+    let path: string | null = null;
+    try {
+      path = await pickImage();
+    } catch (err) {
+      console.warn('[FloatingToolbar] pickImage 失败，图片插入为 no-op', err);
+    }
+    hideToolbar();
+    if (!path) return;
+    onInsertImageFromSelection?.(sel.blockId, sel.start, sel.end, path);
+  }, [selection, pickImage, onInsertImageFromSelection, hideToolbar]);
+
   const handleFormat = useCallback(
     (button: FormatButton) => {
       if (!selection) return;
@@ -484,24 +534,15 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         return;
       }
       if (button.style === 'image') {
-        // K3b：图片不再走 URL Modal——立即插入 `![label]()` 空 src 占位并隐藏工具栏，
-        // 随后锚定 ImageEditTool 完成 src/alt/title（marktext 两段式）
-        // 注意：anchorText 取自 DOM textContent，可能带 contentEditable 零宽占位符，需剥离
-        onInsertImage?.(selection.blockId, selection.start, selection.end);
-        setImageEdit({
-          blockId: selection.blockId,
-          imgStart: selection.start,
-          imgEnd: selection.end,
-          initialAlt: selection.anchorText.replace(/\u200B/g, ''),
-        });
-        setVisibleGuarded(false);
+        // K6：图片按钮 → 直选文件并直接替换选区（取消 = no-op）
+        void handleInsertImageClick();
         return;
       }
       onFormat(selection.blockId, button.style, selection.start, selection.end, undefined, true);
       // FT3：格式应用后驻留，不退出；由 restoreSelection 保持选区非折叠以维持显示
       stickyRef.current = true;
     },
-    [selection, onFormat, onInsertImage, setVisibleGuarded]
+    [selection, onFormat, handleInsertImageClick]
   );
 
   const handleClearFormat = useCallback(() => {
@@ -529,52 +570,73 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     [selection, currentType, onConvertBlock, setVisibleGuarded]
   );
 
-  // K3b：ImageEditTool 锚定——占位 `.inline-image-empty` 出现后依其 rect 定位，
-  // 并以实际 image token 精确区间修正 replaceImage 参数
-  useEffect(() => {
-    if (!imageEdit) return;
-    const blockEl = getBlockEl?.(imageEdit.blockId);
-    if (!blockEl) return;
-    const placeholder = blockEl.querySelector('.inline-image-empty');
-    if (!placeholder) return;
-    const rect = placeholder.getBoundingClientRect();
-    if (rect.width === 0 && rect.height === 0) return;
-    const toolWidth = 280;
-    setImageEditPos({
-      top: rect.bottom + 6,
-      left: clamp(
-        rect.left + rect.width / 2 - toolWidth / 2,
-        8,
-        window.innerWidth - toolWidth - 8
-      ),
-    });
-    // 占位 token 起始即插入点，结束为完整 token.end（`![label]()` 全区间）
-    const blockText = tree.blocks[imageEdit.blockId]?.text ?? '';
-    const imgToken = tokenizeInline(blockText, 0).find((t) => t.type === 'image');
-    if (imgToken) {
-      imageEditStartRef.current = imgToken.start;
-      imageEditEndRef.current = imgToken.end;
-    }
-  }, [imageEdit, tree, getBlockEl]);
-
-  const handleReplaceImage = useCallback(
-    (img: { src: string; alt: string; title: string }) => {
-      if (!imageEdit) return;
-      onReplaceImage?.(
-        imageEdit.blockId,
-        imageEditStartRef.current,
-        imageEditEndRef.current,
-        img
-      );
-      setImageEdit(null);
-      setImageEditPos(null);
+  // K4：图片工具栏动作——执行后关闭图片选中（防偏移漂移）
+  const handleAlignImage = useCallback(
+    (align: ImageAlign) => {
+      if (!imageSelection) return;
+      onAlignImage?.(imageSelection.blockId, align);
+      onCloseImage?.();
     },
-    [imageEdit, onReplaceImage]
+    [imageSelection, onAlignImage, onCloseImage]
   );
 
-  const handleCancelImage = useCallback(() => {
-    setImageEdit(null);
-    setImageEditPos(null);
+  const handleMakeInline = useCallback(() => {
+    if (!imageSelection) return;
+    onMakeInline?.(imageSelection.blockId);
+    onCloseImage?.();
+  }, [imageSelection, onMakeInline, onCloseImage]);
+
+  const handleRemoveImage = useCallback(() => {
+    if (!imageSelection) return;
+    onRemoveImage?.(imageSelection.blockId, imageSelection.start, imageSelection.end);
+    onCloseImage?.();
+  }, [imageSelection, onRemoveImage, onCloseImage]);
+
+  // K5：「修改图片」→ 通知选中态并打开 ImageEditTool（预填来自 imageSelection token）
+  const handleEditImage = useCallback(() => {
+    if (!imageSelection) return;
+    onEditImage?.(imageSelection);
+    setEditImage(imageSelection);
+  }, [imageSelection, onEditImage]);
+
+  // 预填：image-block 的 token 区间是绝对偏移，tokenizeInline 全文直接命中
+  const editImagePrefill = useMemo(() => {
+    if (!editImage) return null;
+    const text = tree.blocks[editImage.blockId]?.text ?? '';
+    const token = tokenizeInline(text).find(
+      (t) => t.type === 'image' && t.start === editImage.start && t.end === editImage.end
+    );
+    if (!token) return null;
+    return {
+      src: token.href ?? '',
+      alt: text.slice(token.contentStart, token.contentEnd),
+      title: token.title ?? '',
+    };
+  }, [editImage, tree]);
+
+  // 弹层锚定：图片下方（ImageEditTool 固定宽度 280 → 半宽 140）
+  const editImagePosition = useMemo(() => {
+    if (!editImage) return { top: 0, left: 0 };
+    const { rect } = editImage;
+    return {
+      top: rect.top + rect.height + 6,
+      left: clamp(rect.left + rect.width / 2 - 140, 8, window.innerWidth - 280 - 8),
+    };
+  }, [editImage]);
+
+  // 确认 → onReplaceImage（formatCtrl.replaceImage 按 token 区间替换，包裹自动保留）
+  const handleEditConfirm = useCallback(
+    (img: { src: string; alt: string; title: string }) => {
+      if (!editImage) return;
+      onReplaceImage?.(editImage.blockId, editImage.start, editImage.end, img);
+      setEditImage(null);
+      onCloseImage?.();
+    },
+    [editImage, onReplaceImage, onCloseImage]
+  );
+
+  const handleEditCancel = useCallback(() => {
+    setEditImage(null);
   }, []);
 
   // 折叠光标命中链接：仅显示「移除链接」（其余格式按钮对空选区无意义）
@@ -583,7 +645,79 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
 
   return (
     <div ref={wrapRef}>
-      {visible && selection && (
+      {/* K4：图片工具栏——imageSelection 非空时替换文本工具栏（锚定图片 rect） */}
+      {imageSelection && (
+      <div
+        ref={toolbarRef}
+        className="floating-toolbar-v2 fixed z-[100] shadow-lg select-none"
+        data-testid="image-toolbar"
+        style={{
+          top: `${clamp(
+            imageSelection.rect.top - (toolbarRef.current?.offsetHeight ?? 40) - 8,
+            8,
+            window.innerHeight - (toolbarRef.current?.offsetHeight ?? 40) - 8
+          )}px`,
+          left: `${clamp(
+            imageSelection.rect.left + imageSelection.rect.width / 2 -
+              (toolbarRef.current?.offsetWidth ?? 320) / 2,
+            8,
+            window.innerWidth - (toolbarRef.current?.offsetWidth ?? 320) - 8
+          )}px`,
+          backgroundColor: 'var(--bg-secondary)',
+          border: '1px solid var(--border-color)',
+        }}
+        onMouseEnter={cancelHide}
+        onMouseLeave={() => scheduleHide(300)}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <ToolbarButton
+          testId="image-toolbar-edit"
+          title="修改图片"
+          label="修改图片"
+          onClick={handleEditImage}
+        />
+        <ToolbarButton
+          testId="image-toolbar-inline"
+          title="内联图片"
+          label="内联图片"
+          disabled={!imageSelection.standalone}
+          onClick={handleMakeInline}
+        />
+        <div className="ft-divider" style={{ backgroundColor: 'var(--border-color)' }} />
+        <ToolbarButton
+          testId="image-toolbar-align-left"
+          title="居左"
+          label="居左"
+          disabled={!imageSelection.standalone}
+          active={imageSelection.align === 'left'}
+          onClick={() => handleAlignImage('left')}
+        />
+        <ToolbarButton
+          testId="image-toolbar-align-center"
+          title="居中"
+          label="居中"
+          disabled={!imageSelection.standalone}
+          active={imageSelection.align === 'center'}
+          onClick={() => handleAlignImage('center')}
+        />
+        <ToolbarButton
+          testId="image-toolbar-align-right"
+          title="居右"
+          label="居右"
+          disabled={!imageSelection.standalone}
+          active={imageSelection.align === 'right'}
+          onClick={() => handleAlignImage('right')}
+        />
+        <div className="ft-divider" style={{ backgroundColor: 'var(--border-color)' }} />
+        <ToolbarButton
+          testId="image-toolbar-remove"
+          title="移除图片"
+          label="移除图片"
+          onClick={handleRemoveImage}
+        />
+      </div>
+      )}
+      {!imageSelection && visible && selection && (
       <div
         ref={toolbarRef}
         className="floating-toolbar-v2 fixed z-[100] shadow-lg select-none"
@@ -687,7 +821,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       )}
       </div>
       )}
-      {/* U5：link URL 输入 Modal（open=false 时渲染 null；图片已走 K3b 两段式） */}
+      {/* U5：link URL 输入 Modal（open=false 时渲染 null；图片已走 K6 直选） */}
       <InsertUrlModal
         open={insertModal !== null}
         title="插入链接"
@@ -701,14 +835,18 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         }}
         onCancel={() => setInsertModal(null)}
       />
-      {/* K3b：锚定图片占位的 ImageEditTool（open=false 时渲染 null） */}
+      {/* K5：「修改图片」弹层（open=false 时渲染 null；预填 imageSelection token 的
+          src/alt/title，确认走 onReplaceImage——image-block 的 token 区间为绝对偏移，
+          包裹自动保留；select Tab pickImage 直接应用） */}
       <ImageEditTool
-        open={imageEdit !== null}
-        position={imageEditPos ?? { top: 0, left: 0 }}
-        initialAlt={imageEdit?.initialAlt}
+        open={editImage !== null}
+        position={editImagePosition}
+        initialSrc={editImagePrefill?.src}
+        initialAlt={editImagePrefill?.alt}
+        initialTitle={editImagePrefill?.title}
         pickImage={window.weaveMD?.dialog.pickImage}
-        onConfirm={handleReplaceImage}
-        onCancel={handleCancelImage}
+        onConfirm={handleEditConfirm}
+        onCancel={handleEditCancel}
       />
     </div>
   );

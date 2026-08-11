@@ -1,4 +1,5 @@
 import type { BlockTreeV2 } from '../../../editor/kernel';
+import type { ImageAlign } from '../../../editor/kernel';
 import type { InlineFormatStyle } from '../../../editor/controllers';
 import type { SyntaxType } from '../../../editor/kernel/syntaxType';
 
@@ -77,6 +78,25 @@ export interface InputEventResult {
   cursorOffset?: number;
 }
 
+/**
+ * 图片点击选中态（K4）：点击渲染期 `img.inline-image`（data-start/data-end 为
+ * kernel 计算的绝对偏移）后由 EditorV2 计算，驱动 FloatingToolbar 图片工具栏。
+ * align/standalone 为选中时快照（tree 计算），动作执行后必须清空选中态防偏移漂移。
+ */
+export interface ImageSelection {
+  blockId: string;
+  /** 图片 token 绝对起始偏移（DOM data-start） */
+  start: number;
+  /** 图片 token 绝对结束偏移（DOM data-end，不含） */
+  end: number;
+  /** 当前对齐（image-block 经 parseImageBlockText；行内图恒 null） */
+  align: ImageAlign | null;
+  /** 是否独立成块（image-block 或整块即图片语法）——对齐/内联按钮可用前提 */
+  standalone: boolean;
+  /** 点击时 img.getBoundingClientRect() 快照（工具栏锚定） */
+  rect: { top: number; left: number; width: number; height: number };
+}
+
 /** 块组件统一回调集（由 EditorV2 提供） */
 export interface BlockHandlers {
   onInput: (blockId: string, text: string, cursorOffset: number) => InputEventResult;
@@ -110,6 +130,14 @@ export interface BlockHandlers {
     imgEnd: number,
     img: { src: string; alt: string; title?: string }
   ) => void;
+  /** K6：图片直选插入——替换 [start,end) 为 `![sel](src)`（空选区 → `![](src)`） */
+  onInsertImageFromSelection: (blockId: string, start: number, end: number, src: string) => void;
+  /** K4：对齐独立成块图片（wrapImageAlign 包裹/换向） */
+  onAlignImage: (blockId: string, align: ImageAlign) => void;
+  /** K4：内联图片（解除对齐包裹 → paragraph） */
+  onMakeInline: (blockId: string) => void;
+  /** K4：移除图片（image-block 整块删除；行内图删 [start,end) 区间） */
+  onRemoveImage: (blockId: string, start: number, end: number) => void;
   getPendingRange?: () => { start: number; end: number } | null;
   onToggleTask: (listItemId: string) => void;
   onUndo: () => void;

@@ -11,6 +11,7 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { EditorInstance } from '../../../editor/editorInstance';
 import type { BlockTreeV2 } from '../../../editor/kernel';
 import { extractHeadingOutline } from '../../../editor/kernel/outline';
+import { isStandaloneImageText, parseImageBlockText } from '../../../editor/kernel';
 import EditorScrollContainer, { type EditorScrollContainerHandle } from './EditorScrollContainer';
 import FloatingToolbar from './FloatingToolbar';
 import { useContentSync } from './useContentSync';
@@ -19,6 +20,7 @@ import { useDomRegistry } from './useDomRegistry';
 import { useEditorActions } from './useEditorActions';
 import { useFocusRestore } from './useFocusRestore';
 import { useOutlineNavigation } from './useOutlineNavigation';
+import type { ImageSelection } from './types';
 
 interface EditorV2Props {
   content: string;
@@ -64,6 +66,14 @@ const EditorV2: React.FC<EditorV2Props> = ({
 
   const outline = useMemo(() => extractHeadingOutline(tree), [tree]);
 
+  // K4：当前选中的图片（点击 img 后由 handleContainerClick 计算；动作执行后清空）
+  const [imageSelection, setImageSelection] = useState<ImageSelection | null>(null);
+
+  // K4：「修改图片」——保持选中态（弹层与预填由 FloatingToolbar 自管）
+  const handleEditImage = useCallback((sel: ImageSelection) => {
+    setImageSelection(sel);
+  }, []);
+
   // 跨块鼠标拖选（浏览器原生拖选被编辑宿主边界截断，见 spec 13.13）
   useCrossBlockDragSelection(containerRef);
 
@@ -75,18 +85,48 @@ const EditorV2: React.FC<EditorV2Props> = ({
     scrollRef,
   });
 
-  // 链接：Ctrl/Cmd+Click 经 IPC 在系统浏览器打开
-  const handleContainerClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement;
-    const link = target.closest('a.inline-link');
-    if (link && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      const href = link.getAttribute('href');
-      if (href && window.weaveMD?.link?.openExternal) {
-        void window.weaveMD.link.openExternal(href);
+  // 链接：Ctrl/Cmd+Click 经 IPC 在系统浏览器打开；图片：点击选中（K4）
+  // 图片选中：读渲染期 img 的 data-start/data-end（kernel 绝对偏移）+ 最近块 id +
+  // getBoundingClientRect 锚点；align/standalone 由 tree 计算（image-block 经
+  // parseImageBlockText，行内图恒 null/standalone=false）。点击非 img 清空选中。
+  const handleContainerClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const target = e.target as HTMLElement;
+      const link = target.closest('a.inline-link');
+      if (link && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        const href = link.getAttribute('href');
+        if (href && window.weaveMD?.link?.openExternal) {
+          void window.weaveMD.link.openExternal(href);
+        }
+        return;
       }
-    }
-  }, []);
+      const img = target.closest('img.inline-image');
+      if (img) {
+        const blockEl = target.closest('[data-block-id]');
+        const blockId = blockEl?.getAttribute('data-block-id');
+        const start = Number(img.getAttribute('data-start'));
+        const end = Number(img.getAttribute('data-end'));
+        const block = blockId ? tree.blocks[blockId] : undefined;
+        if (blockId && block && !Number.isNaN(start) && !Number.isNaN(end)) {
+          const rect = img.getBoundingClientRect();
+          const text = block.text ?? '';
+          const parsed = block.type === 'image-block' ? parseImageBlockText(text) : null;
+          setImageSelection({
+            blockId,
+            start,
+            end,
+            align: parsed?.align ?? null,
+            standalone: block.type === 'image-block' || isStandaloneImageText(text),
+            rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+          });
+          return;
+        }
+      }
+      setImageSelection(null);
+    },
+    [tree]
+  );
 
   // 图片加载失败回退（INLINE-IMAGE G3）：捕获阶段委托监听 img.inline-image 的
   // error 事件，替换为占位 span.inline-image-fallback（alt 或 src 或占位文案）。
@@ -129,8 +169,15 @@ const EditorV2: React.FC<EditorV2Props> = ({
         onConvertBlock={onConvertBlock}
         onClearFormat={handlers.onClearFormat}
         onUnlink={handlers.onUnlink}
+        imageSelection={imageSelection}
+        onCloseImage={() => setImageSelection(null)}
+        onEditImage={handleEditImage}
+        onAlignImage={handlers.onAlignImage}
+        onMakeInline={handlers.onMakeInline}
+        onRemoveImage={handlers.onRemoveImage}
+        onInsertImageFromSelection={handlers.onInsertImageFromSelection}
         onReplaceImage={handlers.onReplaceImage}
-        getBlockEl={getBlockEl}
+        pickImage={window.weaveMD?.dialog.pickImage}
       />
     </div>
   );
