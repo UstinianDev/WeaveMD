@@ -103,6 +103,15 @@ export interface BlockHandlers {
   onClearFormat: (blockId: string, start: number, end: number, restoreSelection?: boolean) => void;
   /** 移除链接：将光标/选区相交的链接还原为纯文本 label */
   onUnlink: (blockId: string, start: number, end: number) => void;
+  /** K3b：立即插入空 src 图片占位 `![label]()`（光标落 `()` 间） */
+  onInsertImage: (blockId: string, start: number, end: number) => void;
+  /** K3b：按 image token 精确区间替换（ImageEditTool 确认） */
+  onReplaceImage: (
+    blockId: string,
+    imgStart: number,
+    imgEnd: number,
+    img: { src: string; alt: string; title?: string }
+  ) => void;
   getPendingRange?: () => { start: number; end: number } | null;
   onToggleTask: (listItemId: string) => void;
   onUndo: () => void;

@@ -10,7 +10,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { InlineFormatStyle } from '../../../editor/controllers';
 import { MARKERS } from '../../../editor/controllers/formatCtrl';
 import type { BlockTreeV2 } from '../../../editor/kernel';
-import { findIntersectingLinks, isBoundedWrap } from '../../../editor/kernel';
+import { findIntersectingLinks, isBoundedWrap, tokenizeInline } from '../../../editor/kernel';
 import {
   getCursorOffsets,
   nearestContentSpan as kernelNearestContentSpan,
@@ -25,6 +25,7 @@ import {
 } from './types';
 import { createRafThrottle } from './rafThrottle';
 import InsertUrlModal from './InsertUrlModal';
+import ImageEditTool from './ImageEditTool';
 
 export type { BlockTypeOption };
 
@@ -50,6 +51,17 @@ interface FloatingToolbarProps {
   ) => void;
   /** 移除链接：光标/选区相交的链接还原为纯文本 label */
   onUnlink?: (blockId: string, start: number, end: number) => void;
+  /** K3b：图片按钮——立即插入空 src 占位 `![label]()` */
+  onInsertImage?: (blockId: string, start: number, end: number) => void;
+  /** K3b：ImageEditTool 确认——按 token 区间替换图片 */
+  onReplaceImage?: (
+    blockId: string,
+    imgStart: number,
+    imgEnd: number,
+    img: { src: string; alt: string; title?: string }
+  ) => void;
+  /** K3b：块 DOM 注册表查询（锚定占位图定位 ImageEditTool） */
+  getBlockEl?: (blockId: string) => HTMLElement | undefined;
 }
 
 interface SelectionState {
@@ -59,6 +71,14 @@ interface SelectionState {
   anchorText: string;
   /** 选区（含折叠光标）是否命中链接 token */
   inLink: boolean;
+}
+
+/** K3b：图片占位锚定的弹层状态（marktext ImageEditTool 链路） */
+interface ImageEditState {
+  blockId: string;
+  imgStart: number;
+  imgEnd: number;
+  initialAlt: string;
 }
 
 interface FormatButton {
@@ -283,6 +303,9 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   onConvertBlock,
   onClearFormat,
   onUnlink,
+  onInsertImage,
+  onReplaceImage,
+  getBlockEl,
 }) => {
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number }>({
@@ -290,9 +313,17 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     left: 0,
   });
   const [selection, setSelection] = useState<SelectionState | null>(null);
-  // U5：link/image 按钮打开 InsertUrlModal（替换失效的 window.prompt）
-  const [insertModal, setInsertModal] = useState<{ style: 'link' | 'image' } | null>(null);
+  // U5/K3b：链接按钮打开 InsertUrlModal；图片按钮不再走该 Modal
+  const [insertModal, setInsertModal] = useState<{ style: 'link' } | null>(null);
+  // K3b：图片占位锚定的 ImageEditTool 状态（插入占位后记录 token 区间与 alt）
+  const [imageEdit, setImageEdit] = useState<ImageEditState | null>(null);
+  const [imageEditPos, setImageEditPos] = useState<{ top: number; left: number } | null>(null);
+  // 锚定成功后以实际 image token.start/end 修正（精确匹配 replaceImage 的前提）
+  const imageEditStartRef = useRef(0);
+  const imageEditEndRef = useRef(0);
   const toolbarRef = useRef<HTMLDivElement>(null);
+  // K3b：interactionGuard 包裹 ref（覆盖工具栏 + ImageEditTool）
+  const wrapRef = useRef<HTMLDivElement>(null);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // SPEC-EDIT-DSF 4.3：rAF 节流与可见性去重（避免拖选期间每帧重复 setVisible）
   const latestSelectionRef = useRef<Selection | null>(null);
@@ -338,8 +369,8 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     if (!container) return;
 
     const flushSelection = () => {
-      // U5：Modal 打开期间（输入框获焦会收起选区）不得隐藏工具栏
-      if (insertModal) {
+      // U5/K3b：Modal / ImageEditTool 打开期间（输入框获焦会收起选区）不得隐藏工具栏
+      if (insertModal !== null || imageEdit !== null) {
         cancelHide();
         return;
       }
@@ -389,22 +420,24 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       container.removeEventListener('scroll', handleScroll, true);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
-  }, [editorContainerRef, cancelHide, scheduleHide, tree, setVisibleGuarded, insertModal]);
+  }, [editorContainerRef, cancelHide, scheduleHide, tree, setVisibleGuarded, insertModal, imageEdit]);
 
   // SPEC-EDIT-FT3 4.3：驻留退出条件——点击工具栏外任意位置（capture 阶段）与 Escape
+  // K3b：守卫合并 insertModal / imageEdit（ImageEditTool 自处理自身交互），wrapRef 覆盖两者
+  const isModalOpen = insertModal !== null || imageEdit !== null;
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
-      // U5：Modal 打开期间点击 Modal（工具栏根节点之外）不得隐藏工具栏
-      if (insertModal) return;
+      // U5/K3b：Modal / ImageEditTool 打开期间点击自身或外部均由弹层处理，不隐工具栏
+      if (isModalOpen) return;
       if (!stickyRef.current) return;
-      if (toolbarRef.current?.contains(e.target as Node)) return;
+      if (wrapRef.current?.contains(e.target as Node)) return;
       suppressSelectionRef.current = true;
       hideToolbar();
     };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      // U5：Modal 打开期间 Escape 由 Modal 自处理（关闭 Modal 而非隐藏工具栏）
-      if (insertModal) return;
+      // U5/K3b：Modal / ImageEditTool 打开期间 Escape 由弹层自处理
+      if (isModalOpen) return;
       if (visibleRef.current) hideToolbar();
     };
     document.addEventListener('mousedown', handleMouseDown, true);
@@ -413,7 +446,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       document.removeEventListener('mousedown', handleMouseDown, true);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [hideToolbar, insertModal]);
+  }, [hideToolbar, isModalOpen]);
 
   const currentType: BlockTypeOption = useMemo(() => {
     if (!selection) return 'paragraph';
@@ -445,16 +478,29 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   const handleFormat = useCallback(
     (button: FormatButton) => {
       if (!selection) return;
-      if (button.style === 'link' || button.style === 'image') {
-        // U5：link/image 打开 InsertUrlModal 取 URL（替换禁用环境不可用的 window.prompt）
-        setInsertModal({ style: button.style });
+      if (button.style === 'link') {
+        // U5：link 打开 InsertUrlModal 取 URL（替换禁用环境不可用的 window.prompt）
+        setInsertModal({ style: 'link' });
+        return;
+      }
+      if (button.style === 'image') {
+        // K3b：图片不再走 URL Modal——立即插入 `![label]()` 空 src 占位并隐藏工具栏，
+        // 随后锚定 ImageEditTool 完成 src/alt/title（marktext 两段式）
+        onInsertImage?.(selection.blockId, selection.start, selection.end);
+        setImageEdit({
+          blockId: selection.blockId,
+          imgStart: selection.start,
+          imgEnd: selection.end,
+          initialAlt: selection.anchorText,
+        });
+        setVisibleGuarded(false);
         return;
       }
       onFormat(selection.blockId, button.style, selection.start, selection.end, undefined, true);
       // FT3：格式应用后驻留，不退出；由 restoreSelection 保持选区非折叠以维持显示
       stickyRef.current = true;
     },
-    [selection, onFormat]
+    [selection, onFormat, onInsertImage, setVisibleGuarded]
   );
 
   const handleClearFormat = useCallback(() => {
@@ -482,26 +528,74 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     [selection, currentType, onConvertBlock, setVisibleGuarded]
   );
 
-  if (!visible || !selection) return null;
+  // K3b：ImageEditTool 锚定——占位 `.inline-image-empty` 出现后依其 rect 定位，
+  // 并以实际 image token 精确区间修正 replaceImage 参数
+  useEffect(() => {
+    if (!imageEdit) return;
+    const blockEl = getBlockEl?.(imageEdit.blockId);
+    if (!blockEl) return;
+    const placeholder = blockEl.querySelector('.inline-image-empty');
+    if (!placeholder) return;
+    const rect = placeholder.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return;
+    const toolWidth = 280;
+    setImageEditPos({
+      top: rect.bottom + 6,
+      left: clamp(
+        rect.left + rect.width / 2 - toolWidth / 2,
+        8,
+        window.innerWidth - toolWidth - 8
+      ),
+    });
+    // 占位 token 起始即插入点，结束为完整 token.end（`![label]()` 全区间）
+    const blockText = tree.blocks[imageEdit.blockId]?.text ?? '';
+    const imgToken = tokenizeInline(blockText, 0).find((t) => t.type === 'image');
+    if (imgToken) {
+      imageEditStartRef.current = imgToken.start;
+      imageEditEndRef.current = imgToken.end;
+    }
+  }, [imageEdit, tree, getBlockEl]);
+
+  const handleReplaceImage = useCallback(
+    (img: { src: string; alt: string; title: string }) => {
+      if (!imageEdit) return;
+      onReplaceImage?.(
+        imageEdit.blockId,
+        imageEditStartRef.current,
+        imageEditEndRef.current,
+        img
+      );
+      setImageEdit(null);
+      setImageEditPos(null);
+    },
+    [imageEdit, onReplaceImage]
+  );
+
+  const handleCancelImage = useCallback(() => {
+    setImageEdit(null);
+    setImageEditPos(null);
+  }, []);
 
   // 折叠光标命中链接：仅显示「移除链接」（其余格式按钮对空选区无意义）
-  const showUnlinkOnly = selection.start === selection.end && selection.inLink;
+  const showUnlinkOnly =
+    visible && selection ? selection.start === selection.end && selection.inLink : false;
 
   return (
-    <>
+    <div ref={wrapRef}>
+      {visible && selection && (
       <div
         ref={toolbarRef}
-      className="floating-toolbar-v2 fixed z-[100] shadow-lg select-none"
-      style={{
-        top: `${position.top}px`,
-        left: `${position.left}px`,
-        backgroundColor: 'var(--bg-secondary)',
-        border: '1px solid var(--border-color)',
-      }}
-      onMouseEnter={cancelHide}
-      onMouseLeave={() => scheduleHide(300)}
-      onMouseDown={(e) => e.stopPropagation()}
-    >
+        className="floating-toolbar-v2 fixed z-[100] shadow-lg select-none"
+        style={{
+          top: `${position.top}px`,
+          left: `${position.left}px`,
+          backgroundColor: 'var(--bg-secondary)',
+          border: '1px solid var(--border-color)',
+        }}
+        onMouseEnter={cancelHide}
+        onMouseLeave={() => scheduleHide(300)}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
       {/* 块类型下拉：正文 / H1-H6 / 代码块 / 引用 / 列表（自定义面板，SPEC-EDIT-FT G3①） */}
       <div className="block-type-dropdown relative" onMouseDown={(e) => e.stopPropagation()}>
         <button
@@ -591,23 +685,31 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         </>
       )}
       </div>
-      {/* U5：link/image URL 输入 Modal（open=false 时渲染 null，插在 toolbar 之后） */}
+      )}
+      {/* U5：link URL 输入 Modal（open=false 时渲染 null；图片已走 K3b 两段式） */}
       <InsertUrlModal
         open={insertModal !== null}
-        title={insertModal?.style === 'link' ? '插入链接' : '插入图片'}
-        showPickImage={insertModal?.style === 'image'}
+        title="插入链接"
         onConfirm={(url) => {
-          if (insertModal && selection) {
-            onFormat(selection.blockId, insertModal.style, selection.start, selection.end, url, true);
+          if (selection) {
+            onFormat(selection.blockId, 'link', selection.start, selection.end, url, true);
             // FT3：确认插入后驻留，由 restoreSelection 维持选区非折叠
             stickyRef.current = true;
           }
           setInsertModal(null);
         }}
         onCancel={() => setInsertModal(null)}
-        pickImage={window.weaveMD?.dialog.pickImage}
       />
-    </>
+      {/* K3b：锚定图片占位的 ImageEditTool（open=false 时渲染 null） */}
+      <ImageEditTool
+        open={imageEdit !== null}
+        position={imageEditPos ?? { top: 0, left: 0 }}
+        initialAlt={imageEdit?.initialAlt}
+        pickImage={window.weaveMD?.dialog.pickImage}
+        onConfirm={handleReplaceImage}
+        onCancel={handleCancelImage}
+      />
+    </div>
   );
 };
 
