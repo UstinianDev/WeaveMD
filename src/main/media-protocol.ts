@@ -19,6 +19,22 @@ import { pathToFileURL } from 'node:url';
 const MEDIA_PREFIX = 'media://';
 
 /**
+ * media scheme 特权集（必须在 app ready 前由 index.ts 顶层注册）。
+ *
+ * ⚠️ 刻意不含 `standard: true`：media 作为标准（层级/权威）scheme 时，Chromium 会对
+ * URL host 做规范化，而本契约把盘符编码进 host（`media://C%3A/Users/...` 的 host 为
+ * `C%3A`，解码即 `C:` 非法 host）→ 请求被拒、图片加载失败（完整 Electron 应用实测，
+ * handler 收不到 request，触发 `.inline-image-fallback`）。改为非 standard 后 URL 作为
+ * 不透明串原样透传 handler，`decodeMediaUrl` 契约不变。回归见
+ * `tests/main/mediaProtocol.test.ts`（断言无 standard）。
+ */
+export const MEDIA_SCHEME_PRIVILEGES = {
+  secure: true,
+  supportFetchAPI: true,
+  stream: true,
+} as const;
+
+/**
  * Decode a media:// URL back into its original (backslash-form) Windows path.
  * Returns null when the URL is not a valid media absolute path.
  * Pure function — unit-testable without an Electron runtime.

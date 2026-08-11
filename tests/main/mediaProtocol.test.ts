@@ -7,7 +7,7 @@
 //   handler 解析：去前缀 → decodeURIComponent 一次 → 校验 Windows 绝对/UNC → 返回解码后的原始路径（保持 \）
 import { describe, expect, it } from 'vitest';
 
-import { decodeMediaUrl } from '../../src/main/media-protocol';
+import { decodeMediaUrl, MEDIA_SCHEME_PRIVILEGES } from '../../src/main/media-protocol';
 
 describe('decodeMediaUrl — Windows 盘符绝对路径', () => {
   it('解码 C 盘路径（/ 编码、: 编码）并保持原路径', () => {
@@ -64,5 +64,22 @@ describe('decodeMediaUrl — 非法/边界输入返回 null', () => {
   it('缺盘符分隔符（C:/ 非 C:\\）按规范化后不误判', () => {
     // 契约规范是 \，但 C:/ 形式的正斜杠同样视为合法盘符（归一化后 /^[a-zA-Z]:\// 命中）
     expect(decodeMediaUrl('media://C%3A/a.png')).toBe('C:\\a.png');
+  });
+});
+
+describe('MEDIA_SCHEME_PRIVILEGES — 防 media:// 加载失败回归', () => {
+  // 根因（image-media-display-fix）：media 作为标准 scheme 时，盘符 `C:` 编码进 host
+  // （`media://C%3A/...`）会被 Chromium 规范化拒绝，请求不达 handler，图片加载失败。
+  // 因此特权集**必须**不含 `standard: true`（非 standard 时 URL 原样透传，见
+  // .opencode/workflows/devflow/image-media-display-fix/requirements.md）。
+  it('不含 standard（非 standard scheme 才放行 C%3A host URL）', () => {
+    expect(MEDIA_SCHEME_PRIVILEGES).not.toHaveProperty('standard');
+    expect((MEDIA_SCHEME_PRIVILEGES as Record<string, unknown>).standard).toBeUndefined();
+  });
+
+  it('保留图片加载所需特权', () => {
+    expect(MEDIA_SCHEME_PRIVILEGES.secure).toBe(true);
+    expect(MEDIA_SCHEME_PRIVILEGES.supportFetchAPI).toBe(true);
+    expect(MEDIA_SCHEME_PRIVILEGES.stream).toBe(true);
   });
 });
