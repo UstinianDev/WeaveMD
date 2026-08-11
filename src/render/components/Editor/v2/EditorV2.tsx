@@ -129,7 +129,6 @@ const EditorV2: React.FC<EditorV2Props> = ({
         onConvertBlock={onConvertBlock}
         onClearFormat={handlers.onClearFormat}
         onUnlink={handlers.onUnlink}
-        onInsertImage={handlers.onInsertImage}
         onReplaceImage={handlers.onReplaceImage}
         getBlockEl={getBlockEl}
       />

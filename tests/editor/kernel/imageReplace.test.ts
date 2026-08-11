@@ -1,9 +1,29 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  escapeImagePathForMarkdown,
   escapeMarkdownUrl,
   replaceImageRange,
 } from '../../../src/render/editor/kernel/imageReplace';
+
+describe('imageReplace — escapeImagePathForMarkdown（K3）', () => {
+  it('空格 → %20，中文与反斜杠保留（Windows 截图路径）', () => {
+    expect(
+      escapeImagePathForMarkdown(String.raw`C:\Users\屏幕截图 2026-08-11 003530.png`)
+    ).toBe(String.raw`C:\Users\屏幕截图%202026-08-11%20003530.png`);
+  });
+
+  it('含括号 → 空格先转 %20，再以 `<...>` 兜底包裹', () => {
+    expect(escapeImagePathForMarkdown('C:/x/img (1).png')).toBe(
+      '<C:/x/img%20(1).png>'
+    );
+  });
+
+  it('无特殊字符 → 原样返回', () => {
+    expect(escapeImagePathForMarkdown('img.png')).toBe('img.png');
+    expect(escapeImagePathForMarkdown('https://x.com/a.png')).toBe('https://x.com/a.png');
+  });
+});
 
 describe('imageReplace — escapeMarkdownUrl（K1）', () => {
   it('命中 /[\\s()<>]/ 的 src 用 <...> 包裹', () => {
