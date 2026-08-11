@@ -227,6 +227,39 @@ describe('inlineLexer — 链接 / 图片 / 自动链接', () => {
   });
 });
 
+describe('inlineLexer — 图片空 href（K1 edit-image-insert-marktext）', () => {
+  it('`![]()` 解析为 image token（href=空串）', () => {
+    const tokens = tokenizeInline('![]()');
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0].type).toBe('image');
+    expect(tokens[0].isImage).toBe(true);
+    expect(tokens[0].href).toBe('');
+    expect(tokens[0].start).toBe(0);
+    expect(tokens[0].end).toBe(5);
+    expect(tokens[0].contentStart).toBe(2);
+    expect(tokens[0].contentEnd).toBe(2);
+  });
+
+  it('`![a]()` 解析为 image token（空 href 放行，alt 保留）', () => {
+    const tokens = tokenizeInline('![a]()');
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0].type).toBe('image');
+    expect(tokens[0].isImage).toBe(true);
+    expect(tokens[0].href).toBe('');
+    expect(tokens[0].contentStart).toBe(2);
+    expect(tokens[0].contentEnd).toBe(3);
+  });
+
+  it('`[a]()` 空 href 的 link 不产生 token（仅 image 放行）', () => {
+    expect(tokenizeInline('[a]()')).toEqual([]);
+  });
+
+  it('图片非空 href 仍走 safeUrl 白名单（危险协议仍拒）', () => {
+    expect(tokenizeInline('![a](javascript:alert(1))')).toEqual([]);
+    expect(tokenizeInline('![a](data:text/html,x)')).toEqual([]);
+  });
+});
+
 describe('inlineLexer — 前置文本下的绝对偏移', () => {
   it('偏移为相对完整文本的绝对位置', () => {
     const tokens = tokenizeInline('ab **bold** cd');

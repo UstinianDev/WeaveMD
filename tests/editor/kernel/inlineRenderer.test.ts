@@ -125,6 +125,41 @@ describe('inlineRenderer — 行内语法', () => {
     );
   });
 
+  it('空 href 图片渲染占位（K1）：含 .inline-image-empty 且不产出 <img>', () => {
+    const html = renderInline('![]()');
+    expect(html).toContain('inline-image-empty');
+    expect(html).not.toContain('<img');
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    expect(container.textContent).toBe('![]()');
+  });
+
+  it('空 href 图片占位中 alt 可见，textContent 与源文本一致', () => {
+    const source = '![alt]()';
+    const html = renderInline(source);
+    expect(html).toContain('inline-image-empty');
+    expect(html).toContain('alt');
+    expect(html).not.toContain('<img');
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    expect(container.textContent).toBe(source);
+  });
+
+  it('空 href 图片占位结构：两个 md-syntax 包裹 `![` 与 `]()`，中段 inline-image-empty 为 alt', () => {
+    const html = renderInline('![empty]()');
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    const syntaxSpans = [...container.querySelectorAll('.md-syntax')].map((s) => s.textContent);
+    expect(syntaxSpans).toEqual(['![', ']()']);
+    expect(container.querySelector('.inline-image-empty')?.textContent).toBe('empty');
+  });
+
+  it('非空 href 图片输出保持既有 <img class="inline-image"> 不变', () => {
+    expect(renderInline('![alt](https://example.com/a.png)')).toBe(
+      '<img class="inline-image" src="https://example.com/a.png" alt="alt">'
+    );
+  });
+
   it('危险链接降级为纯文本', () => {
     expect(renderInline('[x](javascript:alert(1))')).toBe('[x](javascript:alert(1))');
   });

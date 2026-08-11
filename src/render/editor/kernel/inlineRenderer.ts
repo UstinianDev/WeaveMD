@@ -90,6 +90,10 @@ function renderToken(token: InlineToken, text: string): string {
     }
     case 'image': {
       const label = text.slice(token.contentStart, token.contentEnd);
+      if ((token.href ?? '') === '') {
+        // 空 src 占位：alt 原样可见，两个 md-syntax span 包裹 `![` 与 `]()`
+        return `<span class="md-syntax">![</span><span class="inline-image-empty">${escapeHtml(label)}</span><span class="md-syntax">]()</span>`;
+      }
       const titleAttr = token.title !== undefined ? ` title="${escapeHtml(token.title)}"` : '';
       return `<img class="inline-image" src="${escapeHtml(toImgSrc(token.href ?? ''))}" alt="${escapeHtml(label)}"${titleAttr}>`;
     }
