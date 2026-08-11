@@ -2,7 +2,7 @@
 // WeaveMD — FloatingToolbar v2 单测（SPEC-EDIT-FT Phase 2）
 // 覆盖 G1 显示条件 / G3② 类型映射 / 转换矩阵 / G3① 自定义下拉交互
 // ============================================
-import { act, fireEvent, render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { BlockTreeV2 } from '../../src/render/editor/kernel';
@@ -90,6 +90,50 @@ function mockSelection(span: HTMLSpanElement): void {
 /** 无选区（工具栏应立即隐藏） */
 function mockNoSelection(): void {
   vi.spyOn(window, 'getSelection').mockReturnValue(null as unknown as Selection);
+}
+
+// ============ 两段式图片插入夹具（K3b） ============
+// 模拟「onInsertImage 已写入空 src 占位」的中间态：tree.text 为 `![label]()`，
+// DOM 已有 `.inline-image-empty` 占位 span。getBlockEl 返回容器，供锚定 effect 定位。
+function setupImageFlow(text = 'hello world') {
+  let tree = createDocumentTree();
+  const p = makeParagraph(tree, `![${text}]()`);
+  tree = appendChild(tree, tree.root.id, p);
+  const container = document.createElement('div');
+  container.id = 'editor-container-k3b';
+  const span = document.createElement('span');
+  span.className = 'block-content';
+  span.textContent = text;
+  span.dataset.blockId = p.id;
+  container.appendChild(span);
+  const placeholder = document.createElement('span');
+  placeholder.className = 'inline-image-empty';
+  placeholder.textContent = text;
+  container.appendChild(placeholder);
+  document.body.appendChild(container);
+  const onFormat = vi.fn();
+  const onConvertBlock = vi.fn();
+  const onClearFormat = vi.fn();
+  const onInsertImage = vi.fn();
+  const onReplaceImage = vi.fn();
+  const getBlockEl = vi.fn().mockReturnValue(container);
+  return {
+    tree,
+    p,
+    span,
+    container,
+    onFormat,
+    onConvertBlock,
+    onClearFormat,
+    onInsertImage,
+    onReplaceImage,
+    getBlockEl,
+  };
+}
+
+/** element.getBoundingClientRect 统一 mock（jsdom 默认为全 0） */
+function mockElementRect(rect: DOMRect): void {
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue(rect);
 }
 
 // ============ 转换矩阵（SPEC-EDIT-FT 4.3.3） ============
@@ -648,42 +692,43 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
     await clickAndExpect('math', '数学公式');
   });
 
-  it('TB3: 图片按钮点击 → 打开图片 Modal → 输入 URL 确定 → onFormat(blockId, image, s, e, url, true)', async () => {
-    let tree = createDocumentTree();
-    const p = makeParagraph(tree, 'hello world');
-    tree = appendChild(tree, tree.root.id, p);
-    const { span, ref } = setup(p.id, tree);
-    const onFormat = vi.fn();
-    const onConvertBlock = vi.fn();
-    const onClearFormat = vi.fn();
-    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
+  it('TB3: 图片按钮点击 → 两段式：立即 onInsertImage + 工具栏隐藏 + ImageEditTool 出现（initialAlt=选区文本）', async () => {
+    const f = setupImageFlow();
+    mockSelection(f.span);
+    mockElementRect({
+      left: 500,
+      top: 300,
+      width: 100,
+      height: 30,
+      right: 600,
+      bottom: 330,
+    } as DOMRect);
+    const { container } = render(
+      <FloatingToolbar
+        editorContainerRef={{ current: f.container } as React.RefObject<HTMLDivElement>}
+        tree={f.tree}
+        onFormat={f.onFormat}
+        onConvertBlock={f.onConvertBlock}
+        onClearFormat={f.onClearFormat}
+        onInsertImage={f.onInsertImage}
+        onReplaceImage={f.onReplaceImage}
+        getBlockEl={f.getBlockEl}
+      />
+    );
     await fireSelectionChange();
 
-    const img = container.querySelector('button[title="图片"]') as HTMLButtonElement;
-    expect(img).not.toBeNull();
-    fireEvent.click(img);
+    // 工具栏可见时点图片按钮
+    expect(container.querySelector('.floating-toolbar-v2')).not.toBeNull();
+    fireEvent.click(container.querySelector('button[title="图片"]') as HTMLButtonElement);
 
-    // 打开图片 Modal：标题「插入图片」+ 输入框 + 确定/取消按钮
-    const modal = container.querySelector('.insert-url-modal');
-    expect(modal).not.toBeNull();
-    expect(modal?.querySelector('.insert-url-modal-title')?.textContent).toBe('插入图片');
-
-    const input = container.querySelector('.insert-url-modal-input') as HTMLInputElement;
-    fireEvent.change(input, { target: { value: 'https://example.com/a.png' } });
-    const confirmBtn = Array.from(container.querySelectorAll('button.insert-url-modal-btn')).find(
-      (b) => b.textContent === '确定'
-    ) as HTMLButtonElement;
-    fireEvent.click(confirmBtn);
-
-    expect(onFormat).toHaveBeenCalledWith(
-      p.id,
-      'image',
-      expect.any(Number),
-      expect.any(Number),
-      'https://example.com/a.png',
-      true
-    );
-    expect(container.querySelector('.insert-url-modal')).toBeNull();
+    // 立即插入占位 + 工具栏隐藏 + ImageEditTool 锚定出现（initialAlt=选区文本）
+    expect(container.querySelector('.floating-toolbar-v2')).toBeNull();
+    expect(f.onInsertImage).toHaveBeenCalledWith(f.p.id, 0, 'hello world'.length);
+    const tool = container.querySelector('[data-testid="image-edit-tool"]');
+    expect(tool).not.toBeNull();
+    expect(
+      (container.querySelector('input[placeholder="可选描述 (alt)"]') as HTMLInputElement).value
+    ).toBe('hello world');
   });
 
   it('TB9: 链接按钮点击 → 打开链接 Modal（标题「插入链接」，无「选择文件」按钮）→ 输入确定 → onFormat link', async () => {
@@ -725,107 +770,8 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
     );
   });
 
-  it('TB10: 图片 Modal 点「取消」→ onFormat 不被调用且 Modal 关闭', async () => {
-    let tree = createDocumentTree();
-    const p = makeParagraph(tree, 'hello world');
-    tree = appendChild(tree, tree.root.id, p);
-    const { span, ref } = setup(p.id, tree);
-    const onFormat = vi.fn();
-    const onConvertBlock = vi.fn();
-    const onClearFormat = vi.fn();
-    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
-    await fireSelectionChange();
-
-    fireEvent.click(container.querySelector('button[title="图片"]') as HTMLButtonElement);
-    expect(container.querySelector('.insert-url-modal')).not.toBeNull();
-    const cancelBtn = Array.from(container.querySelectorAll('button.insert-url-modal-btn')).find(
-      (b) => b.textContent === '取消'
-    ) as HTMLButtonElement;
-    fireEvent.click(cancelBtn);
-    expect(onFormat).not.toHaveBeenCalled();
-    expect(container.querySelector('.insert-url-modal')).toBeNull();
-  });
-
-  it('TB10b: 图片 Modal 点「×」关闭 → onFormat 不被调用且 Modal 关闭', async () => {
-    let tree = createDocumentTree();
-    const p = makeParagraph(tree, 'hello world');
-    tree = appendChild(tree, tree.root.id, p);
-    const { span, ref } = setup(p.id, tree);
-    const onFormat = vi.fn();
-    const onConvertBlock = vi.fn();
-    const onClearFormat = vi.fn();
-    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
-    await fireSelectionChange();
-
-    fireEvent.click(container.querySelector('button[title="图片"]') as HTMLButtonElement);
-    expect(container.querySelector('.insert-url-modal')).not.toBeNull();
-    fireEvent.click(container.querySelector('.insert-url-modal-close') as HTMLButtonElement);
-    expect(onFormat).not.toHaveBeenCalled();
-    expect(container.querySelector('.insert-url-modal')).toBeNull();
-  });
-
-  it('TB10c: 图片 Modal 按 Escape → 关闭，onFormat 不被调用，工具栏保持可见（Modal 期间驻留）', async () => {
-    let tree = createDocumentTree();
-    const p = makeParagraph(tree, 'hello world');
-    tree = appendChild(tree, tree.root.id, p);
-    const { span, ref } = setup(p.id, tree);
-    const onFormat = vi.fn();
-    const onConvertBlock = vi.fn();
-    const onClearFormat = vi.fn();
-    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
-    await fireSelectionChange();
-
-    fireEvent.click(container.querySelector('button[title="图片"]') as HTMLButtonElement);
-    expect(container.querySelector('.insert-url-modal')).not.toBeNull();
-    fireEvent.keyDown(document, { key: 'Escape' });
-    expect(onFormat).not.toHaveBeenCalled();
-    expect(container.querySelector('.insert-url-modal')).toBeNull();
-    // U5：Escape 只关闭 Modal，不隐藏工具栏
-    expect(container.querySelector('.floating-toolbar-v2')).not.toBeNull();
-  });
-
-  it('TB11: 图片 Modal 空 URL 确定 → onFormat 不被调用并提示 URL 不能为空', async () => {
-    let tree = createDocumentTree();
-    const p = makeParagraph(tree, 'hello world');
-    tree = appendChild(tree, tree.root.id, p);
-    const { span, ref } = setup(p.id, tree);
-    const onFormat = vi.fn();
-    const onConvertBlock = vi.fn();
-    const onClearFormat = vi.fn();
-    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
-    await fireSelectionChange();
-
-    fireEvent.click(container.querySelector('button[title="图片"]') as HTMLButtonElement);
-    const confirmBtn = Array.from(container.querySelectorAll('button.insert-url-modal-btn')).find(
-      (b) => b.textContent === '确定'
-    ) as HTMLButtonElement;
-    fireEvent.click(confirmBtn);
-    expect(onFormat).not.toHaveBeenCalled();
-    expect(container.querySelector('.insert-url-modal-error')).not.toBeNull();
-  });
-
-  it('TB12: 图片 Modal 显示「选择文件」按钮；无 pickImage（测试环境无 bridge）点击不崩溃不回填', async () => {
-    let tree = createDocumentTree();
-    const p = makeParagraph(tree, 'hello world');
-    tree = appendChild(tree, tree.root.id, p);
-    const { span, ref } = setup(p.id, tree);
-    const onFormat = vi.fn();
-    const onConvertBlock = vi.fn();
-    const onClearFormat = vi.fn();
-    const { container } = renderToolbar(tree, span, ref, onFormat, onConvertBlock, onClearFormat);
-    await fireSelectionChange();
-
-    fireEvent.click(container.querySelector('button[title="图片"]') as HTMLButtonElement);
-    const modal = container.querySelector('.insert-url-modal');
-    const pickBtn = Array.from(modal?.querySelectorAll('button') ?? []).find(
-      (b) => b.textContent === '选择文件'
-    );
-    expect(pickBtn).not.toBeUndefined();
-    await act(async () => {
-      fireEvent.click(pickBtn!);
-    });
-    expect((container.querySelector('.insert-url-modal-input') as HTMLInputElement).value).toBe('');
-    expect(onFormat).not.toHaveBeenCalled();
+  it('TB10~TB12 图片链路已搬移至「FloatingToolbar — K3b 图片两段式插入」', () => {
+    expect(true).toBe(true);
   });
 
   it('TB4: 橡皮擦点击 → onClearFormat(blockId, s, e)', async () => {
@@ -1224,6 +1170,144 @@ describe('FloatingToolbar — FT3 工具栏驻留', () => {
 
     fireEvent.mouseDown(document.body);
     expect(container.querySelector('.floating-toolbar-v2')).not.toBeNull();
+  });
+});
+
+// =============================================================
+// SPEC-EDIT-IMAGE-K3B：两段式图片插入（marktext 式）
+// 点图片 → onInsertImage + 立即隐藏 + 锚定 ImageEditTool；
+// 确认 → onReplaceImage(imgStart, tokenEnd)；取消/×/Escape → 占位保留；无 pickImage 不崩溃
+// =============================================================
+describe('FloatingToolbar — K3b 图片两段式插入', () => {
+  beforeAll(() => {
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(performance.now());
+      return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  });
+  afterAll(() => {
+    vi.unstubAllGlobals();
+  });
+  afterEach(() => {
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  async function fireSelectionChange(): Promise<void> {
+    await act(async () => {
+      document.dispatchEvent(new Event('selectionchange'));
+    });
+  }
+
+  async function openImageTool(
+    overrides: { rect?: DOMRect } = {}
+  ): Promise<{ f: ReturnType<typeof setupImageFlow>; container: HTMLElement }> {
+    const f = setupImageFlow();
+    mockSelection(f.span);
+    mockElementRect(
+      overrides.rect ??
+        ({ left: 500, top: 300, width: 100, height: 30, right: 600, bottom: 330 } as DOMRect)
+    );
+    const { container } = render(
+      <FloatingToolbar
+        editorContainerRef={{ current: f.container } as React.RefObject<HTMLDivElement>}
+        tree={f.tree}
+        onFormat={f.onFormat}
+        onConvertBlock={f.onConvertBlock}
+        onClearFormat={f.onClearFormat}
+        onInsertImage={f.onInsertImage}
+        onReplaceImage={f.onReplaceImage}
+        getBlockEl={f.getBlockEl}
+      />
+    );
+    await fireSelectionChange();
+    fireEvent.click(container.querySelector('button[title="图片"]') as HTMLButtonElement);
+    return { f, container };
+  }
+
+  it('K3b-1: 图片占位 token 序号锚定 → 依 DOM rect 计算非空 position（top=bottom+6, left=中心）', async () => {
+    const { container } = await openImageTool();
+    const tool = container.querySelector('[data-testid="image-edit-tool"]');
+    expect(tool).not.toBeNull();
+    expect((tool as HTMLElement).style.top).toBe('336px'); // bottom 330 + 6
+    expect((tool as HTMLElement).style.left).toBe('410px'); // 中心 550 - 半宽 140 = 410（视口内）
+  });
+
+  it('K3b-2: ImageEditTool 确认 → onReplaceImage(blockId, imgStart, tokenEnd, {src,alt,title}) + 弹层关闭', async () => {
+    const { f, container } = await openImageTool();
+    fireEvent.change(container.querySelector('input[placeholder="输入图片 URL"]') as HTMLInputElement, {
+      target: { value: 'https://example.com/a.png' },
+    });
+    fireEvent.change(container.querySelector('input[placeholder="可选描述 (alt)"]') as HTMLInputElement, {
+      target: { value: '我的描述' },
+    });
+    fireEvent.change(container.querySelector('input[placeholder="可选标题 (title)"]') as HTMLInputElement, {
+      target: { value: '标题' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '嵌入' }));
+    // imgStart = 占位 `![hello world]()` 起点：`![` 之后的 label 区间起点（0），
+    // imgEnd = token.end = `![hello world]()`.length
+    expect(f.onReplaceImage).toHaveBeenCalledWith(
+      f.p.id,
+      0,
+      `![hello world]()`.length,
+      { src: 'https://example.com/a.png', alt: '我的描述', title: '标题' }
+    );
+    expect(container.querySelector('[data-testid="image-edit-tool"]')).toBeNull();
+    expect(container.querySelector('.floating-toolbar-v2')).toBeNull();
+  });
+
+  it('K3b-3: 取消 / × / Escape → 不调 onReplaceImage，空占位保留', async () => {
+    // 取消按钮
+    const c1 = await openImageTool();
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(c1.f.onReplaceImage).not.toHaveBeenCalled();
+    expect(c1.container.querySelector('[data-testid="image-edit-tool"]')).toBeNull();
+    expect(c1.f.container.querySelector('.inline-image-empty')).not.toBeNull();
+
+    // × 关闭
+    const c2 = await openImageTool();
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    expect(c2.f.onReplaceImage).not.toHaveBeenCalled();
+    expect(c2.container.querySelector('[data-testid="image-edit-tool"]')).toBeNull();
+    expect(c2.f.container.querySelector('.inline-image-empty')).not.toBeNull();
+
+    // Escape（FloatingToolbar 守卫让位于 ImageEditTool 自处理 → onCancel）
+    const c3 = await openImageTool();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(c3.f.onReplaceImage).not.toHaveBeenCalled();
+    expect(c3.container.querySelector('[data-testid="image-edit-tool"]')).toBeNull();
+    expect(c3.f.container.querySelector('.inline-image-empty')).not.toBeNull();
+  });
+
+  it('K3b-4: 锚定 effect——getBlockEl 返回含 .inline-image-empty 的 DOM → 计算到非空 position（工具栏不还原）', async () => {
+    // openImageTool 已覆盖：锚定成功后工具栏保持隐藏且 ImageEditTool 出现。
+    // 此处补充：位置落在视口 clamp 范围内（left 不为负、top=bottom+6）。
+    const { container } = await openImageTool();
+    const tool = container.querySelector('[data-testid="image-edit-tool"]') as HTMLElement;
+    expect(Number(tool.style.top.split('px')[0])).toBeGreaterThanOrEqual(8);
+    expect(Number(tool.style.left.split('px')[0])).toBeGreaterThanOrEqual(8);
+  });
+
+  it('K3b-5: 无 pickImage（window.weaveMD 未暴露 bridge）→ select Tab 点击不崩溃', async () => {
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const originalBridge = window.weaveMD;
+    window.weaveMD = undefined as unknown as typeof window.weaveMD;
+    try {
+      const { f, container } = await openImageTool();
+      expect(container.querySelector('[data-testid="image-edit-tool"]')).not.toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: '本地选择' }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '选择图片' }));
+      });
+      expect(f.onReplaceImage).not.toHaveBeenCalled();
+      expect(spy).toHaveBeenCalled();
+      // 弹层仍打开（无 pickImage 为 no-op）
+      expect(container.querySelector('[data-testid="image-edit-tool"]')).not.toBeNull();
+    } finally {
+      window.weaveMD = originalBridge;
+    }
   });
 });
 

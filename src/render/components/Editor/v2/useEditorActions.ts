@@ -213,6 +213,31 @@ export function useEditorActions({
     [applyBlockAction]
   );
 
+  // K3b 两段式图片插入：立即写 `![label]()` 空 src 占位（光标落 `()` 内）
+  const onInsertImage = useCallback(
+    (blockId: string, start: number, end: number) => {
+      applyBlockAction((instance) =>
+        formatCtrl.insertImagePlaceholder(instance, blockId, start, end)
+      );
+    },
+    [applyBlockAction]
+  );
+
+  // K3b：ImageEditTool 确认 → 按 token 精确区间替换为 `![alt](src "title")`
+  const onReplaceImage = useCallback(
+    (
+      blockId: string,
+      imgStart: number,
+      imgEnd: number,
+      img: { src: string; alt: string; title?: string }
+    ) => {
+      applyBlockAction((instance) =>
+        formatCtrl.replaceImage(instance, blockId, imgStart, imgEnd, img)
+      );
+    },
+    [applyBlockAction]
+  );
+
   // 浮动工具栏：块类型转换（正文 ↔ H1-H6，仅根级 paragraph/heading）
   // 块元数据更新助手：updateMeta → setTree → 同步内容（消除重复模式）
   const applyMetaUpdate = useCallback(
@@ -337,6 +362,8 @@ export function useEditorActions({
       onFormat,
       onClearFormat,
       onUnlink,
+      onInsertImage,
+      onReplaceImage,
       getPendingRange,
       onToggleTask,
       onUndo,
@@ -355,6 +382,8 @@ export function useEditorActions({
       onFormat,
       onClearFormat,
       onUnlink,
+      onInsertImage,
+      onReplaceImage,
       getPendingRange,
       onToggleTask,
       onUndo,
