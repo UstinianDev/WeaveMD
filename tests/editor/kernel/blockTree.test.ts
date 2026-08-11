@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   appendChild,
+  changeBlockType,
   createDocumentTree,
   deleteLeafRange,
   detectBlockConversion,
@@ -272,5 +273,62 @@ describe('blockTree — 代码块高亮渲染（U2）', () => {
     expect(tree.blocks[code.id].inlineHtml).toContain(
       '<span class="token keyword">const</span>'
     );
+  });
+});
+
+describe('blockTree — changeBlockType（K3：块类型转换）', () => {
+  it('类型转换保留 id、text、meta，清空 inlineHtml', () => {
+    let tree = createDocumentTree();
+    const h = makeHeading(tree, 1, 'title');
+    tree = appendChild(tree, tree.root.id, h);
+    tree = renderBlock(tree, h.id);
+    expect(tree.blocks[h.id].inlineHtml).not.toBeNull();
+    const id = h.id;
+    tree = changeBlockType(tree, h.id, 'paragraph');
+    expect(tree.blocks[id]).toBeDefined();
+    expect(tree.blocks[id].type).toBe('paragraph');
+    expect(tree.blocks[id].text).toBe('title');
+    expect(tree.blocks[id].meta?.headingLevel).toBe(1);
+    expect(tree.blocks[id].inlineHtml).toBeNull();
+  });
+
+  it('prev/next 兄弟链与父 childrenIds 不变', () => {
+    let tree = createDocumentTree();
+    const p1 = makeParagraph(tree, 'a');
+    const p2 = makeParagraph(tree, 'b');
+    const h = makeHeading(tree, 2, 'h');
+    tree = appendChild(tree, tree.root.id, p1);
+    tree = appendChild(tree, tree.root.id, h);
+    tree = appendChild(tree, tree.root.id, p2);
+    const childrenBefore = [...tree.root.childrenIds];
+    const nextBefore = tree.blocks[h.id].nextId;
+    const prevBefore = tree.blocks[h.id].prevId;
+    tree = changeBlockType(tree, h.id, 'paragraph');
+    expect(tree.root.childrenIds).toEqual(childrenBefore);
+    expect(tree.blocks[h.id].nextId).toBe(nextBefore);
+    expect(tree.blocks[h.id].prevId).toBe(prevBefore);
+    expect(tree.blocks[p1.id].nextId).toBe(h.id);
+    expect(tree.blocks[p2.id].prevId).toBe(h.id);
+  });
+
+  it('非法 type（容器类型）→ 原样返回（no-op）', () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'text');
+    tree = appendChild(tree, tree.root.id, p);
+    const after = changeBlockType(tree, p.id, 'document');
+    expect(after).toBe(tree);
+    expect(after.blocks[p.id].type).toBe('paragraph');
+  });
+
+  it('同类型转换 → 原样返回', () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'x');
+    tree = appendChild(tree, tree.root.id, p);
+    expect(changeBlockType(tree, p.id, 'paragraph')).toBe(tree);
+  });
+
+  it('不存在的块 id → 原样返回', () => {
+    const tree = createDocumentTree();
+    expect(changeBlockType(tree, 'nope', 'paragraph')).toBe(tree);
   });
 });

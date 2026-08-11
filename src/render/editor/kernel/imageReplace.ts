@@ -18,6 +18,16 @@ export function escapeMarkdownUrl(src: string): string {
 }
 
 /**
+ * 把本地文件路径转为可写入 markdown 的 src（D5）：
+ * 空格 → `%20`（与需求源码示例一致，media:// 单层解码对称），反斜杠/中文保留；
+ * 之后经 escapeMarkdownUrl 兜底括号等特殊字符（`<...>` 包裹）。
+ */
+export function escapeImagePathForMarkdown(src: string): string {
+  const spaceEncoded = src.replace(/ /g, '%20');
+  return escapeMarkdownUrl(spaceEncoded);
+}
+
+/**
  * 把 text 的 [token.start, token.end) 区间替换为 `![alt](src "title")`。
  * title 省略时不输出 ` "..."` 段；title 内双引号转义为 `\"`。
  * 返回新文本与光标偏移（token.start + 新片段长度）。

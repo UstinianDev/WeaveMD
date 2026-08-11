@@ -1,9 +1,23 @@
 import { describe, expect, it } from 'vitest';
 
 import { EditorInstance } from '../../../src/render/editor/editorInstance';
-import { formatRange, unlinkRange } from '../../../src/render/editor/controllers/formatCtrl';
+import {
+  alignImage,
+  formatRange,
+  insertImageFromSelection,
+  makeImageInline,
+  removeImage,
+  unlinkRange,
+} from '../../../src/render/editor/controllers/formatCtrl';
 import type { InlineFormatStyle } from '../../../src/render/editor/controllers/formatCtrl';
 import { renderInline } from '../../../src/render/editor/kernel/inlineRenderer';
+import { setBlockText } from '../../../src/render/editor/kernel';
+
+function firstTextBlock(instance: EditorInstance) {
+  const block = Object.values(instance.tree.blocks).find((b) => b.text !== null);
+  if (!block) throw new Error('no text block');
+  return block;
+}
 
 function applyFormat(
   source: string,
@@ -151,5 +165,215 @@ describe('formatCtrl — 图片上添加链接（link 包裹 image）', () => {
 
   it('link URL 含空格 → 同样尖括号包裹', () => {
     expect(applyFormat('x', 'link', 0, 1, 'https://a b.com')).toBe('[x](<https://a b.com>)');
+  });
+});
+
+describe('formatCtrl — insertImageFromSelection（K3：图片直选插入）', () => {
+  it('行内替换：`abc` 选 `b` → `a![b](src)c`，focus 于 token 末，块类型保持 paragraph', () => {
+    const instance = new EditorInstance('abc');
+    const block = firstTextBlock(instance);
+    const fragment = '![b](C:/x/a%20b.png)';
+    const r = insertImageFromSelection(instance, block.id, 1, 2, 'C:/x/a b.png');
+    expect(instance.tree.blocks[block.id].text).toBe(`a${fragment}c`);
+    expect(instance.tree.blocks[block.id].type).toBe('paragraph');
+    expect(r?.focus).toEqual({ blockId: block.id, offset: 1 + fragment.length });
+    expect(r?.changedBlockIds).toEqual([block.id]);
+  });
+
+  it('空选区 [1,1) → 插入 `![](src)`，focus 于 token 末', () => {
+    const instance = new EditorInstance('abc');
+    const block = firstTextBlock(instance);
+    const fragment = '![](C:/x/a%20b.png)';
+    const r = insertImageFromSelection(instance, block.id, 1, 1, 'C:/x/a b.png');
+    expect(instance.tree.blocks[block.id].text).toBe(`a${fragment}bc`);
+    expect(r?.focus).toEqual({ blockId: block.id, offset: 1 + fragment.length });
+  });
+
+  it('src 含括号 → 空格先转 %20，再以 `<...>` 兜底包裹', () => {
+    const instance = new EditorInstance('abc');
+    const block = firstTextBlock(instance);
+    insertImageFromSelection(instance, block.id, 1, 2, 'C:/x/img (1).png');
+    expect(instance.tree.blocks[block.id].text).toBe('a![b](<C:/x/img%20(1).png>)c');
+  });
+
+  it('整段替换 [0,len) → 转 image-block，focus 指向后续段落起点', () => {
+    const instance = new EditorInstance('hello world\n\nnext');
+    const first = Object.values(instance.tree.blocks).find(
+      (b) => b.text === 'hello world'
+    )!;
+    const second = Object.values(instance.tree.blocks).find((b) => b.text === 'next')!;
+    const r = insertImageFromSelection(
+      instance,
+      first.id,
+      0,
+      'hello world'.length,
+      'C:/x/a b.png'
+    );
+    expect(instance.tree.blocks[first.id].text).toBe('![hello world](C:/x/a%20b.png)');
+    expect(instance.tree.blocks[first.id].type).toBe('image-block');
+    expect(r?.focus).toEqual({ blockId: second.id, offset: 0 });
+  });
+
+  it('整段替换且为最后一块 → 自动 append 空段落并 focus', () => {
+    const instance = new EditorInstance('hello world');
+    const block = firstTextBlock(instance);
+    const r = insertImageFromSelection(
+      instance,
+      block.id,
+      0,
+      'hello world'.length,
+      'C:/x/a b.png'
+    );
+    expect(instance.tree.blocks[block.id].type).toBe('image-block');
+    const next = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'paragraph' && b.id !== block.id
+    )!;
+    expect(next.text).toBe('');
+    expect(r?.focus).toEqual({ blockId: next.id, offset: 0 });
+    expect(r?.changedBlockIds).toEqual([block.id, next.id]);
+  });
+
+  it('空文本块 → `![](src)` 独立成块并补空段落', () => {
+    const instance = new EditorInstance('');
+    const block = firstTextBlock(instance);
+    const r = insertImageFromSelection(instance, block.id, 0, 0, 'C:/x/a b.png');
+    expect(instance.tree.blocks[block.id].text).toBe('![](C:/x/a%20b.png)');
+    expect(instance.tree.blocks[block.id].type).toBe('image-block');
+    const next = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'paragraph' && b.id !== block.id
+    )!;
+    expect(next.text).toBe('');
+    expect(r?.focus).toEqual({ blockId: next.id, offset: 0 });
+  });
+});
+
+describe('formatCtrl — alignImage（K3：对齐包裹）', () => {
+  it('image-block 已包裹 center → wrapImageAlign 换向 left，类型保持 image-block', () => {
+    const instance = new EditorInstance('<div align="center">![a](C:/x.png)</div>');
+    const block = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'image-block'
+    )!;
+    const r = alignImage(instance, block.id, 'left');
+    expect(instance.tree.blocks[block.id].text).toBe('<div align="left">![a](C:/x.png)</div>');
+    expect(instance.tree.blocks[block.id].type).toBe('image-block');
+    expect(r?.changedBlockIds).toEqual([block.id]);
+  });
+
+  it('paragraph 独立图（text 恰为 `![a](C:/x.png)`）→ 转 image-block + `<div align="center">` 包裹', () => {
+    const instance = new EditorInstance();
+    const block = firstTextBlock(instance);
+    instance.tree = setBlockText(instance.tree, block.id, '![a](C:/x.png)');
+    const r = alignImage(instance, block.id, 'center');
+    expect(instance.tree.blocks[block.id].type).toBe('image-block');
+    expect(instance.tree.blocks[block.id].text).toBe(
+      '<div align="center">![a](C:/x.png)</div>'
+    );
+    expect(r?.focus).toEqual({
+      blockId: block.id,
+      offset: '<div align="center">![a](C:/x.png)</div>'.length,
+    });
+  });
+
+  it('paragraph 行内图（text `x ![a](C:/x.png) y`）→ 返回 null 且文本不变（工具栏置灰依据）', () => {
+    const instance = new EditorInstance();
+    const block = firstTextBlock(instance);
+    instance.tree = setBlockText(instance.tree, block.id, 'x ![a](C:/x.png) y');
+    const r = alignImage(instance, block.id, 'center');
+    expect(r).toBeNull();
+    expect(instance.tree.blocks[block.id].text).toBe('x ![a](C:/x.png) y');
+    expect(instance.tree.blocks[block.id].type).toBe('paragraph');
+  });
+});
+
+describe('formatCtrl — makeImageInline（K3：解除对齐包裹）', () => {
+  it('image-block 带包裹 → unwrapImageAlign 转 paragraph，text 为内层原文，focus 于 token 末', () => {
+    const instance = new EditorInstance('<div align="center">![a](C:/x.png)</div>');
+    const block = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'image-block'
+    )!;
+    const r = makeImageInline(instance, block.id);
+    expect(instance.tree.blocks[block.id].type).toBe('paragraph');
+    expect(instance.tree.blocks[block.id].text).toBe('![a](C:/x.png)');
+    expect(r?.focus).toEqual({ blockId: block.id, offset: '![a](C:/x.png)'.length });
+    expect(r?.changedBlockIds).toEqual([block.id]);
+  });
+
+  it('image-block 裸图 → 转 paragraph，text 不变（unwrap 原样返回）', () => {
+    const instance = new EditorInstance('![a](C:/x.png)');
+    const block = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'image-block'
+    )!;
+    const r = makeImageInline(instance, block.id);
+    expect(instance.tree.blocks[block.id].type).toBe('paragraph');
+    expect(instance.tree.blocks[block.id].text).toBe('![a](C:/x.png)');
+    expect(r?.focus).toEqual({ blockId: block.id, offset: '![a](C:/x.png)'.length });
+  });
+
+  it('paragraph → 返回 null 且文本不变', () => {
+    const instance = new EditorInstance();
+    const block = firstTextBlock(instance);
+    instance.tree = setBlockText(instance.tree, block.id, 'x ![a](C:/x.png) y');
+    const r = makeImageInline(instance, block.id);
+    expect(r).toBeNull();
+    expect(instance.tree.blocks[block.id].text).toBe('x ![a](C:/x.png) y');
+    expect(instance.tree.blocks[block.id].type).toBe('paragraph');
+  });
+});
+
+describe('formatCtrl — removeImage（K3：移除图片）', () => {
+  it('行内图：删除 token 绝对区间 [1,15)，focus = start', () => {
+    const instance = new EditorInstance();
+    const block = firstTextBlock(instance);
+    instance.tree = setBlockText(instance.tree, block.id, 'x![a](C:/x.png)y');
+    const r = removeImage(instance, block.id, 1, 15);
+    expect(instance.tree.blocks[block.id].text).toBe('xy');
+    expect(r?.focus).toEqual({ blockId: block.id, offset: 1 });
+    expect(r?.changedBlockIds).toEqual([block.id]);
+  });
+
+  it('行内图整行删除 → 块变空字符串（既有空块处理约定）', () => {
+    const instance = new EditorInstance();
+    const block = firstTextBlock(instance);
+    instance.tree = setBlockText(instance.tree, block.id, '![a](C:/x.png)');
+    const r = removeImage(instance, block.id, 0, 14);
+    expect(instance.tree.blocks[block.id].text).toBe('');
+    expect(r?.focus).toEqual({ blockId: block.id, offset: 0 });
+  });
+
+  it('image-block：整块删除，focus 后一相邻叶子（next 优先）', () => {
+    const instance = new EditorInstance('![a](C:/x.png)\n\nnext');
+    const img = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'image-block'
+    )!;
+    const next = Object.values(instance.tree.blocks).find((b) => b.text === 'next')!;
+    const r = removeImage(instance, img.id, 0, 14);
+    expect(instance.tree.blocks[img.id]).toBeUndefined();
+    expect(r?.focus).toEqual({ blockId: next.id, offset: 0 });
+    expect(instance.tree.blocks[next.id].text).toBe('next');
+  });
+
+  it('image-block：无后邻居 → focus 前一叶子末尾', () => {
+    const instance = new EditorInstance('prev\n\n![a](C:/x.png)');
+    const img = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'image-block'
+    )!;
+    const prev = Object.values(instance.tree.blocks).find((b) => b.text === 'prev')!;
+    const r = removeImage(instance, img.id, 0, 14);
+    expect(instance.tree.blocks[img.id]).toBeUndefined();
+    expect(r?.focus).toEqual({ blockId: prev.id, offset: 4 });
+  });
+
+  it('image-block：删除后树只剩根 → 补空段落并 focus', () => {
+    const instance = new EditorInstance('![a](C:/x.png)');
+    const img = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'image-block'
+    )!;
+    const r = removeImage(instance, img.id, 0, 14);
+    const leaves = Object.values(instance.tree.blocks).filter((b) => b.text !== null);
+    expect(leaves.length).toBe(1);
+    expect(leaves[0].type).toBe('paragraph');
+    expect(leaves[0].text).toBe('');
+    expect(r?.focus).toEqual({ blockId: leaves[0].id, offset: 0 });
+    expect(r?.changedBlockIds).toEqual([img.id, leaves[0].id]);
   });
 });

@@ -213,15 +213,7 @@ export function useEditorActions({
     [applyBlockAction]
   );
 
-  // K3b 两段式图片插入：立即写 `![label]()` 空 src 占位（光标落 `()` 内）
-  const onInsertImage = useCallback(
-    (blockId: string, start: number, end: number) => {
-      applyBlockAction((instance) =>
-        formatCtrl.insertImagePlaceholder(instance, blockId, start, end)
-      );
-    },
-    [applyBlockAction]
-  );
+  // K3：图片直选插入/对齐/内联/移除由新控制器接线（K6 统一处理）
 
   // K3b：ImageEditTool 确认 → 按 token 精确区间替换为 `![alt](src "title")`
   const onReplaceImage = useCallback(
@@ -362,7 +354,6 @@ export function useEditorActions({
       onFormat,
       onClearFormat,
       onUnlink,
-      onInsertImage,
       onReplaceImage,
       getPendingRange,
       onToggleTask,
@@ -382,7 +373,6 @@ export function useEditorActions({
       onFormat,
       onClearFormat,
       onUnlink,
-      onInsertImage,
       onReplaceImage,
       getPendingRange,
       onToggleTask,

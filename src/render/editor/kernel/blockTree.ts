@@ -506,6 +506,23 @@ export function setBlockTextAndRender(tree: BlockTreeV2, id: string, text: strin
   return renderBlock(setBlockText(tree, id, text), id);
 }
 
+/**
+ * 更改叶子块类型（保留 id/text/meta，清空行内缓存）。
+ * 仅接受叶子块目标类型；块不存在 / 目标为容器类型 / 块无文本（容器）/ 同类型 → 原样返回。
+ */
+export function changeBlockType(
+  tree: BlockTreeV2,
+  id: string,
+  type: BlockTypeV2
+): BlockTreeV2 {
+  const block = tree.blocks[id];
+  if (!block || block.type === type) return tree;
+  if (block.text === null || !isLeafBlockType(type)) return tree;
+  const nextTree = cloneTree(tree);
+  nextTree.blocks[id] = { ...nextTree.blocks[id], type, inlineHtml: null };
+  return nextTree;
+}
+
 /** 更新块元数据 */
 export function updateMeta(
   tree: BlockTreeV2,
