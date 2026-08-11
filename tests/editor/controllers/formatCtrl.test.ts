@@ -488,3 +488,56 @@ describe('formatCtrl — open 三连拆分剩余区叠加（fix-inline-marker-re
     expect(stripped).not.toContain('<u>');
   });
 });
+
+describe('formatCtrl — insertImagePlaceholder（图片占位插入）', () => {
+  it('hello block → `![hello]()`，selection 折叠于括号内，imageRange 正确', () => {
+    const instance = new EditorInstance('hello');
+    const result = formatCtrl.insertImagePlaceholder(instance, paragraphId(instance), 0, 5);
+    expect(instance.getMarkdown()).toBe('![hello]()');
+    expect(result?.changedBlockIds).toEqual([paragraphId(instance)]);
+    expect(result?.selection).toEqual({ blockId: paragraphId(instance), start: 9, end: 9 });
+    expect(result?.imageRange).toEqual({ start: 0, end: 10 });
+  });
+
+  it('空选区 → 默认 alt 图片，selection 仍折叠于括号内', () => {
+    const instance = new EditorInstance('');
+    const result = formatCtrl.insertImagePlaceholder(instance, paragraphId(instance), 0, 0);
+    expect(instance.getMarkdown()).toBe('![图片]()');
+    expect(result?.selection).toEqual({ blockId: paragraphId(instance), start: 6, end: 6 });
+    expect(result?.imageRange).toEqual({ start: 0, end: 7 });
+  });
+});
+
+describe('formatCtrl — replaceImage（按区间替换图片）', () => {
+  it('`![a]()` 命中 image token → `![a](u)`，focus 于 token 末', () => {
+    const instance = new EditorInstance('![a]()');
+    const result = formatCtrl.replaceImage(instance, paragraphId(instance), 0, 6, {
+      src: 'u',
+      alt: 'a',
+    });
+    expect(instance.getMarkdown()).toBe('![a](u)');
+    expect(result?.changedBlockIds).toEqual([paragraphId(instance)]);
+    expect(result?.focus).toEqual({ blockId: paragraphId(instance), offset: 7 });
+  });
+
+  it('传入区间无匹配 image token → 返回 null（不崩溃）', () => {
+    const instance = new EditorInstance('abc');
+    const result = formatCtrl.replaceImage(instance, paragraphId(instance), 0, 3, {
+      src: 'u',
+      alt: 'x',
+    });
+    expect(result).toBeNull();
+    expect(instance.getMarkdown()).toBe('abc');
+  });
+
+  it('带 title → `![a](u "t")`，focus 于 token 末', () => {
+    const instance = new EditorInstance('![a]()');
+    const result = formatCtrl.replaceImage(instance, paragraphId(instance), 0, 6, {
+      src: 'u',
+      alt: 'a',
+      title: 't',
+    });
+    expect(instance.getMarkdown()).toBe('![a](u "t")');
+    expect(result?.focus).toEqual({ blockId: paragraphId(instance), offset: 11 });
+  });
+});

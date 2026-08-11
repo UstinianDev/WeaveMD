@@ -12,10 +12,12 @@
 import type { EditorInstance } from '../editorInstance';
 import type { EditorActionResult } from '../editorInstance';
 import {
+  escapeMarkdownUrl,
   findIntersectingLinks,
   findIntersectingStyleTokens,
   isBoundedWrap,
   renderBlock,
+  replaceImageRange,
   setBlockText,
   stripInlineSyntax,
   stripSameStylePairs,
@@ -182,7 +184,7 @@ function applyLinkOrImage(
   const isImage = style === 'image';
   const prefix = isImage ? '!' : '';
   // URL 含空白/括号等特殊字符时按 Markdown 标准用 `<...>` 包裹，保证 lexer 能整段识别
-  const writtenUrl = /[\s()<>]/.test(url) ? `<${url}>` : url;
+  const writtenUrl = escapeMarkdownUrl(url);
   let selS = s;
   let selE = e;
   let label = selected || (isImage ? IMAGE_PLACEHOLDER : url);
@@ -223,6 +225,62 @@ function collectIntersectingImages(text: string, start: number, end: number): In
   };
   visit(tokenizeInline(text));
   return hits;
+}
+
+/**
+ * 插入图片占位符 `![label]()`（对标 marktext `_addFormat('image')`）：
+ * 选区非空时 alt=选区文本，否则用 IMAGE_PLACEHOLDER（'图片'）。
+ * 光标置于括号之间（marktext `4 + altLen` 语义），imageRange 覆盖整个 `![label]()`。
+ */
+export function insertImagePlaceholder(
+  instance: EditorInstance,
+  blockId: string,
+  start: number,
+  end: number
+): EditorActionResult | null {
+  const block = instance.tree.blocks[blockId];
+  if (!block || block.text === null) return null;
+  const text = block.text;
+  const s = clamp(start, 0, text.length);
+  const e = clamp(end, s, text.length);
+  const label = text.slice(s, e) || IMAGE_PLACEHOLDER;
+  const newText = `${text.slice(0, s)}![${label}]()${text.slice(e)}`;
+  let tree = setBlockText(instance.tree, blockId, newText);
+  tree = renderBlock(tree, blockId, newText);
+  instance.tree = tree;
+  const parenOffset = s + 2 + label.length + 2;
+  return {
+    changedBlockIds: [blockId],
+    selection: { blockId, start: parenOffset, end: parenOffset },
+    imageRange: { start: s, end: s + label.length + 5 },
+  };
+}
+
+/**
+ * 按区间替换图片（对标 marktext `block.replaceImage`）：
+ * tokenizeInline 查找 start===s 且 end===e 的 image token，
+ * 命中则 replaceImageRange 替换并聚焦新片段末端；无匹配返回 null（不崩溃）。
+ */
+export function replaceImage(
+  instance: EditorInstance,
+  blockId: string,
+  s: number,
+  e: number,
+  img: { src: string; alt: string; title?: string }
+): EditorActionResult | null {
+  const block = instance.tree.blocks[blockId];
+  if (!block || block.text === null) return null;
+  const text = block.text;
+  const token = tokenizeInline(text).find((t) => t.type === 'image' && t.start === s && t.end === e);
+  if (!token) return null;
+  const replaced = replaceImageRange(text, token, img);
+  let tree = setBlockText(instance.tree, blockId, replaced.text);
+  tree = renderBlock(tree, blockId, replaced.text);
+  instance.tree = tree;
+  return {
+    changedBlockIds: [blockId],
+    focus: { blockId, offset: replaced.cursorOffset },
+  };
 }
 
 /**
