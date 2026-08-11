@@ -344,7 +344,7 @@ test('FT2-E2: 加粗两次回到原文，绝不产生 ****', async ({ page }) =>
   await expect(editable).not.toContainText('****');
 });
 
-test('FT2-E3: 应用格式后 .md-syntax 默认不可见；DOM textContent 与源一致；块聚焦后灰显', async ({
+test('FT2-E3: 应用格式后 .md-syntax 默认不可见；DOM textContent 与源一致；聚焦/失焦均隐藏（WYSIWYG）', async ({
   page,
 }) => {
   await openEditor(page);
@@ -359,11 +359,14 @@ test('FT2-E3: 应用格式后 .md-syntax 默认不可见；DOM textContent 与�
   await page.waitForTimeout(300);
   await expect(editable).toHaveText('**加粗文本**');
 
-  // 加粗后光标仍在块内（聚焦）→ .md-syntax 灰显（opacity 0.55）
+  // 光标在块内（聚焦）→ .md-syntax 仍隐藏（e5e2f6f 移除聚焦灰显，改为始终 WYSIWYG）
   const mdSyntax = page.locator('.md-syntax').first();
   await expect(mdSyntax).toHaveCount(1);
-  const faded = await mdSyntax.evaluate((el) => getComputedStyle(el).opacity === '0.55');
-  expect(faded).toBe(true);
+  const focusedHidden = await mdSyntax.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return parseFloat(cs.fontSize) === 0 || cs.opacity === '0';
+  });
+  expect(focusedHidden).toBe(true);
 
   // 点击编辑区外失焦 → .md-syntax 不可见（font-size 0 或 opacity 0）
   await page.locator('header').click({ position: { x: 5, y: 5 } });
@@ -402,7 +405,7 @@ test('FT2-E5: 下划线按钮 → <u> 渲染且无可见 <u> 文本', async ({ p
   await expect(editable).toHaveText('<u>下划线文本</u>');
 });
 
-test('FT2-E6: 图片按钮（InsertUrlModal 输入 https URL）→ ![alt](url) 插入并渲染 img.inline-image（G2）', async ({
+test('FT2-E6: 图片按钮（两段式）→ 插入占位 + ImageEditTool 输入 https URL → 嵌入 → ![alt](url) 渲染 img.inline-image（G2）', async ({
   page,
 }) => {
   await openEditor(page);
@@ -413,13 +416,16 @@ test('FT2-E6: 图片按钮（InsertUrlModal 输入 https URL）→ ![alt](url) �
   await page.waitForTimeout(300);
   const toolbar = page.locator('.floating-toolbar-v2');
   await expect(toolbar).toBeVisible();
-  // U5：图片按钮 → InsertUrlModal（替代已失效的 window.prompt），输入 https URL → 确定
+  // K3b：图片按钮 → 立即插入 `![图片文本]()` 占位 + 工具栏隐藏 + ImageEditTool 锚定（alt 预填选区文本）
   await toolbar.locator('button[title="图片"]').click();
-  const modal = page.locator('.insert-url-modal-overlay');
-  await expect(modal).toBeVisible();
-  await modal.locator('#insert-url-modal-input').click();
+  await expect(toolbar).toHaveCount(0);
+  const tool = page.locator('[data-testid="image-edit-tool"]');
+  await expect(tool).toBeVisible();
+  await expect(editable.locator('.inline-image-empty')).toHaveText('图片文本');
+  await expect(tool.locator('input[placeholder="可选描述 (alt)"]')).toHaveValue('图片文本');
+  await tool.locator('input[placeholder="输入图片 URL"]').click();
   await page.keyboard.type('https://example.com/a.png', { delay: 10 });
-  await modal.getByRole('button', { name: '确定' }).click();
+  await tool.getByRole('button', { name: '嵌入', exact: true }).click();
   await page.waitForTimeout(300);
   // 网络图受 CSP https: 放行，应能渲染 img（不回退占位）；断言 alt/src 与数量
   const img = page.locator('img.inline-image');
@@ -727,13 +733,14 @@ test('FT4-E2: `**12*3***` 选 `*3*`（em 全 token）点下划线 → `<u>` 内�
 });
 
 // ============================================================
-// PLAN-EDIT-LINK-IMAGE\uFF1A\u94FE\u63A5\u8865\u534F\u8BAE / tooltip / media:// \u56FE\u7247 / \u5360\u4F4D\u56DE\u9000\uFF08E2E\uFF09
-// \u8BF4\u660E\uFF1A
-//  1) \u94FE\u63A5/\u56FE\u7247\u7684\u751F\u6210\u8D70\u5DE5\u5177\u680F InsertUrlModal\uFF08U5\uFF09\uFF0C\u4E0D\u7528 raw \u952E\u5165 markdown\u2014\u2014contentEditable
-//     \u4F1A\u5BF9 `[`/`(` \u81EA\u52A8\u8865\u5168\u95ED\u5408\u62EC\u53F7\uFF0Craw \u952E\u5165 `[x](...)` \u4F1A\u88AB\u7834\u574F\uFF08\u5B9E\u6D4B `[]x]()...`\uFF09\u3002
-//  2) renderer-only \u73AF\u5883\u65E0 Electron \u4E3B\u8FDB\u7A0B media handler\uFF0Cmedia:// \u56FE\u7247\u5728 Chromium \u4E2D\u52A0\u8F7D
-//     404 \u2192 \u89E6\u53D1 EditorV2 onErrorCapture \u56DE\u9000\u4E3A .inline-image-fallback\u3002img \u88AB\u66FF\u6362\u4E3A\u77AC\u6001
-//     \uFF08\u4E0B\u6B21\u91CD\u6E32\u67D3\u8986\u76D6\uFF09\uFF0C\u6545\u7528 MutationObserver \u5728 img \u521B\u5EFA\u65F6\u6355\u83B7 src\u3002
+// PLAN-EDIT-LINK-IMAGE：链接补协议 / tooltip / media:// 图片 / 占位回退（E2E）
+// 说明：
+//  1) 链接生成走工具栏 InsertUrlModal（U5）；图片走 K3b 两段式（图片按钮 → 占位 → ImageEditTool），
+//     均不用 raw 键入 markdown——contentEditable 会对 `[`/`(` 自动补全闭合括号，raw 键入 `[x](...)`
+//     会被破坏（实测 `[]x]()...`）。
+//  2) renderer-only 环境无 Electron 主进程 media handler，media:// 图片在 Chromium 中加载
+//     404 → 触发 EditorV2 onErrorCapture 回退为 .inline-image-fallback。img 被替换为瞬态
+//     （下次重渲染覆盖），故用 MutationObserver 在 img 创建时捕获 src。
 // ============================================================
 test('LINK-IMAGE-E1: \u5DE5\u5177\u680F\u63D2\u5165\u65E0\u534F\u8BAE\u94FE\u63A5 www.baidu.com \u2192 href/data-href \u8865 https:// \u4E14 textContent \u4E0D\u53D8\uFF08G4+G6\uFF09', async ({
   page,
@@ -800,7 +807,7 @@ test('LINK-IMAGE-E2: hover \u94FE\u63A5 \u2192 ::after tooltip content == \u8865
   expect(content.replace(/"/g, '')).toContain('https://www.baidu.com');
 });
 
-test('LINK-IMAGE-E3: \u5DE5\u5177\u680F\u9009\u62E9\u6587\u4EF6\uFF08pickImage=C:\\playwright\\a.png\uFF09\u2192 img src=media://C%3A/... \u4E14\u52A0\u8F7D\u5931\u8D25\u56DE\u9000\u5360\u4F4D\uFF08G1+G3\uFF09', async ({
+test('LINK-IMAGE-E3: 图片两段式 · 本地选择（pickImage=C:\\playwright\\a.png）→ 直接应用 img src=media://C%3A/... 且加载失败回退占位（G1+G3）', async ({
   page,
 }) => {
   await openEditor(page);
@@ -834,14 +841,12 @@ test('LINK-IMAGE-E3: \u5DE5\u5177\u680F\u9009\u62E9\u6587\u4EF6\uFF08pickImage=C
   const toolbar = page.locator('.floating-toolbar-v2');
   await expect(toolbar).toBeVisible();
 
-  // \u6253\u5F00\u56FE\u7247\u63D2\u5165 modal \u2192 \u9009\u62E9\u6587\u4EF6\uFF08pickImage \u8FD4\u56DE C:\playwright\a.png\uFF09\u2192 \u786E\u5B9A\u63D2\u5165
-  await toolbar.locator('button[title="\u56FE\u7247"]').click();
-  const modal = page.locator('.insert-url-modal-overlay');
-  await expect(modal).toBeVisible();
-  await modal.getByRole('button', { name: '\u9009\u62E9\u6587\u4EF6' }).click();
-  await page.waitForTimeout(200);
-  await expect(modal.locator('#insert-url-modal-input')).toHaveValue('C:\\playwright\\a.png');
-  await modal.getByRole('button', { name: '\u786E\u5B9A' }).click();
+  // K3b：图片按钮 → ImageEditTool → 本地选择 → 选择图片（pickImage 返回 C:\playwright\a.png 直接应用）
+  await toolbar.locator('button[title="图片"]').click();
+  const tool = page.locator('[data-testid="image-edit-tool"]');
+  await expect(tool).toBeVisible();
+  await tool.getByRole('button', { name: '本地选择' }).click();
+  await tool.getByRole('button', { name: '选择图片' }).click();
   await page.waitForTimeout(500);
 
   // G1\uFF1Aimg \u521B\u5EFA\u65F6 src \u4E3A media:// + encodeURIComponent\uFF08\u76D8\u7B26\u5192\u53F7\u7F16\u7801\u3001\u659C\u6760\u4FDD\u7559\uFF09
@@ -857,7 +862,7 @@ test('LINK-IMAGE-E3: \u5DE5\u5177\u680F\u9009\u62E9\u6587\u4EF6\uFF08pickImage=C
   await expect(page.locator('img.inline-image')).toHaveCount(0);
 });
 
-test('LINK-IMAGE-E4: \u63D2\u5165\u4E0D\u5B58\u5728\u56FE\u7247 C:/no-such-file.png \u2192 \u5360\u4F4D\u56DE\u9000\u4E14\u65E0\u6B8B\u7559 img.inline-image\uFF08G3\uFF09', async ({
+test('LINK-IMAGE-E4: 图片两段式 · 嵌入不存在图片 C:/no-such-file.png → 占位回退且无残留 img.inline-image（G3）', async ({
   page,
 }) => {
   await openEditor(page);
@@ -869,13 +874,13 @@ test('LINK-IMAGE-E4: \u63D2\u5165\u4E0D\u5B58\u5728\u56FE\u7247 C:/no-such-file.
   const toolbar = page.locator('.floating-toolbar-v2');
   await expect(toolbar).toBeVisible();
 
-  // \u56FE\u7247 modal \u2192 \u8F93\u5165\u4E0D\u5B58\u5728\u7684\u672C\u5730\u8DEF\u5F84 \u2192 \u786E\u5B9A \u2192 media://C%3A/no-such-file.png \u52A0\u8F7D\u5931\u8D25 \u2192 \u56DE\u9000\u5360\u4F4D
-  await toolbar.locator('button[title="\u56FE\u7247"]').click();
-  const modal = page.locator('.insert-url-modal-overlay');
-  await expect(modal).toBeVisible();
-  await modal.locator('#insert-url-modal-input').click();
+  // K3b：图片按钮 → ImageEditTool → 输入不存在的本地路径 → 嵌入 → media://C%3A/no-such-file.png 加载失败 → 回退占位
+  await toolbar.locator('button[title="图片"]').click();
+  const tool = page.locator('[data-testid="image-edit-tool"]');
+  await expect(tool).toBeVisible();
+  await tool.locator('input[placeholder="输入图片 URL"]').click();
   await page.keyboard.type('C:/no-such-file.png', { delay: 10 });
-  await modal.getByRole('button', { name: '\u786E\u5B9A' }).click();
+  await tool.getByRole('button', { name: '嵌入', exact: true }).click();
 
   const fallback = page.locator('.inline-image-fallback');
   await expect(fallback).toHaveCount(1, { timeout: 3000 });
