@@ -208,6 +208,16 @@ describe('markdown round-trip — 组合与边界', () => {
     expectRoundTrip('![alt](C:/Users/me/a.png)');
   });
 
+  it('RT6 空 href 图片占位往返不变（K1：`![]()` / `![a]()`）', () => {
+    expectRoundTrip('![]()');
+    expectRoundTrip('![a]()');
+    expectRoundTrip('![alt]()');
+  });
+
+  it('RT7 图片带 title 往返不变', () => {
+    expectRoundTrip('![alt](src "title")');
+  });
+
   it('转义字符保留', () => {
     expectRoundTrip('\\*not italic\\* and \\# not heading');
   });

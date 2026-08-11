@@ -210,11 +210,21 @@ function matchImageOrLink(text: string, i: number, bound: number, isImage: boole
   // URL 含空格/括号等特殊字符时按 Markdown 标准用 `<...>` 包裹（本地图片路径常见），
   // 否则 `[^\s"']+` 会在空格处截断导致整 token 无法识别
   const argMatch = args.match(/^\s*(<[^<>]*>|[^\s"']+)(?:\s+["']([^"']*)["'])?\s*$/);
-  if (!argMatch) return null;
-  const rawUrl = argMatch[1];
-  const href = rawUrl.startsWith('<') && rawUrl.endsWith('>') ? rawUrl.slice(1, -1) : rawUrl;
-  const safe = safeUrl(href);
-  if (!safe) return null;
+  let href: string;
+  let title: string | undefined;
+  if (argMatch) {
+    const rawUrl = argMatch[1];
+    href = rawUrl.startsWith('<') && rawUrl.endsWith('>') ? rawUrl.slice(1, -1) : rawUrl;
+    title = argMatch[2];
+  } else if (args === '' && isImage) {
+    // 空 src 图片占位：`![alt]()` 放行，href 为空串（图片尚未选取时允许空引用）
+    href = '';
+  } else {
+    return null;
+  }
+  // 空 href 仅 image 放行；非空 href 仍走 safeUrl 白名单（javascript: 等危险协议仍拒）
+  const safe = href === '' && isImage ? ('' as string | null) : safeUrl(href);
+  if (safe === null) return null;
 
   const contentStart = openBracket + 1;
   const contentEnd = closeBracket;
@@ -228,7 +238,7 @@ function matchImageOrLink(text: string, i: number, bound: number, isImage: boole
     contentEnd,
     children: isImage ? undefined : tokenizeInline(text, contentStart, contentEnd),
     href: safe,
-    title: argMatch[2],
+    title,
     isImage,
   };
 }
