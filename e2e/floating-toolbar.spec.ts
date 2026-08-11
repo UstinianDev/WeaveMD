@@ -44,7 +44,12 @@ function mockApi(): void {
       saveFilePath: async () => ok({ path: 'C:\\playwright\\n.md' }),
       openFile: async () => ok(),
       openFolder: async () => ok(),
-      pickImage: async () => 'C:\\playwright\\a.png',
+      // K7：直选流程的 pickImage 返回值由用例内哨兵 __pickImageResult 覆盖
+      // （undefined → 默认本地路径；null = 取消；也可覆盖为不存在路径 / https URL）
+      pickImage: async () => {
+        const w = window as unknown as { __pickImageResult?: string | null };
+        return w.__pickImageResult !== undefined ? w.__pickImageResult : 'C:\\playwright\\a.png';
+      },
     },
     window: {
       minimize: async () => ok(),
@@ -405,7 +410,7 @@ test('FT2-E5: 下划线按钮 → <u> 渲染且无可见 <u> 文本', async ({ p
   await expect(editable).toHaveText('<u>下划线文本</u>');
 });
 
-test('FT2-E6: 图片按钮（两段式）→ 插入占位 + ImageEditTool 输入 https URL → 嵌入 → ![alt](url) 渲染 img.inline-image（G2）', async ({
+test('FT2-E6: 图片按钮（直选）→ pickImage 返回本地路径 → 整段替换为 ![alt](src)、无中间弹层；media:// 404 回退占位（K6）', async ({
   page,
 }) => {
   await openEditor(page);
@@ -416,22 +421,35 @@ test('FT2-E6: 图片按钮（两段式）→ 插入占位 + ImageEditTool 输入
   await page.waitForTimeout(300);
   const toolbar = page.locator('.floating-toolbar-v2');
   await expect(toolbar).toBeVisible();
-  // K3b：图片按钮 → 立即插入 `![图片文本]()` 占位 + 工具栏隐藏 + ImageEditTool 锚定（alt 预填选区文本）
+
+  // K6：图片按钮 → 直接 pickImage（mock 默认返回 C:\playwright\a.png），不弹
+  // InsertUrlModal / ImageEditTool，无占位中间态
   await toolbar.locator('button[title="图片"]').click();
+  await page.waitForTimeout(500);
+
+  // 无弹层
+  await expect(page.locator('.insert-url-modal-overlay')).toHaveCount(0);
+  await expect(page.locator('[data-testid="image-edit-tool"]')).toHaveCount(0);
+  await expect(page.locator('.inline-image-empty')).toHaveCount(0);
+
+  // 整段替换 → 块变 image-block（非编辑块，DOM 无 markdown 字面；选区文本进 img alt）；
+  // 插入时自动补一个空段落供继续输入
+  await expect(page.locator('.image-block')).toHaveCount(1);
+  await expect(page.locator('p.paragraph-block')).toHaveCount(1);
+  await expect(
+    page.locator('p.paragraph-block span.block-content')
+  ).toHaveAttribute('data-empty', 'true');
+
+  // G3：media:// 在 renderer-only 下 404 → 回退占位（alt 文本），无残留 broken img。
+  // image-block 路径下 Chromium 对无效协议 img 同步 error → fallback 直接渲染，
+  // 瞬时 img 不进入 DOM（src 编码断言见 LINK-IMAGE-E3 行内路径）
+  const fallback = page.locator('.inline-image-fallback');
+  await expect(fallback).toHaveCount(1, { timeout: 3000 });
+  await expect(fallback).toHaveText('图片文本');
+  await expect(page.locator('img.inline-image')).toHaveCount(0);
+
+  // 插入完成后工具栏隐藏（不自动弹出图片工具栏）
   await expect(toolbar).toHaveCount(0);
-  const tool = page.locator('[data-testid="image-edit-tool"]');
-  await expect(tool).toBeVisible();
-  await expect(editable.locator('.inline-image-empty')).toHaveText('图片文本');
-  await expect(tool.locator('input[placeholder="可选描述 (alt)"]')).toHaveValue('图片文本');
-  await tool.locator('input[placeholder="输入图片 URL"]').click();
-  await page.keyboard.type('https://example.com/a.png', { delay: 10 });
-  await tool.getByRole('button', { name: '嵌入', exact: true }).click();
-  await page.waitForTimeout(300);
-  // 网络图受 CSP https: 放行，应能渲染 img（不回退占位）；断言 alt/src 与数量
-  const img = page.locator('img.inline-image');
-  await expect(img).toHaveCount(1);
-  await expect(img).toHaveAttribute('alt', '图片文本');
-  await expect(img).toHaveAttribute('src', 'https://example.com/a.png');
 });
 
 test('FT2-E7: 数学按钮 → $x^2$ 渲染为 .katex 且无可见 $', async ({ page }) => {
@@ -468,6 +486,38 @@ test('FT2-E8: 橡皮擦 → 清除选区全部行内格式为纯文本', async (
   await toolbar2.locator('button[title="橡皮擦"]').click();
   await page.waitForTimeout(300);
   await expect(editable).toHaveText('加粗文本');
+});
+
+test('FT2-E9: 图片按钮取消（pickImage=null）→ 纯 no-op：文本不变、无弹层、无占位残留、工具栏隐藏（K6）', async ({
+  page,
+}) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('图片文本', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+
+  // 覆盖 pickImage 返回 null（用户取消文件选择）
+  await page.evaluate(() => {
+    (window as unknown as { __pickImageResult: string | null }).__pickImageResult = null;
+  });
+  await toolbar.locator('button[title="图片"]').click();
+  await page.waitForTimeout(500);
+
+  // 文本不变（无替换、无占位插入）
+  await expect(editable).toHaveText('图片文本');
+  // 无任何弹层 / 占位残留
+  await expect(page.locator('.insert-url-modal-overlay')).toHaveCount(0);
+  await expect(page.locator('[data-testid="image-edit-tool"]')).toHaveCount(0);
+  await expect(page.locator('.inline-image-empty')).toHaveCount(0);
+  await expect(page.locator('.inline-image-fallback')).toHaveCount(0);
+  await expect(page.locator('.image-block')).toHaveCount(0);
+  await expect(page.locator('img.inline-image')).toHaveCount(0);
+  // 工具栏隐藏（取消后不驻留）
+  await expect(toolbar).toHaveCount(0);
 });
 
 // ============================================================
@@ -735,12 +785,14 @@ test('FT4-E2: `**12*3***` 选 `*3*`（em 全 token）点下划线 → `<u>` 内�
 // ============================================================
 // PLAN-EDIT-LINK-IMAGE：链接补协议 / tooltip / media:// 图片 / 占位回退（E2E）
 // 说明：
-//  1) 链接生成走工具栏 InsertUrlModal（U5）；图片走 K3b 两段式（图片按钮 → 占位 → ImageEditTool），
-//     均不用 raw 键入 markdown——contentEditable 会对 `[`/`(` 自动补全闭合括号，raw 键入 `[x](...)`
-//     会被破坏（实测 `[]x]()...`）。
-//  2) renderer-only 环境无 Electron 主进程 media handler，media:// 图片在 Chromium 中加载
-//     404 → 触发 EditorV2 onErrorCapture 回退为 .inline-image-fallback。img 被替换为瞬态
-//     （下次重渲染覆盖），故用 MutationObserver 在 img 创建时捕获 src。
+//  1) 链接生成走工具栏 InsertUrlModal（U5）；图片走 K6 直选（图片按钮 → pickImage →
+//     直接替换选区，取消 no-op），均不用 raw 键入 markdown——contentEditable 会对
+//     `[`/`(` 自动补全闭合括号，raw 键入 `[x](...)` 会被破坏（实测 `[]x]()...`）。
+//  2) renderer-only 环境无 Electron 主进程 media handler，media:// 图片在 Chromium 中
+//     加载 404 → 触发 EditorV2 onErrorCapture 回退为 .inline-image-fallback。img 被
+//     替换为瞬态（下次重渲染覆盖），故用 MutationObserver 在 img 创建时捕获 src。
+//  3) 图片工具栏用例（E5/E6）用 https 图（CSP https: 放行，route 拦截返回 SVG 保证
+//     加载成功不触发 fallback），使 img 保持可点击；URL 图渲染 src 直用 https 无 media://。
 // ============================================================
 test('LINK-IMAGE-E1: \u5DE5\u5177\u680F\u63D2\u5165\u65E0\u534F\u8BAE\u94FE\u63A5 www.baidu.com \u2192 href/data-href \u8865 https:// \u4E14 textContent \u4E0D\u53D8\uFF08G4+G6\uFF09', async ({
   page,
@@ -807,13 +859,14 @@ test('LINK-IMAGE-E2: hover \u94FE\u63A5 \u2192 ::after tooltip content == \u8865
   expect(content.replace(/"/g, '')).toContain('https://www.baidu.com');
 });
 
-test('LINK-IMAGE-E3: 图片两段式 · 本地选择（pickImage=C:\\playwright\\a.png）→ 直接应用 img src=media://C%3A/... 且加载失败回退占位（G1+G3）', async ({
+test('LINK-IMAGE-E3: 图片直选 · 本地路径（pickImage=C:\\playwright\\a.png）→ 行内替换 img src=media://C%3A/... 且加载失败回退占位、无残留 img（G1+G3）', async ({
   page,
 }) => {
   await openEditor(page);
   const editable = page.locator('span.block-content[contenteditable="true"]').first();
 
-  // MutationObserver \u6355\u83B7 img.inline-image \u521B\u5EFA\u65F6\u7684 src\uFF08img \u4F1A\u88AB fallback \u66FF\u6362\uFF0C\u9700\u8BB0\u4E0B\u77AC\u6001 src\uFF09
+  // MutationObserver 捕获 img.inline-image 创建时的 src（行内路径 img 真正插入 DOM，
+  // 随后被 fallback 替换，需记下瞬时 src；image-block 路径 img 不进 DOM，见 FT2-E6）
   await page.evaluate(() => {
     const win = window as unknown as { __capturedImgSrc?: string[] };
     win.__capturedImgSrc = [];
@@ -835,56 +888,223 @@ test('LINK-IMAGE-E3: 图片两段式 · 本地选择（pickImage=C:\\playwright\
   });
 
   await editable.click();
-  await page.keyboard.type('\u56FE\u7247\u6587\u672C', { delay: 20 });
-  await page.keyboard.press('Control+a');
+  await page.keyboard.type('图片文本x', { delay: 20 });
+  await page.waitForTimeout(300);
+
+  // 部分选区 [0,4)：行内替换（块内残留 'x'，不会转 image-block）
+  await selectTextRange(page, 0, 4);
   await page.waitForTimeout(300);
   const toolbar = page.locator('.floating-toolbar-v2');
   await expect(toolbar).toBeVisible();
 
-  // K3b：图片按钮 → ImageEditTool → 本地选择 → 选择图片（pickImage 返回 C:\playwright\a.png 直接应用）
+  // K6：图片按钮 → 直接 pickImage（默认返回 C:\playwright\a.png）→ 替换选区，无 ImageEditTool 中间态
   await toolbar.locator('button[title="图片"]').click();
-  const tool = page.locator('[data-testid="image-edit-tool"]');
-  await expect(tool).toBeVisible();
-  await tool.getByRole('button', { name: '本地选择' }).click();
-  await tool.getByRole('button', { name: '选择图片' }).click();
   await page.waitForTimeout(500);
+  await expect(page.locator('[data-testid="image-edit-tool"]')).toHaveCount(0);
 
-  // G1\uFF1Aimg \u521B\u5EFA\u65F6 src \u4E3A media:// + encodeURIComponent\uFF08\u76D8\u7B26\u5192\u53F7\u7F16\u7801\u3001\u659C\u6760\u4FDD\u7559\uFF09
+  // G1：img 创建时 src 为 media:// + encodeURIComponent（盘符冒号编码、斜杠保留）
   const captured = await page.evaluate(
     () => (window as unknown as { __capturedImgSrc?: string[] }).__capturedImgSrc ?? []
   );
   expect(captured).toContain('media://C%3A/playwright/a.png');
 
-  // G3\uFF1Amedia:// \u5728 renderer-only \u4E0B 404 \u2192 \u56DE\u9000\u5360\u4F4D\uFF0C\u65E0\u6B8B\u7559 broken img
+  // G3：media:// 在 renderer-only 下 404 → 回退占位，无残留 broken img
   const fallback = page.locator('.inline-image-fallback');
   await expect(fallback).toHaveCount(1, { timeout: 3000 });
-  await expect(fallback).toHaveText('\u56FE\u7247\u6587\u672C'); // alt \u6587\u672C
+  await expect(fallback).toHaveText('图片文本'); // alt 文本
   await expect(page.locator('img.inline-image')).toHaveCount(0);
 });
 
-test('LINK-IMAGE-E4: 图片两段式 · 嵌入不存在图片 C:/no-such-file.png → 占位回退且无残留 img.inline-image（G3）', async ({
+test('LINK-IMAGE-E4: 图片直选 · 不存在路径（pickImage=C:/no-such-file.png）→ 占位回退且无残留 img.inline-image（G3）', async ({
   page,
 }) => {
   await openEditor(page);
   const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  // 覆盖 pickImage 返回不存在的本地路径
+  await page.evaluate(() => {
+    (window as unknown as { __pickImageResult: string | null }).__pickImageResult =
+      'C:/no-such-file.png';
+  });
   await editable.click();
-  await page.keyboard.type('\u56FE\u7247\u6587\u672C', { delay: 20 });
+  await page.keyboard.type('图片文本', { delay: 20 });
   await page.keyboard.press('Control+a');
   await page.waitForTimeout(300);
   const toolbar = page.locator('.floating-toolbar-v2');
   await expect(toolbar).toBeVisible();
 
-  // K3b：图片按钮 → ImageEditTool → 输入不存在的本地路径 → 嵌入 → media://C%3A/no-such-file.png 加载失败 → 回退占位
+  // K6：图片按钮 → 直接 pickImage → 替换选区 → media://C%3A/no-such-file.png 加载失败 → 回退占位
   await toolbar.locator('button[title="图片"]').click();
-  const tool = page.locator('[data-testid="image-edit-tool"]');
-  await expect(tool).toBeVisible();
-  await tool.locator('input[placeholder="输入图片 URL"]').click();
-  await page.keyboard.type('C:/no-such-file.png', { delay: 10 });
-  await tool.getByRole('button', { name: '嵌入', exact: true }).click();
+  await page.waitForTimeout(500);
 
   const fallback = page.locator('.inline-image-fallback');
   await expect(fallback).toHaveCount(1, { timeout: 3000 });
   // 回退占位显示 alt 文本（图片文本），而非 broken 图标
   await expect(fallback).toHaveText('图片文本');
   await expect(page.locator('img.inline-image')).toHaveCount(0);
+});
+
+test('LINK-IMAGE-E5: 图片工具栏全链路——点击图 → 居左/居中/居右（active）→ 修改图片（预填+替换保留包裹）→ 内联图片 → 移除图片（K4/K5/K6）', async ({
+  page,
+}) => {
+  // renderer-only 下 media:// 无主进程会 404 触发 fallback 替换 img；本用例用 https 图
+  // （CSP https: 放行）route 拦截返回 SVG，保证 img 加载成功保持可点击
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60"><rect width="120" height="60" fill="#ccc"/></svg>';
+  await page.route('https://example.com/**', (route) =>
+    route.fulfill({ contentType: 'image/svg+xml', body: svg })
+  );
+
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('图片文本', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+
+  // 直选插入 https 图（URL 图渲染 src 直用 https，无 media://）→ 整段替换 → image-block
+  await page.evaluate(() => {
+    (window as unknown as { __pickImageResult: string | null }).__pickImageResult =
+      'https://example.com/a.png';
+  });
+  await toolbar.locator('button[title="图片"]').click();
+  const imageBlock = page.locator('.image-block');
+  await expect(imageBlock).toHaveCount(1);
+  const img = page.locator('.image-block img.inline-image').first();
+  await expect(img).toHaveAttribute('src', 'https://example.com/a.png');
+  await expect(img).toHaveAttribute('alt', '图片文本');
+
+  // 点击图片 → 图片工具栏出现且文本工具栏（块类型下拉）不出现
+  await img.click();
+  const imageToolbar = page.locator('[data-testid="image-toolbar"]');
+  await expect(imageToolbar).toBeVisible();
+  await expect(page.locator('.block-type-trigger')).toHaveCount(0);
+
+  // 6 按钮中文文案断言
+  await expect(imageToolbar.locator('[data-testid="image-toolbar-edit"]')).toHaveText('修改图片');
+  await expect(imageToolbar.locator('[data-testid="image-toolbar-inline"]')).toHaveText('内联图片');
+  await expect(imageToolbar.locator('[data-testid="image-toolbar-align-left"]')).toHaveText('居左');
+  await expect(
+    imageToolbar.locator('[data-testid="image-toolbar-align-center"]')
+  ).toHaveText('居中');
+  await expect(imageToolbar.locator('[data-testid="image-toolbar-align-right"]')).toHaveText('居右');
+  await expect(imageToolbar.locator('[data-testid="image-toolbar-remove"]')).toHaveText('移除图片');
+
+  // 居左 → 块 textAlign=left；动作后工具栏关闭，重开时「居左」active（style 含 --accent）
+  await imageToolbar.locator('[data-testid="image-toolbar-align-left"]').click();
+  await expect(imageBlock).toHaveCSS('text-align', 'left');
+  await page.locator('.image-block img.inline-image').first().click();
+  const toolbarLeft = page.locator('[data-testid="image-toolbar"]');
+  await expect(toolbarLeft).toBeVisible();
+  const leftActive = await toolbarLeft
+    .locator('[data-testid="image-toolbar-align-left"]')
+    .evaluate((el) => el.getAttribute('style') ?? '');
+  expect(leftActive).toContain('var(--accent)');
+
+  // 换向：居中 → textAlign=center；重开时「居中」active
+  await toolbarLeft.locator('[data-testid="image-toolbar-align-center"]').click();
+  await expect(imageBlock).toHaveCSS('text-align', 'center');
+  await page.locator('.image-block img.inline-image').first().click();
+  const toolbarCenter = page.locator('[data-testid="image-toolbar"]');
+  await expect(toolbarCenter).toBeVisible();
+  const centerActive = await toolbarCenter
+    .locator('[data-testid="image-toolbar-align-center"]')
+    .evaluate((el) => el.getAttribute('style') ?? '');
+  expect(centerActive).toContain('var(--accent)');
+
+  // 居右 → textAlign=right
+  await toolbarCenter.locator('[data-testid="image-toolbar-align-right"]').click();
+  await expect(imageBlock).toHaveCSS('text-align', 'right');
+
+  // 修改图片：预填 src/alt → 输入新 URL → 嵌入 → 新 src 且对齐包裹保留（仍 image-block + right）
+  await page.locator('.image-block img.inline-image').first().click();
+  const toolbarEdit = page.locator('[data-testid="image-toolbar"]');
+  await expect(toolbarEdit).toBeVisible();
+  await toolbarEdit.locator('[data-testid="image-toolbar-edit"]').click();
+  const tool = page.locator('[data-testid="image-edit-tool"]');
+  await expect(tool).toBeVisible();
+  await expect(tool.locator('input[placeholder="输入图片 URL"]')).toHaveValue(
+    'https://example.com/a.png'
+  );
+  await expect(tool.locator('input[placeholder="可选描述 (alt)"]')).toHaveValue('图片文本');
+  await tool.locator('input[placeholder="输入图片 URL"]').fill('https://example.com/new.png');
+  await tool.getByRole('button', { name: '嵌入', exact: true }).click();
+  await page.waitForTimeout(300);
+  await expect(imageBlock).toHaveCSS('text-align', 'right');
+  await expect(page.locator('.image-block img.inline-image')).toHaveAttribute(
+    'src',
+    'https://example.com/new.png'
+  );
+
+  // 内联图片：解除包裹 → 块变 paragraph（源码层 wrapper 移除）；插入时补的空段落保持原样
+  await page.locator('.image-block img.inline-image').first().click();
+  const toolbarInline = page.locator('[data-testid="image-toolbar"]');
+  await expect(toolbarInline).toBeVisible();
+  await toolbarInline.locator('[data-testid="image-toolbar-inline"]').click();
+  await expect(page.locator('.image-block')).toHaveCount(0);
+  const para = page.locator('p.paragraph-block');
+  await expect(para).toHaveCount(2);
+  await expect(para.first().locator('img.inline-image')).toHaveAttribute(
+    'src',
+    'https://example.com/new.png'
+  );
+
+  // 移除图片：整段（行内）删除，图与语法消失，段落清空可供继续输入
+  await para.first().locator('img.inline-image').first().click();
+  const toolbarRemove = page.locator('[data-testid="image-toolbar"]');
+  await expect(toolbarRemove).toBeVisible();
+  await toolbarRemove.locator('[data-testid="image-toolbar-remove"]').click();
+  await page.waitForTimeout(300);
+  await expect(page.locator('img.inline-image')).toHaveCount(0);
+  await expect(page.locator('.image-block')).toHaveCount(0);
+  await expect(page.locator('.inline-image-fallback')).toHaveCount(0);
+  await expect(page.locator('p.paragraph-block')).toHaveCount(2);
+  await expect(
+    page.locator('p.paragraph-block span.block-content').first()
+  ).toHaveAttribute('data-empty', 'true');
+});
+
+test('LINK-IMAGE-E6: 行内图（块内还有其他文本）→ 图片工具栏出现且对齐/内联按钮置灰（K4）', async ({
+  page,
+}) => {
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60"><rect width="120" height="60" fill="#ccc"/></svg>';
+  await page.route('https://example.com/**', (route) =>
+    route.fulfill({ contentType: 'image/svg+xml', body: svg })
+  );
+
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('前文 图片', { delay: 20 });
+  await page.waitForTimeout(300);
+
+  // 选中「图片」（偏移 [3,5)）→ 直选插入 https 图 → 行内替换，块仍 paragraph
+  await selectTextRange(page, 3, 5);
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await page.evaluate(() => {
+    (window as unknown as { __pickImageResult: string | null }).__pickImageResult =
+      'https://example.com/a.png';
+  });
+  await toolbar.locator('button[title="图片"]').click();
+  const para = page.locator('p.paragraph-block');
+  await expect(para).toHaveCount(1);
+  const img = para.locator('img.inline-image').first();
+  await expect(img).toHaveAttribute('alt', '图片');
+  await expect(img).toHaveAttribute('src', 'https://example.com/a.png');
+
+  // 点击行内图 → 图片工具栏出现；对齐/内联置灰（非独立成块），修改/移除可用
+  await img.click();
+  const imageToolbar = page.locator('[data-testid="image-toolbar"]');
+  await expect(imageToolbar).toBeVisible();
+  await expect(page.locator('.block-type-trigger')).toHaveCount(0);
+  await expect(imageToolbar.locator('[data-testid="image-toolbar-align-left"]')).toBeDisabled();
+  await expect(imageToolbar.locator('[data-testid="image-toolbar-align-center"]')).toBeDisabled();
+  await expect(imageToolbar.locator('[data-testid="image-toolbar-align-right"]')).toBeDisabled();
+  await expect(imageToolbar.locator('[data-testid="image-toolbar-inline"]')).toBeDisabled();
+  await expect(imageToolbar.locator('[data-testid="image-toolbar-edit"]')).not.toBeDisabled();
+  await expect(imageToolbar.locator('[data-testid="image-toolbar-remove"]')).not.toBeDisabled();
 });
