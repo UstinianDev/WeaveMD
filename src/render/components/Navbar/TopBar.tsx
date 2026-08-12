@@ -11,7 +11,7 @@ import HistoryMenu from './HistoryMenu';
 import MoreMenu from './MoreMenu';
 import ViewMenu from './ViewMenu';
 import WindowControls from './WindowControls';
-import { useNavbarActions } from './useNavbarActions';
+import { useNavbarActions } from '@render/hooks/useNavbarActions';
 
 type ShortcutAction = 'new-file' | 'open-file' | 'undo' | 'redo' | null;
 

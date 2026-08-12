@@ -28,8 +28,8 @@ import { deleteLeafRange, updateMeta } from '@render/editor/kernel';
 import { resolveSyntaxType } from '@render/editor/kernel/syntaxType';
 import { setCursorAtOffset, setRangeAtOffset } from '@render/editor/kernel/selection';
 import { useEditorStore } from '@render/stores/editorStore';
-import type { BlockHandlers, BlockTypeOption } from './types';
-import { canConvertBlock } from './types';
+import type { BlockHandlers, BlockTypeOption } from '@render/components/Editor/v2/types';
+import { canConvertBlock } from '@render/components/Editor/v2/types';
 import type { PendingFocus, PendingRange } from './useFocusRestore';
 
 interface EditorActionsOptions {

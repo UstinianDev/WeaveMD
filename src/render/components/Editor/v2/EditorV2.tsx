@@ -14,12 +14,12 @@ import { extractHeadingOutline } from '@render/editor/kernel/outline';
 import { isStandaloneImageText, parseImageBlockText } from '@render/editor/kernel';
 import EditorScrollContainer, { type EditorScrollContainerHandle } from './EditorScrollContainer';
 import FloatingToolbar from './FloatingToolbar';
-import { useContentSync } from './useContentSync';
-import { useCrossBlockDragSelection } from './useCrossBlockDragSelection';
-import { useDomRegistry } from './useDomRegistry';
-import { useEditorActions } from './useEditorActions';
-import { useFocusRestore } from './useFocusRestore';
-import { useOutlineNavigation } from './useOutlineNavigation';
+import { useContentSync } from '@render/hooks/useContentSync';
+import { useCrossBlockDragSelection } from '@render/hooks/useCrossBlockDragSelection';
+import { useDomRegistry } from '@render/hooks/useDomRegistry';
+import { useEditorActions } from '@render/hooks/useEditorActions';
+import { useFocusRestore } from '@render/hooks/useFocusRestore';
+import { useOutlineNavigation } from '@render/hooks/useOutlineNavigation';
 import type { ImageSelection } from './types';
 
 interface EditorV2Props {
