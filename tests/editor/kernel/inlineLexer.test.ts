@@ -6,8 +6,8 @@ import {
   normalizeHref,
   safeUrl,
   tokenizeInline,
-} from '../../../src/render/editor/kernel/inlineLexer';
-import type { InlineToken } from '../../../src/render/editor/kernel/inlineLexer';
+} from '@render/editor/kernel/inlineLexer';
+import type { InlineToken } from '@render/editor/kernel/inlineLexer';
 
 function simplify(tokens: InlineToken[]): unknown[] {
   return tokens.map((t) => ({
@@ -284,8 +284,7 @@ describe('inlineLexer — 前置文本下的绝对偏移', () => {
 
 describe('inlineLexer — STYLE_TOKEN_TYPE 映射', () => {
   it('bold↔strong / italic↔em / strike↔del / highlight↔mark / code↔code / underline↔underline / math↔math', async () => {
-    const { STYLE_TOKEN_TYPE } = await import(
-      '../../../src/render/editor/kernel/inlineLexer'
+    const { STYLE_TOKEN_TYPE } = await import( '@render/editor/kernel/inlineLexer'
     );
     expect(STYLE_TOKEN_TYPE).toEqual({
       bold: 'strong',

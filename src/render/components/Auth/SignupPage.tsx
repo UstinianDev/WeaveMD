@@ -4,17 +4,17 @@
 // ============================================
 
 import React, { useState, useEffect, useCallback } from 'react';
-import Input from '../Common/Input';
-import Button from '../Common/Button';
-import { useI18n } from '../../i18n';
+import Input from '@render/components/Common/Input';
+import Button from '@render/components/Common/Button';
+import { useI18n } from '@render/i18n';
 import {
   validateUsername,
   validatePassword,
   getPasswordStrength,
   generateCaptcha,
   validateCaptcha,
-} from '../../utils/validators';
-import type { PasswordStrength } from '../../utils/validators';
+} from '@render/utils/validators';
+import type { PasswordStrength } from '@render/utils/validators';
 import type { MascotState } from './InteractiveMascot';
 
 interface SignupPageProps {

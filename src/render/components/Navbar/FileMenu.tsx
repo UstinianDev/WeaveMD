@@ -3,8 +3,8 @@
 // ============================================
 
 import React from 'react';
-import { useI18n } from '../../i18n';
-import type { DropdownItem as DropdownItemType } from '../Common/Dropdown';
+import { useI18n } from '@render/i18n';
+import type { DropdownItem as DropdownItemType } from '@render/components/Common/Dropdown';
 import NavMenu from './NavMenu';
 
 interface FileMenuProps {

@@ -7,7 +7,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { BlockTreeV2 } from '../../src/render/editor/kernel';
+import type { BlockTreeV2 } from '@render/editor/kernel';
 import {
   appendChild,
   changeBlockType,
@@ -15,9 +15,9 @@ import {
   makeParagraph,
   parseImageBlockText,
   tokenizeInline,
-} from '../../src/render/editor/kernel';
-import FloatingToolbar from '../../src/render/components/Editor/v2/FloatingToolbar';
-import type { ImageSelection } from '../../src/render/components/Editor/v2/types';
+} from '@render/editor/kernel';
+import FloatingToolbar from '@render/components/Editor/v2/FloatingToolbar';
+import type { ImageSelection } from '@render/components/Editor/v2/types';
 
 vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
   cb(performance.now());

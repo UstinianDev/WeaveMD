@@ -6,7 +6,7 @@
 import { act, fireEvent, render } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import EditorV2 from '../../src/render/components/Editor/v2/EditorV2';
+import EditorV2 from '@render/components/Editor/v2/EditorV2';
 
 const FAKE_RECT = { left: 0, top: 0, width: 200, height: 20, right: 200, bottom: 20 } as DOMRect;
 

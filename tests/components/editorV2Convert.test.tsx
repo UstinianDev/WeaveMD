@@ -5,7 +5,7 @@
 import { act, fireEvent, render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import EditorV2 from '../../src/render/components/Editor/v2/EditorV2';
+import EditorV2 from '@render/components/Editor/v2/EditorV2';
 
 // jsdom 不按真实帧时机触发 rAF，测试环境统一让 rAF 回调同步执行，
 // 保证 selectionchange（SPEC-EDIT-DSF 4.3 rAF 节流）后的工具栏渲染确定性。

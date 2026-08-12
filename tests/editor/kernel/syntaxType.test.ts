@@ -4,7 +4,7 @@
 // ============================================
 import { describe, expect, it } from 'vitest';
 
-import type { BlockTreeV2 } from '../../../src/render/editor/kernel';
+import type { BlockTreeV2 } from '@render/editor/kernel';
 import {
   appendChild,
   createDocumentTree,
@@ -17,13 +17,13 @@ import {
   makeParagraph,
   makeTable,
   makeThematicBreak,
-} from '../../../src/render/editor/kernel';
+} from '@render/editor/kernel';
 import {
   resolveSyntaxType,
   resolveSyntaxTypesInRange,
   type SyntaxType,
-} from '../../../src/render/editor/kernel/syntaxType';
-import { selectionSyntaxTypesConsistent } from '../../../src/render/components/Editor/v2/FloatingToolbar';
+} from '@render/editor/kernel/syntaxType';
+import { selectionSyntaxTypesConsistent } from '@render/components/Editor/v2/FloatingToolbar';
 
 /** 构造树并返回挂到根下的容器/叶子块 */
 function buildRoot(): BlockTreeV2 {

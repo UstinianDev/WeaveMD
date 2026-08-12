@@ -3,7 +3,7 @@
 // ============================================
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useUIStore } from '../../src/render/stores/uiStore';
+import { useUIStore } from '@render/stores/uiStore';
 
 describe('uiStore', () => {
   beforeEach(() => {

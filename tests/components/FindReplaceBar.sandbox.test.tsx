@@ -12,7 +12,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import FindReplaceBar from '../../src/render/components/Editor/panels/FindReplaceBar';
+import FindReplaceBar from '@render/components/Editor/panels/FindReplaceBar';
 
 function renderBar(overrides: { isOpen?: boolean; content?: string } = {}) {
   const onClose = vi.fn();

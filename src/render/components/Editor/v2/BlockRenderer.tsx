@@ -5,7 +5,7 @@
 
 import React from 'react';
 
-import type { BlockTreeV2 } from '../../../editor/kernel';
+import type { BlockTreeV2 } from '@render/editor/kernel';
 import LeafBlock from './blocks/LeafBlock';
 import CodeBlock from './blocks/CodeBlock';
 import ListItemBlock from './blocks/ListItemBlock';

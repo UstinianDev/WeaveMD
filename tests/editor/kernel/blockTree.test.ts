@@ -21,8 +21,8 @@ import {
   setBlockTextAndRender,
   splitLeaf,
   updateMeta,
-} from '../../../src/render/editor/kernel/blockTree';
-import { markdownToState } from '../../../src/render/editor/kernel/markdownToState';
+} from '@render/editor/kernel/blockTree';
+import { markdownToState } from '@render/editor/kernel/markdownToState';
 
 describe('blockTree — 基础结构', () => {
   it('createDocumentTree 只有根容器', () => {

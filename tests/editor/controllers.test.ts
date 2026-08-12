@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { EditorInstance } from '../../src/render/editor/editorInstance';
-import { inputCtrl, enterCtrl, backspaceCtrl, clickCtrl, listCtrl, formatCtrl } from '../../src/render/editor/controllers';
+import { EditorInstance } from '@render/editor/editorInstance';
+import { inputCtrl, enterCtrl, backspaceCtrl, clickCtrl, listCtrl, formatCtrl } from '@render/editor/controllers';
 
 function paragraphId(instance: EditorInstance): string {
   const id = Object.keys(instance.tree.blocks).find(

@@ -3,7 +3,7 @@
 // ============================================
 
 import { create } from 'zustand';
-import type { LanguageType, PageWidth, ThemeType } from '../../shared/types';
+import type { LanguageType, PageWidth, ThemeType } from '@shared/types';
 
 interface UIStore {
   theme: ThemeType;

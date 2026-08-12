@@ -3,10 +3,10 @@
 // ============================================
 
 import React, { useCallback } from 'react';
-import type { IFile } from '../../../../shared/types';
-import { useI18n } from '../../../i18n';
-import { useEditorStore } from '../../../stores/editorStore';
-import { useFileTreeStore, type IFileNode, type IFolderNode } from '../../../stores/fileTreeStore';
+import type { IFile } from '@shared/types';
+import { useI18n } from '@render/i18n';
+import { useEditorStore } from '@render/stores/editorStore';
+import { useFileTreeStore, type IFileNode, type IFolderNode } from '@render/stores/fileTreeStore';
 
 const FileTreePanel: React.FC = () => {
   const { t } = useI18n();

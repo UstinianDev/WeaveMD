@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { EditorInstance } from '../../../src/render/editor/editorInstance';
+import { EditorInstance } from '@render/editor/editorInstance';
 import {
   alignImage,
   formatRange,
@@ -8,15 +8,15 @@ import {
   makeImageInline,
   removeImage,
   unlinkRange,
-} from '../../../src/render/editor/controllers/formatCtrl';
-import type { InlineFormatStyle } from '../../../src/render/editor/controllers/formatCtrl';
-import { renderInline } from '../../../src/render/editor/kernel/inlineRenderer';
+} from '@render/editor/controllers/formatCtrl';
+import type { InlineFormatStyle } from '@render/editor/controllers/formatCtrl';
+import { renderInline } from '@render/editor/kernel/inlineRenderer';
 import {
   appendChild,
   changeBlockType,
   makeParagraph,
   setBlockText,
-} from '../../../src/render/editor/kernel';
+} from '@render/editor/kernel';
 
 function firstTextBlock(instance: EditorInstance) {
   const block = Object.values(instance.tree.blocks).find((b) => b.text !== null);

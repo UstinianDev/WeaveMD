@@ -10,7 +10,7 @@ import {
   areRangeEndpointsEqual,
   useCrossBlockDragSelection,
   type RangeEndpoint,
-} from '../../src/render/components/Editor/v2/useCrossBlockDragSelection';
+} from '@render/components/Editor/v2/useCrossBlockDragSelection';
 
 // ============ 4.1 端点级变化检测纯函数 ============
 interface MockNodeRecord {

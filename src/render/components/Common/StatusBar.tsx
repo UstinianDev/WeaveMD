@@ -3,7 +3,7 @@
 // ============================================
 
 import React, { useMemo } from 'react';
-import { useEditorStore } from '../../stores/editorStore';
+import { useEditorStore } from '@render/stores/editorStore';
 
 const StatusBar: React.FC = () => {
   const currentFile = useEditorStore((s) => s.currentFile);

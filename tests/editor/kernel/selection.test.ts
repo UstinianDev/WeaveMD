@@ -10,7 +10,7 @@ import {
   setCursorAtOffset,
   setRangeAtOffset,
   snapSelectionToContent,
-} from '../../../src/render/editor/kernel/selection';
+} from '@render/editor/kernel/selection';
 
 function mountContent(innerHTML: string): HTMLSpanElement {
   const el = document.createElement('span');

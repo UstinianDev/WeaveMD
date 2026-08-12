@@ -1,7 +1,7 @@
-import type { BlockTreeV2 } from '../../../editor/kernel';
-import type { ImageAlign } from '../../../editor/kernel';
-import type { InlineFormatStyle } from '../../../editor/controllers';
-import type { SyntaxType } from '../../../editor/kernel/syntaxType';
+import type { BlockTreeV2 } from '@render/editor/kernel';
+import type { ImageAlign } from '@render/editor/kernel';
+import type { InlineFormatStyle } from '@render/editor/controllers';
+import type { SyntaxType } from '@render/editor/kernel/syntaxType';
 
 // ============================================
 // 块类型下拉选项（SPEC-EDIT-FT 4.3.2 / 4.3.3）

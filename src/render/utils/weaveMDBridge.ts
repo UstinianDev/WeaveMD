@@ -1,4 +1,4 @@
-import type { WeaveMDApi } from '../../main/preload';
+import type { WeaveMDApi } from '@main/preload';
 import type {
   AccountInfo,
   IFile,
@@ -8,7 +8,7 @@ import type {
   IUserPublic,
   LanguageType,
   ThemeType,
-} from '../../shared/types';
+} from '@shared/types';
 import { validatePassword, validateUsername } from './validators';
 
 type ApiResult<T = unknown> = {

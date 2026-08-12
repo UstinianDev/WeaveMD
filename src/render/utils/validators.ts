@@ -2,7 +2,7 @@
 // WeaveMD — Input Validators
 // ============================================
 
-import { USERNAME_REGEX, PASSWORD_MIN_LENGTH, RESERVED_USERNAMES } from '../../shared/constants';
+import { USERNAME_REGEX, PASSWORD_MIN_LENGTH, RESERVED_USERNAMES } from '@shared/constants';
 
 export type PasswordStrength = 'weak' | 'medium' | 'strong';
 

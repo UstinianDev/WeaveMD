@@ -4,7 +4,7 @@
 
 import { randomUUID } from 'crypto';
 import { getDatabase } from './index';
-import type { IHistoryEntry } from '../../shared/types';
+import type { IHistoryEntry } from '@shared/types';
 
 export function saveVersion(
   fileId: string,

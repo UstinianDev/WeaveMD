@@ -9,7 +9,7 @@ import {
   getPasswordStrength,
   generateCaptcha,
   validateCaptcha,
-} from '../../src/render/utils/validators';
+} from '@render/utils/validators';
 
 describe('validateUsername', () => {
   it('should reject empty username', () => {

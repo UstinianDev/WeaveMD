@@ -21,9 +21,9 @@
 import Editor, { OnMount } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
-import { useUIStore } from '../../stores/uiStore';
+import { useUIStore } from '@render/stores/uiStore';
 // Ensure Monaco loads from local package, not CDN
-import '../../utils/monacoSetup';
+import '@render/utils/monacoSetup';
 
 // ============================================
 // Public Types

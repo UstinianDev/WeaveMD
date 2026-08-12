@@ -10,7 +10,7 @@ import {
   PASSWORD_MIN_LENGTH,
   RESERVED_USERNAMES,
   USERNAME_REGEX,
-} from '../shared/constants';
+} from '@shared/constants';
 import { createFile, deleteFile, getFile, listFiles, updateFileContent } from './db/files';
 import { getHistoryForFile, getLastVersion, saveVersion } from './db/history';
 import { getSettings, updateSettings } from './db/settings';

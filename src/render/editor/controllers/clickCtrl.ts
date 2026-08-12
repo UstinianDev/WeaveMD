@@ -3,9 +3,9 @@
 // ============================================
 // 任务复选框切换（v1 缺失的"可打勾"交互）。
 
-import type { EditorInstance } from '../editorInstance';
-import type { EditorActionResult } from '../editorInstance';
-import { updateMeta } from '../kernel';
+import type { EditorInstance } from '@render/editor/editorInstance';
+import type { EditorActionResult } from '@render/editor/editorInstance';
+import { updateMeta } from '@render/editor/kernel';
 
 export function toggleTaskChecked(
   instance: EditorInstance,

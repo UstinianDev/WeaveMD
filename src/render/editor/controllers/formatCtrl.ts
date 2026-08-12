@@ -9,8 +9,8 @@
 //     且边界不可延伸）；形态 B（选区恰好完整包裹，且为整块文本）。
 //   Step 2（应用）：先 stripSameStylePairs 去重，再包裹/插入。
 
-import type { EditorInstance } from '../editorInstance';
-import type { EditorActionResult } from '../editorInstance';
+import type { EditorInstance } from '@render/editor/editorInstance';
+import type { EditorActionResult } from '@render/editor/editorInstance';
 import {
   adjacentLeafFocus,
   appendChild,
@@ -32,8 +32,8 @@ import {
   tokenizeInline,
   unwrapImageAlign,
   wrapImageAlign,
-} from '../kernel';
-import type { ImageAlign, InlineToken } from '../kernel';
+} from '@render/editor/kernel';
+import type { ImageAlign, InlineToken } from '@render/editor/kernel';
 import { clamp } from './shared';
 
 export type InlineFormatStyle =

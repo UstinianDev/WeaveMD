@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { EditorInstance } from '../../src/render/editor/editorInstance';
+import { EditorInstance } from '@render/editor/editorInstance';
 
 describe('EditorInstance — 内容装载', () => {
   it('setContent 构建块树，getMarkdown 往返一致', () => {

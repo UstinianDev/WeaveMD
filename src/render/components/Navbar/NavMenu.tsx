@@ -5,8 +5,8 @@
 // 消除各菜单组件重复的 trigger JSX。
 
 import React from 'react';
-import { useI18n } from '../../i18n';
-import Dropdown, { type DropdownItem } from '../Common/Dropdown';
+import { useI18n } from '@render/i18n';
+import Dropdown, { type DropdownItem } from '@render/components/Common/Dropdown';
 
 interface NavMenuProps {
   /** i18n key，渲染为 "文件 ▾"；与 trigger 二选一 */

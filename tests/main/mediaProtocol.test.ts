@@ -7,7 +7,7 @@
 //   handler 解析：去前缀 → decodeURIComponent 一次 → 校验 Windows 绝对/UNC → 返回解码后的原始路径（保持 \）
 import { describe, expect, it } from 'vitest';
 
-import { decodeMediaUrl, MEDIA_SCHEME_PRIVILEGES } from '../../src/main/media-protocol';
+import { decodeMediaUrl, MEDIA_SCHEME_PRIVILEGES } from '@main/media-protocol';
 
 describe('decodeMediaUrl — Windows 盘符绝对路径', () => {
   it('解码 C 盘路径（/ 编码、: 编码）并保持原路径', () => {

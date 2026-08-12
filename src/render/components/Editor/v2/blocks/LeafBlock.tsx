@@ -5,12 +5,12 @@
 
 import React from 'react';
 
-import type { BlockNodeV2 } from '../../../../editor/kernel';
-import { parseImageBlockText } from '../../../../editor/kernel';
-import { setCursorAtOffset, stripZeroWidth } from '../../../../editor/kernel/selection';
-import { toDisplayHtml } from '../../../../editor/kernel';
+import type { BlockNodeV2 } from '@render/editor/kernel';
+import { parseImageBlockText } from '@render/editor/kernel';
+import { setCursorAtOffset, stripZeroWidth } from '@render/editor/kernel/selection';
+import { toDisplayHtml } from '@render/editor/kernel';
 import ContentBlock from './ContentBlock';
-import type { BlockHandlers } from '../types';
+import type { BlockHandlers } from '@render/components/Editor/v2/types';
 
 interface LeafBlockProps {
   block: BlockNodeV2;

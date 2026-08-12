@@ -3,7 +3,7 @@
 // ============================================
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useAuthStore } from '../../src/render/stores/authStore';
+import { useAuthStore } from '@render/stores/authStore';
 
 describe('authStore', () => {
   beforeEach(() => {

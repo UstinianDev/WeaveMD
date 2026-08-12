@@ -4,8 +4,8 @@
 // Tab：列表项缩进为前一列表项的子项（无前项不处理）。
 // Shift+Tab：嵌套列表项凸出到外层列表。
 
-import type { EditorActionResult, EditorInstance } from '../editorInstance';
-import { appendChild, defaultListMeta, insertBlockAfter, makeList, removeBlock } from '../kernel';
+import type { EditorActionResult, EditorInstance } from '@render/editor/editorInstance';
+import { appendChild, defaultListMeta, insertBlockAfter, makeList, removeBlock } from '@render/editor/kernel';
 import { getListContext } from './shared';
 
 export function handleTab(instance: EditorInstance, blockId: string): EditorActionResult | null {

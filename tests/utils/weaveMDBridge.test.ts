@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
-import { ensureWeaveMDApi } from '../../src/render/utils/weaveMDBridge';
+import { ensureWeaveMDApi } from '@render/utils/weaveMDBridge';
 
 describe('weaveMDBridge', () => {
   const originalBridge = window.weaveMD;

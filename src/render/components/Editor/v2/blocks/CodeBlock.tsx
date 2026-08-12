@@ -6,9 +6,9 @@
 
 import React, { useCallback, useState } from 'react';
 
-import { normalizeFenceLanguage } from '../../../../editor/kernel/fenceLanguage';
-import type { BlockNodeV2 } from '../../../../editor/kernel';
-import type { BlockHandlers } from '../types';
+import { normalizeFenceLanguage } from '@render/editor/kernel/fenceLanguage';
+import type { BlockNodeV2 } from '@render/editor/kernel';
+import type { BlockHandlers } from '@render/components/Editor/v2/types';
 import ContentBlock from './ContentBlock';
 
 interface CodeBlockProps {

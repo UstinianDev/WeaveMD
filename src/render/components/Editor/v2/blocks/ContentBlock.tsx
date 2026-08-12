@@ -7,8 +7,8 @@
 
 import React, { useCallback, useLayoutEffect, useRef } from 'react';
 
-import type { InlineFormatStyle } from '../../../../editor/controllers';
-import { toDisplayHtml } from '../../../../editor/kernel';
+import type { InlineFormatStyle } from '@render/editor/controllers';
+import { toDisplayHtml } from '@render/editor/kernel';
 import {
   deleteSelectionContent,
   getCrossBlockSelection,
@@ -17,8 +17,8 @@ import {
   setRangeAtOffset,
   snapOffsetInText,
   snapSelectionToContent,
-} from '../../../../editor/kernel/selection';
-import type { InputEventResult } from '../types';
+} from '@render/editor/kernel/selection';
+import type { InputEventResult } from '@render/components/Editor/v2/types';
 
 interface ContentBlockProps {
   blockId: string;

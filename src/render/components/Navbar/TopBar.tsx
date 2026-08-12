@@ -3,8 +3,8 @@
 // ============================================
 
 import React, { useEffect } from 'react';
-import IconButton from '../Common/IconButton';
-import { useI18n } from '../../i18n';
+import IconButton from '@render/components/Common/IconButton';
+import { useI18n } from '@render/i18n';
 import FileMenu from './FileMenu';
 import HelpMenu from './HelpMenu';
 import HistoryMenu from './HistoryMenu';

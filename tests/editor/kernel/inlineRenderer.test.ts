@@ -6,7 +6,7 @@ import {
   renderInline,
   safeUrl,
   toImgSrc,
-} from '../../../src/render/editor/kernel/inlineRenderer';
+} from '@render/editor/kernel/inlineRenderer';
 
 vi.mock('katex', () => ({
   default: {

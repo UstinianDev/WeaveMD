@@ -20,7 +20,7 @@
 import type { RefObject } from 'react';
 import { useEffect, useRef } from 'react';
 
-import { nearestContentSpan } from '../../../editor/kernel/selection';
+import { nearestContentSpan } from '@render/editor/kernel/selection';
 import { createRafThrottle } from './rafThrottle';
 
 /** 连续命中非内容区的帧数上限：超过即停止更新，回到编辑器内自动恢复 */

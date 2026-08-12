@@ -3,7 +3,7 @@
 // ============================================
 
 import React, { useEffect, useState } from 'react';
-import { useI18n } from '../../i18n';
+import { useI18n } from '@render/i18n';
 
 const WindowControls: React.FC = () => {
   const [isMaximized, setIsMaximized] = useState(false);

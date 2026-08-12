@@ -10,7 +10,7 @@ import {
   prepareMarkdownForRendering,
   renderMarkdownToHtml,
   stripDocumentLineNumbers,
-} from '../../src/render/services/markdown';
+} from '@render/services/markdown';
 
 describe('parseMarkdownToAST', () => {
   it('should parse simple markdown', () => {

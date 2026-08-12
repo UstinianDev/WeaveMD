@@ -3,7 +3,7 @@
 // ============================================
 // 磁盘文件打开/新建的公共数据构造，消除 TopBar 等处的重复 IFile 构造。
 
-import type { IFile, IUserPublic } from '../../shared/types';
+import type { IFile, IUserPublic } from '@shared/types';
 
 export interface DiskFileData {
   path: string;

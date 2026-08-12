@@ -4,16 +4,16 @@
 // ============================================
 
 import React, { useState, useRef, useEffect } from 'react';
-import Input from '../Common/Input';
-import Button from '../Common/Button';
-import { useAuthStore } from '../../stores/authStore';
-import { useI18n } from '../../i18n';
+import Input from '@render/components/Common/Input';
+import Button from '@render/components/Common/Button';
+import { useAuthStore } from '@render/stores/authStore';
+import { useI18n } from '@render/i18n';
 import {
   getRememberedCredentials,
   saveRememberedCredentials,
   clearRememberedCredentials,
-} from '../../utils/crypto';
-import type { IpcResponse, LoginResponse } from '../../../shared/types';
+} from '@render/utils/crypto';
+import type { IpcResponse, LoginResponse } from '@shared/types';
 import type { MascotState } from './InteractiveMascot';
 
 interface LoginPageProps {

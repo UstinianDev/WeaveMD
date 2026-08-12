@@ -3,12 +3,12 @@
 // ============================================
 
 import React, { useMemo, useState } from 'react';
-import { useI18n } from '../../../i18n';
-import type { OutlineItem } from '../../../services/markdown';
-import { extractOutline } from '../../../services/markdown';
-import { useEditorStore } from '../../../stores/editorStore';
-import { useFileTreeStore } from '../../../stores/fileTreeStore';
-import { useUIStore } from '../../../stores/uiStore';
+import { useI18n } from '@render/i18n';
+import type { OutlineItem } from '@render/services/markdown';
+import { extractOutline } from '@render/services/markdown';
+import { useEditorStore } from '@render/stores/editorStore';
+import { useFileTreeStore } from '@render/stores/fileTreeStore';
+import { useUIStore } from '@render/stores/uiStore';
 import FileTreePanel from './FileTreePanel';
 
 const INDENT_CLASSES = ['ml-0', 'ml-4', 'ml-8'] as const;

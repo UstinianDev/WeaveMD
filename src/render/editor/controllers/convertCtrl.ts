@@ -5,8 +5,8 @@
 // 升格：输入前缀（# / - / 1. / > / ``` / ---）后即时转换（规范 6.5）。
 // 降格：退格删除语法前缀时回到正文（SPEC-EDIT-EXIT 六条规则）。
 
-import type { EditorActionResult, EditorInstance } from '../editorInstance';
-import type { BlockConversionV2, BlockNodeV2, BlockTreeV2 } from '../kernel';
+import type { EditorActionResult, EditorInstance } from '@render/editor/editorInstance';
+import type { BlockConversionV2, BlockNodeV2, BlockTreeV2 } from '@render/editor/kernel';
 import {
   appendChild,
   defaultListMeta,
@@ -23,7 +23,7 @@ import {
   removeBlock,
   renderBlock,
   replaceBlock,
-} from '../kernel';
+} from '@render/editor/kernel';
 import { getListContext, getQuoteContext } from './shared';
 
 /** 替换块并写入行内缓存 */
