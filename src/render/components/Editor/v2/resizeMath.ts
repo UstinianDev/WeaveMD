@@ -20,8 +20,10 @@ function cornerVerticalSign(corner: ResizeCorner): number {
 }
 
 /**
- * 计算拖拽后宽度：取主轴向增量（横向 |dx| ≥ 纵向 |dy| 用横向，否则用纵向）叠加到 startWidth，
- * 钳制到 [min, max]。宽高比由 img height:auto 保持，故对角拖拽实时等比例。
+ * 计算拖拽后宽度：宽度增量 = 指针位移长度（√(dx²+dy²)，方向取主轴向符号），叠加到 startWidth，
+ * 钳制到 [min, max]。宽高比由 img height:auto 保持，故对角/横向/纵向拖拽都实时等比例；
+ * 斜向拖拽按对角距离顺滑增长（拖得越远长得越大），无主轴向切换跳变。
+ * 纯横/纵拖拽（单维位移）行为不变：dist = 该轴位移绝对值。
  */
 export function computeResizeWidth(
   startWidth: number,
@@ -31,11 +33,13 @@ export function computeResizeWidth(
   min: number,
   max: number
 ): number {
-  // 主轴向比较对非有限输入不成立（NaN >= x 恒 false，会被吞掉）→ 入口先防御。
+  // 入口先防御非有限输入（NaN 比较恒 false 会被吞掉）。
   if (!Number.isFinite(dx) || !Number.isFinite(dy)) return min;
   const horizontal = dx * cornerSign(corner);
   const vertical = dy * cornerVerticalSign(corner);
-  const delta = Math.abs(horizontal) >= Math.abs(vertical) ? horizontal : vertical;
+  // 主方向符号（决定增/缩）：取 |贡献| 更大的那个；位移长度用欧氏距离（与方向无关）。
+  const dominant = Math.abs(horizontal) >= Math.abs(vertical) ? horizontal : vertical;
+  const delta = Math.sign(dominant) * Math.hypot(dx, dy);
   let next = startWidth + delta;
   if (!Number.isFinite(next) || next < min) next = min;
   if (next > max) next = max;

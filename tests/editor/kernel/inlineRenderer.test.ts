@@ -465,6 +465,35 @@ describe('inlineRenderer — renderBlockHtml image-block（edit-image-align-tool
     expect(html).toContain('<img class="inline-image"');
     expect(html).toContain('data-start="4"');
   });
+
+  it('R3 wrapper 带 width → 宽度注入 <img> 自身（style="width:Npx"），wrapper 不出现', () => {
+    const html = renderBlockHtml({
+      type: 'image-block',
+      text: '<div align="center" style="width:640px">![a](C:/x.png)</div>',
+    });
+    expect(html).toContain('<img class="inline-image"');
+    expect(html).toContain('style="width:640px"');
+    expect(html).not.toContain('&lt;div');
+    expect(html).not.toContain('width:640px" style="width');
+    expect(html).not.toContain('<div');
+  });
+
+  it('R3 裸图 + width wrapper（wrapImageWidth 产物）→ 宽度注入 img，data-start 为 innerStart 绝对偏移', () => {
+    const html = renderBlockHtml({
+      type: 'image-block',
+      text: '<div align="left" style="width:400px">![a](C:/x.png)</div>',
+    });
+    expect(html).toContain('<img class="inline-image"');
+    expect(html).toContain('style="width:400px"');
+    expect(html).toContain('data-start="38"');
+    expect(html).toContain('data-end="52"');
+  });
+
+  it('R3 无 width → 不注入 style（保持既有输出）', () => {
+    const html = renderBlockHtml({ type: 'image-block', text: '![a](C:/x.png)' });
+    expect(html).toContain('<img class="inline-image"');
+    expect(html).not.toContain('style="width:');
+  });
 });
 
 describe('inlineRenderer — toImgSrc 单层解码修复（edit-image-align-toolbar K1）', () => {

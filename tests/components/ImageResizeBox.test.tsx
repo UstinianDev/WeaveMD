@@ -240,3 +240,46 @@ describe('ImageResizeBox — 四角拖拽缩放提交（G2）', () => {
     expect(box.style.width).toBe('250px');
   });
 });
+
+describe('ImageResizeBox — R2 提交后重锚定（layout effect 对齐 img 实际 rect）', () => {
+  it('即使 imageSelection.rect 陈旧，渲染后选中框同步到 img 最新 rect（框不再比图小）', () => {
+    stubAreaWidth(1000);
+    // img stub 渲染 300×180（模拟提交后图片实际尺寸），选中态快照仍是 200×120
+    const { ref } = setupContainer('b1', 300, 180);
+    const { container: rc } = render(
+      <ImageResizeBox
+        imageSelection={makeSelection({ rect: { top: 100, left: 50, width: 200, height: 120 } })}
+        editorContainerRef={ref as React.RefObject<HTMLDivElement>}
+        onResizeStandalone={vi.fn()}
+        onResizeInline={vi.fn()}
+      />
+    );
+    const box = rc.querySelector('.image-resize-box') as HTMLElement;
+    // layout effect 直改 boxRef + setRect：框尺寸 = img 实际渲染尺寸
+    expect(box.style.width).toBe('300px');
+    expect(box.style.height).toBe('180px');
+    expect(box.style.left).toBe('50px');
+    expect(box.style.top).toBe('100px');
+  });
+
+  it('拖拽期（draggingRef 置位）layout effect 不干扰直接 DOM 同步', () => {
+    stubAreaWidth(1000);
+    const { ref, img } = setupContainer();
+    const { container: rc } = render(
+      <ImageResizeBox
+        imageSelection={makeSelection()}
+        editorContainerRef={ref as React.RefObject<HTMLDivElement>}
+        onResizeStandalone={vi.fn()}
+        onResizeInline={vi.fn()}
+      />
+    );
+    const se = rc.querySelector('[data-handle="se"]')!;
+    act(() => {
+      se.dispatchEvent(new MouseEvent('mousedown', { clientX: 100, bubbles: true, cancelable: true }));
+    });
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 150, bubbles: true })); // +50
+    expect(img.style.width).toBe('250px');
+    const box = rc.querySelector('.image-resize-box') as HTMLElement;
+    expect(box.style.width).toBe('250px');
+  });
+});
