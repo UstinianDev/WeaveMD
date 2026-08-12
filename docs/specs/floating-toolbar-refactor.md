@@ -16,7 +16,7 @@ Vitest 289 / E2E 28 / tsc / eslint / vite build）。实施中的偏差回到本
 
 | # | 规范约定（v0.1） | 实际实现 | 说明 |
 | - | ---------------- | -------- | ---- |
-| 1 | G1 判定在 `computeToolbarState` 内联校验 | 新增导出纯函数 `selectionSyntaxTypesConsistent` + `syntaxTypeToOption`；`computeToolbarState` 增 `tree` 参数 | 便于组件测试直接覆盖（tests/components/floatingToolbarV2.test.tsx） |
+| 1 | G1 判定在 `computeToolbarState` 内联校验 | 新增导出纯函数 `selectionSyntaxTypesConsistent` + `syntaxTypeToOption`；`computeToolbarState` 增 `tree` 参数 | 便于组件测试直接覆盖（tests/components/FloatingToolbarV2.test.tsx） |
 | 2 | G3① 原生 select 或自定义下拉二选一 | **采用自定义下拉**（`.block-type-trigger` / `.block-type-menu` / `[data-value=…]`） | 统一暗色主题与后续图标扩展；e2e 选择器同步更新 |
 | 3 | G3③ 转换矩阵 | `types.ts` 新增 `canConvertBlock` 纯矩阵；`EditorV2.onConvertBlock` 重写为 `canConvertBlock + resolveSyntaxType` 前置校验分发 | 放开"仅根级"限制（支持引用/列表内容退位）；升格（→列表/引用/代码块）仍仅根级 paragraph |
 | 4 | D3「浏览器 Range 自带方向归一化」 | **方向归一化不成立**：Chromium 中 `setStart(下方块)+setEnd(上方块)` 反向时 range 塌陷到 end 点，须显式检测 `collapsed` 并交换端点 | 关键发现，见 4.4.3 修订 |
@@ -254,7 +254,7 @@ export type BlockTypeOption =
 | `src/render/components/Editor/v2/FloatingToolbar.tsx`          | 显示条件（类型一致性）、下拉展开、`currentType` 映射、转换矩阵 | 中   |
 | `src/render/components/Editor/v2/types.ts`                     | `BlockTypeOption` 类型扩展                               | 低   |
 | `src/render/components/Editor/v2/EditorV2.tsx`                 | `onConvertBlock` 按矩阵分发（含 code-block 只读分支）     | 中   |
-| `src/render/components/Editor/v2/useCrossBlockDragSelection.ts` | rAF 节流 + 非内容区回退 + 方向无关 + 收尾校验            | 中   |
+| `src/render/hooks/useCrossBlockDragSelection.ts` | rAF 节流 + 非内容区回退 + 方向无关 + 收尾校验            | 中   |
 | `tests/editor/kernel/`（新增）                                 | `resolveSyntaxType` 判定矩阵单测                          | —    |
 | `tests/components/`（新增）                                    | 工具栏显示条件（单块/多块/混合类型）组件测试             | —    |
 | `e2e/floating-toolbar.spec.ts`、`e2e/cross-block-selection.spec.ts` | 新增用例（见 6.2）；若改自定义下拉需同步选择器           | —    |
@@ -289,7 +289,7 @@ export type BlockTypeOption =
 ### 6.3 回归门禁（已通过）
 
 - `vitest run` 全量 **289/289** 通过（含存量往返/退出规则/内核用例 + 新增
-  floatingToolbarV2 22 例、editorV2Convert 8 例、syntaxType 21 例）；
+  FloatingToolbarV2 22 例、EditorV2Convert 8 例、syntaxType 21 例）；
 - `tsc --noEmit`、ESLint（0 error）、`vite build` 通过；
 - `npx playwright test` **28/28** 通过（存量 21 例 + 新增 floating-toolbar 2 例、
   cross-block-selection 2 例等）；

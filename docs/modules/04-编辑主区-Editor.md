@@ -185,14 +185,14 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
   `resolveSyntaxType` 判定矩阵 26 例、浮动工具栏 G1/G3 节流与驻留（含 FT2 按钮分组/新功能、
   FT3 sticky/部分标记归一化/跨 token 拆分/三连 `***` 跨风格叠加）、`onConvertBlock` 转换矩阵 8 例、拖选端点变化检测 11 例、
   FT2：inlineLexer / inlineStrip / katex / formatCtrl toggle+clearFormat / roundTrip、
-  FT3：Step 0 归一化矩阵（含 C10 跨 token）/ selection 恢复（selection.test + contentBlockRestore）/
-  editorV2StickyFormat 集成 / CSS 静态断言（ft2Css 8 例）/ EditorV2 快捷键接线（editorV2Format 6 例，含拖拽禁用事件断言）、
+  FT3：Step 0 归一化矩阵（含 C10 跨 token）/ selection 恢复（selection.test + ContentBlockRestore）/
+  EditorV2StickyFormat 集成 / CSS 静态断言（ft2Css 8 例）/ EditorV2 快捷键接线（EditorV2Format 6 例，含拖拽禁用事件断言）、
   FT4：formatCtrl 跨风格折叠 6 例 + inlineLexer 相邻混合强调 + inlineRenderer 两两组合渲染 +
   selection 标记吸附 11 例 + ContentBlock 删除/方向键吸附 4 例（PLAN-EDIT-FT4）+ open 三连拆分 3 例、
   图片：imageBlock 解析/对齐包裹/内联/独立判定 + formatCtrl 直选插入/对齐/内联/移除/replace +
   替换图像绝对偏移（imageBlock.test / imageReplace.test / formatCtrl.test）+
   mediaProtocol decode 与特权集不含 standard 断言（mediaProtocol.test）+ img fallback 组件 3 例 +
-  图片工具栏滚动重锚定 2 例（Bug B，imageToolbarV2.test）+ removeImage 代码块尾随空段补偿 3 布局
+  图片工具栏滚动重锚定 2 例（Bug B，ImageToolbarV2.test）+ removeImage 代码块尾随空段补偿 3 布局
   + 往返 1 例（Bug C，formatCtrl.test / markdownRoundTrip.test）。
 - Playwright 真实 Chromium E2E（`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
   + `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`

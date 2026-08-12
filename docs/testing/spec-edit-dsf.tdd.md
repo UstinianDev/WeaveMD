@@ -21,11 +21,11 @@
 | ---- | -------- | ---- |
 | `src/render/editor/kernel/syntaxType.ts` | `resolveSyntaxTypesInRange` 边枚举边比对短路 + `MAX_RANGE_LEAF_COUNT=500` 上限 + `sameSyntaxType`；不一致/超限/不可达统一返回 `null`（与 FloatingToolbar 既有 `null→false` 契约兼容） | 生产 |
 | `src/render/components/Editor/v2/FloatingToolbar.tsx` | selectionchange rAF 合并（`latestSelectionRef`+`rafIdRef`）；`visibleRef` 镜像可见性，`setVisibleGuarded` 仅在值变化时 `setVisible`；卸载时 cancelAnimationFrame | 生产 |
-| `src/render/components/Editor/v2/useCrossBlockDragSelection.ts` | 新增 `RangeEndpoint` 类型 + `areRangeEndpointsEqual` 纯函数 + `lastAppliedRangeRef`；跨块写入分支端点比对，全等跳过写入；mousedown/mouseup 重置 | 生产 |
+| `src/render/hooks/useCrossBlockDragSelection.ts` | 新增 `RangeEndpoint` 类型 + `areRangeEndpointsEqual` 纯函数 + `lastAppliedRangeRef`；跨块写入分支端点比对，全等跳过写入；mousedown/mouseup 重置 | 生产 |
 | `tests/editor/kernel/syntaxType.test.ts` | 更新 1 例断言（h1+paragraph 现返回 null）+ 新增 5 例短路/上限/边界 | 测试 |
-| `tests/components/floatingToolbarV2.test.tsx` | 新增 4 例 rAF 节流（合并/跨帧去重/最新覆盖/卸载清理）；共享夹具上提模块级 | 测试 |
+| `tests/components/FloatingToolbarV2.test.tsx` | 新增 4 例 rAF 节流（合并/跨帧去重/最新覆盖/卸载清理）；共享夹具上提模块级 | 测试 |
 | `tests/components/useCrossBlockDragSelection.test.ts`（新增） | 纯函数 8 例 + hook 级 3 例（端点未变跳过写入、mouseup 末帧兜底等） | 测试 |
-| `tests/components/editorV2Convert.test.tsx` | 顶部加同步 rAF stub（与 floatingToolbarV2 一致），修复 Phase 2 节流后转换集成测试时序 | 测试 |
+| `tests/components/EditorV2Convert.test.tsx` | 顶部加同步 rAF stub（与 FloatingToolbarV2 一致），修复 Phase 2 节流后转换集成测试时序 | 测试 |
 | `e2e/cross-block-selection.spec.ts` | 新增 2 例：反向跨多类型拖选+Backspace 删除（P3）；`selectionchange` 计数探针收敛（P1/P2） | 测试 |
 
 未改动（规范 4.5 禁区确认）：块树模型、双向转换、`deleteLeafRange`、controllers、撤销/重做、自动保存、G1/G3 显示与转换矩阵语义、自定义下拉 DOM。
@@ -37,8 +37,8 @@
 | Phase 0 | 基线审计：vitest 289/289、tsc 通过 | 绿 |
 | Phase 1 | syntaxType 短路：5 例新用例 RED（`expected ... to be null`）→ 实现后 26/26 | 红→绿 |
 | Phase 2 | FloatingToolbar 节流：4 例新用例 RED（raf spy 0 次）→ 26/26；syntaxType 26/26 无回归 | 红→绿 |
-| Phase 3 | 端点变化检测：纯函数/hook 用例 RED（`areRangeEndpointsEqual is not a function`、spy 2 次）→ 11/11；editorV2 抽测 25/25 | 红→绿 |
-| 并发回归 | Phase 2 节流使 editorV2Convert 8 例同步断言工具栏失败 → 测试顶部补同步 rAF stub | 红→绿 |
+| Phase 3 | 端点变化检测：纯函数/hook 用例 RED（`areRangeEndpointsEqual is not a function`、spy 2 次）→ 11/11；EditorV2 抽测 25/25 | 红→绿 |
+| 并发回归 | Phase 2 节流使 EditorV2Convert 8 例同步断言工具栏失败 → 测试顶部补同步 rAF stub | 红→绿 |
 | Phase 5 | E2E 新增 2 例；旧实现计数 19-59 vs 修复实现 10-51（探针降低约 15-33%）；30/30 | 绿 |
 
 ## 4. 回归门禁（全绿）

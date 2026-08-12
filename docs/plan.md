@@ -35,7 +35,7 @@
 | AGT-A inlineLexer 相邻混合强调（U2→B） | 1 | `kernel/inlineLexer.ts` | `kernel/inlineLexer.test.ts`（扩） | 无 | Wave 1 并行（与 0 无依赖） |
 | AGT-B formatCtrl Step 0 跨风格折叠（G-①） | 2 | `controllers/formatCtrl.ts`、`kernel/inlineLexer.ts`（新增纯函数 `foldSelectionToContent`） | `controllers/formatCtrl.test.ts`（扩） | A | Wave 2 串行 |
 | AGT-C 渲染断言（两两组合，S2 口径） | 2b | —（仅测试） | `kernel/inlineRenderer.test.ts`（扩） | A | Wave 2 并行 |
-| AGT-D G-② 标记偏移安全（U3 路径层） | 3 | `kernel/selection.ts`、`blocks/ContentBlock.tsx`、`v2/EditorV2.tsx`、`kernel/blockTree.ts`（视复现） | `kernel/selection.test.ts`（扩）、`components/editorV2Format.test.tsx`（扩）、`controllers.test.ts`（扩） | **0 复现结论** + B | Wave 3 串行 |
+| AGT-D G-② 标记偏移安全（U3 路径层） | 3 | `kernel/selection.ts`、`blocks/ContentBlock.tsx`、`v2/EditorV2.tsx`、`kernel/blockTree.ts`（视复现） | `kernel/selection.test.ts`（扩）、`components/EditorV2Format.test.tsx`（扩）、`controllers.test.ts`（扩） | **0 复现结论** + B | Wave 3 串行 |
 | AGT-E E2E 验收 + 全量回归 | 4 | —（文档为主） | `e2e/floating-toolbar.spec.ts`（FT4-E1/E2）、`e2e/drag-selection-markers.spec.ts`（转正） | A~D | Wave 4 串行 |
 | AGT-F 文档同步 + 收尾门禁 | 4 | —（文档） | docs 回写 + 覆盖率报告 | E | Wave 4 串行 |
 
@@ -221,8 +221,8 @@ Wave 4（串行）：AGT-E（E2E 转正 + 新增 FT4 用例）→ AGT-F（全量
 | `tests/editor/kernel/inlineRenderer.test.ts` | 两两组合渲染（S2） | ≈10–14 | `renderInline` 无字面污染、组合渲染断言（对标 FT3-E7） |
 | `tests/editor/controllers/formatCtrl.test.ts` | Step 0 跨风格折叠 / 叠加矩阵 / selection 映射 | ≈10–12 | G-① 矩阵（`3**`/`**123`/`*3*`）、各风格叠加、折叠映射、保守空选区 |
 | `tests/editor/kernel/selection.test.ts` | 标记感知映射 | ≈6–8 | `mapSelectionToContent` / 反向映射 / 与 foldSelectionToContent 一致性 |
-| `tests/components/editorV2Format.test.tsx` | 跨风格叠加组件级 | ≈3–5 | 叠加后 DOM 渲染、删除含标记选区（keydown 模拟）、onDeleteRange 映射 |
-| `tests/editor/controllers.test.ts` | 删除含标记选区（输入/删除路径） | ≈3–5 | 程序化删除不产生未闭合标记 |
+| `tests/components/EditorV2Format.test.tsx` | 跨风格叠加组件级 | ≈3–5 | 叠加后 DOM 渲染、删除含标记选区（keydown 模拟）、onDeleteRange 映射 |
+| `tests/editor/controllers/controllers.test.ts` | 删除含标记选区（输入/删除路径） | ≈3–5 | 程序化删除不产生未闭合标记 |
 | `tests/components/useCrossBlockDragSelection.test.ts` | （视复现）拖选端点落在标记上的映射 | ≈0–3 | 纯函数断言（jsdom 限制，仅逻辑层） |
 
 ### 4.3 新增/修改 E2E 用例清单（基线 44 例，预计新增 5–6 例 → ≈49–50 例）
@@ -233,7 +233,7 @@ Wave 4（串行）：AGT-E（E2E 转正 + 新增 FT4 用例）→ AGT-F（全量
 | `e2e/floating-toolbar.spec.ts`（扩展） | FT4-E1 / FT4-E2 /（可选 FT4-E3） | 异风格叠加渲染无字面污染（S1/S2） | Phase 4 |
 
 ### 4.4 回归清单（S3：FT3 C10-C12 / E1-E7 不回归 + 存量全绿）
-- **Vitest 回归锚点**：`formatCtrl.test.ts` 全量（Step 0 归一化矩阵、C10 跨 token、C11/C12 三连、selection 契约）；`inlineLexer.test.ts` 全量（三连、四连降级、intraword、嵌套、转义、findIntersectingStyleTokens）；`inlineRenderer.test.ts` 全量；`selection.test.ts`；`useCrossBlockDragSelection.test.ts`（DSF）；`editorV2StickyFormat/editorV2Format/editorV2Convert/editorV2Input`；`ft2Css.test.ts`。
+- **Vitest 回归锚点**：`formatCtrl.test.ts` 全量（Step 0 归一化矩阵、C10 跨 token、C11/C12 三连、selection 契约）；`inlineLexer.test.ts` 全量（三连、四连降级、intraword、嵌套、转义、findIntersectingStyleTokens）；`inlineRenderer.test.ts` 全量；`selection.test.ts`；`useCrossBlockDragSelection.test.ts`（DSF）；`EditorV2StickyFormat/EditorV2Format/EditorV2Convert/EditorV2Input`；`ft2Css.test.ts`。
 - **E2E 回归锚点**：`floating-toolbar.spec.ts` 全量（含 FT3-E1/E2/E3/E5/E6/E7、FT2-E1~E8）；`cross-block-selection.spec.ts` 全量（含 P1/P2/P3 拖选闪烁收敛、反向跨类型拖选 + Backspace 块树级删除）；`editor.spec.ts`、`exit-behavior.spec.ts`、`marktext-rendering.spec.ts` 全量。
 - **门禁**：`tsc --noEmit`、ESLint 0 error、`vite build`、`vitest run` 全量、`npx playwright test` 全量。
 
@@ -285,5 +285,5 @@ Wave 4（串行）：AGT-E（E2E 转正 + 新增 FT4 用例）→ AGT-F（全量
 - **P0**：`npx playwright test e2e/drag-selection-markers.spec.ts`（复现用例记录 RED 证据；不要求通过）
 - **P1**：`npx vitest run tests/editor/kernel/inlineLexer.test.ts tests/editor/kernel/inlineRenderer.test.ts` + typecheck
 - **P2**：`npx vitest run tests/editor/controllers/formatCtrl.test.ts tests/editor/kernel/inlineRenderer.test.ts` + typecheck
-- **P3**：`npx vitest run tests/editor/kernel/selection.test.ts tests/components/editorV2Format.test.tsx tests/editor/controllers.test.ts` + typecheck
+- **P3**：`npx vitest run tests/editor/kernel/selection.test.ts tests/components/EditorV2Format.test.tsx tests/editor/controllers/controllers.test.ts` + typecheck
 - **P4**：全量 `npm test` + typecheck + eslint + `npx vite build` + `npx playwright test` + `npx vitest run --coverage`（覆盖率 ≥80%）

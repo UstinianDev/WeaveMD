@@ -13,8 +13,8 @@
 | ---- | ---- | ---- | ---- | ---- |
 | 0+1 内核 | katex 依赖 + inlineLexer 抽取（输出不变）；formatCtrl toggle/strip/clearFormat/underline/math/image；katex.ts | 模块不存在 / toggle 双层 / 无 u/math 渲染 | 新增单测全绿 + 存量 108 行金标准零漂移 | ✅（提交 9c1554a） |
 | 2 样式 | 方案 B 隐藏+聚焦灰显、mark 黄色、主题变量、工具栏尺寸类、行内对象类 | ft2Css 7 例全红 | 7/7 绿 + `tsc --noEmit` | ✅ 本阶段 |
-| 3 工具栏 | 分组/新按钮/橡皮擦/activeTest 边界 | floatingToolbarV2 TB1~TB8 红 | 34/34 绿 + eslint 0 error | ✅ 本阶段 |
-| 4 接线 | `url?`/`onClearFormat`/Ctrl+U/Ctrl+Shift+M | editorV2Format 3 例红 | 5/5 绿 + 全量 vitest 392 绿 | ✅ 本阶段 |
+| 3 工具栏 | 分组/新按钮/橡皮擦/activeTest 边界 | FloatingToolbarV2 TB1~TB8 红 | 34/34 绿 + eslint 0 error | ✅ 本阶段 |
+| 4 接线 | `url?`/`onClearFormat`/Ctrl+U/Ctrl+Shift+M | EditorV2Format 3 例红 | 5/5 绿 + 全量 vitest 392 绿 | ✅ 本阶段 |
 | 5 E2E | G1 计算样式 / G2 标记隐藏 / G3 新功能 | 旧实现尺寸不足/双层/标记可见 | floating-toolbar 13/13 + 全量 38/38 + build | ✅ 本阶段 |
 
 ## 2. 改动清单（本阶段：阶段 2~5）
@@ -27,8 +27,8 @@
 | `src/render/components/Editor/v2/blocks/ContentBlock.tsx` | `onFormat` 补 `url?`；Ctrl+U / Ctrl+Shift+M | 生产 |
 | `src/render/components/Editor/v2/EditorV2.tsx` | `onClearFormat` useCallback；注册进 handlers；传给 FloatingToolbar | 生产 |
 | `tests/styles/ft2Css.test.ts`（新增） | CS1~CS6：静态源码断言（D9：vitest css:false） | 测试 |
-| `tests/components/floatingToolbarV2.test.tsx` | +TB1~TB8（分组顺序/回调/activeTest 边界/折叠隐藏/回归） | 测试 |
-| `tests/components/editorV2Format.test.tsx`（新增） | Ctrl+U / Ctrl+Shift+M / url 透传契约 | 测试 |
+| `tests/components/FloatingToolbarV2.test.tsx` | +TB1~TB8（分组顺序/回调/activeTest 边界/折叠隐藏/回归） | 测试 |
+| `tests/components/EditorV2Format.test.tsx`（新增） | Ctrl+U / Ctrl+Shift+M / url 透传契约 | 测试 |
 | `e2e/floating-toolbar.spec.ts` | +FT2-E1~E8（计算样式/toggle/标记隐藏/黄色高亮/下划线/图片/数学/橡皮擦） | 测试 |
 
 未改动（规范禁区确认）：块树内核模型、双向转换、七类交互控制器（除 formatCtrl 扩展）、

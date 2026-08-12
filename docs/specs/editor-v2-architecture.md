@@ -749,7 +749,7 @@ Source → Normal：content → markdownToState → 块树 → 渲染
 | R3  | 无 IME 守卫，中文输入（composition）期间每次拼音都重渲染打断组合                                                               | ContentBlock 监听 compositionstart/end，组合期间跳过 input，结束后统一同步                                                                                          |
 | R4  | 行内渲染隐藏语法标记（`**bold**` → `<strong>bold</strong>`），DOM textContent 与源文本不一致，在已渲染格式中继续输入会丢失标记 | inlineRenderer 按 marktext 范式保留语法标记：`<span class="md-syntax">**</span>` 灰显包裹，DOM textContent 与源文本始终一致；新增 `.md-syntax` 样式（灰显、不可选） |
 
-**验证**：新增 `tests/components/editorV2Input.test.tsx` 7 例（空文档输入、逐字符连续输入、
+**验证**：新增 `tests/components/EditorV2Input.test.tsx` 7 例（空文档输入、逐字符连续输入、
 IME 组合、前缀转换、实时加粗渲染、列表转换、标记保留）；
 全量 `vitest run` 304 例通过；`tsc --noEmit` 与 ESLint 零告警；`vite build` 成功。
 
@@ -953,5 +953,5 @@ Playwright Chromium E2E 23/23；`tsc --noEmit`、ESLint（0 error，0 warning）
   `.inline-image`/`.math-inline`。
 
 **验证**：`vitest run` 392 例（新增 inlineLexer/katex/inlineStrip/formatCtrl toggle+
-clearFormat/ft2Css/editorV2Format 等）、Playwright E2E 38/38（含 FT2 新增 8 例）、
+clearFormat/ft2Css/EditorV2Format 等）、Playwright E2E 38/38（含 FT2 新增 8 例）、
 `tsc --noEmit`、ESLint（0 error）、`vite build` 全部通过。
