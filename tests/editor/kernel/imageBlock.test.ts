@@ -5,7 +5,7 @@ import {
   parseImageBlockText,
   unwrapImageAlign,
   wrapImageAlign,
-} from '../../../src/render/editor/kernel/imageBlock';
+} from '@render/editor/kernel/imageBlock';
 
 describe('imageBlock — parseImageBlockText（edit-image-align-toolbar K2）', () => {
   it('裸图行：`![123](C:/x.png)` → align null，inner 为整行，偏移 0..16', () => {

@@ -8,7 +8,7 @@
 import type { RefObject } from 'react';
 import { useCallback, useEffect, useRef } from 'react';
 
-import type { OutlineItemV2 } from '../../../editor/kernel/outline';
+import type { OutlineItemV2 } from '@render/editor/kernel/outline';
 import type { EditorScrollContainerHandle } from './EditorScrollContainer';
 
 interface OutlineNavigationOptions {

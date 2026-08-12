@@ -9,8 +9,8 @@
 import type { RefObject } from 'react';
 import { useCallback, useEffect, useRef } from 'react';
 
-import type { EditorInstance } from '../../../editor/editorInstance';
-import type { BlockTreeV2 } from '../../../editor/kernel';
+import type { EditorInstance } from '@render/editor/editorInstance';
+import type { BlockTreeV2 } from '@render/editor/kernel';
 
 interface ContentSyncOptions {
   content: string;

@@ -8,8 +8,8 @@
 //   heading → 拆分，右半转段落
 //   paragraph → 拆分
 
-import type { EditorActionResult, EditorInstance } from '../editorInstance';
-import type { BlockNodeV2, BlockTreeV2 } from '../kernel';
+import type { EditorActionResult, EditorInstance } from '@render/editor/editorInstance';
+import type { BlockNodeV2, BlockTreeV2 } from '@render/editor/kernel';
 import {
   adjacentLeafFocus,
   appendChild,
@@ -21,7 +21,7 @@ import {
   replaceBlock,
   setBlockText,
   splitLeaf,
-} from '../kernel';
+} from '@render/editor/kernel';
 import { convertBlockToParagraph, convertParagraphToBlock } from './convertCtrl';
 import { getListContext } from './shared';
 

@@ -5,10 +5,10 @@
 import { render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import ContentBlock from '../../src/render/components/Editor/v2/blocks/ContentBlock';
-import type { InputEventResult } from '../../src/render/components/Editor/v2/types';
-import { getCursorOffsets, setCursorAtOffset } from '../../src/render/editor/kernel/selection';
-import { renderInline } from '../../src/render/editor/kernel/inlineRenderer';
+import ContentBlock from '@render/components/Editor/v2/blocks/ContentBlock';
+import type { InputEventResult } from '@render/components/Editor/v2/types';
+import { getCursorOffsets, setCursorAtOffset } from '@render/editor/kernel/selection';
+import { renderInline } from '@render/editor/kernel/inlineRenderer';
 
 function makeProps(overrides: Record<string, unknown> = {}) {
   return {

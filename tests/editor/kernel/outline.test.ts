@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { markdownToState } from '../../../src/render/editor/kernel/markdownToState';
-import { extractHeadingOutline } from '../../../src/render/editor/kernel/outline';
+import { markdownToState } from '@render/editor/kernel/markdownToState';
+import { extractHeadingOutline } from '@render/editor/kernel/outline';
 
 describe('extractHeadingOutline', () => {
   it('提取标题与行号（文档序）', () => {

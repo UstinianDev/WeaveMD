@@ -5,7 +5,7 @@
 
 import React, { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 
-import type { BlockTreeV2 } from '../../../editor/kernel';
+import type { BlockTreeV2 } from '@render/editor/kernel';
 import BlockRenderer from './BlockRenderer';
 import type { BlockHandlers } from './types';
 

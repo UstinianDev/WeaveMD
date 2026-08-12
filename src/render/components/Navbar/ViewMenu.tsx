@@ -8,9 +8,9 @@
 // ============================================
 
 import React from 'react';
-import { useI18n } from '../../i18n';
-import { useUIStore } from '../../stores/uiStore';
-import type { DropdownItem as DropdownItemType } from '../Common/Dropdown';
+import { useI18n } from '@render/i18n';
+import { useUIStore } from '@render/stores/uiStore';
+import type { DropdownItem as DropdownItemType } from '@render/components/Common/Dropdown';
 import NavMenu from './NavMenu';
 
 const ViewMenu: React.FC = () => {

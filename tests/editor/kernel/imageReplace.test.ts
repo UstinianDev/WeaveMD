@@ -4,7 +4,7 @@ import {
   escapeImagePathForMarkdown,
   escapeMarkdownUrl,
   replaceImageRange,
-} from '../../../src/render/editor/kernel/imageReplace';
+} from '@render/editor/kernel/imageReplace';
 
 describe('imageReplace — escapeImagePathForMarkdown（K3）', () => {
   it('空格 → %20，中文与反斜杠保留（Windows 截图路径）', () => {

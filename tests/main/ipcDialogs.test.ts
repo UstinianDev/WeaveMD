@@ -21,8 +21,8 @@ vi.mock('electron', () => ({
 
 vi.mock('better-sqlite3', () => ({ default: class FakeDatabase {} }));
 
-import { IPC_CHANNELS } from '../../src/shared/constants';
-import { registerAllIpcHandlers } from '../../src/main/ipc-handlers';
+import { IPC_CHANNELS } from '@shared/constants';
+import { registerAllIpcHandlers } from '@main/ipc-handlers';
 
 type PickImageHandler = (event: { sender: unknown }) => Promise<string | null>;
 

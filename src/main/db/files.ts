@@ -4,7 +4,7 @@
 
 import { randomUUID } from 'crypto';
 import { getDatabase } from './index';
-import type { IFile } from '../../shared/types';
+import type { IFile } from '@shared/types';
 
 export function createFile(userId: string, name: string, content = ''): IFile {
   const db = getDatabase();

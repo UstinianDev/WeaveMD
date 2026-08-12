@@ -5,8 +5,8 @@
 
 import { useCallback, useRef } from 'react';
 
-import type { EditorInstance } from '../../../editor/editorInstance';
-import { toDisplayHtml } from '../../../editor/kernel';
+import type { EditorInstance } from '@render/editor/editorInstance';
+import { toDisplayHtml } from '@render/editor/kernel';
 
 export interface DomRegistry {
   registerDom: (blockId: string, el: HTMLElement) => void;

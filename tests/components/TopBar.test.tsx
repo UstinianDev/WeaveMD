@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   getShortcutAction,
   shouldIgnoreGlobalShortcutTarget,
-} from '../../src/render/components/Navbar/TopBar';
+} from '@render/components/Navbar/TopBar';
 
 describe('TopBar shortcut helpers', () => {
   it('should resolve supported global shortcuts', () => {

@@ -6,7 +6,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import InsertUrlModal from '../../src/render/components/Editor/v2/InsertUrlModal';
+import InsertUrlModal from '@render/components/Editor/v2/InsertUrlModal';
 
 interface Props {
   title: string;

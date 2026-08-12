@@ -6,7 +6,7 @@ vi.mock('katex', () => ({
   },
 }));
 
-import { renderMath } from '../../../src/render/editor/kernel/katex';
+import { renderMath } from '@render/editor/kernel/katex';
 
 describe('katex.renderMath — 成功路径', () => {
   it('调用 renderToString 并包装 math-inline 与两侧 $', () => {

@@ -3,7 +3,7 @@
 // ============================================
 
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC_CHANNELS } from '../shared/constants';
+import { IPC_CHANNELS } from '@shared/constants';
 
 export interface WeaveMDApi {
   auth: {

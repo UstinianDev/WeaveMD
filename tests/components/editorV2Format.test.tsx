@@ -5,7 +5,7 @@
 import { fireEvent, render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import EditorV2 from '../../src/render/components/Editor/v2/EditorV2';
+import EditorV2 from '@render/components/Editor/v2/EditorV2';
 
 function getEditable(container: HTMLElement): HTMLElement {
   const el = container.querySelector('span.block-content[contenteditable="true"]') as HTMLElement;

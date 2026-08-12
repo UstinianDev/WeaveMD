@@ -3,12 +3,12 @@
 // ============================================
 
 import React, { useEffect, useState } from 'react';
-import type { LanguageType, ThemeType } from '../../../shared/types';
-import { useI18n } from '../../i18n';
-import { useAuthStore } from '../../stores/authStore';
-import { useUIStore } from '../../stores/uiStore';
-import Button from '../Common/Button';
-import Modal from '../Common/Modal';
+import type { LanguageType, ThemeType } from '@shared/types';
+import { useI18n } from '@render/i18n';
+import { useAuthStore } from '@render/stores/authStore';
+import { useUIStore } from '@render/stores/uiStore';
+import Button from '@render/components/Common/Button';
+import Modal from '@render/components/Common/Modal';
 
 interface SettingsModalProps {
   isOpen: boolean;

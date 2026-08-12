@@ -3,8 +3,8 @@
 // ============================================
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useEditorStore } from '../../src/render/stores/editorStore';
-import type { IFile } from '../../src/shared/types';
+import { useEditorStore } from '@render/stores/editorStore';
+import type { IFile } from '@shared/types';
 
 const mockFile: IFile = {
   id: 'file-1',

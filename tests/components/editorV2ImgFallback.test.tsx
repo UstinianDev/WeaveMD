@@ -7,7 +7,7 @@
 import { fireEvent, render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import EditorV2 from '../../src/render/components/Editor/v2/EditorV2';
+import EditorV2 from '@render/components/Editor/v2/EditorV2';
 
 describe('EditorV2 — img.inline-image error 回退（G3）', () => {
   it('加载失败时把 img 替换为 .inline-image-fallback（用 alt 文本）', () => {

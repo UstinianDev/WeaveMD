@@ -4,8 +4,8 @@
 // 输入处理：autoPair（成对符号自动补全）+ 文本更新 + 块转换触发。
 // 对齐 marktext inputHandler 管线（autoPair → text → checkNeedRender → convertIfNeeded）。
 
-import type { EditorInstance } from '../editorInstance';
-import { detectBlockConversion, setBlockTextAndRender, stripZeroWidth } from '../kernel';
+import type { EditorInstance } from '@render/editor/editorInstance';
+import { detectBlockConversion, setBlockTextAndRender, stripZeroWidth } from '@render/editor/kernel';
 import { convertParagraphToBlock } from './convertCtrl';
 
 export interface InputResult {

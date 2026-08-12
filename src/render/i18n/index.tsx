@@ -4,8 +4,8 @@
 // ============================================
 
 import React, { createContext, useContext, useCallback } from 'react';
-import { useUIStore } from '../stores/uiStore';
-import type { LanguageType } from '../../shared/types';
+import { useUIStore } from '@render/stores/uiStore';
+import type { LanguageType } from '@shared/types';
 import en from './en.json';
 import zhCN from './zh-CN.json';
 import zhTW from './zh-TW.json';

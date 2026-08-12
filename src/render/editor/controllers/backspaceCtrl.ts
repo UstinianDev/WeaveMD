@@ -8,8 +8,8 @@
 //   code-block 空 → 删除代码块（一键 Backspace）
 //   paragraph → 合并到前一个内容块
 
-import type { EditorActionResult, EditorInstance } from '../editorInstance';
-import type { BlockNodeV2 } from '../kernel';
+import type { EditorActionResult, EditorInstance } from '@render/editor/editorInstance';
+import type { BlockNodeV2 } from '@render/editor/kernel';
 import {
   adjacentLeafFocus,
   getPrevLeaf,
@@ -18,7 +18,7 @@ import {
   renderBlock,
   replaceBlock,
   setBlockText,
-} from '../kernel';
+} from '@render/editor/kernel';
 import { convertBlockToParagraph } from './convertCtrl';
 
 export function handleBackspaceAtStart(

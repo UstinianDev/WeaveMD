@@ -8,8 +8,8 @@
 
 import { useCallback, useLayoutEffect, useRef } from 'react';
 
-import type { BlockTreeV2 } from '../../../editor/kernel';
-import { setCursorAtOffset } from '../../../editor/kernel/selection';
+import type { BlockTreeV2 } from '@render/editor/kernel';
+import { setCursorAtOffset } from '@render/editor/kernel/selection';
 
 export interface PendingFocus {
   blockId: string;

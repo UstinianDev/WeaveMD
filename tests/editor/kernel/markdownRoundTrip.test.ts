@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { markdownToState } from '../../../src/render/editor/kernel/markdownToState';
-import { stateToMarkdown } from '../../../src/render/editor/kernel/stateToMarkdown';
-import { getAllBlocksInOrder } from '../../../src/render/editor/kernel/blockTree';
-import { EditorInstance } from '../../../src/render/editor/editorInstance';
-import { removeImage } from '../../../src/render/editor/controllers/formatCtrl';
+import { markdownToState } from '@render/editor/kernel/markdownToState';
+import { stateToMarkdown } from '@render/editor/kernel/stateToMarkdown';
+import { getAllBlocksInOrder } from '@render/editor/kernel/blockTree';
+import { EditorInstance } from '@render/editor/editorInstance';
+import { removeImage } from '@render/editor/controllers/formatCtrl';
 
 /** 规范化往返：stateToMarkdown(markdownToState(M)) === M */
 function roundTrip(markdown: string): string {

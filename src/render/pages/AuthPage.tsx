@@ -4,11 +4,11 @@
 // ============================================
 
 import React, { useState, useCallback } from 'react';
-import LoginPage from '../components/Auth/LoginPage';
-import SignupPage from '../components/Auth/SignupPage';
-import InteractiveMascot from '../components/Auth/InteractiveMascot';
-import AuthWindowControls from '../components/Auth/AuthWindowControls';
-import type { MascotState } from '../components/Auth/InteractiveMascot';
+import LoginPage from '@render/components/Auth/LoginPage';
+import SignupPage from '@render/components/Auth/SignupPage';
+import InteractiveMascot from '@render/components/Auth/InteractiveMascot';
+import AuthWindowControls from '@render/components/Auth/AuthWindowControls';
+import type { MascotState } from '@render/components/Auth/InteractiveMascot';
 
 type AuthMode = 'login' | 'register';
 

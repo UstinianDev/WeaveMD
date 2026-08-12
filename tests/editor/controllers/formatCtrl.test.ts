@@ -1,9 +1,9 @@
-﻿import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import { EditorInstance } from '../../../src/render/editor/editorInstance';
-import { formatCtrl } from '../../../src/render/editor/controllers';
-import { renderInline } from '../../../src/render/editor/kernel/inlineRenderer';
-import { stripSameStylePairs, stripInlineSyntax } from '../../../src/render/editor/kernel';
+import { EditorInstance } from '@render/editor/editorInstance';
+import { formatCtrl } from '@render/editor/controllers';
+import { renderInline } from '@render/editor/kernel/inlineRenderer';
+import { stripSameStylePairs, stripInlineSyntax } from '@render/editor/kernel';
 
 function paragraphId(instance: EditorInstance): string {
   const id = Object.keys(instance.tree.blocks).find(

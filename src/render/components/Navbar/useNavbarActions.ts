@@ -6,14 +6,14 @@
 
 import { useCallback, useState } from 'react';
 
-import type { IFile } from '../../../shared/types';
-import { createDiskFile } from '../../services/fileOps';
-import { useI18n } from '../../i18n';
-import { useAuthStore } from '../../stores/authStore';
-import { useEditorStore } from '../../stores/editorStore';
-import { useFileTreeStore } from '../../stores/fileTreeStore';
-import { useHistoryStore } from '../../stores/historyStore';
-import { useUIStore } from '../../stores/uiStore';
+import type { IFile } from '@shared/types';
+import { createDiskFile } from '@render/services/fileOps';
+import { useI18n } from '@render/i18n';
+import { useAuthStore } from '@render/stores/authStore';
+import { useEditorStore } from '@render/stores/editorStore';
+import { useFileTreeStore } from '@render/stores/fileTreeStore';
+import { useHistoryStore } from '@render/stores/historyStore';
+import { useUIStore } from '@render/stores/uiStore';
 
 interface DialogPathResult {
   success: boolean;

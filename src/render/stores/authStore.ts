@@ -3,7 +3,7 @@
 // ============================================
 
 import { create } from 'zustand';
-import type { IUserPublic } from '../../shared/types';
+import type { IUserPublic } from '@shared/types';
 import { useEditorStore } from './editorStore';
 import { useHistoryStore } from './historyStore';
 

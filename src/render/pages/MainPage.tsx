@@ -3,16 +3,16 @@
 // ============================================
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import StatusBar from '../components/Common/StatusBar';
-import EditorView from '../components/Editor/EditorView';
-import HistoryPanel from '../components/Editor/panels/HistoryPanel';
-import OutlinePanel from '../components/Editor/panels/OutlinePanel';
-import TopBar from '../components/Navbar/TopBar';
-import SettingsModal from '../components/Settings/SettingsModal';
-import { useAuthStore } from '../stores/authStore';
-import { useEditorStore } from '../stores/editorStore';
-import { useHistoryStore } from '../stores/historyStore';
-import { useUIStore } from '../stores/uiStore';
+import StatusBar from '@render/components/Common/StatusBar';
+import EditorView from '@render/components/Editor/EditorView';
+import HistoryPanel from '@render/components/Editor/panels/HistoryPanel';
+import OutlinePanel from '@render/components/Editor/panels/OutlinePanel';
+import TopBar from '@render/components/Navbar/TopBar';
+import SettingsModal from '@render/components/Settings/SettingsModal';
+import { useAuthStore } from '@render/stores/authStore';
+import { useEditorStore } from '@render/stores/editorStore';
+import { useHistoryStore } from '@render/stores/historyStore';
+import { useUIStore } from '@render/stores/uiStore';
 
 const MainPage: React.FC = () => {
   const currentFile = useEditorStore((s) => s.currentFile);

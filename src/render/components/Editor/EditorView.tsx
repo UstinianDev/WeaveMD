@@ -8,10 +8,10 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import { extractOutline, type OutlineItem } from '../../services/markdown';
-import { useEditorStore } from '../../stores/editorStore';
-import { useUIStore } from '../../stores/uiStore';
-import { defineWeaveThemes } from '../../utils/monacoSetup';
+import { extractOutline, type OutlineItem } from '@render/services/markdown';
+import { useEditorStore } from '@render/stores/editorStore';
+import { useUIStore } from '@render/stores/uiStore';
+import { defineWeaveThemes } from '@render/utils/monacoSetup';
 import FindReplaceBar from './panels/FindReplaceBar';
 import SourceCodeEditor, { type SourceCodeEditorHandle } from './SourceCodeEditor';
 import EditorV2 from './v2/EditorV2';

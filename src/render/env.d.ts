@@ -4,7 +4,7 @@
 
 /// <reference types="vite/client" />
 
-import type { WeaveMDApi } from '../main/preload';
+import type { WeaveMDApi } from '@main/preload';
 
 declare global {
   interface Window {

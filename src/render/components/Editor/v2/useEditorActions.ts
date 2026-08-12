@@ -21,13 +21,13 @@ import {
   inputCtrl,
   listCtrl,
   type InlineFormatStyle,
-} from '../../../editor/controllers';
-import type { EditorActionResult, EditorInstance } from '../../../editor/editorInstance';
-import type { BlockMetaV2, BlockNodeV2, BlockTreeV2, ImageAlign } from '../../../editor/kernel';
-import { deleteLeafRange, updateMeta } from '../../../editor/kernel';
-import { resolveSyntaxType } from '../../../editor/kernel/syntaxType';
-import { setCursorAtOffset, setRangeAtOffset } from '../../../editor/kernel/selection';
-import { useEditorStore } from '../../../stores/editorStore';
+} from '@render/editor/controllers';
+import type { EditorActionResult, EditorInstance } from '@render/editor/editorInstance';
+import type { BlockMetaV2, BlockNodeV2, BlockTreeV2, ImageAlign } from '@render/editor/kernel';
+import { deleteLeafRange, updateMeta } from '@render/editor/kernel';
+import { resolveSyntaxType } from '@render/editor/kernel/syntaxType';
+import { setCursorAtOffset, setRangeAtOffset } from '@render/editor/kernel/selection';
+import { useEditorStore } from '@render/stores/editorStore';
 import type { BlockHandlers, BlockTypeOption } from './types';
 import { canConvertBlock } from './types';
 import type { PendingFocus, PendingRange } from './useFocusRestore';

@@ -5,7 +5,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { BlockTreeV2 } from '../../src/render/editor/kernel';
+import type { BlockTreeV2 } from '@render/editor/kernel';
 import {
   appendChild,
   createDocumentTree,
@@ -15,18 +15,18 @@ import {
   makeList,
   makeListItem,
   makeParagraph,
-} from '../../src/render/editor/kernel';
-import type { SyntaxType } from '../../src/render/editor/kernel/syntaxType';
-import FloatingToolbar from '../../src/render/components/Editor/v2/FloatingToolbar';
+} from '@render/editor/kernel';
+import type { SyntaxType } from '@render/editor/kernel/syntaxType';
+import FloatingToolbar from '@render/components/Editor/v2/FloatingToolbar';
 import {
   BLOCK_TYPE_OPTIONS,
   canConvertBlock,
   type BlockTypeOption,
-} from '../../src/render/components/Editor/v2/types';
+} from '@render/components/Editor/v2/types';
 import {
   selectionSyntaxTypesConsistent,
   syntaxTypeToOption,
-} from '../../src/render/components/Editor/v2/FloatingToolbar';
+} from '@render/components/Editor/v2/FloatingToolbar';
 
 // jsdom 不按真实帧时机触发 rAF，测试环境统一让 rAF 回调同步执行，
 // 保证事件→渲染的确定性；节流专项用例内再覆盖为可控的收集 stub。

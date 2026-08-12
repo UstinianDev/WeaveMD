@@ -7,17 +7,17 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { InlineFormatStyle } from '../../../editor/controllers';
-import { MARKERS } from '../../../editor/controllers/formatCtrl';
-import type { BlockTreeV2, ImageAlign } from '../../../editor/kernel';
-import { findIntersectingLinks, isBoundedWrap, tokenizeInline } from '../../../editor/kernel';
+import type { InlineFormatStyle } from '@render/editor/controllers';
+import { MARKERS } from '@render/editor/controllers/formatCtrl';
+import type { BlockTreeV2, ImageAlign } from '@render/editor/kernel';
+import { findIntersectingLinks, isBoundedWrap, tokenizeInline } from '@render/editor/kernel';
 import {
   getCursorOffsets,
   nearestContentSpan as kernelNearestContentSpan,
-} from '../../../editor/kernel/selection';
-import { resolveSyntaxType, resolveSyntaxTypesInRange } from '../../../editor/kernel/syntaxType';
-import type { SyntaxType } from '../../../editor/kernel/syntaxType';
-import { clamp } from '../../../editor/controllers/shared';
+} from '@render/editor/kernel/selection';
+import { resolveSyntaxType, resolveSyntaxTypesInRange } from '@render/editor/kernel/syntaxType';
+import type { SyntaxType } from '@render/editor/kernel/syntaxType';
+import { clamp } from '@render/editor/controllers/shared';
 import {
   BLOCK_TYPE_OPTIONS,
   canConvertBlock,

@@ -8,11 +8,11 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { getAllBlocksInOrder } from '../../../src/render/editor/kernel/blockTree';
-import { markdownToState } from '../../../src/render/editor/kernel/markdownToState';
-import { stateToMarkdown } from '../../../src/render/editor/kernel/stateToMarkdown';
-import type { BlockNodeV2, BlockTreeV2 } from '../../../src/render/editor/kernel/types';
-import { isLeafBlockType } from '../../../src/render/editor/kernel/types';
+import { getAllBlocksInOrder } from '@render/editor/kernel/blockTree';
+import { markdownToState } from '@render/editor/kernel/markdownToState';
+import { stateToMarkdown } from '@render/editor/kernel/stateToMarkdown';
+import type { BlockNodeV2, BlockTreeV2 } from '@render/editor/kernel/types';
+import { isLeafBlockType } from '@render/editor/kernel/types';
 
 /** 解析并返回（树 + 文档序叶子块列表） */
 function parseLeaves(markdown: string): { tree: BlockTreeV2; leaves: BlockNodeV2[] } {

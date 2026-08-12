@@ -7,7 +7,7 @@ import {
   saveRememberedCredentials,
   getRememberedCredentials,
   clearRememberedCredentials,
-} from '../../src/render/utils/crypto';
+} from '@render/utils/crypto';
 
 describe('crypto', () => {
   beforeEach(() => {

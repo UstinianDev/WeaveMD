@@ -8,10 +8,10 @@
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 
-import { EditorInstance } from '../../../editor/editorInstance';
-import type { BlockTreeV2 } from '../../../editor/kernel';
-import { extractHeadingOutline } from '../../../editor/kernel/outline';
-import { isStandaloneImageText, parseImageBlockText } from '../../../editor/kernel';
+import { EditorInstance } from '@render/editor/editorInstance';
+import type { BlockTreeV2 } from '@render/editor/kernel';
+import { extractHeadingOutline } from '@render/editor/kernel/outline';
+import { isStandaloneImageText, parseImageBlockText } from '@render/editor/kernel';
 import EditorScrollContainer, { type EditorScrollContainerHandle } from './EditorScrollContainer';
 import FloatingToolbar from './FloatingToolbar';
 import { useContentSync } from './useContentSync';

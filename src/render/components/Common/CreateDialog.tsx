@@ -3,7 +3,7 @@
 // ============================================
 
 import React, { useState } from 'react';
-import { useI18n } from '../../i18n';
+import { useI18n } from '@render/i18n';
 import Modal from './Modal';
 
 interface CreateDialogProps {

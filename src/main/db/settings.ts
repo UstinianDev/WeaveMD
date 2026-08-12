@@ -4,7 +4,7 @@
 
 import { randomUUID } from 'crypto';
 import { getDatabase } from './index';
-import type { ISettings, ThemeType, LanguageType } from '../../shared/types';
+import type { ISettings, ThemeType, LanguageType } from '@shared/types';
 
 export function getSettings(userId: string): ISettings | undefined {
   const db = getDatabase();

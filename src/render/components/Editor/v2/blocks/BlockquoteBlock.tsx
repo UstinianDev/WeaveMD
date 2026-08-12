@@ -5,9 +5,9 @@
 
 import React from 'react';
 
-import type { BlockNodeV2, BlockTreeV2 } from '../../../../editor/kernel';
-import BlockRenderer from '../BlockRenderer';
-import type { BlockHandlers } from '../types';
+import type { BlockNodeV2, BlockTreeV2 } from '@render/editor/kernel';
+import BlockRenderer from '@render/components/Editor/v2/BlockRenderer';
+import type { BlockHandlers } from '@render/components/Editor/v2/types';
 
 interface BlockquoteBlockProps {
   block: BlockNodeV2;

@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import ImageEditTool, {
   type ImageEditToolProps,
-} from '../../src/render/components/Editor/v2/ImageEditTool';
+} from '@render/components/Editor/v2/ImageEditTool';
 
 function setup(overrides: Partial<ImageEditToolProps> = {}) {
   const onConfirm = vi.fn();

@@ -3,7 +3,7 @@
 // ============================================
 
 import { create } from 'zustand';
-import type { IFile } from '../../shared/types';
+import type { IFile } from '@shared/types';
 
 interface EditorStore {
   currentFile: IFile | null;
