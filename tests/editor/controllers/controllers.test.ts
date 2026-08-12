@@ -121,6 +121,26 @@ describe('inputCtrl — 前缀转换（升格）', () => {
     expect(focusBlock?.parentId).toBe(instance.tree.root.id);
   });
 
+  it('纯空白代码块（仅换行/空格）回车 → 退出代码块并聚焦下一段落', () => {
+    const instance = new EditorInstance('x');
+    const id = paragraphId(instance);
+    inputCtrl.handleInput(instance, id, '```js ', 6);
+    const codeId = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'code-block'
+    )!.id;
+    // 模拟删除内容后残留的换行（text = "\n"），回车应退出而非继续插入换行
+    inputCtrl.handleInput(instance, codeId, '\n', 1);
+    expect(instance.tree.blocks[codeId]?.text).toBe('\n');
+    const result = enterCtrl.handleEnter(instance, codeId, 0);
+    // 代码块保留，光标移出到下一段落
+    expect(instance.tree.blocks[codeId]?.type).toBe('code-block');
+    expect(instance.tree.blocks[codeId]?.text).toBe('\n');
+    expect(result?.focus).toBeTruthy();
+    const focusBlock = instance.tree.blocks[result!.focus!.blockId];
+    expect(focusBlock?.type).toBe('paragraph');
+    expect(focusBlock?.parentId).toBe(instance.tree.root.id);
+  });
+
   it('空代码块退格 → 删除代码块并聚焦下一段落', () => {
     const instance = new EditorInstance('x');
     const id = paragraphId(instance);
@@ -128,6 +148,22 @@ describe('inputCtrl — 前缀转换（升格）', () => {
     const codeId = Object.values(instance.tree.blocks).find(
       (b) => b.type === 'code-block'
     )!.id;
+    const result = backspaceCtrl.handleBackspaceAtStart(instance, codeId);
+    expect(instance.tree.blocks[codeId]).toBeUndefined();
+    expect(result?.focus).toBeTruthy();
+    expect(instance.tree.blocks[result!.focus!.blockId]?.type).toBe('paragraph');
+  });
+
+  it('纯空白代码块（仅换行/空格）退格 → 删除代码块（视觉为空）', () => {
+    const instance = new EditorInstance('x');
+    const id = paragraphId(instance);
+    inputCtrl.handleInput(instance, id, '```js ', 6);
+    const codeId = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'code-block'
+    )!.id;
+    // 模拟删除内容后残留的换行/空格（text = "\n"）
+    inputCtrl.handleInput(instance, codeId, '\n', 1);
+    expect(instance.tree.blocks[codeId]?.text).toBe('\n');
     const result = backspaceCtrl.handleBackspaceAtStart(instance, codeId);
     expect(instance.tree.blocks[codeId]).toBeUndefined();
     expect(result?.focus).toBeTruthy();

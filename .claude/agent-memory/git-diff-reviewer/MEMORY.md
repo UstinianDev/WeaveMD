@@ -1,0 +1,1 @@
+- [FloatingToolbar re-export 耦合](project_floating-toolbar-reexport.md) — FloatingToolbar.tsx 刻意 re-export toolbarState 纯函数以维持旧测试导入路径

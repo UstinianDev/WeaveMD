@@ -29,9 +29,9 @@ export function handleBackspaceAtStart(
   if (!block || block.text === null) return null;
   const parent = block.parentId ? instance.tree.blocks[block.parentId] : undefined;
 
-  // 代码块空内容 → 删除代码块（一键 Backspace）
+  // 代码块空内容（含纯空白/换行，视觉为空）→ 删除代码块（一键 Backspace）
   if (block.type === 'code-block') {
-    if ((block.text ?? '') !== '') return null;
+    if ((block.text ?? '').trim() !== '') return null;
     return removeCodeBlock(instance, block);
   }
 

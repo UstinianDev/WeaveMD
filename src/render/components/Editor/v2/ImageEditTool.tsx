@@ -110,76 +110,34 @@ const ImageEditTool: React.FC<ImageEditToolProps> = ({
       role="dialog"
       aria-modal="true"
       aria-label="修改图片"
-      className="image-edit-tool"
+      className={`image-edit-tool ie-tool`}
       style={{
         position: 'fixed',
         top: `${position.top}px`,
         left: `${position.left}px`,
-        zIndex: 200,
-        minWidth: 280,
-        padding: '12px',
-        borderRadius: '8px',
-        boxShadow: '0 2px 12px rgba(0, 0, 0, 0.2)',
-        backgroundColor: 'var(--bg-secondary)',
-        border: '1px solid var(--border-color)',
-        color: 'var(--text-primary)',
       }}
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.preventDefault()}
     >
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '8px',
-        }}
-      >
-        <span style={{ fontWeight: 600 }}>修改图片</span>
-        <button
-          type="button"
-          aria-label="关闭"
-          onClick={onCancel}
-          style={{
-            border: 'none',
-            background: 'transparent',
-            cursor: 'pointer',
-            color: 'var(--text-sub)',
-            fontSize: '16px',
-          }}
-        >
+      <div className="ie-header">
+        <span className="ie-title">修改图片</span>
+        <button type="button" aria-label="关闭" onClick={onCancel} className="ie-close">
           ×
         </button>
       </div>
 
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+      <div className="ie-tabs">
         <button
           type="button"
           onClick={() => setTab('link')}
-          style={{
-            flex: 1,
-            padding: '4px 0',
-            cursor: 'pointer',
-            border: 'none',
-            borderBottom: `2px solid ${tab === 'link' ? 'var(--accent)' : 'transparent'}`,
-            background: 'transparent',
-            color: tab === 'link' ? 'var(--accent)' : 'var(--text-sub)',
-          }}
+          className={`ie-tab ${tab === 'link' ? 'ie-tab--active' : ''}`}
         >
           嵌入链接
         </button>
         <button
           type="button"
           onClick={() => setTab('select')}
-          style={{
-            flex: 1,
-            padding: '4px 0',
-            cursor: 'pointer',
-            border: 'none',
-            borderBottom: `2px solid ${tab === 'select' ? 'var(--accent)' : 'transparent'}`,
-            background: 'transparent',
-            color: tab === 'select' ? 'var(--accent)' : 'var(--text-sub)',
-          }}
+          className={`ie-tab ${tab === 'select' ? 'ie-tab--active' : ''}`}
         >
           本地选择
         </button>
@@ -187,10 +145,8 @@ const ImageEditTool: React.FC<ImageEditToolProps> = ({
 
       {tab === 'link' ? (
         <>
-          <div style={{ marginBottom: '8px' }}>
-            <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-              图片 URL
-            </label>
+          <div className="ie-field">
+            <label className="ie-label">图片 URL</label>
             <input
               ref={srcRef}
               type="text"
@@ -203,109 +159,45 @@ const ImageEditTool: React.FC<ImageEditToolProps> = ({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleLinkConfirm();
               }}
-              style={{
-                width: '100%',
-                boxSizing: 'border-box',
-                padding: '4px 6px',
-                backgroundColor: 'var(--bg-tertiary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '4px',
-                color: 'var(--text-primary)',
-              }}
+              className="ie-input"
             />
-            {error && (
-              <span style={{ display: 'block', color: 'var(--danger, #e5484d)', fontSize: '12px' }}>
-                {error}
-              </span>
-            )}
+            {error && <span className="ie-error">{error}</span>}
           </div>
-          <div style={{ marginBottom: '8px' }}>
-            <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>alt</label>
+          <div className="ie-field">
+            <label className="ie-label">alt</label>
             <input
               type="text"
               value={alt}
               placeholder="可选描述 (alt)"
               onChange={(e) => setAlt(e.target.value)}
-              style={{
-                width: '100%',
-                boxSizing: 'border-box',
-                padding: '4px 6px',
-                backgroundColor: 'var(--bg-tertiary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '4px',
-                color: 'var(--text-primary)',
-              }}
+              className="ie-input"
             />
           </div>
-          <div style={{ marginBottom: '12px' }}>
-            <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-              title
-            </label>
+          <div className="ie-field ie-field--lg">
+            <label className="ie-label">title</label>
             <input
               type="text"
               value={title}
               placeholder="可选标题 (title)"
               onChange={(e) => setTitle(e.target.value)}
-              style={{
-                width: '100%',
-                boxSizing: 'border-box',
-                padding: '4px 6px',
-                backgroundColor: 'var(--bg-tertiary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: '4px',
-                color: 'var(--text-primary)',
-              }}
+              className="ie-input"
             />
           </div>
         </>
       ) : (
-        <div style={{ marginBottom: '12px' }}>
-          <button
-            type="button"
-            onClick={handlePickImage}
-            style={{
-              width: '100%',
-              padding: '6px 0',
-              cursor: 'pointer',
-              border: '1px solid var(--border-color)',
-              borderRadius: '4px',
-              backgroundColor: 'var(--bg-tertiary)',
-              color: 'var(--text-primary)',
-            }}
-          >
+        <div className="ie-field ie-field--lg">
+          <button type="button" onClick={handlePickImage} className="ie-select-btn">
             选择图片
           </button>
         </div>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-        <button
-          type="button"
-          onClick={onCancel}
-          style={{
-            padding: '4px 12px',
-            cursor: 'pointer',
-            border: '1px solid var(--border-color)',
-            borderRadius: '4px',
-            backgroundColor: 'transparent',
-            color: 'var(--text-sub)',
-          }}
-        >
+      <div className="ie-actions">
+        <button type="button" onClick={onCancel} className="ie-btn-secondary">
           取消
         </button>
         {tab === 'link' && (
-          <button
-            type="button"
-            onClick={handleLinkConfirm}
-            style={{
-              padding: '4px 12px',
-              cursor: 'pointer',
-              border: 'none',
-              borderRadius: '4px',
-              backgroundColor: 'var(--accent)',
-              color: '#fff',
-            }}
-          >
+          <button type="button" onClick={handleLinkConfirm} className="ie-btn-primary">
             嵌入
           </button>
         )}

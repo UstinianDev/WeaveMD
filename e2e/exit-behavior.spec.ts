@@ -263,6 +263,52 @@ test('空代码块退格 → 一键删除代码块', async ({ page }) => {
   expect(state.paragraphCount).toBeGreaterThan(0);
 });
 
+test('代码块内只剩换行（视觉为空）→ Backspace 删除代码块 / Enter 退出', async ({ page }) => {
+  // SPEC-EDIT-EXIT 3.5 修订：代码块"空内容"含纯空白/换行——删光内容后残留的 "\n"
+  // 不得让代码块变死胡同：Backspace 一键删除，Enter 退出（光标移出）。
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('```java ', { delay: 20 });
+  await page.waitForTimeout(300);
+  const code = page.locator('.code-fence-block span.block-content');
+  await code.click();
+  // 构造 text = "a\n"，再把光标移到起点、Delete 删掉 "a"，留下 "\n"（视觉空行）
+  await page.keyboard.type('a', { delay: 20 });
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Delete');
+  await page.waitForTimeout(100);
+  const leftover = await code.evaluate((el) => (el.textContent ?? '').replace(/​/g, ''));
+  expect(leftover).toBe('\n');
+
+  // 1) Backspace → 一键删除代码块
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(200);
+  await expect(page.locator('.code-fence-block')).toHaveCount(0);
+
+  // 2) 重新建一个换行代码块，Enter → 退出代码块（保留代码块，光标移出）
+  const editable2 = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable2.click();
+  await page.keyboard.type('```java ', { delay: 20 });
+  await page.waitForTimeout(300);
+  const code2 = page.locator('.code-fence-block span.block-content');
+  await code2.click();
+  await page.keyboard.type('a', { delay: 20 });
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Delete');
+  await page.waitForTimeout(100);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(200);
+  await expect(page.locator('.code-fence-block')).toHaveCount(1);
+  const state = await page.evaluate(() => {
+    const active = document.activeElement;
+    return { activeInCode: !!active && !!active.closest('.code-fence-block') };
+  });
+  expect(state.activeInCode).toBe(false);
+});
+
 test('代码块后的空行 Backspace 受保护（删除代码块后才可删）', async ({ page }) => {
   await openEditor(page);
   const editable = page.locator('span.block-content[contenteditable="true"]').first();

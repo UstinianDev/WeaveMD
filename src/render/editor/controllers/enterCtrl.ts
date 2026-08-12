@@ -77,7 +77,8 @@ function handleEnterInCodeBlock(
   block: BlockNodeV2,
   offset: number
 ): EditorActionResult | null {
-  if ((block.text ?? '') === '') {
+  // 空内容（含纯空白/换行，视觉为空）→ 退出代码块（保留代码块）
+  if ((block.text ?? '').trim() === '') {
     return moveCaretOutOfEmptyCodeBlock(instance, block);
   }
   const text = block.text ?? '';
