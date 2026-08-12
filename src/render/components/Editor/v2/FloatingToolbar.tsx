@@ -24,7 +24,7 @@ import {
   type BlockTypeOption,
   type ImageSelection,
 } from './types';
-import { createRafThrottle } from './rafThrottle';
+import { createRafThrottle } from '@render/utils/rafThrottle';
 import InsertUrlModal from './InsertUrlModal';
 import ImageEditTool from './ImageEditTool';
 
