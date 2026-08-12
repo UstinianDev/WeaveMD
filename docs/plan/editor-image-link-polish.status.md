@@ -89,3 +89,36 @@
 
 - 修 drag-selection-markers 5 个已知 RED E2E（独立任务）。
 - 或修复 electron-builder MSI WiX icon 配置（独立任务，非功能）。
+
+---
+
+## 后续缺陷修复：图片选中框三缺陷（/diagnosing-bugs, 2026-08-13）
+
+> 工作流：diagnosing-bugs（红→绿反馈回路 ×3），任务级：Bug 修复（L2，UI 组件内逻辑 + 纯函数）。
+
+### 缺陷与根因（均先测量/断言确认，再修复）
+
+| # | 用户现象 | 根因（反馈回路信号） |
+| --- | --- | --- |
+| B1 | 四个角仅左上角对齐，其余三个偏 | 手柄定位 `off=-4` 下 east/south 用 `right:${-off}`=+4（正→内缩一个手柄宽 ~9.5px），west/north 用 `left:-4`（负→外扩），符号不对称 + 未补偿 1.5px 边框（E2E 实测 NE/SW/SE 偏移 9.5px） |
+| B2 | 快速从小拖大，选中框滞后于图片 | `handleMove` 每帧 `setRect` → React 延迟 flush；图片直改 DOM 先更新。RTL 裸 mousemove 断言 `box.style.width` 仍旧值 = 红 |
+| B3 | 水平拖拽即等比例切换，非斜向实时 | `computeResizeWidth` 只吃 dx、丢弃 dy，仅横向敏感 |
+
+### 修复
+
+1. `ImageResizeBox.tsx`：`off` → `-6` 且 east/south 用负 `right/bottom`（中心精确落角）；
+   `handleMove` 直改 `boxRef` + `img.style.width`（一次 `getBoundingClientRect`），不再 setState。
+2. `resizeMath.ts`：`computeResizeWidth(startWidth, dx, dy, corner, min, max)`，纵向 south+1/north-1，
+   取主轴向增量；非有限输入入口回落 min。
+
+### 测试证据
+
+- 新增/更新：`resizeMath.test.ts`（10 用例，对角主轴向/方向符号/钳制/取整/防御）、
+  `ImageResizeBox.test.tsx`（+同步直改 DOM 断言）、E2E `R1·E7` 四角对齐回归、`R1·E8` 对角拖拽。
+- 全量门禁：`tsc` 0 error；`vitest` 49 files / **821 passed**；`lint` 0 error（8 条存量 warning）；
+  `vite build` ✓；E2E **63 passed / 5 failed**（5 个失败均为存量 drag-selection-markers「当前 RED」，未触碰）。
+- 临时诊断 `e2e/_diag-resize.spec.ts` 已删除（含 console.log，无 DEBUG 残留）。
+
+### 文档
+
+`docs/specs/editor-v2-architecture.md` 13.15.4（手柄角对齐/直改 DOM 拖拽/主轴向算术）与 13.15.5 验证段已同步。

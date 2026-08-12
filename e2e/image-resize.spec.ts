@@ -237,6 +237,86 @@ test('R1·E6: 独立图（image-block）拖拽 → 底层 markdown 获得 style=
   expect(last).toMatch(/<div align="[a-z]+" style="width:\d+px">!\[图片文本\]/);
 });
 
+test('R1·E7: 四个手柄中心贴合图片四角（对齐回归，偏差 ≤1.5px）', async ({ page }) => {
+  test.setTimeout(90000);
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60"><rect width="120" height="60" fill="#ccc"/></svg>';
+  await page.route('https://example.com/**', (route) =>
+    route.fulfill({ contentType: 'image/svg+xml', body: svg })
+  );
+
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('图片文本', { delay: 15 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  await insertImageViaToolbar(page, 'https://example.com/stand.png');
+  await page.waitForTimeout(500);
+
+  const img = page.locator('.image-block img.inline-image');
+  await expect(img).toHaveCount(1);
+  await img.click();
+  await page.waitForTimeout(300);
+  await expect(page.locator('.image-resize-box')).toHaveCount(1);
+
+  const ib = (await img.boundingBox())!;
+  const corners = {
+    nw: { x: ib.x, y: ib.y },
+    ne: { x: ib.x + ib.width, y: ib.y },
+    sw: { x: ib.x, y: ib.y + ib.height },
+    se: { x: ib.x + ib.width, y: ib.y + ib.height },
+  };
+  for (const c of ['nw', 'ne', 'sw', 'se'] as const) {
+    const hb = (await page.locator(`[data-handle="${c}"]`).boundingBox())!;
+    const dx = hb.x + hb.width / 2 - corners[c].x;
+    const dy = hb.y + hb.height / 2 - corners[c].y;
+    expect(Math.abs(dx)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(dy)).toBeLessThanOrEqual(1.5);
+  }
+});
+
+test('R1·E8: 对角拖拽（se 斜下）按纵向主分量实时放大', async ({ page }) => {
+  test.setTimeout(90000);
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60"><rect width="120" height="60" fill="#ccc"/></svg>';
+  await page.route('https://example.com/**', (route) =>
+    route.fulfill({ contentType: 'image/svg+xml', body: svg })
+  );
+
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('图片文本x', { delay: 15 });
+  await page.waitForTimeout(300);
+  await selectTextRange(page, 0, 4);
+  await page.waitForTimeout(300);
+  await insertImageViaToolbar(page, 'https://example.com/a.png');
+  await page.waitForTimeout(500);
+
+  const img = page.locator('img.inline-image');
+  await expect(img).toHaveCount(1);
+  await img.click();
+  await page.waitForTimeout(300);
+
+  const before = Number(await img.evaluate((el) => el.getBoundingClientRect().width));
+  const handleSe = page.locator('[data-handle="se"]');
+  const bb = await handleSe.boundingBox();
+  if (!bb) throw new Error('no se handle bbox');
+  // 对角：右 20 + 下 40（纵向主分量 |dy|=40 → 增宽 40，纯水平只会 +20）
+  await page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(bb.x + bb.width / 2 + 20, bb.y + bb.height / 2 + 40, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+
+  const after = Number(await img.evaluate((el) => el.getBoundingClientRect().width));
+  const diff = Math.round(after - before);
+  // 主轴向 dy=40 → 增宽 40（允许 ±5 环境抖动，且必须 >30 排除纯水平 20）
+  expect(diff).toBeGreaterThan(30);
+  expect(diff).toBeLessThan(50);
+});
+
 test('R4·E5: 光标放入链接内 → 工具栏 left < 链接盒 left（正左方）', async ({ page }) => {
   test.setTimeout(90000);
   await openEditor(page);
