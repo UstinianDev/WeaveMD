@@ -355,12 +355,13 @@ export function removeImage(
   if (block.type === 'image-block') {
     const focus = adjacentLeafFocus(instance.tree, blockId, 'next');
     let tree = removeBlock(instance.tree, blockId);
-    // Bug C（SPEC-EDIT-CBTP）：删除后整树最后叶子变为 code-block 时，须补回受保护空段。
-    // 图片直接接在代码块后（解析产物/工具栏插入的"空段被图替换"）时，adjacentLeafFocus('next')
-    // 无 next 会回退到 prev=code-block 返回非空 focus，原逻辑因此跳过补空 → 代码块成为最后一块
-    // 却无尾随空行。此处镜像 markdownToState.appendTrailingParagraphIfCodeLast 的补偿语义。
+    // Bug C（SPEC-EDIT-CBTP / R2）：删除后整树最后叶子变为 code-block 或 image-block 时，
+    // 须补回受保护空段。图片直接接在代码块/图片块后（解析产物/工具栏插入的"空段被图替换"）时，
+    // adjacentLeafFocus('next') 无 next 会回退到 prev=code-block/image-block 返回非空 focus，
+    // 原逻辑因此跳过补空 → 代码块/图片块成为最后一块却无尾随空行。此处镜像
+    // markdownToState.appendTrailingParagraphIfLast 的补偿语义。
     const lastLeaf = getLastLeaf(tree, tree.root.id);
-    if (lastLeaf && lastLeaf.type === 'code-block') {
+    if (lastLeaf && (lastLeaf.type === 'code-block' || lastLeaf.type === 'image-block')) {
       const p = makeParagraph(tree, '');
       tree = appendChild(tree, tree.root.id, p);
       instance.tree = tree;

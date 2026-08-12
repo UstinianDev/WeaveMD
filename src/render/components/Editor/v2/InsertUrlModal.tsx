@@ -113,7 +113,12 @@ const InsertUrlModal: React.FC<InsertUrlModalProps> = ({
               if (error) setError(null);
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') handleConfirm();
+              if (e.key === 'Enter') {
+                // R5: 阻止编辑层 selectionchange 竞态——否则回车会在恢复选区前把陈旧选区写入状态（丢内容）。
+                e.preventDefault();
+                e.stopPropagation();
+                handleConfirm();
+              }
             }}
           />
           {error && <span className="insert-url-modal-error">{error}</span>}

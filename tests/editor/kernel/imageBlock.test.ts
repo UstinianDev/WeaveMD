@@ -14,6 +14,7 @@ describe('imageBlock — parseImageBlockText（edit-image-align-toolbar K2）', 
       inner: '![123](C:/x.png)',
       innerStart: 0,
       innerEnd: 16,
+      width: null,
     });
   });
 
@@ -23,6 +24,7 @@ describe('imageBlock — parseImageBlockText（edit-image-align-toolbar K2）', 
       inner: '![123](C:/x.png)',
       innerStart: 18,
       innerEnd: 34,
+      width: null,
     });
   });
 
@@ -53,6 +55,7 @@ describe('imageBlock — parseImageBlockText（edit-image-align-toolbar K2）', 
       inner: '![123](C:/x.png)',
       innerStart: 18,
       innerEnd: 34,
+      width: null,
     });
   });
 
@@ -62,6 +65,7 @@ describe('imageBlock — parseImageBlockText（edit-image-align-toolbar K2）', 
       inner: '![123](C:/x.png)',
       innerStart: 20,
       innerEnd: 36,
+      width: null,
     });
   });
 
@@ -76,6 +80,58 @@ describe('imageBlock — parseImageBlockText（edit-image-align-toolbar K2）', 
   it('空串 → null', () => {
     expect(parseImageBlockText('')).toBeNull();
     expect(parseImageBlockText('   ')).toBeNull();
+  });
+});
+
+describe('imageBlock — parseImageBlockText 宽度解析（R1-KERNEL）', () => {
+  it('无 style → width null', () => {
+    expect(parseImageBlockText('<div align="left">![a](C:/x.png)</div>')!.width).toBeNull();
+  });
+
+  it('`style="width:400px"` → width 400（整数 px）', () => {
+    const r = parseImageBlockText('<div align="center" style="width:400px">![a](C:/x.png)</div>')!;
+    expect(r.width).toBe(400);
+    expect(r.align).toBe('center');
+  });
+
+  it('`style="width:400.5px"` → width 400.5（小数容忍，保留原值）', () => {
+    const r = parseImageBlockText('<div align="left" style="width:400.5px">![a](C:/x.png)</div>')!;
+    expect(r.width).toBe(400.5);
+  });
+
+  it('`style="width:300 px"`（空格）→ width 300（容差）', () => {
+    const r = parseImageBlockText('<div align="left" style="width: 300 px">![a](C:/x.png)</div>')!;
+    expect(r.width).toBe(300);
+  });
+
+  it('style 含 width 之外的属性 → width 仍解析（仅取 width）', () => {
+    const r = parseImageBlockText(
+      '<div align="left" style="margin:0;width:200px;color:red">![a](C:/x.png)</div>'
+    )!;
+    expect(r.width).toBe(200);
+  });
+
+  it('style 无 width 声明 → width null', () => {
+    const r = parseImageBlockText('<div align="left" style="color:red">![a](C:/x.png)</div>')!;
+    expect(r.align).toBe('left');
+    expect(r.width).toBeNull();
+  });
+
+  it('style 为空串 → width null', () => {
+    const r = parseImageBlockText('<div align="left" style="">![a](C:/x.png)</div>')!;
+    expect(r.width).toBeNull();
+  });
+
+  it('非法 width（`width:abc` / `width:-1`）→ width null', () => {
+    const a = parseImageBlockText('<div align="left" style="width:abc">![a](C:/x.png)</div>')!;
+    expect(a.width).toBeNull();
+    const b = parseImageBlockText('<div align="left" style="width:-1px">![a](C:/x.png)</div>')!;
+    expect(b.width).toBeNull();
+  });
+
+  it('align 在前 + style 在后均解析（style 可缺失，align width 共存）', () => {
+    const r = parseImageBlockText('<div align="right" style="width:640px">![a](C:/x.png)</div>')!;
+    expect(r).toMatchObject({ align: 'right', width: 640 });
   });
 });
 
@@ -108,6 +164,12 @@ describe('imageBlock — wrapImageAlign / unwrapImageAlign', () => {
   it('已有 wrapper → 仅替换 align 值（left → center）', () => {
     expect(wrapImageAlign('<div align="left">![a](C:/x.png)</div>', 'center')).toBe(
       '<div align="center">![a](C:/x.png)</div>'
+    );
+  });
+
+  it('已带 width 的 wrapper 换向 → 保留 style，仅改 align（R1-KERNEL 保宽）', () => {
+    expect(wrapImageAlign('<div align="left" style="width:400px">![a](C:/x.png)</div>', 'right')).toBe(
+      '<div align="right" style="width:400px">![a](C:/x.png)</div>'
     );
   });
 

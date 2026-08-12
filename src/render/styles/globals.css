@@ -1973,10 +1973,10 @@ a.inline-link {
   position: relative;
 }
 
-/* 链接 hover 提示：显示完整 URL（取自 data-href，即可打开地址）。
-   定位在链接正下方，灰底白字 tooltip，不拦截鼠标事件。 */
+/* 链接 hover 提示：显示「ctrl + 左键  打开网页」操作提示（R3）。
+   深蓝加粗斜体，控制字号与字符间距；定位在链接正下方，不拦截鼠标事件。 */
 a.inline-link:hover::after {
-  content: attr(data-href);
+  content: 'ctrl + 左键  打开网页';
   position: absolute;
   top: 100%;
   left: 0;
@@ -1985,10 +1985,11 @@ a.inline-link:hover::after {
   border: 1px solid var(--border-color);
   border-radius: 6px;
   box-shadow: var(--shadow-modal);
-  color: var(--text-primary);
+  color: #1d4ed8;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 700;
   font-style: italic;
+  letter-spacing: 0.5px;
   line-height: 1.4;
   padding: 4px 8px;
   white-space: nowrap;
@@ -2395,4 +2396,46 @@ span.comment-marker {
 
 .insert-url-modal-btn--primary:hover {
   background: var(--accent-hover);
+}
+
+/* ============================================ */
+/* R1：图片选中框 + 四角缩放手柄（globals.css 追加段，勿改既有规则） */
+/* ============================================ */
+
+/* 选中框外层：fixed 定位由 ImageResizeBox 内联，本段管视觉。pointer-events:none
+   使外轮廓不拦截文字选中 / 图片工具栏点击（G6）；仅手柄 auto 可交互。 */
+.image-resize-box {
+  pointer-events: none;
+  border: 1.5px solid var(--accent);
+  border-radius: 2px;
+  box-sizing: border-box;
+}
+
+/* 四角手柄：绝对定位（left/right/top/bottom 由 ImageResizeBox 计算），拖拽热区。 */
+.image-resize-handle {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  background: #ffffff;
+  border: 1.5px solid var(--accent);
+  border-radius: 2px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  box-sizing: border-box;
+  pointer-events: auto;
+  cursor: nwse-resize;
+}
+
+/* 对角光标区分：横向角（e/ne）用 ew-resize，避免手柄旁出现错误光标（交互细节）；
+   简化为统一 col-resize 亦可，此处对角分开更贴近直觉。 */
+.image-resize-handle[data-handle='nw'] {
+  cursor: nwse-resize;
+}
+.image-resize-handle[data-handle='se'] {
+  cursor: nwse-resize;
+}
+.image-resize-handle[data-handle='ne'] {
+  cursor: nesw-resize;
+}
+.image-resize-handle[data-handle='sw'] {
+  cursor: nesw-resize;
 }

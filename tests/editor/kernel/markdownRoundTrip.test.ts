@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { markdownToState } from '@render/editor/kernel/markdownToState';
 import { stateToMarkdown } from '@render/editor/kernel/stateToMarkdown';
 import { getAllBlocksInOrder } from '@render/editor/kernel/blockTree';
+import { wrapImageAlign } from '@render/editor/kernel/imageBlock';
 import { EditorInstance } from '@render/editor/editorInstance';
 import { removeImage } from '@render/editor/controllers/formatCtrl';
 
@@ -176,6 +177,31 @@ describe('markdown round-trip — 代码块与表格', () => {
   });
 });
 
+describe('markdown round-trip — 尾部图片块（R2 受保护空行）', () => {
+  it('独立图收尾：解析期补偿空段，序列化剥离，往返不变式成立', () => {
+    const md = '![alt](C:/x/a.png)';
+    expectRoundTrip(md);
+    // 解析产物含补偿空段（末两块 image-block + 空 paragraph）
+    const tree = markdownToState(md);
+    const children = tree.root.childrenIds.map((id) => tree.blocks[id]);
+    expect(children.map((b) => b.type)).toEqual(['image-block', 'paragraph']);
+    expect(children[1].text).toBe('');
+  });
+
+  it('`<div align>` 包裹图收尾往返不变', () => {
+    expectRoundTrip('<div align="center">![alt](C:/x/a.png)</div>');
+  });
+
+  it('图 + 尾随文本段往返不变（不误补偿、不丢文本）', () => {
+    expectRoundTrip('![alt](C:/x/a.png)\n\nafter');
+  });
+
+  it('图收尾 + 撤销/重载不等价残留检查：补偿空段不产生尾随空白输出', () => {
+    const tree = markdownToState('![alt](C:/x/a.png)');
+    expect(stateToMarkdown(tree)).toBe('![alt](C:/x/a.png)');
+  });
+});
+
 describe('markdown round-trip — 组合与边界', () => {
   it('综合文档', () => {
     expectRoundTrip(
@@ -263,6 +289,22 @@ describe('markdown round-trip — 组合与边界', () => {
   it('RT10 center / right 包裹单图往返原文不变（K2）', () => {
     expectRoundTrip('<div align="center">![a](https://x.com/a.png)</div>');
     expectRoundTrip('<div align="right">![a](https://x.com/a.png)</div>');
+  });
+
+  it('RT10b 带 style width 的 `<div align>` 包裹图往返原文不变（R1-KERNEL：width 存于 text 自动往返）', () => {
+    expectRoundTrip('<div align="left" style="width:400px">![a](C:/x.png)</div>');
+    expectRoundTrip('<div align="center" style="width:640.5px">![a](C:/x.png)</div>');
+  });
+
+  it('RT10c wrapImageAlign 换向后保宽 + 序列化往返不变（R1-KERNEL）', () => {
+    const markdown = '<div align="left" style="width:400px">![a](C:/x.png)</div>';
+    const tree = markdownToState(markdown);
+    const img = Object.values(tree.blocks).find((b) => b.type === 'image-block')!;
+    // 换向（left → center）后 wrapper 同时保留 style width
+    const realigned = wrapImageAlign(img.text!, 'center');
+    expect(realigned).toBe('<div align="center" style="width:400px">![a](C:/x.png)</div>');
+    const tree2 = markdownToState(realigned!);
+    expect(stateToMarkdown(tree2)).toBe(realigned);
   });
 
   it('RT11 非规范 div（wrapper 内含多余文本）→ 仍 paragraph 且往返原文不变（K2）', () => {

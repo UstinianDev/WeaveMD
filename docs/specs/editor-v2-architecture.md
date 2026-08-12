@@ -955,3 +955,57 @@ Playwright Chromium E2E 23/23；`tsc --noEmit`、ESLint（0 error，0 warning）
 **验证**：`vitest run` 392 例（新增 inlineLexer/katex/inlineStrip/formatCtrl toggle+
 clearFormat/ft2Css/EditorV2Format 等）、Playwright E2E 38/38（含 FT2 新增 8 例）、
 `tsc --noEmit`、ESLint（0 error）、`vite build` 全部通过。
+
+### 13.15 图片选中框 + 四角缩放 + 宽度模型（SPEC-EDIT-IMG-W, 2026-08-12）
+
+图片块（image-block）新增**宽度维度**与**可视化缩放交互**，点击图片显示四角缩放手柄，
+拖拽实时缩放并提交（独立图持久化到块文本；行内图写会话运行时 map）。不改变
+`stateToMarkdown` 序列化（往返不变量保持）。
+
+#### 13.15.1 文本层宽度模型（`kernel/imageBlock.ts`）
+
+`parseImageBlockText` 的返回结构新增 `width` 字段，解析独立图文本中可选的
+`style="width:Npx"`（对齐包裹 `<div align="X" style="width:Npx">`）。配套纯函数：
+
+- `wrapImageWidth(text, width|null)`：写入/清除宽度。width 已存在 wrapper → 更新 open tag
+  的 style 段内 `width` 值（保留其余属性）；裸图 → 产出 `<div align="left" style="width:Npx">`；
+  width null → 剥 style 回到裸 align wrapper（保留 align）。非独立图 / 非法值 → null。
+- `wrapImageAlign` 保留 style width（换向不丢 width）。
+- **往返不变量**：宽度写进 `block.text` 后经 `stateToMarkdown` 逐字序列化，重载后
+  `markdownToState` 重新解析出同一 `width`（`<div align>` 包裹兼容宽度属性）。
+
+#### 13.15.2 独立图宽度提交（`controllers/imageWidthCtrl.ts setImageWidth`）
+
+独立成块图片的宽度持久化到文本：`wrapImageWidth` 重写 `block.text`，段落独立图自动转
+image-block，focus 于文本末尾。经 `stateToMarkdown` 同步到磁盘内容。
+
+#### 13.15.3 行内图运行时宽度（会话 map + `applyRuntimeWidths`）
+
+行内（非独立）图片无 `block.text` 内嵌宽度位，改为**会话级运行时 map**
+（`BlockWidthMap`：`blockId → { [data-start]:[data-end] → px }`）注入渲染：
+
+- `kernel/inlineRenderer.ts` 新增 `applyRuntimeWidths(html, widthMap)`：按 `data-start/data-end`
+  命中 map 的 `<img>` 追加 `style="width:Npx"`（img 已带 style 则合并覆盖 width）。
+- EditorV2 持有 `blockWidthMap`（仅会话生效，重载/重建块自然清理，无泄漏）；
+  点击选中读 `mapWidth ?? parsed?.width` 作为缩放起点。
+
+#### 13.15.4 选中框与缩放手柄（`components/Editor/v2/ImageResizeBox.tsx` + `resizeMath.ts`）
+
+- 点击独立图或行内图 → 显示 `.image-resize-box`（fixed 覆盖层，`z-[90]` 低于工具栏
+  `z-[100]`，`pointer-events:none`，1.5px accent 外轮廓）+ 4 个角手柄
+  （`.image-resize-handle`，`data-handle=nw/ne/sw/se`，`pointer-events:auto`，cursor 对角）。
+- **拖拽生命周期**（`ImageResizeBox`）：mousedown 手柄记录起始宽与角 → document mousemove
+  实时改 `<img style.width>`（**仅改 DOM，不触发 React 重渲染**，height auto 保宽高比）→
+  mouseup 提交。宽度钳制 `[32px, 容器内容宽]`（`resizeMath.computeResizeWidth`，纯函数
+  横向敏感：east+1 / west-1），滚动/提交后重查 img rect 重锚定（对齐 ImageToolbar Bug-B 模式）。
+- **提交分流**：standalone → `onResizeStandalone`（`setImageWidth` 持久化文本）；
+  inline → `onResizeInline`（写会话 map 触发重渲染注入）。
+
+#### 13.15.5 工具栏捕获守卫
+
+`FloatingToolbar` 的 document capture mousedown 对 `.image-resize-box` 目标直接放行
+（`handleMouseDown` 首段返回），缩放手柄拖拽不被工具栏"点击外部关闭"逻辑中断。
+
+**验证**：新增 `ImageResizeBox` 组件测试 + `resizeMath` 纯函数单测（钳制/角方向/取整）+
+`imageBlock` width 解析/包裹 round-trip 用例 + EditorV2 缩放接线；全量 `vitest run`、
+Playwright E2E（含真实 Chromium 图片缩放）门禁通过。

@@ -8,10 +8,10 @@
 // 对"规范输入"（块间用空行分隔、列表项内容缩进、标题无 closing #）严格成立；
 // 对非规范输入输出语义等价的规范化形式（如块间补空行、剥离标题 closing #）。
 //
-// 归一化补偿（SPEC-EDIT-CBTP）：返回树之前，若整树文档序最后一个叶子块为
-// code-block，在其同父容器末尾追加一个空 paragraph。代码块后的保护空行在
-// 序列化往返中丢失（空段落 → 尾部空白被剥离；解析时空行仅作块分隔符），
-// 故在解析期补偿，文本输出不变。见 docs/specs/code-block-trailing-paragraph.md。
+// 归一化补偿（SPEC-EDIT-CBTP / R2）：返回树之前，若整树文档序最后一个叶子块为
+// code-block 或 image-block，在其同父容器末尾追加一个空 paragraph。代码块/图片块
+// 后的保护空行在序列化往返中丢失（空段落 → 尾部空白被剥离；解析时空行仅作块分隔符），
+// 故在解析期补偿，文本输出不变。见 docs/specs/code-block-trailing-paragraph.md（图片扩展见 R2）。
 //
 // 实现说明：解析阶段使用内部可变 Builder 构建树（一次性构建，非编辑操作），
 // 完成后转换为不可变 BlockTreeV2。
@@ -180,19 +180,20 @@ function sameListFamily(info: ListItemInfo, listType: 'bullet-list' | 'ordered-l
 }
 
 // ============================================
-// 尾部代码块补偿（SPEC-EDIT-CBTP）
+// 尾部代码块/图片块补偿（SPEC-EDIT-CBTP / R2）
 // ============================================
-// 重载应用后代码块后的保护空行消失：空段落经 stateToMarkdown 序列化为尾部空白
+// 重载应用后代码块/图片块后的保护空行消失：空段落经 stateToMarkdown 序列化为尾部空白
 // 并被剥离，parseBlocks 对空行直接跳过（仅作块分隔符）。故在解析期规范化补偿，
 // 与编辑期 convertCtrl.ensureTrailingParagraph（无后续叶子才插入）互为镜像，
-// 保证"新建 → 保存 → 重载"两态收敛。见 docs/specs/code-block-trailing-paragraph.md。
+// 保证"新建 → 保存 → 重载"两态收敛。见 docs/specs/code-block-trailing-paragraph.md
+// （图片扩展见 docs/requirements/editor-image-link-polish.req.md R2）。
 
-/** 解析完成后：整树文档序最后叶子为 code-block 时，在其同父容器末尾追加空 paragraph */
-function appendTrailingParagraphIfCodeLast(builder: Builder): void {
+/** 解析完成后：整树文档序最后叶子为 code-block 或 image-block 时，在其同父容器末尾追加空 paragraph */
+function appendTrailingParagraphIfLast(builder: Builder): void {
   // toTree 与 Builder 共享同一批节点对象，补偿 attach 仍然生效
   const tree = builder.toTree();
   const lastLeaf = getLastLeaf(tree, tree.root.id);
-  if (!lastLeaf || lastLeaf.type !== 'code-block') return;
+  if (!lastLeaf || (lastLeaf.type !== 'code-block' && lastLeaf.type !== 'image-block')) return;
   const parent = lastLeaf.parentId ? tree.blocks[lastLeaf.parentId] : null;
   if (!parent) return;
   // 同父容器语义：根级代码块挂到 document 根；引用内代码块挂到 blockquote 容器内
@@ -208,8 +209,8 @@ export function markdownToState(markdown: string): BlockTreeV2 {
   const builder = new Builder();
   const lines = markdown.split('\n');
   parseBlocks(builder, builder.root, lines, 0);
-  // SPEC-EDIT-CBTP：返回树之前执行尾部代码块保护空行补偿（解析期规范化）
-  appendTrailingParagraphIfCodeLast(builder);
+  // SPEC-EDIT-CBTP / R2：返回树之前执行尾部代码块/图片块保护空行补偿（解析期规范化）
+  appendTrailingParagraphIfLast(builder);
   return builder.toTree();
 }
 

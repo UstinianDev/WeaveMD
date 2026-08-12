@@ -4,6 +4,7 @@
 
 export * from './blockTree';
 export {
+  applyRuntimeWidths,
   escapeHtml,
   renderBlockHtml,
   renderInline,

@@ -423,3 +423,34 @@ mark {
 - 列表间互转（bullet→task 等）与 heading→列表/引用/代码块转换：下拉置灰，列为后续任务。
 - KaTeX 体积与首屏：仅含 `$` 的块触发 `renderToString`；动态拆包列为后续优化。
 - display math（`$$...$$` 块级）与图片粘贴上传在本次范围外。
+
+### 9.6 链接场景工具栏左置（R4）+ 插入链接回车修复（R5）（2026-08-12）
+
+#### 9.6.1 R4：链接命中时工具栏定位到链接正左方
+
+当选区（含折叠光标）命中链接 token（`selection.inLink`）时，工具栏不再「上方居中」，
+而是定位到**目标链接内容盒正左方**（贴近 8px，垂直居中于链接盒），避免遮挡待编辑的链接文本。
+
+- **纯函数参数**：`toolbarState.computeToolbarState` 新增可选第 6 参 `linkRect`（`{top,left,width,height}`）。
+  选定 `useLinkRect = inLink && linkRect !== null` 时，`left` 按
+  `clamp(linkRect.left - toolbarWidth - 8, …)`、`top` 按
+  `clamp(linkRect.top + height/2 - toolbarHeight/2, …)` 计算（viewport 内钳制）。
+  `inLink` 为假或缺省 `linkRect` 沿用原「上方居中」算法（非链接场景零回归）。
+- **DOM 查询**：FloatingToolbar `flushSelection` 经 `getLinkRect(sel, container)` 从选区
+  startContainer 上溯 `closest('a.inline-link')` 取 `getBoundingClientRect()`；找不到（非链接/
+  不在编辑器内）→ null。折叠光标命中链接与覆盖链接文本的选区统一走该路径。
+- **滚动重锚定（仅链接命中）**：`linkSelectedRef` 标记当前显式工具栏为链接命中；滚动时
+  仅链接命中场景重查链接 rect 并 `recompute`（不隐藏，工具栏跟随链接），非链接场景沿用
+  既有「滚动隐藏」规则。
+- 两种链接工具栏形态均左置：解链-only（折叠光标在链接内）+ 完整工具栏 +「移除链接」。
+
+#### 9.6.2 R5：InsertUrlModal 输入框回车直接确认
+
+`InsertUrlModal` 输入框 `onKeyDown` 对 Enter 改为
+`e.preventDefault(); e.stopPropagation(); handleConfirm();`。
+
+**根因**：此前 Enter 走默认行为，输入框失焦触发浏览器的 `selectionchange`，可能在编辑器
+恢复选区前把陈旧选区（回车提交前）写入 `FloatingToolbar` 状态（`latestSelectionRef`），
+导致按下回车而未点「确定」时，已选中的待包裹文本被旧选区覆盖而**丢失**。阻断事件冒泡后，
+`handleConfirm` 直接以最新选区调用 `onFormat`，修复该竞态。空 URL 分支不变
+（`handleConfirm` 内部仍对空值提示"URL 不能为空"）。

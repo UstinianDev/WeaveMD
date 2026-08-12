@@ -55,7 +55,8 @@ function mergeParagraph(instance: EditorInstance, block: BlockNodeV2): EditorAct
   if (prevLeaf && prevLeaf.text !== null) {
     // 前块是代码块：段落受 Backspace 保护（不合并、不删除）——
     // 代码块后的空行是退出/分隔行，只有先删除代码块本身，该空行才恢复为普通段落
-    if (prevLeaf.type === 'code-block') {
+    // 图片块同受保护（R2）：独立图后的段落（空或非空）不会被退格合并进图片块
+    if (prevLeaf.type === 'code-block' || prevLeaf.type === 'image-block') {
       return null;
     }
     // 合并到前一个内容块（跨容器也合并：列表项内容 / 引用内容，实现"退格跳回上一行"）

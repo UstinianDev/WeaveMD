@@ -1,10 +1,11 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 版本：v2.6 | 最后更新：2026-08-12
+> 模块编号：04 | 优先级：P0 | 版本：v2.7 | 最后更新：2026-08-12
 > 设计规范：[specs/editor-v2-architecture.md](../specs/editor-v2-architecture.md)
 > 退出规则：[specs/markdown-block-exit-rules.md](../specs/markdown-block-exit-rules.md)
 > 浮动工具栏/跨块拖选：[specs/floating-toolbar-refactor.md](../specs/floating-toolbar-refactor.md)
 > 拖选闪烁优化：[specs/drag-selection-flicker.md](../specs/drag-selection-flicker.md)
+> 代码块/图片块尾随空行：[specs/code-block-trailing-paragraph.md](../specs/code-block-trailing-paragraph.md)
 > 参考实现：marktext/muya（架构照搬）
 
 ---
@@ -68,9 +69,10 @@ BlockNodeV2 = {
 - `markdownToState(M)`：块级解析（围栏/表格/ATX/Setext/引用递归/列表嵌套/分割线/段落兜底）。
 - `stateToMarkdown(tree)`：逐行序列化（列表标记归一化 `-`、围栏自动加长、Setext 保留）。
 - **规范化往返不变量**：`stateToMarkdown(markdownToState(M)) === M`（规范输入）。
-- **尾部代码块补偿**（SPEC-EDIT-CBTP）：解析期若整树最后叶子为 code-block，自动在其
-  同父容器末尾补空 paragraph（与编辑期 `ensureTrailingParagraph` 镜像），代码块后的
-  保护空行在重载/模式切换后不丢失；文本输出不变。
+- **尾部代码块/图片块补偿**（SPEC-EDIT-CBTP，R2 扩展到 image-block）：解析期若整树最后
+  叶子为 code-block **或 image-block**，自动在其同父容器末尾补空 paragraph（与编辑期
+  `ensureTrailingParagraph` 镜像），代码块/图片块后的保护空行在重载/模式切换后不丢失；
+  文本输出不变（`markdownToState.appendTrailingParagraphIfLast`）。
 - 行内渲染：`inlineRenderer` 保留语法标记（`<span class="md-syntax">`），DOM
   `textContent` 与源文本一致——编辑/序列化不丢标记。
 - 语法类型解析：`kernel/syntaxType.ts` 提供 `resolveSyntaxType(tree, blockId)`（纯函数）——
@@ -101,6 +103,8 @@ BlockNodeV2 = {
 | clickCtrl | 任务复选框切换 |
 | listCtrl | Tab 缩进为前项子列表、Shift+Tab 凸出 |
 | formatCtrl | 文本层格式化（bold/italic/strike/highlight/code/link/underline/math/image），取代 execCommand；`formatRange` toggle（Step 0 选区归一化 + 双形态，含部分标记覆盖 → 解除、跨多 token 逐 token 拆分、跨风格三连 `***` 叠加，SPEC-EDIT-FT3）、`clearFormat` 橡皮擦清除选区全部行内标记，image/link 插入 `[label](url)` / `![alt](url)`（SPEC-EDIT-FT2）；**图片操作（K3~K7）**：`insertImageFromSelection` 直选插入（独立成块转 image-block、行内插入）、`alignImage`/`makeImageInline` 对齐包裹/解除（`<div align>`）、`removeImage`（image-block 整块删 / 行内图删区间）、`replaceImage`（修改图片按 token 区间替换，保留包裹） |
+| imageBlock | `kernel/imageBlock.ts`：image-block 独立图文本解析（align/width）+ 对齐包裹/宽度包裹（`parseImageBlockText` / `wrapImageAlign` / `wrapImageWidth`）/内联判定 |
+| imageWidthCtrl | `controllers/imageWidthCtrl.ts`：`setImageWidth` 独立图宽度写入（`wrapImageWidth` 重写 `block.text`，段落独立图转 image-block，round-trip 逐字保留） |
 | inlineLexer | `kernel/inlineLexer.ts`：行内 token 结构化识别（strong/em/underline/strike/mark/code/link/image/autolink/escape/math），`inlineRenderer` 消费它渲染富文本；`isBoundedWrap` 共享 activeTest 与 toggle-off 边界 |
 | katex | `kernel/katex.ts`：`renderMath(expr)` → `.math-inline` + `.katex` HTML，失败回退字面量 |
 
@@ -152,6 +156,16 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
   **CBTP 补偿**（Bug C，2026-08-12）：删除后整树最后叶子变为 code-block 时，按 SPEC-EDIT-CBTP 补回受保护
   空段（镜像 `appendTrailingParagraphIfCodeLast`）——修复"代码块后直接 image-block（解析产物/空段被图替换）
   移除图片后保护空行丢失"。
+
+### 7.3 图片缩放 / 图片后空行保护 / 链接提示与工具栏定位（2026-08-12，R1~R5）
+
+| # | 特性 | 实现要点 |
+| - | ---- | -------- |
+| R1 | 图片选中框 + 四角缩放 | 点击独立图或行内图显示 `.image-resize-box`（fixed 覆盖层 z-90 + 4 角 `.image-resize-handle`）；拖拽实时改 `<img style.width>`（DOM-only，height auto），钳制 `[32px, 容器宽]`；mouseup 提交——独立图经 `setImageWidth` 重写 `block.text` 为 `<div align="X" style="width:Npx">`（`parseImageBlockText` 解析 width 字段、`wrapImageWidth/wrapImageAlign` 保留 align），行内图写会话 `BlockWidthMap`（`inlineRenderer.applyRuntimeWidths` 注入）。新文件：`kernel/imageBlock.ts`（width 解析）、`controllers/imageWidthCtrl.ts`、`components/Editor/v2/ImageResizeBox.tsx` + `resizeMath.ts`；`FloatingToolbar` capture mousedown 放行 `.image-resize-box` |
+| R2 | 图片后空行受保护 | 泛化 SPEC-EDIT-CBTP 到 image-block：`backspaceCtrl.mergeParagraph` 前块为 image-block 同样保护；`markdownToState.appendTrailingParagraphIfCodeLast` → `appendTrailingParagraphIfLast`（最后叶子 code-block 或 image-block 补空段）；`formatCtrl.removeImage` 删除后同补。代码块行为不变 |
+| R3 | 链接 hover 提示 | `a.inline-link:hover::after` 内容改为 `'ctrl + 左键  打开网页'`（深蓝 `#1d4ed8`、加粗斜体、12px、letter-spacing 0.5px）；`data-href` 仍渲染 |
+| R4 | 链接场景工具栏左置 | `toolbarState.computeToolbarState` 新增可选 `linkRect` 6 参：`selection.inLink` 且提供 linkRect 时工具栏定位到链接正左方（`left = clamp(linkRect.left - w - 8)`、垂直居中），非链接沿用上方居中；滚动时链接命中重锚定（非链接仍滚动隐藏） |
+| R5 | 插入链接回车修复 | `InsertUrlModal` 输入 Enter → `preventDefault + stopPropagation + handleConfirm`，修复 selectionchange 竞态丢失选中内容；空 URL 分支不变 |
 
 ## 8. 已知限制
 

@@ -191,3 +191,35 @@ export function toDisplayHtml(inlineHtml: string | null, text: string): string {
   const html = inlineHtml ?? escapeHtml(text);
   return html === '' ? '\u200B' : html;
 }
+
+/**
+ * \u884C\u5185\u56FE\u4F1A\u8BDD\u5BBD\u5EA6\u6CE8\u5165\uFF08R1-KERNEL\uFF09\uFF1A\u5BF9 html \u4E2D `class="inline-image"` \u4E14\u5176
+ * `data-start` / `data-end`\uFF08key \u683C\u5F0F `${data-start}:${data-end}`\uFF0C\u4E0E UI \u5C42 widthMap \u517C\u5BB9\u2014\u2014
+ * UI \u5C42 map \u4EE5 `blockId:start-end` \u4E3A\u952E\uFF0C\u4EA4\u7ED9\u672C\u51FD\u6570\u65F6\u987B\u6309\u5404 img \u7684 start-end \u5206\u952E\uFF09\u547D\u4E2D widthMap
+ * \u7684 `<img>` \u6CE8\u5165 `style="width:Npx"`\uFF08\u6574\u6570 px\uFF0CMath.round\uFF1Bimg \u5DF2\u5E26 style \u5219\u5408\u5E76\u8986\u76D6 width\uFF0C\u4E0D\u91CD\u590D style\uFF09\u3002
+ * \u4EC5\u89E6\u78B0 `class="inline-image"` \u7684 img \u5143\u7D20\uFF1B\u672A\u547D\u4E2D / \u975E\u8BE5 class \u7684 img \u4FDD\u6301\u539F\u6837\u3002\u7EAF\u51FD\u6570\uFF0C\u65E0 DOM\u3002
+ */
+export function applyRuntimeWidths(html: string, widthMap: Record<string, number>): string {
+  if (html === '') return html;
+  return html.replace(/<img\s+class="inline-image"([\s\S]*?)>/gi, (whole, attrs: string) => {
+    const start = /data-start="(\d+)"/.exec(attrs)?.[1];
+    const end = /data-end="(\d+)"/.exec(attrs)?.[1];
+    if (start === undefined || end === undefined) return whole;
+    const width = widthMap[`${start}:${end}`];
+    if (typeof width !== 'number' || !Number.isFinite(width) || width <= 0) return whole;
+    const n = Math.round(width);
+    const style = /style="([^"]*)"/.exec(attrs)?.[1];
+    if (style === undefined) {
+      // 无 style 属性 → 在 img tag 末尾（`>` 前）附加
+      return whole.replace(/>$/, ` style="width:${n}px">`);
+    }
+    return whole.replace(/style="[^"]*"/, `style="${setWidthInInlineStyle(style, n)}"`);
+  });
+}
+
+/** \u5728\u884C\u5185 style \u4E32\u8986\u76D6 width\uFF08\u66FF\u6362 width \u503C\uFF0C\u4FDD\u7559\u5176\u4F59\u5C5E\u6027\uFF09\uFF1B\u65E0 width \u58F0\u660E\u5219\u8FFD\u52A0\u5728\u672B\u5C3E */
+function setWidthInInlineStyle(style: string, n: number): string {
+  const body = style.replace(/width\s*:\s*[\d.]+(px)?/i, `width:${n}px`);
+  if (body !== style || /width\s*:/i.test(style)) return body;
+  return (style.endsWith(';') ? style : style + ';') + `width:${n}px`;
+}

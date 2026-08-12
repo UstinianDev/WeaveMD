@@ -7,16 +7,18 @@ import React from 'react';
 
 import type { BlockNodeV2, BlockTreeV2 } from '@render/editor/kernel';
 import BlockRenderer from '@render/components/Editor/v2/BlockRenderer';
-import type { BlockHandlers } from '@render/components/Editor/v2/types';
+import type { BlockHandlers, InlineWidthMap } from '@render/components/Editor/v2/types';
 
 interface ListItemBlockProps {
   block: BlockNodeV2;
   tree: BlockTreeV2;
   handlers: BlockHandlers;
+  /** R1：块→行内图宽度 map */
+  blockWidthMap?: InlineWidthMap;
   index: number;
 }
 
-const ListItemBlock: React.FC<ListItemBlockProps> = ({ block, tree, handlers, index }) => {
+const ListItemBlock: React.FC<ListItemBlockProps> = ({ block, tree, handlers, blockWidthMap, index }) => {
   const parent = block.parentId ? tree.blocks[block.parentId] : undefined;
   const isOrdered = parent?.type === 'ordered-list';
   const isTask = block.meta?.taskChecked !== undefined;
@@ -52,7 +54,7 @@ const ListItemBlock: React.FC<ListItemBlockProps> = ({ block, tree, handlers, in
       </span>
       <div className="flex-1 min-w-0">
         {block.childrenIds.map((childId) => (
-          <BlockRenderer key={childId} blockId={childId} tree={tree} handlers={handlers} />
+          <BlockRenderer key={childId} blockId={childId} tree={tree} handlers={handlers} blockWidthMap={blockWidthMap} />
         ))}
       </div>
     </div>

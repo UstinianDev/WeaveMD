@@ -77,13 +77,23 @@ export function selectionSyntaxTypesConsistent(
   return types !== null && types.length > 0;
 }
 
+/** 链接命中时工具栏定位参考：目标链接内容盒（getBoundingClientRect()） */
+export interface LinkRect {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
 /** 由当前选区计算工具栏状态（纯函数，供事件回调装配） */
 export function computeToolbarState(
   sel: Selection | null,
   container: HTMLElement,
   toolbarWidth: number,
   toolbarHeight: number,
-  tree: BlockTreeV2
+  tree: BlockTreeV2,
+  /** 链接命中时目标链接盒；null（缺省）→ 沿用现有上方居中定位 */
+  linkRect: LinkRect | null = null
 ): ToolbarState {
   if (!sel || sel.rangeCount === 0) return { kind: 'hide' };
   const range = sel.getRangeAt(0);
@@ -112,12 +122,15 @@ export function computeToolbarState(
     if (rect.width === 0 && rect.height === 0) return { kind: 'delay-hide' };
   }
   const rect = range.getBoundingClientRect();
-  const left = clamp(
-    rect.left + rect.width / 2 - toolbarWidth / 2,
-    8,
-    window.innerWidth - toolbarWidth - 8
-  );
-  const top = clamp(rect.top - toolbarHeight - 8, 8, window.innerHeight - toolbarHeight - 8);
+  // SPEC-EDIT-FT R4：选区命中链接 → 工具栏定位到链接内容正左方（贴近 8px，垂直居中于链接盒）；
+  // 非链接场景保持既有"上方居中"（G3 不回归）。纯函数内完成，clamp 到视口边界。
+  const useLinkRect = inLink && linkRect !== null;
+  const left = useLinkRect
+    ? clamp(linkRect.left - toolbarWidth - 8, 8, window.innerWidth - toolbarWidth - 8)
+    : clamp(rect.left + rect.width / 2 - toolbarWidth / 2, 8, window.innerWidth - toolbarWidth - 8);
+  const top = useLinkRect
+    ? clamp(linkRect.top + linkRect.height / 2 - toolbarHeight / 2, 8, window.innerHeight - toolbarHeight - 8)
+    : clamp(rect.top - toolbarHeight - 8, 8, window.innerHeight - toolbarHeight - 8);
   return {
     kind: 'show',
     selection: {

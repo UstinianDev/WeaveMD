@@ -1254,3 +1254,241 @@ describe('FloatingToolbar — K6 图片直选插入', () => {
   });
 });
 
+// =============================================================
+// SPEC-EDIT-FT R4：链接场景工具栏定位到链接正左方
+// 选区命中链接（inLink）→ FloatingToolbar 取 `a.inline-link` 元素 rect →
+// computeToolbarState 定位到链接正左方（left < linkRect.left，贴近 8px）
+// =============================================================
+describe('FloatingToolbar — R4 链接场景定位（链接正左方）', () => {
+  beforeAll(() => {
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(performance.now());
+      return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  });
+  afterAll(() => {
+    vi.unstubAllGlobals();
+  });
+  afterEach(() => {
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  async function fireSelectionChange(): Promise<void> {
+    await act(async () => {
+      document.dispatchEvent(new Event('selectionchange'));
+    });
+  }
+
+  /** 构造含真实 `<a class="inline-link">` 的编辑器容器；链接盒 left 由 linkRight 决定 */
+  function setupLink(text = '[hello](https://x.io)', linkLeft = 500): {
+    tree: BlockTreeV2;
+    container: HTMLDivElement;
+    link: HTMLAnchorElement;
+    span: HTMLSpanElement;
+  } {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, text);
+    tree = appendChild(tree, tree.root.id, p);
+    const container = document.createElement('div');
+    container.id = 'editor-container';
+    const span = document.createElement('span');
+    span.className = 'block-content';
+    span.dataset.blockId = p.id;
+    const link = document.createElement('a');
+    link.className = 'inline-link';
+    link.href = 'https://x.io';
+    link.textContent = 'hello';
+    span.appendChild(link);
+    container.appendChild(span);
+    document.body.appendChild(container);
+    // 可见链接盒：宽 80 高 20；top=200 保证垂直居中不越视口边界
+    const rect = { left: linkLeft, top: 200, width: 80, height: 20, right: linkLeft + 80, bottom: 220 } as DOMRect;
+    vi.spyOn(link, 'getBoundingClientRect').mockReturnValue(rect);
+    return { tree, container, link, span };
+  }
+
+  /** 在 `<a>` 内容文本节点上构造覆盖整段的非折叠选区（inLink=true） */
+  function mockLinkSelection(link: HTMLAnchorElement): void {
+    const textNode = link.firstChild as Node;
+    const range = document.createRange();
+    range.setStart(textNode, 0);
+    range.setEnd(textNode, link.textContent?.length ?? 0);
+    // 非折叠选区 → 需真实选区 rect（非零）；link rect 由 a.getBoundingClientRect 提供
+    Object.defineProperty(range, 'getBoundingClientRect', {
+      value: () =>
+        ({ left: 500, top: 200, width: 80, height: 20, right: 580, bottom: 220 }) as DOMRect,
+    });
+    const sel = {
+      rangeCount: 1,
+      isCollapsed: false,
+      anchorNode: textNode,
+      focusNode: textNode,
+      getRangeAt: () => range,
+    } as unknown as Selection;
+    vi.spyOn(window, 'getSelection').mockReturnValue(sel);
+  }
+
+  it('R4-1: 选区覆盖链接文本 → 工具栏位于链接正左方（left < linkRect.left）', async () => {
+    const f = setupLink('[hello](https://x.io)', 500);
+    mockLinkSelection(f.link);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const onUnlink = vi.fn();
+    const { container } = render(
+      <FloatingToolbar
+        editorContainerRef={{ current: f.container } as React.RefObject<HTMLDivElement>}
+        tree={f.tree}
+        onFormat={onFormat}
+        onConvertBlock={onConvertBlock}
+        onClearFormat={onClearFormat}
+        onUnlink={onUnlink}
+      />
+    );
+    await fireSelectionChange();
+
+    const toolbar = container.querySelector('.floating-toolbar-v2') as HTMLDivElement;
+    expect(toolbar).not.toBeNull();
+    // R4：工具栏描点在链接左侧（jsdom offsetWidth=0 → 宽度回落 320）
+    const left = parseFloat(toolbar.style.left);
+    expect(left).toBe(500 - 320 - 8);
+    expect(left).toBeLessThan(500); // 直证：位于链接盒左方
+    // 完整工具栏 + 解链按钮可见（非折叠 inLink）
+    expect(toolbar.querySelector('button[title="移除链接"]')).not.toBeNull();
+  });
+
+  it('R4-2: 折叠光标在链接内（解链-only）→ 工具栏同样位于链接正左方', async () => {
+    const f = setupLink('[hello](https://x.io)', 500);
+    const textNode = f.link.firstChild as Node;
+    const range = document.createRange();
+    range.setStart(textNode, 1);
+    range.collapse(true);
+    Object.defineProperty(range, 'getBoundingClientRect', {
+      value: () =>
+        ({ left: 500, top: 200, width: 0, height: 0, right: 500, bottom: 200 }) as DOMRect,
+    });
+    const sel = {
+      rangeCount: 1,
+      isCollapsed: true,
+      anchorNode: textNode,
+      focusNode: textNode,
+      getRangeAt: () => range,
+    } as unknown as Selection;
+    vi.spyOn(window, 'getSelection').mockReturnValue(sel);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const onUnlink = vi.fn();
+    const { container } = render(
+      <FloatingToolbar
+        editorContainerRef={{ current: f.container } as React.RefObject<HTMLDivElement>}
+        tree={f.tree}
+        onFormat={onFormat}
+        onConvertBlock={onConvertBlock}
+        onClearFormat={onClearFormat}
+        onUnlink={onUnlink}
+      />
+    );
+    await fireSelectionChange();
+
+    const toolbar = container.querySelector('.floating-toolbar-v2') as HTMLDivElement;
+    expect(toolbar).not.toBeNull();
+    const left = parseFloat(toolbar.style.left);
+    expect(left).toBe(500 - 320 - 8);
+    expect(left).toBeLessThan(500);
+    // 折叠 inLink → 仅解链按钮
+    expect(toolbar.querySelector('button[title="移除链接"]')).not.toBeNull();
+    expect(toolbar.querySelector('button[title="加粗"]')).toBeNull();
+  });
+
+  it('R4-3: 链接工具栏可见时滚动容器 → 重查链接 rect 重定位（G4，不隐藏）', async () => {
+    const f = setupLink('[hello](https://x.io)', 500);
+    mockLinkSelection(f.link);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const onUnlink = vi.fn();
+    const { container } = render(
+      <FloatingToolbar
+        editorContainerRef={{ current: f.container } as React.RefObject<HTMLDivElement>}
+        tree={f.tree}
+        onFormat={onFormat}
+        onConvertBlock={onConvertBlock}
+        onClearFormat={onClearFormat}
+        onUnlink={onUnlink}
+      />
+    );
+    await fireSelectionChange();
+    const toolbar0 = container.querySelector('.floating-toolbar-v2') as HTMLDivElement;
+    expect(toolbar0).not.toBeNull();
+    expect(parseFloat(toolbar0.style.left)).toBe(500 - 320 - 8);
+    expect(parseFloat(toolbar0.style.top)).toBe(200 + 20 / 2 - 40 / 2);
+
+    // jsdom 无布局 → toolbarRef.offsetWidth/Height = 0；固定为 320/40 使滚动重锚定读一致尺寸
+    Object.defineProperty(toolbar0, 'offsetWidth', { configurable: true, value: 320 });
+    Object.defineProperty(toolbar0, 'offsetHeight', { configurable: true, value: 40 });
+
+    // 模拟滚动后链接下移：改动 a.getBoundingClientRect 返回 → 滚动应重锚定而非隐藏
+    const moved = { left: 500, top: 300, width: 80, height: 20, right: 580, bottom: 320 } as DOMRect;
+    vi.spyOn(f.link, 'getBoundingClientRect').mockReturnValue(moved);
+    fireEvent.scroll(f.container);
+
+    // 链接场景滚动不隐藏，且位置跟随新链接盒
+    const toolbar1 = container.querySelector('.floating-toolbar-v2') as HTMLDivElement;
+    expect(toolbar1).not.toBeNull();
+    expect(parseFloat(toolbar1.style.left)).toBe(500 - 320 - 8);
+    expect(parseFloat(toolbar1.style.top)).toBe(300 + 20 / 2 - 40 / 2);
+  });
+
+  it('R4-G3: 非链接选区滚动容器 → 沿用既有"滚动隐藏"（回归边界）', async () => {
+    let tree = createDocumentTree();
+    const p = makeParagraph(tree, 'hello world plain');
+    tree = appendChild(tree, tree.root.id, p);
+    const container = document.createElement('div');
+    container.id = 'editor-container';
+    const span = document.createElement('span');
+    span.className = 'block-content';
+    span.textContent = 'hello world plain';
+    span.dataset.blockId = p.id;
+    container.appendChild(span);
+    document.body.appendChild(container);
+    // 普通非链接选区
+    const textNode = span.firstChild as Node;
+    const range = document.createRange();
+    range.setStart(textNode, 0);
+    range.setEnd(textNode, 'hello world plain'.length);
+    Object.defineProperty(range, 'getBoundingClientRect', {
+      value: () =>
+        ({ left: 100, top: 200, width: 120, height: 20, right: 220, bottom: 220 }) as DOMRect,
+    });
+    const sel = {
+      rangeCount: 1,
+      isCollapsed: false,
+      anchorNode: textNode,
+      focusNode: textNode,
+      getRangeAt: () => range,
+    } as unknown as Selection;
+    vi.spyOn(window, 'getSelection').mockReturnValue(sel);
+    const onFormat = vi.fn();
+    const onConvertBlock = vi.fn();
+    const onClearFormat = vi.fn();
+    const { container: c } = render(
+      <FloatingToolbar
+        editorContainerRef={{ current: container } as React.RefObject<HTMLDivElement>}
+        tree={tree}
+        onFormat={onFormat}
+        onConvertBlock={onConvertBlock}
+        onClearFormat={onClearFormat}
+      />
+    );
+    await fireSelectionChange();
+    expect(c.querySelector('.floating-toolbar-v2')).not.toBeNull();
+
+    fireEvent.scroll(container);
+    // 非链接滚动 → 隐藏（既有行为不变）
+    expect(c.querySelector('.floating-toolbar-v2')).toBeNull();
+  });
+});
+

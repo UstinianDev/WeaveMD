@@ -12,15 +12,18 @@ import { EditorInstance } from '@render/editor/editorInstance';
 import type { BlockTreeV2 } from '@render/editor/kernel';
 import { extractHeadingOutline } from '@render/editor/kernel/outline';
 import { isStandaloneImageText, parseImageBlockText } from '@render/editor/kernel';
+import { setImageWidth } from '@render/editor/controllers/imageWidthCtrl';
+import { setCursorAtOffset } from '@render/editor/kernel/selection';
 import EditorScrollContainer, { type EditorScrollContainerHandle } from './EditorScrollContainer';
 import FloatingToolbar from './FloatingToolbar';
+import ImageResizeBox from './ImageResizeBox';
 import { useContentSync } from '@render/hooks/useContentSync';
 import { useCrossBlockDragSelection } from '@render/hooks/useCrossBlockDragSelection';
 import { useDomRegistry } from '@render/hooks/useDomRegistry';
 import { useEditorActions } from '@render/hooks/useEditorActions';
 import { useFocusRestore } from '@render/hooks/useFocusRestore';
 import { useOutlineNavigation } from '@render/hooks/useOutlineNavigation';
-import type { ImageSelection } from './types';
+import type { BlockWidthMap, ImageSelection } from './types';
 
 interface EditorV2Props {
   content: string;
@@ -69,6 +72,48 @@ const EditorV2: React.FC<EditorV2Props> = ({
   // K4：当前选中的图片（点击 img 后由 handleContainerClick 计算；动作执行后清空）
   const [imageSelection, setImageSelection] = useState<ImageSelection | null>(null);
 
+  // R1：行内图会话运行时宽度 map（G5）——key blockId → {`${data-start}:${data-end}`: px}。
+  // 仅会话内生效，重载后重置。块卸载/重建时由 applyRuntimeWidths + 重建树自然清理（无泄漏）。
+  const [blockWidthMap, setBlockWidthMap] = useState<BlockWidthMap>({});
+
+  // R1：行内图提交宽度——写会话 map（触发重渲染 → applyRuntimeWidths 经 ContentBlock 注入）。
+  const handleResizeInline = useCallback(
+    (blockId: string, start: number, end: number, width: number) => {
+      if (!Number.isFinite(width) || width <= 0) return;
+      const key = `${start}:${end}`;
+      setBlockWidthMap((prev) => {
+        const blockMap = { ...(prev[blockId] ?? {}), [key]: width };
+        return { ...prev, [blockId]: blockMap };
+      });
+    },
+    []
+  );
+
+  // R1：独立图提交宽度——setImageWidth 重写 block.text 为带 width wrapper（G4），
+  // 镜像 applyBlockAction 管线（写树 → 焦点恢复 → 同步内容）。
+  const handleResizeStandalone = useCallback(
+    (blockId: string, width: number) => {
+      const instance = instanceRef.current;
+      if (!instance) return;
+      if (!Number.isFinite(width) || width <= 0) return;
+      const prevTree = instance.tree;
+      const result = setImageWidth(instance, blockId, Math.round(width));
+      if (!result) return;
+      if (instance.tree === prevTree) {
+        const focus = result.focus;
+        if (focus) {
+          const el = getBlockEl(focus.blockId);
+          if (el) setCursorAtOffset(el, focus.offset);
+        }
+      } else if (result.focus) {
+        setPendingFocus(result.focus);
+      }
+      setTree(instance.tree);
+      syncContent();
+    },
+    [getBlockEl, setPendingFocus, setTree, syncContent]
+  );
+
   // K4：「修改图片」——保持选中态（弹层与预填由 FloatingToolbar 自管）
   const handleEditImage = useCallback((sel: ImageSelection) => {
     setImageSelection(sel);
@@ -112,6 +157,8 @@ const EditorV2: React.FC<EditorV2Props> = ({
           const rect = img.getBoundingClientRect();
           const text = block.text ?? '';
           const parsed = block.type === 'image-block' ? parseImageBlockText(text) : null;
+          // R1：当前显示宽度——独立图读文本 wrapper 的 parsed.width；行内图读会话 map
+          const mapWidth = blockWidthMap[blockId]?.[`${start}:${end}`];
           setImageSelection({
             blockId,
             start,
@@ -119,13 +166,14 @@ const EditorV2: React.FC<EditorV2Props> = ({
             align: parsed?.align ?? null,
             standalone: block.type === 'image-block' || isStandaloneImageText(text),
             rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+            width: mapWidth ?? parsed?.width ?? undefined,
           });
           return;
         }
       }
       setImageSelection(null);
     },
-    [tree]
+    [tree, blockWidthMap]
   );
 
   // 图片加载失败回退（INLINE-IMAGE G3）：捕获阶段委托监听 img.inline-image 的
@@ -160,8 +208,18 @@ const EditorV2: React.FC<EditorV2Props> = ({
         ref={scrollRef}
         tree={tree}
         handlers={handlers}
+        blockWidthMap={blockWidthMap}
         onScroll={handleScroll}
       />
+      {/* R1：图片选中框 + 四角缩放手柄（选中图片时渲染；覆盖层 z-[90] < 图片工具栏 z-[100]） */}
+      {imageSelection && (
+        <ImageResizeBox
+          imageSelection={imageSelection}
+          editorContainerRef={containerRef}
+          onResizeStandalone={handleResizeStandalone}
+          onResizeInline={handleResizeInline}
+        />
+      )}
       <FloatingToolbar
         editorContainerRef={containerRef}
         tree={tree}
