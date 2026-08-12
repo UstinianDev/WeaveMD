@@ -83,12 +83,12 @@ const LeafBlock: React.FC<LeafBlockProps> = ({ block, handlers, blockWidthMap })
     case 'image-block': {
       // 非编辑块：对齐时外层 div 加 textAlign（内层 HTML 由 renderBlockHtml 生成，
       // wrapper 不出现为转义文本；img data-start/data-end 为绝对偏移）。
-      // R1：width 从 parsed.width 写入外层 div 的 width（img max-width:100% 缩放，G4）。
+      // R3：宽度已由 renderImageBlock 注入 <img style="width:Npx">，wrapper 仅做对齐
+      //（全宽 text-align）。宽度落在外层 div 会导致：小图无法放大（img max-width:100%
+      // 受限于自然宽）、带宽度图溢出内容列、居中偏差——故一律不在此设 width。
       const parsed = parseImageBlockText(block.text ?? '');
       const alignStyle: React.CSSProperties | undefined = parsed?.align
-        ? parsed.width != null
-          ? { textAlign: parsed.align, width: `${parsed.width}px` }
-          : { textAlign: parsed.align }
+        ? { textAlign: parsed.align }
         : undefined;
       // R1：独立图若也在会话 map 中（通常已持久化到文本，此处保持行为一致），叠加应用
       const innerHtml = toDisplayHtml(block.inlineHtml, block.text ?? '');

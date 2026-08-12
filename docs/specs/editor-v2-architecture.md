@@ -984,8 +984,10 @@ image-block，focus 于文本末尾。经 `stateToMarkdown` 同步到磁盘内�
 行内（非独立）图片无 `block.text` 内嵌宽度位，改为**会话级运行时 map**
 （`BlockWidthMap`：`blockId → { [data-start]:[data-end] → px }`）注入渲染：
 
-- `kernel/inlineRenderer.ts` 新增 `applyRuntimeWidths(html, widthMap)`：按 `data-start/data-end`
-  命中 map 的 `<img>` 追加 `style="width:Npx"`（img 已带 style 则合并覆盖 width）。
+- `kernel/inlineRenderer.ts`：`applyRuntimeWidths(html, widthMap)` 按 `data-start/data-end`
+  命中 map 的 `<img>` 追加 `style="width:Npx"`（img 已带 style 则合并覆盖 width）；
+  注入核心抽为 `applyImgWidth(html, width)`，**独立图渲染 `renderImageBlock` 复用同一注入**
+  ——宽度一律落点在 `<img>` 自身（R3，2026-08-13），wrapper div 仅负责对齐。
 - EditorV2 持有 `blockWidthMap`（仅会话生效，重载/重建块自然清理，无泄漏）；
   点击选中读 `mapWidth ?? parsed?.width` 作为缩放起点。
 
@@ -1003,9 +1005,14 @@ image-block，focus 于文本末尾。经 `stateToMarkdown` 同步到磁盘内�
   一次 `getBoundingClientRect` 读取）——**全程不触发 React setState/重渲染**，快速拖拽
   选中框与图片零滞后（height auto 保宽高比）→ mouseup 提交并把 state 同步到最终盒。
 - **宽度算术**（`resizeMath.computeResizeWidth(startWidth, dx, dy, corner, min, max)`）：
-  横向 east+1 / west-1、纵向 south+1 / north-1，取**主轴向**（|dx| ≥ |dy| 用横，否则用纵）
-  增量 → 斜上/斜下对角拖拽实时等比例；钳制 `[32px, 容器内容宽]`，非有限输入回落 min。
-  滚动/提交后重查 img rect 重锚定（对齐 ImageToolbar Bug-B 模式）。
+  横向 east+1 / west-1、纵向 south+1 / north-1，**增量 = 指针位移长度 `√(dx²+dy²)`**
+  （方向取主轴向符号）——斜向按对角距离顺滑增长、纯横/纵行为不变，无主轴向切换跳变
+  （R1，2026-08-13；旧版取 `max(|dx|,|dy|)`，拖 `(100,50)` 与 `(100,100)` 增量相同，斜向"迟钝"）；
+  钳制 `[32px, 容器内容宽]`，非有限输入回落 min。
+- **提交/重渲染后重锚定**（R2，2026-08-13）：`ImageResizeBox` 新增 `useLayoutEffect`
+  （每次渲染完成、非拖拽期）重查 img 最新 rect，直改 `boxRef` DOM + 变化守卫 `setRect`，
+  兜住提交（`setTree`/`setBlockWidthMap`）重渲染后 img 尺寸/位置变化——修复"框比图小/
+  框停在旧位置"；滚动重锚定（对齐 ImageToolbar Bug-B 模式）保留。
 - **提交分流**：standalone → `onResizeStandalone`（`setImageWidth` 持久化文本）；
   inline → `onResizeInline`（写会话 map 触发重渲染注入）。
 
@@ -1014,7 +1021,8 @@ image-block，focus 于文本末尾。经 `stateToMarkdown` 同步到磁盘内�
 `FloatingToolbar` 的 document capture mousedown 对 `.image-resize-box` 目标直接放行
 （`handleMouseDown` 首段返回），缩放手柄拖拽不被工具栏"点击外部关闭"逻辑中断。
 
-**验证**：新增 `ImageResizeBox` 组件测试（含拖拽期**同步直改 DOM** 断言，捕获
-setState 滞后）+ `resizeMath` 纯函数单测（钳制/角方向/主轴向对角/取整/防御）+ E2E
-`R1·E7` 手柄四角对齐回归 + `R1·E8` 对角拖拽主分量放大；全量 `vitest run`、
-Playwright E2E（真实 Chromium）门禁通过。
+**验证**：`ImageResizeBox` 组件测试（拖拽期同步直改 DOM + R2 提交后重锚定断言）+
+`resizeMath` 纯函数单测（欧氏距离对角/钳制/角方向/取整/防御）+ `renderBlockHtml`
+宽度注入测试 + E2E `R1·E7` 手柄四角对齐回归、`R1·E8` 对角拖拽按对角距离放大、
+`R1·E9` 居中/居右对齐（含带宽度图）、`R1·E10` 松手提交后框与图尺寸/位置一致
+（小图放大不回弹）；全量 `vitest run` / Playwright E2E（真实 Chromium）门禁通过。

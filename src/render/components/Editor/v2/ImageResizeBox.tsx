@@ -11,7 +11,7 @@
 //   （写会话 map）。拖拽期宽高比由 CSS height:auto 保持。
 // - 纯交互/算术逻辑（computeResizeWidth）已下沉到 resizeMath.ts（可单测）。
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type { ImageSelection } from './types';
 import { computeResizeWidth, type ResizeCorner } from './resizeMath';
@@ -154,6 +154,37 @@ const ImageResizeBox: React.FC<ImageResizeBoxProps> = ({
   useEffect(() => {
     setRect(imageSelection.rect);
   }, [imageSelection.rect]);
+
+  // R2：松手提交/重渲染后重锚定——每次渲染完成（非拖拽期）把选中框对齐到 img 最新 rect。
+  // 提交（setTree / setBlockWidthMap）重渲染会替换 img DOM 节点、改变其尺寸/位置，仅靠
+  // scroll 重锚定覆盖不到；此 effect 直改 boxRef DOM + 变化守卫 setRect（防循环），
+  // 保证"框比图小/框停在旧位置"不再出现。
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 有意每次渲染后重查 img rect（提交/重渲染后重锚定），setRect 带变化守卫不产生循环
+  useLayoutEffect(() => {
+    if (draggingRef.current) return;
+    const img = getSelectedImg();
+    const boxEl = boxRef.current;
+    if (!img || !boxEl) return;
+    const r = img.getBoundingClientRect();
+    // 防御：img 尚未加载（rect 宽 0）时不同步，避免选中框塌缩为 0
+    if (r.width <= 0 || r.height <= 0) return;
+    boxEl.style.left = `${r.left}px`;
+    boxEl.style.top = `${r.top}px`;
+    boxEl.style.width = `${r.width}px`;
+    boxEl.style.height = `${r.height}px`;
+    setRect((prev) => {
+      if (
+        prev &&
+        prev.top === r.top &&
+        prev.left === r.left &&
+        prev.width === r.width &&
+        prev.height === r.height
+      ) {
+        return prev;
+      }
+      return { top: r.top, left: r.left, width: r.width, height: r.height };
+    });
+  });
 
   const left = rect.left;
   const top = rect.top;

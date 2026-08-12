@@ -59,7 +59,7 @@ describe('EditorV2 — R1 图片选中框（G1）', () => {
 });
 
 describe('EditorV2 — R1 独立图宽度渲染（G4）', () => {
-  it('带 style width 的 wrapper 独立图 → 外层 div width:Npx', () => {
+  it('带 style width 的 wrapper 独立图 → 宽度注入 <img> 自身（外层 div 仅对齐）', () => {
     const { container } = render(
       <EditorV2
         content={`<div align="center" style="width:300px">![cat](https://x.example/cat.png)</div>`}
@@ -68,8 +68,13 @@ describe('EditorV2 — R1 独立图宽度渲染（G4）', () => {
     );
     const block = container.querySelector('.image-block') as HTMLElement;
     expect(block).not.toBeNull();
-    expect(block.style.width).toBe('300px');
-    // img max-width:100% 由 CSS 保证缩放；宽度声明与图片内容一致
+    // R3：宽度落点在 img（style width），外层 div 不再带 width（否则小图无法放大/溢出/对齐偏差）
+    expect(block.style.width).toBe('');
+    expect(block.style.textAlign).toBe('center');
+    const img = block.querySelector('img.inline-image') as HTMLElement;
+    expect(img).not.toBeNull();
+    expect(img.style.width).toBe('300px');
+    // img max-width:100% 由 CSS 保证不溢出内容列
   });
 
   it('无 width wrapper 的独立图 → 外层 div 无显式宽度', () => {

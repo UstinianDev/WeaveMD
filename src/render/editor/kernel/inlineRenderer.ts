@@ -80,12 +80,14 @@ function highlightCode(text: string, language?: string): string {
 }
 
 /** image-block：只渲染内层（wrapper 不出现为转义文本），base=innerStart 使
- *  img data-start/data-end 为绝对偏移（供点击选中换算）。返回纯 HTML 字符串，
- *  对齐样式由 LeafBlock 的 image-block case 负责。 */
+ *  img data-start/data-end 为绝对偏移（供点击选中换算）。返回纯 HTML 字符串。
+ *  R3：宽度落点在 <img> 自身（注入 style width），对齐样式由 LeafBlock 的
+ *  image-block case 负责（wrapper 全宽 text-align）——小图可放大、无溢出、对齐成立。 */
 function renderImageBlock(text: string): string {
   const parsed = parseImageBlockText(text);
   if (!parsed) return renderInline(text);
-  return renderInline(parsed.inner, parsed.innerStart);
+  const innerHtml = renderInline(parsed.inner, parsed.innerStart);
+  return parsed.width != null ? applyImgWidth(innerHtml, parsed.width) : innerHtml;
 }
 
 /** 按块类型生成行内渲染 HTML（代码块走 Prism 高亮，其余走行内渲染） */
@@ -199,6 +201,25 @@ export function toDisplayHtml(inlineHtml: string | null, text: string): string {
  * \u7684 `<img>` \u6CE8\u5165 `style="width:Npx"`\uFF08\u6574\u6570 px\uFF0CMath.round\uFF1Bimg \u5DF2\u5E26 style \u5219\u5408\u5E76\u8986\u76D6 width\uFF0C\u4E0D\u91CD\u590D style\uFF09\u3002
  * \u4EC5\u89E6\u78B0 `class="inline-image"` \u7684 img \u5143\u7D20\uFF1B\u672A\u547D\u4E2D / \u975E\u8BE5 class \u7684 img \u4FDD\u6301\u539F\u6837\u3002\u7EAF\u51FD\u6570\uFF0C\u65E0 DOM\u3002
  */
+/**
+ * 对 html 中 `class="inline-image"` 的 img 注入 `style="width:Npx"`（整数 px，Math.round；
+ * img 已带 style 则合并覆盖 width，不重复 style）。无 style 属性时在 tag 末尾（`>` 前）附加。
+ * 仅触碰 `class="inline-image"` 的 img 元素；未命中 / 非该 class 的 img 保持原样。纯函数，无 DOM。
+ */
+export function applyImgWidth(html: string, width: number): string {
+  if (html === '') return html;
+  if (!Number.isFinite(width) || width <= 0) return html;
+  const n = Math.round(width);
+  return html.replace(/<img\s+class="inline-image"([\s\S]*?)>/gi, (whole, attrs: string) => {
+    const style = /style="([^"]*)"/.exec(attrs)?.[1];
+    if (style === undefined) {
+      // 无 style 属性 → 在 img tag 末尾（`>` 前）附加
+      return whole.replace(/>$/, ` style="width:${n}px">`);
+    }
+    return whole.replace(/style="[^"]*"/, `style="${setWidthInInlineStyle(style, n)}"`);
+  });
+}
+
 export function applyRuntimeWidths(html: string, widthMap: Record<string, number>): string {
   if (html === '') return html;
   return html.replace(/<img\s+class="inline-image"([\s\S]*?)>/gi, (whole, attrs: string) => {
@@ -207,13 +228,7 @@ export function applyRuntimeWidths(html: string, widthMap: Record<string, number
     if (start === undefined || end === undefined) return whole;
     const width = widthMap[`${start}:${end}`];
     if (typeof width !== 'number' || !Number.isFinite(width) || width <= 0) return whole;
-    const n = Math.round(width);
-    const style = /style="([^"]*)"/.exec(attrs)?.[1];
-    if (style === undefined) {
-      // 无 style 属性 → 在 img tag 末尾（`>` 前）附加
-      return whole.replace(/>$/, ` style="width:${n}px">`);
-    }
-    return whole.replace(/style="[^"]*"/, `style="${setWidthInInlineStyle(style, n)}"`);
+    return applyImgWidth(whole, width);
   });
 }
 

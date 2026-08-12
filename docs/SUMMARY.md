@@ -87,10 +87,16 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
   （SPEC-EDIT-CBTP 扩展到 image-block，`appendTrailingParagraphIfLast`）；链接 hover
   提示「ctrl + 左键  打开网页」；链接场景工具栏定位到链接正左方（`computeToolbarState`
   `linkRect` 参数）；InsertUrlModal 回车直接确认修复选中内容丢失竞态
+- 图片缩放三缺陷修复（REQ-EDIT-IMAGE-RESIZE-FIX，2026-08-13）：等比例拖拽改「跟随指针
+  位移」——宽度增量 = `√(dx²+dy²)`（方向取主轴向符号），斜向按对角距离顺滑增长；
+  松手提交后选中框重锚定（`useLayoutEffect` 每次渲染后重查 img rect，修复"框比图小"）；
+  宽度落点从外层 div 移到 `<img>` 自身（`renderImageBlock` 经 `applyImgWidth` 注入），
+  小图可放大、无溢出、居中/居右（含带宽度图）正确。文档：`docs/specs/editor-v2-architecture.md`
+  13.15、`docs/plan/editor-image-resize-fix.*`
 
 ## 4. 验证与测试
 
-- Vitest：**724 例**（内核/控制器/组件，含往返不变式、退出规则矩阵、输入链路、跨块删除、
+- Vitest：**826 例**（内核/控制器/组件，含往返不变式、退出规则矩阵、输入链路、跨块删除、
   代码块尾随空行补偿、浮动工具栏显示/转换矩阵/驻留、拖选闪烁的端点变化检测与 rAF 节流、
   FT2 的 inlineLexer/strip/katex/toggle/clearFormat、FT3 的 Step0 归一化矩阵/跨 token 拆分/
   选区恢复/集成、三连 `***` 跨风格叠加、CSS 静态断言、快捷键接线、

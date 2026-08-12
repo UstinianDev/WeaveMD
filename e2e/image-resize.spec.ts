@@ -312,9 +312,117 @@ test('R1·E8: 对角拖拽（se 斜下）按纵向主分量实时放大', async 
 
   const after = Number(await img.evaluate((el) => el.getBoundingClientRect().width));
   const diff = Math.round(after - before);
-  // 主轴向 dy=40 → 增宽 40（允许 ±5 环境抖动，且必须 >30 排除纯水平 20）
+  // 欧氏距离 √(20²+40²)≈45 → 增宽 ~45（允许 ±5 环境抖动，且必须 >30 排除纯水平 20）
   expect(diff).toBeGreaterThan(30);
   expect(diff).toBeLessThan(50);
+});
+
+test('R1·E9: 居中/居右移动图片位置（无宽度与带宽度均相对内容列对齐）', async ({ page }) => {
+  test.setTimeout(90000);
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="400"><rect width="800" height="400" fill="#ccc"/></svg>';
+  await page.route('https://example.com/**', (route) =>
+    route.fulfill({ contentType: 'image/svg+xml', body: svg })
+  );
+
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('图片文本', { delay: 15 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  await insertImageViaToolbar(page, 'https://example.com/align.png');
+  await page.waitForTimeout(500);
+
+  const block = page.locator('.image-block');
+  await expect(block).toHaveCount(1);
+  const img = page.locator('.image-block img.inline-image');
+
+  async function blockCenter() {
+    const b = (await block.boundingBox())!;
+    return b.x + b.width / 2;
+  }
+  async function blockRight() {
+    const b = (await block.boundingBox())!;
+    return b.x + b.width;
+  }
+
+  // 无宽度：居中 → img 中心 = 块中心
+  await img.click();
+  await page.waitForTimeout(300);
+  await page.locator('[data-testid="image-toolbar-align-center"]').click();
+  await page.waitForTimeout(400);
+  let ib = (await img.boundingBox())!;
+  expect(Math.abs(ib.x + ib.width / 2 - (await blockCenter()))).toBeLessThanOrEqual(2);
+
+  // 无宽度：居右（点击对齐后工具栏关闭，须重选）→ img 右缘 = 块右缘
+  await img.click();
+  await page.waitForTimeout(300);
+  await page.locator('[data-testid="image-toolbar-align-right"]').click();
+  await page.waitForTimeout(400);
+  ib = (await img.boundingBox())!;
+  expect(Math.abs(ib.x + ib.width - (await blockRight()))).toBeLessThanOrEqual(2);
+
+  // 设宽度（SE 拖大）后：居中仍相对内容列正确
+  await img.click();
+  await page.waitForTimeout(300);
+  const se = page.locator('[data-handle="se"]');
+  const sbb = (await se.boundingBox())!;
+  await page.mouse.move(sbb.x + sbb.width / 2, sbb.y + sbb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(sbb.x + sbb.width / 2 + 120, sbb.y + sbb.height / 2 + 60, { steps: 5 });
+  await page.mouse.up();
+  await page.waitForTimeout(600);
+  await img.click();
+  await page.waitForTimeout(300);
+  await page.locator('[data-testid="image-toolbar-align-center"]').click();
+  await page.waitForTimeout(400);
+  ib = (await img.boundingBox())!;
+  expect(Math.abs(ib.x + ib.width / 2 - (await blockCenter()))).toBeLessThanOrEqual(2);
+});
+
+test('R1·E10: 松手提交后选中框尺寸/位置与图片一致（独立图小图放大不弹回）', async ({ page }) => {
+  test.setTimeout(90000);
+  // 小自然图（200×100）：R3 宽度注入 <img> 后可放大到目标宽，不再受自然宽限制
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#ccc"/></svg>';
+  await page.route('https://example.com/**', (route) =>
+    route.fulfill({ contentType: 'image/svg+xml', body: svg })
+  );
+
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('图片文本', { delay: 15 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  await insertImageViaToolbar(page, 'https://example.com/small.png');
+  await page.waitForTimeout(500);
+
+  const img = page.locator('.image-block img.inline-image');
+  await expect(img).toHaveCount(1);
+  await img.click();
+  await page.waitForTimeout(300);
+
+  const se = page.locator('[data-handle="se"]');
+  const sbb = (await se.boundingBox())!;
+  await page.mouse.move(sbb.x + sbb.width / 2, sbb.y + sbb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(sbb.x + sbb.width / 2 + 200, sbb.y + sbb.height / 2 + 100, { steps: 5 });
+  await page.mouse.up();
+  await page.waitForTimeout(600);
+
+  const box = page.locator('.image-resize-box');
+  await expect(box).toHaveCount(1);
+  const ib = (await img.boundingBox())!;
+  const bb = (await box.boundingBox())!;
+  // 小图放大后保持新尺寸（不回弹自然宽 200）
+  expect(ib.width).toBeGreaterThan(380);
+  // 框与图尺寸/位置一致（±1px）
+  expect(Math.abs(bb.width - ib.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(bb.height - ib.height)).toBeLessThanOrEqual(1);
+  expect(Math.abs(bb.x - ib.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(bb.y - ib.y)).toBeLessThanOrEqual(1);
 });
 
 test('R4·E5: 光标放入链接内 → 工具栏 left < 链接盒 left（正左方）', async ({ page }) => {
