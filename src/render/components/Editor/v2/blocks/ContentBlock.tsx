@@ -8,7 +8,7 @@
 import React, { useCallback, useLayoutEffect, useRef } from 'react';
 
 import type { InlineFormatStyle } from '@render/editor/controllers';
-import { toDisplayHtml } from '@render/editor/kernel';
+import { applyRuntimeWidths, toDisplayHtml } from '@render/editor/kernel';
 import {
   deleteSelectionContent,
   getCrossBlockSelection,
@@ -18,7 +18,7 @@ import {
   snapOffsetInText,
   snapSelectionToContent,
 } from '@render/editor/kernel/selection';
-import type { InputEventResult } from '@render/components/Editor/v2/types';
+import type { InputEventResult, InlineWidthMap } from '@render/components/Editor/v2/types';
 
 interface ContentBlockProps {
   blockId: string;
@@ -44,6 +44,8 @@ interface ContentBlockProps {
   onRedo: () => void;
   registerDom: (blockId: string, el: HTMLElement) => void;
   unregisterDom: (blockId: string) => void;
+  /** R1：该块的行内图会话宽度 map（applyRuntimeWidths 注入 style.width，G5） */
+  blockWidthMap?: InlineWidthMap;
 }
 
 const ContentBlock: React.FC<ContentBlockProps> = ({
@@ -64,6 +66,7 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
   onRedo,
   registerDom,
   unregisterDom,
+  blockWidthMap,
 }) => {
   const ref = useRef<HTMLSpanElement>(null);
   const lastDomTextRef = useRef<string | null>(null);
@@ -289,7 +292,13 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
     [handleDeleteKey, handleArrowKeySnap, handleEnterKey, handleBackspaceKey, handleTabKey, handleFormatShortcut]
   );
 
-  const displayHtml = toDisplayHtml(inlineHtml, text);
+  const baseHtml = toDisplayHtml(inlineHtml, text);
+  // R1：行内图会话宽度注入（applyRuntimeWidths，G5）——命中该块 widthMap 的
+  // class="inline-image" img 注入 style="width:Npx"。raw 模式（代码块）无行内图，跳过。
+  const displayHtml =
+    !raw && blockWidthMap && Object.keys(blockWidthMap).length > 0
+      ? applyRuntimeWidths(baseHtml, blockWidthMap)
+      : baseHtml;
   const isEmpty = text === '';
   // 字号由 CSS .code-fence-content 统一控制（R6 双源统一，避免内联覆盖 CSS）
   const style: React.CSSProperties = raw

@@ -105,6 +105,47 @@ describe('InsertUrlModal — 确定/取消', () => {
     fireEvent.keyDown(document, { key: 'Enter' });
     expect(onCancel).not.toHaveBeenCalled();
   });
+
+  // ============================================================
+  // R5：输入框内回车直接提交，不丢选中内容。
+  // 期待：onConfirm(trim url)、事件 defaultPrevented、不发 onCancel，
+  // 且默认行为（触发编辑层 selectionchange 竞态）被阻止。
+  // fireEvent 返回 false 当且仅当事件 defaultPrevented === true。
+  // ============================================================
+  it('R5: 输入 URL 后回车 → onConfirm 被调一次(trim 后 url)，事件被阻止，onCancel 不被调', () => {
+    const { onConfirm, onCancel } = setup();
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '  https://example.com  ' } });
+    // 捕获实际 KeyboardEvent，直接断言其 defaultPrevented 状态
+    const captured: { ev: KeyboardEvent | null } = { ev: null };
+    const input = screen.getByRole('textbox') as HTMLElement;
+    const spy = (e: KeyboardEvent) => {
+      captured.ev = e;
+    };
+    input.addEventListener('keydown', spy);
+    const prevented = fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', charCode: 13 });
+    // (b) 事件已 defaultPrevented（锁定 preventDefault 修复）
+    expect(prevented).toBe(false);
+    expect(captured.ev?.defaultPrevented).toBe(true);
+    // (a) onConfirm 命中同一 handleConfirm 路径，trim url
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm).toHaveBeenCalledWith('https://example.com');
+    // (c) 未取消
+    expect(onCancel).not.toHaveBeenCalled();
+    input.removeEventListener('keydown', spy);
+  });
+
+  it('R5: 空 URL 回车 → onConfirm 不被调，onCancel 不被调，输入框聚焦并提示（G3 保持）', () => {
+    const { onConfirm, onCancel } = setup();
+    fireEvent.keyDown(screen.getByRole('textbox'), {
+      key: 'Enter',
+      code: 'Enter',
+      charCode: 13,
+    });
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(screen.getByText(/URL 不能为空/)).not.toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('textbox'));
+  });
 });
 
 describe('InsertUrlModal — showPickImage 本地选图', () => {

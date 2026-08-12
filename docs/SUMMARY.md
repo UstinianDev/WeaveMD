@@ -81,6 +81,12 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
   （K1/K2）+ `toImgSrc` 单层解码修复（`%20` 不再 `%2520` 双重编码）；点击图片 → 图片工具栏
   （修改图片/内联图片/居左/居中/居右/移除图片）替换文本工具栏，行内图对齐/内联置灰、
   独立成块可对齐（源码 `<div align>` 包裹）；修改图片弹层预填 src/alt
+- 图片缩放与图片后空行、链接提示与工具栏定位（R1~R5，2026-08-12）：点击图片显示四角
+  缩放手柄（`.image-resize-box`，拖拽实时 DOM-only 缩放，独立图 `setImageWidth` 写
+  `<div align style="width:Npx">`、行内图写会话 `BlockWidthMap`）；图片后空行受保护
+  （SPEC-EDIT-CBTP 扩展到 image-block，`appendTrailingParagraphIfLast`）；链接 hover
+  提示「ctrl + 左键  打开网页」；链接场景工具栏定位到链接正左方（`computeToolbarState`
+  `linkRect` 参数）；InsertUrlModal 回车直接确认修复选中内容丢失竞态
 
 ## 4. 验证与测试
 

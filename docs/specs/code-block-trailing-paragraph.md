@@ -1,9 +1,10 @@
 # 代码块尾随保护空行持久化规范（Code Block Trailing Paragraph）
 
-> 规范编号：SPEC-EDIT-CBTP | 版本：v1.0（草案，待评审后实施）| 更新：2026-08-07
+> 规范编号：SPEC-EDIT-CBTP | 版本：v1.1（已实施，含图片块扩展 R2）| 更新：2026-08-12
 > 关联需求：REQUIREMENTS.md EDIT-09（代码块）、EDIT-08（自动保存）
 > 关联规范：SPEC-EDIT-EXIT 3.5（代码块退出与代码块后空段落保护）
 > 关联文档：docs/modules/04-编辑主区-Editor.md、docs/specs/editor-v2-architecture.md（4.2 往返不变量）
+> 扩展：见 9.3「图片块尾随空行保护扩展（R2）」— 保护语义推广到 image-block（代码块行为不变）
 
 ---
 
@@ -234,3 +235,44 @@ ESLint（0 error，tests/setup.ts 4 个既有 warning）、`vite build` 均通�
 
 回归测试：`formatCtrl.test.ts`（代码块+图/代码块+空段+图/代码块+图+文本 三布局）+
 `markdownRoundTrip.test.ts`（往返不变量）+ e2e `exit-behavior.spec.ts`（打开→移除→空行恢复）。
+
+### 9.3 图片块尾随空行保护扩展（2026-08-12，R2）
+
+本规范的保护语义从「代码块」推广到「图片块」：**image-block**（工具栏「图片」独立成块 /
+对齐包裹 `<div align>` 的独立图片）同样需要在解析期 / 编辑期保证其后存在可聚焦的空段落。
+代码块行为保持不变，仅收口函数泛化。
+
+#### 9.3.1 解析期补偿泛化：`appendTrailingParagraphIfLast`
+
+`markdownToState.ts` 原私有函数 `appendTrailingParagraphIfCodeLast` 改名为
+`appendTrailingParagraphIfLast`，触发条件由「最后叶子为 code-block」放宽为
+「最后叶子为 **code-block 或 image-block**」，在其同父容器末尾追加空 paragraph。
+入口（getLastLeaf → type 判定 → `addBlock('paragraph', '')` + attach）与调用位置不变。
+代码块分支逻辑零改动，仅新增 image-block 走同一补偿路径。
+
+> 语义与 4.1 保持一致：文本层无法表达「图片/代码块之后的空段落」，故统一由解析期规范化
+> 补齐。两态收敛：`移除图片 → stateToMarkdown → markdownToState` 往返不变量保持。
+
+#### 9.3.2 编辑期保护：`backspaceCtrl.mergeParagraph`
+
+`backspaceCtrl.ts` 的 `mergeParagraph`（前块 Backspace 不合并保护）判断条件由
+「前块为 code-block」扩展为「前块为 **code-block 或 image-block**」——图片块之后
+的空段落同样受 Backspace 保护（不删除、不并入图片块），与代码块语义一致。
+
+#### 9.3.3 删除路径补偿：`formatCtrl.removeImage`
+
+`formatCtrl.removeImage` 的 image-block 整块删除分支：删除后若整树最后叶子变为
+**code-block 或 image-block**，补回受保护空段（镜像 9.3.1，`adjacentLeafFocus('next')`
+无 next 时回退 prev 非空 focus 导致原逻辑跳过补空 → 现在显式补偿）。
+修复后 `移除图片 → 序列化 → 重载` 两态收敛。
+
+#### 9.3.4 适用范围与不变量
+
+- **一律不改变状态**：`stateToMarkdown` 序列化逻辑、剥离尾部换行、磁盘文件内容逐字不变
+  （G3/G4 仍成立）。
+- **代码块行为不变**：`mergeParagraph` 对 code-block 的保护、解析期 code-block 补偿、
+  Enter 退出语义均沿用既有实现（G5）。
+
+回归测试：`formatCtrl.test.ts` / `markdownRoundTrip.test.ts` / e2e
+`exit-behavior.spec.ts`（打开→移除图片→图片后空行恢复）在原有 Bug C 案例基础上，
+把「代码块」断言扩展覆盖「图片块」场景。

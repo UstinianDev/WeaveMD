@@ -93,9 +93,17 @@ export interface ImageSelection {
   align: ImageAlign | null;
   /** 是否独立成块（image-block 或整块即图片语法）——对齐/内联按钮可用前提 */
   standalone: boolean;
-  /** 点击时 img.getBoundingClientRect() 快照（工具栏锚定） */
+    /** 点击时 img.getBoundingClientRect() 快照（工具栏锚定） */
   rect: { top: number; left: number; width: number; height: number };
+  /** R1：选中图片当前显示宽度（px）。独立图读 parsed.width；行内图读会话运行时 map。 */
+  width?: number;
 }
+
+/** R1：行内图会话运行时宽度 map（G5）——key `${data-start}:${data-end}` → 宽度 px。
+ *  由 EditorV2 持有并透传给块渲染（applyRuntimeWidths 注入 style），重载/会话结束即重置。 */
+export type InlineWidthMap = Record<string, number>;
+/** R1：按块收敛的宽度 map —— key blockId → 该块内 img 的 InlineWidthMap。 */
+export type BlockWidthMap = Record<string, InlineWidthMap>;
 
 /** 块组件统一回调集（由 EditorV2 提供） */
 export interface BlockHandlers {
@@ -151,4 +159,6 @@ export interface BlockRendererProps {
   blockId: string;
   tree: BlockTreeV2;
   handlers: BlockHandlers;
+  /** R1：块渲染宽度 map（透传到叶子块） */
+  blockWidthMap?: InlineWidthMap;
 }

@@ -831,7 +831,7 @@ test('LINK-IMAGE-E1: \u5DE5\u5177\u680F\u63D2\u5165\u65E0\u534F\u8BAE\u94FE\u63A
   await expect(editable).toHaveText('[\u94FE\u63A5\u6587\u672C](www.baidu.com)');
 });
 
-test('LINK-IMAGE-E2: hover \u94FE\u63A5 \u2192 ::after tooltip content == \u8865\u5168\u540E URL\uFF08G5\uFF09', async ({ page }) => {
+test('LINK-IMAGE-E2: hover \u94FE\u63A5 \u2192 ::after tooltip content == \u65B0\u63D0\u793A\u201Cctrl + \u5DE6\u952E  \u6253\u5F00\u7F51\u9875\u201D\uFF08R3\uFF09', async ({ page }) => {
   await openEditor(page);
   const editable = page.locator('span.block-content[contenteditable="true"]').first();
   await editable.click();
@@ -850,13 +850,67 @@ test('LINK-IMAGE-E2: hover \u94FE\u63A5 \u2192 ::after tooltip content == \u8865
 
   const link = page.locator('a.inline-link');
   await expect(link).toHaveCount(1);
+  // R4\uFF1A\u94FE\u63A5\u547D\u4E2D\u65F6\u5DE5\u5177\u680F\u5DE6\u7F6E\uFF0C\u94FE\u63A5\u8D34\u8FD1\u5DE6\u7F18\u4F1A\u88AB\u5BBD\u5DE5\u5177\u680F\u906E\u6321 \u2192 \u5148 Escape \u6536\u8D77
+  // \u5DE5\u5177\u680F\u518D hover\uFF0C\u907F\u514D\u5DE5\u5177\u680F\u6309\u94AE\u62E6\u622A\u6307\u9488\u4E8B\u4EF6\uFF08hover \u65AD\u8A00\u53EA\u9488\u5BF9 tooltip \u672C\u4F53\uFF09\u3002
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(150);
   await link.hover();
   await page.waitForTimeout(200);
 
   const content = await link.evaluate((el) => getComputedStyle(el, '::after').content);
   expect(content).not.toBe('none');
-  // content \u5E8F\u5217\u5316\u4E3A\u5E26\u5F15\u53F7\u5B57\u7B26\u4E32\uFF0C\u5982 `"https://www.baidu.com"`
-  expect(content.replace(/"/g, '')).toContain('https://www.baidu.com');
+  // R3\uFF1A\u4E0D\u518D\u663E\u793A\u539F\u59CB URL\uFF0C\u6539\u663E\u793A\u201Cctrl + \u5DE6\u952E  \u6253\u5F00\u7F51\u9875\u201D\uFF08\u952E\u5B57\u540E\u53CC\u7A7A\u683C\uFF09
+  expect(content.replace(/"/g, '')).not.toContain('www.baidu.com');
+  expect(content.replace(/"/g, '')).toContain('ctrl + \u5DE6\u952E  \u6253\u5F00\u7F51\u9875');
+});
+
+test('LINK-IMAGE-E4R5: \u9009\u4E2D\u6587\u672C \u2192 \u52A0\u94FE\uFF08InsertUrlModal\uFF09\u2192 \u4E0D\u70B9\u786E\u5B9A\u76F4\u63A5\u56DE\u8F66 \u2192 \u94FE\u63A5\u5E94\u7528\u4E14\u9009\u4E2D\u5185\u5BB9\u4E0D\u4E22\u5931\uFF08R5 G1+G2\uFF09', async ({
+  page,
+}) => {
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+  await page.keyboard.type('\u94FE\u63A5\u6587\u672C', { delay: 20 });
+  await page.keyboard.press('Control+a');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+
+  // \u52A0\u94FE \u2192 InsertUrlModal \u2192 \u8F93\u5165 URL \u540E\u3010\u76F4\u63A5\u56DE\u8F66\u3011\uFF08\u4E0D\u70B9\u786E\u5B9A\uFF09
+  await toolbar.locator('button[title="\u94FE\u63A5"]').click();
+  const modal = page.locator('.insert-url-modal-overlay');
+  await expect(modal).toBeVisible();
+  await modal.locator('#insert-url-modal-input').click();
+  await page.keyboard.type('www.baidu.com', { delay: 10 });
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(400);
+
+  // G1/G2\uFF1A\u94FE\u63A5\u5B58\u5728\uFF0CtextContent \u4E0D\u4E22\uFF0C\u7126\u70B9/\u9009\u533A\u6062\u590D
+  const link = page.locator('a.inline-link');
+  await expect(link).toHaveCount(1);
+  await expect(link).toHaveAttribute('data-href', /https:\/\/www\.baidu\.com/);
+  // \u53EF\u89C6\u5316\u6587\u672C = \u539F\u9009\u4E2D label\uFF08\u5265\u79BB .md-syntax \u6807\u8BB0\u5B57\u7B26\uFF09
+  const label = await link.evaluate((el) => {
+    const clone = el.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('.md-syntax').forEach((n) => n.remove());
+    return (clone.textContent ?? '').replace(/\u200B/g, '');
+  });
+  expect(label).toBe('\u94FE\u63A5\u6587\u672C');
+  // \u6E90 markdown \u4E0E DOM textContent \u4E00\u81F4\uFF08\u5185\u5BB9\u672A\u4E22\u5931\uFF09
+  await expect(editable).toHaveText('[\u94FE\u63A5\u6587\u672C](www.baidu.com)');
+  // \u9009\u533A\u6062\u590D\uFF1AactiveElement \u5728\u5757\u5185\u5BB9\u5185\uFF0C\u4E14 selection \u975E\u7A7A\uFF08\u9009\u4E2D\u94FE\u63A5 label\uFF09
+  const activeInBlock = await page.evaluate(() => {
+    const ae = document.activeElement;
+    return !!ae && (!!ae.closest('.block-content') || !!ae.closest('.content-block-inner'));
+  });
+  expect(activeInBlock).toBe(true);
+  const selText = await page.evaluate(() => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return '';
+    const r = sel.getRangeAt(0);
+    return (r.toString() || '').replace(/\u200B/g, '');
+  });
+  expect(selText.length).toBeGreaterThan(0);
 });
 
 test('LINK-IMAGE-E3: 图片直选 · 本地路径（pickImage=C:\\playwright\\a.png）→ 行内替换 img src=media://C%3A/... 且加载失败回退占位、无残留 img（G1+G3）', async ({

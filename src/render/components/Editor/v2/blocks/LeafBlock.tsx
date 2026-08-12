@@ -8,13 +8,15 @@ import React from 'react';
 import type { BlockNodeV2 } from '@render/editor/kernel';
 import { parseImageBlockText } from '@render/editor/kernel';
 import { setCursorAtOffset, stripZeroWidth } from '@render/editor/kernel/selection';
-import { toDisplayHtml } from '@render/editor/kernel';
+import { toDisplayHtml, applyRuntimeWidths } from '@render/editor/kernel';
 import ContentBlock from './ContentBlock';
-import type { BlockHandlers } from '@render/components/Editor/v2/types';
+import type { BlockHandlers, InlineWidthMap } from '@render/components/Editor/v2/types';
 
 interface LeafBlockProps {
   block: BlockNodeV2;
   handlers: BlockHandlers;
+  /** R1：该块的行内图会话宽度 map（可选） */
+  blockWidthMap?: InlineWidthMap;
 }
 
 const HEADING_SIZE: Record<number, string> = {
@@ -26,7 +28,7 @@ const HEADING_SIZE: Record<number, string> = {
   6: 'text-[14px] font-[500] mt-3 mb-1',
 };
 
-const LeafBlock: React.FC<LeafBlockProps> = ({ block, handlers }) => {
+const LeafBlock: React.FC<LeafBlockProps> = ({ block, handlers, blockWidthMap }) => {
   switch (block.type) {
     case 'heading': {
       const level = block.meta?.headingLevel ?? 1;
@@ -53,7 +55,7 @@ const LeafBlock: React.FC<LeafBlockProps> = ({ block, handlers }) => {
           'data-placeholder': `Heading ${level}`,
           onClick: handleHeadingClick,
         },
-        <ContentBlock blockId={block.id} text={block.text ?? ''} inlineHtml={block.inlineHtml} placeholder={`Heading ${level}`} {...handlers} />
+        <ContentBlock blockId={block.id} text={block.text ?? ''} inlineHtml={block.inlineHtml} placeholder={`Heading ${level}`} blockWidthMap={blockWidthMap} {...handlers} />
       );
     }
     case 'paragraph':
@@ -63,7 +65,7 @@ const LeafBlock: React.FC<LeafBlockProps> = ({ block, handlers }) => {
           className="paragraph-block text-[14px] font-normal leading-[1.65] mb-1 text-[var(--text-primary)]"
           data-placeholder="Type something..."
         >
-          <ContentBlock blockId={block.id} text={block.text ?? ''} inlineHtml={block.inlineHtml} placeholder="Type something..." {...handlers} />
+          <ContentBlock blockId={block.id} text={block.text ?? ''} inlineHtml={block.inlineHtml} placeholder="Type something..." blockWidthMap={blockWidthMap} {...handlers} />
         </p>
       );
     case 'thematic-break':
@@ -80,11 +82,19 @@ const LeafBlock: React.FC<LeafBlockProps> = ({ block, handlers }) => {
       );
     case 'image-block': {
       // 非编辑块：对齐时外层 div 加 textAlign（内层 HTML 由 renderBlockHtml 生成，
-      // wrapper 不出现为转义文本；img data-start/data-end 为绝对偏移）
+      // wrapper 不出现为转义文本；img data-start/data-end 为绝对偏移）。
+      // R1：width 从 parsed.width 写入外层 div 的 width（img max-width:100% 缩放，G4）。
       const parsed = parseImageBlockText(block.text ?? '');
       const alignStyle: React.CSSProperties | undefined = parsed?.align
-        ? { textAlign: parsed.align }
+        ? parsed.width != null
+          ? { textAlign: parsed.align, width: `${parsed.width}px` }
+          : { textAlign: parsed.align }
         : undefined;
+      // R1：独立图若也在会话 map 中（通常已持久化到文本，此处保持行为一致），叠加应用
+      const innerHtml = toDisplayHtml(block.inlineHtml, block.text ?? '');
+      const renderedHtml = blockWidthMap && Object.keys(blockWidthMap).length > 0
+        ? applyRuntimeWidths(innerHtml, blockWidthMap)
+        : innerHtml;
       return (
         <div
           data-block-id={block.id}
@@ -92,7 +102,7 @@ const LeafBlock: React.FC<LeafBlockProps> = ({ block, handlers }) => {
           style={alignStyle}
           contentEditable={false}
           suppressContentEditableWarning
-          dangerouslySetInnerHTML={{ __html: toDisplayHtml(block.inlineHtml, block.text ?? '') }}
+          dangerouslySetInnerHTML={{ __html: renderedHtml }}
         />
       );
     }

@@ -7,7 +7,7 @@ import React, { forwardRef, useEffect, useImperativeHandle, useRef } from 'react
 
 import type { BlockTreeV2 } from '@render/editor/kernel';
 import BlockRenderer from './BlockRenderer';
-import type { BlockHandlers } from './types';
+import type { BlockHandlers, BlockWidthMap } from './types';
 
 export interface EditorScrollContainerHandle {
   scrollToBlock: (blockId: string) => void;
@@ -17,11 +17,13 @@ export interface EditorScrollContainerHandle {
 interface EditorScrollContainerProps {
   tree: BlockTreeV2;
   handlers: BlockHandlers;
+  /** R1：块→行内图宽度 map（透传 BlockRenderer） */
+  blockWidthMap: BlockWidthMap;
   onScroll?: (scrollTop: number, containerEl: HTMLElement) => void;
 }
 
 const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScrollContainerProps>(
-  ({ tree, handlers, onScroll }, ref) => {
+  ({ tree, handlers, blockWidthMap, onScroll }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
 
     useImperativeHandle(ref, () => ({
@@ -57,7 +59,13 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
             </div>
           ) : (
             tree.root.childrenIds.map((childId) => (
-              <BlockRenderer key={childId} blockId={childId} tree={tree} handlers={handlers} />
+              <BlockRenderer
+                key={childId}
+                blockId={childId}
+                tree={tree}
+                handlers={handlers}
+                blockWidthMap={blockWidthMap[childId]}
+              />
             ))
           )}
         </div>

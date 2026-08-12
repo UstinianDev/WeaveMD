@@ -357,18 +357,25 @@ describe('formatCtrl — removeImage（K3：移除图片）', () => {
     expect(instance.tree.blocks[next.id].text).toBe('next');
   });
 
-  it('image-block：无后邻居 → focus 前一叶子末尾', () => {
+  it('image-block：无后邻居 → focus 后一空段（R2 解析期补偿补充的尾随空段）', () => {
+    // R2：`prev\n\n![a](x)` 解析期在图片后补偿空段 → [prev, image-block, paragraph('')]。
+    // 删除图片后图片不再，focus 落在原尾随空段（offset 0）。
     const instance = new EditorInstance('prev\n\n![a](C:/x.png)');
     const img = Object.values(instance.tree.blocks).find(
       (b) => b.type === 'image-block'
     )!;
-    const prev = Object.values(instance.tree.blocks).find((b) => b.text === 'prev')!;
+    const p = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'paragraph' && b.text === ''
+    )!;
     const r = removeImage(instance, img.id, 0, 14);
     expect(instance.tree.blocks[img.id]).toBeUndefined();
-    expect(r?.focus).toEqual({ blockId: prev.id, offset: 4 });
+    expect(r?.focus).toEqual({ blockId: p.id, offset: 0 });
+    expect(instance.tree.blocks).not.toContain(img.id);
   });
 
-  it('image-block：删除后树只剩根 → 补空段落并 focus', () => {
+  it('image-block：删除后树只剩根 → 保留既有尾随空段（R2 解析期已补），focus 该空段', () => {
+    // R2：`![a](x)` 解析期即补空段 → [image-block, paragraph('')]。删除图片后空段已存在，
+    // removeImage 不再追加重复空段，changedBlockIds 仅含被删图片。
     const instance = new EditorInstance('![a](C:/x.png)');
     const img = Object.values(instance.tree.blocks).find(
       (b) => b.type === 'image-block'
@@ -379,13 +386,13 @@ describe('formatCtrl — removeImage（K3：移除图片）', () => {
     expect(leaves[0].type).toBe('paragraph');
     expect(leaves[0].text).toBe('');
     expect(r?.focus).toEqual({ blockId: leaves[0].id, offset: 0 });
-    expect(r?.changedBlockIds).toEqual([img.id, leaves[0].id]);
+    expect(r?.changedBlockIds).toEqual([img.id]);
   });
 
-  it('Bug C：代码块 + image-block（markdown 解析产物）→ 移除图片 → 代码块后补回受保护空段并 focus（SPEC-EDIT-CBTP）', () => {
+  it('Bug C：代码块 + image-block（markdown 解析产物）→ 移除图片 → 保留代码块后受保护空段并 focus（SPEC-EDIT-CBTP / R2）', () => {
     // 复现根因：` ``` ` 后直接跟独立行图片，parse 得 [code-block, image-block]（无中间空段）。
-    // 移除 image-block 时 adjacentLeafFocus('next') 无 next 回退 prev=code-block（非空），
-    // 原逻辑因此跳过补空 → 代码块成为最后一块且无尾随空行（Bug C）。
+    // R2 解析期在图片后补偿空段 → [code-block, image-block, paragraph('')]。移除 image-block
+    // 时 adjacentLeafFocus('next') 命中该空段，无需再补 → changedBlockIds 仅含被删图片。
     const instance = new EditorInstance('```js\ncode\n```\n\n![a](C:/x/a.png)');
     const img = Object.values(instance.tree.blocks).find(
       (b) => b.type === 'image-block'
@@ -398,7 +405,7 @@ describe('formatCtrl — removeImage（K3：移除图片）', () => {
     expect(leaves[1].type).toBe('paragraph');
     expect(leaves[1].text).toBe('');
     expect(r?.focus).toEqual({ blockId: leaves[1].id, offset: 0 });
-    expect(r?.changedBlockIds).toEqual([img.id, leaves[1].id]);
+    expect(r?.changedBlockIds).toEqual([img.id]);
   });
 
   it('Bug C：代码块 + 受保护空段 + image-block → 移除图片 → 保护空段保留、不追加重复空段', () => {

@@ -19,7 +19,7 @@ import {
   type BlockTypeOption,
   type ImageSelection,
 } from './types';
-import { computeToolbarState, syntaxTypeToOption, type SelectionState } from './toolbarState';
+import { computeToolbarState, syntaxTypeToOption, type LinkRect, type SelectionState } from './toolbarState';
 import { createRafThrottle } from '@render/utils/rafThrottle';
 import InsertUrlModal from './InsertUrlModal';
 import ImageToolbar from './ImageToolbar';
@@ -143,6 +143,27 @@ const OBJECT_BUTTONS: FormatButton[] = [
   { style: 'math', label: '∑', title: '数学公式', group: 'object' },
 ];
 
+/**
+ * SPEC-EDIT-FT R4：从当前 DOM 选区上溯到编辑器内的 `a.inline-link` 链接元素，
+ * 取其 getBoundingClientRect() 作为工具栏"链接正左方"定位的参考盒。
+ * 折叠光标（startContainer=链接内容文本节点）与覆盖链接文本的选区统一走该路径。
+ * 找不到链接（非链接命中 / 链接不在编辑器容器内）→ null，回落既有上方居中。
+ */
+function getLinkRect(sel: Selection | null, container: HTMLElement): LinkRect | null {
+  if (!sel || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  const node = range.startContainer ?? sel.anchorNode;
+  if (!node) return null;
+  const el =
+    node.nodeType === Node.ELEMENT_NODE ? (node as Element) : (node.parentElement as Element | null);
+  if (!el) return null;
+  const link = el.closest('a.inline-link');
+  if (!link || !container.contains(link)) return null;
+  const r = link.getBoundingClientRect();
+  if (r.width === 0 && r.height === 0) return null;
+  return { top: r.top, left: r.left, width: r.width, height: r.height };
+}
+
 const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   editorContainerRef,
   tree,
@@ -182,6 +203,11 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   const stickyRef = useRef(false);
   // 点击工具栏外 → hide 后，浏览器随后的 selectionchange 不得重显（消费一次）
   const suppressSelectionRef = useRef(false);
+  // SPEC-EDIT-FT R4/G4：当前显示的工具栏是否为链接命中（inLink）——滚动时据此决定
+  // 重锚定（link）还是沿用既有滚动隐藏（非 link）
+  const linkSelectedRef = useRef(false);
+  // 链接命中的上一次实际选区（DOM Selection），滚动重查链接 rect 时复用
+  const linkHitSelectionRef = useRef<Selection | null>(null);
 
   const setVisibleGuarded = useCallback((value: boolean) => {
     if (visibleRef.current !== value) {
@@ -218,6 +244,35 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     const container = editorContainerRef.current;
     if (!container) return;
 
+    // 统一计算并应用工具栏状态（flushSelection / scroll 重锚定共用）。
+    // linkRect 由调用方按需传入（链接命中时来自 getLinkRect 的实时盒）。
+    const recompute = (sel: Selection | null, linkRect: LinkRect | null) => {
+      const state = computeToolbarState(
+        sel,
+        container,
+        toolbarRef.current?.offsetWidth ?? 320,
+        toolbarRef.current?.offsetHeight ?? 40,
+        tree,
+        linkRect
+      );
+      if (state.kind === 'hide') {
+        setVisibleGuarded(false);
+        return;
+      }
+      if (state.kind === 'delay-hide') {
+        scheduleHide();
+        return;
+      }
+      cancelHide();
+      // SPEC-EDIT-FT R4：仅当显示态为链接命中（inLink）时记录"链接工具栏"，
+      // 供滚动守卫重锚定判定；非链接工具栏不置位（回归边界不动）
+      linkSelectedRef.current = state.selection.inLink;
+      linkHitSelectionRef.current = state.selection.inLink ? sel : null;
+      setSelection(state.selection);
+      setPosition(state.position);
+      setVisibleGuarded(true);
+    };
+
     const flushSelection = () => {
       // U5/K3b：Modal / ImageEditTool 打开期间（输入框获焦会收起选区）不得隐藏工具栏
       if (insertModal !== null || imageModalOpen) {
@@ -235,25 +290,10 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         suppressSelectionRef.current = false;
         return;
       }
-      const state = computeToolbarState(
-        latestSelectionRef.current,
-        container,
-        toolbarRef.current?.offsetWidth ?? 320,
-        toolbarRef.current?.offsetHeight ?? 40,
-        tree
-      );
-      if (state.kind === 'hide') {
-        setVisibleGuarded(false);
-        return;
-      }
-      if (state.kind === 'delay-hide') {
-        scheduleHide();
-        return;
-      }
-      cancelHide();
-      setSelection(state.selection);
-      setPosition(state.position);
-      setVisibleGuarded(true);
+      const sel = latestSelectionRef.current;
+      // SPEC-EDIT-FT R4：选区命中链接 → 取链接元素实时盒传入定位；否则 null（上方居中）。
+      const linkRect = getLinkRect(sel, container);
+      recompute(sel, linkRect);
     };
 
     const selectionThrottle = createRafThrottle(flushSelection);
@@ -264,6 +304,14 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     };
 
     const handleScroll = () => {
+      // SPEC-EDIT-FT G4：仅"链接工具栏"场景滚动 → 重查链接 rect 重定位（不隐藏）；
+      // 且需工具栏当前仍可见（显式 Escape/外部点击隐藏后不得因滚动重显）。
+      if (linkSelectedRef.current && visibleRef.current && linkHitSelectionRef.current) {
+        const linkRect = getLinkRect(linkHitSelectionRef.current, container);
+        recompute(linkHitSelectionRef.current, linkRect);
+        return;
+      }
+      // 非链接场景保持既有"滚动隐藏"行为（回归边界不动）
       stickyRef.current = false;
       setVisibleGuarded(false);
     };
@@ -286,6 +334,10 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     const handleMouseDown = (e: MouseEvent) => {
       // U5/K3b：Modal / ImageEditTool 打开期间点击自身或外部均由弹层处理，不隐工具栏
       if (isModalOpen) return;
+      // R1：图片选中框/四角缩放手柄（.image-resize-box）由 ImageResizeBox 自管拖拽，
+      // 不属于工具栏/图片工具栏交互区——点击其手柄不应关闭图片选中（否则拖拽被终止）。
+      const target = e.target as Element;
+      if (target.closest?.('.image-resize-box')) return;
       // K4：图片工具栏打开期间，点击工具栏外任意位置 → 关闭图片选中（恢复文本工具栏）
       if (imageSelection && !wrapRef.current?.contains(e.target as Node)) {
         onCloseImage?.();

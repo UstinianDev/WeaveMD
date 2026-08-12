@@ -124,10 +124,17 @@ describe('SPEC-EDIT-FT2 CSS: 新增行内对象类', () => {
 });
 
 describe('SPEC-EDIT-LINK-IMAGE CSS: tooltip + 图片占位（editor-link-image-fix D1）', () => {
-  it('CL1: a.inline-link:hover::after 用 attr(data-href) 且全文件无 --link-tip 残留', () => {
+  it('CL1: a.inline-link:hover::after 用新提示文案「ctrl + 左键  打开网页」且全文件无 --link-tip 残留（R3）', () => {
     const b = blockText('a.inline-link:hover::after');
-    expect(b).toMatch(/content:\s*attr\(data-href\)/);
-    // 通用提示样式断言
+    // R3：不再展示原始 URL，改为深蓝加粗斜体操作提示（键字后双空格字面量）
+    expect(b).not.toMatch(/content:\s*attr\(data-href\)/);
+    expect(b).toMatch(/content:\s*'ctrl \+ 左键 {2}打开网页'/);
+    expect(b).toMatch(/color:\s*#1d4ed8/);
+    expect(b).toMatch(/font-weight:\s*700/);
+    expect(b).toMatch(/font-style:\s*italic/);
+    expect(b).toMatch(/font-size:\s*12px/);
+    expect(b).toMatch(/letter-spacing:\s*0\.5px/);
+    // 通用提示样式断言（定位沿用）
     expect(b).toMatch(/position:\s*absolute/);
     expect(b).toMatch(/border-radius/);
     expect(b).toMatch(/box-shadow/);
