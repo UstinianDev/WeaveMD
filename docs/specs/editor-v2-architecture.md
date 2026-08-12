@@ -994,10 +994,18 @@ image-block，focus 于文本末尾。经 `stateToMarkdown` 同步到磁盘内�
 - 点击独立图或行内图 → 显示 `.image-resize-box`（fixed 覆盖层，`z-[90]` 低于工具栏
   `z-[100]`，`pointer-events:none`，1.5px accent 外轮廓）+ 4 个角手柄
   （`.image-resize-handle`，`data-handle=nw/ne/sw/se`，`pointer-events:auto`，cursor 对角）。
+- **手柄角对齐**：手柄定位 `off = -6`，四个角统一用负偏移（west/north `left/top:-6`，
+  east/south `right/bottom:-6`）使手柄中心精确落在图片角上。旧实现 east/south 用了正
+  `right/bottom`（内缩一个手柄宽 ~9.5px，仅 NW 近似对齐）+ 未补偿 1.5px 边框——已修复
+  （E2E 断言四角偏差 ≤1.5px）。
 - **拖拽生命周期**（`ImageResizeBox`）：mousedown 手柄记录起始宽与角 → document mousemove
-  实时改 `<img style.width>`（**仅改 DOM，不触发 React 重渲染**，height auto 保宽高比）→
-  mouseup 提交。宽度钳制 `[32px, 容器内容宽]`（`resizeMath.computeResizeWidth`，纯函数
-  横向敏感：east+1 / west-1），滚动/提交后重查 img rect 重锚定（对齐 ImageToolbar Bug-B 模式）。
+  实时改 `<img style.width>` **并同步直改选中框 DOM**（`boxRef`，`left/top/width/height`
+  一次 `getBoundingClientRect` 读取）——**全程不触发 React setState/重渲染**，快速拖拽
+  选中框与图片零滞后（height auto 保宽高比）→ mouseup 提交并把 state 同步到最终盒。
+- **宽度算术**（`resizeMath.computeResizeWidth(startWidth, dx, dy, corner, min, max)`）：
+  横向 east+1 / west-1、纵向 south+1 / north-1，取**主轴向**（|dx| ≥ |dy| 用横，否则用纵）
+  增量 → 斜上/斜下对角拖拽实时等比例；钳制 `[32px, 容器内容宽]`，非有限输入回落 min。
+  滚动/提交后重查 img rect 重锚定（对齐 ImageToolbar Bug-B 模式）。
 - **提交分流**：standalone → `onResizeStandalone`（`setImageWidth` 持久化文本）；
   inline → `onResizeInline`（写会话 map 触发重渲染注入）。
 
@@ -1006,6 +1014,7 @@ image-block，focus 于文本末尾。经 `stateToMarkdown` 同步到磁盘内�
 `FloatingToolbar` 的 document capture mousedown 对 `.image-resize-box` 目标直接放行
 （`handleMouseDown` 首段返回），缩放手柄拖拽不被工具栏"点击外部关闭"逻辑中断。
 
-**验证**：新增 `ImageResizeBox` 组件测试 + `resizeMath` 纯函数单测（钳制/角方向/取整）+
-`imageBlock` width 解析/包裹 round-trip 用例 + EditorV2 缩放接线；全量 `vitest run`、
-Playwright E2E（含真实 Chromium 图片缩放）门禁通过。
+**验证**：新增 `ImageResizeBox` 组件测试（含拖拽期**同步直改 DOM** 断言，捕获
+setState 滞后）+ `resizeMath` 纯函数单测（钳制/角方向/主轴向对角/取整/防御）+ E2E
+`R1·E7` 手柄四角对齐回归 + `R1·E8` 对角拖拽主分量放大；全量 `vitest run`、
+Playwright E2E（真实 Chromium）门禁通过。

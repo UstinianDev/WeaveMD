@@ -216,4 +216,27 @@ describe('ImageResizeBox — 四角拖拽缩放提交（G2）', () => {
     });
     expect(onResizeInline).toHaveBeenCalledWith('b1', 0, 10, 32);
   });
+
+  it('拖拽期宽度同步直改 DOM（不经 React setState，避免快速拖拽滞后）', () => {
+    stubAreaWidth(1000);
+    const { ref, img } = setupContainer();
+    const { container: rc } = render(
+      <ImageResizeBox
+        imageSelection={makeSelection()}
+        editorContainerRef={ref as React.RefObject<HTMLDivElement>}
+        onResizeStandalone={vi.fn()}
+        onResizeInline={vi.fn()}
+      />
+    );
+    const box = rc.querySelector('.image-resize-box') as HTMLElement;
+    const se = rc.querySelector('[data-handle="se"]')!;
+    act(() => {
+      se.dispatchEvent(new MouseEvent('mousedown', { clientX: 100, bubbles: true, cancelable: true }));
+    });
+    // 裸 mousemove（不经 act 包裹）：若走 setState，React 尚未 flush → box 仍是旧宽；
+    // 直改 DOM（boxRef/img.style.width）则此刻已同步。断言同步性是唯一能捕获"拖拽滞后"的判据。
+    document.dispatchEvent(new MouseEvent('mousemove', { clientX: 150, bubbles: true })); // dx +50 → 250
+    expect(img.style.width).toBe('250px');
+    expect(box.style.width).toBe('250px');
+  });
 });

@@ -5,9 +5,10 @@
 // - fixed 覆盖层（z-[90]，须低于 ImageToolbar z-[100]），`pointer-events:none`，
 //   仅手柄 `auto`（G6 不挡文字选中 / 工具栏点击）。
 // - 外轮廓与手柄位置由图片 rect 计算（本地 state），滚动/提交后重查 img rect 跟随（G6）。
-// - mousedown 手柄 → document mousemove 实时改 `<img style.width>`（只改 DOM，不触发
-//   React 重渲染，G2 实时）；mouseup 提交：独立图 → onResizeStandalone（setImageWidth）；
-//   行内图 → onResizeInline（写会话 map）。拖拽期宽高比由 CSS height:auto 保持。
+// - mousedown 手柄 → document mousemove 实时改 `<img style.width>` 并同步直改选中框 DOM
+//   （boxRef，不经 setState，避免快速拖拽滞后），主轴向（dx/dy 取大者）对角实时等比例；
+//   mouseup 提交：独立图 → onResizeStandalone（setImageWidth）；行内图 → onResizeInline
+//   （写会话 map）。拖拽期宽高比由 CSS height:auto 保持。
 // - 纯交互/算术逻辑（computeResizeWidth）已下沉到 resizeMath.ts（可单测）。
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -38,6 +39,8 @@ const ImageResizeBox: React.FC<ImageResizeBoxProps> = ({
   // 覆盖层锚点 rect（本地，滚动/提交后重查 img）。惰性初始化自 imageSelection.rect。
   const [rect, setRect] = useState<ImageSelection['rect']>(() => imageSelection.rect);
   const draggingRef = useRef<ResizeCorner | null>(null);
+  // 拖拽期直改选中框 DOM（不经 setState，避免 React 渲染滞后导致选中框跟不上图片）
+  const boxRef = useRef<HTMLDivElement>(null);
 
   // 当前 rect 的 DOM img 节点（data-start/data-end 定位，供实时改 style.width）
   const getSelectedImg = useCallback((): HTMLImageElement | null => {
@@ -94,21 +97,32 @@ const ImageResizeBox: React.FC<ImageResizeBoxProps> = ({
       const styleRead = parseInt(img.style.width, 10);
       const startWidth = rectRead || styleRead || imageSelection.width || 0;
       const startX = e.clientX;
+      const startY = e.clientY;
       const min = IMAGE_RESIZE_MIN_WIDTH;
       const max = getMaxWidth();
 
       const handleMove = (ev: MouseEvent) => {
         const c = draggingRef.current;
         if (!c) return;
-        const dx = ev.clientX - startX;
-        const next = computeResizeWidth(startWidth, dx, c, min, max);
-        // 只改 DOM img style.width，不触发 React 重渲染（G2 实时 + 性能）
+        // 主轴向（dx/dy 取绝对量更大者）→ 斜上方/下方拖拽实时等比例（宽高比由 height:auto 保持）
+        const next = computeResizeWidth(
+          startWidth,
+          ev.clientX - startX,
+          ev.clientY - startY,
+          c,
+          min,
+          max
+        );
+        // 直改 DOM（img + 选中框），不触发 React 重渲染（G2 实时，避免快速拖拽滞后）
         img.style.width = `${next}px`;
-        // 同步本地 rect 宽（选中框跟手）
-        setRect((prev) => ({ ...prev, width: next }));
-        // 拖拽末帧更新 img 盒高（height auto 由 CSS 保持，但 rect 的宽已是 next）
-        const r = img.getBoundingClientRect();
-        setRect({ top: r.top, left: r.left, width: next, height: r.height });
+        const boxEl = boxRef.current;
+        if (boxEl) {
+          const r = img.getBoundingClientRect();
+          boxEl.style.left = `${r.left}px`;
+          boxEl.style.top = `${r.top}px`;
+          boxEl.style.width = `${next}px`;
+          boxEl.style.height = `${r.height}px`;
+        }
       };
 
       const handleUp = () => {
@@ -124,7 +138,7 @@ const ImageResizeBox: React.FC<ImageResizeBoxProps> = ({
             onResizeInline(imageSelection.blockId, imageSelection.start, imageSelection.end, finalWidth);
           }
         }
-        // 提交/重渲染后重查 img rect，刷新选中框与外轮廓
+        // 提交/重渲染后重查 img rect，把 state 同步到最终盒（供后续滚动重锚定与再渲染）
         const r = img.getBoundingClientRect();
         setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
       };
@@ -145,11 +159,14 @@ const ImageResizeBox: React.FC<ImageResizeBoxProps> = ({
   const top = rect.top;
   const width = Math.max(0, rect.width);
   const height = Math.max(0, rect.height);
-  // 手柄中心点（外扩 4px，落在轮廓角上）
-  const off = -4;
+  // 手柄中心精确落在图片角上：负 offset 使手柄外扩，且补偿 .image-resize-box 的 1.5px 边框。
+  // 注意 east/south 也用同一负值（right:-6/bottom:-6 向外扩），与 west/north 符号一致——
+  // 旧实现 east/south 用了正 right/bottom（内缩），导致东/南手柄偏离一个手柄宽。
+  const off = -6;
 
   return (
     <div
+      ref={boxRef}
       className="image-resize-box fixed z-[90] pointer-events-none select-none"
       data-testid="image-resize-box"
       style={{ left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` }}
@@ -165,9 +182,9 @@ const ImageResizeBox: React.FC<ImageResizeBoxProps> = ({
             className="image-resize-handle pointer-events-auto"
             style={{
               left: `${isWest ? off : 'auto'}px`,
-              right: isWest ? 'auto' : `${-off}px`,
+              right: isWest ? 'auto' : `${off}px`,
               top: `${isNorth ? off : 'auto'}px`,
-              bottom: isNorth ? 'auto' : `${-off}px`,
+              bottom: isNorth ? 'auto' : `${off}px`,
             }}
             onMouseDown={(e) => handleMouseDown(e, corner)}
           />
