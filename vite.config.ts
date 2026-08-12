@@ -4,6 +4,12 @@ import electron from 'vite-plugin-electron';
 import electronRenderer from 'vite-plugin-electron-renderer';
 import { resolve } from 'path';
 
+const aliases = {
+  '@main': resolve(__dirname, 'src/main'),
+  '@render': resolve(__dirname, 'src/render'),
+  '@shared': resolve(__dirname, 'src/shared'),
+};
+
 export default defineConfig({
   plugins: [
     react(),
@@ -11,6 +17,9 @@ export default defineConfig({
       {
         entry: 'src/main/index.ts',
         vite: {
+          resolve: {
+            alias: aliases,
+          },
           build: {
             outDir: 'dist-main',
             rollupOptions: {
@@ -25,6 +34,9 @@ export default defineConfig({
           options.reload();
         },
         vite: {
+          resolve: {
+            alias: aliases,
+          },
           build: {
             outDir: 'dist-main',
           },
@@ -34,11 +46,7 @@ export default defineConfig({
     electronRenderer(),
   ],
   resolve: {
-    alias: {
-      '@main': resolve(__dirname, 'src/main'),
-      '@render': resolve(__dirname, 'src/render'),
-      '@shared': resolve(__dirname, 'src/shared'),
-    },
+    alias: aliases,
   },
   root: '.',
   build: {
