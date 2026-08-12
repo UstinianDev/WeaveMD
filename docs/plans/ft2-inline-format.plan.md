@@ -201,7 +201,7 @@
 **目标**：按钮分组/新按钮/橡皮擦/activeTest 边界/尺寸类迁移。
 
 **测试文件**：
-- `tests/components/floatingToolbarV2.test.tsx`（扩展 +8 例）：TB1~TB8（见 §5.1），复用既有 `setup`/`mockSelection`/rAF stub
+- `tests/components/FloatingToolbarV2.test.tsx`（扩展 +8 例）：TB1~TB8（见 §5.1），复用既有 `setup`/`mockSelection`/rAF stub
 
 **生产文件**：
 - `src/render/components/Editor/v2/FloatingToolbar.tsx`：
@@ -214,9 +214,9 @@
 
 **RED 预期失败点**：TB1 按钮集合/顺序断言失败（当前 6 按钮、link 在 highlight 前）；TB2~TB5 按钮不存在/回调未触发；TB6 `*a**` 误判激活。
 
-**GREEN 判据**：新增 8 例全绿；既有 `floatingToolbarV2.test.tsx` 22 例全绿（下拉/映射/矩阵/节流不回归）；`tsc --noEmit` 通过。
+**GREEN 判据**：新增 8 例全绿；既有 `FloatingToolbarV2.test.tsx` 22 例全绿（下拉/映射/矩阵/节流不回归）；`tsc --noEmit` 通过。
 
-**回归门禁**：`npx vitest run -- tests/components/floatingToolbarV2.test.tsx`；`npx tsc --noEmit`；`npx eslint src/render/components/Editor/v2/FloatingToolbar.tsx`
+**回归门禁**：`npx vitest run -- tests/components/FloatingToolbarV2.test.tsx`；`npx tsc --noEmit`；`npx eslint src/render/components/Editor/v2/FloatingToolbar.tsx`
 
 **checkpoint commit**：`feat(ft2): toolbar groups + underline/image/math/eraser buttons`
 
@@ -229,7 +229,7 @@
 **目标**：`onFormat` 补 `url?`、新增 `onClearFormat`、Ctrl+U / Ctrl+Shift+M。
 
 **测试文件**：
-- `tests/components/editorV2Format.test.tsx`（新增，约 5 例，参照 `editorV2Input.test.tsx` 模式）：
+- `tests/components/EditorV2Format.test.tsx`（新增，约 5 例，参照 `EditorV2Input.test.tsx` 模式）：
   1. 折叠光标 Ctrl+U → `onContentChange` 得 `<u></u>` 插入
   2. 折叠光标 Ctrl+Shift+M → 得 `$$`
   3. 选区 Ctrl+U → `<u>sel</u>`；选区 Ctrl+Shift+M → `$sel$`
@@ -241,11 +241,11 @@
 - `src/render/components/Editor/v2/blocks/ContentBlock.tsx`：`onFormat` prop 补 `url?: string`；`handleFormatShortcut` 增 `key==='u' → 'underline'`、`(e.shiftKey && key==='m') → 'math'`（置于 z/y 特判之后）
 - `src/render/components/Editor/v2/EditorV2.tsx`：新增 `onClearFormat` useCallback（`applyAction(instance => formatCtrl.clearFormat(instance, blockId, start, end))`），注册进 `handlers` memo 并传给 `ContentBlock`；`onFormat` 已透传 url（现状保持）
 
-**RED 预期失败点**：editorV2Format 测试中 Ctrl+U/Ctrl+Shift+M 无效果（当前无此快捷键）；类型错误（BlockHandlers 无 url/onClearFormat）。
+**RED 预期失败点**：EditorV2Format 测试中 Ctrl+U/Ctrl+Shift+M 无效果（当前无此快捷键）；类型错误（BlockHandlers 无 url/onClearFormat）。
 
-**GREEN 判据**：新增测试全绿；既有 `editorV2Input.test.tsx` 9 例、`editorV2.test.tsx`/`editorV2Convert.test.tsx` 不回归；`tsc --noEmit` 通过。
+**GREEN 判据**：新增测试全绿；既有 `EditorV2Input.test.tsx` 9 例、`EditorV2.test.tsx`/`EditorV2Convert.test.tsx` 不回归；`tsc --noEmit` 通过。
 
-**回归门禁**：`npx vitest run -- tests/components/editorV2Format.test.tsx tests/components/editorV2Input.test.tsx tests/components/editorV2.test.tsx tests/components/editorV2Convert.test.tsx`；`npx tsc --noEmit`；`npx eslint src/render/components/Editor/v2`
+**回归门禁**：`npx vitest run -- tests/components/EditorV2Format.test.tsx tests/components/EditorV2Input.test.tsx tests/components/EditorV2.test.tsx tests/components/EditorV2Convert.test.tsx`；`npx tsc --noEmit`；`npx eslint src/render/components/Editor/v2`
 
 **checkpoint commit**：`feat(ft2): wire onFormat url + onClearFormat + shortcuts (Ctrl+U / Ctrl+Shift+M)`
 
@@ -343,7 +343,7 @@
 
 **E. roundTrip（`tests/editor/kernel/markdownRoundTrip.test.ts` 扩展，spec 6.1.3）**：RT1 `<u>下划线</u>`；RT2 `$x^2$`；RT3 `![alt](u)`（如存量未覆盖）。
 
-**F. 工具栏（`tests/components/floatingToolbarV2.test.tsx` 扩展，spec 6.1.4）**
+**F. 工具栏（`tests/components/FloatingToolbarV2.test.tsx` 扩展，spec 6.1.4）**
 
 | # | 用例 | 断言 |
 | ---- | ---- | ---- |
@@ -430,8 +430,8 @@
 | 阶段0 | `npx vitest run -- tests/editor/kernel/inlineLexer.test.ts tests/editor/kernel/inlineRenderer.test.ts`；`npx tsc --noEmit` |
 | 阶段1 | `npx vitest run -- tests/editor/kernel/katex.test.ts tests/editor/kernel/inlineLexer.test.ts tests/editor/kernel/inlineRenderer.test.ts tests/editor/controllers/formatCtrl.test.ts tests/editor/kernel/markdownRoundTrip.test.ts`；`npx tsc --noEmit`；`npx eslint src/render/editor/kernel src/render/editor/controllers/formatCtrl.ts` |
 | 阶段2 | `npx vitest run -- tests/styles/ft2Css.test.ts`；`npx tsc --noEmit` |
-| 阶段3 | `npx vitest run -- tests/components/floatingToolbarV2.test.tsx`；`npx tsc --noEmit`；`npx eslint src/render/components/Editor/v2/FloatingToolbar.tsx` |
-| 阶段4 | `npx vitest run -- tests/components/editorV2Format.test.tsx tests/components/editorV2Input.test.tsx tests/components/editorV2.test.tsx tests/components/editorV2Convert.test.tsx`；`npx tsc --noEmit`；`npx eslint src/render/components/Editor/v2` |
+| 阶段3 | `npx vitest run -- tests/components/FloatingToolbarV2.test.tsx`；`npx tsc --noEmit`；`npx eslint src/render/components/Editor/v2/FloatingToolbar.tsx` |
+| 阶段4 | `npx vitest run -- tests/components/EditorV2Format.test.tsx tests/components/EditorV2Input.test.tsx tests/components/EditorV2.test.tsx tests/components/EditorV2Convert.test.tsx`；`npx tsc --noEmit`；`npx eslint src/render/components/Editor/v2` |
 | 阶段5（全量门禁） | `npx tsc --noEmit`；`npm run test`（vitest 全量）；`npx eslint src/`（0 error）；`npx vite build`；`npx playwright test`（全量） |
 | 阶段6 | 复核 `npm run test` + `npx playwright test` 零回归 |
 

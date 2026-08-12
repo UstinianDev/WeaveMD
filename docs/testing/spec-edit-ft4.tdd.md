@@ -55,7 +55,7 @@
 - **删除吸附**（`src/render/editor/kernel/selection.ts`）：`snapSelectionToContent` 把覆盖 open/close 标记的选区边界吸附到内容边界；`deleteSelectionContent` 在选区恰好覆盖成对 token 完整内容区时整 token（含标记）删除，否则吸附后删除内容。`ContentBlock.handleKeyDown` 对单块内非折叠选区且命中吸附时 `preventDefault` 程序化删除（DSG-R1：选 `粗**` → `**加**`，无未闭合残体）。
 - **光标/方向键吸附**（selection.ts + ContentBlock.tsx）：`setCursorAtOffset` 经 `snapOffsetInText`（纯文本版，依赖 tokenizeInline）把落点吸附到内容边界；`handleKeyDown` 拦截 ArrowLeft/Right，目标偏移落入标记区间内时 `preventDefault` + 吸附（DSG-R3b：光标不再落 open 标记两星之间，键入不分裂标记）。
 - **e2e 判定口径重定**（`e2e/drag-selection-markers.spec.ts`）：新增 `readMarkerResidue`（剥离 `.md-syntax` 后检查裸 `*`/`_`），5 处断言由文本字面解析改为渲染残体检测，合法 `**加*粗***`（strong 内嵌 em）不再误判。
-- **测试统计**：`tests/editor/kernel/selection.test.ts` 新增 snapSelectionToContent / deleteSelectionContent / 光标吸附 11 例；`tests/components/contentBlockRestore.test.tsx` 新增删除/方向键吸附 4 例；e2e drag-selection-markers 5/5 passed + floating-toolbar FT4-E1/E2 2 例（S1 叠加验收层，见 §4.2）；vitest 487 通过；playwright 51 通过；tsc / eslint（0 error）干净。
+- **测试统计**：`tests/editor/kernel/selection.test.ts` 新增 snapSelectionToContent / deleteSelectionContent / 光标吸附 11 例；`tests/components/ContentBlockRestore.test.tsx` 新增删除/方向键吸附 4 例；e2e drag-selection-markers 5/5 passed + floating-toolbar FT4-E1/E2 2 例（S1 叠加验收层，见 §4.2）；vitest 487 通过；playwright 51 通过；tsc / eslint（0 error）干净。
 
 ## 3.3 Phase 4 全量门禁（2026-08-09）
 
@@ -68,7 +68,7 @@
 - **U6 纯内容选区产物 open 三连拆分**（`src/render/editor/kernel/inlineLexer.ts`）：`**123**` 选内容前部 `12` 点 italic 的产物 `***12*3**`（strong open `**` + em open `*`，em 内容在 strong 内容开头闭合）此前被 lexer 解析为「字面 `*` + strong(`**12*3**`)」，渲染出现开头孤立 `*` 残体。新增 `matchOpenTripleSplit`：三连 open 无三连 close 时，取 strong close `**` + 内容区首枚单星 em close，构造 `strong[0,9)` 内嵌 `em[2,6)`。渲染 `<strong>**<em>*12*</em>3**</strong>` 无残体、textContent 与源一致；再选斜体内容点 italic 正确回退 `**123**`。与 AGT-B 的 close run 拆分对称。
   - 测试：inlineLexer +2（`***12*3**` / `***a*b**` 结构断言）、inlineRenderer +1（渲染无残体 + textContent）、formatCtrl +2（叠加产物 + 回退闭环）。
 - **原生拖拽移动选区禁用**（`src/render/components/Editor/v2/EditorV2.tsx`）：contentEditable 原生允许「选中含 `.md-syntax` 标记的选区 → 拖拽移动到别处/别行」，标记被当普通文本拖走破坏语法。根容器新增 `onDragStart={(e) => e.preventDefault()}` 全量阻止原生拖拽移动；跨块拖选走 mousedown/mousemove 自实现（`useCrossBlockDragSelection`），不受影响。
-  - 测试：组件单测 +1（dragstart 被 preventDefault，editorV2Format.test.tsx）；e2e 新增 `e2e/drag-selection-move.spec.ts`（DSM-R1：含标记选区存在时根容器 dragstart defaultPrevented=true）。修复前该用例 RED（defaultPrevented=false）已实测确认。注：Chromium contentEditable 原生文本拖拽的 drop 阶段无法用 Playwright 合成鼠标（CDP Input.dispatchMouseEvent）稳定触发，故采用事件级断言 + 组件单测共同守护。
+  - 测试：组件单测 +1（dragstart 被 preventDefault，EditorV2Format.test.tsx）；e2e 新增 `e2e/drag-selection-move.spec.ts`（DSM-R1：含标记选区存在时根容器 dragstart defaultPrevented=true）。修复前该用例 RED（defaultPrevented=false）已实测确认。注：Chromium contentEditable 原生文本拖拽的 drop 阶段无法用 Playwright 合成鼠标（CDP Input.dispatchMouseEvent）稳定触发，故采用事件级断言 + 组件单测共同守护。
 - **全量门禁**：vitest 493/493 · tsc 0 error · playwright 全量 52/52（新增 DSM-R1 1 例；cross-block-selection / floating-toolbar / drag-selection-markers / editor / exit-behavior / marktext-rendering 全绿）。
 
 ## 4. 遗留问题 / 风险

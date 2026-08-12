@@ -10,8 +10,8 @@
 | --- | --- | --- | --- | --- | --- |
 | AGT-A 内核 Step0 归一化（G1） | A | inlineLexer/inlineStrip/formatCtrl/kernel.index | formatCtrl.test/inlineLexer.test | 无 | Wave1 并行 |
 | AGT-B 选区工具与类型（G3 基础） | B | kernel/selection、editorInstance | selection.test（新增） | 无 | Wave1 并行 |
-| AGT-C 恢复选区接线（G3） | C | v2/types、EditorV2、ContentBlock | contentBlockRestore.test + 存量回归 | A+B | Wave2 串行 |
-| AGT-D 工具栏驻留（G3） | D | FloatingToolbar | floatingToolbarV2.test + editorV2StickyFormat.test | C | Wave3 |
+| AGT-C 恢复选区接线（G3） | C | v2/types、EditorV2、ContentBlock | ContentBlockRestore.test + 存量回归 | A+B | Wave2 串行 |
+| AGT-D 工具栏驻留（G3） | D | FloatingToolbar | FloatingToolbarV2.test + EditorV2StickyFormat.test | C | Wave3 |
 | AGT-E 尺寸缩小（G4） | E | globals.css | ft2Css.test 回写 + FT2-E1 回写 | 无 | Wave1 并行 |
 | AGT-F E2E + 文档 | F | —（文档） | floating-toolbar.spec.ts + docs 回写 | A~E | Wave4 串行 |
 
@@ -34,8 +34,8 @@ Wave 4（串行）：AGT-F
 
 - A：`npx vitest run tests/editor/controllers/formatCtrl.test.ts tests/editor/kernel/inlineLexer.test.ts` + typecheck
 - B：`npx vitest run tests/editor/kernel/selection.test.ts` + typecheck
-- C：`npx vitest run tests/components/contentBlockRestore.test.tsx tests/components/editorV2Format.test.tsx` + typecheck
-- D：`npx vitest run tests/components/floatingToolbarV2.test.tsx tests/components/editorV2StickyFormat.test.tsx` + typecheck + eslint
+- C：`npx vitest run tests/components/ContentBlockRestore.test.tsx tests/components/EditorV2Format.test.tsx` + typecheck
+- D：`npx vitest run tests/components/FloatingToolbarV2.test.tsx tests/components/EditorV2StickyFormat.test.tsx` + typecheck + eslint
 - E：`npx vitest run tests/styles/ft2Css.test.ts` + `npx playwright test e2e/floating-toolbar.spec.ts -g "FT2-E1"` + typecheck
 - F：全量 `npm test` + typecheck + eslint + `npx vite build` + `npx playwright test`
 

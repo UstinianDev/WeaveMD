@@ -24,10 +24,10 @@
 | `src/render/components/Editor/v2/types.ts` | `BlockTypeOption` 扩至 12 种、`BLOCK_TYPE_OPTIONS`、`canConvertBlock` 转换矩阵 | 生产 |
 | `src/render/components/Editor/v2/FloatingToolbar.tsx` | 导出 `syntaxTypeToOption`/`selectionSyntaxTypesConsistent`；`computeToolbarState` 增 tree 参数做 G1 校验；自定义块类型下拉 | 生产 |
 | `src/render/components/Editor/v2/EditorV2.tsx` | `onConvertBlock` 重写：`canConvertBlock + resolveSyntaxType` 前置校验分发（含 code-block 只读） | 生产 |
-| `src/render/components/Editor/v2/useCrossBlockDragSelection.ts` | rAF 节流 + 反向交换端点 + 非内容区回退 + mouseup 末帧兜底 + 多帧重放 | 生产 |
+| `src/render/hooks/useCrossBlockDragSelection.ts` | rAF 节流 + 反向交换端点 + 非内容区回退 + mouseup 末帧兜底 + 多帧重放 | 生产 |
 | `tests/editor/kernel/syntaxType.test.ts` | 21 例判定矩阵 | 测试 |
-| `tests/components/floatingToolbarV2.test.tsx` | 22 例：G1 显示条件、G3① 下拉展开/选择、G3② 映射、矩阵禁用 | 测试 |
-| `tests/components/editorV2Convert.test.tsx` | 8 例：`onConvertBlock` 转换矩阵分发 | 测试 |
+| `tests/components/FloatingToolbarV2.test.tsx` | 22 例：G1 显示条件、G3① 下拉展开/选择、G3② 映射、矩阵禁用 | 测试 |
+| `tests/components/EditorV2Convert.test.tsx` | 8 例：`onConvertBlock` 转换矩阵分发 | 测试 |
 | `e2e/floating-toolbar.spec.ts` | 5 例：自定义下拉选择器、G1 拖选 h1+h2 不显示、G3② 代码块只读 | 测试 |
 | `e2e/cross-block-selection.spec.ts` | 2 例：正向跨块删除（存量）+ 反向跨块（G2） | 测试 |
 
@@ -38,8 +38,8 @@
 | 阶段 | 内容 | 结果 |
 | ---- | ---- | ---- |
 | Phase 1 | `syntaxType.test.ts` 判定矩阵 21/21 | 绿 |
-| Phase 2 | `floatingToolbarV2.test.tsx` 22/22 + `floating-toolbar.spec.ts` 5/5 | 绿 |
-| Phase 3 | `editorV2Convert.test.tsx` 8/8 | 绿 |
+| Phase 2 | `FloatingToolbarV2.test.tsx` 22/22 + `floating-toolbar.spec.ts` 5/5 | 绿 |
+| Phase 3 | `EditorV2Convert.test.tsx` 8/8 | 绿 |
 | Phase 4 红 | 反向 G2：选区跨块但 `sel.toString()===''`，Backspace 只删部分 | 红 |
 | Phase 4 绿 | 根因：Chromium 跨编辑宿主 `toString()` 仅返回 anchor 块内文本（Range 边界保留跨块）→ G2 改为与正向对称的 Backspace 块树级删除验证；修复 mouseup 末帧丢失与原生收尾覆盖 | 绿 |
 

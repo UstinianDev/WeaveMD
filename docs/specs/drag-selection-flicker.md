@@ -109,10 +109,10 @@ SPEC-EDIT-FT v1.0 之后，编辑区**从下至上**跨块拖选（反向，跨�
 
 | 文件 | 改动 | 风险 |
 | ---- | ---- | ---- |
-| `src/render/components/Editor/v2/useCrossBlockDragSelection.ts` | 4.1 端点级变化检测 + 4.2 停写策略 | 中 |
+| `src/render/hooks/useCrossBlockDragSelection.ts` | 4.1 端点级变化检测 + 4.2 停写策略 | 中 |
 | `src/render/components/Editor/v2/FloatingToolbar.tsx` | 4.3 selectionchange rAF 节流 + visibleRef | 低 |
 | `src/render/editor/kernel/syntaxType.ts` | 4.4 一致性判定短路 + 区间上限 | 低 |
-| `tests/components/floatingToolbarV2.test.tsx` | 节流与短路单元测试（见 6.1） | — |
+| `tests/components/FloatingToolbarV2.test.tsx` | 节流与短路单元测试（见 6.1） | — |
 | `e2e/cross-block-selection.spec.ts` | 新增拖选期间事件节流断言（见 6.2） | — |
 
 ---

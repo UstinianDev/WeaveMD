@@ -25,8 +25,8 @@
 
 | 阶段 | 生产文件 | 测试文件 | 说明 |
 | --- | --- | --- | --- |
-| A | `controllers/formatCtrl.ts`（Step0 归一化 + selection 恢复）、`controllers/selection.ts`（StickySelectionUtil 模块）、`kernel/inlineLexer.ts`（`findIntersectingStyleTokens` 复数 + 三连 `***` 嵌套） | `selection.test.ts`（sticky 3 例）、`formatCtrl.step0.test.ts`（4 例）、`contentBlockRestore.test.tsx`（2 例）、`editorV2StickyFormat.test.tsx`（1 例）、`ft2Css.test.ts`（回写 8 例）、`formatCtrl.test.ts`（C10/C11 +7、C12 +8）、`inlineLexer.test.ts`（复数 +4、三连 +4）、`inlineRenderer.test.ts`（三连 +1） | 单测 + 集成 |
-| B | `FloatingToolbar.tsx`（sticky/驻留/退出路径）、`globals.css`（FT2-E1 尺寸 8→10）、`ContentBlock.tsx`（RestoreSelection hook） | `floatingToolbar.sticky.test.tsx`（4 例）、`floatingToolbarV2.test.tsx`（回写）、`editorV2.sticky.test.tsx`（1 例） | 组件 |
+| A | `controllers/formatCtrl.ts`（Step0 归一化 + selection 恢复）、`controllers/selection.ts`（StickySelectionUtil 模块）、`kernel/inlineLexer.ts`（`findIntersectingStyleTokens` 复数 + 三连 `***` 嵌套） | `selection.test.ts`（sticky 3 例）、`formatCtrl.step0.test.ts`（4 例）、`ContentBlockRestore.test.tsx`（2 例）、`EditorV2StickyFormat.test.tsx`（1 例）、`ft2Css.test.ts`（回写 8 例）、`formatCtrl.test.ts`（C10/C11 +7、C12 +8）、`inlineLexer.test.ts`（复数 +4、三连 +4）、`inlineRenderer.test.ts`（三连 +1） | 单测 + 集成 |
+| B | `FloatingToolbar.tsx`（sticky/驻留/退出路径）、`globals.css`（FT2-E1 尺寸 8→10）、`ContentBlock.tsx`（RestoreSelection hook） | `floatingToolbar.sticky.test.tsx`（4 例）、`FloatingToolbarV2.test.tsx`（回写）、`EditorV2.sticky.test.tsx`（1 例） | 组件 |
 | E | — | `e2e/floating-toolbar.spec.ts`（FT3-E1/E2/E3/E5/E6/E7 共 6 例） | E2E 44 例 |
 
 ## 3. 红/绿证据（片段）
