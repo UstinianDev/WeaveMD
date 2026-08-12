@@ -1,6 +1,6 @@
 # WeaveMD 技术选型文档
 
-> 版本：v2.8 | 最后更新：2026-08-09
+> 版本：v2.9 | 最后更新：2026-08-12
 
 ---
 
@@ -83,6 +83,14 @@ marktext/muya），不依赖 Monaco：
 - **原生拖拽移动选区禁用**（2026-08-09）：EditorV2 根容器 `onDragStart` preventDefault，
   阻止 contentEditable 默认的"选中文本拖走"（含 `.md-syntax` 标记选区不被移动破坏语法）；
   跨块拖选走 mousedown/mousemove 自实现，不受影响
+- **图片功能**（K3~K7，2026-08-11）：`image-block` 原子叶子块（`kernel/imageBlock.ts`，
+  text 保存原始 markdown，含可选 `<div align>` 对齐包裹）；点击图片选中（`imageSelection`）→
+  图片工具栏（修改图片/内联图片/居左/居中/居右/移除图片，行内图对齐/内联置灰）；
+  直选插入走 `dialog.pickImage` 系统文件框（取消 no-op）；本地图经 `media://` 协议显示
+- **本地图 `media://` 协议**（`src/main/media-protocol.ts`，2026-08-12 修复）：以**非 standard**
+  scheme 注册（`MEDIA_SCHEME_PRIVILEGES = { secure, supportFetchAPI, stream }`，不含 `standard`），
+  URL 作为不透明串原样透传 handler，修复盘符编码进 host（`media://C%3A/Users/...`）被标准 scheme
+  host 规范化拒绝导致的完整 app 加载失败
 
 v1（容器级 contentEditable）回退路径已退役（v2 唯一路径，2026-08-06）。
 
@@ -190,11 +198,12 @@ src/
 │   ├── index.ts     # 应用入口
 │   ├── window.ts    # 窗口管理
 │   ├── ipc-handlers.ts  # IPC 通道
+│   ├── media-protocol.ts # media:// 本地图协议（非 standard scheme）
 │   ├── preload.ts   # 安全桥接
 │   └── db/          # SQLite 数据访问层
 ├── render/          # React 前端
 │   ├── editor/      # 编辑内核（v2，与 React 解耦）
-│   │   ├── kernel/          # 块树、双向转换、行内渲染、selection
+│   │   ├── kernel/          # 块树、双向转换、行内渲染、selection、imageBlock
 │   │   ├── controllers/     # 七类交互控制器
 │   │   └── editorInstance.ts # 内核宿主
 │   ├── components/  # UI 组件

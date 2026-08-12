@@ -11,7 +11,12 @@ import {
 } from '../../../src/render/editor/controllers/formatCtrl';
 import type { InlineFormatStyle } from '../../../src/render/editor/controllers/formatCtrl';
 import { renderInline } from '../../../src/render/editor/kernel/inlineRenderer';
-import { setBlockText } from '../../../src/render/editor/kernel';
+import {
+  appendChild,
+  changeBlockType,
+  makeParagraph,
+  setBlockText,
+} from '../../../src/render/editor/kernel';
 
 function firstTextBlock(instance: EditorInstance) {
   const block = Object.values(instance.tree.blocks).find((b) => b.text !== null);
@@ -375,5 +380,52 @@ describe('formatCtrl — removeImage（K3：移除图片）', () => {
     expect(leaves[0].text).toBe('');
     expect(r?.focus).toEqual({ blockId: leaves[0].id, offset: 0 });
     expect(r?.changedBlockIds).toEqual([img.id, leaves[0].id]);
+  });
+
+  it('Bug C：代码块 + image-block（markdown 解析产物）→ 移除图片 → 代码块后补回受保护空段并 focus（SPEC-EDIT-CBTP）', () => {
+    // 复现根因：` ``` ` 后直接跟独立行图片，parse 得 [code-block, image-block]（无中间空段）。
+    // 移除 image-block 时 adjacentLeafFocus('next') 无 next 回退 prev=code-block（非空），
+    // 原逻辑因此跳过补空 → 代码块成为最后一块且无尾随空行（Bug C）。
+    const instance = new EditorInstance('```js\ncode\n```\n\n![a](C:/x/a.png)');
+    const img = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'image-block'
+    )!;
+    const r = removeImage(instance, img.id, 0, 100);
+    expect(instance.tree.blocks[img.id]).toBeUndefined();
+    const leaves = Object.values(instance.tree.blocks).filter((b) => b.text !== null);
+    expect(leaves.length).toBe(2);
+    expect(leaves[0].type).toBe('code-block');
+    expect(leaves[1].type).toBe('paragraph');
+    expect(leaves[1].text).toBe('');
+    expect(r?.focus).toEqual({ blockId: leaves[1].id, offset: 0 });
+    expect(r?.changedBlockIds).toEqual([img.id, leaves[1].id]);
+  });
+
+  it('Bug C：代码块 + 受保护空段 + image-block → 移除图片 → 保护空段保留、不追加重复空段', () => {
+    // 编辑期结构 [code-block, paragraph(''), image-block]：删除末尾图片应保留既有保护空段。
+    const instance = new EditorInstance('```js\ncode\n```');
+    let tree = instance.tree;
+    const p = makeParagraph(tree, '![b](C:/x/b.png)');
+    tree = appendChild(tree, tree.root.id, p);
+    tree = changeBlockType(tree, p.id, 'image-block');
+    instance.tree = tree;
+    const img = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'image-block'
+    )!;
+    removeImage(instance, img.id, 0, 100);
+    const leaves = Object.values(instance.tree.blocks).filter((b) => b.text !== null);
+    expect(leaves.map((b) => b.type)).toEqual(['code-block', 'paragraph']);
+    expect(leaves[1].text).toBe('');
+  });
+
+  it('Bug C：代码块 + image-block + 文本 → 移除图片 → 不补空段（代码块非最后叶子，CBTP 不触发）', () => {
+    const instance = new EditorInstance('```js\ncode\n```\n\n![a](C:/x/a.png)\n\n尾部文本');
+    const img = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'image-block'
+    )!;
+    removeImage(instance, img.id, 0, 100);
+    const leaves = Object.values(instance.tree.blocks).filter((b) => b.text !== null);
+    expect(leaves.map((b) => b.type)).toEqual(['code-block', 'paragraph']);
+    expect(leaves[1].text).toBe('尾部文本');
   });
 });

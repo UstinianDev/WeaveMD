@@ -327,4 +327,84 @@ describe('FloatingToolbar — K4 图片工具栏', () => {
     expect(toolbar.style.top).toBe('252px'); // 300 - 40(工具栏高) - 8
     expect(toolbar.style.left).toBe('390px'); // 500 + 50 - 160(半宽)
   });
+
+  // ============ Bug B：滚动重锚定（工具栏/修改图片弹窗跟随图片） ============
+  /** 在编辑器容器内放一个匹配选中态 img（blockId + data-start/data-end），供重锚定查询 */
+  function attachMatchingImg(editorEl: HTMLElement, blockId: string, parsed: { innerStart: number; innerEnd: number }) {
+    const blockEl = document.createElement('div');
+    blockEl.setAttribute('data-block-id', blockId);
+    const img = document.createElement('img');
+    img.className = 'inline-image';
+    img.setAttribute('data-start', String(parsed.innerStart));
+    img.setAttribute('data-end', String(parsed.innerEnd));
+    blockEl.appendChild(img);
+    editorEl.appendChild(blockEl);
+    return img;
+  }
+
+  it('Bug B 滚动重锚定：图片选中时容器 scroll → 重查 img rect，工具栏跟随图片（不再停留陈旧坐标）', () => {
+    const text = '![a](x.png)';
+    const { tree, blockId } = makeImageTree(text, 'image-block');
+    const parsed = parseImageBlockText(text)!;
+    const selection: ImageSelection = {
+      blockId,
+      start: parsed.innerStart,
+      end: parsed.innerEnd,
+      align: null,
+      standalone: true,
+      rect: RECT,
+    };
+    const { container } = setupImageToolbar(tree, selection);
+    const editorEl = document.getElementById('editor-container-img-toolbar')!;
+    const toolbar = container.querySelector('[data-testid="image-toolbar"]') as HTMLElement;
+    // 初始锚定 = selection.rect（ref 未挂载时 offsetHeight 回退 40 → top 252px）
+    expect(toolbar.style.top).toBe('252px');
+
+    const img = attachMatchingImg(editorEl, blockId, parsed);
+    // 固定工具栏尺寸（jsdom 无布局，ref 挂载后 offsetWidth/Height=0 会破坏锚定计算）
+    Object.defineProperty(toolbar, 'offsetHeight', { value: 40, configurable: true });
+    Object.defineProperty(toolbar, 'offsetWidth', { value: 320, configurable: true });
+
+    // 滚动：图片在视口内上移 100px → getBoundingClientRect 返回新 rect
+    const newRect = { top: RECT.top - 100, left: RECT.left, width: RECT.width, height: RECT.height };
+    vi.spyOn(img, 'getBoundingClientRect').mockReturnValue(newRect as DOMRect);
+    fireEvent.scroll(editorEl);
+
+    // 工具栏跟随图片：top 由 252 → 152（-100），left 不变（水平未滚动）
+    expect(toolbar.style.top).toBe('152px');
+    expect(toolbar.style.left).toBe('390px');
+  });
+
+  it('Bug B 修改图片弹窗滚动重锚定：editImagePosition 随滚动更新（弹窗跟随图片）', () => {
+    const text = '![a](x.png)';
+    const { tree, blockId } = makeImageTree(text, 'image-block');
+    const parsed = parseImageBlockText(text)!;
+    const selection: ImageSelection = {
+      blockId,
+      start: parsed.innerStart,
+      end: parsed.innerEnd,
+      align: null,
+      standalone: true,
+      rect: RECT,
+    };
+    const { container } = setupImageToolbar(tree, selection);
+    const editorEl = document.getElementById('editor-container-img-toolbar')!;
+
+    fireEvent.click(getBtn(container, 'image-toolbar-edit'));
+    const tool = container.querySelector('[data-testid="image-edit-tool"]') as HTMLElement;
+    expect(tool).not.toBeNull();
+    // 初始弹窗位置：图片下方 top=300+30+6=336，left=500+50-140=410
+    expect(tool.style.top).toBe('336px');
+    expect(tool.style.left).toBe('410px');
+
+    attachMatchingImg(editorEl, blockId, parsed);
+    const newRect = { top: RECT.top - 100, left: RECT.left, width: RECT.width, height: RECT.height };
+    const img = editorEl.querySelector('img.inline-image') as HTMLImageElement;
+    vi.spyOn(img, 'getBoundingClientRect').mockReturnValue(newRect as DOMRect);
+    fireEvent.scroll(editorEl);
+
+    // 弹窗跟随图片：top 由 336 → 236（-100），left 不变
+    expect(tool.style.top).toBe('236px');
+    expect(tool.style.left).toBe('410px');
+  });
 });

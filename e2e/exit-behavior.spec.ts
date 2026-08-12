@@ -487,3 +487,50 @@ test('重载后代码块尾随空行 Backspace 受保护（块树不变）', asy
     1
   );
 });
+
+test('Bug C：代码块 + 图片 → 打开（图片解析为 image-block）→ 移除图片 → 代码块后保护空行补回（SPEC-EDIT-CBTP）', async ({
+  page,
+}) => {
+  // 路由拦截 https 图片，保证 image-block 的 img 可点击（不触发 fallback 替换）
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="60" height="30"><rect width="60" height="30" fill="#ccc"/></svg>';
+  await page.route('https://example.com/**', (route) =>
+    route.fulfill({ contentType: 'image/svg+xml', body: svg })
+  );
+
+  await page.addInitScript(mockApi);
+  await page.goto('/');
+  await page.waitForSelector('header');
+  // 直接向 mock 磁盘写入"代码块 + 图片"markdown（` ``` ` 后独立行图片被 markdownToState
+  // 解析为 image-block，无中间空段——Bug C 复现场景，等价于打开已保存的此类文件）
+  await page.evaluate(
+    ({ key, content }) => {
+      const disk: Record<string, string> = { 'C:\\playwright\\bugc.md': content };
+      localStorage.setItem(key, JSON.stringify(disk));
+    },
+    { key: E2E_DISK_KEY, content: '```js\ncode\n```\n\n![a](https://example.com/a.png)' }
+  );
+  await page.keyboard.press('Control+o');
+  await page.waitForSelector('span.block-content[contenteditable="true"]');
+
+  await expect(page.locator('.code-fence-block')).toHaveCount(1);
+  const img = page.locator('img.inline-image').first();
+  await expect(img).toHaveCount(1);
+
+  // 点击图片 → 图片工具栏 → 移除图片
+  await img.click();
+  const imageToolbar = page.locator('[data-testid="image-toolbar"]');
+  await expect(imageToolbar).toBeVisible();
+  await imageToolbar.locator('[data-testid="image-toolbar-remove"]').click();
+  await page.waitForTimeout(300);
+
+  // Bug C 修复：代码块成为最后叶子后按 CBTP 补回受保护空段（code-fence-block + 空 paragraph）
+  const state = await readBlockStructure(page);
+  expect(state.classes).toEqual([
+    expect.stringContaining('code-fence-block'),
+    expect.stringContaining('paragraph-block'),
+  ]);
+  expect(state.trailingEmpty).toBe('true');
+  expect(state.trailingText).toBe('');
+  await expect(page.locator('img.inline-image')).toHaveCount(0);
+});

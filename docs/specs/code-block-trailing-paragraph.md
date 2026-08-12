@@ -220,3 +220,17 @@ ESLint（0 error，tests/setup.ts 4 个既有 warning）、`vite build` 均通�
 - 覆盖率量化未执行：`@vitest/coverage-v8` 未安装且约束不新增依赖，补偿分支
   三路径（触发/不触发/空文档）已由 a/c/d、b/f2、f1 行为覆盖，记为已知缺口。
 - Git 检查点提交未执行（用户未授权提交），以证据报告代替；全部改动留在工作区。
+
+### 9.2 删除路径补偿补充（2026-08-12，Bug C）
+
+新增**删除路径**的补偿：`formatCtrl.removeImage` 的 image-block 分支删除块后，若整树最后叶子
+变为 `code-block`，补回受保护空段（镜像 9.1 的 `appendTrailingParagraphIfCodeLast`，同父容器末尾
+追加空 paragraph 并 focus 之）。
+
+触发场景：代码块后直接是 image-block（markdown 解析产物 ` ``` ` 后独立行图片，或工具栏把受保护
+空段转成图片块后保存重载），移除图片时 `adjacentLeafFocus('next')` 无 next 会回退 prev=code-block
+返回非空 focus，原逻辑因 focus 非空跳过补空 → 代码块成为最后一块却无尾随空行。修复后与解析期
+补偿两态收敛：`移除图片 → stateToMarkdown → markdownToState` 往返不变量保持。
+
+回归测试：`formatCtrl.test.ts`（代码块+图/代码块+空段+图/代码块+图+文本 三布局）+
+`markdownRoundTrip.test.ts`（往返不变量）+ e2e `exit-behavior.spec.ts`（打开→移除→空行恢复）。
