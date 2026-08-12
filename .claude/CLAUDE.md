@@ -17,7 +17,8 @@
 - `src/render/editor/` — **编辑主区 v2 内核（React-free）**：`kernel/`（块树、双向转换、
   行内渲染、选区）+ `controllers/`（七类交互）
 - `src/render/components/Editor/v2/` — v2 渲染层：EditorV2（宿主）、`blocks/`
-  （ContentBlock 是唯一 contentEditable）、FloatingToolbar
+  （ContentBlock 是唯一 contentEditable）、FloatingToolbar（文本工具栏）+
+  ImageToolbar（图片工具栏）+ toolbarState（纯函数）
 - `src/render/components/Editor/` — EditorView 薄编排器（v2 唯一）
 - `src/render/stores/ services/ styles/` — Zustand / markdown 服务 / globals.css
 - `docs/` — REQUIREMENTS / TECH_STACK / SUMMARY / modules/ / specs/
@@ -47,7 +48,7 @@
 - 浮动工具栏（SPEC-EDIT-FT v1.0）：选区触发且**仅单一语法类型显示**（h1+h2 不显示）；
   自定义块类型下拉（正文/H1-H6/代码块/引用/三类列表，`canConvertBlock` 矩阵置灰，
   `syntaxTypeToOption` 映射）——纯函数 `selectionSyntaxTypesConsistent` / `resolveSyntaxType`
-  均在 kernel/syntaxType.ts 与 FloatingToolbar 导出，组件测试直接覆盖
+  均在 kernel/syntaxType.ts 与 toolbarState.ts（FloatingToolbar re-export），组件测试直接覆盖
 - 行内格式（SPEC-EDIT-FT2）：inlineLexer + 双形态 toggle（加粗两次回原文，永不产生 `****`）+
   橡皮擦；叠加收敛（SPEC-EDIT-FT3）：Step 0 选区归一化 + 跨 token 拆分解除 + 跨风格三连 `***`
   渲染/剥离；相邻混合强调（SPEC-EDIT-FT4）：close run 拆分（`**12*3***`）+ open 三连拆分
@@ -81,7 +82,8 @@
 - `src/render/editor/editorInstance.ts` — 内核宿主（内容加载、markdown 同步）
 - `src/render/components/Editor/v2/EditorV2.tsx` — v2 入口（状态、事件路由、焦点恢复、撤销）
 - `src/render/components/Editor/v2/blocks/ContentBlock.tsx` — 唯一 contentEditable 表面
-- `src/render/components/Editor/v2/FloatingToolbar.tsx` — 浮动工具栏
+- `src/render/components/Editor/v2/FloatingToolbar.tsx` — 文本浮动工具栏（SPEC-REFACTOR 拆出
+  ImageToolbar 图片工具栏 / toolbarState 纯函数 / ToolbarButton 共享按钮）
 - `src/render/components/Editor/EditorView.tsx` — 薄编排器（v2 唯一）
 
 ## 已知限制（详见 spec 13.x）

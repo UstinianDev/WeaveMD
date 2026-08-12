@@ -2052,25 +2052,172 @@ span.comment-marker {
   transition: background-color 100ms;
 }
 
+/* 文本工具栏容器（SPEC-REFACTOR：FloatingToolbar 内联样式 → CSS 类）。
+   position:fixed 由 Tailwind `fixed` 类提供；top/left 为动态锚定值，保持 JS 计算。 */
+.ft-toolbar {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+}
+
 .block-type-trigger {
   height: 28px;
   padding: 0 6px;
   font-size: 13px;
+  border-color: var(--border-color);
+  color: var(--text-primary);
 }
 
 .block-type-option {
   padding: 6px 10px;
   font-size: 13px;
+  color: var(--text-primary);
+  background-color: transparent;
+}
+
+/* SPEC-REFACTOR：当前选中的块类型选项以 accent 高亮（原内联 isCurrent 判定） */
+.block-type-option--current {
+  color: var(--accent);
 }
 
 .block-type-menu {
   min-width: 176px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
 }
 
 .ft-divider {
   width: 1px;
   height: 16px;
   margin: 0 2px;
+  background-color: var(--border-color);
+}
+
+/* 图片工具栏容器（SPEC-REFACTOR：ImageToolbar 内联样式 → CSS 类）。
+   position:fixed 由 Tailwind `fixed` 类提供；top/left 为动态锚定值（随图片/滚动），保持 JS 计算。 */
+.it-toolbar {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+}
+
+/* ============================================ */
+/* ImageEditTool（K5 修改图片弹层）内联样式 → CSS 类（.ie-*） */
+/* ============================================ */
+
+/* 弹层根容器：top/left 与 position:fixed 为动态锚定，保持 JS 计算（测试断言
+   style.position==='fixed' 依赖内联），其余视觉样式归入本类 */
+.ie-tool {
+  z-index: 200;
+  min-width: 280px;
+  padding: 12px;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.ie-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.ie-title {
+  font-weight: 600;
+}
+
+.ie-close {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-sub);
+  font-size: 16px;
+}
+
+.ie-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.ie-tab {
+  flex: 1;
+  padding: 4px 0;
+  cursor: pointer;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-sub);
+}
+
+.ie-tab--active {
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+
+.ie-field {
+  margin-bottom: 8px;
+}
+
+.ie-field--lg {
+  margin-bottom: 12px;
+}
+
+.ie-label {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.ie-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+}
+
+.ie-error {
+  display: block;
+  color: var(--danger, #e5484d);
+  font-size: 12px;
+}
+
+.ie-select-btn {
+  width: 100%;
+  padding: 6px 0;
+  cursor: pointer;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.ie-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ie-btn-secondary {
+  padding: 4px 12px;
+  cursor: pointer;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: transparent;
+  color: var(--text-sub);
+}
+
+.ie-btn-primary {
+  padding: 4px 12px;
+  cursor: pointer;
+  border: none;
+  border-radius: 4px;
+  background-color: var(--accent);
+  color: #ffffff;
 }
 
 /* ============================================ */

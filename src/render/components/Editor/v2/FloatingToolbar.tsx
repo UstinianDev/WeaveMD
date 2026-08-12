@@ -10,25 +10,25 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { InlineFormatStyle } from '@render/editor/controllers';
 import { MARKERS } from '@render/editor/controllers/formatCtrl';
 import type { BlockTreeV2, ImageAlign } from '@render/editor/kernel';
-import { findIntersectingLinks, isBoundedWrap, tokenizeInline } from '@render/editor/kernel';
-import {
-  getCursorOffsets,
-  nearestContentSpan as kernelNearestContentSpan,
-} from '@render/editor/kernel/selection';
-import { resolveSyntaxType, resolveSyntaxTypesInRange } from '@render/editor/kernel/syntaxType';
+import { isBoundedWrap } from '@render/editor/kernel';
+import { resolveSyntaxType } from '@render/editor/kernel/syntaxType';
 import type { SyntaxType } from '@render/editor/kernel/syntaxType';
-import { clamp } from '@render/editor/controllers/shared';
 import {
   BLOCK_TYPE_OPTIONS,
   canConvertBlock,
   type BlockTypeOption,
   type ImageSelection,
 } from './types';
+import { computeToolbarState, syntaxTypeToOption, type SelectionState } from './toolbarState';
 import { createRafThrottle } from '@render/utils/rafThrottle';
 import InsertUrlModal from './InsertUrlModal';
-import ImageEditTool from './ImageEditTool';
+import ImageToolbar from './ImageToolbar';
+import ToolbarButton from './ToolbarButton';
 
 export type { BlockTypeOption };
+// 兼容测试导入：纯函数已迁至 ./toolbarState，此处 re-export 维持
+// FloatingToolbarV2.test.tsx 从 FloatingToolbar 导入这两个函数零改动。
+export { syntaxTypeToOption, selectionSyntaxTypesConsistent } from './toolbarState';
 
 interface FloatingToolbarProps {
   /** 编辑器容器（判定选区是否在编辑器内） */
@@ -75,15 +75,6 @@ interface FloatingToolbarProps {
     imgEnd: number,
     img: { src: string; alt: string; title?: string }
   ) => void;
-}
-
-interface SelectionState {
-  blockId: string;
-  start: number;
-  end: number;
-  anchorText: string;
-  /** 选区（含折叠光标）是否命中链接 token */
-  inLink: boolean;
 }
 
 interface FormatButton {
@@ -152,162 +143,6 @@ const OBJECT_BUTTONS: FormatButton[] = [
   { style: 'math', label: '∑', title: '数学公式', group: 'object' },
 ];
 
-/** 从选区节点向上找最近的 block-content 内容 span（限制在编辑器容器内） */
-function nearestContentSpan(node: Node | null, container: HTMLElement): HTMLElement | null {
-  const span = kernelNearestContentSpan(node);
-  return span && container.contains(span) ? span : null;
-}
-
-/** 由 SyntaxType 映射为下拉选项（SPEC-EDIT-FT G3②）；无对应选项时回落 paragraph */
-export function syntaxTypeToOption(st: SyntaxType): BlockTypeOption {
-  switch (st.type) {
-    case 'heading':
-      return `h${st.level}` as BlockTypeOption;
-    case 'code-block':
-      return 'code-block';
-    case 'blockquote':
-      return 'blockquote';
-    case 'bullet-list':
-      return 'bullet-list';
-    case 'ordered-list':
-      return 'ordered-list';
-    case 'task-list':
-      return 'task-list';
-    default:
-      // paragraph / thematic-break / table
-      return 'paragraph';
-  }
-}
-
-/**
- * 跨块选区语法类型一致性判定（SPEC-EDIT-FT G1）。
- * 端点顺序无关：end 在 start 之前时按文档序重试；枚举区间内叶子全部同类型才一致。
- */
-export function selectionSyntaxTypesConsistent(
-  tree: BlockTreeV2,
-  startLeafId: string,
-  endLeafId: string
-): boolean {
-  let types = resolveSyntaxTypesInRange(tree, startLeafId, endLeafId);
-  if (types === null) {
-    types = resolveSyntaxTypesInRange(tree, endLeafId, startLeafId);
-  }
-  return types !== null && types.length > 0;
-}
-
-interface ToolbarButtonProps {
-  title: string;
-  label: string;
-  className?: string;
-  active?: boolean;
-  disabled?: boolean;
-  testId?: string;
-  onClick: () => void;
-}
-
-/**
- * 工具栏按钮：CHAR / OBJECT / 橡皮擦 / 图片工具栏 共用（SPEC-EDIT-FT2 4.6）。
- * active 时 accent 色 + bg-tertiary 驻留；hover 进 bg-tertiary；disabled 点击 no-op。
- */
-function ToolbarButton({
-  title,
-  label,
-  className,
-  active = false,
-  disabled = false,
-  testId,
-  onClick,
-}: ToolbarButtonProps) {
-  return (
-    <button
-      type="button"
-      title={title}
-      data-testid={testId}
-      disabled={disabled}
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (disabled) return;
-        onClick();
-      }}
-      className={'ft-btn ' + (className ?? '') + (active ? ' active' : '')}
-      style={{
-        color: active ? 'var(--accent)' : 'var(--text-sub)',
-        backgroundColor: active ? 'var(--bg-tertiary)' : 'transparent',
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.backgroundColor = active ? 'var(--bg-tertiary)' : 'transparent';
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
-/** 选区判定结果：hide=立即隐藏，delay-hide=延迟隐藏，show=显示并携带选区与位置 */
-type ToolbarState =
-  | { kind: 'hide' }
-  | { kind: 'delay-hide' }
-  | { kind: 'show'; selection: SelectionState; position: { top: number; left: number } };
-
-/** 由当前选区计算工具栏状态（纯函数，供事件回调装配） */
-function computeToolbarState(
-  sel: Selection | null,
-  container: HTMLElement,
-  toolbarWidth: number,
-  toolbarHeight: number,
-  tree: BlockTreeV2
-): ToolbarState {
-  if (!sel || sel.rangeCount === 0) return { kind: 'hide' };
-  const range = sel.getRangeAt(0);
-  const anchorSpan = nearestContentSpan(sel.anchorNode, container);
-  const focusSpan = nearestContentSpan(sel.focusNode, container);
-  if (!anchorSpan || !focusSpan || !container.contains(range.commonAncestorContainer)) {
-    return { kind: 'hide' };
-  }
-  const blockId = anchorSpan.getAttribute('data-block-id');
-  const focusBlockId = focusSpan.getAttribute('data-block-id');
-  if (!blockId || !focusBlockId) return { kind: 'hide' };
-  // G1：跨块选区需全部叶子语法类型一致，否则隐藏
-  if (blockId !== focusBlockId) {
-    if (!selectionSyntaxTypesConsistent(tree, blockId, focusBlockId)) {
-      return { kind: 'hide' };
-    }
-  }
-  const offsets = getCursorOffsets(anchorSpan);
-  const blockText = tree.blocks[blockId]?.text ?? '';
-  const inLink = findIntersectingLinks(blockText, offsets.start, offsets.end).length > 0;
-  if (sel.isCollapsed) {
-    // 折叠光标仅在命中链接时显示（仅「移除链接」操作），否则维持延迟隐藏
-    if (!inLink) return { kind: 'delay-hide' };
-  } else {
-    const rect = range.getBoundingClientRect();
-    if (rect.width === 0 && rect.height === 0) return { kind: 'delay-hide' };
-  }
-  const rect = range.getBoundingClientRect();
-  const left = clamp(
-    rect.left + rect.width / 2 - toolbarWidth / 2,
-    8,
-    window.innerWidth - toolbarWidth - 8
-  );
-  const top = clamp(rect.top - toolbarHeight - 8, 8, window.innerHeight - toolbarHeight - 8);
-  return {
-    kind: 'show',
-    selection: {
-      blockId,
-      start: offsets.start,
-      end: offsets.end,
-      anchorText: anchorSpan.textContent ?? '',
-      inLink,
-    },
-    position: { top, left },
-  };
-}
-
 const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   editorContainerRef,
   tree,
@@ -333,15 +168,9 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   const [selection, setSelection] = useState<SelectionState | null>(null);
   // U5/K3b：链接按钮打开 InsertUrlModal；图片按钮不再走该 Modal
   const [insertModal, setInsertModal] = useState<{ style: 'link' } | null>(null);
-  // K5：「修改图片」打开的 ImageEditTool 弹层状态（预填来自 imageSelection token）
-  const [editImage, setEditImage] = useState<ImageSelection | null>(null);
-  // Bug B（图片工具栏滚动锚定）：本地锚点 rect——滚动时重查 img.getBoundingClientRect()
-  // 更新，使图片工具栏与「修改图片」弹窗跟随图片；初始/切换图片时同步自 imageSelection.rect。
-  // 惰性初始化：挂载期 anchorRect === imageSelection.rect 同引用，同步 effect 触发 setState
-  // 时 Object.is 相等被 React 跳过，避免引入挂载后重渲染（jsdom 下 toolbarRef 尺寸读取差异）。
-  const [anchorRect, setAnchorRect] = useState<ImageSelection['rect'] | null>(
-    () => imageSelection?.rect ?? null
-  );
+  // K5：ImageToolbar 内部 ImageEditTool 弹层的打开态（经 onModalStateChange 上抛，
+  // 风险 A——并入 isModalOpen 守卫，防止点击弹层内误关文本/图片工具栏）
+  const [imageModalOpen, setImageModalOpen] = useState(false);
   const toolbarRef = useRef<HTMLDivElement>(null);
   // K3b：interactionGuard 包裹 ref（覆盖工具栏 + ImageEditTool）
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -382,11 +211,6 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     [cancelHide, setVisibleGuarded]
   );
 
-  // Bug B：imageSelection 变化（点击/关闭/切换图片）时重置本地锚点。
-  useEffect(() => {
-    setAnchorRect(imageSelection?.rect ?? null);
-  }, [imageSelection]);
-
   // 选区变化：非折叠且在编辑器内容块内 → 显示；收起/移出 → 延迟隐藏。
   // SPEC-EDIT-DSF 4.3：事件仅写入 latestSelectionRef 并调度一帧（rAF id 去重，
   // 已有待处理帧则复用），帧内才执行 computeToolbarState + setState → 渲染 ≤ 每帧一次。
@@ -396,7 +220,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
 
     const flushSelection = () => {
       // U5/K3b：Modal / ImageEditTool 打开期间（输入框获焦会收起选区）不得隐藏工具栏
-      if (insertModal !== null || editImage !== null) {
+      if (insertModal !== null || imageModalOpen) {
         cancelHide();
         return;
       }
@@ -442,19 +266,6 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     const handleScroll = () => {
       stickyRef.current = false;
       setVisibleGuarded(false);
-      // Bug B：图片工具栏 /「修改图片」弹窗滚动时重锚定——重查 img 的 viewport rect，
-      // 使工具栏与弹窗跟随图片（marktext 风格），而非停留在点击时的陈旧坐标。
-      const selected = imageSelection ?? editImage;
-      if (selected && container) {
-        const blockEl = container.querySelector(`[data-block-id="${selected.blockId}"]`);
-        const img = blockEl?.querySelector(
-          `img.inline-image[data-start="${selected.start}"][data-end="${selected.end}"]`
-        );
-        if (img instanceof HTMLImageElement) {
-          const r = img.getBoundingClientRect();
-          setAnchorRect({ top: r.top, left: r.left, width: r.width, height: r.height });
-        }
-      }
     };
 
     document.addEventListener('selectionchange', handleSelectionChange);
@@ -465,11 +276,12 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       container.removeEventListener('scroll', handleScroll, true);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
-  }, [editorContainerRef, cancelHide, scheduleHide, tree, setVisibleGuarded, insertModal, editImage, imageSelection]);
+  }, [editorContainerRef, cancelHide, scheduleHide, tree, setVisibleGuarded, insertModal, imageModalOpen, imageSelection]);
 
   // SPEC-EDIT-FT3 4.3：驻留退出条件——点击工具栏外任意位置（capture 阶段）与 Escape
-  // K3b：守卫合并 insertModal / editImage（ImageEditTool 自处理自身交互），wrapRef 覆盖两者
-  const isModalOpen = insertModal !== null || editImage !== null;
+  // K3b：守卫合并 insertModal / imageModalOpen（ImageEditTool 自处理自身交互，弹层态经
+  // onModalStateChange 上抛并入此守卫），wrapRef 覆盖工具栏与 ImageToolbar 挂载点
+  const isModalOpen = insertModal !== null || imageModalOpen;
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
       // U5/K3b：Modal / ImageEditTool 打开期间点击自身或外部均由弹层处理，不隐工具栏
@@ -595,164 +407,34 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     [selection, currentType, onConvertBlock, setVisibleGuarded]
   );
 
-  // K4：图片工具栏动作——执行后关闭图片选中（防偏移漂移）
-  const handleAlignImage = useCallback(
-    (align: ImageAlign) => {
-      if (!imageSelection) return;
-      onAlignImage?.(imageSelection.blockId, align);
-      onCloseImage?.();
-    },
-    [imageSelection, onAlignImage, onCloseImage]
-  );
-
-  const handleMakeInline = useCallback(() => {
-    if (!imageSelection) return;
-    onMakeInline?.(imageSelection.blockId);
-    onCloseImage?.();
-  }, [imageSelection, onMakeInline, onCloseImage]);
-
-  const handleRemoveImage = useCallback(() => {
-    if (!imageSelection) return;
-    onRemoveImage?.(imageSelection.blockId, imageSelection.start, imageSelection.end);
-    onCloseImage?.();
-  }, [imageSelection, onRemoveImage, onCloseImage]);
-
-  // K5：「修改图片」→ 通知选中态并打开 ImageEditTool（预填来自 imageSelection token）
-  const handleEditImage = useCallback(() => {
-    if (!imageSelection) return;
-    onEditImage?.(imageSelection);
-    setEditImage(imageSelection);
-  }, [imageSelection, onEditImage]);
-
-  // 预填：image-block 的 token 区间是绝对偏移，tokenizeInline 全文直接命中
-  const editImagePrefill = useMemo(() => {
-    if (!editImage) return null;
-    const text = tree.blocks[editImage.blockId]?.text ?? '';
-    const token = tokenizeInline(text).find(
-      (t) => t.type === 'image' && t.start === editImage.start && t.end === editImage.end
-    );
-    if (!token) return null;
-    return {
-      src: token.href ?? '',
-      alt: text.slice(token.contentStart, token.contentEnd),
-      title: token.title ?? '',
-    };
-  }, [editImage, tree]);
-
-  // 弹层锚定：图片下方（ImageEditTool 固定宽度 280 → 半宽 140）。
-  // Bug B：优先用重锚定的 anchorRect（滚动后跟随图片），回退 editImage.rect。
-  const editImagePosition = useMemo(() => {
-    if (!editImage) return { top: 0, left: 0 };
-    const rect = anchorRect ?? editImage.rect;
-    return {
-      top: rect.top + rect.height + 6,
-      left: clamp(rect.left + rect.width / 2 - 140, 8, window.innerWidth - 280 - 8),
-    };
-  }, [editImage, anchorRect]);
-
-  // 确认 → onReplaceImage（formatCtrl.replaceImage 按 token 区间替换，包裹自动保留）
-  const handleEditConfirm = useCallback(
-    (img: { src: string; alt: string; title: string }) => {
-      if (!editImage) return;
-      onReplaceImage?.(editImage.blockId, editImage.start, editImage.end, img);
-      setEditImage(null);
-      onCloseImage?.();
-    },
-    [editImage, onReplaceImage, onCloseImage]
-  );
-
-  const handleEditCancel = useCallback(() => {
-    setEditImage(null);
-  }, []);
-
   // 折叠光标命中链接：仅显示「移除链接」（其余格式按钮对空选区无意义）
   const showUnlinkOnly =
     visible && selection ? selection.start === selection.end && selection.inLink : false;
 
   return (
     <div ref={wrapRef}>
-      {/* K4：图片工具栏——imageSelection 非空时替换文本工具栏（锚定图片 rect） */}
+      {/* K4：图片工具栏——imageSelection 非空时渲染 ImageToolbar 替换文本工具栏 */}
       {imageSelection && (
-      <div
-        ref={toolbarRef}
-        className="floating-toolbar-v2 fixed z-[100] shadow-lg select-none"
-        data-testid="image-toolbar"
-        style={{
-          top: `${clamp(
-            (anchorRect ?? imageSelection.rect).top - (toolbarRef.current?.offsetHeight ?? 40) - 8,
-            8,
-            window.innerHeight - (toolbarRef.current?.offsetHeight ?? 40) - 8
-          )}px`,
-          left: `${clamp(
-            (anchorRect ?? imageSelection.rect).left +
-              (anchorRect ?? imageSelection.rect).width / 2 -
-              (toolbarRef.current?.offsetWidth ?? 320) / 2,
-            8,
-            window.innerWidth - (toolbarRef.current?.offsetWidth ?? 320) - 8
-          )}px`,
-          backgroundColor: 'var(--bg-secondary)',
-          border: '1px solid var(--border-color)',
-        }}
-        onMouseEnter={cancelHide}
-        onMouseLeave={() => scheduleHide(300)}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <ToolbarButton
-          testId="image-toolbar-edit"
-          title="修改图片"
-          label="修改图片"
-          onClick={handleEditImage}
+        <ImageToolbar
+          imageSelection={imageSelection}
+          editorContainerRef={editorContainerRef}
+          tree={tree}
+          onCloseImage={onCloseImage}
+          onEditImage={onEditImage}
+          onAlignImage={onAlignImage}
+          onMakeInline={onMakeInline}
+          onRemoveImage={onRemoveImage}
+          onReplaceImage={onReplaceImage}
+          onModalStateChange={setImageModalOpen}
         />
-        <ToolbarButton
-          testId="image-toolbar-inline"
-          title="内联图片"
-          label="内联图片"
-          disabled={!imageSelection.standalone}
-          onClick={handleMakeInline}
-        />
-        <div className="ft-divider" style={{ backgroundColor: 'var(--border-color)' }} />
-        <ToolbarButton
-          testId="image-toolbar-align-left"
-          title="居左"
-          label="居左"
-          disabled={!imageSelection.standalone}
-          active={imageSelection.align === 'left'}
-          onClick={() => handleAlignImage('left')}
-        />
-        <ToolbarButton
-          testId="image-toolbar-align-center"
-          title="居中"
-          label="居中"
-          disabled={!imageSelection.standalone}
-          active={imageSelection.align === 'center'}
-          onClick={() => handleAlignImage('center')}
-        />
-        <ToolbarButton
-          testId="image-toolbar-align-right"
-          title="居右"
-          label="居右"
-          disabled={!imageSelection.standalone}
-          active={imageSelection.align === 'right'}
-          onClick={() => handleAlignImage('right')}
-        />
-        <div className="ft-divider" style={{ backgroundColor: 'var(--border-color)' }} />
-        <ToolbarButton
-          testId="image-toolbar-remove"
-          title="移除图片"
-          label="移除图片"
-          onClick={handleRemoveImage}
-        />
-      </div>
       )}
       {!imageSelection && visible && selection && (
       <div
         ref={toolbarRef}
-        className="floating-toolbar-v2 fixed z-[100] shadow-lg select-none"
+        className="floating-toolbar-v2 ft-toolbar fixed z-[100] shadow-lg select-none"
         style={{
           top: `${position.top}px`,
           left: `${position.left}px`,
-          backgroundColor: 'var(--bg-secondary)',
-          border: '1px solid var(--border-color)',
         }}
         onMouseEnter={cancelHide}
         onMouseLeave={() => scheduleHide(300)}
@@ -764,10 +446,6 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
           type="button"
           title="块类型"
           className="block-type-trigger rounded border font-medium bg-transparent outline-none cursor-pointer whitespace-nowrap"
-          style={{
-            borderColor: 'var(--border-color)',
-            color: 'var(--text-primary)',
-          }}
           onClick={() => setDropdownOpen((o) => !o)}
         >
           {currentLabel}
@@ -775,10 +453,6 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         {dropdownOpen && (
           <div
             className="block-type-menu absolute left-0 top-full mt-1 z-50 rounded-lg shadow-lg py-1 max-h-72 overflow-y-auto"
-            style={{
-              backgroundColor: 'var(--bg-secondary)',
-              border: '1px solid var(--border-color)',
-            }}
           >
             {BLOCK_TYPE_OPTIONS.map((option) => {
               const disabled = !canConvertBlock(currentSyntax, option.value);
@@ -790,12 +464,8 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
                   data-value={option.value}
                   disabled={disabled}
                   className={`block-type-option w-full text-left cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${
-                    isCurrent ? 'font-bold' : ''
+                    isCurrent ? 'font-bold block-type-option--current' : ''
                   }`}
-                  style={{
-                    color: isCurrent ? 'var(--accent)' : 'var(--text-primary)',
-                    backgroundColor: 'transparent',
-                  }}
                   onClick={() => {
                     setDropdownOpen(false);
                     handleBlockChange(option.value);
@@ -809,7 +479,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         )}
       </div>
 
-      <div className="ft-divider" style={{ backgroundColor: 'var(--border-color)' }} />
+      <div className="ft-divider" />
 
       {showUnlinkOnly ? (
         <ToolbarButton title="移除链接" label="解链" onClick={handleUnlink} />
@@ -826,7 +496,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
             />
           ))}
 
-          <div className="ft-divider" style={{ backgroundColor: 'var(--border-color)' }} />
+          <div className="ft-divider" />
 
           {OBJECT_BUTTONS.map((button) => (
             <ToolbarButton
@@ -837,7 +507,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
             />
           ))}
 
-          <div className="ft-divider" style={{ backgroundColor: 'var(--border-color)' }} />
+          <div className="ft-divider" />
 
           {/* 选区命中链接时提供移除链接；橡皮擦：清除选区全部行内标记 */}
           {selection.inLink && (
@@ -861,19 +531,6 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
           setInsertModal(null);
         }}
         onCancel={() => setInsertModal(null)}
-      />
-      {/* K5：「修改图片」弹层（open=false 时渲染 null；预填 imageSelection token 的
-          src/alt/title，确认走 onReplaceImage——image-block 的 token 区间为绝对偏移，
-          包裹自动保留；select Tab pickImage 直接应用） */}
-      <ImageEditTool
-        open={editImage !== null}
-        position={editImagePosition}
-        initialSrc={editImagePrefill?.src}
-        initialAlt={editImagePrefill?.alt}
-        initialTitle={editImagePrefill?.title}
-        pickImage={window.weaveMD?.dialog.pickImage}
-        onConfirm={handleEditConfirm}
-        onCancel={handleEditCancel}
       />
     </div>
   );
