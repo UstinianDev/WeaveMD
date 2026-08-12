@@ -1,6 +1,6 @@
 # WeaveMD 项目总结
 
-> 版本：v3.7 | 最后更新：2026-08-11
+> 版本：v3.8 | 最后更新：2026-08-12
 
 ## 1. 项目概览
 
@@ -71,25 +71,36 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 - 链接渲染与本地图片显示（REQ-EDIT-LINK-IMAGE，2026-08-11）：`safeUrl` 放行裸域名 +
   `normalizeHref` 无协议链接自动补 `https://`（渲染 href/data-href 补全、`.md-syntax` 保留
   原始 → textContent 与源一致）；本地图片走自定义 `media://` 协议（主进程
-  `media-protocol.ts` 映射本地文件，dev/prod 一致显示，不再受 `file://` 跨协议/CSP 阻止）、
-  CSP `img-src` 放行 `https: http: media:`、加载失败事件委托回退
+  `media-protocol.ts` 映射本地文件，dev/prod 一致显示，不再受 `file://` 跨协议/CSP 阻止；
+  **2026-08-12 修复**：特权集去除 `standard`，盘符编码进 host 不被 Chromium 拒绝，完整 app
+  本地图加载成功）、CSP `img-src` 放行 `https: http: media:`、加载失败事件委托回退
   `.inline-image-fallback` 占位（无 broken 图标）；链接 hover tooltip 修复为
   `attr(data-href)` 显示完整 URL（原 `--link-tip` 未定义失效），Ctrl+Click 打开不变
+- 图片直选插入与图片工具栏（K3~K7，2026-08-11）：工具栏「图片」→ 系统文件框直选（取消
+  no-op），选中文本替换为图片（alt=选中文本，空格→`%20`）；`image-block` 原子块模型
+  （K1/K2）+ `toImgSrc` 单层解码修复（`%20` 不再 `%2520` 双重编码）；点击图片 → 图片工具栏
+  （修改图片/内联图片/居左/居中/居右/移除图片）替换文本工具栏，行内图对齐/内联置灰、
+  独立成块可对齐（源码 `<div align>` 包裹）；修改图片弹层预填 src/alt
 
 ## 4. 验证与测试
 
-- Vitest：**600 例**（内核/控制器/组件，含往返不变式、退出规则矩阵、输入链路、跨块删除、
+- Vitest：**724 例**（内核/控制器/组件，含往返不变式、退出规则矩阵、输入链路、跨块删除、
   代码块尾随空行补偿、浮动工具栏显示/转换矩阵/驻留、拖选闪烁的端点变化检测与 rAF 节流、
   FT2 的 inlineLexer/strip/katex/toggle/clearFormat、FT3 的 Step0 归一化矩阵/跨 token 拆分/
   选区恢复/集成、三连 `***` 跨风格叠加、CSS 静态断言、快捷键接线、
   FT4 的 formatCtrl 跨风格折叠/相邻混合强调/两两组合渲染/selection 标记吸附/ContentBlock 删除与方向键吸附/
-  open 三连拆分/拖拽禁用事件断言）
-- Playwright 真实 Chromium E2E：**56 例（50 通过 + 6 既有红）**（输入/IME/富文本渲染/语法外观/退出与退格链/
+  open 三连拆分/拖拽禁用事件断言、图片 imageBlock 解析/直选插入/对齐/内联/移除/replace、
+  media:// 协议 decode 与特权集不含 standard 断言、图片工具栏滚动重锚定（Bug B）、
+  removeImage 代码块尾随空段补偿（Bug C）三布局 + 往返）
+- Playwright 真实 Chromium E2E：**61 例（56 通过 + 5 既有红）**（输入/IME/富文本渲染/语法外观/退出与退格链/
   浮动工具栏/跨块拖选/代码块尾随空行重载恢复/反向跨类型拖选与 selectionchange 收敛/
   FT2 工具栏计算样式/标记隐藏与聚焦灰显/黄色高亮/下划线/图片/数学/橡皮擦/
    FT3 部分标记不叠加/跨多 token 逐 token 解除/加粗后斜体叠加渲染/工具栏驻留与点击外/Escape 退出/
    FT4 跨风格叠加无字面残体（E1/E2）与拖选含标记删除/格式化/光标恢复无移位（DSG-R1/R2/R3/P）/
-   原生拖拽移动选区禁用（drag-selection-move））
+   原生拖拽移动选区禁用（drag-selection-move）/
+   图片直选插入/取消 no-op/图片工具栏全链路/行内图对齐置灰（LINK-IMAGE-E3/E4/E5/E6、FT2-E6/E9）/
+   图片工具栏滚动跟随（LINK-IMAGE-E7，Bug B）/代码块+图片打开→移除→保护空行恢复（Bug C）；
+   5 个既有红为 drag-selection-markers.spec.ts 跨任务缺陷）
 - 质量门禁：`tsc --noEmit` + `vitest run` + ESLint(0 error) + `vite build` + `npx playwright test`
   + `vitest --coverage`（改动文件口径 ≥80%，当前全量 95.45%；`@vitest/coverage-v8`）
 

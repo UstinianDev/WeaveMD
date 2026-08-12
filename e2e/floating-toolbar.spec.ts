@@ -1108,3 +1108,77 @@ test('LINK-IMAGE-E6: 行内图（块内还有其他文本）→ 图片工具栏�
   await expect(imageToolbar.locator('[data-testid="image-toolbar-edit"]')).not.toBeDisabled();
   await expect(imageToolbar.locator('[data-testid="image-toolbar-remove"]')).not.toBeDisabled();
 });
+
+test('LINK-IMAGE-E7: 图片工具栏滚动跟随——滚动后工具栏相对图片位移不变（Bug B 重锚定）', async ({
+  page,
+}) => {
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60"><rect width="120" height="60" fill="#ccc"/></svg>';
+  await page.route('https://example.com/**', (route) =>
+    route.fulfill({ contentType: 'image/svg+xml', body: svg })
+  );
+
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await editable.click();
+
+  // 图片前 5 段（撑出滚动空间）
+  for (let i = 0; i < 5; i++) {
+    await page.keyboard.type(`前段内容 ${i}`, { delay: 5 });
+    await page.keyboard.press('Enter');
+  }
+
+  // 当前段整段选中 → 直选插入 https 图 → image-block（独立成块）
+  await page.keyboard.type('图片占位文本', { delay: 10 });
+  await page.keyboard.press('Shift+Home');
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await page.evaluate(() => {
+    (window as unknown as { __pickImageResult: string | null }).__pickImageResult =
+      'https://example.com/a.png';
+  });
+  await toolbar.locator('button[title="图片"]').click();
+  const imageBlock = page.locator('.image-block');
+  await expect(imageBlock).toHaveCount(1);
+  const img = imageBlock.locator('img.inline-image').first();
+  await expect(img).toHaveAttribute('src', 'https://example.com/a.png');
+
+  // 图片后 10 段（文档可滚动）
+  for (let i = 0; i < 10; i++) {
+    await page.keyboard.type(`后段内容 ${i}`, { delay: 5 });
+    await page.keyboard.press('Enter');
+  }
+
+  // 滚动到图片位于视口中部 → 点击 → 图片工具栏出现
+  await img.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await page.waitForTimeout(300);
+  await img.click();
+  const imageToolbar = page.locator('[data-testid="image-toolbar"]');
+  await expect(imageToolbar).toBeVisible();
+
+  const readState = () =>
+    page.evaluate(() => {
+      const container = document.querySelector('.editor-scroll-container') as HTMLElement;
+      const t = document.querySelector('[data-testid="image-toolbar"]') as HTMLElement;
+      const im = document.querySelector('img.inline-image') as HTMLImageElement;
+      const tr = t.getBoundingClientRect();
+      const ir = im.getBoundingClientRect();
+      return { scrollTop: container.scrollTop, tTop: tr.top, iTop: ir.top };
+    });
+  const before = await readState();
+
+  // 向下滚动 120px
+  await page.evaluate(() => {
+    const container = document.querySelector('.editor-scroll-container') as HTMLElement;
+    container.scrollTop += 120;
+  });
+  await page.waitForTimeout(300);
+  const after = await readState();
+
+  // 断言：容器确实滚动了 120，且工具栏相对图片的纵向间距不变（跟随图片而非停留原地）
+  expect(after.scrollTop - before.scrollTop).toBeCloseTo(120, 0);
+  const relBefore = before.tTop - before.iTop;
+  const relAfter = after.tTop - after.iTop;
+  expect(Math.abs(relAfter - relBefore)).toBeLessThanOrEqual(2);
+});

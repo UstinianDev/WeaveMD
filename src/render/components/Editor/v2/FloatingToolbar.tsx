@@ -335,6 +335,13 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   const [insertModal, setInsertModal] = useState<{ style: 'link' } | null>(null);
   // K5：「修改图片」打开的 ImageEditTool 弹层状态（预填来自 imageSelection token）
   const [editImage, setEditImage] = useState<ImageSelection | null>(null);
+  // Bug B（图片工具栏滚动锚定）：本地锚点 rect——滚动时重查 img.getBoundingClientRect()
+  // 更新，使图片工具栏与「修改图片」弹窗跟随图片；初始/切换图片时同步自 imageSelection.rect。
+  // 惰性初始化：挂载期 anchorRect === imageSelection.rect 同引用，同步 effect 触发 setState
+  // 时 Object.is 相等被 React 跳过，避免引入挂载后重渲染（jsdom 下 toolbarRef 尺寸读取差异）。
+  const [anchorRect, setAnchorRect] = useState<ImageSelection['rect'] | null>(
+    () => imageSelection?.rect ?? null
+  );
   const toolbarRef = useRef<HTMLDivElement>(null);
   // K3b：interactionGuard 包裹 ref（覆盖工具栏 + ImageEditTool）
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -374,6 +381,11 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     },
     [cancelHide, setVisibleGuarded]
   );
+
+  // Bug B：imageSelection 变化（点击/关闭/切换图片）时重置本地锚点。
+  useEffect(() => {
+    setAnchorRect(imageSelection?.rect ?? null);
+  }, [imageSelection]);
 
   // 选区变化：非折叠且在编辑器内容块内 → 显示；收起/移出 → 延迟隐藏。
   // SPEC-EDIT-DSF 4.3：事件仅写入 latestSelectionRef 并调度一帧（rAF id 去重，
@@ -430,6 +442,19 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     const handleScroll = () => {
       stickyRef.current = false;
       setVisibleGuarded(false);
+      // Bug B：图片工具栏 /「修改图片」弹窗滚动时重锚定——重查 img 的 viewport rect，
+      // 使工具栏与弹窗跟随图片（marktext 风格），而非停留在点击时的陈旧坐标。
+      const selected = imageSelection ?? editImage;
+      if (selected && container) {
+        const blockEl = container.querySelector(`[data-block-id="${selected.blockId}"]`);
+        const img = blockEl?.querySelector(
+          `img.inline-image[data-start="${selected.start}"][data-end="${selected.end}"]`
+        );
+        if (img instanceof HTMLImageElement) {
+          const r = img.getBoundingClientRect();
+          setAnchorRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+        }
+      }
     };
 
     document.addEventListener('selectionchange', handleSelectionChange);
@@ -614,15 +639,16 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     };
   }, [editImage, tree]);
 
-  // 弹层锚定：图片下方（ImageEditTool 固定宽度 280 → 半宽 140）
+  // 弹层锚定：图片下方（ImageEditTool 固定宽度 280 → 半宽 140）。
+  // Bug B：优先用重锚定的 anchorRect（滚动后跟随图片），回退 editImage.rect。
   const editImagePosition = useMemo(() => {
     if (!editImage) return { top: 0, left: 0 };
-    const { rect } = editImage;
+    const rect = anchorRect ?? editImage.rect;
     return {
       top: rect.top + rect.height + 6,
       left: clamp(rect.left + rect.width / 2 - 140, 8, window.innerWidth - 280 - 8),
     };
-  }, [editImage]);
+  }, [editImage, anchorRect]);
 
   // 确认 → onReplaceImage（formatCtrl.replaceImage 按 token 区间替换，包裹自动保留）
   const handleEditConfirm = useCallback(
@@ -653,12 +679,13 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         data-testid="image-toolbar"
         style={{
           top: `${clamp(
-            imageSelection.rect.top - (toolbarRef.current?.offsetHeight ?? 40) - 8,
+            (anchorRect ?? imageSelection.rect).top - (toolbarRef.current?.offsetHeight ?? 40) - 8,
             8,
             window.innerHeight - (toolbarRef.current?.offsetHeight ?? 40) - 8
           )}px`,
           left: `${clamp(
-            imageSelection.rect.left + imageSelection.rect.width / 2 -
+            (anchorRect ?? imageSelection.rect).left +
+              (anchorRect ?? imageSelection.rect).width / 2 -
               (toolbarRef.current?.offsetWidth ?? 320) / 2,
             8,
             window.innerWidth - (toolbarRef.current?.offsetWidth ?? 320) - 8

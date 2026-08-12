@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { markdownToState } from '../../../src/render/editor/kernel/markdownToState';
 import { stateToMarkdown } from '../../../src/render/editor/kernel/stateToMarkdown';
 import { getAllBlocksInOrder } from '../../../src/render/editor/kernel/blockTree';
+import { EditorInstance } from '../../../src/render/editor/editorInstance';
+import { removeImage } from '../../../src/render/editor/controllers/formatCtrl';
 
 /** 规范化往返：stateToMarkdown(markdownToState(M)) === M */
 function roundTrip(markdown: string): string {
@@ -146,6 +148,23 @@ describe('markdown round-trip — 代码块与表格', () => {
     // 内容含 ``` → 序列化用更长的围栏包裹，重解析后语义等价（SPEC-EDIT-CBTP：尾部代码块规范化补保护空行）
     expect(markdownToState(result).root.childrenIds.length).toBe(2);
     expect(stateToMarkdown(markdownToState(result))).toBe(result);
+  });
+
+  it('代码块后直接独立行图片 → 移除图片后 CBTP 补空段，序列化/重载往返不变量保持（Bug C）', () => {
+    // ` ``` ` 后直接跟独立行图片 → 解析为 [code-block, image-block]（无中间空段，SPEC-EDIT-CBTP
+    // 解析期仅在最后叶子为 code-block 时补偿，此处最后叶子是 image-block）。
+    const md = '```js\ncode\n```\n\n![a](C:/x/a.png)';
+    const instance = new EditorInstance(md);
+    const img = Object.values(instance.tree.blocks).find((b) => b.type === 'image-block')!;
+    expect(img).toBeDefined();
+    // 移除图片 → 代码块成为最后叶子 → removeImage 按 CBTP 补回受保护空段
+    removeImage(instance, img.id, 0, 100);
+    const leaves = Object.values(instance.tree.blocks).filter((b) => b.text !== null);
+    expect(leaves.map((b) => b.type)).toEqual(['code-block', 'paragraph']);
+    expect(leaves[1].text).toBe('');
+    // 序列化剥离尾部空行 → 与代码块收尾的 markdown 一致；重载解析再补偿，往返不变量成立
+    expect(stateToMarkdown(instance.tree)).toBe('```js\ncode\n```');
+    expectRoundTrip('```js\ncode\n```');
   });
 
   it('表格', () => {

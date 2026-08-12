@@ -63,13 +63,20 @@
   重建，静止不再 selection 风暴）；`FloatingToolbar` selectionchange 改 rAF 合并
   （渲染 ≤ 每帧一次）；`resolveSyntaxTypesInRange` 边枚举边比对短路 + 500 叶上限
 - 焦点恢复：`applyAction` 树未变时立即恢复；降级转换焦点用新块 id
+- 图片（K3~K7）：工具栏「图片」直选（`dialog.pickImage` 系统文件框，取消 no-op）；
+  `image-block` 原子块（`kernel/imageBlock.ts`，`<div align>` 包裹对齐）+ 点击选中 →
+  图片工具栏（修改图片/内联图片/居左/居中/居右/移除，行内图对齐/内联置灰）；本地图走
+  `media://` 协议（`src/main/media-protocol.ts`，**非 standard scheme**——盘符编码进 host
+  不被 Chromium 规范化拒绝，修复完整 app 本地图加载失败）
 - **v1 回退路径已退役（2026-08-06）**：v2 为唯一路径，`__EDITOR_V2__` 开关已移除，
   v1 组件/服务/测试已删除（EditorView 1920 行重写为薄编排器）
 
 ## 关键文件
 
 - `src/render/editor/kernel/` — blockTree / markdownToState / stateToMarkdown /
-  inlineRenderer / outline / selection / syntaxType（resolveSyntaxType）
+  inlineRenderer / outline / selection / syntaxType（resolveSyntaxType）/ imageBlock
+- `src/main/media-protocol.ts` — media:// 本地图协议（decodeMediaUrl + registerMediaProtocol，
+  非 standard scheme）
 - `src/render/editor/controllers/` — input / enter / backspace / convert / click / list / format
 - `src/render/editor/editorInstance.ts` — 内核宿主（内容加载、markdown 同步）
 - `src/render/components/Editor/v2/EditorV2.tsx` — v2 入口（状态、事件路由、焦点恢复、撤销）

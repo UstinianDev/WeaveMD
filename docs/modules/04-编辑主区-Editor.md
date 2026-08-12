@@ -1,6 +1,6 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 版本：v2.5 | 最后更新：2026-08-11
+> 模块编号：04 | 优先级：P0 | 版本：v2.6 | 最后更新：2026-08-12
 > 设计规范：[specs/editor-v2-architecture.md](../specs/editor-v2-architecture.md)
 > 退出规则：[specs/markdown-block-exit-rules.md](../specs/markdown-block-exit-rules.md)
 > 浮动工具栏/跨块拖选：[specs/floating-toolbar-refactor.md](../specs/floating-toolbar-refactor.md)
@@ -59,7 +59,7 @@ BlockNodeV2 = {
 ```
 
 - 容器块：document / blockquote / bullet-list / ordered-list / task-list / list-item。
-- 叶子块：paragraph / heading / code-block / thematic-break / table。
+- 叶子块：paragraph / heading / code-block / thematic-break / table / image-block。
 - 兄弟关系用 `prevId/nextId` 双向链表，父子用 `childrenIds`，支持列表嵌套、引用嵌套。
 - 所有操作不可变（返回新树，结构共享）。
 
@@ -100,7 +100,7 @@ BlockNodeV2 = {
 | convertCtrl | 升格（paragraph → 六种结构块）/ 降格；浮动工具栏转换经 `canConvertBlock` 矩阵（heading 仅 h1-h6/paragraph 互切，quote/list 仅退位 paragraph，code-block 只读） |
 | clickCtrl | 任务复选框切换 |
 | listCtrl | Tab 缩进为前项子列表、Shift+Tab 凸出 |
-| formatCtrl | 文本层格式化（bold/italic/strike/highlight/code/link/underline/math/image），取代 execCommand；`formatRange` toggle（Step 0 选区归一化 + 双形态，含部分标记覆盖 → 解除、跨多 token 逐 token 拆分、跨风格三连 `***` 叠加，SPEC-EDIT-FT3）、`clearFormat` 橡皮擦清除选区全部行内标记，image/link 插入 `[label](url)` / `![alt](url)`（SPEC-EDIT-FT2） |
+| formatCtrl | 文本层格式化（bold/italic/strike/highlight/code/link/underline/math/image），取代 execCommand；`formatRange` toggle（Step 0 选区归一化 + 双形态，含部分标记覆盖 → 解除、跨多 token 逐 token 拆分、跨风格三连 `***` 叠加，SPEC-EDIT-FT3）、`clearFormat` 橡皮擦清除选区全部行内标记，image/link 插入 `[label](url)` / `![alt](url)`（SPEC-EDIT-FT2）；**图片操作（K3~K7）**：`insertImageFromSelection` 直选插入（独立成块转 image-block、行内插入）、`alignImage`/`makeImageInline` 对齐包裹/解除（`<div align>`）、`removeImage`（image-block 整块删 / 行内图删区间）、`replaceImage`（修改图片按 token 区间替换，保留包裹） |
 | inlineLexer | `kernel/inlineLexer.ts`：行内 token 结构化识别（strong/em/underline/strike/mark/code/link/image/autolink/escape/math），`inlineRenderer` 消费它渲染富文本；`isBoundedWrap` 共享 activeTest 与 toggle-off 边界 |
 | katex | `kernel/katex.ts`：`renderMath(expr)` → `.math-inline` + `.katex` HTML，失败回退字面量 |
 
@@ -128,7 +128,30 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
 - **图片**：本地绝对路径走自定义 `media://` 协议（主进程 `media-protocol.ts` 映射本地文件，
   dev/prod 一致显示），替代被 Chromium `webSecurity`/CSP 阻止的 `file://`；CSP `img-src`
   放行 `https: http: media:`；加载失败经 EditorV2 `onErrorCapture` 事件委托回退
-  `.inline-image-fallback` 占位（无 broken 图标）。
+  `.inline-image-fallback` 占位（无 broken 图标）。**2026-08-12 修复**：协议以**非 standard**
+  scheme 注册（`MEDIA_SCHEME_PRIVILEGES` 不含 `standard`，回归单测锁定）——盘符编码进 host
+  （`media://C%3A/Users/...`）不再被 Chromium 标准 scheme host 规范化拒绝，完整 app 本地图
+  加载成功；`toImgSrc` 单层转义对称（K1 修复 `%20` 双重编码）。
+
+### 7.2 图片插入直选与图片工具栏（K3~K7，2026-08-11）
+
+- **直选插入**：浮动工具栏「图片」→ `window.weaveMD.dialog.pickImage` 系统文件框直选 →
+  选中文本替换为 `![alt](src)`（alt=选中文本，空格→`%20`）；取消/失败纯 no-op；空选区 → `![](src)`。
+- **image-block 原子块**（`kernel/imageBlock.ts`）：text 保存原始 markdown；独立成块（选区=整段/空段）
+  插入经 `changeBlockType` 转 image-block，其后确保存在可编辑段落；对齐包裹严格单行
+  `<div align="left|center|right">![alt](src)</div>`。
+- **点击选中**：`handleContainerClick` 读渲染期 `img[data-start/data-end]`（绝对偏移）+ `getBoundingClientRect()`
+  锚点 → `imageSelection`（align/standalone 由 `parseImageBlockText` 计算），点击非 img 清空。
+- **图片工具栏**：`imageSelection` 非空时替换文本浮动工具栏，6 按钮：修改图片 / 内联图片 / 居左 /
+  居中 / 居右 / 移除图片；**行内图**（非独立成块）对齐与内联按钮置灰、对齐按钮 active 态；外点/Escape 关闭；
+  **滚动重锚定**（Bug B，2026-08-12）：工具栏/弹窗位置改用本地 `anchorRect`（scroll 时重查
+  `img.getBoundingClientRect()` 更新），跟随图片而非停留点击时陈旧坐标。
+- **修改图片**：ImageEditTool 弹层（双 Tab：本地选择/URL），预填 src/alt（`tokenizeInline` 按绝对偏移命中），
+  确认经 `replaceImage` 替换并保留对齐包裹；弹窗同样随 `anchorRect` 滚动重锚定。
+- **移除图片**：image-block 整块删除（`adjacentLeafFocus` next 优先，无 next 补空段落）；行内图删 token 区间；
+  **CBTP 补偿**（Bug C，2026-08-12）：删除后整树最后叶子变为 code-block 时，按 SPEC-EDIT-CBTP 补回受保护
+  空段（镜像 `appendTrailingParagraphIfCodeLast`）——修复"代码块后直接 image-block（解析产物/空段被图替换）
+  移除图片后保护空行丢失"。
 
 ## 8. 已知限制
 
@@ -157,7 +180,7 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
 
 ## 9. 验证与测试
 
-- Vitest：内核/控制器/组件 **600 例**（含往返属性测试、六条退出规则矩阵、输入链路、
+- Vitest：内核/控制器/组件 **724 例**（含往返属性测试、六条退出规则矩阵、输入链路、
   marktext 语法外观断言、代码块提交/退出、列表与引用退出、尾部代码块补偿 SPEC-EDIT-CBTP、
   `resolveSyntaxType` 判定矩阵 26 例、浮动工具栏 G1/G3 节流与驻留（含 FT2 按钮分组/新功能、
   FT3 sticky/部分标记归一化/跨 token 拆分/三连 `***` 跨风格叠加）、`onConvertBlock` 转换矩阵 8 例、拖选端点变化检测 11 例、
@@ -165,11 +188,16 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
   FT3：Step 0 归一化矩阵（含 C10 跨 token）/ selection 恢复（selection.test + contentBlockRestore）/
   editorV2StickyFormat 集成 / CSS 静态断言（ft2Css 8 例）/ EditorV2 快捷键接线（editorV2Format 6 例，含拖拽禁用事件断言）、
   FT4：formatCtrl 跨风格折叠 6 例 + inlineLexer 相邻混合强调 + inlineRenderer 两两组合渲染 +
-  selection 标记吸附 11 例 + ContentBlock 删除/方向键吸附 4 例（PLAN-EDIT-FT4）+ open 三连拆分 3 例）。
+  selection 标记吸附 11 例 + ContentBlock 删除/方向键吸附 4 例（PLAN-EDIT-FT4）+ open 三连拆分 3 例、
+  图片：imageBlock 解析/对齐包裹/内联/独立判定 + formatCtrl 直选插入/对齐/内联/移除/replace +
+  替换图像绝对偏移（imageBlock.test / imageReplace.test / formatCtrl.test）+
+  mediaProtocol decode 与特权集不含 standard 断言（mediaProtocol.test）+ img fallback 组件 3 例 +
+  图片工具栏滚动重锚定 2 例（Bug B，imageToolbarV2.test）+ removeImage 代码块尾随空段补偿 3 布局
+  + 往返 1 例（Bug C，formatCtrl.test / markdownRoundTrip.test）。
 - Playwright 真实 Chromium E2E（`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
   + `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`
    + `e2e/cross-block-selection.spec.ts` + `e2e/drag-selection-markers.spec.ts`
-   + `e2e/drag-selection-move.spec.ts`）**56 例（50 通过 + 6 既有红）**：
+   + `e2e/drag-selection-move.spec.ts`）**61 例（56 通过 + 5 既有红）**：
   空文档输入、`# ` 标题转换、`**` 加粗渲染、标记保留、列表转换、中文输入、marktext 语法符号
   渲染与不可选中（标题 marker 聚焦显隐、任务复选框、引用竖线、列表 marker 计算样式断言）、
   标题 marker 并排、空标题行点击聚焦、列表项 marker 与内容并排且任务项无多余圆点、
@@ -186,7 +214,11 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
   FT4：`**123**` 选 `3**` 点斜体 → strong 内嵌 em 无字面 `*` 残体（FT4-E1）、
   `**12*3***` 选 `*3*` 点下划线 → `<u>` 剥离标记后纯内容（FT4-E2）、
   拖选含 close 标记 Backspace/斜体/下划线/光标恢复无残体移位（DSG-R1/R2/R3/P，SPEC-EDIT-FT4）、
-  含标记选区拖拽移动被阻止（drag-selection-move，DSM-R1）。
+  含标记选区拖拽移动被阻止（drag-selection-move，DSM-R1）、
+  图片直选插入替换选区/取消 no-op、图片工具栏全链路（修改/对齐/内联/移除）、行内图对齐置灰
+  （LINK-IMAGE-E3/E4/E5/E6、FT2-E6/E9）、图片工具栏滚动跟随（LINK-IMAGE-E7，Bug B 重锚定）、
+  代码块+图片打开→移除→保护空行恢复（Bug C，exit-behavior.spec.ts）；
+  **5 个既有红**为 drag-selection-markers.spec.ts 跨任务缺陷（勿动）。
 - 运行：`npm run test` / `npx playwright test`。
 
 ## 10. v1 基线（历史实现，已退役删除）
