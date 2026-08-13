@@ -1,6 +1,6 @@
 # WeaveMD 需求文档
 
-> 版本：v2.8 | 最后更新：2026-08-12
+> 版本：v2.9 | 最后更新：2026-08-13
 
 ---
 
@@ -44,7 +44,8 @@
 | EDIT-11 | 结构转换               | P1     | 浮动工具栏下拉：正文↔H1~H4↔引用↔有序列表↔无序列表↔任务列表。输入 `# `/`- `/`1. `/`- [ ] `/`> ` 前缀变灰（pendingTypeChange），回车才提交渲染；工具栏下拉立即转换。前缀分隔符支持普通空格/Tab/非断行空格（U+00A0，中文输入法产生）；回车时即使防抖未触发也回退检测前缀 |
 | EDIT-12 | 超链接交互             | P1     | 点 Link 隐藏工具栏开 Modal；edit 模式含"移除链接"按钮；Ctrl/Cmd+click 经 IPC 在系统浏览器打开；hover 蓝色 tooltip                                                                                                                                                     |
 | EDIT-13 | 语法渲染对齐 marktext  | P1     | 标题左侧 `#`×n 光标提示（灰色、失焦隐藏）；无序/有序/任务列表、引用渲染形式与 marktext 默认主题一致（深灰 marker、圆形任务复选框、绿色引用竖线、引用非斜体）；渲染后的语法符号（圆点/数字/复选框/引用符号/标题提示）均不可鼠标选中；代码块格式不变                    |
-| EDIT-14 | 图片插入与工具栏       | P1     | 工具栏「图片」直选系统文件框插入（alt=选中文本，取消 no-op）；本地图经 `media://` 协议显示（dev/prod 一致）；点击图片弹图片工具栏（修改图片/内联图片/居左/居中/居右/移除图片），独立成块可对齐（源码 `<div align>` 包裹，内联图对齐置灰）；修改图片弹层预填 src/alt |
+| EDIT-14 | 图片插入与工具栏       | P1     | 工具栏「图片」直选系统文件框插入（alt=选中文本，取消 no-op）；本地图经 `media://` 协议显示（dev/prod 一致）；点击图片弹图片工具栏（修改图片/内联图片/居左/居中/居右/移除图片），独立成块可对齐（源码 `<div align>` 包裹，内联图对齐置灰）；修改图片弹层预填 src/alt；四角缩放（`.image-resize-box`，等比例拖拽、宽度写 `<img>` 自身） |
+| EDIT-15 | 跨块选区替换输入       | P1     | 拖选跨块后字符输入/IME/粘贴，选区整体替换收敛单块（原生 beforeinput 拦截 + `replaceLeafRange` 块树级删除+插入），中途块不"复活" |
 
 ### 3.3 导航与定位 (P0)
 
@@ -71,11 +72,17 @@
 
 ### 3.5 导出 (P1)
 
-| 编号   | 需求          | 优先级 | 说明            |
-| ------ | ------------- | ------ | --------------- |
-| EXP-01 | Markdown 导出 | P1     | 原始 .md 文件   |
-| EXP-02 | Word 导出     | P1     | .docx 格式      |
-| EXP-03 | PDF 导出      | P1     | 打印式 PDF 生成 |
+| 编号   | 需求              | 优先级 | 说明                                                                        |
+| ------ | ----------------- | ------ | --------------------------------------------------------------------------- |
+| EXP-01 | Markdown 导出     | P1     | 原始 .md 文件                                                               |
+| EXP-02 | HTML 导出         | P1     | 自包含 HTML（内嵌导出 CSS + base64 图片，可独立打开）                       |
+| EXP-03 | PDF 导出          | P1     | 打印式 PDF（A4，隐藏窗口 printToPDF）                                       |
+| EXP-04 | DOC 导出          | P1     | Word 兼容 HTML（.doc，Word 可打开）                                         |
+| EXP-05 | DOCX 导出         | P1     | 真实 OOXML .docx（html-to-docx 转换，Word 2007+ 可打开）                    |
+| EXP-06 | PNG 导出          | P1     | 全页长图（隐藏窗口 capturePage → PNG）                                      |
+| EXP-07 | JPG/JPEG 导出     | P1     | 全页长图（capturePage → JPEG，质量 92）                                     |
+| EXP-08 | 导出 UI           | P1     | 导航栏导出下拉（8 格式分组），无文件禁用、导出中 spinner、失败横幅提示       |
+| EXP-09 | 图片自包含        | P1     | `media://` 与远程图导出前 base64 内联，超长文档 png/jpg 截断并提示           |
 
 ### 3.6 界面与交互 (P1)
 
@@ -127,7 +134,8 @@
 | EDIT-11 | 结构转换             | ✅   | 六种前缀即时转换（`#`/`-`/`1.`/`- [ ]`/`>`/` ``` `）；浮动工具栏下拉按 `canConvertBlock` 转换矩阵分发（SPEC-EDIT-FT） |
 | EDIT-12 | 超链接交互           | ✅   | Ctrl+Click 经 IPC 打开；hover tooltip；链接对话框                                                         |
 | EDIT-13 | 语法渲染对齐 marktext | ✅   | 标题 `#`×n 提示、深灰列表 marker、圆形任务复选框、引用绿色竖线，语法符号不可选中（e2e 计算样式断言）      |
-| EDIT-14 | 图片插入与工具栏     | ✅   | 直选插入（`pickImage` 系统文件框，取消 no-op）；image-block 原子块 + 点击选中 + 图片工具栏（修改/内联/居左/居中/居右/移除）；对齐走 `<div align>` 包裹，行内图对齐/内联置灰；本地图 `media://` 协议（非 standard scheme，C 盘 host 图片加载修复） |
+| EDIT-14 | 图片插入与工具栏     | ✅   | 直选插入（`pickImage` 系统文件框，取消 no-op）；image-block 原子块 + 点击选中 + 图片工具栏（修改/内联/居左/居中/居右/移除）；对齐走 `<div align>` 包裹，行内图对齐/内联置灰；本地图 `media://` 协议（非 standard scheme，C 盘 host 图片加载修复）；四角缩放（宽度写 `<img>` 自身，等比例拖拽，R1~R3 2026-08-13） |
+| EDIT-15 | 跨块选区替换输入     | ✅   | 原生 beforeinput 拦截 + onPaste → `replaceLeafRange` 块树级删除+插入收敛单块（跨块字符输入/IME/粘贴），e2e R1/R2（2026-08-13） |
 
 **输入与渲染保障（真实 Chromium E2E 全绿，`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
 + `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`

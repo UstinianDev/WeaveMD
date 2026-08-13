@@ -1,6 +1,6 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 版本：v2.7 | 最后更新：2026-08-12
+> 模块编号：04 | 优先级：P0 | 版本：v2.8 | 最后更新：2026-08-13
 > 设计规范：[specs/editor-v2-architecture.md](../specs/editor-v2-architecture.md)
 > 退出规则：[specs/markdown-block-exit-rules.md](../specs/markdown-block-exit-rules.md)
 > 浮动工具栏/跨块拖选：[specs/floating-toolbar-refactor.md](../specs/floating-toolbar-refactor.md)
@@ -167,6 +167,23 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
 | R4 | 链接场景工具栏左置 | `toolbarState.computeToolbarState` 新增可选 `linkRect` 6 参：`selection.inLink` 且提供 linkRect 时工具栏定位到链接正左方（`left = clamp(linkRect.left - w - 8)`、垂直居中），非链接沿用上方居中；滚动时链接命中重锚定（非链接仍滚动隐藏） |
 | R5 | 插入链接回车修复 | `InsertUrlModal` 输入 Enter → `preventDefault + stopPropagation + handleConfirm`，修复 selectionchange 竞态丢失选中内容；空 URL 分支不变 |
 
+### 7.4 图片缩放落点修复与跨块替换输入（2026-08-13）
+
+- **R3 宽度落点修复**（REQ-EDIT-IMAGE-RESIZE-FIX）：缩放宽度从外层对齐 wrapper 移到
+  `<img>` 自身（`renderImageBlock` 经 `applyImgWidth` 注入 `style.width`），小图可放大、
+  无 wrapper 溢出、居中/居右（含带宽度图）正确；等比例拖拽 = 主轴向符号 × `√(dx²+dy²)`
+  （`resizeMath.computeResizeWidth`），斜向对角顺滑增长；松手提交后选中框重锚定
+  （`useLayoutEffect` 每次渲染后重查 img rect）。详情：`docs/specs/editor-v2-architecture.md` 13.15。
+- **跨块选区替换输入**（2026-08-13）：字符输入/IME 组合/粘贴跨块选区时，浏览器原生删除只改
+  DOM、`onInput` 仅同步焦点块模型 → 其余块重渲染"复活"。ContentBlock 监听**原生 beforeinput**
+  （React 合成 onBeforeInput 在 Chromium 不触发）+ `onPaste`，经 `replaceLeafRange`
+  （blockTree.ts：`deleteLeafRange` 删除选区 → 后块剩余文本并入前块 → 焦点偏移插入 insertText）
+  块树级收敛单块。e2e：`cross-block-replace-input.spec.ts` R1/R2。
+- **编辑主区纯重构**（REQ-EDITOR-TOOLBAR-IMAGE-LINK）：`ImageToolbar.scheduleHide` 死代码删除
+  （no-op timer）；`imageAnchor.ts`（`findImageEl`/`readImageRect` 纯函数）收敛 ImageToolbar 与
+  ImageResizeBox 的滚动重锚定重复查询；`modalConstants.ts` 收敛双份 `EMPTY_URL_MESSAGE`。
+  断言零修改、845 全绿。详情：`docs/refactor/editor-toolbar-image-link.refactor.md`。
+
 ## 8. 已知限制
 
 - v2 Normal 模式暂无查找高亮（替换功能正常；Source 模式由 Monaco 高亮）。
@@ -194,7 +211,7 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
 
 ## 9. 验证与测试
 
-- Vitest：内核/控制器/组件 **724 例**（含往返属性测试、六条退出规则矩阵、输入链路、
+- Vitest：内核/控制器/组件 **845 例**（含往返属性测试、六条退出规则矩阵、输入链路、
   marktext 语法外观断言、代码块提交/退出、列表与引用退出、尾部代码块补偿 SPEC-EDIT-CBTP、
   `resolveSyntaxType` 判定矩阵 26 例、浮动工具栏 G1/G3 节流与驻留（含 FT2 按钮分组/新功能、
   FT3 sticky/部分标记归一化/跨 token 拆分/三连 `***` 跨风格叠加）、`onConvertBlock` 转换矩阵 8 例、拖选端点变化检测 11 例、
@@ -210,8 +227,8 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
   + 往返 1 例（Bug C，formatCtrl.test / markdownRoundTrip.test）。
 - Playwright 真实 Chromium E2E（`e2e/editor.spec.ts` + `e2e/marktext-rendering.spec.ts`
   + `e2e/exit-behavior.spec.ts` + `e2e/floating-toolbar.spec.ts`
-   + `e2e/cross-block-selection.spec.ts` + `e2e/drag-selection-markers.spec.ts`
-   + `e2e/drag-selection-move.spec.ts`）**61 例（56 通过 + 5 既有红）**：
+   + `e2e/cross-block-selection.spec.ts` + `e2e/cross-block-replace-input.spec.ts`
+   + `e2e/drag-selection-markers.spec.ts` + `e2e/drag-selection-move.spec.ts`）**76 例（71 通过 + 5 既有红）**：
   空文档输入、`# ` 标题转换、`**` 加粗渲染、标记保留、列表转换、中文输入、marktext 语法符号
   渲染与不可选中（标题 marker 聚焦显隐、任务复选框、引用竖线、列表 marker 计算样式断言）、
   标题 marker 并排、空标题行点击聚焦、列表项 marker 与内容并排且任务项无多余圆点、
@@ -231,7 +248,8 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
   含标记选区拖拽移动被阻止（drag-selection-move，DSM-R1）、
   图片直选插入替换选区/取消 no-op、图片工具栏全链路（修改/对齐/内联/移除）、行内图对齐置灰
   （LINK-IMAGE-E3/E4/E5/E6、FT2-E6/E9）、图片工具栏滚动跟随（LINK-IMAGE-E7，Bug B 重锚定）、
-  代码块+图片打开→移除→保护空行恢复（Bug C，exit-behavior.spec.ts）；
+  代码块+图片打开→移除→保护空行恢复（Bug C，exit-behavior.spec.ts）、
+  跨块选区输入替换收敛单块（R1/R2，cross-block-replace-input.spec.ts）；
   **5 个既有红**为 drag-selection-markers.spec.ts 跨任务缺陷（勿动）。
 - 运行：`npm run test` / `npx playwright test`。
 

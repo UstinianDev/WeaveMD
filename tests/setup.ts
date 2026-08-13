@@ -30,9 +30,7 @@ const mockWeaveMD = {
     update: vi.fn(),
   },
   export: {
-    md: vi.fn(),
-    docx: vi.fn(),
-    pdf: vi.fn(),
+    file: vi.fn(),
   },
   window: {
     minimize: vi.fn(),

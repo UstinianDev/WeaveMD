@@ -1,7 +1,7 @@
 # TDD 证据文档：PLAN-EDIT-FT4 跨风格叠加畸形修复 + 灰度拖选标记移位（G-① / G-②）
 
-> 日期：2026-08-09 | 需求：[docs/requirements.devflow.md](../requirements.devflow.md) §4.3 / §7
-> 计划：[docs/plan.md](../plan.md)（PLAN-EDIT-FT4）
+> 日期：2026-08-09 | 需求：FT 需求定稿（已并入 docs/specs/floating-toolbar-ux-and-inline-format.md）
+> 计划：PLAN-EDIT-FT4（历史计划文档已归档删除）
 > 风险等级：L3（编辑器核心交互/内核行为修改；本文件由复现智能体 AGT-0 维护）
 > 状态：AGT-B / AGT-C 已闭环；AGT-D（G-② 删除/格式化/光标路径）已闭环（5/5 e2e GREEN，2026-08-09）；收尾增量修复已闭环（§3.4：U6 产物 open 三连拆分 + 原生拖拽移动禁用，2026-08-09）
 

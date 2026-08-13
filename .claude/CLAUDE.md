@@ -69,6 +69,12 @@
   图片工具栏（修改图片/内联图片/居左/居中/居右/移除，行内图对齐/内联置灰）；本地图走
   `media://` 协议（`src/main/media-protocol.ts`，**非 standard scheme**——盘符编码进 host
   不被 Chromium 规范化拒绝，修复完整 app 本地图加载失败）
+- 图片缩放（R1~R3）：选中图片显示 `.image-resize-box` 四角手柄，拖拽直改 `<img style.width>`
+  （DOM-only），提交独立图 `setImageWidth` / 行内图写 `BlockWidthMap`；宽度落点在 `<img>` 自身
+  （`applyImgWidth`，非外层 div），小图可放大、无溢出；等比例拖拽 = 主轴向符号 × √(dx²+dy²)
+- 跨块选区替换（2026-08-13）：字符输入/粘贴跨块选区时浏览器原生只改 DOM，`onInput` 仅同步
+  焦点块模型 → 其余块"复活"。ContentBlock 原生 `beforeinput`/`onPaste` 拦截 → `replaceLeafRange`
+  （blockTree.ts）块树级删除+插入收敛单块
 - **v1 回退路径已退役（2026-08-06）**：v2 为唯一路径，`__EDITOR_V2__` 开关已移除，
   v1 组件/服务/测试已删除（EditorView 1920 行重写为薄编排器）
 
@@ -84,6 +90,9 @@
 - `src/render/components/Editor/v2/blocks/ContentBlock.tsx` — 唯一 contentEditable 表面
 - `src/render/components/Editor/v2/FloatingToolbar.tsx` — 文本浮动工具栏（SPEC-REFACTOR 拆出
   ImageToolbar 图片工具栏 / toolbarState 纯函数 / ToolbarButton 共享按钮）
+- `src/render/components/Editor/v2/ImageResizeBox.tsx` + `resizeMath.ts` — 图片四角缩放
+  （纯算术下沉 resizeMath；`imageAnchor.ts` 提供 findImageEl/readImageRect 共享查询）
+- `src/render/components/Editor/v2/modalConstants.ts` — 弹层共享常量（EMPTY_URL_MESSAGE）
 - `src/render/components/Editor/EditorView.tsx` — 薄编排器（v2 唯一）
 
 ## 已知限制（详见 spec 13.x）

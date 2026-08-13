@@ -1,7 +1,7 @@
 # SPEC-EDIT-FT2 TDD 实施证据报告
 
 > 规范：docs/specs/floating-toolbar-ux-and-inline-format.md（SPEC-EDIT-FT2 v1.0）
-> 计划：docs/plans/ft2-inline-format.plan.md（PLAN-EDIT-FT2）
+> 计划：PLAN-EDIT-FT2（历史计划文档已归档删除）
 > 日期：2026-08-08 | 运行器：Vitest 1.x + Playwright | 环境：Windows PowerShell
 > 检查点说明：本报告为阶段检查点证据，git 提交需用户授权（未授权则后续补充）。
 
