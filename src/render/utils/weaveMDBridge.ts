@@ -70,6 +70,17 @@ is unavailable in the current preview environment.
 - Real Electron IPC will replace this behavior in the desktop app.
 `;
 
+const EXPORT_MIME: Record<string, string> = {
+  md: 'text/markdown;charset=utf-8',
+  html: 'text/html;charset=utf-8',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+};
+
 const createEmptyState = (): BrowserMockState => ({
   users: [],
   files: [],
@@ -520,25 +531,18 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
       }),
   },
   export: {
-    md: async (content, filename) => {
-      const safeName = filename.endsWith('.md') ? filename : `${filename}.md`;
-      const downloaded = triggerBrowserDownload(content, safeName, 'text/markdown;charset=utf-8');
+    file: async (req) => {
+      const safeName = req.filename.endsWith(`.${req.format}`)
+        ? req.filename
+        : `${req.filename}.${req.format}`;
+      const mime = EXPORT_MIME[req.format] ?? 'application/octet-stream';
+      const body =
+        req.format === 'html' || req.format === 'doc'
+          ? `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${req.filename}</title></head><body>${req.html}</body></html>`
+          : req.content;
+      const downloaded = triggerBrowserDownload(body, safeName, mime);
       return downloaded
-        ? createSuccessResult({ filename: safeName }, 'Markdown exported from browser mock bridge.')
-        : createFailureResult('Browser download is unavailable.');
-    },
-    docx: async (content, filename) => {
-      const safeName = filename.endsWith('.docx') ? filename : `${filename}.docx`;
-      const downloaded = triggerBrowserDownload(content, safeName, 'application/octet-stream');
-      return downloaded
-        ? createSuccessResult({ filename: safeName }, 'DOCX export placeholder downloaded.')
-        : createFailureResult('Browser download is unavailable.');
-    },
-    pdf: async (content, filename) => {
-      const safeName = filename.endsWith('.pdf') ? filename : `${filename}.pdf`;
-      const downloaded = triggerBrowserDownload(content, safeName, 'application/pdf');
-      return downloaded
-        ? createSuccessResult({ filename: safeName }, 'PDF export placeholder downloaded.')
+        ? createSuccessResult({ filePath: safeName }, `Exported ${safeName} from browser mock bridge.`)
         : createFailureResult('Browser download is unavailable.');
     },
   },

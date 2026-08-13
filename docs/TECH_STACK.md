@@ -1,6 +1,6 @@
 # WeaveMD 技术选型文档
 
-> 版本：v2.9 | 最后更新：2026-08-12
+> 版本：v3.0 | 最后更新：2026-08-13
 
 ---
 
@@ -91,6 +91,12 @@ marktext/muya），不依赖 Monaco：
   scheme 注册（`MEDIA_SCHEME_PRIVILEGES = { secure, supportFetchAPI, stream }`，不含 `standard`），
   URL 作为不透明串原样透传 handler，修复盘符编码进 host（`media://C%3A/Users/...`）被标准 scheme
   host 规范化拒绝导致的完整 app 加载失败
+- **图片四角缩放**（R1~R3，2026-08-13）：`ImageResizeBox` + `resizeMath.ts`（`computeResizeWidth`
+  纯算术，主轴向符号 × √(dx²+dy²) 等比例）；宽度落点 `applyImgWidth` 写 `<img>` 自身；
+  独立图 `setImageWidth` 持久化、行内图写会话 `BlockWidthMap`；滚动重锚定查询收敛为
+  `imageAnchor.ts`（`findImageEl`/`readImageRect` 纯函数，ImageToolbar/ImageResizeBox 共用）
+- **跨块选区替换输入**（2026-08-13）：ContentBlock 原生 `beforeinput` + `onPaste` → blockTree
+  `replaceLeafRange`（`deleteLeafRange` + 后块文本并入前块 + 插入 insertText）收敛单块
 
 v1（容器级 contentEditable）回退路径已退役（v2 唯一路径，2026-08-06）。
 
@@ -106,6 +112,18 @@ v1（容器级 contentEditable）回退路径已退役（v2 唯一路径，2026-
 | **Prism.js**         | ^1.29.0 | 代码块语法高亮                     |
 
 选型理由：unified 生态模块化、可插拔，支持自定义转换。
+
+### 2.6 导出（navbar-export）
+
+| 技术               | 版本    | 用途                                        |
+| ------------------ | ------- | ------------------------------------------- |
+| **html-to-docx**   | ^1.8.0  | HTML → 真实 .docx（OOXML，Word 2007+/LibreOffice/Google Docs/WPS 兼容） |
+| **printToPDF**     | Electron | 隐藏窗口渲染 → PDF（A4 分页）               |
+| **capturePage**    | Electron | 隐藏窗口渲染 → PNG/JPEG 全页长图             |
+
+导出管线：渲染层 `renderMarkdownToHtml` 产出 HTML 正文（含 Prism 高亮）→ 主进程 `exportService` 统一分发 8 格式（md/pdf/doc/docx/html/png/jpg/jpeg）；图片（`media://` 与远程 http(s)）导出前 base64 内联（`imageInline.ts`）；`exportTemplate.ts` 提供自包含导出 CSS（迁移自 `.markdown-preview` 明色配色）。`html-to-docx` 在 vite main 构建 external，运行时从 node_modules 加载。
+
+### 2.7 数据库
 
 ### 2.6 数据库
 
@@ -208,7 +226,8 @@ src/
 │   │   └── editorInstance.ts # 内核宿主
 │   ├── components/  # UI 组件
 │   │   ├── Auth/    # 认证界面
-│   │   ├── Editor/  # 编辑器（v2 唯一路径，v1 已退役删除）
+│   │   ├── Editor/  # 编辑器（v2 唯一路径，v1 已退役删除；v2/ 下含 ImageResizeBox、
+│   │   │            #   resizeMath、imageAnchor、modalConstants 等）
 │   │   ├── Navbar/  # 顶部导航
 │   │   ├── Settings/ # 设置模态框
 │   │   └── Common/  # 通用组件

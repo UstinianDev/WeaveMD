@@ -4,6 +4,7 @@
 
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '@shared/constants';
+import type { ExportRequest, ExportResult } from './export/types';
 
 export interface WeaveMDApi {
   auth: {
@@ -32,9 +33,7 @@ export interface WeaveMDApi {
     update: (userId: string, settings: Record<string, unknown>) => Promise<unknown>;
   };
   export: {
-    md: (content: string, filename: string) => Promise<unknown>;
-    docx: (content: string, filename: string) => Promise<unknown>;
-    pdf: (content: string, filename: string) => Promise<unknown>;
+    file: (req: ExportRequest) => Promise<ExportResult>;
   };
   window: {
     minimize: () => Promise<void>;
@@ -103,10 +102,7 @@ const api: WeaveMDApi = {
       ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_UPDATE, { userId, ...settings }),
   },
   export: {
-    md: (content, filename) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_MD, { content, filename }),
-    docx: (content, filename) =>
-      ipcRenderer.invoke(IPC_CHANNELS.EXPORT_DOCX, { content, filename }),
-    pdf: (content, filename) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_PDF, { content, filename }),
+    file: (req) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_FILE, req),
   },
   window: {
     minimize: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_MINIMIZE),

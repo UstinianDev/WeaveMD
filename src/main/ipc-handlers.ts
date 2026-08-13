@@ -12,6 +12,8 @@ import {
   USERNAME_REGEX,
 } from '@shared/constants';
 import { createFile, deleteFile, getFile, listFiles, updateFileContent } from './db/files';
+import { exportFile } from './export/exportService';
+import type { ExportRequest } from './export/types';
 import { getHistoryForFile, getLastVersion, saveVersion } from './db/history';
 import { getSettings, updateSettings } from './db/settings';
 import {
@@ -423,62 +425,9 @@ export function registerAllIpcHandlers(): void {
   // Export
   // ========================================
 
-  ipcMain.handle(IPC_CHANNELS.EXPORT_MD, async (_event, { content, filename }) => {
-    const win = BrowserWindow.getFocusedWindow();
-    if (!win) return { success: false, error: 'No window' };
-    const result = await dialog.showSaveDialog(win, {
-      title: 'Export Markdown',
-      defaultPath: `${filename}.md`,
-      filters: [{ name: 'Markdown', extensions: ['md'] }],
-    });
-    if (result.canceled || !result.filePath) return { success: false, error: 'Cancelled' };
-    fs.writeFileSync(result.filePath, content, 'utf-8');
-    return { success: true, data: { filePath: result.filePath } };
-  });
-
-  ipcMain.handle(IPC_CHANNELS.EXPORT_DOCX, async (_event, { content, filename }) => {
-    // Simple DOCX export: save as HTML-wrapped file with .doc extension
-    // Full docx library integration would be added in a real production version
-    const win = BrowserWindow.getFocusedWindow();
-    if (!win) return { success: false, error: 'No window' };
-    const result = await dialog.showSaveDialog(win, {
-      title: 'Export as Word',
-      defaultPath: `${filename}.doc`,
-      filters: [{ name: 'Word Document', extensions: ['doc'] }],
-    });
-    if (result.canceled || !result.filePath) return { success: false, error: 'Cancelled' };
-    const htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><pre>${content}</pre></body></html>`;
-    fs.writeFileSync(result.filePath, htmlContent, 'utf-8');
-    return { success: true, data: { filePath: result.filePath } };
-  });
-
-  ipcMain.handle(IPC_CHANNELS.EXPORT_PDF, async (_event, { content, filename }) => {
-    const win = BrowserWindow.getFocusedWindow();
-    if (!win) return { success: false, error: 'No window' };
-    const result = await dialog.showSaveDialog(win, {
-      title: 'Export as PDF',
-      defaultPath: `${filename}.pdf`,
-      filters: [{ name: 'PDF', extensions: ['pdf'] }],
-    });
-    if (result.canceled || !result.filePath) return { success: false, error: 'Cancelled' };
-
-    // Create hidden window for PDF printing
-    const pdfWin = new BrowserWindow({
-      width: 800,
-      height: 600,
-      show: false,
-      webPreferences: { nodeIntegration: false, contextIsolation: true },
-    });
-
-    const htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-      body { font-family: -apple-system, sans-serif; padding: 40px; color: #000; background: #fff; white-space: pre-wrap; }
-    </style></head><body>${content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</body></html>`;
-
-    await pdfWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`);
-    const pdfData = await pdfWin.webContents.printToPDF({ printBackground: true });
-    fs.writeFileSync(result.filePath, pdfData);
-    pdfWin.close();
-    return { success: true, data: { filePath: result.filePath } };
+  ipcMain.handle(IPC_CHANNELS.EXPORT_FILE, async (event, req: ExportRequest) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return exportFile(req, win);
   });
 
   // ========================================

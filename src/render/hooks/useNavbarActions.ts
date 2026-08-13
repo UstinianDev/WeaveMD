@@ -7,8 +7,10 @@
 import { useCallback, useState } from 'react';
 
 import type { IFile } from '@shared/types';
+import type { ExportFormat } from '@main/export/types';
 import { createDiskFile } from '@render/services/fileOps';
 import { useI18n } from '@render/i18n';
+import { renderMarkdownToHtml } from '@render/services/markdown';
 import { useAuthStore } from '@render/stores/authStore';
 import { useEditorStore } from '@render/stores/editorStore';
 import { useFileTreeStore } from '@render/stores/fileTreeStore';
@@ -250,6 +252,43 @@ export function useNavbarActions() {
     useUIStore.getState().toggleFindReplace();
   }, []);
 
+  // --- Export ---
+
+  const handleExport = useCallback(
+    async (format: ExportFormat) => {
+      const { currentFile: latestCurrentFile } = useEditorStore.getState();
+      if (!latestCurrentFile) return;
+
+      setIsLoading(true);
+      setErrorMessage('');
+      try {
+        await flushEditorDraft();
+        const { content } = useEditorStore.getState();
+        const html = await renderMarkdownToHtml(content);
+        const base = latestCurrentFile.name.replace(/\.[^.]+$/, '') || latestCurrentFile.name;
+        const result = (await window.weaveMD.export.file({
+          format,
+          content,
+          html,
+          filename: base,
+        })) as unknown as { success: boolean; error?: string; data?: { truncatedPx?: number } };
+
+        if (!result.success && result.error !== 'cancelled') {
+          setErrorMessage(t('export.failed'));
+          return;
+        }
+        if (result.success && typeof result.data?.truncatedPx === 'number') {
+          setErrorMessage(t('export.tooLongImage').replace('{px}', String(result.data.truncatedPx)));
+        }
+      } catch {
+        setErrorMessage(t('export.failed'));
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [flushEditorDraft, t]
+  );
+
   return {
     user,
     currentFile,
@@ -272,5 +311,6 @@ export function useNavbarActions() {
     handleDeleteFolder,
     handleHistoryOpenFile,
     handleFindReplace,
+    handleExport,
   };
 }

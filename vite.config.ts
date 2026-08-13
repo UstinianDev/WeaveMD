@@ -23,7 +23,7 @@ export default defineConfig({
           build: {
             outDir: 'dist-main',
             rollupOptions: {
-              external: ['better-sqlite3', 'bcryptjs'],
+              external: ['better-sqlite3', 'bcryptjs', 'html-to-docx'],
             },
           },
         },

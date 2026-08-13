@@ -5,6 +5,7 @@
 import React, { useEffect } from 'react';
 import IconButton from '@render/components/Common/IconButton';
 import { useI18n } from '@render/i18n';
+import ExportMenu from './ExportMenu';
 import FileMenu from './FileMenu';
 import HelpMenu from './HelpMenu';
 import HistoryMenu from './HistoryMenu';
@@ -86,6 +87,7 @@ const TopBar: React.FC = () => {
     handleDeleteFolder,
     handleHistoryOpenFile,
     handleFindReplace,
+    handleExport,
   } = useNavbarActions();
 
   useEffect(() => {
@@ -236,15 +238,10 @@ const TopBar: React.FC = () => {
         <NavSeparator />
 
         {/* Export dropdown */}
-        <div className="relative inline-block">
-          <button
-            className="navbar-menu-trigger hover:text-[var(--accent)] transition-colors px-1"
-            style={{ color: 'var(--navbar-text-primary, #FFFFFF)' }}
-            title={t('navbar.export')}
-          >
-            ⬇️
-          </button>
-        </div>
+        <ExportMenu
+          onExport={(format) => void handleExport(format)}
+          disabled={!currentFile || isLoading}
+        />
 
         {/* More menu */}
         <MoreMenu onFindReplace={handleFindReplace} onOpenHistory={toggleHistoryPanel} />

@@ -51,9 +51,7 @@ export const IPC_CHANNELS = {
   SETTINGS_UPDATE: 'settings:update',
 
   // Export
-  EXPORT_MD: 'export:md',
-  EXPORT_DOCX: 'export:docx',
-  EXPORT_PDF: 'export:pdf',
+  EXPORT_FILE: 'export:file',
 
   // Window
   WINDOW_MINIMIZE: 'window:minimize',
