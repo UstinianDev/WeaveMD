@@ -19,6 +19,7 @@ function makeProps(overrides: Record<string, unknown> = {}) {
     onEnter: vi.fn(),
     onBackspaceAtStart: vi.fn(),
     onDeleteRange: vi.fn(),
+    onReplaceCrossBlock: vi.fn(),
     onTab: (): boolean => false,
     onShiftTab: (): boolean => false,
     onFormat: vi.fn(),
@@ -158,5 +159,107 @@ describe('ContentBlock — 标记安全（PLAN-EDIT-FT4 AGT-D）', () => {
     el.dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
     expect(getCursorOffsets(el)).toEqual({ start: 2, end: 2 });
+  });
+});
+
+// ============================================================
+// 跨块选区文本替换（原生 beforeinput / paste 拦截）
+// 浏览器原生删除跨块选区只改 DOM，onInput 仅同步焦点块模型；
+// 需拦截并走块树级删除 + 插入。React 18 合成 onBeforeInput 基于
+// keypress/textInput 派生（现代浏览器不触发），实现改为原生监听，
+// 故 jsdom 中可 dispatch 原生 InputEvent 直接验证。
+// ============================================================
+describe('ContentBlock — 跨块选区文本替换（beforeinput/paste 拦截）', () => {
+  /** 渲染 b1 块并追加兄弟块 b2，构造跨块选区 [b1 全选, b2 全选] */
+  function setupCrossBlock(onReplaceCrossBlock = vi.fn()) {
+    const { container } = render(<ContentBlock {...makeProps({ onReplaceCrossBlock })} />);
+    const el = container.querySelector('span.block-content') as HTMLSpanElement;
+    const span2 = document.createElement('span');
+    span2.className = 'block-content';
+    span2.textContent = '2';
+    span2.dataset.blockId = 'b2';
+    container.appendChild(span2);
+    const range = document.createRange();
+    range.setStart(el.firstChild as Node, 0);
+    range.setEnd(span2.firstChild as Node, 1);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return { container, el, onReplaceCrossBlock };
+  }
+
+  it('X1: 跨块选区输入字符 → 原生 beforeinput 被拦截，onReplaceCrossBlock 收到 (b1,0,b2,1,文本)', () => {
+    const { el, onReplaceCrossBlock } = setupCrossBlock();
+    const ev = new InputEvent('beforeinput', {
+      inputType: 'insertText',
+      data: '123',
+      bubbles: true,
+      cancelable: true,
+    });
+    el.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(onReplaceCrossBlock).toHaveBeenCalledWith('b1', 0, 'b2', 1, '123');
+  });
+
+  it('X1b: 同块选区输入 → 不拦截（原生输入路径保留）', () => {
+    const { el, onReplaceCrossBlock } = setupCrossBlock();
+    // 收起为同块选区
+    const range = document.createRange();
+    range.setStart(el.firstChild as Node, 0);
+    range.setEnd(el.firstChild as Node, 2);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const ev = new InputEvent('beforeinput', {
+      inputType: 'insertText',
+      data: 'x',
+      bubbles: true,
+      cancelable: true,
+    });
+    el.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+    expect(onReplaceCrossBlock).not.toHaveBeenCalled();
+  });
+
+  it('X1c: 跨块选区但 inputType 非文本插入（deleteContentBackward）→ 不拦截', () => {
+    const { el, onReplaceCrossBlock } = setupCrossBlock();
+    const ev = new InputEvent('beforeinput', {
+      inputType: 'deleteContentBackward',
+      bubbles: true,
+      cancelable: true,
+    });
+    el.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+    expect(onReplaceCrossBlock).not.toHaveBeenCalled();
+  });
+
+  it('X2: 跨块选区粘贴 → paste 被拦截，clipboardData 纯文本传入 onReplaceCrossBlock', () => {
+    const { el, onReplaceCrossBlock } = setupCrossBlock();
+    const ev = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent;
+    Object.defineProperty(ev, 'clipboardData', {
+      value: { getData: (format: string) => (format === 'text/plain' ? 'pasted' : '') },
+    });
+    el.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(onReplaceCrossBlock).toHaveBeenCalledWith('b1', 0, 'b2', 1, 'pasted');
+  });
+
+  it('X2b: 同块选区粘贴 → 不拦截（原生粘贴路径保留）', () => {
+    const { el, onReplaceCrossBlock } = setupCrossBlock();
+    const range = document.createRange();
+    range.setStart(el.firstChild as Node, 0);
+    range.setEnd(el.firstChild as Node, 2);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    const ev = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent;
+    Object.defineProperty(ev, 'clipboardData', {
+      value: { getData: () => 'pasted' },
+    });
+    el.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+    expect(onReplaceCrossBlock).not.toHaveBeenCalled();
   });
 });

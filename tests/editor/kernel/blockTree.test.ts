@@ -17,6 +17,7 @@ import {
   removeBlock,
   renderBlock,
   replaceBlock,
+  replaceLeafRange,
   setBlockText,
   setBlockTextAndRender,
   splitLeaf,
@@ -234,6 +235,52 @@ describe('blockTree — deleteLeafRange（跨块选区删除）', () => {
         (b) => b.type === 'bullet-list' || b.type === 'list-item'
       )
     ).toBe(false);
+  });
+});
+
+describe('blockTree — replaceLeafRange（跨块选区文本替换）', () => {
+  it('跨三行选区输入 "123" → 中间行与尾行删除，首行变为 "123"，焦点在文本末尾', () => {
+    const tree = markdownToState('1\n\n2\n\n3');
+    const leaves = Object.values(tree.blocks).filter((b) => b.text !== null);
+    const [a, b, c] = leaves;
+    const result = replaceLeafRange(tree, a.id, 0, c.id, 1, '123');
+    expect(result).not.toBeNull();
+    expect(result!.tree.blocks[a.id]?.text).toBe('123');
+    // 中间叶子 b 与尾块 c 已被整块删除，选区收敛为单块
+    expect(result!.tree.blocks[b.id]).toBeUndefined();
+    expect(result!.tree.blocks[c.id]).toBeUndefined();
+    expect(result!.focusBlockId).toBe(a.id);
+    expect(result!.focusOffset).toBe(3);
+  });
+
+  it('跨块部分选区替换：前块保留前段 + 插入文本 + 后块保留后段', () => {
+    const tree = markdownToState('abc\n\ndef');
+    const leaves = Object.values(tree.blocks).filter((b) => b.text !== null);
+    const [a, b] = leaves;
+    const result = replaceLeafRange(tree, a.id, 1, b.id, 2, 'XY');
+    expect(result).not.toBeNull();
+    expect(result!.tree.blocks[a.id]?.text).toBe('aXYf');
+    expect(result!.focusBlockId).toBe(a.id);
+    expect(result!.focusOffset).toBe(3); // 1 + 'XY'.length
+  });
+
+  it('同块选区替换：退化为块内删除 + 插入', () => {
+    const tree = markdownToState('hello');
+    const leaf = Object.values(tree.blocks).find((b) => b.text !== null)!;
+    const result = replaceLeafRange(tree, leaf.id, 0, leaf.id, 5, 'hi');
+    expect(result).not.toBeNull();
+    expect(result!.tree.blocks[leaf.id]?.text).toBe('hi');
+    expect(result!.focusOffset).toBe(2);
+  });
+
+  it('插入空文本（纯删除语义）→ 行为与 deleteLeafRange 一致', () => {
+    const tree = markdownToState('abc\n\ndef');
+    const leaves = Object.values(tree.blocks).filter((b) => b.text !== null);
+    const [a, b] = leaves;
+    const result = replaceLeafRange(tree, a.id, 0, b.id, 3, '');
+    expect(result).not.toBeNull();
+    expect(result!.tree.blocks[a.id]?.text).toBe('');
+    expect(result!.focusOffset).toBe(0);
   });
 });
 

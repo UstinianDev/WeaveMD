@@ -646,6 +646,59 @@ export function deleteLeafRange(
   return { tree: nextTree, focusBlockId: startLeafId, focusOffset: startOffset };
 }
 
+/**
+ * 跨叶子块选区替换：删除 [startLeafId,startOffset) → [endLeafId,endOffset) 区间内容
+ * （中间叶子整块删除）后，将后块剩余文本并入前块，再在前块焦点偏移处插入 insertText。
+ * 选区内容整体被替换（全选三行输入 "123" → 仅剩一行 "123"）；
+ * 用于跨块选区字符输入 / 粘贴（浏览器原生删除跨块选区只改 DOM，须块树级删除 + 插入）。
+ */
+export function replaceLeafRange(
+  tree: BlockTreeV2,
+  startLeafId: string,
+  startOffset: number,
+  endLeafId: string,
+  endOffset: number,
+  insertText: string
+): { tree: BlockTreeV2; focusBlockId: string; focusOffset: number } | null {
+  const deleted = deleteLeafRange(tree, startLeafId, startOffset, endLeafId, endOffset);
+  if (!deleted) return null;
+
+  let nextTree = deleted.tree;
+  const endBlock = nextTree.blocks[endLeafId];
+  // 后块剩余文本并入前块（跨块替换收敛为单块），后块随之删除
+  if (endBlock && endBlock.text !== null && endLeafId !== deleted.focusBlockId) {
+    if (endBlock.text.length > 0) {
+      const head = nextTree.blocks[deleted.focusBlockId];
+      nextTree = setBlockTextAndRender(
+        nextTree,
+        deleted.focusBlockId,
+        (head?.text ?? '') + endBlock.text
+      );
+    }
+    nextTree = removeBlock(nextTree, endLeafId);
+    nextTree = removeEmptyContainers(nextTree);
+  }
+
+  const block = nextTree.blocks[deleted.focusBlockId];
+  if (!block || block.text === null) {
+    return {
+      tree: nextTree,
+      focusBlockId: deleted.focusBlockId,
+      focusOffset: deleted.focusOffset,
+    };
+  }
+  const offset = Math.max(0, Math.min(deleted.focusOffset, block.text.length));
+  return {
+    tree: setBlockTextAndRender(
+      nextTree,
+      deleted.focusBlockId,
+      `${block.text.slice(0, offset)}${insertText}${block.text.slice(offset)}`
+    ),
+    focusBlockId: deleted.focusBlockId,
+    focusOffset: offset + insertText.length,
+  };
+}
+
 // ============================================
 // 块转换检测（前缀 → 目标类型）
 // ============================================
