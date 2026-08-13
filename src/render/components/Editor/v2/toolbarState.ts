@@ -115,8 +115,10 @@ export function computeToolbarState(
   const blockText = tree.blocks[blockId]?.text ?? '';
   const inLink = findIntersectingLinks(blockText, offsets.start, offsets.end).length > 0;
   if (sel.isCollapsed) {
-    // 折叠光标仅在命中链接时显示（仅「移除链接」操作），否则维持延迟隐藏
-    if (!inLink) return { kind: 'delay-hide' };
+    // 折叠光标一律维持延迟隐藏：点击链接内容不再弹出「块类型 | 解链」工具栏
+    // （bug 修复；原 R4 仅解链-only 形态已移除）。解链改由选中链接文本后经
+    // 非折叠工具栏的「移除链接」完成。
+    return { kind: 'delay-hide' };
   } else {
     const rect = range.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) return { kind: 'delay-hide' };
