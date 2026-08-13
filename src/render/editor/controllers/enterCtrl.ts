@@ -14,6 +14,7 @@ import {
   adjacentLeafFocus,
   appendChild,
   detectFenceLine,
+  findIntersectingLinks,
   insertBlockAfter,
   makeListItem,
   makeParagraph,
@@ -24,6 +25,17 @@ import {
 } from '@render/editor/kernel';
 import { convertBlockToParagraph, convertParagraphToBlock } from './convertCtrl';
 import { getListContext } from './shared';
+
+/**
+ * 拆块偏移吸附：折叠光标严格落在 link token 内（token.start < offset < token.end）时，
+ * 吸附到 token 末尾。否则 `[123](baidu.com)` 在内容后回车会被 splitLeaf 拆成
+ * `[123` / `](baidu.com)`，损坏链接格式（bug 修复）。光标在 token 边界时不吸附。
+ */
+function snapSplitOffset(text: string, offset: number): number {
+  const links = findIntersectingLinks(text, offset, offset);
+  if (links.length === 0) return offset;
+  return Math.max(...links.map((l) => l.end), offset);
+}
 
 export function handleEnter(
   instance: EditorInstance,
@@ -115,7 +127,9 @@ function splitAndFocusNewLeaf(
   offset: number,
   transform?: (tree: BlockTreeV2, newLeafId: string) => { tree: BlockTreeV2; focusId: string }
 ): EditorActionResult {
-  const result = splitLeaf(instance.tree, blockId, offset);
+  const block = instance.tree.blocks[blockId];
+  const snapped = block && block.text !== null ? snapSplitOffset(block.text, offset) : offset;
+  const result = splitLeaf(instance.tree, blockId, snapped);
   let tree = result.tree;
   let focusId = result.newLeafId;
   if (transform) {
@@ -141,8 +155,11 @@ function enterInListItem(
   if (!ctx) return null;
   const { item } = ctx;
 
-  const beforeText = (content.text ?? '').slice(0, offset);
-  const afterText = (content.text ?? '').slice(offset);
+  // 链接内拆项同样吸附到 token 末尾，避免 `[x](u)` 被拆坏（bug 修复，与
+  // splitAndFocusNewLeaf 的 snapSplitOffset 一致）
+  const snapped = snapSplitOffset(content.text ?? '', offset);
+  const beforeText = (content.text ?? '').slice(0, snapped);
+  const afterText = (content.text ?? '').slice(snapped);
 
   // 空列表项回车 → 退出列表（SPEC 二/三/四）
   if ((content.text ?? '') === '') {

@@ -459,9 +459,10 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     [selection, currentType, onConvertBlock, setVisibleGuarded]
   );
 
-  // 折叠光标命中链接：仅显示「移除链接」（其余格式按钮对空选区无意义）
-  const showUnlinkOnly =
-    visible && selection ? selection.start === selection.end && selection.inLink : false;
+  // Bug fix：折叠光标在链接内不再显示「块类型 | 解链」工具栏（点击链接内容不再弹工具栏）。
+  // 解链改由选中链接文本后经非折叠工具栏的「移除链接」完成。
+  // bug 4：代码块为 raw 纯文本，行内格式不渲染 → 字符/对象格式按钮禁用（仅块类型下拉可用）
+  const isCodeBlock = currentSyntax.type === 'code-block';
 
   return (
     <div ref={wrapRef}>
@@ -533,41 +534,42 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
 
       <div className="ft-divider" />
 
-      {showUnlinkOnly ? (
+      {CHAR_BUTTONS.map((button) => (
+        <ToolbarButton
+          key={button.style}
+          title={button.title}
+          label={button.label}
+          className={button.className}
+          active={activeFormats.has(button.style)}
+          disabled={isCodeBlock}
+          onClick={() => handleFormat(button)}
+        />
+      ))}
+
+      <div className="ft-divider" />
+
+      {OBJECT_BUTTONS.map((button) => (
+        <ToolbarButton
+          key={button.style}
+          title={button.title}
+          label={button.label}
+          disabled={isCodeBlock}
+          onClick={() => handleFormat(button)}
+        />
+      ))}
+
+      <div className="ft-divider" />
+
+      {/* 选区命中链接时提供移除链接；橡皮擦：清除选区全部行内标记 */}
+      {selection.inLink && (
         <ToolbarButton title="移除链接" label="解链" onClick={handleUnlink} />
-      ) : (
-        <>
-          {CHAR_BUTTONS.map((button) => (
-            <ToolbarButton
-              key={button.style}
-              title={button.title}
-              label={button.label}
-              className={button.className}
-              active={activeFormats.has(button.style)}
-              onClick={() => handleFormat(button)}
-            />
-          ))}
-
-          <div className="ft-divider" />
-
-          {OBJECT_BUTTONS.map((button) => (
-            <ToolbarButton
-              key={button.style}
-              title={button.title}
-              label={button.label}
-              onClick={() => handleFormat(button)}
-            />
-          ))}
-
-          <div className="ft-divider" />
-
-          {/* 选区命中链接时提供移除链接；橡皮擦：清除选区全部行内标记 */}
-          {selection.inLink && (
-            <ToolbarButton title="移除链接" label="解链" onClick={handleUnlink} />
-          )}
-          <ToolbarButton title="橡皮擦" label="⌫" onClick={handleClearFormat} />
-        </>
       )}
+      <ToolbarButton
+        title="橡皮擦"
+        label="⌫"
+        disabled={isCodeBlock}
+        onClick={handleClearFormat}
+      />
       </div>
       )}
       {/* U5：link URL 输入 Modal（open=false 时渲染 null；图片已走 K6 直选） */}

@@ -2002,6 +2002,11 @@ a.inline-link:hover::after {
 
 a.inline-link:hover {
   opacity: 0.85;
+  /* Bug fix：opacity<1 使 <a> 自身成为堆叠上下文，::after tooltip 的 z-index:50 被
+     困在该上下文内；而 .code-fence-block（Tailwind `relative`）同为 positioned(z-auto)
+     且 DOM 顺序更靠后，会 paint 在链接之上 → tooltip 被代码块顶栏覆盖。
+     给 hover 态补 z-index:1，把链接（含 tooltip）抬升到 positioned(z-auto) 兄弟之上。 */
+  z-index: 1;
 }
 
 span.comment-marker {
@@ -2051,6 +2056,12 @@ span.comment-marker {
   cursor: pointer;
   background: transparent;
   transition: background-color 100ms;
+}
+
+/* bug 4：代码块内行内格式禁用——置灰 + 禁止点击态 */
+.floating-toolbar-v2 .ft-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 /* 文本工具栏容器（SPEC-REFACTOR：FloatingToolbar 内联样式 → CSS 类）。

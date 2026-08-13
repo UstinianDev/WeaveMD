@@ -405,6 +405,35 @@ describe('FloatingToolbar — 下拉交互', () => {
     fireEvent.click(paragraphBtn);
     expect(onConvertBlock).not.toHaveBeenCalled();
   });
+
+  it('bug4: 代码块选区 → 行内格式按钮（加粗/链接/橡皮擦）全部禁用，块类型下拉仍可用', async () => {
+    let tree = createDocumentTree();
+    const code = makeCodeBlock(tree, 'const a = 1;');
+    tree = appendChild(tree, tree.root.id, code);
+    const { span, ref, onConvertBlock, onFormat } = setup(code.id, tree);
+    mockSelection(span);
+    const { container } = render(
+      <FloatingToolbar
+        editorContainerRef={ref}
+        tree={tree}
+        onFormat={onFormat}
+        onConvertBlock={onConvertBlock}
+      />
+    );
+    await fireSelectionChange();
+
+    const toolbar = container.querySelector('.floating-toolbar-v2');
+    expect(toolbar).not.toBeNull();
+    // 字符格式 + 对象格式 + 橡皮擦均禁用（raw 不渲染，杜绝插入字面量）
+    expect((toolbar?.querySelector('button[title="加粗"]') as HTMLButtonElement).disabled).toBe(true);
+    expect((toolbar?.querySelector('button[title="链接"]') as HTMLButtonElement).disabled).toBe(true);
+    expect((toolbar?.querySelector('button[title="图片"]') as HTMLButtonElement).disabled).toBe(true);
+    expect((toolbar?.querySelector('button[title="橡皮擦"]') as HTMLButtonElement).disabled).toBe(true);
+    // 块类型下拉保持可用（可转回正文/其他）
+    const trigger = toolbar?.querySelector('.block-type-trigger') as HTMLButtonElement;
+    expect(trigger.disabled).toBeFalsy();
+    expect(trigger.textContent).toBe('代码块');
+  });
 });
 
 // ============ selectionchange rAF 节流（SPEC-EDIT-DSF 4.3） ============
@@ -1359,7 +1388,7 @@ describe('FloatingToolbar — R4 链接场景定位（链接正左方）', () =>
     expect(toolbar.querySelector('button[title="移除链接"]')).not.toBeNull();
   });
 
-  it('R4-2: 折叠光标在链接内（解链-only）→ 工具栏同样位于链接正左方', async () => {
+  it('R4-2(修): 折叠光标在链接内 → 不再弹出工具栏（点击链接内容不弹「块类型|解链」）', async () => {
     const f = setupLink('[hello](https://x.io)', 500);
     const textNode = f.link.firstChild as Node;
     const range = document.createRange();
@@ -1392,15 +1421,12 @@ describe('FloatingToolbar — R4 链接场景定位（链接正左方）', () =>
       />
     );
     await fireSelectionChange();
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 250));
+    });
 
-    const toolbar = container.querySelector('.floating-toolbar-v2') as HTMLDivElement;
-    expect(toolbar).not.toBeNull();
-    const left = parseFloat(toolbar.style.left);
-    expect(left).toBe(500 - 320 - 8);
-    expect(left).toBeLessThan(500);
-    // 折叠 inLink → 仅解链按钮
-    expect(toolbar.querySelector('button[title="移除链接"]')).not.toBeNull();
-    expect(toolbar.querySelector('button[title="加粗"]')).toBeNull();
+    // 折叠 inLink → 延迟隐藏（从不 show），工具栏不渲染
+    expect(container.querySelector('.floating-toolbar-v2')).toBeNull();
   });
 
   it('R4-3: 链接工具栏可见时滚动容器 → 重查链接 rect 重定位（G4，不隐藏）', async () => {
