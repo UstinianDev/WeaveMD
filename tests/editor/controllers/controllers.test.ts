@@ -421,3 +421,85 @@ describe('clickCtrl / listCtrl / formatCtrl', () => {
     expect(instance.getMarkdown()).toBe('a**bc');
   });
 });
+
+describe('enterCtrl — 链接内回车拆块不损坏链接（bug 修复）', () => {
+  /** 链接 token 覆盖 [0,14)：'[123](baidu.com)' */
+  it('链接内容后回车 → 吸附到链接末尾，[123](baidu.com) 完整保留', () => {
+    const instance = new EditorInstance('[123](baidu.com)');
+    const id = paragraphId(instance);
+    // 光标在 '123' 后（offset 5，严格位于 link token 内）
+    const result = enterCtrl.handleEnter(instance, id, 5);
+    expect(result).not.toBeNull();
+    const paras = Object.values(instance.tree.blocks)
+      .filter((b) => b.type === 'paragraph')
+      .map((b) => b.text);
+    // 链接不被拆成 `[123` / `](baidu.com)`
+    expect(paras[0]).toBe('[123](baidu.com)');
+    expect(instance.getMarkdown()).toContain('[123](baidu.com)');
+    // 不得出现未闭合的 `[123\n` 或孤立的 `](baidu.com)`（损坏形态）
+    expect(instance.getMarkdown()).not.toMatch(/\[123\n/);
+    expect(instance.getMarkdown()).not.toMatch(/\n](baidu\.com)/);
+    expect(result!.focus!.offset).toBe(0);
+  });
+
+  it('链接 label 中间回车 → 同样吸附到链接末尾', () => {
+    const instance = new EditorInstance('[123](baidu.com)');
+    const id = paragraphId(instance);
+    const result = enterCtrl.handleEnter(instance, id, 2);
+    expect(result).not.toBeNull();
+    const first = Object.values(instance.tree.blocks)
+      .filter((b) => b.type === 'paragraph')
+      .map((b) => b.text)[0];
+    expect(first).toBe('[123](baidu.com)');
+  });
+
+  it('链接 URL 中间回车 → 吸附到链接末尾，链接完整', () => {
+    const instance = new EditorInstance('前文[123](baidu.com)');
+    const id = paragraphId(instance);
+    // '前文' 长 2，链接从 offset 2 起；URL 中间 offset 8
+    const result = enterCtrl.handleEnter(instance, id, 8);
+    expect(result).not.toBeNull();
+    const first = Object.values(instance.tree.blocks)
+      .filter((b) => b.type === 'paragraph')
+      .map((b) => b.text)[0];
+    expect(first).toBe('前文[123](baidu.com)');
+  });
+
+  it('链接 token 边界回车 → 不吸附，正常拆分', () => {
+    const instance = new EditorInstance('[123](baidu.com) rest');
+    const id = paragraphId(instance);
+    // 链接 token 结束 offset 14（'[123](baidu.com)' 长度）；光标在边界
+    const result = enterCtrl.handleEnter(instance, id, 14);
+    expect(result).not.toBeNull();
+    const paras = Object.values(instance.tree.blocks)
+      .filter((b) => b.type === 'paragraph')
+      .map((b) => b.text);
+    expect(paras[0]).toBe('[123](baidu.com)');
+    expect(paras[1]).toBe(' rest');
+  });
+
+  it('纯文本回车不受影响（无链接）', () => {
+    const instance = new EditorInstance('abc');
+    const id = paragraphId(instance);
+    const result = enterCtrl.handleEnter(instance, id, 1);
+    const paras = Object.values(instance.tree.blocks)
+      .filter((b) => b.type === 'paragraph')
+      .map((b) => b.text);
+    expect(paras).toEqual(['a', 'bc']);
+  });
+
+  it('列表项内容链接内回车 → 链接不损坏', () => {
+    const instance = new EditorInstance('- [123](baidu.com)');
+    const content = Object.values(instance.tree.blocks).find(
+      (b) => b.type === 'paragraph' && b.text === '[123](baidu.com)'
+    )!;
+    const result = enterCtrl.handleEnter(instance, content.id, 5);
+    expect(result).not.toBeNull();
+    const paras = Object.values(instance.tree.blocks)
+      .filter((b) => b.type === 'paragraph')
+      .map((b) => b.text);
+    // 续行项内链接保持完整（不得出现拆成 `[123` / `](baidu.com)` 两段的残体）
+    expect(paras).toContain('[123](baidu.com)');
+    expect(paras.some((t) => t === '[123' || t === '](baidu.com)')).toBe(false);
+  });
+});

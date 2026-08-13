@@ -132,6 +132,9 @@ export function formatRange(
 ): EditorActionResult | null {
   const block = instance.tree.blocks[blockId];
   if (!block || block.text === null) return null;
+  // bug 修复：代码块为 raw 纯文本，行内格式不渲染 → 拒绝应用（工具栏已禁用，此处兜底
+  // 快捷键/程序化调用），避免插入 `[label](url)` / `**x**` 字面量造成"设置了却不渲染"
+  if (block.type === 'code-block') return null;
   const text = block.text;
   const s = clamp(start, 0, text.length);
   const e = clamp(end, s, text.length);
@@ -253,6 +256,8 @@ export function insertImageFromSelection(
 ): EditorActionResult | null {
   const block = instance.tree.blocks[blockId];
   if (!block || block.text === null) return null;
+  // bug 修复：代码块 raw 不渲染行内图，拒绝插入 `![alt](src)`（与 formatRange 守卫一致）
+  if (block.type === 'code-block') return null;
   const text = block.text;
   const s = clamp(start, 0, text.length);
   const e = clamp(end, s, text.length);

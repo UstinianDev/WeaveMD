@@ -425,7 +425,7 @@ test('R1·E10: 松手提交后选中框尺寸/位置与图片一致（独立图�
   expect(Math.abs(bb.y - ib.y)).toBeLessThanOrEqual(1);
 });
 
-test('R4·E5: 光标放入链接内 → 工具栏 left < 链接盒 left（正左方）', async ({ page }) => {
+test('R4·E5: 点击链接内容（折叠光标 inLink）→ 不再弹出工具栏（原 R4 解链-only 形态已移除）', async ({ page }) => {
   test.setTimeout(90000);
   await openEditor(page);
   const editable = page.locator('span.block-content[contenteditable="true"]').first();
@@ -445,17 +445,11 @@ test('R4·E5: 光标放入链接内 → 工具栏 left < 链接盒 left（正左
 
   const link = page.locator('a.inline-link');
   await expect(link).toHaveCount(1);
-  // 链接命中时工具栏左置，且链接贴近左缘会被宽工具栏遮挡 → 先 Escape 收起再点击链接，
-  // 让链接可点、随后（折叠光标 inLink）工具栏以正左方重新出现
+  // 折叠光标命中链接 → 工具栏不弹出（bug 修复：删除「块类型 | 解链」形态）
   await page.keyboard.press('Escape');
   await page.waitForTimeout(150);
   await link.click();
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(500);
 
-  const toolbarAfter = page.locator('.floating-toolbar-v2');
-  await expect(toolbarAfter).toBeVisible();
-  const toolbarLeft = await toolbarAfter.evaluate((el) => el.getBoundingClientRect().left);
-  const linkLeft = await link.evaluate((el) => el.getBoundingClientRect().left);
-  // R4·G1：工具栏位于链接正左方（left < 链接 left）
-  expect(toolbarLeft).toBeLessThan(linkLeft);
+  await expect(page.locator('.floating-toolbar-v2')).toHaveCount(0);
 });

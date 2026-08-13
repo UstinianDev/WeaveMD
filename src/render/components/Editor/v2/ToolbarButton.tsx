@@ -47,9 +47,11 @@ function ToolbarButton({
         backgroundColor: active ? 'var(--bg-tertiary)' : 'transparent',
       }}
       onMouseEnter={(e) => {
+        if (disabled) return;
         e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)';
       }}
       onMouseLeave={(e) => {
+        if (disabled) return;
         e.currentTarget.style.backgroundColor = active ? 'var(--bg-tertiary)' : 'transparent';
       }}
     >
