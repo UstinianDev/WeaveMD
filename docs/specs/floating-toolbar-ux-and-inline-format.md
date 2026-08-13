@@ -442,7 +442,17 @@ mark {
 - **滚动重锚定（仅链接命中）**：`linkSelectedRef` 标记当前显式工具栏为链接命中；滚动时
   仅链接命中场景重查链接 rect 并 `recompute`（不隐藏，工具栏跟随链接），非链接场景沿用
   既有「滚动隐藏」规则。
-- 两种链接工具栏形态均左置：解链-only（折叠光标在链接内）+ 完整工具栏 +「移除链接」。
+- **折叠光标在链接内不再显示工具栏**（2026-08-13 修复）：点击链接内容不再弹出
+  「块类型 | 解链」（原「解链-only」形态已移除）。解链改由**选中链接文本**后经
+  非折叠工具栏的「移除链接」完成。
+- 非折叠选区命中链接时：完整工具栏左置 + 「移除链接」按钮。
+- **代码块内行内格式禁用**（2026-08-13 修复）：代码块为 raw 纯文本，行内格式不渲染，
+  工具栏字符/对象格式按钮（加粗/链接/图片/橡皮擦等）在 `code-block` 内全部禁用；
+  `formatCtrl.formatRange` / `insertImageFromSelection` 对代码块直接返回 null 兜底。
+- **链接内回车不损坏链接**（2026-08-13 修复）：`enterCtrl` 拆块时若折叠光标严格落在
+  link token 内（`token.start < offset < token.end`），把拆点吸附到 token 末尾，
+  保证 `[label](url)` 不被拆成两半（`splitAndFocusNewLeaf` 与 `enterInListItem` 共用
+  `snapSplitOffset`）。
 
 #### 9.6.2 R5：InsertUrlModal 输入框回车直接确认
 

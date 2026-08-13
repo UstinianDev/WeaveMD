@@ -522,3 +522,40 @@ describe('formatCtrl — replaceImage（按区间替换图片）', () => {
     expect(result?.focus).toEqual({ blockId: paragraphId(instance), offset: 11 });
   });
 });
+
+describe('formatCtrl — 代码块拒绝行内格式（bug 修复：raw 不渲染）', () => {
+  function codeBlockId(instance: EditorInstance): string {
+    const id = Object.keys(instance.tree.blocks).find(
+      (bid) => instance.tree.blocks[bid].type === 'code-block'
+    );
+    if (!id) throw new Error('no code-block block');
+    return id;
+  }
+
+  it('formatRange 对代码块 → null 且不插入 [label](url) 字面量', () => {
+    const instance = new EditorInstance('```js\nconst a = 1;\n```');
+    const id = codeBlockId(instance);
+    expect(instance.tree.blocks[id].text).toBe('const a = 1;');
+    const result = formatCtrl.formatRange(instance, id, 'link', 0, 5, { url: 'www.x.io' });
+    expect(result).toBeNull();
+    // 代码块文本与 markdown 均未被污染
+    expect(instance.tree.blocks[id].text).toBe('const a = 1;');
+    expect(instance.getMarkdown()).toBe('```js\nconst a = 1;\n```');
+  });
+
+  it('formatRange 对代码块加粗 → null 不插入 ** 字面量', () => {
+    const instance = new EditorInstance('```js\nconst a = 1;\n```');
+    const id = codeBlockId(instance);
+    const result = formatCtrl.formatRange(instance, id, 'bold', 0, 5);
+    expect(result).toBeNull();
+    expect(instance.tree.blocks[id].text).toBe('const a = 1;');
+  });
+
+  it('insertImageFromSelection 对代码块 → null 不插入 ![alt](src)', () => {
+    const instance = new EditorInstance('```js\nconst a = 1;\n```');
+    const id = codeBlockId(instance);
+    const result = formatCtrl.insertImageFromSelection(instance, id, 0, 5, 'C:/a.png');
+    expect(result).toBeNull();
+    expect(instance.tree.blocks[id].text).toBe('const a = 1;');
+  });
+});
