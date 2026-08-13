@@ -208,6 +208,9 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   const linkSelectedRef = useRef(false);
   // 链接命中的上一次实际选区（DOM Selection），滚动重查链接 rect 时复用
   const linkHitSelectionRef = useRef<Selection | null>(null);
+  // 鼠标拖选期间标记：mousedown（编辑器内）→ 隐藏工具栏且 selectionchange 不重显；
+  // mouseup → 重算一次（"松开鼠标才出现浮动工具栏"）
+  const mouseDownRef = useRef(false);
 
   const setVisibleGuarded = useCallback((value: boolean) => {
     if (visibleRef.current !== value) {
@@ -237,16 +240,12 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     [cancelHide, setVisibleGuarded]
   );
 
-  // 选区变化：非折叠且在编辑器内容块内 → 显示；收起/移出 → 延迟隐藏。
-  // SPEC-EDIT-DSF 4.3：事件仅写入 latestSelectionRef 并调度一帧（rAF id 去重，
-  // 已有待处理帧则复用），帧内才执行 computeToolbarState + setState → 渲染 ≤ 每帧一次。
-  useEffect(() => {
-    const container = editorContainerRef.current;
-    if (!container) return;
-
-    // 统一计算并应用工具栏状态（flushSelection / scroll 重锚定共用）。
-    // linkRect 由调用方按需传入（链接命中时来自 getLinkRect 的实时盒）。
-    const recompute = (sel: Selection | null, linkRect: LinkRect | null) => {
+  // 统一计算并应用工具栏状态（flushSelection / scroll 重锚定共用）。
+  // linkRect 由调用方按需传入（链接命中时来自 getLinkRect 的实时盒）。
+  const recompute = useCallback(
+    (sel: Selection | null, linkRect: LinkRect | null) => {
+      const container = editorContainerRef.current;
+      if (!container) return;
       const state = computeToolbarState(
         sel,
         container,
@@ -271,35 +270,53 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       setSelection(state.selection);
       setPosition(state.position);
       setVisibleGuarded(true);
-    };
+    },
+    [editorContainerRef, tree, setVisibleGuarded, cancelHide, scheduleHide]
+  );
 
-    const flushSelection = () => {
-      // U5/K3b：Modal / ImageEditTool 打开期间（输入框获焦会收起选区）不得隐藏工具栏
-      if (insertModal !== null || imageModalOpen) {
-        cancelHide();
-        return;
-      }
-      // K4：图片选中期间压制文本工具栏的 selectionchange 竞争（图片工具栏
-      // 独立于文本选区渲染，直接由 imageSelection 驱动）
-      if (imageSelection) {
-        cancelHide();
-        return;
-      }
-      // FT3：点击工具栏外触发的隐藏后，浏览器随后的 selectionchange 不得重显
-      if (suppressSelectionRef.current) {
-        suppressSelectionRef.current = false;
-        return;
-      }
-      const sel = latestSelectionRef.current;
-      // SPEC-EDIT-FT R4：选区命中链接 → 取链接元素实时盒传入定位；否则 null（上方居中）。
-      const linkRect = getLinkRect(sel, container);
-      recompute(sel, linkRect);
-    };
+  // 从最新选区统一刷新工具栏（selectionchange / mouseup 共用）：
+  // Modal / ImageEditTool 打开、图片选中、suppress 消费均在此守卫。
+  const flushSelection = useCallback(() => {
+    // U5/K3b：Modal / ImageEditTool 打开期间（输入框获焦会收起选区）不得隐藏工具栏
+    if (insertModal !== null || imageModalOpen) {
+      cancelHide();
+      return;
+    }
+    // K4：图片选中期间压制文本工具栏的 selectionchange 竞争（图片工具栏
+    // 独立于文本选区渲染，直接由 imageSelection 驱动）
+    if (imageSelection) {
+      cancelHide();
+      return;
+    }
+    // FT3：点击工具栏外触发的隐藏后，浏览器随后的 selectionchange 不得重显
+    if (suppressSelectionRef.current) {
+      suppressSelectionRef.current = false;
+      return;
+    }
+    const sel = latestSelectionRef.current;
+    // SPEC-EDIT-FT R4：选区命中链接 → 取链接元素实时盒传入定位；否则 null（上方居中）。
+    const container = editorContainerRef.current;
+    if (!container) return;
+    const linkRect = getLinkRect(sel, container);
+    recompute(sel, linkRect);
+  }, [editorContainerRef, insertModal, imageModalOpen, imageSelection, cancelHide, recompute]);
 
-    const selectionThrottle = createRafThrottle(flushSelection);
+  const selectionThrottle = useMemo(
+    () => createRafThrottle(flushSelection),
+    [flushSelection]
+  );
+
+  // 选区变化：非折叠且在编辑器内容块内 → 显示；收起/移出 → 延迟隐藏。
+  // 拖选期间（鼠标按下）仅记录选区、不显示——松开鼠标（mouseup）才出现浮动工具栏。
+  // SPEC-EDIT-DSF 4.3：事件仅写入 latestSelectionRef 并调度一帧（rAF id 去重，
+  // 已有待处理帧则复用），帧内才执行 computeToolbarState + setState → 渲染 ≤ 每帧一次。
+  useEffect(() => {
+    const container = editorContainerRef.current;
+    if (!container) return;
 
     const handleSelectionChange = () => {
       latestSelectionRef.current = window.getSelection();
+      if (mouseDownRef.current) return;
       selectionThrottle.schedule();
     };
 
@@ -324,7 +341,28 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       container.removeEventListener('scroll', handleScroll, true);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
-  }, [editorContainerRef, cancelHide, scheduleHide, tree, setVisibleGuarded, insertModal, imageModalOpen, imageSelection]);
+  }, [editorContainerRef, selectionThrottle, recompute, setVisibleGuarded]);
+
+  // "松开鼠标才出现浮动工具栏"：mousedown（编辑器内，非工具栏）立即隐藏并标记拖选中，
+  // 拖选期间 selectionchange 不重显；mouseup 以最新选区重算一次（低频事件，同步 flush）。
+  useEffect(() => {
+    const handleMouseDown = (e: MouseEvent) => {
+      if (wrapRef.current?.contains(e.target as Node)) return;
+      mouseDownRef.current = true;
+      setVisibleGuarded(false);
+    };
+    const handleMouseUp = () => {
+      mouseDownRef.current = false;
+      latestSelectionRef.current = window.getSelection();
+      selectionThrottle.flushNow();
+    };
+    document.addEventListener('mousedown', handleMouseDown);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [selectionThrottle, setVisibleGuarded]);
 
   // SPEC-EDIT-FT3 4.3：驻留退出条件——点击工具栏外任意位置（capture 阶段）与 Escape
   // K3b：守卫合并 insertModal / imageModalOpen（ImageEditTool 自处理自身交互，弹层态经

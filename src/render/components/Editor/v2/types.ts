@@ -117,6 +117,14 @@ export interface BlockHandlers {
     endBlockId: string,
     endOffset: number
   ) => void;
+  /** 跨块选区文本替换（字符输入/粘贴）：块树级删除选区后，在起始块 offset 处插入文本 */
+  onReplaceCrossBlock: (
+    startBlockId: string,
+    startOffset: number,
+    endBlockId: string,
+    endOffset: number,
+    insertText: string
+  ) => void;
   onTab: (blockId: string) => boolean;
   onShiftTab: (blockId: string) => boolean;
   onFormat: (

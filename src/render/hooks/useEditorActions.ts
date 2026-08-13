@@ -24,7 +24,7 @@ import {
 } from '@render/editor/controllers';
 import type { EditorActionResult, EditorInstance } from '@render/editor/editorInstance';
 import type { BlockMetaV2, BlockNodeV2, BlockTreeV2, ImageAlign } from '@render/editor/kernel';
-import { deleteLeafRange, updateMeta } from '@render/editor/kernel';
+import { deleteLeafRange, replaceLeafRange, updateMeta } from '@render/editor/kernel';
 import { resolveSyntaxType } from '@render/editor/kernel/syntaxType';
 import { setCursorAtOffset, setRangeAtOffset } from '@render/editor/kernel/selection';
 import { useEditorStore } from '@render/stores/editorStore';
@@ -162,6 +162,36 @@ export function useEditorActions({
       }
     },
     [applyBlockAction, forceSyncBlockDom]
+  );
+  // 跨块选区文本替换（字符输入/粘贴）：块树级删除选区内容后，
+  // 在起始块 focus 偏移处插入输入文本（浏览器原生删除跨块选区只改 DOM，
+  // onInput 仅同步焦点块模型，其余块模型未更新 → 重渲染后内容"复活"）
+  const onReplaceCrossBlock = useCallback(
+    (
+      startBlockId: string,
+      startOffset: number,
+      endBlockId: string,
+      endOffset: number,
+      insertText: string
+    ) => {
+      applyBlockAction((instance) => {
+        const result = replaceLeafRange(
+          instance.tree,
+          startBlockId,
+          startOffset,
+          endBlockId,
+          endOffset,
+          insertText
+        );
+        if (!result) return null;
+        instance.tree = result.tree;
+        return {
+          changedBlockIds: [result.focusBlockId],
+          focus: { blockId: result.focusBlockId, offset: result.focusOffset },
+        };
+      });
+    },
+    [applyBlockAction]
   );
   const onTab = useCallback(
     (blockId: string) => {
@@ -379,6 +409,7 @@ export function useEditorActions({
       onEnter,
       onBackspaceAtStart,
       onDeleteRange,
+      onReplaceCrossBlock,
       onTab,
       onShiftTab,
       onFormat,
@@ -402,6 +433,7 @@ export function useEditorActions({
       onEnter,
       onBackspaceAtStart,
       onDeleteRange,
+      onReplaceCrossBlock,
       onTab,
       onShiftTab,
       onFormat,

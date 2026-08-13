@@ -5,7 +5,7 @@
 // 受控渲染策略：输入中的文本变化不触发 React 重渲染（DOM 已由浏览器修改），
 // 仅当行内渲染结果变化（inlineHtml 缓存更新）时才重渲染并恢复光标。
 
-import React, { useCallback, useLayoutEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 
 import type { InlineFormatStyle } from '@render/editor/controllers';
 import { applyRuntimeWidths, toDisplayHtml } from '@render/editor/kernel';
@@ -36,6 +36,14 @@ interface ContentBlockProps {
     endBlockId: string,
     endOffset: number
   ) => void;
+  /** 跨块选区文本替换（字符输入/粘贴）：块树级删除选区后插入文本 */
+  onReplaceCrossBlock: (
+    startBlockId: string,
+    startOffset: number,
+    endBlockId: string,
+    endOffset: number,
+    insertText: string
+  ) => void;
   onTab: (blockId: string) => boolean;
   onShiftTab: (blockId: string) => boolean;
   onFormat: (blockId: string, style: InlineFormatStyle, start: number, end: number, url?: string) => void;
@@ -58,6 +66,7 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
   onEnter,
   onBackspaceAtStart,
   onDeleteRange,
+  onReplaceCrossBlock,
   onTab,
   onShiftTab,
   onFormat,
@@ -118,6 +127,54 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
       syncDomToModel(e.currentTarget);
     },
     [syncDomToModel]
+  );
+
+  // 跨块选区 + 文本插入（输入字符/IME 组合）：浏览器原生删除跨块选区只改 DOM，
+  // onInput 仅同步焦点块模型 → 其余块模型未更新，重渲染后内容"复活"。
+  // 在原生 beforeinput 拦截，改走块树级删除 + 插入（onReplaceCrossBlock）。
+  // 注意：React 18 的合成 onBeforeInput 基于 keypress/textInput 派生，
+  // 现代 Chromium 不触发，故必须直接监听原生 beforeinput 事件。
+  const replaceHandlerRef = useRef(onReplaceCrossBlock);
+  useEffect(() => {
+    replaceHandlerRef.current = onReplaceCrossBlock;
+  }, [onReplaceCrossBlock]);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const handleNativeBeforeInput = (e: InputEvent) => {
+      if (e.defaultPrevented) return;
+      if (e.inputType !== 'insertText' && e.inputType !== 'insertCompositionText') return;
+      const cross = getCrossBlockSelection();
+      if (!cross) return;
+      e.preventDefault();
+      replaceHandlerRef.current(
+        cross.startBlockId,
+        cross.startOffset,
+        cross.endBlockId,
+        cross.endOffset,
+        e.data ?? ''
+      );
+    };
+    el.addEventListener('beforeinput', handleNativeBeforeInput);
+    return () => el.removeEventListener('beforeinput', handleNativeBeforeInput);
+  }, []);
+
+  // 跨块选区 + 粘贴：clipboardData 取纯文本，走块树级删除 + 插入
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLSpanElement>) => {
+      const cross = getCrossBlockSelection();
+      if (!cross) return;
+      e.preventDefault();
+      onReplaceCrossBlock(
+        cross.startBlockId,
+        cross.startOffset,
+        cross.endBlockId,
+        cross.endOffset,
+        e.clipboardData?.getData('text/plain') ?? ''
+      );
+    },
+    [onReplaceCrossBlock]
   );
 
   const handleCompositionStart = useCallback(() => {
@@ -317,6 +374,7 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
       suppressContentEditableWarning
       spellCheck={false}
       onInput={handleInput}
+      onPaste={handlePaste}
       onCompositionStart={handleCompositionStart}
       onCompositionEnd={handleCompositionEnd}
       onKeyDown={handleKeyDown}

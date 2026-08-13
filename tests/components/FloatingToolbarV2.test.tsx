@@ -1167,7 +1167,7 @@ describe('FloatingToolbar — FT3 工具栏驻留', () => {
     expect(container.querySelector('.floating-toolbar-v2')).toBeNull();
   });
 
-  it('T5: 非 sticky 时点击工具栏外 → 不隐藏（普通选中跟随保留）', async () => {
+  it('T5: 非 sticky 时按下鼠标（编辑器内）→ 隐藏；松开（mouseup）→ 以最新选区恢复显示', async () => {
     let tree = createDocumentTree();
     const p = makeParagraph(tree, 'hello world');
     tree = appendChild(tree, tree.root.id, p);
@@ -1179,7 +1179,15 @@ describe('FloatingToolbar — FT3 工具栏驻留', () => {
     await fireSelectionChange();
     expect(container.querySelector('.floating-toolbar-v2')).not.toBeNull();
 
+    // 按下鼠标（拖选开始）→ 立即隐藏；拖选期间 selectionchange 不重显
     fireEvent.mouseDown(document.body);
+    expect(container.querySelector('.floating-toolbar-v2')).toBeNull();
+    await fireSelectionChange();
+    expect(container.querySelector('.floating-toolbar-v2')).toBeNull();
+
+    // 松开鼠标 → 以最新选区（mock 仍为非折叠选区）恢复显示
+    fireEvent.mouseUp(document.body);
+    await act(async () => {});
     expect(container.querySelector('.floating-toolbar-v2')).not.toBeNull();
   });
 });
