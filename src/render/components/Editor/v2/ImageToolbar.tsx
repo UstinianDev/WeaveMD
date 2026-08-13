@@ -14,6 +14,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { BlockTreeV2, ImageAlign } from '@render/editor/kernel';
 import { tokenizeInline } from '@render/editor/kernel';
 import { clamp } from '@render/editor/controllers/shared';
+import { findImageEl, readImageRect } from './imageAnchor';
 import type { ImageSelection } from './types';
 import ImageEditTool from './ImageEditTool';
 import ToolbarButton from './ToolbarButton';
@@ -70,27 +71,6 @@ const ImageToolbar: React.FC<ImageToolbarProps> = ({
     const h = toolbarRef.current?.offsetHeight;
     if (h && h > 0) setToolbarHeight(h);
   }, []);
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const cancelHide = useCallback(() => {
-    if (hideTimerRef.current) {
-      clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = null;
-    }
-  }, []);
-
-  // 图片 mouseLeave 延迟隐藏。原实现中该 timer 翻转的是文本工具栏的 visible
-  // （图片选中期间文本工具栏本不渲染），图片工具栏可见性由 imageSelection 决定，
-  // 故此处仅复刻 timer 生命周期，不改变图片工具栏可见性（零行为变更）。
-  const scheduleHide = useCallback(
-    (delay = 180) => {
-      cancelHide();
-      hideTimerRef.current = setTimeout(() => {
-        hideTimerRef.current = null;
-      }, delay);
-    },
-    [cancelHide]
-  );
 
   // Bug B：imageSelection 变化（点击/关闭/切换图片）时重置本地锚点。
   useEffect(() => {
@@ -112,21 +92,14 @@ const ImageToolbar: React.FC<ImageToolbarProps> = ({
     if (!container) return;
     const handleScroll = () => {
       const selected = imageSelection ?? editImage;
-      if (selected && container) {
-        const blockEl = container.querySelector(`[data-block-id="${selected.blockId}"]`);
-        const img = blockEl?.querySelector(
-          `img.inline-image[data-start="${selected.start}"][data-end="${selected.end}"]`
-        );
-        if (img instanceof HTMLImageElement) {
-          const r = img.getBoundingClientRect();
-          setAnchorRect({ top: r.top, left: r.left, width: r.width, height: r.height });
-        }
+      if (selected) {
+        const img = findImageEl(container, selected.blockId, selected.start, selected.end);
+        if (img) setAnchorRect(readImageRect(img));
       }
     };
     container.addEventListener('scroll', handleScroll, true);
     return () => {
       container.removeEventListener('scroll', handleScroll, true);
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
   }, [editorContainerRef, imageSelection, editImage]);
 
@@ -217,8 +190,6 @@ const ImageToolbar: React.FC<ImageToolbarProps> = ({
             window.innerWidth - (toolbarRef.current?.offsetWidth ?? 320) - 8
           )}px`,
         }}
-        onMouseEnter={cancelHide}
-        onMouseLeave={() => scheduleHide(300)}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <ToolbarButton

@@ -11,6 +11,8 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { EMPTY_URL_MESSAGE } from './modalConstants';
+
 export interface ImageEditToolProps {
   /** false 时渲染 null */
   open: boolean;
@@ -31,8 +33,6 @@ export interface ImageEditToolProps {
 }
 
 type TabKey = 'link' | 'select';
-
-const EMPTY_URL_MESSAGE = 'URL 不能为空';
 
 const ImageEditTool: React.FC<ImageEditToolProps> = ({
   open,

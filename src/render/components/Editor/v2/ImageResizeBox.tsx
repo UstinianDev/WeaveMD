@@ -13,6 +13,7 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
+import { findImageEl, readImageRect } from './imageAnchor';
 import type { ImageSelection } from './types';
 import { computeResizeWidth, type ResizeCorner } from './resizeMath';
 
@@ -43,15 +44,16 @@ const ImageResizeBox: React.FC<ImageResizeBoxProps> = ({
   const boxRef = useRef<HTMLDivElement>(null);
 
   // 当前 rect 的 DOM img 节点（data-start/data-end 定位，供实时改 style.width）
-  const getSelectedImg = useCallback((): HTMLImageElement | null => {
-    const container = editorContainerRef.current;
-    if (!container) return null;
-    const blockEl = container.querySelector(`[data-block-id="${imageSelection.blockId}"]`);
-    const img = blockEl?.querySelector(
-      `img.inline-image[data-start="${imageSelection.start}"][data-end="${imageSelection.end}"]`
-    );
-    return img instanceof HTMLImageElement ? img : null;
-  }, [editorContainerRef, imageSelection]);
+  const getSelectedImg = useCallback(
+    (): HTMLImageElement | null =>
+      findImageEl(
+        editorContainerRef.current,
+        imageSelection.blockId,
+        imageSelection.start,
+        imageSelection.end
+      ),
+    [editorContainerRef, imageSelection]
+  );
 
   // scroll 重锚定（G6）：滚动时选中框跟随图片（复制 ImageToolbar Bug-B 模式）
   useEffect(() => {
@@ -59,10 +61,7 @@ const ImageResizeBox: React.FC<ImageResizeBoxProps> = ({
     if (!container) return;
     const handleScroll = () => {
       const img = getSelectedImg();
-      if (img) {
-        const r = img.getBoundingClientRect();
-        setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
-      }
+      if (img) setRect(readImageRect(img));
     };
     container.addEventListener('scroll', handleScroll, true);
     window.addEventListener('scroll', handleScroll, true);
@@ -93,7 +92,7 @@ const ImageResizeBox: React.FC<ImageResizeBoxProps> = ({
       draggingRef.current = corner;
       // 开始拖拽时的当前显示宽度：优先取真实渲染盒宽（getBoundingClientRect），
       // 回落 style.width / 选中态快照（jsdom 无布局时 rect 为 stub 值）。
-      const rectRead = img.getBoundingClientRect().width;
+      const rectRead = readImageRect(img).width;
       const styleRead = parseInt(img.style.width, 10);
       const startWidth = rectRead || styleRead || imageSelection.width || 0;
       const startX = e.clientX;
@@ -117,7 +116,7 @@ const ImageResizeBox: React.FC<ImageResizeBoxProps> = ({
         img.style.width = `${next}px`;
         const boxEl = boxRef.current;
         if (boxEl) {
-          const r = img.getBoundingClientRect();
+          const r = readImageRect(img);
           boxEl.style.left = `${r.left}px`;
           boxEl.style.top = `${r.top}px`;
           boxEl.style.width = `${next}px`;
@@ -139,8 +138,7 @@ const ImageResizeBox: React.FC<ImageResizeBoxProps> = ({
           }
         }
         // 提交/重渲染后重查 img rect，把 state 同步到最终盒（供后续滚动重锚定与再渲染）
-        const r = img.getBoundingClientRect();
-        setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+        setRect(readImageRect(img));
       };
 
       document.addEventListener('mousemove', handleMove);
@@ -165,7 +163,7 @@ const ImageResizeBox: React.FC<ImageResizeBoxProps> = ({
     const img = getSelectedImg();
     const boxEl = boxRef.current;
     if (!img || !boxEl) return;
-    const r = img.getBoundingClientRect();
+    const r = readImageRect(img);
     // 防御：img 尚未加载（rect 宽 0）时不同步，避免选中框塌缩为 0
     if (r.width <= 0 || r.height <= 0) return;
     boxEl.style.left = `${r.left}px`;

@@ -8,6 +8,8 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { EMPTY_URL_MESSAGE } from './modalConstants';
+
 export interface InsertUrlModalProps {
   /** Modal title, e.g. "插入链接" or "插入图片". */
   title: string;
@@ -22,8 +24,6 @@ export interface InsertUrlModalProps {
   /** Backed by window.weaveMD.dialog.pickImage(); returns null when cancelled. */
   pickImage?: () => Promise<string | null>;
 }
-
-const EMPTY_URL_MESSAGE = 'URL 不能为空';
 
 const InsertUrlModal: React.FC<InsertUrlModalProps> = ({
   title,
