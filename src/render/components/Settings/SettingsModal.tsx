@@ -4,6 +4,7 @@
 
 import React, { useEffect, useState } from 'react';
 import type { LanguageType, ThemeType } from '@shared/types';
+import type { ChatBackend } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
 import { useUIStore } from '@render/stores/uiStore';
@@ -29,7 +30,7 @@ const THEMES: { value: ThemeType; label: string; preview: string }[] = [
   { value: 'custom', label: 'Custom', preview: 'bg-gradient-to-r from-[#7C3AED] to-[#6366F1]' },
 ];
 
-type SettingsTab = 'system' | 'account';
+type SettingsTab = 'system' | 'account' | 'ai';
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const { t } = useI18n();
@@ -55,9 +56,21 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [switchError, setSwitchError] = useState('');
   const [isSwitching, setIsSwitching] = useState(false);
 
+  // --- AI 配置表单 ---
+  const [aiBackend, setAiBackend] = useState<ChatBackend>('ollama');
+  const [aiOllamaBaseUrl, setAiOllamaBaseUrl] = useState('http://localhost:11434');
+  const [aiRemoteBaseUrl, setAiRemoteBaseUrl] = useState('https://api.deepseek.com');
+  const [aiModel, setAiModel] = useState('');
+  const [aiApiKey, setAiApiKey] = useState('');
+  const [aiHasApiKey, setAiHasApiKey] = useState(false);
+  const [aiAllowNetwork, setAiAllowNetwork] = useState(false);
+  const [aiAllowSend, setAiAllowSend] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+
   const TABS: { key: SettingsTab; label: string }[] = [
     { key: 'system', label: t('settings.system') },
     { key: 'account', label: t('settings.account') },
+    { key: 'ai', label: t('ai.settings.title') },
   ];
 
   useEffect(() => {
@@ -73,7 +86,34 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
     }
   }, [isOpen, theme, language, loadRecentAccounts]);
 
-  const handleSave = () => {
+  // AI Tab 打开/进入时加载配置与同意记录（不落明文 key）
+  useEffect(() => {
+    if (!isOpen || !user) return;
+    const ai = window.weaveMD?.ai;
+    if (!ai) return;
+    let cancelled = false;
+    Promise.all([ai.getConfig(user.id), ai.getConsent(user.id)])
+      .then(([cfgRes, consentRes]) => {
+        if (cancelled) return;
+        if (cfgRes.success && cfgRes.data) {
+          setAiBackend(cfgRes.data.backend);
+          setAiOllamaBaseUrl(cfgRes.data.ollamaBaseUrl);
+          setAiRemoteBaseUrl(cfgRes.data.remoteBaseUrl);
+          setAiModel(cfgRes.data.model);
+          setAiHasApiKey(cfgRes.data.hasApiKey);
+        }
+        if (consentRes.success && consentRes.data) {
+          setAiAllowNetwork(consentRes.data.allowNetwork);
+          setAiAllowSend(consentRes.data.allowSend);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, user, activeTab]);
+
+  const handleSave = async () => {
     setTheme(selectedTheme);
     setLanguage(selectedLanguage);
     // Persist to backend
@@ -84,6 +124,39 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
           language: selectedLanguage,
         })
         .catch(() => {});
+    }
+
+    // AI 配置：仅当有值才传 apiKey（setConfig 内部 safeStorage 加密，key 不落渲染）
+    if (user && activeTab === 'ai') {
+      setAiLoading(true);
+      try {
+        const ai = window.weaveMD?.ai;
+        if (ai) {
+          const cfg: {
+            backend: ChatBackend;
+            ollamaBaseUrl: string;
+            remoteBaseUrl: string;
+            model: string;
+            apiKey?: string;
+          } = {
+            backend: aiBackend,
+            ollamaBaseUrl: aiOllamaBaseUrl,
+            remoteBaseUrl: aiRemoteBaseUrl,
+            model: aiModel,
+          };
+          if (aiApiKey.trim()) cfg.apiKey = aiApiKey.trim();
+          await ai.setConfig(user.id, cfg);
+          await ai.setConsent(user.id, {
+            allowNetwork: aiAllowNetwork,
+            allowSend: aiAllowSend,
+            consentUpdatedAt: new Date().toISOString(),
+          });
+        }
+      } catch {
+        // 保存失败静默（主进程侧错误），不阻断关闭
+      } finally {
+        setAiLoading(false);
+      }
     }
     closeModal();
   };
@@ -419,6 +492,131 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {activeTab === 'ai' && (
+        <div className="space-y-5">
+          {/* 后端选择 */}
+          <div>
+            <label className="text-sm text-[var(--text-primary)] font-medium mb-2 block">
+              {t('ai.settings.backend')}
+            </label>
+            <div className="space-y-1">
+              <label className="flex items-center gap-3 px-3 py-2 rounded-input hover:bg-[var(--bg-tertiary)] cursor-pointer transition-colors">
+                <input
+                  type="radio"
+                  name="ai-backend"
+                  value="ollama"
+                  checked={aiBackend === 'ollama'}
+                  onChange={() => setAiBackend('ollama')}
+                  className="accent-[#7C3AED]"
+                />
+                <span className="text-sm text-[var(--text-sub)]">{t('ai.settings.backend.ollama')}</span>
+              </label>
+              <label className="flex items-center gap-3 px-3 py-2 rounded-input hover:bg-[var(--bg-tertiary)] cursor-pointer transition-colors">
+                <input
+                  type="radio"
+                  name="ai-backend"
+                  value="remote"
+                  checked={aiBackend === 'remote'}
+                  onChange={() => setAiBackend('remote')}
+                  className="accent-[#7C3AED]"
+                />
+                <span className="text-sm text-[var(--text-sub)]">{t('ai.settings.backend.remote')}</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Ollama base URL */}
+          <div>
+            <label className="text-sm text-[var(--text-primary)] font-medium mb-1.5 block">
+              {t('ai.settings.ollamaBaseUrl')}
+            </label>
+            <input
+              type="text"
+              value={aiOllamaBaseUrl}
+              onChange={(e) => setAiOllamaBaseUrl(e.target.value)}
+              className="w-full border rounded-input px-3 py-2 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+            />
+          </div>
+
+          {/* Remote base URL */}
+          <div>
+            <label className="text-sm text-[var(--text-primary)] font-medium mb-1.5 block">
+              {t('ai.settings.remoteBaseUrl')}
+            </label>
+            <input
+              type="text"
+              value={aiRemoteBaseUrl}
+              onChange={(e) => setAiRemoteBaseUrl(e.target.value)}
+              className="w-full border rounded-input px-3 py-2 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+            />
+          </div>
+
+          {/* Model id */}
+          <div>
+            <label className="text-sm text-[var(--text-primary)] font-medium mb-1.5 block">
+              {t('ai.settings.model')}
+            </label>
+            <input
+              type="text"
+              value={aiModel}
+              onChange={(e) => setAiModel(e.target.value)}
+              placeholder="e.g. qwen3.5 / deepseek-chat"
+              className="w-full border rounded-input px-3 py-2 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+            />
+          </div>
+
+          {/* API key */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-sm text-[var(--text-primary)] font-medium">
+                {t('ai.settings.apiKey')}
+              </label>
+              {aiHasApiKey && (
+                <span className="text-xs text-[var(--text-muted)]">{t('ai.settings.apiKeySet')}</span>
+              )}
+            </div>
+            <input
+              type="password"
+              value={aiApiKey}
+              onChange={(e) => setAiApiKey(e.target.value)}
+              placeholder="sk-..."
+              autoComplete="off"
+              className="w-full border rounded-input px-3 py-2 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+            />
+            <p className="text-xs text-[var(--text-muted)] mt-1">{t('ai.security.weakKeyring')}</p>
+          </div>
+
+          {/* 同意开关 */}
+          <div>
+            <label className="text-sm text-[var(--text-primary)] font-medium mb-2 block">
+              {t('ai.settings.allowNetwork')}
+            </label>
+            <div className="space-y-2">
+              <label className="flex items-center gap-3 px-3 py-2 rounded-input hover:bg-[var(--bg-tertiary)] cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  checked={aiAllowNetwork}
+                  onChange={(e) => setAiAllowNetwork(e.target.checked)}
+                  className="accent-[#7C3AED]"
+                />
+                <span className="text-sm text-[var(--text-sub)]">{t('ai.settings.allowNetwork')}</span>
+              </label>
+              <label className="flex items-center gap-3 px-3 py-2 rounded-input hover:bg-[var(--bg-tertiary)] cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  checked={aiAllowSend}
+                  onChange={(e) => setAiAllowSend(e.target.checked)}
+                  className="accent-[#7C3AED]"
+                />
+                <span className="text-sm text-[var(--text-sub)]">{t('ai.settings.allowSend')}</span>
+              </label>
+            </div>
+          </div>
+
+          {aiLoading && <p className="text-xs text-[var(--text-muted)]">Saving...</p>}
         </div>
       )}
     </Modal>

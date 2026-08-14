@@ -50,6 +50,21 @@ const mockWeaveMD = {
     delete: vi.fn(),
     export: vi.fn(),
   },
+  ai: {
+    getConfig: vi.fn(),
+    setConfig: vi.fn(),
+    getConsent: vi.fn(),
+    setConsent: vi.fn(),
+    health: vi.fn(),
+    chat: vi.fn(),
+    chatAbort: vi.fn(),
+    listConversations: vi.fn(),
+    getConversation: vi.fn(),
+    createConversation: vi.fn(),
+    deleteConversation: vi.fn(),
+    updateConversationSummary: vi.fn(),
+    onStream: vi.fn(() => () => {}),
+  },
 };
 
 Object.defineProperty(window, 'weaveMD', {

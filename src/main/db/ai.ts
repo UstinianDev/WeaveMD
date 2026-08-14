@@ -1,0 +1,279 @@
+// ============================================
+// WeaveMD — AI Database Operations
+// ============================================
+// ai_config / ai_conversations / ai_messages 表 DAO。
+// 全部操作按 user_id / conversation_id 参数化过滤，绝无字符串拼接。
+// API key 仅以密文 (api_key_enc) 存储/读取；明文经 safeStorage 在 secureConfig 层加解密，
+// 明文绝不落库、绝不出主进程。
+
+import { randomUUID } from 'crypto';
+import { getDatabase } from './index';
+import type { ChatBackend, ConversationMode, IAIMessage, IAIConversation } from '@shared/ai';
+
+// ---------------------------------------------------------------------------
+// ai_config
+// ---------------------------------------------------------------------------
+
+export interface AiConfigRow {
+  id: string;
+  userId: string;
+  backend: ChatBackend;
+  ollamaBaseUrl: string;
+  remoteBaseUrl: string;
+  model: string;
+  /** safeStorage 密文(base64)；无 key 时为 null */
+  apiKeyEnc: string | null;
+  allowNetwork: boolean;
+  allowSend: boolean;
+  consentUpdatedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface AiConfigDbRow {
+  id: string;
+  user_id: string;
+  backend: string;
+  ollama_base_url: string;
+  remote_base_url: string;
+  model: string;
+  api_key_enc: string | null;
+  allow_network: number;
+  allow_send: number;
+  consent_updated_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function mapConfigRow(row: AiConfigDbRow): AiConfigRow {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    backend: (row.backend as ChatBackend) || 'ollama',
+    ollamaBaseUrl: row.ollama_base_url,
+    remoteBaseUrl: row.remote_base_url,
+    model: row.model || '',
+    apiKeyEnc: row.api_key_enc,
+    allowNetwork: !!row.allow_network,
+    allowSend: !!row.allow_send,
+    consentUpdatedAt: row.consent_updated_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function getAiConfig(userId: string): AiConfigRow | null {
+  const db = getDatabase();
+  const row = db
+    .prepare('SELECT * FROM ai_config WHERE user_id = ?')
+    .get(userId) as AiConfigDbRow | undefined;
+  if (!row) return null;
+  return mapConfigRow(row);
+}
+
+export interface AiConfigUpdate {
+  backend?: ChatBackend;
+  ollamaBaseUrl?: string;
+  remoteBaseUrl?: string;
+  model?: string;
+  apiKeyEnc?: string | null;
+  allowNetwork?: boolean;
+  allowSend?: boolean;
+  consentUpdatedAt?: string | null;
+}
+
+export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfigRow {
+  const db = getDatabase();
+  const existing = getAiConfig(userId);
+
+  if (existing) {
+    db.prepare(
+      `UPDATE ai_config SET
+         backend = ?, ollama_base_url = ?, remote_base_url = ?, model = ?,
+         api_key_enc = ?, allow_network = ?, allow_send = ?, consent_updated_at = ?,
+         updated_at = datetime('now')
+       WHERE user_id = ?`
+    ).run(
+      update.backend ?? existing.backend,
+      update.ollamaBaseUrl ?? existing.ollamaBaseUrl,
+      update.remoteBaseUrl ?? existing.remoteBaseUrl,
+      update.model ?? existing.model,
+      update.apiKeyEnc !== undefined ? update.apiKeyEnc : existing.apiKeyEnc,
+      update.allowNetwork ?? existing.allowNetwork ? 1 : 0,
+      update.allowSend ?? existing.allowSend ? 1 : 0,
+      update.consentUpdatedAt !== undefined ? update.consentUpdatedAt : existing.consentUpdatedAt,
+      userId
+    );
+  } else {
+    const id = randomUUID();
+    db.prepare(
+      `INSERT INTO ai_config
+         (id, user_id, backend, ollama_base_url, remote_base_url, model,
+          api_key_enc, allow_network, allow_send, consent_updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      userId,
+      update.backend ?? 'ollama',
+      update.ollamaBaseUrl ?? 'http://localhost:11434',
+      update.remoteBaseUrl ?? 'https://api.deepseek.com',
+      update.model ?? '',
+      update.apiKeyEnc ?? null,
+      update.allowNetwork ?? false ? 1 : 0,
+      update.allowSend ?? false ? 1 : 0,
+      update.consentUpdatedAt ?? null
+    );
+  }
+
+  const fresh = getAiConfig(userId);
+  if (!fresh) throw new Error('Failed to upsert ai_config');
+  return fresh;
+}
+
+// ---------------------------------------------------------------------------
+// ai_conversations
+// ---------------------------------------------------------------------------
+
+interface AiConversationDbRow {
+  id: string;
+  user_id: string;
+  mode: string;
+  summary: string;
+  created_at: string;
+  updated_at: string;
+}
+
+function mapConversationRow(row: AiConversationDbRow): IAIConversation {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    mode: (row.mode as ConversationMode) || 'chat',
+    summary: row.summary || '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function createConversation(userId: string, mode: ConversationMode): IAIConversation {
+  const db = getDatabase();
+  const id = randomUUID();
+  db.prepare(
+    'INSERT INTO ai_conversations (id, user_id, mode, summary) VALUES (?, ?, ?, ?)'
+  ).run(id, userId, mode || 'chat', '');
+  const row = db
+    .prepare('SELECT * FROM ai_conversations WHERE id = ? AND user_id = ?')
+    .get(id, userId) as AiConversationDbRow;
+  return mapConversationRow(row);
+}
+
+export function getConversation(conversationId: string, userId: string): IAIConversation | null {
+  const db = getDatabase();
+  const row = db
+    .prepare('SELECT * FROM ai_conversations WHERE id = ? AND user_id = ?')
+    .get(conversationId, userId) as AiConversationDbRow | undefined;
+  if (!row) return null;
+  return mapConversationRow(row);
+}
+
+export function listConversationsByUser(userId: string, mode?: ConversationMode): IAIConversation[] {
+  const db = getDatabase();
+  const rows =
+    mode !== undefined
+      ? (db
+          .prepare(
+            'SELECT * FROM ai_conversations WHERE user_id = ? AND mode = ? ORDER BY updated_at DESC'
+          )
+          .all(userId, mode) as AiConversationDbRow[])
+      : (db
+          .prepare('SELECT * FROM ai_conversations WHERE user_id = ? ORDER BY updated_at DESC')
+          .all(userId) as AiConversationDbRow[]);
+  return rows.map(mapConversationRow);
+}
+
+export function deleteConversation(conversationId: string, userId: string): boolean {
+  const db = getDatabase();
+  const info = db
+    .prepare('DELETE FROM ai_conversations WHERE id = ? AND user_id = ?')
+    .run(conversationId, userId);
+  return info.changes > 0;
+}
+
+export function updateConversationSummary(
+  conversationId: string,
+  userId: string,
+  summary: string
+): IAIConversation | null {
+  const db = getDatabase();
+  db.prepare(
+    'UPDATE ai_conversations SET summary = ?, updated_at = datetime(?) WHERE id = ? AND user_id = ?'
+  ).run(summary, 'now', conversationId, userId);
+  return getConversation(conversationId, userId);
+}
+
+// ---------------------------------------------------------------------------
+// ai_messages
+// ---------------------------------------------------------------------------
+
+interface AiMessageDbRow {
+  id: string;
+  conversation_id: string;
+  user_id: string;
+  role: string;
+  content: string;
+  refs_json: string | null;
+  created_at: string;
+}
+
+function mapMessageRow(row: AiMessageDbRow): IAIMessage {
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    userId: row.user_id,
+    role: row.role as IAIMessage['role'],
+    content: row.content || '',
+    refsJson: row.refs_json,
+    createdAt: row.created_at,
+  };
+}
+
+export function appendMessage(msg: {
+  conversationId: string;
+  userId: string;
+  role: IAIMessage['role'];
+  content: string;
+  refsJson?: string | null;
+}): IAIMessage {
+  const db = getDatabase();
+  const id = randomUUID();
+  db.prepare(
+    'INSERT INTO ai_messages (id, conversation_id, user_id, role, content, refs_json) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, msg.conversationId, msg.userId, msg.role, msg.content, msg.refsJson ?? null);
+  db.prepare(
+    "UPDATE ai_conversations SET updated_at = datetime('now') WHERE id = ? AND user_id = ?"
+  ).run(msg.conversationId, msg.userId);
+  const row = db
+    .prepare('SELECT * FROM ai_messages WHERE id = ?')
+    .get(id) as AiMessageDbRow;
+  return mapMessageRow(row);
+}
+
+export function getMessagesByConversation(
+  conversationId: string,
+  userId: string
+): IAIMessage[] {
+  const db = getDatabase();
+  const rows = db
+    .prepare(
+      `SELECT m.* FROM ai_messages m
+         JOIN ai_conversations c ON c.id = m.conversation_id
+        WHERE m.conversation_id = ? AND c.user_id = ?
+        ORDER BY m.created_at ASC`
+    )
+    .all(conversationId, userId) as AiMessageDbRow[];
+  return rows.map(mapMessageRow);
+}
+
+/** 校验会话归属后追加用户消息（供 IPC App 组装消息） */
+export function assertConversationOwned(conversationId: string, userId: string): boolean {
+  return getConversation(conversationId, userId) !== null;
+}

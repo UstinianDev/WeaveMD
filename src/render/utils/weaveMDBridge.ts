@@ -631,6 +631,21 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
     deleteFolder: async () =>
       createFailureResult('Folder deletion is not available in browser mode.'),
   },
+  ai: {
+    getConfig: async () => ({ success: false }),
+    setConfig: async () => ({ success: false }),
+    getConsent: async () => ({ success: false }),
+    setConsent: async () => ({ success: false }),
+    health: async () => ({ success: false }),
+    chat: async () => ({ success: false }),
+    chatAbort: async () => ({ success: true }),
+    listConversations: async () => createSuccessResult([]),
+    getConversation: async () => ({ success: false }),
+    createConversation: async () => ({ success: false }),
+    deleteConversation: async () => ({ success: false }),
+    updateConversationSummary: async () => ({ success: false }),
+    onStream: () => () => {},
+  },
 });
 
 let hasWarnedAboutFallback = false;

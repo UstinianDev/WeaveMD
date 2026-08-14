@@ -76,6 +76,7 @@ const TopBar: React.FC = () => {
     setErrorMessage,
     openModal,
     toggleHistoryPanel,
+    toggleAIPanel,
     handleUndo,
     handleRedo,
     handleNewFile,
@@ -236,6 +237,23 @@ const TopBar: React.FC = () => {
         </IconButton>
 
         <NavSeparator />
+
+        {/* AI 面板开关 */}
+        <IconButton onClick={toggleAIPanel} title={t('ai.panelTitle')}>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <rect x="4" y="8" width="16" height="12" rx="2" />
+            <path d="M12 8V4" />
+            <circle cx="12" cy="3" r="1" />
+            <path d="M8 12h8M8 15h5" />
+          </svg>
+        </IconButton>
 
         {/* Export dropdown */}
         <ExportMenu

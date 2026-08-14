@@ -3,6 +3,7 @@
 // ============================================
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import AIAgentPanel from '@render/components/AIAgent/AIAgentPanel';
 import StatusBar from '@render/components/Common/StatusBar';
 import EditorView from '@render/components/Editor/EditorView';
 import HistoryPanel from '@render/components/Editor/panels/HistoryPanel';
@@ -24,6 +25,7 @@ const MainPage: React.FC = () => {
   const setOutlineWidth = useUIStore((s) => s.setOutlineWidth);
   const isHistoryPanelOpen = useUIStore((s) => s.isHistoryPanelOpen);
   const toggleHistoryPanel = useUIStore((s) => s.toggleHistoryPanel);
+  const isAIPanelOpen = useUIStore((s) => s.isAIPanelOpen);
   const activeModal = useUIStore((s) => s.activeModal);
   const closeModal = useUIStore((s) => s.closeModal);
 
@@ -175,6 +177,13 @@ const MainPage: React.FC = () => {
             )}
           </div>
         </main>
+
+        {/* AI 代理面板（右侧 dock） */}
+        {isAIPanelOpen && (
+          <div className="relative flex-shrink-0">
+            <AIAgentPanel />
+          </div>
+        )}
       </div>
 
       {/* Floating Formatting Toolbar — appears on text selection */}

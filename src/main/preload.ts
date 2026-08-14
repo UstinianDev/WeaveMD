@@ -5,6 +5,19 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '@shared/constants';
 import type { ExportRequest, ExportResult } from './export/types';
+import type {
+  AIErrorCode,
+  AIStreamEvent,
+  AiChatResult,
+  AiConfigUpdate,
+  AiConversationDetail,
+  AiHealth,
+  ConversationMode,
+  IAIConfig,
+  IAIConsent,
+  IAIConversation,
+} from '@shared/ai';
+import type { IpcResponse } from '@shared/types';
 
 export interface WeaveMDApi {
   auth: {
@@ -67,6 +80,41 @@ export interface WeaveMDApi {
   };
   link: {
     openExternal: (url: string) => Promise<void>;
+  };
+  ai: {
+    getConfig: (userId: string) => Promise<IpcResponse<IAIConfig>>;
+    setConfig: (userId: string, config: AiConfigUpdate) => Promise<IpcResponse<IAIConfig>>;
+    getConsent: (userId: string) => Promise<IpcResponse<IAIConsent>>;
+    setConsent: (userId: string, consent: IAIConsent) => Promise<IpcResponse<IAIConsent>>;
+    health: () => Promise<IpcResponse<AiHealth>>;
+    chat: (payload: {
+      userId: string;
+      conversationId: string | null;
+      message: string;
+    }) => Promise<IpcResponse<AiChatResult>>;
+    chatAbort: (conversationId: string) => Promise<IpcResponse<Record<string, never>>>;
+    listConversations: (
+      userId: string,
+      mode?: ConversationMode
+    ) => Promise<IpcResponse<IAIConversation[]>>;
+    getConversation: (
+      conversationId: string,
+      userId: string
+    ) => Promise<IpcResponse<AiConversationDetail>>;
+    createConversation: (
+      userId: string,
+      mode?: ConversationMode
+    ) => Promise<IpcResponse<IAIConversation>>;
+    deleteConversation: (
+      conversationId: string,
+      userId: string
+    ) => Promise<IpcResponse<{ deleted: boolean }>>;
+    updateConversationSummary: (
+      conversationId: string,
+      userId: string,
+      summary: string
+    ) => Promise<IpcResponse<IAIConversation>>;
+    onStream: (cb: (evt: AIStreamEvent) => void) => () => void;
   };
 }
 
@@ -131,6 +179,66 @@ const api: WeaveMDApi = {
   },
   link: {
     openExternal: (url) => ipcRenderer.invoke(IPC_CHANNELS.LINK_OPEN_EXTERNAL, url),
+  },
+  ai: {
+    getConfig: (userId) => ipcRenderer.invoke(IPC_CHANNELS.AI_GET_CONFIG, userId),
+    setConfig: (userId, config) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_SET_CONFIG, { userId, config }),
+    getConsent: (userId) => ipcRenderer.invoke(IPC_CHANNELS.AI_GET_CONSENT, userId),
+    setConsent: (userId, consent) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_SET_CONSENT, { userId, consent }),
+    health: () => ipcRenderer.invoke(IPC_CHANNELS.AI_HEALTH),
+    chat: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_CHAT, payload),
+    chatAbort: (conversationId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_CHAT_ABORT, conversationId),
+    listConversations: (userId, mode) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_CONVERSATION_LIST, userId, mode),
+    getConversation: (conversationId, userId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_CONVERSATION_GET, conversationId, userId),
+    createConversation: (userId, mode) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_CONVERSATION_CREATE, userId, mode),
+    deleteConversation: (conversationId, userId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_CONVERSATION_DELETE, conversationId, userId),
+    updateConversationSummary: (conversationId, userId, summary) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_SUMMARY_UPDATE, conversationId, userId, summary),
+    onStream: (cb) => {
+      const listeners: Array<() => void> = [];
+      const subscribe = <T>(channel: string, map: (payload: T) => AIStreamEvent): void => {
+        const handler = (_event: Electron.IpcRendererEvent, payload: T): void => {
+          cb(map(payload));
+        };
+        ipcRenderer.on(channel, handler);
+        listeners.push(() => ipcRenderer.removeListener(channel, handler));
+      };
+      subscribe(
+        IPC_CHANNELS.AI_STREAM_CHUNK,
+        (p: { conversationId: string; delta: string }) => ({
+          type: 'chunk',
+          conversationId: p.conversationId,
+          delta: p.delta,
+        })
+      );
+      subscribe(
+        IPC_CHANNELS.AI_STREAM_DONE,
+        (p: { conversationId: string; usage?: { reasoningTokenCount?: number | null } }) => ({
+          type: 'done',
+          conversationId: p.conversationId,
+          usage: p.usage,
+        })
+      );
+      subscribe(
+        IPC_CHANNELS.AI_STREAM_ERROR,
+        (p: { conversationId: string; code: AIErrorCode; message: string }) => ({
+          type: 'error',
+          conversationId: p.conversationId,
+          code: p.code,
+          message: p.message,
+        })
+      );
+      return () => {
+        for (const off of listeners) off();
+      };
+    },
   },
 };
 

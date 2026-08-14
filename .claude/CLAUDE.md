@@ -21,6 +21,9 @@
   ImageToolbar（图片工具栏）+ toolbarState（纯函数）
 - `src/render/components/Editor/` — EditorView 薄编排器（v2 唯一）
 - `src/render/stores/ services/ styles/` — Zustand / markdown 服务 / globals.css
+- `src/main/ai/` — AI 主进程服务（**第1/2期已交付**：llmClient/consent/secureConfig/ipc；第3-6期规划：
+  embeddingClient / mcpManager / kbIndexer / kbSearch / intentRouter / contextManager / toolRegistry）
+- `src/render/components/AIAgent/` — AI 面板（**第1/2期已交付**：AIAgentPanel/ChatTab/AgentTab/ConsentOverlay；第3-6期规划提问卡片、diff 预览）
 - `docs/` — REQUIREMENTS / TECH_STACK / SUMMARY / modules/ / specs/
 
 ## 规范
@@ -96,6 +99,18 @@
   （纯算术下沉 resizeMath；`imageAnchor.ts` 提供 findImageEl/readImageRect 共享查询）
 - `src/render/components/Editor/v2/modalConstants.ts` — 弹层共享常量（EMPTY_URL_MESSAGE）
 - `src/render/components/Editor/EditorView.tsx` — 薄编排器（v2 唯一）
+- `docs/modules/11-AI代理面板-Agent.md` — AI 代理面板 + 知识库导入设计（第1/2期已交付；
+  需求 AGT-01~19 / KB-01~05 见 REQUIREMENTS 3.7/3.8）
+
+## AI 代理面板与知识库（第1/2期已交付；第3-6期规划）
+
+- 右侧 AI 面板（导航栏「AI」按钮开合），Chat（纯对话）/ Agent（辅助创作）双智能体
+- 铁律一：**AI 无直接落盘能力**，写路径必经「红删绿增预览 → 用户确认」后经
+  `stateToMarkdown` 写入（可撤销）；块级改写走定向块编辑协议
+- 铁律二：**联网 / 笔记外发必须用户知情同意**（首次弹同意页）；key 用 safeStorage
+  加密存 SQLite，网络全走主进程、密钥不落渲染进程
+- 知识库 = 账号内全部笔记 + 导入文档（md/txt），双路召回（FTS5 + 本地向量）；
+  拒答阈值以下拒答；出处可跳转原文；置顶文档加权
 
 ## 已知限制（详见 spec 13.x）
 

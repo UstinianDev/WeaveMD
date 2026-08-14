@@ -45,6 +45,7 @@ export function useNavbarActions() {
 
   const openModal = useUIStore((s) => s.openModal);
   const toggleHistoryPanel = useUIStore((s) => s.toggleHistoryPanel);
+  const toggleAIPanel = useUIStore((s) => s.toggleAIPanel);
   const flushEditorDraft = useUIStore((s) => s.flushEditorDraft);
 
   const setActiveTab = useFileTreeStore((s) => s.setActiveTab);
@@ -290,6 +291,7 @@ export function useNavbarActions() {
     setErrorMessage,
     openModal,
     toggleHistoryPanel,
+    toggleAIPanel,
     handleUndo,
     handleRedo,
     handleNewFile,
