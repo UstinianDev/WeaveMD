@@ -72,6 +72,67 @@ function runMigrations(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_files_user_modified ON files(user_id, modified_at);
     CREATE INDEX IF NOT EXISTS idx_history_file_saved ON history(file_id, saved_at);
     CREATE INDEX IF NOT EXISTS idx_settings_user ON settings(user_id);
+
+    CREATE TABLE IF NOT EXISTS ai_config (
+      id                TEXT PRIMARY KEY,
+      user_id           TEXT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      backend           TEXT NOT NULL DEFAULT 'ollama',   -- ollama | remote
+      ollama_base_url   TEXT DEFAULT 'http://localhost:11434',
+      remote_base_url   TEXT DEFAULT 'https://api.deepseek.com',
+      model             TEXT DEFAULT '',
+      api_key_enc       TEXT DEFAULT NULL,                -- safeStorage 加密密文(base64)
+      allow_network     INTEGER DEFAULT 0,                -- 允许联网（远程后端/工具/MCP）
+      allow_send        INTEGER DEFAULT 0,                -- 允许笔记外发（知识库检索，第3期启用）
+      consent_updated_at TEXT DEFAULT NULL,
+      created_at        TEXT DEFAULT (datetime('now')),
+      updated_at        TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_config_user ON ai_config(user_id);
+
+    CREATE TABLE IF NOT EXISTS ai_conversations (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      mode        TEXT NOT NULL DEFAULT 'chat',      -- chat | agent
+      summary     TEXT DEFAULT '',
+      created_at  TEXT DEFAULT (datetime('now')),
+      updated_at  TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_conv_user_updated ON ai_conversations(user_id, updated_at);
+
+    CREATE TABLE IF NOT EXISTS ai_messages (
+      id              TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
+      user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role            TEXT NOT NULL,                  -- user|assistant|tool
+      content         TEXT DEFAULT '',
+      refs_json       TEXT DEFAULT NULL,
+      created_at      TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_msg_conv_created ON ai_messages(conversation_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_ai_msg_user ON ai_messages(user_id);
+
+    CREATE TABLE IF NOT EXISTS kb_documents (
+      id          TEXT PRIMARY KEY,
+      user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      file_id     TEXT,
+      source_type TEXT NOT NULL,
+      title       TEXT NOT NULL,
+      pinned      INTEGER DEFAULT 0,
+      status      TEXT DEFAULT 'pending',
+      created_at  TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_kb_doc_user ON kb_documents(user_id);
+
+    CREATE TABLE IF NOT EXISTS kb_chunks (
+      id           TEXT PRIMARY KEY,
+      document_id  TEXT NOT NULL REFERENCES kb_documents(id) ON DELETE CASCADE,
+      seq          INTEGER NOT NULL,
+      content      TEXT NOT NULL,
+      vector       BLOB DEFAULT NULL,
+      source_ref   TEXT DEFAULT NULL,
+      created_at   TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_kb_chunk_doc ON kb_chunks(document_id, seq);
   `);
 }
 

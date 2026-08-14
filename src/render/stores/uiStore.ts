@@ -20,6 +20,8 @@ interface UIStore {
   isHistoryPanelOpen: boolean;
   isSourceCodeMode: boolean;
   isFindReplaceOpen: boolean;
+  isAIPanelOpen: boolean;
+  aiPanelWidth: number;
   editorDraftFlusher: (() => void | Promise<void>) | null;
   beforeToggleSourceMode: (() => void) | null;
 
@@ -28,6 +30,7 @@ interface UIStore {
   setSidebarWidth: (width: number) => void;
   setOutlineWidth: (width: number) => void;
   setHistoryPanelWidth: (width: number) => void;
+  setAIPanelWidth: (width: number) => void;
   toggleSidebar: () => void;
   toggleOutlinePanel: () => void;
   setPageWidth: (width: PageWidth) => void;
@@ -36,6 +39,7 @@ interface UIStore {
   setLoading: (loading: boolean) => void;
   setSplashComplete: (complete: boolean) => void;
   toggleHistoryPanel: () => void;
+  toggleAIPanel: () => void;
   toggleSourceCodeMode: () => void;
   toggleFindReplace: () => void;
   setBeforeToggleSourceMode: (callback: (() => void) | null) => void;
@@ -60,6 +64,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
   isHistoryPanelOpen: false,
   isSourceCodeMode: false,
   isFindReplaceOpen: false,
+  isAIPanelOpen: false,
+  aiPanelWidth: 320,
   editorDraftFlusher: null,
   beforeToggleSourceMode: null,
 
@@ -85,6 +91,11 @@ export const useUIStore = create<UIStore>((set, get) => ({
 
   setHistoryPanelWidth: (width) => {
     set({ historyPanelWidth: Math.max(200, width) });
+    get().persistSettings();
+  },
+
+  setAIPanelWidth: (width) => {
+    set({ aiPanelWidth: Math.max(260, Math.min(520, width)) });
     get().persistSettings();
   },
 
@@ -130,6 +141,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
 
   toggleHistoryPanel: () => set((s) => ({ isHistoryPanelOpen: !s.isHistoryPanelOpen })),
 
+  toggleAIPanel: () => set((s) => ({ isAIPanelOpen: !s.isAIPanelOpen })),
+
   toggleSourceCodeMode: () => {
     get().beforeToggleSourceMode?.();
     set((s) => ({ isSourceCodeMode: !s.isSourceCodeMode }));
@@ -146,10 +159,19 @@ export const useUIStore = create<UIStore>((set, get) => ({
   },
 
   persistSettings: () => {
-    const { theme, language, sidebarWidth, outlineWidth, historyPanelWidth } = get();
+    const { theme, language, sidebarWidth, outlineWidth, historyPanelWidth, isAIPanelOpen, aiPanelWidth } =
+      get();
     localStorage.setItem(
       'weavemd_ui',
-      JSON.stringify({ theme, language, sidebarWidth, outlineWidth, historyPanelWidth })
+      JSON.stringify({
+        theme,
+        language,
+        sidebarWidth,
+        outlineWidth,
+        historyPanelWidth,
+        isAIPanelOpen,
+        aiPanelWidth,
+      })
     );
   },
 
@@ -157,14 +179,23 @@ export const useUIStore = create<UIStore>((set, get) => ({
     try {
       const stored = localStorage.getItem('weavemd_ui');
       if (stored) {
-        const { theme, language, sidebarWidth, outlineWidth, historyPanelWidth } =
-          JSON.parse(stored);
+        const {
+          theme,
+          language,
+          sidebarWidth,
+          outlineWidth,
+          historyPanelWidth,
+          isAIPanelOpen,
+          aiPanelWidth,
+        } = JSON.parse(stored);
         set({
           theme: theme || 'light-header',
           language: language || 'zh-CN',
           sidebarWidth: sidebarWidth || 240,
           outlineWidth: outlineWidth || 280,
           historyPanelWidth: historyPanelWidth || 280,
+          isAIPanelOpen: isAIPanelOpen ?? false,
+          aiPanelWidth: aiPanelWidth || 320,
         });
       }
     } catch {

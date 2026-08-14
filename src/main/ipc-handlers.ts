@@ -11,6 +11,7 @@ import {
   RESERVED_USERNAMES,
   USERNAME_REGEX,
 } from '@shared/constants';
+import { registerAiIpcHandlers } from './ai/ipc';
 import { createFile, deleteFile, getFile, listFiles, updateFileContent } from './db/files';
 import { exportFile } from './export/exportService';
 import type { ExportRequest } from './export/types';
@@ -45,6 +46,9 @@ function verifyToken(token: string): { userId: string; username: string } | null
 }
 
 export function registerAllIpcHandlers(): void {
+  // AI panel (Chat/Agent) — config/consent/health/chat/conversations
+  registerAiIpcHandlers();
+
   // ========================================
   // Window Controls
   // ========================================

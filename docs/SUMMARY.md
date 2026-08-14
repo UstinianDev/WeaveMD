@@ -1,6 +1,6 @@
 # WeaveMD 项目总结
 
-> 版本：v3.10 | 最后更新：2026-08-14
+> 版本：v3.11 | 最后更新：2026-08-14
 
 ## 1. 项目概览
 
@@ -28,6 +28,7 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 | IPC 机制   | [modules/08-IPC通信机制.md](./modules/08-IPC通信机制.md)                     | 安全架构、preload 类型定义                   |
 | 国际化     | [modules/09-国际化-i18n.md](./modules/09-国际化-i18n.md)                     | Provider、多语言                             |
 | 导出功能   | [modules/10-导出功能-Export.md](./modules/10-导出功能-Export.md)             | 8 格式导出（md/html/pdf/doc/docx/png/jpg/jpeg）|
+| AI 代理面板 | [modules/11-AI代理面板-Agent.md](./modules/11-AI代理面板-Agent.md)           | 双智能体、知识库双路召回、块级改写（规划）     |
 
 ## 3. 编辑主区 v2（当前主线）
 
@@ -129,5 +130,22 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
    5 个既有红为 drag-selection-markers.spec.ts 跨任务缺陷）
 - 质量门禁：`tsc --noEmit` + `vitest run` + ESLint(0 error) + `vite build` + `npx playwright test`
   + `vitest --coverage`（改动文件口径 ≥80%，当前全量 95.45%；`@vitest/coverage-v8`）
+
+## 5. AI 代理面板与知识库（2026-08-14 第1/2期已交付；第3-6期规划）
+
+**第1期基建 + 第2期 Chat 闭环已交付（2026-08-14）**：5 表 DDL（ai_config/ai_conversations/ai_messages/kb_*）、
+`ai:*` IPC + preload、设置面板 AI Tab（safeStorage 加密 key）、知情同意页、导航栏 AI 按钮、
+llmClient（统一 OpenAI 兼容双后端 + SSE 流式）、右侧 AI 面板（Chat 全功能 + Agent 占位）、会话持久化；
+远程 DeepSeek 后端真连验证通过；详见 docs/plan/ai-agent-panel.status.md。
+
+第3-6期规划：
+
+- 右侧 AI 面板（导航栏「AI」按钮开合），Chat（纯对话）/ Agent（辅助创作）双智能体
+- 铁律：AI 无直接落盘能力（写必经红删绿增预览→确认）；联网/笔记外发必须用户知情同意
+- 双支持后端（默认本地 Ollama + 可选远程）、内置 skills/MCP（context7/firecrawl）、
+  知识库双路召回（FTS5+本地向量）+ 拒答 + 出处 + 置顶加权、@ 文件块级改写、
+  意图识别 + 提问卡片 + 上下文压缩
+- 需求：REQUIREMENTS 3.7/3.8（AGT-/KB- 编号）；设计：modules/11；选型：TECH_STACK 2.10
+- 未决：markdown 创作 skill 定义、本地可用 embedding/对话模型（qwen3.5:0.8b 实测无限思考故障）
 
 > 各模块详细实现见 `docs/modules/`，需求见 `docs/REQUIREMENTS.md`，技术选型见 `docs/TECH_STACK.md`。

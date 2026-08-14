@@ -78,6 +78,25 @@ export const IPC_CHANNELS = {
 
   // Link
   LINK_OPEN_EXTERNAL: 'link:open-external',
+
+  // AI (Chat/Agent panel)
+  AI_GET_CONFIG: 'ai:get-config',
+  AI_SET_CONFIG: 'ai:set-config',
+  AI_GET_CONSENT: 'ai:get-consent',
+  AI_SET_CONSENT: 'ai:set-consent',
+  AI_HEALTH: 'ai:health',
+  AI_CHAT: 'ai:chat',
+  AI_CHAT_ABORT: 'ai:chat-abort',
+  AI_CONVERSATION_LIST: 'ai:conversation:list',
+  AI_CONVERSATION_GET: 'ai:conversation:get',
+  AI_CONVERSATION_CREATE: 'ai:conversation:create',
+  AI_CONVERSATION_DELETE: 'ai:conversation:delete',
+  AI_SUMMARY_UPDATE: 'ai:summary:update',
+
+  // AI — stream push (main -> render, webContents.send)
+  AI_STREAM_CHUNK: 'ai:stream:chunk',
+  AI_STREAM_DONE: 'ai:stream:done',
+  AI_STREAM_ERROR: 'ai:stream:error',
 } as const;
 
 // --- Design Tokens ---
