@@ -1,6 +1,6 @@
 # WeaveMD 技术选型文档
 
-> 版本：v3.0 | 最后更新：2026-08-13
+> 版本：v3.1 | 最后更新：2026-08-14
 
 ---
 
@@ -199,7 +199,7 @@ BlockNode: { id, type, sourceLines, startLine, renderedHtml, headingLevel?, fenc
 - HistoryPanel 文件列表使用 `.history-scroll` 专属 10px 滚动条；拖拽手柄在面板外侧（`right: -4px`）避免遮挡滚动条
 - 文件夹操作 IPC：`file:write`/`file:read`/`file:delete-disk`（磁盘文件操作）、`dialog:save-file-path`（保存路径选择，含 createDirectory）、`folder:read`/`folder:create`/`folder:delete`（文件夹操作）
 - 侧边栏 Tab：OutlinePanel 改为 Tab 容器（目录/文件），`fileTreeStore` 管理文件树状态，`loadFolderContents` 构建层级树（路径前缀匹配，normalize `/`）
-- 文件系统同步：editorStore.saveFile 对路径型 ID（含 `/` 或 `\`）直接 `file:write` 写磁盘；handleOpenFile 用磁盘路径作 file ID；CreateDialog 弹窗选位置+填名称创建文件/文件夹
+- 文件系统同步：editorStore.saveFile 对路径型 ID（含 `/` 或 `\`）直接 `file:write` 写磁盘；handleOpenFile 用磁盘路径作 file ID；CreateDialog 弹窗选位置+填名称创建文件/文件夹；切换/关闭前统一 `saveCurrentDraftIfNeeded()`（`services/saveCurrentDraft.ts`）
 
 ### 3.4 IPC 通信
 

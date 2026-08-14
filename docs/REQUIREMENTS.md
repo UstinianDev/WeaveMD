@@ -1,6 +1,6 @@
 # WeaveMD 需求文档
 
-> 版本：v2.9 | 最后更新：2026-08-13
+> 版本：v2.10 | 最后更新：2026-08-14
 
 ---
 
@@ -38,7 +38,7 @@
 | EDIT-05 | MD Source 切换         | P1     | 点击工具栏 "Src" 显示当前段落 Markdown 源码，再次点击或点击其他内容恢复富文本                                                                                                                                                                                         |
 | EDIT-06 | 段落操作               | P0     | Enter 创建新段落、Backspace 删除空段落                                                                                                                                                                                                                                |
 | EDIT-07 | 撤销/重做              | P0     | Ctrl+Z/Y，50 条上限，跨会话保留                                                                                                                                                                                                                                       |
-| EDIT-08 | 自动保存               | P0     | 1200ms debounce，关闭/切换前 flush                                                                                                                                                                                                                                    |
+| EDIT-08 | 自动保存               | P0     | 1200ms debounce，关闭/切换前 flush（文件树切换统一 `saveCurrentDraftIfNeeded`，含 Source 模式 Monaco flush）                                                                                                                                                                                                                                    |
 | EDIT-09 | 代码块                 | P0     | 语言下拉选择 + 复制按钮；Prism 语法高亮（初次导入即高亮，切换语言后快速重高亮）；编辑通过 Source Code Mode（双击已禁用）；创建后自动补的受保护空行在重载/模式切换后不丢失（SPEC-EDIT-CBTP）                                                                           |
 | EDIT-10 | 空块占位               | P0     | 零宽空格 + CSS `::before`（绝对定位背景层 `z-index:-1`）显示 "Type something..."；仅聚焦空块显示，光标在占位符前；输入消失、删光恢复、失焦清除                                                                                                                        |
 | EDIT-11 | 结构转换               | P1     | 浮动工具栏下拉：正文↔H1~H4↔引用↔有序列表↔无序列表↔任务列表。输入 `# `/`- `/`1. `/`- [ ] `/`> ` 前缀变灰（pendingTypeChange），回车才提交渲染；工具栏下拉立即转换。前缀分隔符支持普通空格/Tab/非断行空格（U+00A0，中文输入法产生）；回车时即使防抖未触发也回退检测前缀 |

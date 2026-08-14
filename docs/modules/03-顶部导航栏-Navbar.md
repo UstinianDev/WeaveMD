@@ -81,7 +81,7 @@ function getShortcutAction(event: KeyboardEvent): ShortcutAction {
 | New File    | `Ctrl+N` | 打开 CreateDialog 弹窗（选位置+填名称，文件自动加 .md 后缀，空名提示不退出）→ `file:write` 写磁盘 → `openFile` + `addFile` |
 | Open File   | `Ctrl+O` | 调用 `dialog:open-file` IPC → 用磁盘路径作 file ID → `openFile` + `addFile` 到侧栏                                         |
 | Delete File | -        | 确认弹框 → 调用 `file:delete-disk` 删磁盘 → `removeFileFromEverywhere` 清列表 → `closeFile` 显示空状态                     |
-| Close       | -        | 先保存（如脏数据）→ `editorStore.closeFile()`                                                                              |
+| Close       | -        | 先 `saveCurrentDraftIfNeeded()`（如脏数据）→ `editorStore.closeFile()`                                                                              |
 
 #### Help 菜单
 

@@ -1,6 +1,6 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 版本：v2.8 | 最后更新：2026-08-13
+> 模块编号：04 | 优先级：P0 | 版本：v2.9 | 最后更新：2026-08-14
 > 设计规范：[specs/editor-v2-architecture.md](../specs/editor-v2-architecture.md)
 > 退出规则：[specs/markdown-block-exit-rules.md](../specs/markdown-block-exit-rules.md)
 > 浮动工具栏/跨块拖选：[specs/floating-toolbar-refactor.md](../specs/floating-toolbar-refactor.md)
@@ -184,6 +184,15 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
   ImageResizeBox 的滚动重锚定重复查询；`modalConstants.ts` 收敛双份 `EMPTY_URL_MESSAGE`。
   断言零修改、845 全绿。详情：`docs/refactor/editor-toolbar-image-link.refactor.md`。
 
+### 7.5 文件树切换保存修复（2026-08-14）
+
+- **文件树切换丢失未保存修改**：`FileTreePanel.handleFileClick` 切换前统一
+  `saveCurrentDraftIfNeeded()`（`services/saveCurrentDraft.ts`：flushEditorDraft + dirty 则
+  saveFile，与 Navbar 打开/删除/关闭一致）；点击当前文件 no-op；打开改**总 readDisk 以磁盘
+  为准**（不信陈旧 content 缓存）；`editorStore.saveFile` 返回 `Promise<boolean>`（写盘失败
+  保留 dirty）；Source 模式新增 `flushContent` 强制 flush Monaco 150ms 防抖内容（EditorView
+  flusher 按模式路由）。详情：`docs/plan/fix-file-switch-save-loss.status.md`。
+
 ## 8. 已知限制
 
 - v2 Normal 模式暂无查找高亮（替换功能正常；Source 模式由 Monaco 高亮）。
@@ -211,7 +220,7 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
 
 ## 9. 验证与测试
 
-- Vitest：内核/控制器/组件 **845 例**（含往返属性测试、六条退出规则矩阵、输入链路、
+- Vitest：内核/控制器/组件 **919 例**（含往返属性测试、六条退出规则矩阵、输入链路、
   marktext 语法外观断言、代码块提交/退出、列表与引用退出、尾部代码块补偿 SPEC-EDIT-CBTP、
   `resolveSyntaxType` 判定矩阵 26 例、浮动工具栏 G1/G3 节流与驻留（含 FT2 按钮分组/新功能、
   FT3 sticky/部分标记归一化/跨 token 拆分/三连 `***` 跨风格叠加）、`onConvertBlock` 转换矩阵 8 例、拖选端点变化检测 11 例、
