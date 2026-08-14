@@ -14,7 +14,7 @@ interface EditorStore {
 
   openFile: (file: IFile) => void;
   updateContent: (content: string) => void;
-  saveFile: () => void;
+  saveFile: () => Promise<boolean>;
   closeFile: () => void;
   undo: () => void;
   redo: () => void;
@@ -51,9 +51,9 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     }
   },
 
-  saveFile: async () => {
+  saveFile: async (): Promise<boolean> => {
     const { currentFile, content } = get();
-    if (!currentFile) return;
+    if (!currentFile) return false;
 
     try {
       // If file is a disk file (id contains path separator), write directly to disk
@@ -61,36 +61,46 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
       if (isDiskFile) {
         // Real-time filesystem sync: write to disk
-        await window.weaveMD.file.write(currentFile.id, content);
+        const writeResult = (await window.weaveMD.file.write(currentFile.id, content)) as unknown as {
+          success?: boolean;
+        };
+        if (!writeResult || writeResult.success === false) {
+          console.error('Failed to save file: disk write returned failure');
+          return false;
+        }
         set({
           isDirty: false,
           currentFile: { ...currentFile, content, modifiedAt: new Date().toISOString() },
         });
-      } else {
-        // DB-based file (legacy)
-        const result = (await window.weaveMD.file.save(
-          currentFile.id,
-          content,
-          currentFile.userId
-        )) as unknown as {
-          success: boolean;
-          data?: { id: string; name: string; content: string; createdAt: string; modifiedAt: string };
-        };
-        if (result.success) {
-          set({
-            isDirty: false,
-            currentFile: result.data
-              ? {
-                  ...currentFile,
-                  content: result.data.content,
-                  modifiedAt: result.data.modifiedAt,
-                }
-              : { ...currentFile, content, modifiedAt: new Date().toISOString() },
-          });
-        }
+        return true;
       }
+
+      // DB-based file (legacy)
+      const result = (await window.weaveMD.file.save(
+        currentFile.id,
+        content,
+        currentFile.userId
+      )) as unknown as {
+        success: boolean;
+        data?: { id: string; name: string; content: string; createdAt: string; modifiedAt: string };
+      };
+      if (result.success) {
+        set({
+          isDirty: false,
+          currentFile: result.data
+            ? {
+                ...currentFile,
+                content: result.data.content,
+                modifiedAt: result.data.modifiedAt,
+              }
+            : { ...currentFile, content, modifiedAt: new Date().toISOString() },
+        });
+        return true;
+      }
+      return false;
     } catch (error) {
       console.error('Failed to save file:', error);
+      return false;
     }
   },
 

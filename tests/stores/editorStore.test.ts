@@ -3,6 +3,7 @@
 // ============================================
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { saveCurrentDraftIfNeeded } from '@render/services/saveCurrentDraft';
 import { useEditorStore } from '@render/stores/editorStore';
 import type { IFile } from '@shared/types';
 
@@ -111,9 +112,10 @@ describe('editorStore', () => {
     useEditorStore.getState().openFile(mockFile);
     useEditorStore.getState().updateContent('# Saved content');
 
-    await useEditorStore.getState().saveFile();
+    const saved = await useEditorStore.getState().saveFile();
 
     const state = useEditorStore.getState();
+    expect(saved).toBe(true);
     expect(window.weaveMD.file.save).toHaveBeenCalledWith('file-1', '# Saved content', 'user-1');
     expect(state.isDirty).toBe(false);
     expect(state.currentFile?.content).toBe('# Saved content');
@@ -121,7 +123,64 @@ describe('editorStore', () => {
   });
 
   it('should skip saving when no file is open', async () => {
-    await useEditorStore.getState().saveFile();
+    const saved = await useEditorStore.getState().saveFile();
+    expect(saved).toBe(false);
+    expect(window.weaveMD.file.save).not.toHaveBeenCalled();
+  });
+
+  it('should write disk files to disk and mark clean', async () => {
+    vi.mocked(window.weaveMD.file.write).mockResolvedValue({ success: true });
+    const diskFile: IFile = { ...mockFile, id: '/docs/a.md' };
+
+    useEditorStore.getState().openFile(diskFile);
+    useEditorStore.getState().updateContent('# Saved to disk');
+
+    const saved = await useEditorStore.getState().saveFile();
+
+    const state = useEditorStore.getState();
+    expect(saved).toBe(true);
+    expect(window.weaveMD.file.write).toHaveBeenCalledWith('/docs/a.md', '# Saved to disk');
+    expect(state.isDirty).toBe(false);
+    expect(state.currentFile?.content).toBe('# Saved to disk');
+  });
+
+  it('should return false and keep dirty when disk write fails', async () => {
+    vi.mocked(window.weaveMD.file.write).mockResolvedValue({ success: false });
+    useEditorStore.getState().openFile({ ...mockFile, id: '/docs/a.md' });
+    useEditorStore.getState().updateContent('# Changed');
+
+    const saved = await useEditorStore.getState().saveFile();
+
+    expect(saved).toBe(false);
+    expect(useEditorStore.getState().isDirty).toBe(true);
+  });
+
+  it('should save current draft when dirty before switching', async () => {
+    vi.mocked(window.weaveMD.file.save).mockResolvedValue({
+      success: true,
+      data: {
+        ...mockFile,
+        content: '# Modified',
+        modifiedAt: '2026-07-07T00:00:00.000Z',
+      },
+    });
+
+    useEditorStore.getState().openFile(mockFile);
+    useEditorStore.getState().updateContent('# Modified');
+
+    const result = await saveCurrentDraftIfNeeded();
+
+    expect(result).toBe(true);
+    expect(window.weaveMD.file.save).toHaveBeenCalledWith('file-1', '# Modified', 'user-1');
+    expect(useEditorStore.getState().isDirty).toBe(false);
+  });
+
+  it('should skip save when current file is clean', async () => {
+    useEditorStore.getState().openFile(mockFile);
+
+    const result = await saveCurrentDraftIfNeeded();
+
+    expect(result).toBe(true);
     expect(window.weaveMD.file.save).not.toHaveBeenCalled();
   });
 });

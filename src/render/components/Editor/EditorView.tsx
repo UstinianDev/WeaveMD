@@ -155,15 +155,22 @@ const EditorView: React.FC<EditorViewProps> = ({ onNavigateReady, onActiveHeadin
     }
   }, [isSourceCodeMode, onNavigateReady, themesLoading]);
 
-  // 草稿刷新器（SourceCodeEditor 自行处理 flush）
+  // 草稿刷新器：Source 模式强制 flush Monaco 150ms 防抖内容，避免切换文件丢失；
+  // Normal 模式 EditorV2 每 keystroke 已同步 store，无需 flush（no-op）。
   useEffect(() => {
-    setEditorDraftFlusher(() => {
-      // no-op：SourceCodeEditor 在 blur 时自行 flush
-    });
+    if (isSourceCodeMode) {
+      setEditorDraftFlusher(() => {
+        sourceEditorHandleRef.current?.flushContent();
+      });
+    } else {
+      setEditorDraftFlusher(() => {
+        // no-op：Normal 模式下编辑内容随每次输入同步到 store
+      });
+    }
     return () => {
       setEditorDraftFlusher(null);
     };
-  }, [setEditorDraftFlusher]);
+  }, [isSourceCodeMode, setEditorDraftFlusher]);
 
   if (themesLoading) {
     return (

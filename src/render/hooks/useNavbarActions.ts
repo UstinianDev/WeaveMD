@@ -9,6 +9,7 @@ import { useCallback, useState } from 'react';
 import type { IFile } from '@shared/types';
 import type { ExportFormat } from '@main/export/types';
 import { createDiskFile } from '@render/services/fileOps';
+import { saveCurrentDraftIfNeeded } from '@render/services/saveCurrentDraft';
 import { useI18n } from '@render/i18n';
 import { renderMarkdownToHtml } from '@render/services/markdown';
 import { useAuthStore } from '@render/stores/authStore';
@@ -37,7 +38,6 @@ export function useNavbarActions() {
   const currentFile = useEditorStore((s) => s.currentFile);
   const openFile = useEditorStore((s) => s.openFile);
   const closeFile = useEditorStore((s) => s.closeFile);
-  const saveFile = useEditorStore((s) => s.saveFile);
   const undo = useEditorStore((s) => s.undo);
   const redo = useEditorStore((s) => s.redo);
   const undoStack = useEditorStore((s) => s.undoStack);
@@ -55,16 +55,6 @@ export function useNavbarActions() {
   const getSelectedFolder = useFileTreeStore((s) => s.getSelectedFolder);
 
   const files = useHistoryStore((s) => s.files);
-
-  // --- Helpers ---
-
-  const saveCurrentDraftIfNeeded = useCallback(async () => {
-    await flushEditorDraft();
-    const { currentFile: latestCurrentFile, isDirty: latestIsDirty } = useEditorStore.getState();
-    if (latestCurrentFile?.id && latestIsDirty) {
-      await saveFile();
-    }
-  }, [flushEditorDraft, saveFile]);
 
   // --- Undo / Redo ---
 
@@ -138,7 +128,7 @@ export function useNavbarActions() {
     } finally {
       setIsLoading(false);
     }
-  }, [user, saveCurrentDraftIfNeeded, openFile, addFile, t]);
+  }, [user, openFile, addFile, t]);
 
   const handleDeleteFile = useCallback(async () => {
     if (!currentFile) return;
@@ -153,12 +143,12 @@ export function useNavbarActions() {
       removeFileFromEverywhere(currentFile.id);
     }
     closeFile();
-  }, [currentFile, saveCurrentDraftIfNeeded, closeFile, removeFileFromEverywhere, t]);
+  }, [currentFile, closeFile, removeFileFromEverywhere, t]);
 
   const handleCloseFile = useCallback(async () => {
     await saveCurrentDraftIfNeeded();
     closeFile();
-  }, [saveCurrentDraftIfNeeded, closeFile]);
+  }, [closeFile]);
 
   // --- Folder actions ---
 
@@ -243,7 +233,7 @@ export function useNavbarActions() {
       }
       openFile(file);
     },
-    [currentFile?.id, saveCurrentDraftIfNeeded, openFile]
+    [currentFile?.id, openFile]
   );
 
   // --- Misc ---
