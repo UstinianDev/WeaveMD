@@ -20,6 +20,8 @@ const mockWeaveMD = {
     delete: vi.fn(),
     list: vi.fn(),
     get: vi.fn(),
+    write: vi.fn(),
+    readDisk: vi.fn(),
   },
   history: {
     list: vi.fn(),

@@ -31,6 +31,8 @@ import '@render/utils/monacoSetup';
 
 export interface SourceCodeEditorHandle {
   scrollToLine: (lineNumber: number) => void;
+  /** 立即把防抖窗口内的编辑内容同步给宿主（切换文件/关闭前强制 flush） */
+  flushContent: () => void;
 }
 
 // ============================================
@@ -89,7 +91,20 @@ const SourceCodeEditor = forwardRef<SourceCodeEditorHandle, SourceCodeEditorProp
 
     const editorTheme = isDarkTheme ? 'weaveMD-dark' : 'weaveMD-light';
 
-    // ---- Imperative Handle: scrollToLine ----
+    // 防抖 flush：清空挂起的防抖 timer，若有待同步内容立即回调宿主（blur / 切换文件共用）
+    const flushPendingContent = useCallback(() => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      const value = editor.getValue();
+      if (value !== contentRef.current) {
+        onContentChangeRef.current(value);
+      }
+    }, []);
+
+    // ---- Imperative Handle: scrollToLine / flushContent ----
     useImperativeHandle(
       ref,
       (): SourceCodeEditorHandle => ({
@@ -109,8 +124,9 @@ const SourceCodeEditor = forwardRef<SourceCodeEditorHandle, SourceCodeEditorProp
             isNavigatingRef.current = false;
           }, 600);
         },
+        flushContent: flushPendingContent,
       }),
-      []
+      [flushPendingContent]
     );
 
     // ---- External content sync ----
@@ -223,13 +239,7 @@ const SourceCodeEditor = forwardRef<SourceCodeEditorHandle, SourceCodeEditorProp
 
         // ---- Blur Handler: flush pending changes ----
         editor.onDidBlurEditorText(() => {
-          if (debounceTimerRef.current) {
-            clearTimeout(debounceTimerRef.current);
-          }
-          const value = editor.getValue();
-          if (value !== content) {
-            onContentChangeRef.current(value);
-          }
+          flushPendingContent();
         });
 
         // ---- Scroll / Cursor Listeners: drive active heading ----

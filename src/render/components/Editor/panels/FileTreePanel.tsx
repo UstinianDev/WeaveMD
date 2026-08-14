@@ -5,6 +5,7 @@
 import React, { useCallback } from 'react';
 import type { IFile } from '@shared/types';
 import { useI18n } from '@render/i18n';
+import { saveCurrentDraftIfNeeded } from '@render/services/saveCurrentDraft';
 import { useEditorStore } from '@render/stores/editorStore';
 import { useFileTreeStore, type IFileNode, type IFolderNode } from '@render/stores/fileTreeStore';
 
@@ -24,20 +25,26 @@ const FileTreePanel: React.FC = () => {
   // Open a file from disk into the editor
   const handleFileClick = useCallback(
     async (node: { id: string; name: string; path: string; content?: string }) => {
-      // If content is already cached, use it; otherwise read from disk
-      let content = node.content ?? '';
-      if (!content) {
-        try {
-          const result = (await window.weaveMD.file.readDisk(node.path)) as unknown as {
-            success: boolean;
-            data?: { content: string };
-          };
-          if (result.success && result.data) {
-            content = result.data.content;
-          }
-        } catch {
-          // Fallback to empty content
+      // 切换文件前先保存当前 dirty 草稿，避免未保存修改丢失（与 Navbar 打开路径一致）
+      if (currentFileId && currentFileId !== node.id) {
+        await saveCurrentDraftIfNeeded();
+      }
+      // 点击当前已打开文件：no-op，避免重新读盘覆盖未保存编辑
+      if (currentFileId === node.id) {
+        return;
+      }
+      // 始终以磁盘为准重新读取，不信任 fileTreeStore 中可能陈旧的 content 缓存
+      let content = '';
+      try {
+        const result = (await window.weaveMD.file.readDisk(node.path)) as unknown as {
+          success: boolean;
+          data?: { content: string };
+        };
+        if (result.success && result.data) {
+          content = result.data.content;
         }
+      } catch {
+        // Fallback to empty content
       }
       const now = new Date().toISOString();
       const iFile: IFile = {
@@ -51,7 +58,7 @@ const FileTreePanel: React.FC = () => {
       };
       openFile(iFile);
     },
-    [openFile]
+    [currentFileId, openFile]
   );
 
   // Trash handler: only clears from list, does NOT delete from disk.
