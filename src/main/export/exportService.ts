@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import HTMLtoDOCX from 'html-to-docx';
+import JSZip from 'jszip';
 import { buildExportHtml } from './exportTemplate';
 import { inlineMediaImages } from './imageInline';
 import {
@@ -84,12 +85,17 @@ export async function exportFile(
         fs.writeFileSync(filePath, fullHtml, 'utf-8');
         break;
       case 'docx': {
-        const docxBuffer = await HTMLtoDOCX(fullHtml, undefined, {
+        // 1) 移除 AVIF（image-size 无探测器，保留会导出失败）
+        const htmlForDocx = stripUnsupportedDocxImages(fullHtml);
+        // 2) 生成 OOXML
+        const docxBuffer = await HTMLtoDOCX(htmlForDocx, undefined, {
           orientation: 'portrait',
           margins: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
           title: req.filename,
         });
-        fs.writeFileSync(filePath, docxBuffer);
+        // 3) 修补 [Content_Types].xml 补 gif/svg 等 content type（否则 Word 打开报错）
+        const patchedBuffer = await fixDocxContentTypes(docxBuffer);
+        fs.writeFileSync(filePath, patchedBuffer);
         break;
       }
       case 'pdf':
@@ -106,6 +112,108 @@ export async function exportFile(
     console.error('Export failed:', error);
     return { success: false, error: 'failed' };
   }
+}
+
+/** 扩展名 → MIME content type 映射，覆盖 html-to-docx 可能写盘到 word/media 的图片类型 */
+const EXTENSION_CONTENT_TYPES: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  svg: 'image/svg+xml',
+  'svg+xml': 'image/svg+xml',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+  tiff: 'image/tiff',
+  ico: 'image/x-icon',
+};
+
+/**
+ * 移除 html-to-docx 无法解析尺寸的图片（AVIF）。html-to-docx 内置 image-size
+ * 对 WebP/GIF/SVG 有真实探测器，但 AVIF buffer 一律抛 "unsupported file type"，
+ * 导致整个导出失败。此处直接移除含 AVIF data URI 的整个 <img> 标签，保证文档可导出。
+ * 无 AVIF 时原样返回。
+ */
+export function stripUnsupportedDocxImages(html: string): string {
+  return html.replace(/<img\b[^>]*data:image\/avif[^>]*>/gi, '');
+}
+
+/**
+ * 修补 docx 的 [Content_Types].xml：html-to-docx 生成的 GIF/SVG 等 media 缺少对应
+ * <Default Extension="..." ContentType="..."/> 声明，Word 打开会报错。此处收集
+ * word/media/* 中未声明的扩展名，把它们的 <Default> 补到 <Types> 开头，随后用 jszip
+ * 重新打包。无缺失扩展名时返回原 buffer（byte 相同）。
+ */
+export async function fixDocxContentTypes(docxBuffer: Buffer): Promise<Buffer> {
+  const zip = await JSZip.loadAsync(docxBuffer);
+  const contentTypeEntry = zip.file('[Content_Types].xml');
+  if (!contentTypeEntry) {
+    // 不含 [Content_Types].xml 的异常包，保持原样不抛错
+    return docxBuffer;
+  }
+
+  let contentTypesXml = await contentTypeEntry.async('string');
+
+  // 已声明的扩展名（区分大小写小写化后比对）
+  const declaredExts = new Set<string>();
+  const declaredRe = /<Default\s+[^>]*Extension\s*=\s*"([^"]+)"/gi;
+  let dm: RegExpExecArray | null;
+  while ((dm = declaredRe.exec(contentTypesXml)) !== null) {
+    declaredExts.add(dm[1].toLowerCase());
+  }
+
+  // 收集 word/media/* 的扩展名
+  const missingExtensions = new Set<string>();
+  for (const fileName of Object.keys(zip.files)) {
+    if (!fileName.startsWith('word/media/')) {
+      continue;
+    }
+    const dotIndex = fileName.lastIndexOf('.');
+    if (dotIndex === -1) {
+      continue;
+    }
+    const ext = fileName.slice(dotIndex + 1).toLowerCase();
+    if (ext && !declaredExts.has(ext)) {
+      missingExtensions.add(ext);
+    }
+  }
+
+  if (missingExtensions.size === 0) {
+    return docxBuffer;
+  }
+
+  // 按确定性顺序（白名单优先，其余按字母序）生成 <Default> 节点
+  const orderedExts = Array.from(missingExtensions).sort((a, b) => a.localeCompare(b));
+  const defaultsXml = orderedExts
+    .map((ext) => {
+      const mime = EXTENSION_CONTENT_TYPES[ext];
+      if (!mime) {
+        return null;
+      }
+      return `<Default Extension="${ext}" ContentType="${mime}"/>`;
+    })
+    .filter((node): node is string => node !== null)
+    .join('');
+
+  if (!defaultsXml) {
+    return docxBuffer;
+  }
+
+  // 插到 <Types ...> 之后、第一个其他节点之前
+  const typesOpenMatch = /<Types[^>]*>\s*/.exec(contentTypesXml);
+  if (!typesOpenMatch) {
+    return docxBuffer;
+  }
+  const insertAt = typesOpenMatch.index + typesOpenMatch[0].length;
+  contentTypesXml =
+    contentTypesXml.slice(0, insertAt) + defaultsXml + contentTypesXml.slice(insertAt);
+
+  zip.file('[Content_Types].xml', contentTypesXml);
+  return zip.generateAsync({
+    type: 'nodebuffer',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 6 },
+  });
 }
 
 /**
@@ -139,7 +247,8 @@ async function renderToFile(
       const pdfData = await win.webContents.printToPDF({
         printBackground: true,
         pageSize: 'A4',
-        margins: { top: 24, bottom: 24, left: 24, right: 24 },
+        // printToPDF margins 实际单位为英寸（electron.d.ts 注释"像素"为误导）；0.4in ≈ 28.8pt
+        margins: { marginType: 'custom', top: 0.4, bottom: 0.4, left: 0.4, right: 0.4 },
       });
       fs.writeFileSync(filePath, pdfData);
       return {};

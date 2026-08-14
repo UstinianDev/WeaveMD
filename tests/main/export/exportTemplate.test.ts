@@ -38,11 +38,10 @@ describe('buildExportHtml', () => {
     expect(html).toContain(body);
   });
 
-  it('包含 @media print { @page { margin: 0 } }', () => {
+  it('不含 @media print { @page { margin: 0 } }（该规则会覆盖 printToPDF 的英寸边距）', () => {
     const html = buildExportHtml({ body: '', title: 't' });
-    expect(html).toContain('@media print');
-    expect(html).toContain('@page');
-    expect(html).toContain('margin: 0');
+    expect(html).not.toContain('@media print');
+    expect(html).not.toContain('@page');
   });
 
   it('标题需转义，避免注入', () => {

@@ -39,7 +39,12 @@ vi.mock('electron', () => ({
 }));
 
 import type { BrowserWindow } from 'electron';
-import { exportFile } from '@main/export/exportService';
+import JSZip from 'jszip';
+import {
+  exportFile,
+  fixDocxContentTypes,
+  stripUnsupportedDocxImages,
+} from '@main/export/exportService';
 import { EXPORT_IMAGE_WIDTH, EXPORT_MAX_HEIGHT } from '@main/export/types';
 
 /** 测试用假父窗口（electron 已 mock，仅用于满足签名类型） */
@@ -58,6 +63,9 @@ function uniqueTempPath(ext: string): string {
 
 beforeEach(() => {
   electronMock.showSaveDialog.mockReset();
+  electronMock.BrowserWindowCtor
+    .mockClear()
+    .mockImplementation(() => electronMock.hiddenWin);
   electronMock.hiddenWin.loadFile.mockResolvedValue(undefined);
   electronMock.hiddenWin.setContentSize.mockReset();
   electronMock.hiddenWin.destroy.mockReset();
@@ -130,6 +138,105 @@ describe('exportFile — docx（真实 html-to-docx）', () => {
   });
 });
 
+describe('stripUnsupportedDocxImages — 移除 AVIF 图片', () => {
+  it('移除以 data:image/avif 为 src 的整个 img 标签', () => {
+    const html =
+      '<img src="data:image/avif;base64,QUZJRg==" alt="a"> <p>keep</p>';
+    const out = stripUnsupportedDocxImages(html);
+    expect(out).not.toContain('data:image/avif');
+    expect(out).not.toContain('<img');
+    expect(out).toContain('<p>keep</p>');
+  });
+
+  it('png / jpeg / webp 图片保留原样', () => {
+    const html =
+      '<img src="data:image/png;base64,UFBH" alt="p"> ' +
+      '<img src="data:image/jpeg;base64,SkZH" alt="j"> ' +
+      '<img src="data:image/webp;base64,V0VC" alt="w">';
+    const out = stripUnsupportedDocxImages(html);
+    expect(out).toBe(html);
+  });
+
+  it('无图 / 无 AVIF 时原样返回', () => {
+    const noImg = '<p>no image</p>';
+    const gifOnly = '<img src="data:image/gif;base64,R0lG" alt="g">';
+    expect(stripUnsupportedDocxImages(noImg)).toBe(noImg);
+    expect(stripUnsupportedDocxImages(gifOnly)).toBe(gifOnly);
+  });
+});
+
+describe('fixDocxContentTypes — 修补 [Content_Types].xml', () => {
+  /** 构造一个携带 word/media/<name> 的最小 docx buffer（jszip，真实打包） */
+  async function makeDocx(mediaFiles: Array<[string, Buffer]>): Promise<Buffer> {
+    const zip = new JSZip();
+    zip.file(
+      '[Content_Types].xml',
+      '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+        '<Default Extension="xml" ContentType="application/xml"/>' +
+        '<Default Extension="png" ContentType="image/png"/>' +
+        '</Types>',
+    );
+    zip.file('_rels/.rels', '<?xml version="1.0"?><Relationships/>');
+    for (const [name, data] of mediaFiles) {
+      zip.file(`word/media/${name}`, data);
+    }
+    return zip.generateAsync({ type: 'nodebuffer', compression: 'STORE' });
+  }
+
+  async function readContentTypes(buf: Buffer): Promise<string> {
+    const zip = await JSZip.loadAsync(buf);
+    const entry = zip.file('[Content_Types].xml');
+    if (!entry) {
+      throw new Error('missing [Content_Types].xml');
+    }
+    return entry.async('string');
+  }
+
+  it('缺 gif content type 时修补后含 <Default Extension="gif"...>', async () => {
+    const buf = await makeDocx([['img1.gif', Buffer.from('R0lGODlh', 'latin1')]]);
+    const patched = await fixDocxContentTypes(buf);
+    const xml = await readContentTypes(patched);
+    expect(xml).toContain('Extension="gif"');
+    expect(xml).toContain('ContentType="image/gif"');
+    // 保留原有声明
+    expect(xml).toContain('Extension="xml"');
+  });
+
+  it('多个缺失扩展名全部补齐（svg/webp）', async () => {
+    const buf = await makeDocx([
+      ['img1.svg', Buffer.from('<svg/>', 'utf-8')],
+      ['img2.webp', Buffer.from('RIFF', 'latin1')],
+    ]);
+    const patched = await fixDocxContentTypes(buf);
+    const xml = await readContentTypes(patched);
+    expect(xml).toContain('Extension="svg"');
+    expect(xml).toContain('ContentType="image/svg+xml"');
+    expect(xml).toContain('Extension="webp"');
+    expect(xml).toContain('ContentType="image/webp"');
+  });
+
+  it('无缺失扩展名时返回原 buffer（byte 相同）', async () => {
+    const buf = await makeDocx([['img1.png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a])]]);
+    const patched = await fixDocxContentTypes(buf);
+    expect(patched.equals(buf)).toBe(true);
+  });
+
+  it('已声明的扩展名不重复添加', async () => {
+    const buf = await makeDocx([['img1.png', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a])]]);
+    const once = await readContentTypes(await fixDocxContentTypes(buf));
+    const matches = once.match(/Extension="png"/g);
+    // png 已在 [Content_Types].xml 预声明，不应被重复补齐，数量保持为 1
+    expect(matches).toHaveLength(1);
+  });
+
+  it('空图集/无 word/media 时原样返回', async () => {
+    const buf = await makeDocx([]);
+    const patched = await fixDocxContentTypes(buf);
+    expect(patched.equals(buf)).toBe(true);
+  });
+});
+
 describe('exportFile — 隐藏窗口渲染（pdf/png/jpg）', () => {
   it('pdf：printToPDF 输出以 %PDF 开头，窗口用 A4 逻辑宽', async () => {
     const p = stubSaveTo('pdf');
@@ -141,6 +248,23 @@ describe('exportFile — 隐藏窗口渲染（pdf/png/jpg）', () => {
     expect(fs.readFileSync(p).subarray(0, 5).toString()).toBe('%PDF-');
     expect(electronMock.hiddenWin.setContentSize).toHaveBeenCalledWith(794, expect.any(Number));
     expect(electronMock.hiddenWin.destroy).toHaveBeenCalled();
+  });
+
+  it('pdf：printToPDF margins 为英寸合理值（≤2，不含超 A4 的 24in）', async () => {
+    const p = stubSaveTo('pdf');
+    electronMock.hiddenWin.webContents.executeJavaScript.mockResolvedValue(800);
+    electronMock.hiddenWin.webContents.printToPDF.mockResolvedValue(PDF_MAGIC);
+
+    await exportFile({ ...BASE_REQ, format: 'pdf' }, fakeParent);
+    expect(electronMock.hiddenWin.webContents.printToPDF).toHaveBeenCalledTimes(1);
+    const [options] = electronMock.hiddenWin.webContents.printToPDF.mock
+      .calls[0] as [Electron.WebContentsPrintOptions];
+    // 0.4in ≈ 28.8pt：PDF 侧不允许 24in 超 A4，必须为 ≤2in 的合理值
+    expect(options.margins?.marginType).toBe('custom');
+    for (const key of ['top', 'bottom', 'left', 'right'] as const) {
+      expect(options.margins?.[key]).toBeGreaterThan(0);
+      expect(options.margins?.[key]).toBeLessThanOrEqual(2);
+    }
   });
 
   it('png：capturePage → toPNG 输出 PNG 魔数', async () => {
