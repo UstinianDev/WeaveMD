@@ -1,6 +1,6 @@
 # WeaveMD 项目总结
 
-> 版本：v3.9 | 最后更新：2026-08-13
+> 版本：v3.10 | 最后更新：2026-08-14
 
 ## 1. 项目概览
 
@@ -101,10 +101,15 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
   死代码；`imageAnchor.ts`（findImageEl/readImageRect）收敛 ImageToolbar/ImageResizeBox 滚动
   重锚定重复；`modalConstants.ts` 收敛双份 `EMPTY_URL_MESSAGE`。断言零修改、845 全绿。
   文档：`docs/plan/editor-toolbar-image-link-refactor.*`、`docs/refactor/editor-toolbar-image-link.refactor.md`
+- 文件树切换保存修复（2026-08-14）：FileTreePanel 切换前统一 `saveCurrentDraftIfNeeded()`
+  （`services/saveCurrentDraft.ts`，flush + dirty 落盘，与 Navbar 一致）；点击当前文件 no-op；
+  打开总 readDisk 以磁盘为真源（陈旧缓存不再覆盖新内容）；`saveFile` 返回 boolean（写盘失败
+  保留 dirty）；Source 模式 `flushContent` 强制 flush Monaco 防抖内容。文档：
+  `docs/plan/fix-file-switch-save-loss.status.md`
 
 ## 4. 验证与测试
 
-- Vitest：**845 例**（内核/控制器/组件，含往返不变式、退出规则矩阵、输入链路、跨块删除、
+- Vitest：**919 例**（内核/控制器/组件，含往返不变式、退出规则矩阵、输入链路、跨块删除、
   代码块尾随空行补偿、浮动工具栏显示/转换矩阵/驻留、拖选闪烁的端点变化检测与 rAF 节流、
   FT2 的 inlineLexer/strip/katex/toggle/clearFormat、FT3 的 Step0 归一化矩阵/跨 token 拆分/
   选区恢复/集成、三连 `***` 跨风格叠加、CSS 静态断言、快捷键接线、

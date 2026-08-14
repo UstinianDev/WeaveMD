@@ -84,6 +84,8 @@
   inlineRenderer / outline / selection / syntaxType（resolveSyntaxType）/ imageBlock
 - `src/main/media-protocol.ts` — media:// 本地图协议（decodeMediaUrl + registerMediaProtocol，
   非 standard scheme）
+- `src/render/services/saveCurrentDraft.ts` — 切换/关闭前统一保存前置（flushEditorDraft +
+  dirty 落盘），FileTreePanel 与 Navbar 共用
 - `src/render/editor/controllers/` — input / enter / backspace / convert / click / list / format
 - `src/render/editor/editorInstance.ts` — 内核宿主（内容加载、markdown 同步）
 - `src/render/components/Editor/v2/EditorV2.tsx` — v2 入口（状态、事件路由、焦点恢复、撤销）
