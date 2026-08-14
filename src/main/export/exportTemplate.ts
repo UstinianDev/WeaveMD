@@ -208,7 +208,6 @@ body {
 .markdown-export .token.regex,
 .markdown-export .token.important,
 .markdown-export .token.variable { color: #ea580c; }
-@media print { @page { margin: 0; } }
 `.trim();
 
 /**

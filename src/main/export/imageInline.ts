@@ -230,8 +230,9 @@ function applyReplacements(html: string, replacements: { src: string; data: stri
     const old = dbl ?? sgl ?? bare ?? '';
     const data = replaceMap.get(old);
     if (data === undefined) return _full;
-    if (dbl !== undefined) return `${prefix}src="${data}"`;
-    if (sgl !== undefined) return `${prefix}src='${data}'`;
-    return `${prefix}src=${data}`;
+    // 保留完整 <img 标签：prefix 仅是 src 前属性片段，须补回 "<img" 前缀，避免破坏标签
+    if (dbl !== undefined) return `<img${prefix}src="${data}"`;
+    if (sgl !== undefined) return `<img${prefix}src='${data}'`;
+    return `<img${prefix}src=${data}`;
   });
 }

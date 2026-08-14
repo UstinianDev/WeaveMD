@@ -87,6 +87,15 @@ describe('inlineMediaImages', () => {
     expect(oversizedCount).toBe(0);
   });
 
+  it('内联后保留完整 <img 标签（<img 前缀、alt、/> 均不丢失）', async () => {
+    readFileMock.mockResolvedValue(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const html = '<img src="media://C%3A/Users/me/a.png" alt="你好 x" width="10px"/>';
+    const { html: out } = await inlineMediaImages(html, { readFile: readFileMock });
+
+    const b64 = bytesToB64([0x89, 0x50, 0x4e, 0x47]);
+    expect(out).toBe(`<img src="data:image/png;base64,${b64}" alt="你好 x" width="10px"/>`);
+  });
+
   it('media:// 单引号 src 也覆盖', async () => {
     readFileMock.mockResolvedValue(Buffer.from([0xff, 0xd8, 0xff]));
     const html = `<img src='media://C%3A/Users/me/photo.jpg'>`;
