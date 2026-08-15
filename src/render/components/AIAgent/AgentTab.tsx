@@ -18,6 +18,14 @@ import ToolCallTrace from './ToolCallTrace';
 import KnowledgeBaseSettings from './KnowledgeBaseSettings';
 import RewritePreviewCard from './RewritePreviewCard';
 
+/**
+ * A1c：整篇从 0 到 1 写文档的检测启发式。
+ * 命中（含中英文「从头写整篇」意图）→ 走 runFullDocumentRewrite（document scope 整篇生成），
+ * 未打开文档则给出引导（no-document），不产生空写。与 @ / 选区协议错开。
+ */
+const WRITE_WHOLE_DOC_RE =
+  /从\s*0\s*到\s*1|从零|从头|整篇|全文|写一篇|写整篇|写一份|写个文档|write\s+(a\s+)?(full|entire|complete)|create\s+(a\s+)?document|write\s+a\s+doc/;
+
 const AgentTab: React.FC = () => {
   const { t } = useI18n();
   const user = useAuthStore((s) => s.user);
@@ -44,6 +52,8 @@ const AgentTab: React.FC = () => {
   // 改写状态：选区改写模式（selectionContext 非空 → composer 输入改写指令）+ 预览卡片
   const selectionContext = useRewriteStore((s) => s.selectionContext);
   const runSelectionRewrite = useRewriteStore((s) => s.runSelectionRewrite);
+  const previewDocumentFromReply = useRewriteStore((s) => s.previewDocumentFromReply);
+  const currentFile = useEditorStore((s) => s.currentFile);
 
   const [showKbSettings, setShowKbSettings] = useState(false);
   const [input, setInput] = useState('');
@@ -69,10 +79,11 @@ const AgentTab: React.FC = () => {
     const text = input.trim();
     if (!text || isStreaming) return;
     setInput('');
-    // 第 5 期分流：
+    // 分流：
     // 1) 有选区上下文（编辑器「AI 改写」触发）→ 选区改写，composer 内容为改写指令
     // 2) `@ + 描述` → document scope 块级改写（共享 rewriteStore 管线）
-    // 3) 否则 → 既有 agent 对话
+    // 3) 整篇写诉求（A1c：从 0 到 1 / 写整篇文档）→ 整篇生成；未打开文档则引导，不空写
+    // 4) 否则 → 既有 agent 对话（A1a 已注入 currentDocument，agent 可优化/改写整篇）
     if (selectionContext) {
       void runSelectionRewrite(text);
       return;
@@ -86,6 +97,10 @@ const AgentTab: React.FC = () => {
         );
         return;
       }
+    }
+    if (WRITE_WHOLE_DOC_RE.test(text)) {
+      void useRewriteStore.getState().runFullDocumentRewrite(text);
+      return;
     }
     void sendAgentMessage(text);
   };
@@ -193,12 +208,19 @@ const AgentTab: React.FC = () => {
         ) : (
           <>
             {messages.map((m) => (
-              <AIMessageBubble
-                key={m.id}
-                role={m.role}
-                content={m.content}
-                refsJson={m.refsJson}
-              />
+              <div key={m.id}>
+                <AIMessageBubble role={m.role} content={m.content} refsJson={m.refsJson} />
+                {/* A1c：agent 回复可「预览写入文档」——文档已打开且回复非空才显示 */}
+                {m.role === 'assistant' && m.content.trim() && currentFile && (
+                  <button
+                    type="button"
+                    onClick={() => previewDocumentFromReply(m.content)}
+                    className="ml-10 mt-0.5 text-[11px] px-2 py-0.5 rounded-md bg-bg-tertiary border border-border text-text-sub hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors"
+                  >
+                    {t('ai.rewrite.previewWrite')}
+                  </button>
+                )}
+              </div>
             ))}
 
             {/* 工具轨迹（当前轮累积） */}

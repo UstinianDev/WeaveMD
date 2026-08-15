@@ -20,6 +20,10 @@ export const REWRITE_SELECTION_SYSTEM_INSTRUCTION =
 export const REWRITE_DOCUMENT_SYSTEM_INSTRUCTION =
   '你是一名专业的 Markdown 改写助手。根据用户的改写要求，仅改写需要改动的若干块。输出一个 JSON 数组，形如 [{"block_index":<编号>,"new_content":"<新块Markdown>"}]，只列出被替换的块，其余块不动。不要输出 Markdown 代码块围栏或任何额外解释。';
 
+/** 整篇写（A1c）指令模板：目标文档为空/整篇生成 → 直接输出完整 Markdown 正文。 */
+export const REWRITE_FULL_DOCUMENT_SYSTEM_INSTRUCTION =
+  '你是一名专业的 Markdown 写作助手。目标文档为空，请根据用户的写作要求直接生成一篇结构完整、条理清晰的 Markdown 文档。只输出完整 Markdown 正文，不要任何包裹、代码块围栏或额外解释。';
+
 /** 结构化 parse 错误（scope 数据缺失时抛出，含 AIErrorCode 'parse'）。 */
 function parseError(message: string): Error & { code: string } {
   const err = new Error(message) as Error & { code: string };
@@ -46,8 +50,15 @@ export function buildRewriteMessages(
     ];
   }
   if (payload.scope === 'document') {
-    if (!payload.numberedBlocks || !Array.isArray(payload.numberedBlocks) || payload.numberedBlocks.length === 0) {
+    if (!payload.numberedBlocks || !Array.isArray(payload.numberedBlocks)) {
       throw parseError('Document scope requires numberedBlocks');
+    }
+    // A1c：空编号块 = 空文档 / 整篇生成 → 提示「目标文档为空，直接生成完整 Markdown」
+    if (payload.numberedBlocks.length === 0) {
+      return [
+        { role: 'system', content: REWRITE_FULL_DOCUMENT_SYSTEM_INSTRUCTION },
+        { role: 'user', content: `用户写作要求：${payload.instruction}` },
+      ];
     }
     return [
       { role: 'system', content: REWRITE_DOCUMENT_SYSTEM_INSTRUCTION },

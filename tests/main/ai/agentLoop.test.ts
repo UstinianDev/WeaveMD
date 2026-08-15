@@ -369,4 +369,91 @@ describe('runAgentFlow', () => {
     expect(callOpts.tools).toBeUndefined();
     expect(llmMock.streamChatCompletion).toHaveBeenCalledTimes(1);
   });
+
+  // ============================================================
+  // 第 7 期 A1a：当前文档上下文注入 LLM messages（主循环首轮 system）
+  // ============================================================
+
+  it('A1a: injects a system message containing currentDocument when provided (first LLM call)', async () => {
+    intentMock.classifyIntent.mockReturnValue({ intent: 'rewrite', confidence: 0.9 });
+    llmMock.streamChatCompletion.mockImplementation(() => {
+      async function* g() {
+        yield { delta: '基于文档的优化建议' };
+      }
+      return g();
+    });
+    const controller = new AbortController();
+    await runAgentFlow(
+      makeEvent(),
+      payload({ currentDocument: '# 标题\n\n首段内容' }),
+      makeConfig(),
+      'enc:key',
+      controller,
+      { consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null } }
+    );
+
+    const firstMessages = llmMock.streamChatCompletion.mock.calls[0][0].messages as Array<{
+      role: string;
+      content: string;
+    }>;
+    // 首条注入 system 且包含文档内容（只读上下文）
+    const docSystem = firstMessages[0];
+    expect(docSystem.role).toBe('system');
+    expect(docSystem.content).toContain('当前编辑文档内容');
+    expect(docSystem.content).toContain('# 标题\n\n首段内容');
+  });
+
+  it('A1a: truncates an over-long currentDocument with a cut marker', async () => {
+    // 20008 字符 → estimateTokens((20008)/4 = 5002) > 5000 → 触发截断到 20000 + 尾部标记
+    const huge = '字'.repeat(20_008);
+    intentMock.classifyIntent.mockReturnValue({ intent: 'rewrite', confidence: 0.9 });
+    llmMock.streamChatCompletion.mockImplementation(() => {
+      async function* g() {
+        yield { delta: 'ok' };
+      }
+      return g();
+    });
+    const controller = new AbortController();
+    await runAgentFlow(
+      makeEvent(),
+      payload({ currentDocument: huge }),
+      makeConfig(),
+      'enc:key',
+      controller,
+      { consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null } }
+    );
+
+    const firstMessages = llmMock.streamChatCompletion.mock.calls[0][0].messages as Array<{
+      content: string;
+    }>;
+    const docSystem = firstMessages[0];
+    // 截断到 20000 字符 + 尾部标记
+    expect(docSystem.content).toContain('文档过长已截断');
+    expect(docSystem.content.length).toBeLessThan(huge.length + 200);
+  });
+
+  it('A1a: no currentDocument -> no document system context injected', async () => {
+    llmMock.streamChatCompletion.mockImplementation(() => {
+      async function* g() {
+        yield { delta: '无文档上下文' };
+      }
+      return g();
+    });
+    const controller = new AbortController();
+    await runAgentFlow(
+      makeEvent(),
+      payload(), // 不传 currentDocument
+      makeConfig(),
+      'enc:key',
+      controller,
+      { consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null } }
+    );
+
+    const firstMessages = llmMock.streamChatCompletion.mock.calls[0][0].messages as Array<{
+      role: string;
+      content: string;
+    }>;
+    // 不注入任何 document 上下文 system 消息（无 currentDocument）
+    expect(firstMessages.some((m) => m.content.includes('当前编辑文档内容'))).toBe(false);
+  });
 });

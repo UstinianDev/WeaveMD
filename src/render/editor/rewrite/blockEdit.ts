@@ -216,3 +216,19 @@ export function proposeDocumentRewrite(
   }
   return { originalMd: content, rewrittenMd, ops: appliedOps, unchanged: false };
 }
+
+/**
+ * 整篇全量替换（A1c：从 0 到 1 写整篇 / 整篇重写）。
+ * originalMd = 当前文档（可为空串），rewrittenMd = 回复文本 trim 后。
+ * 只算不写（铁律一）；回复 trim 后与原文一致 → unchanged。ops 为空（整块替换信息性）。
+ */
+export function proposeFullDocumentRewrite(
+  content: string,
+  replyText: string
+): RewriteProposal {
+  const rewrittenMd = replyText.trim();
+  if (rewrittenMd === content) {
+    return noOpProposal(content, { unchanged: true });
+  }
+  return { originalMd: content, rewrittenMd, ops: [], unchanged: false };
+}

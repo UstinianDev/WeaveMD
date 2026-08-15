@@ -127,6 +127,18 @@ describe('buildRewriteMessages', () => {
       expect((err as { code?: string }).code).toBe('parse');
     }
   });
+
+  it('A1c: document scope with EMPTY numberedBlocks -> full-doc instruction (generate whole markdown)', () => {
+    const payload = makeDocumentPayload({ numberedBlocks: [] });
+    const messages = buildRewriteMessages(payload);
+    expect(messages).toHaveLength(2);
+    // system 提示「目标文档为空，直接生成完整 Markdown」
+    expect(messages[0].role).toBe('system');
+    expect(messages[0].content).toContain('完整 Markdown');
+    // user 携带用户指令（而非 JSON 数组）
+    expect(messages[1].role).toBe('user');
+    expect(messages[1].content).toContain('帮我统一术语');
+  });
 });
 
 describe('runRewrite', () => {
