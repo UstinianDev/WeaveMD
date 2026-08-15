@@ -100,6 +100,8 @@ export const IPC_CHANNELS = {
   KB_REINDEX: 'kb:reindex',
   KB_DELETE: 'kb:delete',
   KB_STATUS: 'kb:status',
+  KB_GET_SETTINGS: 'kb:get-settings',
+  KB_SET_SETTINGS: 'kb:set-settings',
 
   // AI — Agent (第4期) invoke
   AGENT_RUN: 'agent:run',

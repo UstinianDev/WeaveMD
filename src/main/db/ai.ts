@@ -8,7 +8,14 @@
 
 import { randomUUID } from 'crypto';
 import { getDatabase } from './index';
-import type { ChatBackend, ConversationMode, IAIMessage, IAIConversation } from '@shared/ai';
+import {
+  DEFAULT_KB_SETTINGS,
+  normalizeKbSettings,
+  type ChatBackend,
+  type ConversationMode,
+  type IAIMessage,
+  type IAIConversation,
+} from '@shared/ai';
 
 // ---------------------------------------------------------------------------
 // ai_config
@@ -28,6 +35,13 @@ export interface AiConfigRow {
   consentUpdatedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  // ---- 第 6 期批次 2：知识库检索参数（NULL 由 mapConfigRow 兜底默认） ----
+  kbTopK: number;
+  kbFuse: number;
+  kbThreshold: number;
+  kbPinnedWeight: number;
+  kbEmbeddingHost: string;
+  kbEmbeddingModel: string;
 }
 
 interface AiConfigDbRow {
@@ -43,9 +57,24 @@ interface AiConfigDbRow {
   consent_updated_at: string | null;
   created_at: string;
   updated_at: string;
+  kb_top_k: number | null;
+  kb_fuse: number | null;
+  kb_threshold: number | null;
+  kb_pinned_weight: number | null;
+  kb_embedding_host: string | null;
+  kb_embedding_model: string | null;
 }
 
 function mapConfigRow(row: AiConfigDbRow): AiConfigRow {
+  // KB 设置列在既有库/旧 INSERT 下可能为 NULL → 用 normalizeKbSettings 对 NULL 兜底默认
+  const kb = normalizeKbSettings({
+    topK: row.kb_top_k ?? undefined,
+    fuse: row.kb_fuse ?? undefined,
+    threshold: row.kb_threshold ?? undefined,
+    pinnedWeight: row.kb_pinned_weight ?? undefined,
+    embeddingHost: row.kb_embedding_host ?? undefined,
+    embeddingModel: row.kb_embedding_model ?? undefined,
+  });
   return {
     id: row.id,
     userId: row.user_id,
@@ -59,6 +88,12 @@ function mapConfigRow(row: AiConfigDbRow): AiConfigRow {
     consentUpdatedAt: row.consent_updated_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    kbTopK: kb.topK,
+    kbFuse: kb.fuse,
+    kbThreshold: kb.threshold,
+    kbPinnedWeight: kb.pinnedWeight,
+    kbEmbeddingHost: kb.embeddingHost,
+    kbEmbeddingModel: kb.embeddingModel,
   };
 }
 
@@ -80,6 +115,13 @@ export interface AiConfigUpdate {
   allowNetwork?: boolean;
   allowSend?: boolean;
   consentUpdatedAt?: string | null;
+  // ---- 第 6 期批次 2：知识库检索参数（可选，缺省不回写） ----
+  kbTopK?: number;
+  kbFuse?: number;
+  kbThreshold?: number;
+  kbPinnedWeight?: number;
+  kbEmbeddingHost?: string;
+  kbEmbeddingModel?: string;
 }
 
 export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfigRow {
@@ -87,10 +129,13 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
   const existing = getAiConfig(userId);
 
   if (existing) {
+    // UPDATE 沿用「只改渲染传的字段」语义：update.x ?? existing.x 保留其余
     db.prepare(
       `UPDATE ai_config SET
          backend = ?, ollama_base_url = ?, remote_base_url = ?, model = ?,
          api_key_enc = ?, allow_network = ?, allow_send = ?, consent_updated_at = ?,
+         kb_top_k = ?, kb_fuse = ?, kb_threshold = ?, kb_pinned_weight = ?,
+         kb_embedding_host = ?, kb_embedding_model = ?,
          updated_at = datetime('now')
        WHERE user_id = ?`
     ).run(
@@ -102,15 +147,24 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
       update.allowNetwork ?? existing.allowNetwork ? 1 : 0,
       update.allowSend ?? existing.allowSend ? 1 : 0,
       update.consentUpdatedAt !== undefined ? update.consentUpdatedAt : existing.consentUpdatedAt,
+      update.kbTopK ?? existing.kbTopK,
+      update.kbFuse ?? existing.kbFuse,
+      update.kbThreshold ?? existing.kbThreshold,
+      update.kbPinnedWeight ?? existing.kbPinnedWeight,
+      update.kbEmbeddingHost ?? existing.kbEmbeddingHost,
+      update.kbEmbeddingModel ?? existing.kbEmbeddingModel,
       userId
     );
   } else {
     const id = randomUUID();
+    // INSERT 在无配置新建时用 update.x ?? DEFAULT_KB_SETTINGS.x 兜底
     db.prepare(
       `INSERT INTO ai_config
          (id, user_id, backend, ollama_base_url, remote_base_url, model,
-          api_key_enc, allow_network, allow_send, consent_updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          api_key_enc, allow_network, allow_send, consent_updated_at,
+          kb_top_k, kb_fuse, kb_threshold, kb_pinned_weight,
+          kb_embedding_host, kb_embedding_model)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       userId,
@@ -121,7 +175,13 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
       update.apiKeyEnc ?? null,
       update.allowNetwork ?? false ? 1 : 0,
       update.allowSend ?? false ? 1 : 0,
-      update.consentUpdatedAt ?? null
+      update.consentUpdatedAt ?? null,
+      update.kbTopK ?? DEFAULT_KB_SETTINGS.topK,
+      update.kbFuse ?? DEFAULT_KB_SETTINGS.fuse,
+      update.kbThreshold ?? DEFAULT_KB_SETTINGS.threshold,
+      update.kbPinnedWeight ?? DEFAULT_KB_SETTINGS.pinnedWeight,
+      update.kbEmbeddingHost ?? DEFAULT_KB_SETTINGS.embeddingHost,
+      update.kbEmbeddingModel ?? DEFAULT_KB_SETTINGS.embeddingModel
     );
   }
 

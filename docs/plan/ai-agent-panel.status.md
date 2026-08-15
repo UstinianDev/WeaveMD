@@ -413,5 +413,148 @@
   .claude/agent-memory/ 自动生成的 agent 状态
 - 第 6 期收尾：用户选择**暂停**，留后续里程碑
 
+---
 
+# 第 6 期收尾（KB 参数持久化 + stretch editBlocks agent 工具）
 
+## 阶段 0：分级与分类 ✅ 2026-08-15
+
+- **请求类型**：功能开发（第 6 期收尾：①KB 参数持久化优先 ②stretch editBlocks ③真 MCP/GitHub 继续延）
+- **跨模块判断**：跨模块——主进程（ai_config 表迁移加列、DAO 扩展、KB IPC 新通道、KB_STATUS/AGENT_RUN 消费修正、
+  toolRegistry/agentLoop stretch）+ 渲染进程（agentStore kbSettings 拉取/持久化、SettingsModal Save 持久化）→ **判为跨模块**
+- **定档**：**L**（DB 迁移、新 IPC、跨模块、用户明确指定 devflow-core L 级 TDD strict）
+- **裁剪**：无——L 级走全部阶段（TDD strict）
+- **现状 ground truth**（已读代码核实 2026-08-15）：
+  - **KB 参数内存态**：`agentStore.kbSettings`（agentStore.ts:81-82/148-155），默认 `{topK:5,fuse:0.5,threshold:0.6,
+    pinnedWeight:1.5,embeddingHost:'http://localhost:11434',embeddingModel:'nomic-embed-text'}`；`IKbSettings` 类型在
+    shared/ai.ts:208-221（无 vectorEnabled 字段）
+  - **编辑 UI**：SettingsModal 'ai' Tab KB 参数表单（SettingsModal.tsx:80-85 内存态草稿 + useEffect:102-108 打开同步 +
+    handleSave:154-163 写回 agentStore.kbSettings，仅内存态）
+  - **渲染→主进程透传**：`agentStore.sendAgentMessage` → `ai.runAgent({...kbSettings})` → `AgentRunPayload.kbSettings`
+    （shared/ai.ts:250-253）
+  - **主进程消费点**：
+    - `ipc.ts` AGENT_RUN searchKb（ipc.ts:440-449）**只透传 fuse**，topK/vectorEnabled/pinnedWeight/threshold 走工具
+      参数 `o?.*` 或 kbSearch.ts 默认值（kbSearch.ts:150-156）
+    - `ipc.ts` KB_STATUS probeEmbedding（ipc.ts:396）**硬编码** `embeddingProbeHost()/embeddingProbeModel()`
+      （ipc.ts:588-593 = localhost:11434 / nomic-embed-text）
+    - `kbIndexer` `kbIndexOpts()`（ipc.ts:583-585）硬编码 `vectorEnabled:false`；embedding host/model 消费点
+      **未启用**（vectorEnabled=false 时不 embed → 本期不改）
+  - **ai_config 表**（db/index.ts:103-117）：无 KB 参数字段 → 需迁移加 6 列（kb_top_k/kb_fuse/kb_threshold/
+    kb_pinned_weight/kb_embedding_host/kb_embedding_model）。`CREATE TABLE IF NOT EXISTS` 对既有表不生效 →
+    **需新增幂等 ALTER**（**实证**：项目锁定的 better-sqlite3 11.x/sqlite3.49.2 对 `ADD COLUMN IF NOT EXISTS`
+    报 `near "EXISTS": syntax error`；已改用「addAiConfigKbColumns 运行期 pragma_table_info 探测缺失列 +
+    逐列 ADD」，幂等由守卫保证，经 scripts/kb-migration-smoke.cjs 真库三态实证，见「真库迁移验证」）
+  - **DAO**（db/ai.ts）：`AiConfigRow`/`AiConfigDbRow`/`AiConfigUpdate`/`upsertAiConfig` 无 KB 字段 → 需扩展
+  - **IPC 通道现状**：constants.ts 已有 `KB_LIST/IMPORT_FILE/IMPORT_DIR/REINDEX/DELETE/STATUS`；无 settings 通道
+  - **preload**：`kb.*` 含 list/importFile/importDir/reindex/delete/status（preload.ts:132-143/297-304）→ 需补
+    getSettings/setSettings
+  - **测试基建**：tests/setup.ts mock window.weaveMD（ai.* + kb.*，需补 kb.getSettings/setSettings）；
+    tests/main/db/aiDao.test.ts FakeDatabase mock 模式（vi.mock better-sqlite3 + db/index）可沿用；
+    **迁移/真实 SQL 测试**需另法（in-memory better-sqlite3 或 prepare 断言）
+  - **stretch editBlocks**：toolRegistry.ts `defineCoreTools()` 4 只读工具（toolRegistry.ts:51-110）、`executeTool`
+    switch 无 editBlocks、`WRITE_NAMES` 断言（toolRegistry.test.ts:15 = `['editBlocks','writeFile','createFile',
+    'deleteFile','updateFile','upsert']` 断言「不含」）；agentLoop `toolCtx`（agentLoop.ts:171）+ `toolsForIntent`
+    （agentLoop.ts:91-106）无 editBlocks 注入；**缺「当前文档」上下文**——AGENT_RUN payload 无 currentDocument，
+    渲染侧需随 payload 注入（editorStore.content）
+  - **活验 harness**：scripts/rewrite-smoke.cjs / agent-smoke.cjs 保留（Electron 运行时 + esbuild + key 打码模式）
+
+## 合规核对修复 ✅ 2026-08-15（fullstack-detail-dev）
+
+- **H1（真库三态验证）**：新增 `scripts/kb-migration-smoke.cjs`（仿 fts5-smoke.cjs，Electron 运行时 better-sqlite3
+  in-memory 真库）实证 `KB_CONFIG_ALTER_SQL` 三态 + 读写闭环，退出码 0（态1 新库 / 态2 既有库 / 态3 重复执行 /
+  态4 upsertAiConfig 读写一致性）。**实证发现**：project 锁定 better-sqlite3（11.10.0/sqlite 3.49.2）对
+  `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 报 `near "EXISTS": syntax error` —— 原 `KB_CONFIG_ALTER_SQL`
+  若静默沿用会在每次 `initDatabase` 的 runMigrations 中抛错导致应用无法启动。已改为
+  `addAiConfigKbColumns`：运行期 `pragma_table_info` 探测缺失列 + 逐列 `ADD COLUMN`（幂等由守卫保证）；
+  迁移列结构/DEFAULT 语义不变。`tests/main/db/migrations.test.ts` 注释修正为「静态结构断言 + 真库 smoke 真验」，
+  正则假内存引擎移除。
+- **M2（kbSettingsSaveState 归位）**：agentStore 增 `resetKbSettingsSaveState: () => set({kbSettingsSaveState:'idle'})`；
+  SettingsModal 打开（isOpen 分支 useEffect）调用归位，使 saved/error 不再驻留；agentStore.test.ts 补归位用例。
+- **验证**：typecheck 0 error；migrations.test.ts 4 + agentStore.test.ts 32 + kb-settings-default 5 + main/db 全 34 通过；
+  `npx electron scripts/kb-migration-smoke.cjs` 退出码 0。
+
+## 阶段 1：需求对齐（grill-me）✅ 2026-08-15
+
+用户确认「全按推荐」，需求记录已产出 `docs/requirements/ai-agent-panel-ph6.req.md`：
+
+- **Q1 持久化载体**：ai_config 加 6 列（幂等 ALTER）；不建独立 kb_settings 表；vectorEnabled 不入列
+- **Q2 IPC 通道**：独立 `kb:get-settings`/`kb:set-settings`；不并入 ai:getConfig/setConfig
+- **Q3 生效范围**：3a KB_STATUS 探针用持久化 host/model；3b AGENT_RUN 以持久化 kbSettings 为默认兜底；3c kbIndexer 不改
+- **Q4 渲染持久化**：init 并行拉取；setKbSettings 改 async（先写主进程成功再更新内存态；写失败保留内存态 + 非阻塞提示）
+- **Q5 stretch editBlocks**：视精力；最小边界=仅产 proposal 文本、无应用闭环；WRITE_NAMES 断言同步改造
+- **Q6 活验**：KB 持久化走 vitest 真库（in-memory better-sqlite3）；editBlocks 若做则 DeepSeek 真验
+
+## 阶段 2：规划 ✅ 2026-08-15（Plan 智能体 + 技术调研）
+
+计划已写入 docs/plan/ai-agent-panel-ph6.plan.md（§1 变更清单 A/B/C/D、§2 迁移方案、§3 IPC 表、§4 消费修正、§5 渲染设计、§9 批次依赖）。
+
+- 调研结论：**SQLite 3.35+ 支持 `ADD COLUMN IF NOT EXISTS`（后被真库实证推翻——见阶段 7 H1：better-sqlite3 11.10.0/sqlite3.49.2 报 `near "EXISTS"` 语法错误，已如实修正）**
+- 变更清单：A shared 地基（constants/preload/shared 默认工厂/bridge/setup mock）→ B 主进程（迁移+DAO+IPC+消费修正）→ C 渲染（store+SettingsModal+i18n）→ D stretch（默认不做）
+- 批次：批次 1 必须先于一切；批次 2（B）与批次 3（C）可并行；批次 4 收尾；stretch 单独
+
+## 阶段 3-5：并行实现 ✅ 2026-08-15（fullstack-detail-dev 智能体，TDD strict）
+
+- **批次 1（shared 地基）**：constants 增 `KB_GET_SETTINGS`/`KB_SET_SETTINGS`；shared/ai.ts 增 `DEFAULT_KB_SETTINGS`+`normalizeKbSettings`；
+  preload kb.getSettings/setSettings 契约；weaveMDBridge noop 补全；tests/setup mock 补；tests/shared/kb-settings-default.test（5 用例）→ typecheck 0 / 89 files / 1234 tests
+- **批次 2（主进程）与批次 3（渲染）双智能体并行**：
+  - 主进程：db/index.ts `KB_CONFIG_ALTER_SQL`（6 列定义）+ `addAiConfigKbColumns`；db/ai.ts DAO 6 KB 字段（mapConfigRow NULL 兜底 + upsert 两处补列）；
+    ipc.ts 新增 `KB_GET_SETTINGS`/`KB_SET_SETTINGS` + `KB_STATUS` 探针用持久化 host/model（删除 `embeddingProbeHost()/Model()` 硬编码）+
+    `AGENT_RUN` 持久化 kbSettings 默认兜底合并（payload 显式 > 持久化 > kbSearch 内置默认）；
+    tests：migrations.test（新 4）/ aiDao.test（+4）/ ipc.test（+10）
+  - 渲染：agentStore init 并入 kb.getSettings 拉取（成功覆盖默认/失败保留默认不阻塞）；setKbSettings 改 async 持久化 + `kbSettingsSaveState`；
+    SettingsModal Save 走持久化 + saved/saving/saveFailed 提示；i18n 三文件补 3 键；agentStore.test 补 init/持久化/归位用例
+- **主指挥集成**：e2e `installWeaveMDMock` kb 块补 getSettings/setSettings（批次 3 后 agentStore.init 调用 kb.getSettings，
+  mock 缺函数导致 12/14 回归失败 → 补契约后 14/14）；typecheck 0 / vitest 90 files / 1255 tests / lint 0 / vite build / Playwright 14/14
+
+## 阶段 6：测试与质量门禁 ✅ 2026-08-15（testing-quality-agent 独立核验）
+
+- **typecheck** 0 error | **vitest** 90 files / 1256 tests 全绿 | **lint** 0 error（8 warning 均既有 useContentSync/useEditorActions）
+- **vite build** 编译通过（electron-builder 打包失败为既有 icon.png 缺失，非本任务）| **Playwright ai-agent-panel 14/14**
+- 覆盖率抽查充分（migrations/aiDao/ipc/agentStore/kb-settings-default 83 tests）；错误路径覆盖：写失败保留内存态（render+IPC 双端）、
+  getSettings 无配置返默认 success:true、AGENT_RUN 未传 kbSettings 持久化兜底
+- 铁律核验：铁律一 ✅（toolRegistry 仍 4 只读工具、WRITE_NAMES 未改、本期仅用户设置持久化非 AI 写盘）；
+  铁律二 ✅（无新外发、consent 语义未变）；SECURITY ✅（SQL 参数化/user_id 隔离/无 dangerouslySetInnerHTML/无 any）；i18n 三文件键集一致
+- 非阻塞发现：status.md 第 6 期文档未完整（本轮阶段 8 补齐）；迁移测试用静态 SQL 语义 + 真库 smoke 组合（见 H1）
+
+## 阶段 7：合规核对 ✅ 2026-08-15（git-diff-reviewer → CHANGES REQUESTED → 修复）
+
+- **两铁律** ✅：本期为「用户设置持久化」，无 AI 内容写盘新增；stretch 未做（toolRegistry/agentLoop 不在 diff、WRITE_NAMES 判项遵守）；
+  无新外发、consent 语义未变
+- **SECURITY** ✅：SQL 全参数化 / IPC user_id 隔离 / 无 dangerouslySetInnerHTML / 无 any / 不落明文密钥
+- **CONVENTIONS** ✅：命名映射 / import 顺序 / i18n 键集一致
+- **数据模型** ✅：6 列幂等迁移 + 回滚方案文档化；运行时 SQLite 3.49.2 实测
+- **范围控制** ✅：diff 与 plan §1 A/B/C 组逐项一致；无编辑器内核/无关改动
+- **修复**（git-diff-reviewer 发现 H1+M2）：
+  - H1（HIGH）迁移真库验证缺失 + 不实注释 → 新增 `scripts/kb-migration-smoke.cjs` 真库三态实证 → **抓出真实生产 bug**：
+    better-sqlite3 11.10.0（sqlite 3.49.2）对 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 报 `near "EXISTS": syntax error`，
+    原实现若发布会导致 `initDatabase`→`runMigrations` 每次启动崩溃、应用无法启动 → 已改 `addAiConfigKbColumns`
+    （运行期 `pragma_table_info` 探测缺失列 + 逐列 `ADD COLUMN`，幂等守卫保证）真库三态 + 读写闭环退出码 0
+  - M2（MEDIUM）kbSettingsSaveState 停留 saved/error 不归位 → agentStore 增 `resetKbSettingsSaveState` + SettingsModal 打开归位
+- 低优保持现状：M1（AGENT_RUN 无条件 getAiConfig，成本可忽略）、L1（handleSave 未 await，Zustand 驱动）、L2（无配置建行取默认 consent）
+
+## 阶段 8：交付核对（gate）✅ 2026-08-15
+
+- **最终门禁全绿**（H1/M2 修复后复跑）：typecheck 0 error | vitest **90 files / 1256 tests** | lint 0 error（8 warning 既有）|
+  vite build 编译通过 | **Playwright ai-agent-panel 14/14**
+- **真库迁移验证**：`npx electron scripts/kb-migration-smoke.cjs` 三态（新库/既有库/重复执行）+ upsertAiConfig 读写闭环退出码 0
+- **变更核对**：18 修改 + 新增（tests 2 + 文档 2 + 脚手架 3）与 plan §1 A/B/C 组一致；
+  无无关功能改动、无密钥泄露；`scripts/kb-migration-smoke.cjs` 保留工作区（dev 工具惯例）
+- **文档同步**：本 status（阶段 1-8）+ 模块 11 §7 + SUMMARY + CLAUDE.md AI 节（本轮同步为「第 6 期 KB 参数持久化已交付」）
+- **剩余风险**：①AGENT_RUN 无条件 getAiConfig（低优）；②正式库升级需备份优先（迁移仅在 dev/内存库验证）；
+  ③既有遗留：drag-selection 5 RED / icon 打包环境 / qwen3.5 本地模型故障 / IPC userId 统一收紧
+
+## stretch editBlocks 交付 ✅ 2026-08-15（fullstack-detail-dev，用户确认「本轮做」）
+
+- **注册**：`toolRegistry.defineCoreTools()` 追加第 5 个工具 `editBlocks`（schema `{block_ops:[{block_id,new_content}]}`，description 注明「仅产 proposal 不落盘」）；`ToolCtx` 增 `currentDocument?`
+- **执行**：`executeTool('editBlocks')` 结构校验（数组 + 每项非空）→ 无 `currentDocument` 拒 → 合法返回 `{applied:false, proposed, documentSnapshotLength}`（**只算不写，铁律一**，无写盘/写库触发点）
+- **上下文注入**：`AgentRunPayload.currentDocument?` → ipc AGENT_RUN 归一透传 → `AgentReqPayload.currentDocument` → `toolsForIntent`（rewrite 意图 + currentDocument 存在才提供 editBlocks，避免无上下文调用）→ toolCtx；渲染侧 `sendAgentMessage` 载荷 `currentDocument: useEditorStore.getState().content` 快照
+- **WRITE_NAMES 断言改造**：`editBlocks` 移出「不含写工具」断言（保留 writeFile/createFile/deleteFile/updateFile/upsert 仍禁止），新增「5 工具含 editBlocks」+「仅产 proposal（applied:false + files/getFile 调用 0 次）」断言
+- **实现期裁定**：主进程无块树内核（第 5 期 C2），editBlocks 不做 block_id 存在性校验（仅结构校验 + 返回 proposal 文本，代码注释注明）；不做渲染侧 proposal→预览→确认 应用闭环（第 5 期既有管线职责）
+- **验证**：typecheck 0 error | vitest **90 files / 1261 tests** 全绿（editBlocks +5）| lint 0 error（8 warning 既有）| vite build | **Playwright ai-agent-panel 14/14** 回归全绿
+
+## 遗留问题（后续里程碑）
+
+- [ ] 真 MCP server 管理（context7/firecrawl 拉起、fetchContext7/fetchFirecrawl）——继续延
+- [ ] GitHub 自取 writing-shape skill——继续延
+- [ ] 既有：drag-selection 5 RED / icon 打包环境 / qwen3.5 本地模型故障 / IPC userId 统一收紧 / AGENT_RUN 无条件 getAiConfig 低优
+- [ ] 活验 harness scripts/{agent,rewrite,kb-migration,fts5}-smoke.cjs：保留作 dev 验证工具（不随功能提交）
