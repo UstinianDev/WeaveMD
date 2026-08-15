@@ -85,14 +85,16 @@ const AIAgentPanel: React.FC = () => {
         style={{ width: aiPanelWidth }}
       >
         {/* 头部：面板标题 + 模式下拉 + 关闭 ✕（B3 无 Tab 割裂改用下拉） */}
-        <div className="flex items-center justify-between px-3 h-12 border-b border-border bg-bg-secondary">
-          <span className="text-sm font-semibold text-text-primary">{t('ai.panelTitle')}</span>
+        <div className="flex items-center justify-between gap-2 px-3 h-12 border-b border-border bg-bg-secondary">
+          <span className="flex-1 min-w-0 truncate text-sm font-semibold text-text-primary">
+            {t('ai.panelTitle')}
+          </span>
           <select
             data-testid="ai-mode-select"
             value={activeMode}
             onChange={(e) => toggleMode(e.target.value as 'chat' | 'agent')}
             aria-label={t('ai.modeSelectLabel')}
-            className="text-xs px-2 py-1 rounded-input bg-bg-secondary border border-border text-text-primary focus:border-[var(--accent)] outline-none cursor-pointer"
+            className="flex-shrink-0 text-xs px-2 py-1 rounded-input bg-bg-secondary border border-border text-text-primary focus:border-[var(--accent)] outline-none cursor-pointer"
           >
             <option value="chat">{t('ai.tab.chat')}</option>
             <option value="agent">{t('ai.tab.agent')}</option>
@@ -101,7 +103,7 @@ const AIAgentPanel: React.FC = () => {
             type="button"
             onClick={handleClose}
             title={t('navbar.close')}
-            className="text-text-muted hover:text-text-primary transition-colors"
+            className="flex-shrink-0 text-text-muted hover:text-text-primary transition-colors"
           >
             ✕
           </button>

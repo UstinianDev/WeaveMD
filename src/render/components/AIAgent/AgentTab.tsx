@@ -271,7 +271,7 @@ const AgentTab: React.FC = () => {
   return (
     <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
       {/* 顶部：会话列表（新建/切换/删除），agent 模式附加专属控件 */}
-      <div className="px-3 pt-2 pb-1 border-b border-border space-y-2">
+      <div className="px-3 pt-2.5 pb-2 border-b border-border space-y-2">
         {isAgentMode && (
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-1.5 text-xs text-text-sub cursor-pointer">
@@ -320,13 +320,13 @@ const AgentTab: React.FC = () => {
           >
             {t('ai.newChat')}
           </button>
-          <div className="flex-1 flex gap-1 overflow-x-auto">
+          <div className="flex-1 flex gap-1.5 overflow-x-auto">
             {conversations.map((c) => (
               <div
                 key={c.id}
-                className={`group flex items-center gap-1 flex-shrink-0 rounded-input px-2 py-1 text-xs cursor-pointer transition-colors ${
+                className={`group flex items-center gap-1.5 flex-shrink-0 rounded-input px-2 py-1 text-xs cursor-pointer border border-border transition-colors ${
                   c.id === activeConversationId
-                    ? 'bg-[var(--accent)]/15 text-text-primary'
+                    ? 'bg-[var(--accent)]/15 text-text-primary border-[var(--accent)]/30'
                     : 'bg-bg-primary hover:bg-bg-tertiary text-text-sub'
                 }`}
                 onClick={() => void loadConversation(c.id, activeMode)}
@@ -352,7 +352,7 @@ const AgentTab: React.FC = () => {
       </div>
 
       {/* 消息列表 / 空态 */}
-      <div ref={messageListRef} className="chat-scroll flex-1 overflow-y-auto py-2 space-y-1">
+      <div ref={messageListRef} className="chat-scroll flex-1 overflow-y-auto py-2 space-y-1.5">
         {/* agent 模式：改写预览卡片（选区/@ 改写提案确认，红删绿增 + 确认/取消） */}
         {isAgentMode && <RewritePreviewCard />}
 
@@ -415,7 +415,7 @@ const AgentTab: React.FC = () => {
       </div>
 
       {/* Composer */}
-      <div className="border-t border-border px-3 py-3 space-y-2">
+      <div className="border-t border-border px-2.5 pt-2 pb-2.5 space-y-1.5">
         <div className="relative">
           {/* agent 模式：B1 `/` 与 `@` 自动补全菜单（渲染在 textarea 上方） */}
           {isAgentMode && (
@@ -454,15 +454,15 @@ const AgentTab: React.FC = () => {
                 : t('ai.placeholder')
             }
             rows={3}
-            className="w-full resize-none bg-bg-primary border border-border rounded-input px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none focus:border-[var(--accent)] transition-colors"
+            className="w-full resize-none bg-bg-primary border border-border rounded-input px-2.5 py-1.5 text-sm text-text-primary placeholder-text-muted outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/30 transition-colors"
           />
         </div>
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-1.5">
           {isStreaming ? (
             <button
               type="button"
               onClick={stopStream}
-              className="px-3 py-1.5 text-sm rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
+              className="px-3 py-1 text-sm rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
             >
               {t('ai.stop')}
             </button>
@@ -471,7 +471,7 @@ const AgentTab: React.FC = () => {
               type="button"
               onClick={handleSend}
               disabled={!input.trim()}
-              className="px-3 py-1.5 text-sm rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+              className="px-3.5 py-1 text-sm rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
             >
               {t('ai.send')}
             </button>
