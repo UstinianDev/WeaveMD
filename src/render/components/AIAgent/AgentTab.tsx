@@ -10,10 +10,13 @@ import type { IntentName } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
 import { useAgentStore } from '@render/stores/agentStore';
+import { useEditorStore } from '@render/stores/editorStore';
+import { useRewriteStore } from '@render/stores/rewriteStore';
 import AIMessageBubble from './AIMessageBubble';
 import IntentCard from './IntentCard';
 import ToolCallTrace from './ToolCallTrace';
 import KnowledgeBaseSettings from './KnowledgeBaseSettings';
+import RewritePreviewCard from './RewritePreviewCard';
 
 const AgentTab: React.FC = () => {
   const { t } = useI18n();
@@ -37,6 +40,10 @@ const AgentTab: React.FC = () => {
   const setUseKnowledgeBase = useAgentStore((s) => s.setUseKnowledgeBase);
   const runManualCompress = useAgentStore((s) => s.runManualCompress);
   const loadConversations = useAgentStore((s) => s.loadConversations);
+
+  // 改写状态：选区改写模式（selectionContext 非空 → composer 输入改写指令）+ 预览卡片
+  const selectionContext = useRewriteStore((s) => s.selectionContext);
+  const runSelectionRewrite = useRewriteStore((s) => s.runSelectionRewrite);
 
   const [showKbSettings, setShowKbSettings] = useState(false);
   const [input, setInput] = useState('');
@@ -62,6 +69,24 @@ const AgentTab: React.FC = () => {
     const text = input.trim();
     if (!text || isStreaming) return;
     setInput('');
+    // 第 5 期分流：
+    // 1) 有选区上下文（编辑器「AI 改写」触发）→ 选区改写，composer 内容为改写指令
+    // 2) `@ + 描述` → document scope 块级改写（共享 rewriteStore 管线）
+    // 3) 否则 → 既有 agent 对话
+    if (selectionContext) {
+      void runSelectionRewrite(text);
+      return;
+    }
+    if (text.startsWith('@')) {
+      const instruction = text.slice(1).trim();
+      if (instruction) {
+        useRewriteStore.getState().startDocumentRewrite(
+          useEditorStore.getState().content,
+          instruction
+        );
+        return;
+      }
+    }
     void sendAgentMessage(text);
   };
 
@@ -154,6 +179,9 @@ const AgentTab: React.FC = () => {
 
       {/* 消息列表 / 空态 */}
       <div ref={messageListRef} className="chat-scroll flex-1 overflow-y-auto py-2 space-y-1">
+        {/* 改写预览卡片（选区/@ 改写提案确认，红删绿增 + 确认/取消） */}
+        <RewritePreviewCard />
+
         {messages.length === 0 && toolCalls.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-6 space-y-2">
             {!hasConversation ? (
@@ -208,7 +236,9 @@ const AgentTab: React.FC = () => {
               handleSend();
             }
           }}
-          placeholder={t('ai.placeholder')}
+          placeholder={
+            selectionContext ? t('ai.rewrite.selectionHint') : t('ai.placeholder')
+          }
           rows={3}
           className="w-full resize-none bg-bg-primary border border-border rounded-input px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none focus:border-[var(--accent)] transition-colors"
         />

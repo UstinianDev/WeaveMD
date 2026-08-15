@@ -646,6 +646,7 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
     updateConversationSummary: async () => ({ success: false }),
     runAgent: async () => ({ success: false }),
     agentAbort: async () => ({ success: true }),
+    rewritePreview: async () => ({ success: false }),
     onStream: () => () => {},
   },
   kb: {

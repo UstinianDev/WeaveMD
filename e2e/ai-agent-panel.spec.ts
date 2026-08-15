@@ -27,6 +27,16 @@ interface AiMockOptions {
   };
   /** 预置知识库文档数（kb.list 返回）。 */
   seedKbDocuments?: number;
+  /** 第 5 期改写 mock：rewritePreview 返回的 LLM 原始文本。
+   *  selectionText = 选区 scope 的改写文本（LLM 返回改写后 md）；
+   *  documentText = document scope 的改写文本（LLM 返回 JSON 数组串）。 */
+  rewrite?: {
+    selectionText?: string;
+    documentText?: string;
+  };
+  /** 新建文档（Control+n 经 readDisk 打开）时注入的初始内容。
+   *  用于改写用例：打开即含文本，undo 栈干净（openFile 重置），确保「一次撤销」只回退改写自身。 */
+  seedContent?: string;
 }
 
 /**
@@ -41,6 +51,10 @@ function installWeaveMDMock(opts: AiMockOptions): void {
   const seed = opts.seedConversations ?? 0;
   const agentResult = opts.agentResult ?? {};
   const seedKb = opts.seedKbDocuments ?? 0;
+  // 第 5 期改写：rewritePreview LLM 原始文本（selection=改写后 md；document=JSON 数组串）
+  const rewrite = opts.rewrite ?? {};
+  // 新建文档初始内容（改写用例注入，openFile 后 undo 栈干净）
+  const seedContent = opts.seedContent ?? '';
   const user = {
     id: 'u1',
     username: 'ai_tester',
@@ -185,7 +199,7 @@ function installWeaveMDMock(opts: AiMockOptions): void {
       list: async () => ok([]),
       get: async () => ok(),
       write: async () => ok(),
-      readDisk: async () => ok({ path: 'C:\\playwright\\ai.md', name: 'ai.md', content: '' }),
+      readDisk: async () => ok({ path: 'C:\\playwright\\ai.md', name: 'ai.md', content: seedContent }),
       deleteDisk: async () => ok(),
     },
     folder: {
@@ -287,6 +301,19 @@ function installWeaveMDMock(opts: AiMockOptions): void {
         });
       },
       agentAbort: async () => ok(),
+      // 第 5 期改写：mock 主进程薄代理返回 LLM 原始文本（RewriteReply{text}）。
+      // 不解析 markdown、不计算 proposal——proposal 由渲染侧 proposeSelectionRewrite / proposeDocumentRewrite 依据该 text 计算。
+      // 默认 selection 改写为「改写后文本」，document 改写为「改写 block 0」的 JSON 数组串。
+      rewritePreview: async (payload: {
+        scope?: string;
+        selectionMarkdown?: string;
+        numberedBlocks?: Array<{ blockIndex: number }>;
+      }) => {
+        if (payload.scope === 'document') {
+          return ok({ text: rewrite.documentText ?? '[{"block_index":0,"new_content":"改写后 document"}]' });
+        }
+        return ok({ text: rewrite.selectionText ?? '改写后文本' });
+      },
       listConversations: async (userId: string, mode: string) =>
         ok(conversations.filter((c) => c.userId === userId && c.mode === mode)),
       getConversation: async (conversationId: string, userId: string) => {
@@ -603,5 +630,248 @@ test('后端降级：runAgent 返回 agentBackendHint → 提示条渲染', asyn
   await expect(
     panel.getByText('Agent 能力需远程后端，当前为纯生成模式')
   ).toBeVisible({ timeout: 5000 });
+  expect(errors.length).toBe(0);
+});
+
+// ============================================================
+// 第 5 期（块级改写）E2E —— 全部 mock window.weaveMD.ai.rewritePreview，不上网。
+// 选区触发改写（AGT-12 主 + AGT-14 红删绿增/一次撤销） / 面板 @ 兜底（document scope）/
+// stale 拒绝 / unchanged「无变化」。
+// 铁律一：确认写入仅渲染侧 applyRewrite -> updateContent（入 undo 栈），AI 无直接落盘。
+// ============================================================
+
+/** 打开空白 WYSIWYG 编辑器（Control+n 经 mock 新建空文档）。 */
+async function openEditor(page: import('@playwright/test').Page): Promise<void> {
+  await page.keyboard.press('Control+n');
+  await page.waitForSelector('span.block-content[contenteditable="true"]');
+}
+
+/** 打开 AI 面板并切到 Agent 代理页（RewritePreviewCard 与改写 composer 均在此页）。 */
+async function openAgentPanel(page: import('@playwright/test').Page): Promise<import('@playwright/test').Locator> {
+  await page.getByTitle('AI').click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+  await panel.getByText('代理', { exact: true }).click();
+  await page.waitForTimeout(300);
+  return panel;
+}
+
+/**
+ * 按文本偏移（textContent 口径，跳过零宽空格 ​）构造真实 Range 选区——
+ * 与 kernel/selection.ts offsetToDomPoint 同口径，覆盖选区内文本块。
+ */
+async function selectTextRange(
+  page: import('@playwright/test').Page,
+  start: number,
+  end: number
+): Promise<void> {
+  await page.evaluate(
+    (offsets: { start: number; end: number }) => {
+      const el = document.querySelector<HTMLElement>(
+        'span.block-content[contenteditable="true"]'
+      );
+      if (!el) return;
+      const findPoint = (offset: number): { node: Node; offset: number } => {
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        let remaining = Math.max(0, offset);
+        let textNode: Text | null;
+        while ((textNode = walker.nextNode() as Text | null) !== null) {
+          const value = textNode.nodeValue ?? '';
+          const effectiveLength = value.replace(/​/g, '').length;
+          if (remaining <= effectiveLength) {
+            let charCount = 0;
+            let position = 0;
+            for (let i = 0; i < value.length; i++) {
+              if (value[i] !== '​') charCount++;
+              if (remaining > 0 && charCount >= remaining) {
+                position = i + 1;
+                break;
+              }
+            }
+            return { node: textNode, offset: position };
+          }
+          remaining -= effectiveLength;
+        }
+        return { node: el, offset: el.childNodes.length };
+      };
+      const sp = findPoint(offsets.start);
+      const ep = findPoint(offsets.end);
+      const range = document.createRange();
+      range.setStart(sp.node, sp.offset);
+      range.setEnd(ep.node, ep.offset);
+      const sel = window.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    },
+    { start, end }
+  );
+}
+
+test('改写闭环：选区选中 → FloatingToolbar AI 改写 → 面板 composer → 预览卡（红删绿增）→ 应用 → 编辑器 content 更新且一次撤销还原', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  // seedContent：新建文档即含文本，undo 栈干净（openFile 重置），确保「一次撤销」只回退改写自身
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    seedContent: 'hello world',
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+
+  // 新建文档（内容 hello world），选区边界与内容一致
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await expect(editable).toHaveText('hello world');
+
+  // 打开 AI 面板并切到 Agent 代理页
+  const panel = await openAgentPanel(page);
+
+  // 编辑器选中整段文本 → 浮动工具栏出现，「AI 改写」按钮存在
+  await selectTextRange(page, 0, 11);
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="AI 改写"]').click();
+  await page.waitForTimeout(300);
+
+  // 面板（Agent 页）composer 出现选区改写占位提示
+  const composer = panel.locator('textarea').first();
+  await expect(composer).toHaveAttribute('placeholder', '描述如何改写选中内容');
+  await composer.fill('把它改写得更简洁');
+  await composer.press('Enter');
+  await page.waitForTimeout(400);
+
+  // 预览卡片出现：标题 + 行级红删绿增（del 红删除原行 / ins 绿新增改写行）
+  await expect(panel.getByText('改写预览', { exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(panel.locator('[data-type="del"]').first()).toContainText('hello world');
+  await expect(panel.locator('[data-type="ins"]').first()).toContainText('改写后文本');
+
+  // 点「应用」→ 编辑器 content 更新（整段被改写）
+  await panel.getByText('应用', { exact: true }).click();
+  await page.waitForTimeout(400);
+  await expect(editable).toHaveText('改写后文本');
+  // 预览卡片关闭
+  await expect(panel.getByText('改写预览', { exact: true })).toBeHidden();
+
+  // 一次 Ctrl+Z（编辑器 undo）还原原文
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('hello world');
+  expect(errors.length).toBe(0);
+});
+
+test('面板 @ 兜底：Agent composer @+描述 → document scope 预览卡 → 确认写入', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    seedContent: '第一段内容',
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await expect(editable).toHaveText('第一段内容');
+
+  const panel = await openAgentPanel(page);
+  const composer = panel.locator('textarea').first();
+  // @ + 描述 → document scope 块级改写
+  await composer.fill('@ 把第一段改成 Document 改写');
+  await composer.press('Enter');
+  await page.waitForTimeout(400);
+
+  // 预览卡片出现（mock document 返回 JSON：改写 block 0）
+  await expect(panel.getByText('改写预览', { exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(panel.locator('[data-type="ins"]').first()).toContainText('改写后 document');
+
+  // 取消 → 编辑器不变
+  await panel.getByText('取消', { exact: true }).click();
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('第一段内容');
+  expect(errors.length).toBe(0);
+});
+
+test('stale 拒绝：预览卡出现后改文档 → 应用被拒（文档已变更提示，不写入）', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    seedContent: 'hello world',
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await expect(editable).toHaveText('hello world');
+
+  const panel = await openAgentPanel(page);
+  await selectTextRange(page, 0, 11);
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="AI 改写"]').click();
+
+  const composer = panel.locator('textarea').first();
+  await composer.fill('改写一下');
+  await composer.press('Enter');
+  await page.waitForTimeout(400);
+  await expect(panel.getByText('改写预览', { exact: true })).toBeVisible({ timeout: 5000 });
+
+  // 预览期间改编辑器内容（stale：content != originalMd）
+  await editable.click();
+  await page.keyboard.press('Control+a');
+  await page.keyboard.type(' 新增内容', { delay: 20 });
+  await page.waitForTimeout(300);
+
+  // 点「应用」→ stale 拒绝，提示「文档已变更」，编辑器不被改写
+  await panel.getByText('应用', { exact: true }).click();
+  await page.waitForTimeout(300);
+  await expect(panel.getByText('文档已变更，请重新生成', { exact: true })).toBeVisible();
+  await expect(editable).not.toContainText('改写后文本');
+  expect(errors.length).toBe(0);
+});
+
+test('unchanged：mock 改写结果与原文相同 → 提示「无变化」，不弹预览卡', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    seedContent: 'hello world',
+    // 改写返回与选中原文完全一致 → 渲染侧比较 unchanged=true
+    rewrite: { selectionText: 'hello world' },
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await expect(editable).toHaveText('hello world');
+
+  const panel = await openAgentPanel(page);
+  await selectTextRange(page, 0, 11);
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="AI 改写"]').click();
+
+  const composer = panel.locator('textarea').first();
+  await composer.fill('保持不变');
+  await composer.press('Enter');
+  await page.waitForTimeout(400);
+
+  // 「无变化」提示出现，预览卡不出现
+  await expect(panel.getByText('改写结果与原文相同，无变化', { exact: true })).toBeVisible({
+    timeout: 5000,
+  });
+  await expect(panel.getByText('改写预览', { exact: true })).toBeHidden();
+  // 编辑器未被改写
+  await expect(editable).toHaveText('hello world');
   expect(errors.length).toBe(0);
 });
