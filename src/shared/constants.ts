@@ -106,6 +106,8 @@ export const IPC_CHANNELS = {
   // AI — Agent (第4期) invoke
   AGENT_RUN: 'agent:run',
   AGENT_ABORT: 'agent:abort',
+  // AI — Agent（第7期 B1）技能清单（只读，渲染补全菜单用）
+  AGENT_SKILLS_LIST: 'agent:skills:list',
 
   // AI — block rewrite (第5期) invoke
   AI_REWRITE_PREVIEW: 'ai:rewrite:preview',

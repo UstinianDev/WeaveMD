@@ -8,7 +8,7 @@
 
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
-import type { ChatBackend } from '@shared/ai';
+import type { AgentSkillInfo, ChatBackend } from '@shared/ai';
 import { streamChatCompletion } from './llmClient';
 
 /** 单技能定义：执行时把 instructions 注入 role:'system' 片段。 */
@@ -80,6 +80,17 @@ export const CORE_SKILLS: CoreSkill[] = [
 export function loadSkills(userDataSkillsDir?: string): CoreSkill[] {
   const userExt = userDataSkillsDir ? scanUserSkillsDir(userDataSkillsDir) : [];
   return [...CORE_SKILLS, ...userExt];
+}
+
+/**
+ * 渲染侧技能清单（第 7 期 B1 补全菜单数据源）。
+ * 返回 [{name, description}]——仅名称+描述，**不含 instructions/argsSchema**，
+ * 避免把执行指令/参数细节经 IPC 外泄到渲染进程。
+ * userDataSkillsDir 缺省时仅返回内置 core skill（用户目录不可读/不存在不抛错）。
+ */
+export function listSkillsForUi(userDataSkillsDir?: string): AgentSkillInfo[] {
+  const skills = loadSkills(userDataSkillsDir);
+  return skills.map((s) => ({ name: s.name, description: s.description }));
 }
 
 /**

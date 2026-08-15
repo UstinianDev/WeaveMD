@@ -368,3 +368,9 @@ export interface RewriteProposal {
   /** 改写结果与原文一致 → 不弹预览卡片。 */
   unchanged?: boolean;
 }
+
+/** 技能清单条目（第 7 期 B1 补全菜单）：仅名称+描述，不含 instructions/argsSchema（不泄执行细节）。 */
+export interface AgentSkillInfo {
+  name: string;
+  description: string;
+}
