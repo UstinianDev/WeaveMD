@@ -2460,9 +2460,10 @@ span.comment-marker {
   position: absolute;
   z-index: 60;
   pointer-events: none;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  outline: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--border-color) 60%, transparent) inset;
 }
 
 /* A2 混合语法类型工具栏：跨块选区提示文案（行内格式/块类型被隐藏） */

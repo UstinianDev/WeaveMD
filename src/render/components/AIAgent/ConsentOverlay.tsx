@@ -39,7 +39,7 @@ const ConsentOverlay: React.FC<ConsentOverlayProps> = ({ visible, onRemember, on
               type="checkbox"
               checked={allowNetwork}
               onChange={(e) => setAllowNetwork(e.target.checked)}
-              className="mt-0.5 accent-[#7C3AED]"
+              className="mt-0.5 accent-[var(--accent)]"
               aria-label={t('ai.consent.allowNetwork')}
             />
             <span className="text-sm text-text-sub">{t('ai.consent.allowNetwork')}</span>
@@ -50,7 +50,7 @@ const ConsentOverlay: React.FC<ConsentOverlayProps> = ({ visible, onRemember, on
               type="checkbox"
               checked={allowSend}
               onChange={(e) => setAllowSend(e.target.checked)}
-              className="mt-0.5 accent-[#7C3AED]"
+              className="mt-0.5 accent-[var(--accent)]"
               aria-label={t('ai.consent.allowSend')}
             />
             <span className="text-sm text-text-sub">{t('ai.consent.allowSend')}</span>

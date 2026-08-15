@@ -85,9 +85,9 @@ const CompletionMenu: React.FC<CompletionMenuProps> = ({
       ref={menuRef}
       role="listbox"
       data-testid="completion-menu"
-      className="absolute left-0 bottom-full mb-1 w-full z-50 rounded-lg border border-border bg-bg-secondary shadow-lg py-1 max-h-56 overflow-y-auto"
+      className="absolute left-0 bottom-full mb-1 w-full z-50 rounded-card border border-border bg-bg-secondary shadow-dropdown py-1 max-h-56 overflow-y-auto"
     >
-      <div className="px-3 pt-0.5 pb-1 text-[11px] font-medium text-text-muted">{title}</div>
+      <div className="px-3 pt-1.5 pb-1 text-[11px] font-medium uppercase tracking-wide text-text-muted">{title}</div>
       {items.map((item, idx) => {
         const isActive = idx === activeIndex;
         return (
