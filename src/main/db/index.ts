@@ -28,6 +28,33 @@ export function initDatabase(): Database.Database {
   return db;
 }
 
+/**
+ * FTS5 关键词索引迁移：表外虚拟表 + 触发器同步 kb_chunks → kb_chunks_fts。
+ * - 不改 kb_chunks 既有列结构；触发器用 kb_chunks 内部整数 rowid（`new.rowid`/`old.rowid`）
+ *   作 FTS5 rowid，`doc_id` 冗余存 TEXT uuid（new.id）供回查 join kb_chunks。
+ * - 幂等：CREATE VIRTUAL TABLE IF NOT EXISTS + DROP TRIGGER IF EXISTS 前置。
+ * - BM25 查询通过 `kb_chunks_fts JOIN kb_chunks ON kb_chunks.rowid = kb_chunks_fts.rowid` 回查。
+ * 此常量亦被 scripts/fts5-smoke.cjs 引用（Electron 运行时真验），须保持一致。 */
+export const FTS5_MIGRATION_SQL = `
+  CREATE VIRTUAL TABLE IF NOT EXISTS kb_chunks_fts USING fts5(
+    content,
+    doc_id UNINDEXED,                -- 冗余 kb_chunks.id（TEXT uuid），供回查
+    tokenize = 'unicode61 remove_diacritics 2'
+  );
+
+  DROP TRIGGER IF EXISTS kb_chunks_fts_ai;
+  CREATE TRIGGER kb_chunks_fts_ai AFTER INSERT ON kb_chunks BEGIN
+    INSERT INTO kb_chunks_fts(rowid, content, doc_id)
+    VALUES (new.rowid, new.content, new.id);
+  END;
+
+  DROP TRIGGER IF EXISTS kb_chunks_fts_ad;
+  CREATE TRIGGER kb_chunks_fts_ad AFTER DELETE ON kb_chunks BEGIN
+    INSERT INTO kb_chunks_fts(kb_chunks_fts, rowid, content, doc_id)
+    VALUES ('delete', old.rowid, old.content, old.id);
+  END;
+`;
+
 function runMigrations(database: Database.Database): void {
   database.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -134,6 +161,9 @@ function runMigrations(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_kb_chunk_doc ON kb_chunks(document_id, seq);
   `);
+
+  // 第 3 期：FTS5 关键词索引（表外虚拟表 + 触发器同步），幂等
+  database.exec(FTS5_MIGRATION_SQL);
 }
 
 export function getDatabase(): Database.Database {

@@ -1,0 +1,275 @@
+// ============================================
+// WeaveMD — 知识库 Database Operations
+// ============================================
+// kb_documents / kb_chunks 表 DAO + float32 BLOB 编解码工具。
+// 全部操作按 user_id / document_id 参数化过滤，绝无字符串拼接（SECURITY.md）。
+// 向量以 Buffer（float32 little-endian）BLOB 存储；语义解码见 encodeFloat32Array/decodeFloat32Array。
+
+import { randomUUID } from 'crypto';
+import { getDatabase } from './index';
+import type { IKbDocumentStatus } from '@shared/ai';
+
+export type KbDocumentStatus = IKbDocumentStatus['status'];
+export type KbSourceType = IKbDocumentStatus['sourceType'];
+
+// ---------------------------------------------------------------------------
+// float32 BLOB 编解码（little-endian）
+// ---------------------------------------------------------------------------
+
+/** 将 number[] 编码为 little-endian float32 Buffer（部分向量 BLOB 落库）。 */
+export function encodeFloat32Array(nums: number[]): Buffer {
+  const buf = Buffer.alloc(nums.length * 4);
+  const view = new DataView(buf.buffer);
+  for (let i = 0; i < nums.length; i++) {
+    view.setFloat32(i * 4, nums[i], true);
+  }
+  return buf;
+}
+
+/** 将 float32（little-endian）BLOB 解码为 Float32Array；非 4 对齐末尾截断。 */
+export function decodeFloat32Array(buf: Buffer): Float32Array {
+  const usable = Math.floor(buf.length / 4) * 4;
+  return new Float32Array(buf.buffer, buf.byteOffset, usable / 4);
+}
+
+// ---------------------------------------------------------------------------
+// kb_documents
+// ---------------------------------------------------------------------------
+
+export interface KbDocumentRow {
+  id: string;
+  userId: string;
+  fileId: string | null;
+  sourceType: KbSourceType;
+  title: string;
+  pinned: boolean;
+  status: KbDocumentStatus;
+  createdAt: string;
+}
+
+interface KbDocumentDbRow {
+  id: string;
+  user_id: string;
+  file_id: string | null;
+  source_type: string;
+  title: string;
+  pinned: number;
+  status: string;
+  created_at: string;
+}
+
+function mapDocumentRow(row: KbDocumentDbRow): KbDocumentRow {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    fileId: row.file_id,
+    sourceType: (row.source_type as KbSourceType) || 'import',
+    title: row.title,
+    pinned: !!row.pinned,
+    status: (row.status as KbDocumentStatus) || 'pending',
+    createdAt: row.created_at,
+  };
+}
+
+export interface UpsertKbDocumentInput {
+  fileId?: string | null;
+  title: string;
+  sourceType: KbSourceType;
+  pinned?: boolean;
+  status?: KbDocumentStatus;
+}
+
+/** 插入或按 file 归属更新 kb_documents；返回（id 或既有 id）标识。 */
+export function upsertKbDocument(userId: string, doc: UpsertKbDocumentInput): KbDocumentRow {
+  const db = getDatabase();
+  const existing =
+    doc.fileId != null ? getKbDocumentByFile(userId, doc.fileId) : null;
+
+  const pinned = doc.pinned ?? false;
+  const status = doc.status ?? 'pending';
+  const now = new Date().toISOString();
+
+  if (existing) {
+    db.prepare(
+      `UPDATE kb_documents
+         SET title = ?, source_type = ?, pinned = ?, status = ?
+       WHERE id = ? AND user_id = ?`
+    ).run(doc.title, doc.sourceType, pinned ? 1 : 0, status, existing.id, userId);
+    const fresh = db
+      .prepare('SELECT * FROM kb_documents WHERE id = ? AND user_id = ?')
+      .get(existing.id, userId) as KbDocumentDbRow | undefined;
+    if (fresh) return mapDocumentRow(fresh);
+    return { ...existing, title: doc.title, pinned, status };
+  }
+
+  const id = randomUUID();
+  db.prepare(
+    `INSERT INTO kb_documents
+       (id, user_id, file_id, source_type, title, pinned, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, userId, doc.fileId ?? null, doc.sourceType, doc.title, pinned ? 1 : 0, status);
+  const row = db
+    .prepare('SELECT * FROM kb_documents WHERE id = ? AND user_id = ?')
+    .get(id, userId) as KbDocumentDbRow | undefined;
+  if (row) return mapDocumentRow(row);
+  return {
+    id,
+    userId,
+    fileId: doc.fileId ?? null,
+    sourceType: doc.sourceType,
+    title: doc.title,
+    pinned,
+    status,
+    createdAt: now,
+  };
+}
+
+export function getKbDocumentByFile(userId: string, fileId: string): KbDocumentRow | null {
+  const db = getDatabase();
+  const row = db
+    .prepare('SELECT * FROM kb_documents WHERE file_id = ? AND user_id = ?')
+    .get(fileId, userId) as KbDocumentDbRow | undefined;
+  if (!row) return null;
+  return mapDocumentRow(row);
+}
+
+export function getKbDocument(userId: string, docId: string): KbDocumentRow | null {
+  const db = getDatabase();
+  const row = db
+    .prepare('SELECT * FROM kb_documents WHERE id = ? AND user_id = ?')
+    .get(docId, userId) as KbDocumentDbRow | undefined;
+  if (!row) return null;
+  return mapDocumentRow(row);
+}
+
+export function listKbDocumentsByUser(userId: string): KbDocumentRow[] {
+  const db = getDatabase();
+  const rows = db
+    .prepare('SELECT * FROM kb_documents WHERE user_id = ? ORDER BY created_at DESC')
+    .all(userId) as KbDocumentDbRow[];
+  return rows.map(mapDocumentRow);
+}
+
+export function deleteKbDocumentByFile(userId: string, fileId: string): boolean {
+  const db = getDatabase();
+  const info = db
+    .prepare('DELETE FROM kb_documents WHERE file_id = ? AND user_id = ?')
+    .run(fileId, userId);
+  return info.changes > 0;
+}
+
+export function deleteKbDocument(userId: string, docId: string): boolean {
+  const db = getDatabase();
+  const info = db
+    .prepare('DELETE FROM kb_documents WHERE id = ? AND user_id = ?')
+    .run(docId, userId);
+  return info.changes > 0;
+}
+
+export function setKbDocStatus(userId: string, docId: string, status: KbDocumentStatus): void {
+  const db = getDatabase();
+  db.prepare('UPDATE kb_documents SET status = ? WHERE id = ? AND user_id = ?').run(
+    status,
+    docId,
+    userId
+  );
+}
+
+export function deleteAllKbForUser(userId: string): void {
+  const db = getDatabase();
+  db.prepare('DELETE FROM kb_documents WHERE user_id = ?').run(userId);
+}
+
+// ---------------------------------------------------------------------------
+// kb_chunks
+// ---------------------------------------------------------------------------
+
+export interface KbChunkRow {
+  id: string;
+  documentId: string;
+  seq: number;
+  content: string;
+  vector: Buffer | null;
+  sourceRef: string | null;
+  createdAt: string;
+}
+
+interface KbChunkDbRow {
+  id: string;
+  document_id: string;
+  seq: number;
+  content: string;
+  vector: Buffer | null;
+  source_ref: string | null;
+  created_at: string;
+}
+
+function mapChunkRow(row: KbChunkDbRow): KbChunkRow {
+  return {
+    id: row.id,
+    documentId: row.document_id,
+    seq: row.seq,
+    content: row.content,
+    vector: row.vector ?? null,
+    sourceRef: row.source_ref ?? null,
+    createdAt: row.created_at,
+  };
+}
+
+export interface InsertChunkInput {
+  documentId: string;
+  seq: number;
+  content: string;
+  vector?: Buffer | null;
+  sourceRef?: string | null;
+}
+
+export function insertChunk(chunk: InsertChunkInput): KbChunkRow {
+  const db = getDatabase();
+  const id = randomUUID();
+  db.prepare(
+    `INSERT INTO kb_chunks
+       (id, document_id, seq, content, vector, source_ref)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(id, chunk.documentId, chunk.seq, chunk.content, chunk.vector ?? null, chunk.sourceRef ?? null);
+  // 回读失败（如 FakeDatabase 隔离）时以写入值组装，保证返回形状稳定。
+  const row = db.prepare('SELECT * FROM kb_chunks WHERE id = ?').get(id) as
+    | KbChunkDbRow
+    | undefined;
+  if (row) return mapChunkRow(row);
+  return {
+    id,
+    documentId: chunk.documentId,
+    seq: chunk.seq,
+    content: chunk.content,
+    vector: chunk.vector ?? null,
+    sourceRef: chunk.sourceRef ?? null,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+export function deleteChunksByDoc(docId: string): void {
+  const db = getDatabase();
+  db.prepare('DELETE FROM kb_chunks WHERE document_id = ?').run(docId);
+}
+
+export function getChunksByDoc(docId: string): KbChunkRow[] {
+  const db = getDatabase();
+  const rows = db
+    .prepare('SELECT * FROM kb_chunks WHERE document_id = ? ORDER BY seq ASC')
+    .all(docId) as KbChunkDbRow[];
+  return rows.map(mapChunkRow);
+}
+
+/** 供 listKbDocumentsByUser 补 chunk 计数（KB_LIST）。 */
+export function countChunksByDoc(userId: string, docId: string): number {
+  const db = getDatabase();
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS cnt FROM kb_chunks c
+         JOIN kb_documents d ON d.id = c.document_id
+        WHERE c.document_id = ? AND d.user_id = ?`
+    )
+    .get(docId, userId) as { cnt: number } | undefined;
+  return row?.cnt ?? 0;
+}

@@ -4,9 +4,10 @@
 
 import React, { useEffect, useState } from 'react';
 import type { LanguageType, ThemeType } from '@shared/types';
-import type { ChatBackend } from '@shared/ai';
+import type { ChatBackend, IKbSettings } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
+import { useAgentStore } from '@render/stores/agentStore';
 import { useUIStore } from '@render/stores/uiStore';
 import Button from '@render/components/Common/Button';
 import Modal from '@render/components/Common/Modal';
@@ -32,6 +33,12 @@ const THEMES: { value: ThemeType; label: string; preview: string }[] = [
 
 type SettingsTab = 'system' | 'account' | 'ai';
 
+/** 数值收敛：NaN/越界回退到 fallback，否则夹在 [min, max]。 */
+function clampNum(value: number, min: number, max: number, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const { t } = useI18n();
   const theme = useUIStore((s) => s.theme);
@@ -43,6 +50,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const logout = useAuthStore((s) => s.logout);
   const recentAccounts = useAuthStore((s) => s.recentAccounts);
   const loadRecentAccounts = useAuthStore((s) => s.loadRecentAccounts);
+  const kbSettings = useAgentStore((s) => s.kbSettings);
+  const setKbSettings = useAgentStore((s) => s.setKbSettings);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('system');
   const [selectedTheme, setSelectedTheme] = useState<ThemeType>(theme);
@@ -67,6 +76,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [aiAllowSend, setAiAllowSend] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
 
+  // --- KB（Agent 知识库）参数表单（内存态草稿，Save 时写回 agentStore.kbSettings） ---
+  const [kbTopK, setKbTopK] = useState<number>(kbSettings.topK);
+  const [kbFuse, setKbFuse] = useState<number>(kbSettings.fuse);
+  const [kbThreshold, setKbThreshold] = useState<number>(kbSettings.threshold);
+  const [kbPinnedWeight, setKbPinnedWeight] = useState<number>(kbSettings.pinnedWeight);
+  const [kbEmbeddingHost, setKbEmbeddingHost] = useState<string>(kbSettings.embeddingHost);
+  const [kbEmbeddingModel, setKbEmbeddingModel] = useState<string>(kbSettings.embeddingModel);
+
   const TABS: { key: SettingsTab; label: string }[] = [
     { key: 'system', label: t('settings.system') },
     { key: 'account', label: t('settings.account') },
@@ -82,9 +99,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
       setSwitchPassword('');
       setSwitchUsername('');
       setSwitchError('');
+      // 每次打开同步 KB 设置草稿（内存态源 = agentStore.kbSettings）
+      setKbTopK(kbSettings.topK);
+      setKbFuse(kbSettings.fuse);
+      setKbThreshold(kbSettings.threshold);
+      setKbPinnedWeight(kbSettings.pinnedWeight);
+      setKbEmbeddingHost(kbSettings.embeddingHost);
+      setKbEmbeddingModel(kbSettings.embeddingModel);
       loadRecentAccounts();
     }
-  }, [isOpen, theme, language, loadRecentAccounts]);
+  }, [isOpen, theme, language, loadRecentAccounts, kbSettings]);
 
   // AI Tab 打开/进入时加载配置与同意记录（不落明文 key）
   useEffect(() => {
@@ -124,6 +148,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
           language: selectedLanguage,
         })
         .catch(() => {});
+    }
+
+    // KB（Agent 知识库）参数：写回 agentStore.kbSettings（内存态，仅 Agent KB 问答生效）
+    if (activeTab === 'ai') {
+      const next: IKbSettings = {
+        topK: clampNum(kbTopK, 1, 100, 5),
+        fuse: clampNum(kbFuse, 0, 1, 0.5),
+        threshold: clampNum(kbThreshold, 0, 1, 0.6),
+        pinnedWeight: clampNum(kbPinnedWeight, 0.1, 10, 1.5),
+        embeddingHost: kbEmbeddingHost.trim() || 'http://localhost:11434',
+        embeddingModel: kbEmbeddingModel.trim() || 'nomic-embed-text',
+      };
+      setKbSettings(next);
     }
 
     // AI 配置：仅当有值才传 apiKey（setConfig 内部 safeStorage 加密，key 不落渲染）
@@ -613,6 +650,100 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
                 />
                 <span className="text-sm text-[var(--text-sub)]">{t('ai.settings.allowSend')}</span>
               </label>
+            </div>
+          </div>
+
+          {/* KB（Agent 知识库）参数区 —— 仅 Agent 知识库问答生效 */}
+          <div className="border-t border-[var(--border-color)] pt-4">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-sm text-[var(--text-primary)] font-medium">
+                {t('ai.settings.kb.title')}
+              </label>
+            </div>
+            <p className="text-xs text-[var(--text-muted)] mb-3">{t('ai.settings.kb.hint')}</p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-[var(--text-primary)] font-medium mb-1 block">
+                  {t('ai.settings.kb.topK')}
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={Number.isFinite(kbTopK) ? kbTopK : 5}
+                  onChange={(e) => setKbTopK(e.currentTarget.valueAsNumber)}
+                  className="w-full border rounded-input px-3 py-1.5 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-[var(--text-primary)] font-medium mb-1 block">
+                  {t('ai.settings.kb.fuse')}
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={Number.isFinite(kbFuse) ? kbFuse : 0.5}
+                  onChange={(e) => setKbFuse(e.currentTarget.valueAsNumber)}
+                  className="w-full border rounded-input px-3 py-1.5 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-[var(--text-primary)] font-medium mb-1 block">
+                  {t('ai.settings.kb.threshold')}
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={Number.isFinite(kbThreshold) ? kbThreshold : 0.6}
+                  onChange={(e) => setKbThreshold(e.currentTarget.valueAsNumber)}
+                  className="w-full border rounded-input px-3 py-1.5 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-[var(--text-primary)] font-medium mb-1 block">
+                  {t('ai.settings.kb.pinnedWeight')}
+                </label>
+                <input
+                  type="number"
+                  min={0.1}
+                  max={10}
+                  step={0.1}
+                  value={Number.isFinite(kbPinnedWeight) ? kbPinnedWeight : 1.5}
+                  onChange={(e) => setKbPinnedWeight(e.currentTarget.valueAsNumber)}
+                  className="w-full border rounded-input px-3 py-1.5 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+                />
+              </div>
+            </div>
+
+            <div className="mt-3">
+              <label className="text-xs text-[var(--text-primary)] font-medium mb-1 block">
+                {t('ai.settings.kb.embeddingHost')}
+              </label>
+              <input
+                type="text"
+                value={kbEmbeddingHost}
+                onChange={(e) => setKbEmbeddingHost(e.target.value)}
+                placeholder="http://localhost:11434"
+                className="w-full border rounded-input px-3 py-1.5 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+              />
+            </div>
+            <div className="mt-3">
+              <label className="text-xs text-[var(--text-primary)] font-medium mb-1 block">
+                {t('ai.settings.kb.embeddingModel')}
+              </label>
+              <input
+                type="text"
+                value={kbEmbeddingModel}
+                onChange={(e) => setKbEmbeddingModel(e.target.value)}
+                placeholder="nomic-embed-text"
+                className="w-full border rounded-input px-3 py-1.5 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+              />
             </div>
           </div>
 

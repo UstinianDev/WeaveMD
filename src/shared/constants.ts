@@ -93,10 +93,23 @@ export const IPC_CHANNELS = {
   AI_CONVERSATION_DELETE: 'ai:conversation:delete',
   AI_SUMMARY_UPDATE: 'ai:summary:update',
 
+  // AI — Knowledge base (第3期) invoke
+  KB_LIST: 'kb:list',
+  KB_IMPORT_FILE: 'kb:import:file',
+  KB_IMPORT_DIR: 'kb:import:dir',
+  KB_REINDEX: 'kb:reindex',
+  KB_DELETE: 'kb:delete',
+  KB_STATUS: 'kb:status',
+
+  // AI — Agent (第4期) invoke
+  AGENT_RUN: 'agent:run',
+  AGENT_ABORT: 'agent:abort',
+
   // AI — stream push (main -> render, webContents.send)
   AI_STREAM_CHUNK: 'ai:stream:chunk',
   AI_STREAM_DONE: 'ai:stream:done',
   AI_STREAM_ERROR: 'ai:stream:error',
+  AI_STREAM_TOOL: 'ai:stream:tool',
 } as const;
 
 // --- Design Tokens ---
