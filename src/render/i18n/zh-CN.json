@@ -91,7 +91,7 @@
   "ai.settings.remoteBaseUrl": "远程 API 地址",
   "ai.settings.title": "AI",
   "ai.stop": "停止",
-  "ai.tab.agent": "代理",
+  "ai.tab.agent": "智能体",
   "ai.tab.chat": "对话",
   "ai.tool.collapse": "收起",
   "ai.tool.expand": "展开",

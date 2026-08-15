@@ -467,8 +467,8 @@ test('会话列表：新建 / 切换 / 删除可用', async ({ page }) => {
 test('Agent Tab：进入后显示知识库开关/压缩/知识点设置」，空态文案', async ({ page }) => {
   await bootAiPanel(page);
   const panel = aiPanel(page);
-  // 默认 zh-CN：Agent Tab 标签为「代理」
-  await panel.getByText('代理', { exact: true }).click();
+  // 默认 zh-CN agent 标签（B2：智能体）
+  await panel.getByText('智能体', { exact: true }).click();
   // Agent 骨架已上线：知识库开关、压缩、知识库设置入口可见
   await expect(panel.getByText('依照知识库创作')).toBeVisible();
   await expect(panel.getByText('压缩上下文')).toBeVisible();
@@ -561,7 +561,7 @@ test('Agent 全流程：发送 → tool 轨迹渲染 → assistant 富文本落�
   const panel = aiPanel(page);
 
   // 切到 Agent tab
-  await panel.getByText('代理', { exact: true }).click();
+  await panel.getByText('智能体', { exact: true }).click();
   const textarea = panel.locator('textarea').first();
   await textarea.fill('帮我查知识库里的项目计划');
   await panel.getByText('发送', { exact: true }).click();
@@ -589,7 +589,7 @@ test('知识库设置区：kb.status/list 状态列表渲染 + 导入按钮存�
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
-  await panel.getByText('代理', { exact: true }).click();
+  await panel.getByText('智能体', { exact: true }).click();
   // 展开知识库设置抽屉
   await panel.getByText('知识库', { exact: true }).click();
   // 状态列表渲染（kb.list 返回 2 篇）
@@ -617,7 +617,7 @@ test('意图卡片：runAgent 返回低置信 intent → 卡片渲染、点击�
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
-  await panel.getByText('代理', { exact: true }).click();
+  await panel.getByText('智能体', { exact: true }).click();
   const textarea = panel.locator('textarea').first();
   await textarea.fill('怎么组织这次演讲？');
   await panel.getByText('发送', { exact: true }).click();
@@ -647,7 +647,7 @@ test('后端降级：runAgent 返回 agentBackendHint → 提示条渲染', asyn
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
-  await panel.getByText('代理', { exact: true }).click();
+  await panel.getByText('智能体', { exact: true }).click();
   const textarea = panel.locator('textarea').first();
   await textarea.fill('普通对话');
   await panel.getByText('发送', { exact: true }).click();
@@ -672,12 +672,12 @@ async function openEditor(page: import('@playwright/test').Page): Promise<void> 
   await page.waitForSelector('span.block-content[contenteditable="true"]');
 }
 
-/** 打开 AI 面板并切到 Agent 代理页（RewritePreviewCard 与改写 composer 均在此页）。 */
+/** 打开 AI 面板并切到 Agent 智能体页（RewritePreviewCard 与改写 composer 均在此页）。 */
 async function openAgentPanel(page: import('@playwright/test').Page): Promise<import('@playwright/test').Locator> {
   await page.getByTitle('AI').click();
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
-  await panel.getByText('代理', { exact: true }).click();
+  await panel.getByText('智能体', { exact: true }).click();
   await page.waitForTimeout(300);
   return panel;
 }
@@ -754,7 +754,7 @@ test('改写闭环：选区选中 → FloatingToolbar AI 改写 → 面板 compo
   const editable = page.locator('span.block-content[contenteditable="true"]').first();
   await expect(editable).toHaveText('hello world');
 
-  // 打开 AI 面板并切到 Agent 代理页
+  // 打开 AI 面板并切到 Agent 智能体页
   const panel = await openAgentPanel(page);
 
   // 编辑器选中整段文本 → 浮动工具栏出现，「AI 改写」按钮存在
