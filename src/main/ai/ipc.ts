@@ -5,8 +5,9 @@
 // for-await streamChatCompletion 逐块 webContents.send('ai:stream:chunk') ->
 // done 落库 assistant 消息 -> send('ai:stream:done')。abort 经模块级 Map。
 
-import { BrowserWindow, ipcMain } from 'electron';
+import { BrowserWindow, app, ipcMain } from 'electron';
 import fs from 'fs';
+import { join } from 'path';
 import { IPC_CHANNELS } from '@shared/constants';
 import type {
   AIErrorCode,
@@ -39,6 +40,7 @@ import { needsConsent } from './consent';
 import { probeOllama, streamChatCompletion } from './llmClient';
 import { runAgentFlow } from './agentLoop';
 import { runRewrite } from './rewrite';
+import { listSkillsForUi } from './skillLoader';
 import { indexFile, indexImportedText, removeByFile } from './kbIndexer';
 import { searchKB } from './kbSearch';
 import { probeEmbedding } from './embeddingClient';
@@ -572,6 +574,24 @@ export function registerAiIpcHandlers(): void {
         activeStreams.delete(conversationId);
       }
       return { success: true, data: { aborted: !!controller } };
+    }
+  );
+
+  // --- agent: skills list (第 7 期 B1：渲染侧 / 补全菜单技能清单，只读 IPC) ---
+  // 仅返回 [{name, description}]，不含 instructions/argsSchema（不泄执行细节）。userData 目录不可读不抛错（core-only）。
+  ipcMain.handle(
+    IPC_CHANNELS.AGENT_SKILLS_LIST,
+    (_event, payload: { userId: string }) => {
+      if (!payload || typeof payload.userId !== 'string' || !payload.userId) {
+        return { success: false, message: 'userId required' };
+      }
+      try {
+        const userDataSkillsDir = join(app.getPath('userData'), 'skills');
+        const skills = listSkillsForUi(userDataSkillsDir);
+        return { success: true, data: skills };
+      } catch (error) {
+        return { success: false, message: 'Failed to list skills' };
+      }
     }
   );
 

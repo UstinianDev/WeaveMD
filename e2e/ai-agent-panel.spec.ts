@@ -314,6 +314,13 @@ function installWeaveMDMock(opts: AiMockOptions): void {
         }
         return ok({ text: rewrite.selectionText ?? '改写后文本' });
       },
+      // 第 7 期 B1：技能清单 mock（本地，不上网）
+      listSkills: async () =>
+        ok([
+          { name: 'polish_rewrite', description: '润色、缩写或扩写文本' },
+          { name: 'tech_organize', description: '整理技术资料' },
+          { name: 'kb_qa_guide', description: '基于知识库引导式问答' },
+        ]),
       listConversations: async (userId: string, mode: string) =>
         ok(conversations.filter((c) => c.userId === userId && c.mode === mode)),
       getConversation: async (conversationId: string, userId: string) => {
@@ -1166,5 +1173,98 @@ test('A3 选区保持：点 AI 改写 → 编辑器内 .rewrite-highlight 高亮
   await expect(panel.page().locator('.rewrite-highlight')).toHaveCount(0);
   // 编辑器跳转到改写后内容
   await expect(editable).toHaveText('改写后内容');
+  expect(errors.length).toBe(0);
+});
+
+// ============================================
+// 第 7 期批次④ B1：/ 与 @ 自动补全（全部本地 mock，不上网）
+// ============================================
+
+test('B1 @ 补全：输入 @ → 弹出引用菜单（当前文档/知识库），选中「当前文档」注入前缀，Esc 关闭', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    seedContent: '第一段内容',
+    rewrite: { documentText: '[{"block_index":0,"new_content":"改写后 document"}]' },
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await expect(editable).toHaveText('第一段内容');
+
+  const panel = await openAgentPanel(page);
+  const composer = panel.locator('textarea').first();
+  // 输入 @ → 引用补全菜单出现（含标题「引用」与两类目标）
+  await composer.fill('@');
+  await expect(panel.getByText('引用', { exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText('当前文档')).toBeVisible();
+  await expect(panel.getByText('知识库文档')).toBeVisible();
+
+  // 选中「知识库文档」→ 注入 @知识库 前缀 + 空格
+  await panel.getByText('知识库文档').click();
+  await expect(composer).toHaveValue('@知识库 ');
+  // 输入 @ 重新触发 → 选中「当前文档」→ 注入 @文档 前缀
+  await composer.fill('@');
+  await expect(panel.getByText('当前文档')).toBeVisible();
+  await panel.getByText('当前文档').click();
+  await expect(composer).toHaveValue('@文档 ');
+
+  // 补充指令 → Enter → document scope 预览卡（复用现有 @ 协议消费）
+  await composer.fill('@文档 把第一段改成 B1 改写');
+  await composer.press('Enter');
+  await page.waitForTimeout(400);
+  await expect(panel.getByText('改写预览', { exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(panel.locator('[data-type="ins"]').first()).toContainText('改写后 document');
+
+  // 取消后验证 Esc 关闭逻辑：重新输入 @ 弹菜单 → Esc 关闭
+  await panel.getByText('取消', { exact: true }).click();
+  await page.waitForTimeout(300);
+  await composer.fill('@');
+  await expect(panel.getByText('引用', { exact: true })).toBeVisible({ timeout: 5000 });
+  await composer.press('Escape');
+  await expect(panel.getByText('引用', { exact: true })).toHaveCount(0);
+  expect(errors.length).toBe(0);
+});
+
+test('B1 / 补全：输入 / → 弹出技能清单（mock listSkills），选中注入 /技能名 前缀, Enter 发送剥前缀走 agent', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    seedContent: '内容',
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await openEditor(page);
+
+  const panel = await openAgentPanel(page);
+  const composer = panel.locator('textarea').first();
+  // 输入 / → 技能补全菜单（标题「运行技能」+ 3 个内置技能名称）
+  await composer.fill('/');
+  await expect(panel.getByText('运行技能', { exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText('polish_rewrite')).toBeVisible();
+  await expect(panel.getByText('tech_organize')).toBeVisible();
+  await expect(panel.getByText('kb_qa_guide')).toBeVisible();
+
+  // 选中技能 → 注入 /polish_rewrite 前缀 + 空格
+  await panel.getByText('polish_rewrite').click();
+  await expect(composer).toHaveValue('/polish_rewrite ');
+
+  // 补充指令 → Enter → 剥前缀后走 sendAgentMessage（本地 mock，无网络）
+  await composer.fill('/polish_rewrite 把这段润色');
+  await composer.press('Enter');
+  await page.waitForTimeout(400);
+  // agent 对话对本地 mock 返回脚本回复；验证出现 user 气泡（指令正文，精确匹配 user 气泡元素）
+  await expect(panel.getByText('把这段润色', { exact: true })).toBeVisible({ timeout: 5000 });
+  // 剥前缀生效：user 气泡内容为剥除 /技能名 后的指令正文
+  await expect(panel.getByText('把这段润色', { exact: true })).toHaveText('把这段润色');
   expect(errors.length).toBe(0);
 });

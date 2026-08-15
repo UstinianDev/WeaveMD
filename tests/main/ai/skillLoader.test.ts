@@ -8,7 +8,7 @@ const llmMock = vi.hoisted(() => ({
 }));
 vi.mock('@main/ai/llmClient', () => llmMock);
 
-import { CORE_SKILLS, loadSkills, runSkill } from '@main/ai/skillLoader';
+import { CORE_SKILLS, listSkillsForUi, loadSkills, runSkill } from '@main/ai/skillLoader';
 
 /** 构造临时的 userData/skills 目录并返回其路径（测试结束自动清理）。 */
 function makeSkillsDir(content: Record<string, string>): string {
@@ -29,6 +29,46 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.resetAllMocks();
+});
+
+describe('skillLoader.listSkillsForUi (B1)', () => {
+  it('returns [name, description] for core skills (no instructions/argsSchema leak)', () => {
+    const list = listSkillsForUi();
+    // 渲染仅需名称+描述；instructions/argsSchema 不得外泄
+    for (const item of list) {
+      expect(item).toHaveProperty('name');
+      expect(item).toHaveProperty('description');
+      expect(item).not.toHaveProperty('instructions');
+      expect(item).not.toHaveProperty('argsSchema');
+    }
+    expect(list).toHaveLength(CORE_SKILLS.length);
+    const names = list.map((s) => s.name);
+    expect(names).toContain('polish_rewrite');
+    expect(names).toContain('tech_organize');
+    expect(names).toContain('kb_qa_guide');
+  });
+
+  it('merges user-extended skills when a userData/skills dir is provided', () => {
+    const dir = makeSkillsDir({
+      mySkill:
+        '---\nname: mySkill\ndescription: 我的技能\ninstructions: secret-instructions\n---\n正文指令',
+    });
+    tempDirs.push(dir);
+    const list = listSkillsForUi(dir);
+    // 3 core + 1 user
+    const user = list.find((s) => s.name === 'mySkill');
+    expect(list).toHaveLength(4);
+    expect(user).toBeDefined();
+    expect(user?.description).toBe('我的技能');
+    // 用户扩展同样不泄 instructions
+    expect(user).not.toHaveProperty('instructions');
+  });
+
+  it('is core-only when userData dir is missing (non-throw)', () => {
+    expect(listSkillsForUi(join(tmpdir(), 'definitely-missing-skills-xyz'))).toHaveLength(
+      CORE_SKILLS.length
+    );
+  });
 });
 
 describe('skillLoader core skills', () => {

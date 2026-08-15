@@ -100,6 +100,14 @@ const rewriteMock = vi.hoisted(() => ({
 }));
 vi.mock('@main/ai/rewrite', () => rewriteMock);
 
+const skillLoaderMock = vi.hoisted(() => ({
+  listSkillsForUi: vi.fn(() => [
+    { name: 'polish_rewrite', description: '润色' },
+    { name: 'tech_organize', description: '整理' },
+  ]),
+}));
+vi.mock('@main/ai/skillLoader', () => skillLoaderMock);
+
 import { IPC_CHANNELS } from '@shared/constants';
 import { registerAiIpcHandlers } from '@main/ai/ipc';
 
@@ -131,6 +139,10 @@ beforeEach(() => {
   embeddingMock.probeEmbedding.mockReset();
   agentLoopMock.runAgentFlow.mockReset();
   rewriteMock.runRewrite.mockReset();
+  skillLoaderMock.listSkillsForUi.mockReset().mockReturnValue([
+    { name: 'polish_rewrite', description: '润色' },
+    { name: 'tech_organize', description: '整理' },
+  ]);
   // abort 归属校验：getConversation 默认返回 u1 名下的 c1（供 chatAbort/agentAbort 通过）
   dbMock.getConversation.mockReset().mockImplementation((conversationId: string, userId: string) =>
     conversationId === 'c1' && userId === 'u1'
@@ -804,8 +816,7 @@ describe('ai:ipc handlers', () => {
     );
   });
 
-  it('AGENT_RUN 传部分 kbSettings：其余持久化兜底（payload 显式 > 持久化）', async () => {
-    dbMock.getAiConfig.mockReturnValue({
+  it('AGENT_RUN 传部分 kbSettings：其余持久化兜底（payload 显式 > 持久化）', async () => {    dbMock.getAiConfig.mockReturnValue({
       id: 'cfg1',
       userId: 'u1',
       backend: 'ollama',
@@ -860,5 +871,43 @@ describe('ai:ipc handlers', () => {
         vectorEnabled: false,
       })
     );
+  });
+
+  // --- 第 7 期批次④ B1：AGENT_SKILLS_LIST（技能清单，只读 IPC） ---
+
+  it('registers an AGENT_SKILLS_LIST handler', () => {
+    expect(electronMock.handlers.get(IPC_CHANNELS.AGENT_SKILLS_LIST)).toBeDefined();
+  });
+
+  it('AGENT_SKILLS_LIST returns [name, description] skill list via listSkillsForUi', async () => {
+    skillLoaderMock.listSkillsForUi.mockReturnValue([
+      { name: 'polish_rewrite', description: '润色文本' },
+      { name: 'tech_organize', description: '整理技术资料' },
+    ]);
+    const result = (await getHandler(IPC_CHANNELS.AGENT_SKILLS_LIST)(
+      makeEvent(),
+      { userId: 'u1' }
+    )) as { success: boolean; data: Array<{ name: string; description: string }> };
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual([
+      { name: 'polish_rewrite', description: '润色文本' },
+      { name: 'tech_organize', description: '整理技术资料' },
+    ]);
+    // userData 路径解析：listSkillsForUi 传入 userData 下 skills 目录
+    const callArgs = skillLoaderMock.listSkillsForUi.mock.calls[0] as unknown[];
+    const dirArg = callArgs[0] as string | undefined;
+    expect(String(dirArg)).toContain('skills');
+  });
+
+  it('AGENT_SKILLS_LIST returns success:false envelope when listSkillsForUi throws', async () => {
+    skillLoaderMock.listSkillsForUi.mockImplementation(() => {
+      throw new Error('fs read failed');
+    });
+    const result = (await getHandler(IPC_CHANNELS.AGENT_SKILLS_LIST)(
+      makeEvent(),
+      { userId: 'u1' }
+    )) as { success: boolean; message: string };
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('skills');
   });
 });
