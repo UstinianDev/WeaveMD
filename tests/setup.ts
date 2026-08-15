@@ -63,7 +63,17 @@ const mockWeaveMD = {
     createConversation: vi.fn(),
     deleteConversation: vi.fn(),
     updateConversationSummary: vi.fn(),
+    runAgent: vi.fn(),
+    agentAbort: vi.fn(),
     onStream: vi.fn(() => () => {}),
+  },
+  kb: {
+    list: vi.fn(),
+    importFile: vi.fn(),
+    importDir: vi.fn(),
+    reindex: vi.fn(),
+    delete: vi.fn(),
+    status: vi.fn(),
   },
 };
 

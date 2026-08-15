@@ -161,30 +161,36 @@ v1（容器级 contentEditable）回退路径已退役（v2 唯一路径，2026-
 | **@testing-library/react** | ^14.2.0 | 组件测试                  |
 | **Playwright**             | ^1.x    | 真实 Chromium E2E（编辑输入/IME/富文本渲染） |
 
-### 2.10 AI 智能体与知识库（Agent 面板，2026-08-14 第1/2期已交付）
+### 2.10 AI 智能体与知识库（Agent 面板，2026-08-15：第 1/2 期基建+Chat、第 3+4 期知识库+Agent 能力均已交付）
 
 > 需求见 REQUIREMENTS 3.7/3.8，设计见 modules/11-AI代理面板-Agent.md，
-> 实施进度见 docs/plan/ai-agent-panel.status.md（第1期基建 + 第2期 Chat 闭环已交付）。
+> 实施进度见 docs/plan/ai-agent-panel.status.md（第1/2期 Chat 闭环 + 第3/4期知识库+Agent 能力已交付）。
 
 | 技术                        | 版本 | 用途                                                              |
 | --------------------------- | ---- | ----------------------------------------------------------------- |
-| **Ollama**                  | 本地 | 默认 LLM + 本地 embedding（`nomic-embed-text`），离线主路径        |
-| 远程 OpenAI 兼容 API        | —    | 可选后端（DeepSeek/OpenAI 等，设置配置，key 经 safeStorage 加密）  |
-| **@modelcontextprotocol/sdk** | —    | MCP client（stdio），主进程拉起 context7/firecrawl server          |
-| **better-sqlite3 FTS5**     | —    | 关键词召回（BM25）；已实证（Electron 运行时 SQLite 3.49.2 FTS5 OK）|
+| **Ollama**                  | 本地 | 默认 LLM + 本地 embedding（`nomic-embed-text`，`/api/embed` 批量），离线主路径        |
+| 远程 OpenAI 兼容 API        | —    | 可选后端（DeepSeek/OpenAI 等，设置配置，key 经 safeStorage 加密；tools 函数调用实测支持）  |
+| **better-sqlite3 FTS5**     | —    | 关键词召回（BM25 `kb_chunks_fts` 虚拟表 + 触发器）；已实证（Electron 运行时 SQLite 3.49.2 FTS5 OK）|
 | **Electron safeStorage**    | —    | API key 加密存储（DPAPI/Keychain），密钥不落渲染进程               |
-| JS tokenizer（tiktoken 兼容）| —    | 上下文压缩的 token 估算                                            |
+| 自建余弦纯函数              | —    | 向量召回余弦相似度（零重依赖）；向量存 float32 BLOB               |
+| (规划) @modelcontextprotocol/sdk | — | MCP server 进程管理（context7/firecrawl）——**延期未交付**        |
+| (规划) JS tokenizer（tiktoken）| —  | 上下文压缩 token 精确计数——**未采用**，用字符数/4 近似估算          |
 
-主进程 `src/main/ai/`：`llmClient`（SSE 流式）/ `embeddingClient` / `mcpManager` /
-`kbIndexer` / `kbSearch`（FTS5+向量双路召回）/ `intentRouter` / `contextManager` /
-`toolRegistry` / `consent`。渲染层 `components/AIAgent/` + `stores/agentStore.ts`，
-IPC 通道 `ai:*`（白名单）。网络请求全走主进程。
+主进程 `src/main/ai/`（已交付）：`llmClient`（SSE 流式 + tools）/ `embeddingClient` /
+`kbIndexer` / `kbSearch`（FTS5+向量双路召回 + 拒答 + 置顶加权）/ `intentRouter` /
+`contextManager` / `toolRegistry`（4 只读工具）/ `skillLoader` / `agentLoop`（函数调用循环）/ `consent`；
+`mcpManager` **延期**。渲染层 `components/AIAgent/` + `stores/agentStore.ts`（AgentTab/ToolCallTrace/
+IntentCard/MarkdownMessage/KnowledgeBaseSettings），IPC 通道 `ai:*` / `kb:*` / `agent:*`（白名单）。
+网络请求全走主进程。
 
 架构决策：
 
-- **离线优先 + 可选联网**：默认 Ollama 本地闭环，联网型能力（远程 API/MCP/笔记外发）必须用户知情同意（AGT-19/KB-05）
-- **块级改写复用 v2 块树**：定向块编辑协议 + `stateToMarkdown` 写入，红删绿增预览后才落盘，可撤销；AI 无直接写盘能力
-- **知识库**：账号内全部笔记 + 导入文档统一索引（`kb_documents`/`kb_chunks`），按账号隔离，置顶文档加权
+- **离线优先 + 可选联网**：默认 Ollama 本地闭环，联网型能力（远程 API/MCP/笔记外发）必须用户知情同意（AGT-19/KB-05）；
+  consent 分层：联网闸 `allowNetwork` + KB 外发闸 `allowSend`
+- **知识库双路召回**：账号内全部笔记 + 导入文档统一索引（`kb_documents`/`kb_chunks` + FTS5 虚拟表），按账号隔离，
+  置顶文档加权 ×1.5；nomic-embed-text 未装自动降级仅 FTS5（关键词召回）
+- **Agent 工具只读**：本轮只注册 listFiles/readFile/searchKB/runSkill 只读工具，无写工具；
+  ⚠️ 块级改写复用 v2 块树 + 红删绿增预览（第 5 期）**延期未实施**
 
 ## 3. 架构决策
 
@@ -243,7 +249,7 @@ src/
 │   ├── ipc-handlers.ts  # IPC 通道
 │   ├── media-protocol.ts # media:// 本地图协议（非 standard scheme）
 │   ├── preload.ts   # 安全桥接
-│   ├── ai/          # AI 服务（规划：llm/embedding/mcp/kb/intent/context/tools）
+│   ├── ai/          # AI 服务（第1/2/3/4期已交付：llm/embedding/kb/intent/context/tools/skill/agentLoop/consent；mcpManager 延期）
 │   └── db/          # SQLite 数据访问层
 ├── render/          # React 前端
 │   ├── editor/      # 编辑内核（v2，与 React 解耦）
@@ -256,7 +262,7 @@ src/
 │   │   │            #   resizeMath、imageAnchor、modalConstants 等）
 │   │   ├── Navbar/  # 顶部导航
 │   │   ├── Settings/ # 设置模态框
-│   │   ├── AIAgent/ # AI 面板（规划：Chat/Agent、提问卡片、diff 预览）
+│   │   ├── AIAgent/ # AI 面板（Chat/AgentTab/ToolCallTrace/IntentCard/MarkdownMessage/KnowledgeBaseSettings 已交付；diff 预览第5期）
 │   │   └── Common/  # 通用组件
 │   ├── services/    # 业务逻辑（blockTree、markdown、search）
 │   ├── stores/      # Zustand 状态管理
