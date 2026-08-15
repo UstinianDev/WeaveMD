@@ -8,14 +8,22 @@ import type { ExportRequest, ExportResult } from './export/types';
 import type {
   AIErrorCode,
   AIStreamEvent,
+  AgentRunPayload,
+  AgentRunResult,
   AiChatResult,
   AiConfigUpdate,
   AiConversationDetail,
   AiHealth,
   ConversationMode,
+  IAgentStreamToolEvent,
   IAIConfig,
   IAIConsent,
   IAIConversation,
+  IKbDocumentStatus,
+  IKbImportResult,
+  KbDeleteResult,
+  KbImportDirRequest,
+  KbStatusResponse,
 } from '@shared/ai';
 import type { IpcResponse } from '@shared/types';
 
@@ -92,7 +100,7 @@ export interface WeaveMDApi {
       conversationId: string | null;
       message: string;
     }) => Promise<IpcResponse<AiChatResult>>;
-    chatAbort: (conversationId: string) => Promise<IpcResponse<Record<string, never>>>;
+    chatAbort: (conversationId: string, userId: string) => Promise<IpcResponse<Record<string, never>>>;
     listConversations: (
       userId: string,
       mode?: ConversationMode
@@ -114,7 +122,21 @@ export interface WeaveMDApi {
       userId: string,
       summary: string
     ) => Promise<IpcResponse<IAIConversation>>;
-    onStream: (cb: (evt: AIStreamEvent) => void) => () => void;
+    runAgent: (payload: AgentRunPayload) => Promise<IpcResponse<AgentRunResult>>;
+    agentAbort: (conversationId: string, userId: string) => Promise<IpcResponse<{ aborted: boolean }>>;
+    onStream: (cb: (evt: AIStreamEvent | IAgentStreamToolEvent) => void) => () => void;
+  };
+  kb: {
+    list: (userId: string) => Promise<IpcResponse<IKbDocumentStatus[]>>;
+    importFile: (input: {
+      userId: string;
+      title: string;
+      content: string;
+    }) => Promise<IpcResponse<IKbImportResult>>;
+    importDir: (req: KbImportDirRequest) => Promise<IpcResponse<IKbImportResult[]>>;
+    reindex: (input: { userId: string; fileId: string }) => Promise<IpcResponse<IKbImportResult>>;
+    delete: (input: { userId: string; fileId: string }) => Promise<IpcResponse<KbDeleteResult>>;
+    status: (userId: string) => Promise<IpcResponse<KbStatusResponse>>;
   };
 }
 
@@ -189,8 +211,8 @@ const api: WeaveMDApi = {
       ipcRenderer.invoke(IPC_CHANNELS.AI_SET_CONSENT, { userId, consent }),
     health: () => ipcRenderer.invoke(IPC_CHANNELS.AI_HEALTH),
     chat: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_CHAT, payload),
-    chatAbort: (conversationId) =>
-      ipcRenderer.invoke(IPC_CHANNELS.AI_CHAT_ABORT, conversationId),
+    chatAbort: (conversationId, userId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_CHAT_ABORT, conversationId, userId),
     listConversations: (userId, mode) =>
       ipcRenderer.invoke(IPC_CHANNELS.AI_CONVERSATION_LIST, userId, mode),
     getConversation: (conversationId, userId) =>
@@ -201,9 +223,15 @@ const api: WeaveMDApi = {
       ipcRenderer.invoke(IPC_CHANNELS.AI_CONVERSATION_DELETE, conversationId, userId),
     updateConversationSummary: (conversationId, userId, summary) =>
       ipcRenderer.invoke(IPC_CHANNELS.AI_SUMMARY_UPDATE, conversationId, userId, summary),
+    runAgent: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_RUN, payload),
+    agentAbort: (conversationId, userId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_ABORT, conversationId, userId),
     onStream: (cb) => {
       const listeners: Array<() => void> = [];
-      const subscribe = <T>(channel: string, map: (payload: T) => AIStreamEvent): void => {
+      const subscribe = <T>(
+        channel: string,
+        map: (payload: T) => AIStreamEvent | IAgentStreamToolEvent
+      ): void => {
         const handler = (_event: Electron.IpcRendererEvent, payload: T): void => {
           cb(map(payload));
         };
@@ -235,10 +263,39 @@ const api: WeaveMDApi = {
           message: p.message,
         })
       );
+      subscribe(
+        IPC_CHANNELS.AI_STREAM_TOOL,
+        (p: {
+          conversationId: string;
+          toolCallId: string;
+          name: string;
+          args: string;
+          status: 'ok' | 'error';
+          result?: string;
+          errorDesc?: string;
+        }) => ({
+          type: 'tool',
+          conversationId: p.conversationId,
+          toolCallId: p.toolCallId,
+          name: p.name,
+          args: p.args,
+          status: p.status,
+          ...(p.result !== undefined ? { result: p.result } : {}),
+          ...(p.errorDesc !== undefined ? { errorDesc: p.errorDesc } : {}),
+        })
+      );
       return () => {
         for (const off of listeners) off();
       };
     },
+  },
+  kb: {
+    list: (userId) => ipcRenderer.invoke(IPC_CHANNELS.KB_LIST, { userId }),
+    importFile: (input) => ipcRenderer.invoke(IPC_CHANNELS.KB_IMPORT_FILE, input),
+    importDir: (req) => ipcRenderer.invoke(IPC_CHANNELS.KB_IMPORT_DIR, req),
+    reindex: (input) => ipcRenderer.invoke(IPC_CHANNELS.KB_REINDEX, input),
+    delete: (input) => ipcRenderer.invoke(IPC_CHANNELS.KB_DELETE, input),
+    status: (userId) => ipcRenderer.invoke(IPC_CHANNELS.KB_STATUS, { userId }),
   },
 };
 

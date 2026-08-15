@@ -72,6 +72,15 @@ async function collect(gen: AsyncGenerator<{ delta: string }>): Promise<string[]
   return out;
 }
 
+/** 收集完整块（含 toolCalls），便于断言工具累积。 */
+async function collectFull(
+  gen: AsyncGenerator<{ delta: string; toolCalls?: Array<{ index: number; name: string; arguments: string }> }>
+): Promise<Array<{ delta: string; toolCalls?: Array<{ index: number; name: string; arguments: string }> }>> {
+  const out: Array<{ delta: string; toolCalls?: Array<{ index: number; name: string; arguments: string }> }> = [];
+  for await (const c of gen) out.push(c);
+  return out;
+}
+
 function baseOpts(over = {}) {
   return {
     backend: 'ollama' as const,
@@ -272,5 +281,146 @@ describe('llmClient.probeOllama', () => {
     fetchMock.mockRejectedValue(new Error('connection refused'));
     const probe = await probeOllama('http://localhost:11434');
     expect(probe.online).toBe(false);
+  });
+});
+
+describe('llmClient.streamChatCompletion tools', () => {
+  let fetchMock: FetchMock;
+  beforeEach(() => {
+    fetchMock = stubFetch();
+  });
+  afterEach(() => {
+    fetchMock?.mockReset();
+  });
+
+  const toolDefs = [
+    {
+      type: 'function' as const,
+      function: { name: 'listFiles', description: 'x', parameters: {} },
+    },
+  ];
+
+  it('sends tools and tool_choice:auto in request body when tools provided', async () => {
+    fetchMock.mockResolvedValue(makeResponse(makeBody('data: [DONE]\n\n')));
+    await collect(
+      streamChatCompletion(baseOpts({ tools: toolDefs, toolChoice: 'auto' }))
+    );
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body.tools).toEqual(toolDefs);
+    expect(body.tool_choice).toBe('auto');
+  });
+
+  it('omits tools from body when not provided', async () => {
+    fetchMock.mockResolvedValue(makeResponse(makeBody('data: [DONE]\n\n')));
+    await collect(streamChatCompletion(baseOpts()));
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body.tools).toBeUndefined();
+    expect(body.tool_choice).toBeUndefined();
+  });
+
+  it('accumulates delta.tool_calls arguments across chunks and returns on finish_reason tool_calls', async () => {
+    fetchMock.mockResolvedValue(
+      makeResponse(
+        makeBody(
+          [
+            sseEvent({
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [
+                      { index: 0, function: { name: 'readFile', arguments: '{"file_id"' } },
+                    ],
+                  },
+                },
+              ],
+            }),
+            sseEvent({
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [{ index: 0, function: { arguments: ':"abc"}' } }],
+                  },
+                },
+              ],
+            }),
+            sseEvent({
+              choices: [
+                {
+                  delta: {},
+                  finish_reason: 'tool_calls',
+                },
+              ],
+            }),
+            'data: [DONE]\n\n',
+          ].join('')
+        )
+      )
+    );
+    const chunks = await collectFull(streamChatCompletion(baseOpts({ tools: toolDefs })));
+    const done = chunks.filter((c) => c.toolCalls && c.toolCalls.length > 0);
+    expect(done.length).toBe(1);
+    expect(done[0].toolCalls).toEqual([
+      { index: 0, name: 'readFile', arguments: '{"file_id":"abc"}' },
+    ]);
+  });
+
+  it('flushes accumulated tool_calls at stream tail when no explicit finish_reason', async () => {
+    fetchMock.mockResolvedValue(
+      makeResponse(
+        makeBody(
+          [
+            sseEvent({
+              choices: [
+                { delta: { tool_calls: [{ index: 0, function: { name: 'searchKB', arguments: '{}' } }] } },
+              ],
+            }),
+            'data: [DONE]\n\n',
+          ].join('')
+        )
+      )
+    );
+    const chunks = await collectFull(streamChatCompletion(baseOpts({ tools: toolDefs })));
+    const tail = chunks.find((c) => c.toolCalls && c.toolCalls.length > 0);
+    expect(tail?.toolCalls).toEqual([
+      { index: 0, name: 'searchKB', arguments: '{}' },
+    ]);
+  });
+
+  it('handles parallel tool calls with distinct indices', async () => {
+    fetchMock.mockResolvedValue(
+      makeResponse(
+        makeBody(
+          [
+            sseEvent({
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [
+                      { index: 0, function: { name: 'listFiles', arguments: '{}' } },
+                      { index: 1, function: { name: 'readFile', arguments: '{"file_id"' } },
+                    ],
+                  },
+                },
+              ],
+            }),
+            sseEvent({
+              choices: [
+                { delta: { tool_calls: [{ index: 1, function: { arguments: ':"x"}' } }] } },
+              ],
+            }),
+            sseEvent({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] }),
+            'data: [DONE]\n\n',
+          ].join('')
+        )
+      )
+    );
+    const chunks = await collectFull(streamChatCompletion(baseOpts({ tools: toolDefs })));
+    const done = chunks.find((c) => c.toolCalls && c.toolCalls.length > 0);
+    expect(done?.toolCalls).toEqual([
+      { index: 0, name: 'listFiles', arguments: '{}' },
+      { index: 1, name: 'readFile', arguments: '{"file_id":"x"}' },
+    ]);
   });
 });

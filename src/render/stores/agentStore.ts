@@ -1,39 +1,67 @@
 // ============================================
 // WeaveMD — AI 代理面板 会话 Store (Zustand)
 // ============================================
-// Chat 闭环状态机：会话/消息/流式/知情同意。
-// AI 无落盘能力（写路径必经预览确认），本期 Chat 不写盘故无触发点。
+// Chat 闭环状态机 + Agent 能力（知识库开关/工具轨迹/意图卡片/降级提示）。
+// AI 无落盘能力（写路径必经预览确认），KB 导入是用户主动行为，本轮无写工具触发点。
 
 import { create } from 'zustand';
-import type { IAIConfig, IAIConsent, IAIConversation, IAIMessage } from '@shared/ai';
+import type {
+  ConversationMode,
+  IAIConfig,
+  IAIConsent,
+  IAIConversation,
+  IAIMessage,
+  IAgentToolCall,
+  IIntent,
+  IKbDocumentStatus,
+  IKbSettings,
+  KbStatusResponse,
+} from '@shared/ai';
 import type { WeaveMDApi } from '@main/preload';
 import { useAuthStore } from './authStore';
 
-/**
- * 运行时入口：类型来自 preload 的 WeaveMDApi.ai 契约。
- * 仅在极端运行时缺失 window.weaveMD 时做薄 null 兜底（不持有独立契约副本）。
- */
+/** 运行时入口：类型来自 preload 的 WeaveMDApi.ai 契约。 */
 type AiApi = WeaveMDApi['ai'];
+type KbApi = WeaveMDApi['kb'];
 
 function getAi(): AiApi {
   return window.weaveMD?.ai;
 }
 
+function getKb(): KbApi {
+  return window.weaveMD?.kb;
+}
+
+export type ConsentAction = 'chat' | 'agent';
+
 /**
- * 知情同意判定（与主进程服务端一致）：
- * - backend==='remote' 且未 allowNetwork -> 需同意；
- * - ollama 本地 chat -> 不需同意；
- * - config/consent 缺失按「需同意」处理（先配置再放行）。
+ * 知情同意判定（与主进程服务端 consent.ts 语义一致）：
+ * - chat:  remote 且未 allowNetwork -> 需同意；ollama 本地 chat -> 不需；
+ * - agent: remote 需 allowNetwork（联网外发）；ollama 本地 agent（降级纯生成）不需；
+ * - config 缺失一律按「需同意」处理（先配置再放行）。
+ * - 知识库检索外发（allowSend）在 sendAgentMessage 内单独 gating（useKnowledgeBase 时）。
  */
-export function needsConsent(config: IAIConfig | null, consent: IAIConsent | null): boolean {
+export function needsConsent(
+  config: IAIConfig | null,
+  consent: IAIConsent | null,
+  action: ConsentAction = 'chat'
+): boolean {
   if (!config) return true;
+  if (action === 'agent') {
+    return config.backend === 'remote' && !consent?.allowNetwork;
+  }
+  // chat
   if (config.backend === 'ollama') return false;
   return !consent?.allowNetwork;
 }
 
 interface AgentStore {
   activeTab: 'chat' | 'agent';
+  /** 会话模式隔离（与 activeTab 联动，agent 独立会话域）。 */
+  activeMode: ConversationMode;
   activeConversationId: string | null;
+  /** 当前登录用户 id（init 时从 userId 参数保存，供 abort 归属校验）。 */
+  userId: string;
   messages: IAIMessage[];
   conversations: IAIConversation[];
   isStreaming: boolean;
@@ -43,24 +71,46 @@ interface AgentStore {
   pendingConsent: boolean;
   streamUnsubscribe: (() => void) | null;
 
+  // —— 第 3+4 期新增 ——
+  useKnowledgeBase: boolean;
+  toolCalls: IAgentToolCall[];
+  intentCard: IIntent | null;
+  agentBackendHint: string | null;
+  kbStatus: KbStatusResponse | null;
+  kbDocuments: IKbDocumentStatus[];
+  /** KB 召回/融合/拒答/置顶权重 + embedding 端点设置（内存态，持久化留后续批次）。 */
+  kbSettings: IKbSettings;
+
   init: (userId: string) => Promise<void>;
   reset: () => void;
   newChat: () => void;
   sendMessage: (text: string) => Promise<void>;
+  sendAgentMessage: (text: string) => Promise<void>;
   stopStream: () => void;
   toggleTab: (tab: 'chat' | 'agent') => void;
+  toggleMode: (mode: ConversationMode) => void;
+  setUseKnowledgeBase: (enabled: boolean) => void;
+  setKbSettings: (settings: IKbSettings) => void;
   deleteConversation: (id: string) => Promise<void>;
-  loadConversation: (id: string) => Promise<void>;
-  loadConversations: () => Promise<void>;
+  loadConversation: (id: string, mode?: ConversationMode) => Promise<void>;
+  loadConversations: (mode?: ConversationMode) => Promise<void>;
   setConsent: (consent: IAIConsent) => Promise<void>;
   setPendingConsent: (pendingConsent: boolean) => void;
   clearMessages: () => void;
+
+  // —— KB / 压缩动作 ——
+  loadKbStatus: () => Promise<void>;
+  triggerKbImportFile: (input: { title: string; content: string }) => Promise<boolean>;
+  triggerKbImportDir: (folderPath: string) => Promise<void>;
+  triggerKbDelete: (fileId: string) => Promise<void>;
+  runManualCompress: () => Promise<void>;
 }
 
-/** 需要重置的代理字段快照（不含无法序列化/派生字段） */
+/** 需要重置的代理字段快照（不含无法序列化/派生字段）。 */
 const RESET_FIELDS: Pick<
   AgentStore,
   | 'activeConversationId'
+  | 'userId'
   | 'messages'
   | 'conversations'
   | 'isStreaming'
@@ -69,8 +119,17 @@ const RESET_FIELDS: Pick<
   | 'config'
   | 'pendingConsent'
   | 'streamUnsubscribe'
+  | 'activeMode'
+  | 'useKnowledgeBase'
+  | 'toolCalls'
+  | 'intentCard'
+  | 'agentBackendHint'
+  | 'kbStatus'
+  | 'kbDocuments'
+  | 'kbSettings'
 > = {
   activeConversationId: null,
+  userId: '',
   messages: [],
   conversations: [],
   isStreaming: false,
@@ -79,7 +138,24 @@ const RESET_FIELDS: Pick<
   config: null,
   pendingConsent: false,
   streamUnsubscribe: null,
+  activeMode: 'chat',
+  useKnowledgeBase: false,
+  toolCalls: [],
+  intentCard: null,
+  agentBackendHint: null,
+  kbStatus: null,
+  kbDocuments: [],
+  kbSettings: {
+    topK: 5,
+    fuse: 0.5,
+    threshold: 0.6,
+    pinnedWeight: 1.5,
+    embeddingHost: 'http://localhost:11434',
+    embeddingModel: 'nomic-embed-text',
+  },
 };
+
+const makeId = () => `m-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 export const useAgentStore = create<AgentStore>((set, get) => ({
   activeTab: 'chat',
@@ -97,11 +173,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     const consent = consentRes.success ? (consentRes.data ?? null) : null;
     const conversations = convRes.success ? (convRes.data ?? []) : [];
 
-    set({ config, consent, conversations });
+    set({ userId, config, consent, conversations, activeMode: 'chat' });
   },
 
   reset: () => {
-    // 退订残留流，防串号
     get().streamUnsubscribe?.();
     set({ ...RESET_FIELDS, activeTab: 'chat' });
   },
@@ -111,6 +186,9 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       activeConversationId: null,
       messages: [],
       streamBuffer: '',
+      toolCalls: [],
+      intentCard: null,
+      agentBackendHint: null,
     });
   },
 
@@ -119,8 +197,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     if (!trimmed) return;
     const { config, consent, activeConversationId } = get();
 
-    // 铁律二：联网/笔记外发必须知情同意
-    if (needsConsent(config, consent)) {
+    // 铁律二：联网/笔记外发必须知情同意（chat）
+    if (needsConsent(config, consent, 'chat')) {
       set({ pendingConsent: true });
       return;
     }
@@ -128,19 +206,17 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     const ai = getAi();
     const userId = useAuthStore.getState().user?.id ?? '';
 
-    // 建/续会话
     let conversationId: string | null = activeConversationId;
     if (!conversationId) {
       const createRes = await ai.createConversation(userId, 'chat');
       if (!createRes.success || !createRes.data) return;
       conversationId = createRes.data.id;
-      set({ activeConversationId: conversationId });
-      await get().loadConversations();
+      set({ activeConversationId: conversationId, activeMode: 'chat' });
+      await get().loadConversations('chat');
     }
 
-    const id = () => `m-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const userMsg: IAIMessage = {
-      id: id(),
+      id: makeId(),
       conversationId,
       role: 'user',
       content: trimmed,
@@ -154,7 +230,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       pendingConsent: false,
     }));
 
-    // 订阅流
     let unsubscribe: (() => void) | null = null;
 
     const finishStream = (persist: boolean) => {
@@ -169,7 +244,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           ? [
               ...s.messages,
               {
-                id: id(),
+                id: makeId(),
                 conversationId: conversationId ?? '',
                 role: 'assistant' as const,
                 content: finalContent,
@@ -197,7 +272,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     });
     set({ streamUnsubscribe: unsubscribe });
 
-    // 主推流请求（流结束后 resolve），异常时也兜底复位
     try {
       await ai.chat({ userId, conversationId, message: trimmed });
     } catch {
@@ -205,16 +279,163 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     }
   },
 
+  async sendAgentMessage(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const { config, consent, activeConversationId, useKnowledgeBase } = get();
+
+    // 铁律二：agent 模式联网外发 + 知识库检索外发均需知情同意
+    if (needsConsent(config, consent, 'agent')) {
+      set({ pendingConsent: true });
+      return;
+    }
+    if (useKnowledgeBase && !consent?.allowSend) {
+      set({ pendingConsent: true });
+      return;
+    }
+
+    const ai = getAi();
+    const userId = useAuthStore.getState().user?.id ?? '';
+
+    // 建/续 mode='agent' 会话（与 chat 会话域隔离）
+    let conversationId: string | null = activeConversationId;
+    if (!conversationId) {
+      const createRes = await ai.createConversation(userId, 'agent');
+      if (!createRes.success || !createRes.data) return;
+      conversationId = createRes.data.id;
+      set({ activeConversationId: conversationId, activeMode: 'agent' });
+      await get().loadConversations('agent');
+    }
+
+    const userMsg: IAIMessage = {
+      id: makeId(),
+      conversationId,
+      role: 'user',
+      content: trimmed,
+      refsJson: null,
+      createdAt: new Date().toISOString(),
+    };
+    // 新一轮开始清空上轮轨迹/意图/提示
+    set((s) => ({
+      messages: [...s.messages, userMsg],
+      isStreaming: true,
+      streamBuffer: '',
+      pendingConsent: false,
+      toolCalls: [],
+      intentCard: null,
+      agentBackendHint: null,
+    }));
+
+    let unsubscribe: (() => void) | null = null;
+
+    const finishStream = (persist: boolean) => {
+      const { streamBuffer } = get();
+      const finalContent = streamBuffer;
+      unsubscribe?.();
+      set((s) => ({
+        isStreaming: false,
+        streamUnsubscribe: null,
+        streamBuffer: '',
+        messages: persist
+          ? [
+              ...s.messages,
+              {
+                id: makeId(),
+                conversationId: conversationId ?? '',
+                role: 'assistant' as const,
+                content: finalContent,
+                refsJson: null,
+                createdAt: new Date().toISOString(),
+              },
+            ]
+          : s.messages,
+      }));
+    };
+
+    unsubscribe = ai.onStream((evt) => {
+      if (evt.conversationId !== conversationId) return;
+      if (evt.type === 'chunk') {
+        set((s) => ({ streamBuffer: s.streamBuffer + evt.delta }));
+        return;
+      }
+      if (evt.type === 'tool') {
+        // 工具调用轨迹流式累积（专供 ToolCallTrace 回显）
+        const toolCall: IAgentToolCall = {
+          toolCallId: evt.toolCallId,
+          name: evt.name,
+          args: evt.args,
+          status: evt.status,
+          ...(evt.result !== undefined ? { result: evt.result } : {}),
+          ...(evt.errorDesc !== undefined ? { errorDesc: evt.errorDesc } : {}),
+        };
+        set((s) => {
+          const rest = s.toolCalls.filter((c) => c.toolCallId !== evt.toolCallId);
+          return { toolCalls: [...rest, toolCall] };
+        });
+        return;
+      }
+      if (evt.type === 'done') {
+        finishStream(true);
+        return;
+      }
+      if (evt.type === 'error') {
+        finishStream(false);
+      }
+    });
+    set({ streamUnsubscribe: unsubscribe });
+
+    try {
+      const res = await ai.runAgent({
+        userId,
+        conversationId,
+        message: trimmed,
+        mode: 'agent',
+        useKnowledgeBase,
+        kbSettings: get().kbSettings,
+      });
+      // IpcResponse 类型不含 code（主进程 AGENT_RUN 失败信封实际携带），此处按运行时桥契约读取。
+      const failedCode = (res as unknown as { code?: string }).code;
+      if (!res.success && failedCode === 'consent_required') {
+        // 服务端同意闸未过（联网闸兜底）：弹同意页而非静默丢弃，同意后用户重发。
+        finishStream(false);
+        set({ pendingConsent: true });
+        return;
+      }
+      if (res.success && res.data) {
+        const { intent, agentBackendHint } = res.data;
+        set({
+          ...(intent ? { intentCard: intent } : { intentCard: null }),
+          ...(agentBackendHint ? { agentBackendHint } : {}),
+        });
+      }
+    } catch (err) {
+      if ((err as { code?: string })?.code === 'consent_required') {
+        finishStream(false);
+        set({ pendingConsent: true });
+        return;
+      }
+      finishStream(false);
+    }
+  },
+
   stopStream() {
-    const { activeConversationId, streamUnsubscribe } = get();
+    const { activeConversationId, streamUnsubscribe, userId } = get();
     streamUnsubscribe?.();
-    if (activeConversationId) {
-      void getAi().chatAbort(activeConversationId);
+    // 归属校验：仅当已登录且持 userId 才调用 abort（未登录/无 userId 不发送）
+    if (activeConversationId && userId) {
+      void getAi().chatAbort(activeConversationId, userId);
+      void getAi().agentAbort(activeConversationId, userId);
     }
     set({ isStreaming: false, streamBuffer: '', streamUnsubscribe: null });
   },
 
-  toggleTab: (tab) => set({ activeTab: tab }),
+  toggleTab: (tab) => set({ activeTab: tab, activeMode: tab }),
+
+  toggleMode: (mode) => set({ activeMode: mode, activeTab: mode }),
+
+  setUseKnowledgeBase: (enabled) => set({ useKnowledgeBase: enabled }),
+
+  setKbSettings: (settings) => set({ kbSettings: settings }),
 
   async deleteConversation(id: string) {
     const userId = useAuthStore.getState().user?.id ?? '';
@@ -225,27 +446,32 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         conversations: s.conversations.filter((c) => c.id !== id),
         activeConversationId: s.activeConversationId === id ? null : s.activeConversationId,
         messages: s.activeConversationId === id ? [] : s.messages,
+        toolCalls: s.activeConversationId === id ? [] : s.toolCalls,
+        intentCard: s.activeConversationId === id ? null : s.intentCard,
       }));
     }
   },
 
-  async loadConversation(id: string) {
+  async loadConversation(id: string, mode: ConversationMode = 'chat') {
     const userId = useAuthStore.getState().user?.id ?? '';
     const ai = getAi();
     const res = await ai.getConversation(id, userId);
     if (res.success && res.data) {
       set({
         activeConversationId: id,
+        activeMode: mode,
         messages: res.data.messages,
         streamBuffer: '',
+        toolCalls: [],
+        intentCard: null,
       });
     }
   },
 
-  async loadConversations() {
+  async loadConversations(mode: ConversationMode = 'chat') {
     const userId = useAuthStore.getState().user?.id ?? '';
     const ai = getAi();
-    const res = await ai.listConversations(userId, 'chat');
+    const res = await ai.listConversations(userId, mode);
     if (res.success) {
       set({ conversations: res.data ?? [] });
     }
@@ -262,7 +488,62 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   setPendingConsent: (pendingConsent) => set({ pendingConsent }),
 
-  clearMessages: () => set({ messages: [] }),
+  clearMessages: () => set({ messages: [], toolCalls: [], intentCard: null }),
+
+  async loadKbStatus() {
+    const userId = useAuthStore.getState().user?.id ?? '';
+    const kb = getKb();
+    const [statusRes, listRes] = await Promise.all([kb.status(userId), kb.list(userId)]);
+    if (statusRes.success && statusRes.data) {
+      set({ kbStatus: statusRes.data });
+    }
+    if (listRes.success) {
+      set({ kbDocuments: listRes.data ?? [] });
+    }
+  },
+
+  async triggerKbImportFile(input: { title: string; content: string }): Promise<boolean> {
+    const userId = useAuthStore.getState().user?.id ?? '';
+    const kb = getKb();
+    const res = await kb.importFile({ userId, ...input });
+    if (res.success) {
+      await get().loadKbStatus();
+      return true;
+    }
+    return false;
+  },
+
+  async triggerKbImportDir(folderPath: string) {
+    const userId = useAuthStore.getState().user?.id ?? '';
+    const kb = getKb();
+    const res = await kb.importDir({ userId, folderPath });
+    if (res.success) {
+      await get().loadKbStatus();
+    }
+  },
+
+  async triggerKbDelete(fileId: string) {
+    const userId = useAuthStore.getState().user?.id ?? '';
+    const kb = getKb();
+    const res = await kb.delete({ userId, fileId });
+    if (res.success) {
+      await get().loadKbStatus();
+    }
+  },
+
+  async runManualCompress() {
+    const { activeConversationId, messages } = get();
+    if (!activeConversationId) return;
+    const userId = useAuthStore.getState().user?.id ?? '';
+    // 渲染侧手动压缩：截取最近几轮文本作轻量摘要，复用 AI_SUMMARY_UPDATE 通道
+    const recent = messages
+      .slice(-8)
+      .map((m) => (m.role === 'user' ? `Q:${m.content}` : `A:${m.content}`))
+      .join('\n')
+      .slice(0, 2000);
+    if (!recent.trim()) return;
+    await getAi().updateConversationSummary(activeConversationId, userId, recent);
+  },
 }));
 
 /**

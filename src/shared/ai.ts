@@ -108,3 +108,163 @@ export interface AIError {
   code: AIErrorCode;
   message: string;
 }
+
+// ============================================
+// 以下为第 3+4 期（知识库 + Agent 能力）新增共享类型
+// ============================================
+
+/** OpenAI 兼容函数参数 JSON Schema 的单字段定义（parameters 递归字典）。 */
+export interface ToolParameter {
+  type: string;
+  description?: string;
+  enum?: string[];
+  items?: ToolParameter;
+  properties?: Record<string, ToolParameter>;
+  required?: string[];
+}
+
+/** 单个工具的函数定义（OpenAI `function` 对象）。 */
+export interface ToolFunctionDef {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+/** OpenAI 兼容工具定义：`{type:'function', function:{name,description,parameters}}`。 */
+export interface ToolDef {
+  type: 'function';
+  function: ToolFunctionDef;
+}
+
+/** 意图分类结果（intentRouter 产物，供 AGENT_RUN 返回与意图提问卡片）。 */
+export type IntentName = 'create' | 'rewrite' | 'kbQa' | 'tech' | 'web' | 'chat';
+
+export interface IIntent {
+  intent: IntentName;
+  confidence: number;
+  /** 模糊意图时的候选意图（按置信度降序）。 */
+  candidates?: IntentName[];
+  /** 非结构化说明（用于调试/提示）。 */
+  reason?: string;
+}
+
+/** KB 检索命中结果（kbSearch 输出，含 FTS5/向量融合评分与出处）。 */
+export interface IKbSearchResult {
+  docId: string;
+  chunkId: string;
+  fileName: string;
+  content: string;
+  seq: number;
+  score: number;
+  pinned: boolean;
+  /** 出处定位（JSON 字符串或 null，供 KB-04 点击打开文档）。 */
+  sourceRef: string | null;
+}
+
+/** 知识库文档索引状态（KB_LIST 请求响应 data 元素）。 */
+export interface IKbDocumentStatus {
+  docId: string;
+  fileId: string | null;
+  title: string;
+  sourceType: 'db' | 'disk' | 'import';
+  pinned: boolean;
+  status: 'pending' | 'importing' | 'done' | 'error';
+  chunkCount: number;
+}
+
+/** KB 导入/重建结果（KB_IMPORT_FILE / KB_IMPORT_DIR / KB_REINDEX 响应）。 */
+export interface IKbImportResult {
+  docId: string;
+  title: string;
+  chunks: number;
+  status: IKbDocumentStatus['status'];
+}
+
+/** Agent 单次工具调用轨迹（流式 ai:stream:tool + ToolCallTrace 展示）。 */
+export interface IAgentToolCall {
+  toolCallId: string;
+  name: string;
+  /** 工具参数原始 JSON 字符串。 */
+  args: string;
+  status: 'ok' | 'error';
+  result?: string;
+  errorDesc?: string;
+}
+
+/** AGENT_RUN invoke 流结束后 resolve 的汇总结果。 */
+export interface AgentRunResult {
+  conversationId: string;
+  assistantId: string;
+  roundsUsed: number;
+  intent: IIntent | null;
+  /** 拒答（知识库检索未见足够相关来源，未生成答案）。 */
+  refused?: boolean;
+  usage?: { reasoningTokenCount: number | null };
+  /** ollama 后端降级为纯生成时的提示字段。 */
+  agentBackendHint?: string;
+}
+
+/** 知识库检索/召回设置（设置面板 ai.* 与 KB 问答生效）。 */
+export interface IKbSettings {
+  /** 召回 top-k（默认 5）。 */
+  topK: number;
+  /** 双路融合权重（默认 0.5）。 */
+  fuse: number;
+  /** 拒答阈值（默认 0.6）。 */
+  threshold: number;
+  /** 置顶文档加权（默认 1.5）。 */
+  pinnedWeight: number;
+  /** embedding 服务 host（Ollama）。 */
+  embeddingHost: string;
+  /** embedding 模型 id（nomic-embed-text）。 */
+  embeddingModel: string;
+}
+
+/** AI 流式事件：扩展 AIStreamEvent 判别联合，新增工具调用轨迹事件。 */
+export type IAgentStreamEvent = AIStreamEvent | IAgentStreamToolEvent;
+
+/** 工具调用流式推送事件（main -> render，webContents.send 'ai:stream:tool'）。 */
+export interface IAgentStreamToolEvent {
+  type: 'tool';
+  conversationId: string;
+  toolCallId: string;
+  name: string;
+  args: string;
+  status: 'ok' | 'error';
+  result?: string;
+  errorDesc?: string;
+}
+
+// ---------------------------------------------------------------------------
+// 第 3+4 期 IPC 载荷/响应类型（批次 2 接线新增）
+// ---------------------------------------------------------------------------
+
+/** AGENT_RUN invoke 请求载荷（含会话/消息/KB 开关）。 */
+export interface AgentRunPayload {
+  userId: string;
+  conversationId?: string | null;
+  message: string;
+  /** 会话模式锁定为 'agent'（render 不传也按 agent 处理）。 */
+  mode?: 'agent';
+  /** 是否启用知识库检索（kbQa 意图时可作为 searchKB 工具候选）。 */
+  useKnowledgeBase?: boolean;
+  /** 知识库检索设置（topK/fuse/threshold/pinnedWeight/embedding host+model），透传给 kbSearch。 */
+  kbSettings?: IKbSettings;
+}
+
+/** KB_IMPORT_DIR invoke 请求：主进程 fs 读取 folderPath 下 *.md/*.txt。 */
+export interface KbImportDirRequest {
+  userId: string;
+  folderPath: string;
+}
+
+/** KB_STATUS invoke 响应 data。 */
+export interface KbStatusResponse {
+  documents: number;
+  embedding: { available: boolean; dims: number | null };
+}
+
+/** KB_DELETE invoke 响应 data。 */
+export interface KbDeleteResult {
+  deleted: boolean;
+}

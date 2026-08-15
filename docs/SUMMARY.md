@@ -131,21 +131,28 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 - 质量门禁：`tsc --noEmit` + `vitest run` + ESLint(0 error) + `vite build` + `npx playwright test`
   + `vitest --coverage`（改动文件口径 ≥80%，当前全量 95.45%；`@vitest/coverage-v8`）
 
-## 5. AI 代理面板与知识库（2026-08-14 第1/2期已交付；第3-6期规划）
+## 5. AI 代理面板与知识库（2026-08-15：第 1/2 期基建+Chat、第 3+4 期知识库+Agent 能力均已交付；第 5 期块级改写 + 第 6 期收尾为后续）
 
-**第1期基建 + 第2期 Chat 闭环已交付（2026-08-14）**：5 表 DDL（ai_config/ai_conversations/ai_messages/kb_*）、
-`ai:*` IPC + preload、设置面板 AI Tab（safeStorage 加密 key）、知情同意页、导航栏 AI 按钮、
-llmClient（统一 OpenAI 兼容双后端 + SSE 流式）、右侧 AI 面板（Chat 全功能 + Agent 占位）、会话持久化；
-远程 DeepSeek 后端真连验证通过；详见 docs/plan/ai-agent-panel.status.md。
+**第 1/2 期已交付（2026-08-14）**：ai_* 4 表 DDL + kb_* 预留、`ai:*` IPC + preload、
+设置面板 AI Tab（safeStorage 加密 key）、知情同意页、导航栏 AI 按钮、llmClient（统一 OpenAI 兼容双后端 + SSE 流式）、
+右侧 AI 面板（Chat 全功能 + Agent 占位）、会话持久化；远程 DeepSeek 后端真连验证通过。
 
-第3-6期规划：
+**第 3+4 期已交付（2026-08-15）**：
+- **知识库**：kb DAO + FTS5 虚拟表 `kb_chunks_fts` + 触发器（CJK 前缀匹配注意）、embeddingClient
+  （Ollama `/api/embed`，nomic-embed-text 未装降级仅 FTS5）、kbIndexer（分块/状态流转/保存防抖重嵌入/删除清理）、
+  kbSearch（FTS5+向量 0.5/0.5 双路融合 + 拒答 0.6 + 置顶 ×1.5 + 出处）
+- **Agent 能力**：toolRegistry（listFiles/readFile/searchKB/runSkill，**只读无写工具**）、
+  agentLoop（≤6 轮函数调用循环，仅 remote 可靠、ollama 降级纯 chat）、skillLoader（3 内置技能 + 用户扩展 SKILL.md）、
+  intentRouter（规则启发式 6 类 + 候选提问卡片）、contextManager（/4 估算 + 80% 压缩）、
+  llmClient tools 支持、consent 分层（联网闸 allowNetwork + KB 外发闸 allowSend）
+- **渲染**：AgentTab 全功能、安全富文本（HAST→React，无 dangerouslySetInnerHTML）、
+  ToolCallTrace/IntentCard/KnowledgeBaseSettings、AI 面板 i18n（77 键/文件）、出处 openFile + 尽力滚动
 
-- 右侧 AI 面板（导航栏「AI」按钮开合），Chat（纯对话）/ Agent（辅助创作）双智能体
-- 铁律：AI 无直接落盘能力（写必经红删绿增预览→确认）；联网/笔记外发必须用户知情同意
-- 双支持后端（默认本地 Ollama + 可选远程）、内置 skills/MCP（context7/firecrawl）、
-  知识库双路召回（FTS5+本地向量）+ 拒答 + 出处 + 置顶加权、@ 文件块级改写、
-  意图识别 + 提问卡片 + 上下文压缩
-- 需求：REQUIREMENTS 3.7/3.8（AGT-/KB- 编号）；设计：modules/11；选型：TECH_STACK 2.10
-- 未决：markdown 创作 skill 定义、本地可用 embedding/对话模型（qwen3.5:0.8b 实测无限思考故障）
+延期不交付（如实标注，勿写成已交付）：第 5 期块级改写（选区/定向块编辑/红删绿增预览）、真 MCP server 管理
+（fetchContext7/fetchFirecrawl 工具）、GitHub 自取 writing-shape 技能、KB 参数持久化（本轮内存态）、
+embedding 双路真验依赖本地安装 nomic-embed-text。
+
+门禁：typecheck 0 error | vitest 82 files/1152 tests | lint 0 error | Playwright ai spec 10/10 | vite build；
+详见 docs/plan/ai-agent-panel.status.md。需求：REQUIREMENTS 3.7/3.8（AGT-/KB- 编号）；设计：modules/11；选型：TECH_STACK 2.10。
 
 > 各模块详细实现见 `docs/modules/`，需求见 `docs/REQUIREMENTS.md`，技术选型见 `docs/TECH_STACK.md`。

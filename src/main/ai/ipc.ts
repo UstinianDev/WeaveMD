@@ -6,8 +6,17 @@
 // done 落库 assistant 消息 -> send('ai:stream:done')。abort 经模块级 Map。
 
 import { BrowserWindow, ipcMain } from 'electron';
+import fs from 'fs';
 import { IPC_CHANNELS } from '@shared/constants';
-import type { AIErrorCode, ChatBackend, ConversationMode, IAIConfig, IAIConsent } from '@shared/ai';
+import type {
+  AIErrorCode,
+  AgentRunPayload,
+  ChatBackend,
+  ConversationMode,
+  IAIConfig,
+  IAIConsent,
+  KbImportDirRequest,
+} from '@shared/ai';
 import {
   appendMessage,
   assertConversationOwned,
@@ -20,9 +29,16 @@ import {
   updateConversationSummary,
   upsertAiConfig,
 } from '../db/ai';
+import { countChunksByDoc, listKbDocumentsByUser } from '../db/kb';
+import { getFile } from '../db/files';
 import { decryptApiKey, encryptApiKey } from './secureConfig';
 import { needsConsent } from './consent';
 import { probeOllama, streamChatCompletion } from './llmClient';
+import { runAgentFlow } from './agentLoop';
+import { indexFile, indexImportedText, removeByFile } from './kbIndexer';
+import { searchKB } from './kbSearch';
+import { probeEmbedding } from './embeddingClient';
+import type { IKbImportResult } from '@shared/ai';
 
 interface ChatReqPayload {
   userId: string;
@@ -240,15 +256,21 @@ export function registerAiIpcHandlers(): void {
     }
   );
 
-  // --- abort ---
-  ipcMain.handle(IPC_CHANNELS.AI_CHAT_ABORT, (_event, conversationId: string) => {
-    const controller = activeStreams.get(conversationId);
-    if (controller) {
-      controller.abort();
-      activeStreams.delete(conversationId);
+  // --- abort (归属校验：无归属/不存在则拒绝，加固防越权) ---
+  ipcMain.handle(
+    IPC_CHANNELS.AI_CHAT_ABORT,
+    (_event, conversationId: string, userId: string) => {
+      if (!getConversation(conversationId, userId)) {
+        return { success: false, message: 'Conversation not found' };
+      }
+      const controller = activeStreams.get(conversationId);
+      if (controller) {
+        controller.abort();
+        activeStreams.delete(conversationId);
+      }
+      return { success: true };
     }
-    return { success: true };
-  });
+  );
 
   // --- chat ---
   ipcMain.handle(IPC_CHANNELS.AI_CHAT, async (event, payload: ChatReqPayload) => {
@@ -280,6 +302,248 @@ export function registerAiIpcHandlers(): void {
     // 控制器在 runChatFlow 内以真实 convId 注册（含新建会话），并在其 finally 中清理
     return await runChatFlow(event, payload, config, row?.apiKeyEnc ?? null, controller);
   });
+
+  // --- knowledge base: invoke handlers (user_id 隔离, IpcResponse 信封) ---
+  ipcMain.handle(
+    IPC_CHANNELS.KB_LIST,
+    (_event, payload: { userId: string }) => {
+      try {
+        const docs = listKbDocumentsByUser(payload.userId).map((d) => ({
+          docId: d.id,
+          fileId: d.fileId,
+          title: d.title,
+          sourceType: d.sourceType,
+          pinned: d.pinned,
+          status: d.status,
+          chunkCount: countChunksByDoc(payload.userId, d.id),
+        }));
+        return { success: true, data: docs };
+      } catch (error) {
+        return { success: false, message: 'Failed to list knowledge base' };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.KB_IMPORT_FILE,
+    async (
+      _event,
+      payload: { userId: string; title: string; content: string }
+    ) => {
+      try {
+        if (!payload.title || typeof payload.content !== 'string') {
+          return { success: false, message: 'title/content required' };
+        }
+        const result = await indexImportedText(
+          payload.userId,
+          payload.title,
+          payload.content,
+          kbIndexOpts()
+        );
+        return { success: true, data: result };
+      } catch (error) {
+        return { success: false, message: 'Failed to import text to knowledge base' };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.KB_IMPORT_DIR,
+    async (_event, payload: KbImportDirRequest) => {
+      try {
+        const results: IKbImportResult[] = await importDirAsKb(payload.userId, payload.folderPath);
+        return { success: true, data: results };
+      } catch (error) {
+        return { success: false, message: 'Failed to import folder to knowledge base' };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.KB_REINDEX,
+    async (_event, payload: { userId: string; fileId: string }) => {
+      try {
+        if (!payload.fileId) return { success: false, message: 'fileId required' };
+        // 重索引源为知识库导入文档（无 files 行），或 db 文档（有 files 行）
+        const result = await reindexFromKbOrFile(payload.userId, payload.fileId);
+        if (!result) return { success: false, message: 'Knowledge base document not found' };
+        return { success: true, data: result };
+      } catch (error) {
+        return { success: false, message: 'Failed to reindex knowledge base document' };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.KB_DELETE,
+    (_event, payload: { userId: string; fileId: string }) => {
+      try {
+        const deleted = removeByFile(payload.userId, payload.fileId);
+        return { success: true, data: { deleted } };
+      } catch (error) {
+        return { success: false, message: 'Failed to delete knowledge base document' };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.KB_STATUS,
+    async (_event, payload: { userId: string }) => {
+      try {
+        const docs = listKbDocumentsByUser(payload.userId);
+        const probe = await probeEmbedding(embeddingProbeHost(), embeddingProbeModel());
+        return {
+          success: true,
+          data: {
+            documents: docs.length,
+            embedding: { available: probe.ok, dims: probe.dims },
+          },
+        };
+      } catch (error) {
+        return { success: false, message: 'Failed to get knowledge base status' };
+      }
+    }
+  );
+
+  // --- agent: run (invoke + stream via runAgentFlow) ---
+  ipcMain.handle(IPC_CHANNELS.AGENT_RUN, async (event, payload: AgentRunPayload) => {
+    const { userId } = payload;
+    const row = getAiConfig(userId);
+    const config: IAIConfig = row
+      ? toIAIConfig(row)
+      : {
+          backend: 'ollama',
+          ollamaBaseUrl: 'http://localhost:11434',
+          remoteBaseUrl: 'https://api.deepseek.com',
+          model: '',
+          hasApiKey: false,
+        };
+    const consent: IAIConsent = row
+      ? toIAIConsent(row)
+      : { allowNetwork: false, allowSend: false, consentUpdatedAt: null };
+
+    const controller = new AbortController();
+
+    const run = async (): Promise<unknown> => {
+      try {
+        // 会话归属校验 + 空 message 兜底由 runAgentFlow 内完成（含服务端 consent 闸）。
+        // conversationId 渲染侧可为 null，归一为可选 string 以贴合 agentLoop 载荷契约。
+        const agentPayload = {
+          userId: payload.userId,
+          message: payload.message,
+          ...(payload.conversationId ? { conversationId: payload.conversationId } : {}),
+          useKnowledgeBase: payload.useKnowledgeBase,
+        };
+        const result = await runAgentFlow(event, agentPayload, config, row?.apiKeyEnc ?? null, controller, {
+          searchKb: (u, q, o) =>
+            searchKB(u, q, {
+              topK: o?.topK,
+              vectorEnabled: o?.vectorEnabled,
+              pinnedWeight: o?.pinnedWeight,
+              threshold: o?.threshold,
+              ...(payload.kbSettings
+                ? { fuse: payload.kbSettings.fuse }
+                : {}),
+            }),
+          consent,
+        });
+        return { success: true, data: result };
+      } catch (err) {
+        const code = ((err as { code?: string })?.code ?? 'network') as AIErrorCode;
+        return { success: false, code, message: err instanceof Error ? err.message : String(err) };
+      } finally {
+        activeStreams.delete(payload.conversationId ?? '');
+      }
+    };
+
+    // runAgentFlow 内部以真实 convId 注册 activeStreams 于流开始；此处预注册 abort 上下文
+    const convId = payload.conversationId ?? '';
+    if (convId) {
+      activeStreams.set(convId, controller);
+    }
+    const result = await run();
+    // runAgentFlow 内部工具/对话流持续期间保持 activeStreams；流结束由 finally 已清理
+    if (convId) activeStreams.delete(convId);
+    return result;
+  });
+
+  // --- agent: abort (复用 activeStreams + 归属校验。conversationId 定位会话，userId 校验归属) ---
+  ipcMain.handle(
+    IPC_CHANNELS.AGENT_ABORT,
+    (_event, conversationId: string, userId: string) => {
+      if (!getConversation(conversationId, userId)) {
+        return {
+          success: false,
+          message: 'Conversation not found',
+          data: { aborted: false },
+        };
+      }
+      const controller = activeStreams.get(conversationId);
+      if (controller) {
+        controller.abort();
+        activeStreams.delete(conversationId);
+      }
+      return { success: true, data: { aborted: !!controller } };
+    }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// KB 目录批量导入（主进程 fs 读盘）
+// ---------------------------------------------------------------------------
+
+/** 目录批量导入：读 folderPath 下 *.md/*.txt，逐个 indexImportedText。路径安全校验，异常逐文件捕获。 */
+async function importDirAsKb(userId: string, folderPath: string): Promise<IKbImportResult[]> {
+  const results: IKbImportResult[] = [];
+  if (!folderPath || typeof folderPath !== 'string') return results;
+
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(folderPath, { withFileTypes: true });
+  } catch {
+    return results;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    if (!/\.(md|txt)$/i.test(entry.name)) continue;
+    const filePath = `${folderPath}/${entry.name}`;
+    let content: string;
+    try {
+      content = fs.readFileSync(filePath, 'utf-8');
+    } catch {
+      continue; // 单个文件读取失败跳过，不中断整批
+    }
+    const title = entry.name.replace(/\.(md|txt)$/i, '');
+    const result = await indexImportedText(userId, title, content, kbIndexOpts());
+    results.push(result);
+  }
+  return results;
+}
+
+/** KB 重索引：以文件系统笔记（files 表）重建该 fileId 的知识库文档。 */
+async function reindexFromKbOrFile(
+  userId: string,
+  fileId: string
+): Promise<IKbImportResult | null> {
+  const file = getFile(fileId, userId);
+  if (file) {
+    return indexFile(userId, { id: file.id, name: file.name, content: file.content }, kbIndexOpts());
+  }
+  return null;
+}
+
+/** 当前 KB 索引选项（向量开关默认关闭，宿主层可在启动时 setEmbeddingTarget 后翻转；此处保守仅关键词）。 */
+function kbIndexOpts(): { vectorEnabled: boolean } {
+  return { vectorEnabled: false };
+}
+
+/** KB_STATUS embedding 探针 host/model（默认本机 Ollama + nomic-embed-text）。 */
+function embeddingProbeHost(): string {
+  return 'http://localhost:11434';
+}
+function embeddingProbeModel(): string {
+  return 'nomic-embed-text';
 }
 
 async function runChatFlow(

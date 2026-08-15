@@ -1,1 +1,3 @@
 - [FloatingToolbar re-export 耦合](project_floating-toolbar-reexport.md) — FloatingToolbar.tsx 刻意 re-export toolbarState 纯函数以维持旧测试导入路径
+- [Agent 知情同意主/渲染不一致](feedback-consent-doublesource.md) — needsConsent('agent') 主端要求 allowSend、渲染端仅 allowNetwork，违反计划的"双源真值"
+- [Remote agent consent 过度收紧](feedback-consent-over-strict.md) — 主端对纯工具/聊天也强制 allowSend，应仅 KB 外发要求
