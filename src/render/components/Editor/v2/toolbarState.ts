@@ -26,6 +26,11 @@ export interface SelectionState {
   anchorText: string;
   /** 选区（含折叠光标）是否命中链接 token */
   inLink: boolean;
+  /**
+   * A2（第 7 期）：跨块选区是否语法类型混合（heading+paragraph 等）。
+   * 为真时 FloatingToolbar 仅渲染「AI 改写」（行内格式/块类型语义模糊）。同块缺省 false。
+   */
+  mixedSyntax?: boolean;
 }
 
 /** 选区判定结果：hide=立即隐藏，delay-hide=延迟隐藏，show=显示并携带选区与位置 */
@@ -105,11 +110,12 @@ export function computeToolbarState(
   const blockId = anchorSpan.getAttribute('data-block-id');
   const focusBlockId = focusSpan.getAttribute('data-block-id');
   if (!blockId || !focusBlockId) return { kind: 'hide' };
-  // G1：跨块选区需全部叶子语法类型一致，否则隐藏
-  if (blockId !== focusBlockId) {
-    if (!selectionSyntaxTypesConsistent(tree, blockId, focusBlockId)) {
-      return { kind: 'hide' };
-    }
+  // G1 `selectionSyntaxTypesConsistent`：跨块选区需全部叶子语法类型一致才允许行内格式。
+  // A2（第 7 期）：混合类型时**不再 hide**——改置 mixedSyntax 标记，依然返回 show，
+  // FloatingToolbar 据此仅渲染「AI 改写」(行内格式/块类型对混合选区语义模糊)。
+  let mixedSyntax = false;
+  if (blockId !== focusBlockId && !selectionSyntaxTypesConsistent(tree, blockId, focusBlockId)) {
+    mixedSyntax = true;
   }
   const offsets = getCursorOffsets(anchorSpan);
   const blockText = tree.blocks[blockId]?.text ?? '';
@@ -141,6 +147,7 @@ export function computeToolbarState(
       end: offsets.end,
       anchorText: anchorSpan.textContent ?? '',
       inLink,
+      mixedSyntax,
     },
     position: { top, left },
   };

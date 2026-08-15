@@ -921,7 +921,7 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
     expect(container.querySelector('.floating-toolbar-v2')).toBeNull();
   });
 
-  it('TB8: 既有下拉/类型映射用例不回归（G1 显示条件在混合选区仍隐藏）', async () => {
+  it('TB8: A2 混合语法类型跨块选区 → 显示工具栏，仅「AI 改写」+ 无行内格式按钮/块类型下拉', async () => {
     let tree = createDocumentTree();
     const h1 = makeHeading(tree, 1, 'a');
     tree = appendChild(tree, tree.root.id, h1);
@@ -969,7 +969,16 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
       />
     );
     await fireSelectionChange();
-    expect(container.querySelector('.floating-toolbar-v2')).toBeNull();
+    // 混合类型 → 工具栏不再隐藏（A2）
+    const toolbar = container.querySelector('.floating-toolbar-v2');
+    expect(toolbar).not.toBeNull();
+    // 仅「AI 改写」保留；行内格式按钮（加粗/链接等）与块类型下拉隐藏
+    expect(toolbar?.querySelector('button[title="AI 改写"]')).not.toBeNull();
+    expect(toolbar?.querySelector('button[title="加粗"]')).toBeNull();
+    expect(toolbar?.querySelector('button[title="链接"]')).toBeNull();
+    expect(toolbar?.querySelector('.block-type-trigger')).toBeNull();
+    // 混合标记已置位
+    expect(container.querySelector('.floating-toolbar-v2[data-mixed="true"]')).not.toBeNull();
     vi.restoreAllMocks();
   });
 
