@@ -2450,3 +2450,23 @@ span.comment-marker {
 .image-resize-handle[data-handle='sw'] {
   cursor: nesw-resize;
 }
+
+/* ============================================================
+   A3 选区持久高亮（第 7 期）：改写模式下标记被改写范围的纯 CSS overlay
+   - 不入 contentEditable 内容、不改块文本
+   - pointer-events:none 不拦截编辑器交互；z-index 60 < 工具栏 z-[100]，不遮浮动工具栏
+   ============================================================ */
+.rewrite-highlight {
+  position: absolute;
+  z-index: 60;
+  pointer-events: none;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* A2 混合语法类型工具栏：跨块选区提示文案（行内格式/块类型被隐藏） */
+.ft-mixed-hint {
+  color: var(--text-secondary, var(--text-primary));
+  white-space: nowrap;
+}

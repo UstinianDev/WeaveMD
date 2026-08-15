@@ -339,6 +339,43 @@ describe('rewriteStore 改写状态机', () => {
     expect(useRewriteStore.getState().rewriteError).toBe('no-change');
   });
 
+  // ============================================================
+  // 第 7 期 A3：selectionContext 生命周期 = 高亮源（持久选区保持）
+  // 高亮仅随 selectionContext 非空而显示；面板聚焦/输入不清 selectionContext，
+  // 仅 applyRewrite/clearRewrite/pendingRewrite 落定后清空（高亮消失）。
+  // ============================================================
+  it('A3: startSelectionRewrite 后 selectionContext 保留（高亮持久，面板聚焦不清）', () => {
+    useRewriteStore.getState().startSelectionRewrite('original-md', sel);
+    // 面板聚焦/输入不清 selectionContext —— 高亮源仍在
+    expect(useRewriteStore.getState().selectionContext).toEqual({ md: 'original-md', sel });
+    expect(useRewriteStore.getState().pendingRewrite).toBeNull();
+  });
+
+  it('A3: runSelectionRewrite 落定 proposal 后 selectionContext 清空（高亮随预览出现而消退）', async () => {
+    rewritePreviewMock().mockResolvedValue({ success: true, data: { text: 'rewritten' } });
+    useRewriteStore.getState().startSelectionRewrite('original-md', sel);
+    await useRewriteStore.getState().runSelectionRewrite('改写');
+    expect(useRewriteStore.getState().pendingRewrite).not.toBeNull();
+    expect(useRewriteStore.getState().selectionContext).toBeNull();
+  });
+
+  it('A3: applyRewrite 成功后 selectionContext 清空（高亮随写入清除）', () => {
+    useRewriteStore.setState({
+      pendingRewrite: { originalMd: 'original-md', rewrittenMd: 'new-md', ops: [] },
+      selectionContext: { md: 'original-md', sel },
+    });
+    useEditorStore.setState({ content: 'original-md' });
+    useRewriteStore.getState().applyRewrite();
+    expect(useRewriteStore.getState().selectionContext).toBeNull();
+  });
+
+  it('A3: clearRewrite 取消后 selectionContext 清空（高亮随取消清除）', () => {
+    useRewriteStore.getState().startSelectionRewrite('original-md', sel);
+    expect(useRewriteStore.getState().selectionContext).not.toBeNull();
+    useRewriteStore.getState().clearRewrite();
+    expect(useRewriteStore.getState().selectionContext).toBeNull();
+  });
+
   it('clearRewrite 重置全部改写状态', () => {
     useRewriteStore.setState({
       selectionContext: { md: 'x', sel },

@@ -534,6 +534,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       {!imageSelection && visible && selection && (
       <div
         ref={toolbarRef}
+        data-mixed={selection.mixedSyntax ? 'true' : undefined}
         className="floating-toolbar-v2 ft-toolbar fixed z-[100] shadow-lg select-none"
         style={{
           top: `${position.top}px`,
@@ -543,6 +544,10 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         onMouseLeave={() => scheduleHide(300)}
         onMouseDown={(e) => e.stopPropagation()}
       >
+      {/* A2 混合语法类型：仅「AI 改写」（行内格式/块类型对混合选区语义模糊，隐藏）
+          非混合选区保留完整工具栏 —— 块类型下拉 + 行内格式 + AI 改写 + 解链/橡皮擦 */}
+      {!selection.mixedSyntax && (
+        <>
       {/* 块类型下拉：正文 / H1-H6 / 代码块 / 引用 / 列表（自定义面板，SPEC-EDIT-FT G3①） */}
       <div className="block-type-dropdown relative" onMouseDown={(e) => e.stopPropagation()}>
         <button
@@ -630,6 +635,22 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         disabled={isCodeBlock}
         onClick={handleClearFormat}
       />
+        </>
+      )}
+      {/* A2 混合语法类型：仅「AI 改写」入口（跨块类型不一致无法单点 resolve 块格式） */}
+      {selection.mixedSyntax && (
+        <span className="ft-mixed-hint px-2 text-[11px] italic opacity-70 select-none">
+          跨块选区
+        </span>
+      )}
+      {selection.mixedSyntax && (
+        <ToolbarButton
+          title="AI 改写"
+          label="AI 改写"
+          className="text-[var(--accent)]"
+          onClick={handleRewriteClick}
+        />
+      )}
       </div>
       )}
       {/* U5：link URL 输入 Modal（open=false 时渲染 null；图片已走 K6 直选） */}

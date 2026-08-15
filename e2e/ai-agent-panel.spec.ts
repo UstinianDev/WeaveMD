@@ -1064,3 +1064,107 @@ test('A1c 未打开文档 + 整篇写诉求 → 引导提示，不产生空写',
   await expect(panel.getByText('改写预览', { exact: true })).toBeHidden();
   expect(errors.length).toBe(0);
 });
+
+// ============================================================
+// 第 7 期 A2：混合语法类型选中 → 弹「AI 改写」工具栏（无行内格式/块类型下拉）。
+// 文档 = 标题 + 正文 + 列表（heading/paragraph/bullet-list 混合），跨块选中标题→正文。
+// mock 不上网。
+// ============================================================
+test('A2 混合语法类型：跨块选中标题+正文 → 工具栏含「AI 改写」、无行内格式/块类型下拉', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  const seed = '# 大标题\n\n正文段落';
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    seedContent: seed,
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await openEditor(page);
+
+  // 标题叶 + 正文叶 各 1 个 `.block-content` span
+  const contentSpans = page.locator('span.block-content[contenteditable="true"]');
+  await expect(contentSpans).toHaveCount(2);
+
+  // 跨块选中标题 → 正文（heading + paragraph，语法类型混合）
+  await selectCrossBlocks(page, 0, 0, 1, 1);
+  await page.waitForTimeout(300);
+
+  const toolbar = page.locator('.floating-toolbar-v2');
+  // A2：混合类型 → 工具栏出现（修复前整个隐藏）
+  await expect(toolbar).toBeVisible({ timeout: 5000 });
+  // 仅「AI 改写」入口；行内格式 / 块类型下拉隐藏
+  await expect(toolbar.locator('button[title="AI 改写"]')).toBeVisible();
+  await expect(toolbar.locator('button[title="加粗"]')).toHaveCount(0);
+  await expect(toolbar.locator('button[title="链接"]')).toHaveCount(0);
+  await expect(toolbar.locator('.block-type-trigger')).toHaveCount(0);
+  // 混合标记已置位
+  await expect(toolbar).toHaveAttribute('data-mixed', 'true');
+
+  // 点「AI 改写」→ 面板打开，composer 获焦后选区高亮仍在（A3 联动）
+  await toolbar.locator('button[title="AI 改写"]').click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+  await expect(panel).toBeVisible();
+  expect(errors.length).toBe(0);
+});
+
+// ============================================================
+// 第 7 期 A3：选区保持 —— 点「AI 改写」、面板 composer 获焦输入后，编辑器内被改写
+// 范围仍以 `.rewrite-highlight` 持久高亮；取消/应用后高亮清除，编辑器跳转改写内容。
+// mock 不上网。
+// ============================================================
+test('A3 选区保持：点 AI 改写 → 编辑器内 .rewrite-highlight 高亮 + 面板聚焦不清除 → 应用后高亮清除', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    seedContent: 'hello world',
+    rewrite: { selectionText: '改写后内容' },
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await expect(editable).toHaveText('hello world');
+
+  const panel = await openAgentPanel(page);
+
+  // 编辑器选中整段 → 浮动工具栏出现 → 点「AI 改写」
+  await selectTextRange(page, 0, 11);
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="AI 改写"]').click();
+  await page.waitForTimeout(300);
+
+  // A3：面板打开后编辑器内出现持久高亮（改写范围被标记）
+  const highlight = panel.page().locator('.rewrite-highlight');
+  await expect(highlight.first()).toBeVisible({ timeout: 5000 });
+
+  // 面板 composer 聚焦输入 → 高亮不消失（选中不丢）
+  const composer = panel.locator('textarea').first();
+  await composer.click();
+  await composer.fill('改写成这样');
+  await page.waitForTimeout(200);
+  await expect(highlight.first()).toBeVisible();
+  expect(errors.length).toBe(0);
+
+  // 应用改写 → 高亮清除 + 编辑器内容更新为改写后文本
+  await composer.press('Enter');
+  await page.waitForTimeout(400);
+  await expect(panel.getByText('改写预览', { exact: true })).toBeVisible({ timeout: 5000 });
+  await panel.getByText('应用', { exact: true }).click();
+  await page.waitForTimeout(400);
+  // 高亮随 selectionContext 清空而移除
+  await expect(panel.page().locator('.rewrite-highlight')).toHaveCount(0);
+  // 编辑器跳转到改写后内容
+  await expect(editable).toHaveText('改写后内容');
+  expect(errors.length).toBe(0);
+});

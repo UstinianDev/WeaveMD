@@ -6,7 +6,7 @@
 // - 事件路由：输入/回车/退格/格式化 → 控制器 → setTree
 // - 撤销/重做（editorStore content 快照栈）、大纲导航与滚动高亮、链接打开、代码块语言
 
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { EditorInstance } from '@render/editor/editorInstance';
 import type { BlockTreeV2 } from '@render/editor/kernel';
@@ -23,6 +23,8 @@ import { useDomRegistry } from '@render/hooks/useDomRegistry';
 import { useEditorActions } from '@render/hooks/useEditorActions';
 import { useFocusRestore } from '@render/hooks/useFocusRestore';
 import { useOutlineNavigation } from '@render/hooks/useOutlineNavigation';
+import { useRewriteStore } from '@render/stores/rewriteStore';
+import { buildHighlightRanges } from '@render/editor/rewrite/highlight';
 import type { BlockWidthMap, ImageSelection } from './types';
 
 interface EditorV2Props {
@@ -71,6 +73,92 @@ const EditorV2: React.FC<EditorV2Props> = ({
 
   // K4：当前选中的图片（点击 img 后由 handleContainerClick 计算；动作执行后清空）
   const [imageSelection, setImageSelection] = useState<ImageSelection | null>(null);
+
+  // ---- A3 选区持久高亮（第 7 期）----
+  // 改写模式下 selectionContext 非空 → 计算改写范围的高亮矩形（纯 CSS overlay，
+  // 绝不写入 contentEditable 内容）。随 selectionContext 生命周期清除（pendingRewrite
+  // 出现 / applyRewrite / clearRewrite 时置 null → 高亮消失；面板聚焦/输入不清除）。
+  // leafIndex → DOM `.block-content` span：按「当前解析树内容叶序」找其文档序位置，
+  // 命中同位置的 `.block-content` span（瞬时映射，非跨解析 id 键——A4 叶序对齐）。
+  const selectionSel = useRewriteStore((s) => s.selectionContext?.sel ?? null);
+  // 滚动/缩放重定位计数：作为 memo 依赖导致矩形重算
+  const [highlightTick, setHighlightTick] = useState(0);
+  const rerunHighlights = useCallback(() => setHighlightTick((n) => n + 1), []);
+  useEffect(() => {
+    if (!selectionSel) return;
+    const containerEl = containerRef.current;
+    if (!containerEl) return;
+    const onRelayout = () => rerunHighlights();
+    containerEl.addEventListener('scroll', onRelayout, true);
+    window.addEventListener('resize', onRelayout);
+    return () => {
+      containerEl.removeEventListener('scroll', onRelayout, true);
+      window.removeEventListener('resize', onRelayout);
+    };
+  }, [selectionSel, rerunHighlights]);
+  const rewriteHighlights = useMemo(() => {
+    void highlightTick;
+    if (!selectionSel) return [];
+    const ranges = buildHighlightRanges(content, selectionSel);
+    if (ranges.length === 0) return [];
+    const leaves = Array.from(containerRef.current?.querySelectorAll('.block-content') ?? []);
+    if (leaves.length === 0) return [];
+    // overlay 绝对定位在 relative 容器内 → 视口坐标需减去容器自身偏移（含滚动后的可达布局）
+    const host = containerRef.current;
+    const hostRect = host?.getBoundingClientRect();
+    if (!hostRect) return [];
+    const rects: { top: number; left: number; width: number; height: number }[] = [];
+    for (const r of ranges) {
+      const span = leaves[r.leafIndex];
+      if (!span) continue; // 失同步/定位失败 → 保守跳过该叶（不阻断面板）
+      const length = (span.textContent ?? '').replace(/\u200b/g, '').length;
+      const start = Math.min(r.start, length);
+      const end = Math.min(r.end, length);
+      if (start >= end) continue;
+      try {
+        const range = document.createRange();
+        // 用 TreeWalker 按"跳过零宽空格的可视长度"定位 [start, end) 边界点（与 selection 同口径）
+        const locate = (offset: number): { node: Node; offset: number } => {
+          const tw = document.createTreeWalker(span, NodeFilter.SHOW_TEXT);
+          let remaining = Math.max(0, offset);
+          let textNode: Text | null;
+          while ((textNode = tw.nextNode() as Text | null) !== null) {
+            const value = textNode.nodeValue ?? '';
+            const effective = value.replace(/\u200b/g, '').length;
+            if (remaining <= effective) {
+              let charCount = 0;
+              let pos = 0;
+              for (let i = 0; i < value.length; i++) {
+                if (value[i] !== '\u200B') charCount++;
+                if (remaining > 0 && charCount >= remaining) {
+                  pos = i + 1;
+                  break;
+                }
+              }
+              return { node: textNode, offset: pos };
+            }
+            remaining -= effective;
+          }
+          return { node: span, offset: span.childNodes.length };
+        };
+        const sp = locate(start);
+        const ep = locate(end);
+        range.setStart(sp.node, sp.offset);
+        range.setEnd(ep.node, ep.offset);
+        const rect = range.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) continue;
+        rects.push({
+          top: rect.top - hostRect.top,
+          left: rect.left - hostRect.left,
+          width: rect.width,
+          height: rect.height,
+        });
+      } catch {
+        continue; // 定位失败 → 保守跳过该叶
+      }
+    }
+    return rects;
+  }, [content, selectionSel, highlightTick]);
 
   // R1：行内图会话运行时宽度 map（G5）——key blockId → {`${data-start}:${data-end}`: px}。
   // 仅会话内生效，重载后重置。块卸载/重建时由 applyRuntimeWidths + 重建树自然清理（无泄漏）。
@@ -211,6 +299,15 @@ const EditorV2: React.FC<EditorV2Props> = ({
         blockWidthMap={blockWidthMap}
         onScroll={handleScroll}
       />
+      {/* A3 选区持久高亮：纯 CSS overlay，绝对定位改写范围半透明高亮。pointer-events:none
+          不拦截编辑器交互；z-index < 工具栏，不遮浮动工具栏。绝不改块文本。 */}
+      {rewriteHighlights.map((r, i) => (
+        <div
+          key={i}
+          className="rewrite-highlight"
+          style={{ top: `${r.top}px`, left: `${r.left}px`, width: `${r.width}px`, height: `${r.height}px` }}
+        />
+      ))}
       {/* R1：图片选中框 + 四角缩放手柄（选中图片时渲染；覆盖层 z-[90] < 图片工具栏 z-[100]） */}
       {imageSelection && (
         <ImageResizeBox
