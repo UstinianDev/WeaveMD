@@ -93,6 +93,7 @@
   "ai.stop": "Stop",
   "ai.tab.agent": "Agent",
   "ai.tab.chat": "Chat",
+  "ai.modeSelectLabel": "Switch between Chat / Agent mode",
   "ai.tool.collapse": "Collapse",
   "ai.tool.expand": "Expand",
   "ai.tool.noResult": "No result",

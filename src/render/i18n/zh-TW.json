@@ -93,6 +93,7 @@
   "ai.stop": "停止",
   "ai.tab.agent": "智能體",
   "ai.tab.chat": "對話",
+  "ai.modeSelectLabel": "切換對話 / 智能體模式",
   "ai.tool.collapse": "收合",
   "ai.tool.expand": "展開",
   "ai.tool.noResult": "無回傳結果",

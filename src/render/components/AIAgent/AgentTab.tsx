@@ -1,9 +1,11 @@
 // ============================================
-// WeaveMD — Agent Tab（辅助创作）
+// WeaveMD — AI 代理面板统一 body（第 7 期批次⑥ B3：双 Tab 合并单面板）
 // ============================================
-// 会话列表（mode='agent' 隔离）+ 消息列表 + 意图候选卡片 + 工具轨迹 +
-// 「依照知识库创作」开关 + 手动压缩 + 后端降级提示条 + Composer。
-// 复用 ChatTab 会话/消息/Composer 骨架风格；assistant 走安全富文本渲染。
+// 单一消息流 + 单一 composer；模式下拉切换「对话 / 智能体」（activeMode 域隔离）。
+// - chat 模式：纯对话（消息流 + composer，sendMessage），无 agent 专属控件。
+// - agent 模式：会话列表（mode='agent'）+ KB 开关 + 压缩 + KB 设置 + 后端降级提示 +
+//   ToolCallTrace + IntentCard + RewritePreviewCard + `/` `@` 自动补全 + 改写分流。
+// 各模式专属控件随 activeMode 条件渲染；assistant 走安全富文本渲染。
 
 import React, { useEffect, useRef, useState } from 'react';
 import type { AgentSkillInfo, IntentName } from '@shared/ai';
@@ -37,6 +39,8 @@ const AgentTab: React.FC = () => {
   const { t } = useI18n();
   const user = useAuthStore((s) => s.user);
 
+  // B3：统一 body 随 activeMode 域切换（chat / agent），会话/消息按域隔离
+  const activeMode = useAgentStore((s) => s.activeMode);
   const conversations = useAgentStore((s) => s.conversations);
   const activeConversationId = useAgentStore((s) => s.activeConversationId);
   const messages = useAgentStore((s) => s.messages);
@@ -50,6 +54,7 @@ const AgentTab: React.FC = () => {
   const newChat = useAgentStore((s) => s.newChat);
   const loadConversation = useAgentStore((s) => s.loadConversation);
   const deleteConversation = useAgentStore((s) => s.deleteConversation);
+  const sendMessage = useAgentStore((s) => s.sendMessage);
   const sendAgentMessage = useAgentStore((s) => s.sendAgentMessage);
   const stopStream = useAgentStore((s) => s.stopStream);
   const setUseKnowledgeBase = useAgentStore((s) => s.setUseKnowledgeBase);
@@ -66,7 +71,7 @@ const AgentTab: React.FC = () => {
   const [input, setInput] = useState('');
   const messageListRef = useRef<HTMLDivElement>(null);
 
-  // —— 第 7 期 B1：/ 与 @ 自动补全 ——
+  // —— 第 7 期 B1：/ 与 @ 自动补全（仅智能体模式可用） ——
   const [skills, setSkills] = useState<AgentSkillInfo[]>([]);
   const [completionOpen, setCompletionOpen] = useState(false);
   const [completionTrigger, setCompletionTrigger] = useState<'/' | '@'>('/');
@@ -89,6 +94,20 @@ const AgentTab: React.FC = () => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // B3：模式切换 → 清空当前域状态（newChat）+ 加载目标域会话列表（chat/agent 不串号）
+  // 首挂载也走此 effect 加载当前域会话。
+  const modeSwitchedRef = useRef(false);
+  useEffect(() => {
+    if (!user) return;
+    if (!modeSwitchedRef.current) {
+      modeSwitchedRef.current = true;
+    } else {
+      newChat();
+    }
+    void loadConversations(activeMode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMode, user]);
 
   /** 构建补全菜单项（`/` = 技能；`@` = 引用目标（当前文档 / 知识库））。 */
   const buildCompletionItems = (trigger: '/' | '@', query: string): CompletionMenuItem[] => {
@@ -123,8 +142,12 @@ const AgentTab: React.FC = () => {
     );
   };
 
-  /** 变更 input 时检测光标处 token 是否以 / 或 @ 开头，从而开/关补全菜单。 */
+  /** 变更 input 时检测光标处 token 是否以 / 或 @ 开头，从而开/关补全菜单（仅 agent 模式）。 */
   const refreshCompletion = (value: string) => {
+    if (activeMode !== 'agent') {
+      setCompletionOpen(false);
+      return;
+    }
     const match = /(^|\s)([/@])([^\s/@]*)$/.exec(value);
     if (!match) {
       setCompletionOpen(false);
@@ -168,26 +191,14 @@ const AgentTab: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skills]);
 
-  // 挂载时按 agent 域加载会话
-  const initializedRef = useRef(false);
-  useEffect(() => {
-    if (initializedRef.current) return;
-    initializedRef.current = true;
-    if (user) {
-      void loadConversations('agent');
-    }
-  }, [user, loadConversations]);
-
   // 流式时自动滚动到底部
   useEffect(() => {
     const el = messageListRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length, toolCalls.length, streamBuffer, isStreaming]);
 
-  const handleSend = () => {
-    const text = input.trim();
-    if (!text || isStreaming) return;
-    setInput('');
+  /** agent 模式发送分流（改写 / 技能 / 引用 / 整篇写 / 纯 agent 对话）。 */
+  const handleSendAgent = (text: string) => {
     // 分流（第 7 期 B1：/ 与 @ 前缀优先于 WRITE_WHOLE_DOC_RE 启发式判断）：
     // 1) 有选区上下文（编辑器「AI 改写」触发）→ 选区改写
     // 2) `/技能名 ` → 剥前缀后指令走 agent 对话（runSkill / tech 意图由 intentRouter + runSkill 工具消费）
@@ -237,54 +248,68 @@ const AgentTab: React.FC = () => {
     void sendAgentMessage(text);
   };
 
-  // 意图卡片点击：按选中意图的提示模板重发
+  const handleSend = () => {
+    const text = input.trim();
+    if (!text || isStreaming) return;
+    setInput('');
+    if (activeMode === 'agent') {
+      handleSendAgent(text);
+    } else {
+      void sendMessage(text);
+    }
+  };
+
+  // 意图卡片点击：按选中意图的提示模板重发（仅 agent 模式存在）
   const handlePickIntent = (intent: IntentName) => {
     const prompt = t(`ai.intent.${intent}.prompt`, '');
     void sendAgentMessage(prompt || `意图: ${intent}`);
   };
 
   const hasConversation = conversations.length > 0 || activeConversationId !== null;
+  const isAgentMode = activeMode === 'agent';
 
   return (
     <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-      {/* 顶部：开关 / 压缩 / KB 设置 / 会话列表 */}
+      {/* 顶部：会话列表（新建/切换/删除），agent 模式附加专属控件 */}
       <div className="px-3 pt-2 pb-1 border-b border-border space-y-2">
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1.5 text-xs text-text-sub cursor-pointer">
-            <input
-              type="checkbox"
-              checked={useKnowledgeBase}
-              onChange={(e) => setUseKnowledgeBase(e.target.checked)}
-              className="accent-[var(--accent)]"
-            />
-            {t('ai.agent.useKnowledgeBase')}
-          </label>
-          <button
-            type="button"
-            onClick={() => void runManualCompress()}
-            disabled={isStreaming}
-            className="text-xs px-2 py-1 rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary disabled:opacity-40 transition-colors"
-          >
-            {t('ai.agent.compress')}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowKbSettings((prev) => !prev)}
-            className="ml-auto text-xs px-2 py-1 rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
-          >
-            {t('ai.agent.kbSettings')}
-          </button>
-        </div>
+        {isAgentMode && (
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs text-text-sub cursor-pointer">
+              <input
+                type="checkbox"
+                checked={useKnowledgeBase}
+                onChange={(e) => setUseKnowledgeBase(e.target.checked)}
+                className="accent-[var(--accent)]"
+              />
+              {t('ai.agent.useKnowledgeBase')}
+            </label>
+            <button
+              type="button"
+              onClick={() => void runManualCompress()}
+              disabled={isStreaming}
+              className="text-xs px-2 py-1 rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary disabled:opacity-40 transition-colors"
+            >
+              {t('ai.agent.compress')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowKbSettings((prev) => !prev)}
+              className="ml-auto text-xs px-2 py-1 rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
+            >
+              {t('ai.agent.kbSettings')}
+            </button>
+          </div>
+        )}
 
-        {/* 后端降级提示条 */}
-        {agentBackendHint && (
+        {/* agent 模式：后端降级提示条 */}
+        {isAgentMode && agentBackendHint && (
           <div className="text-[11px] px-2 py-1 rounded-md bg-amber-500/10 text-amber-600 border border-amber-500/20">
             {agentBackendHint}
           </div>
         )}
 
-        {/* 知识库设置抽屉 */}
-        {showKbSettings && <KnowledgeBaseSettings />}
+        {/* agent 模式：知识库设置抽屉 */}
+        {isAgentMode && showKbSettings && <KnowledgeBaseSettings />}
 
         {/* 会话列表 */}
         <div className="flex items-center gap-2">
@@ -304,9 +329,11 @@ const AgentTab: React.FC = () => {
                     ? 'bg-[var(--accent)]/15 text-text-primary'
                     : 'bg-bg-primary hover:bg-bg-tertiary text-text-sub'
                 }`}
-                onClick={() => void loadConversation(c.id, 'agent')}
+                onClick={() => void loadConversation(c.id, activeMode)}
               >
-                <span className="max-w-[8rem] truncate">{c.summary || t('ai.tab.agent')}</span>
+                <span className="max-w-[8rem] truncate">
+                  {c.summary || (isAgentMode ? t('ai.tab.agent') : t('ai.tab.chat'))}
+                </span>
                 <button
                   type="button"
                   title={t('navbar.confirmDeleteFile')}
@@ -326,10 +353,10 @@ const AgentTab: React.FC = () => {
 
       {/* 消息列表 / 空态 */}
       <div ref={messageListRef} className="chat-scroll flex-1 overflow-y-auto py-2 space-y-1">
-        {/* 改写预览卡片（选区/@ 改写提案确认，红删绿增 + 确认/取消） */}
-        <RewritePreviewCard />
+        {/* agent 模式：改写预览卡片（选区/@ 改写提案确认，红删绿增 + 确认/取消） */}
+        {isAgentMode && <RewritePreviewCard />}
 
-        {messages.length === 0 && toolCalls.length === 0 ? (
+        {messages.length === 0 && (isAgentMode ? toolCalls.length === 0 : true) ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-6 space-y-2">
             {!hasConversation ? (
               <p className="text-sm text-text-muted">{t('ai.empty.noConversation')}</p>
@@ -341,28 +368,36 @@ const AgentTab: React.FC = () => {
           <>
             {messages.map((m) => (
               <div key={m.id}>
-                <AIMessageBubble role={m.role} content={m.content} refsJson={m.refsJson} />
-                {/* A1c：agent 回复可「预览写入文档」——文档已打开且回复非空才显示 */}
-                {m.role === 'assistant' && m.content.trim() && currentFile && (
-                  <button
-                    type="button"
-                    onClick={() => previewDocumentFromReply(m.content)}
-                    className="ml-10 mt-0.5 text-[11px] px-2 py-0.5 rounded-md bg-bg-tertiary border border-border text-text-sub hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors"
-                  >
-                    {t('ai.rewrite.previewWrite')}
-                  </button>
-                )}
+                <AIMessageBubble
+                  role={m.role}
+                  content={m.content}
+                  refsJson={isAgentMode ? m.refsJson : null}
+                />
+                {/* agent 模式：A1c 回复可「预览写入文档」——文档已打开且回复非空才显示 */}
+                {isAgentMode &&
+                  m.role === 'assistant' &&
+                  m.content.trim() &&
+                  currentFile && (
+                    <button
+                      type="button"
+                      onClick={() => previewDocumentFromReply(m.content)}
+                      className="ml-10 mt-0.5 text-[11px] px-2 py-0.5 rounded-md bg-bg-tertiary border border-border text-text-sub hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors"
+                    >
+                      {t('ai.rewrite.previewWrite')}
+                    </button>
+                  )}
               </div>
             ))}
 
-            {/* 工具轨迹（当前轮累积） */}
-            {toolCalls.length > 0 && (
-              <div className="space-y-1.5">
-                {toolCalls.map((call) => (
-                  <ToolCallTrace key={call.toolCallId} call={call} />
-                ))}
-              </div>
-            )}
+            {/* agent 模式：工具轨迹（当前轮累积） */}
+            {isAgentMode &&
+              toolCalls.length > 0 && (
+                <div className="space-y-1.5">
+                  {toolCalls.map((call) => (
+                    <ToolCallTrace key={call.toolCallId} call={call} />
+                  ))}
+                </div>
+              )}
 
             {/* 流式增量打字指示 */}
             {isStreaming && (
@@ -371,8 +406,8 @@ const AgentTab: React.FC = () => {
           </>
         )}
 
-        {/* 意图候选提问卡片 */}
-        {intentCard && !isStreaming && (
+        {/* agent 模式：意图候选提问卡片 */}
+        {isAgentMode && intentCard && !isStreaming && (
           <div className="px-4 pt-1">
             <IntentCard intent={intentCard} onPick={handlePickIntent} />
           </div>
@@ -382,28 +417,30 @@ const AgentTab: React.FC = () => {
       {/* Composer */}
       <div className="border-t border-border px-3 py-3 space-y-2">
         <div className="relative">
-          {/* B1：`/` 与 `@` 自动补全菜单（渲染在 textarea 上方） */}
-          <CompletionMenu
-            open={completionOpen}
-            trigger={completionTrigger}
-            title={
-              completionTrigger === '/'
-                ? t('ai.completion.skillsTitle')
-                : t('ai.completion.refTitle')
-            }
-            items={completionItems}
-            activeIndex={completionActive}
-            onMove={handleCompletionMove}
-            onSelect={handleCompletionSelect}
-            onClose={() => setCompletionOpen(false)}
-          />
+          {/* agent 模式：B1 `/` 与 `@` 自动补全菜单（渲染在 textarea 上方） */}
+          {isAgentMode && (
+            <CompletionMenu
+              open={completionOpen}
+              trigger={completionTrigger}
+              title={
+                completionTrigger === '/'
+                  ? t('ai.completion.skillsTitle')
+                  : t('ai.completion.refTitle')
+              }
+              items={completionItems}
+              activeIndex={completionActive}
+              onMove={handleCompletionMove}
+              onSelect={handleCompletionSelect}
+              onClose={() => setCompletionOpen(false)}
+            />
+          )}
           <textarea
             value={input}
             onChange={(e) => handleInputChange(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
-                // 补全菜单打开时 Enter 由 CompletionMenu 的 capture 监听确认选中，此处不发送
-                if (completionOpen) {
+                // agent 模式补全菜单打开时 Enter 由 CompletionMenu 的 capture 监听确认选中，此处不发送
+                if (isAgentMode && completionOpen) {
                   e.preventDefault();
                   return;
                 }
@@ -412,7 +449,9 @@ const AgentTab: React.FC = () => {
               }
             }}
             placeholder={
-              selectionContext ? t('ai.rewrite.selectionHint') : t('ai.placeholder')
+              isAgentMode && selectionContext
+                ? t('ai.rewrite.selectionHint')
+                : t('ai.placeholder')
             }
             rows={3}
             className="w-full resize-none bg-bg-primary border border-border rounded-input px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none focus:border-[var(--accent)] transition-colors"
