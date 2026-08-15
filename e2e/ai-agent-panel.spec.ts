@@ -360,6 +360,25 @@ function installWeaveMDMock(opts: AiMockOptions): void {
       reindex: async () => ok({ docId: 'kb_0', title: '', chunks: 0, status: 'done' }),
       delete: async () => ok({ deleted: true }),
       status: async () => ok({ documents: kbDocuments.length, embedding: { available: true, dims: 768 } }),
+      // 第 6 期：KB 参数持久化契约（agentStore.init 会调 getSettings）
+      getSettings: async () =>
+        ok({
+          topK: 5,
+          fuse: 0.5,
+          threshold: 0.6,
+          pinnedWeight: 1.5,
+          embeddingHost: 'http://localhost:11434',
+          embeddingModel: 'nomic-embed-text',
+        }),
+      setSettings: async (_input: { userId: string; settings: unknown }) =>
+        ok({
+          topK: 5,
+          fuse: 0.5,
+          threshold: 0.6,
+          pinnedWeight: 1.5,
+          embeddingHost: 'http://localhost:11434',
+          embeddingModel: 'nomic-embed-text',
+        }),
     },
   };
 }

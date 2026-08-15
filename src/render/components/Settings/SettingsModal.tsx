@@ -51,7 +51,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const recentAccounts = useAuthStore((s) => s.recentAccounts);
   const loadRecentAccounts = useAuthStore((s) => s.loadRecentAccounts);
   const kbSettings = useAgentStore((s) => s.kbSettings);
+  const kbSettingsSaveState = useAgentStore((s) => s.kbSettingsSaveState);
   const setKbSettings = useAgentStore((s) => s.setKbSettings);
+  const resetKbSettingsSaveState = useAgentStore((s) => s.resetKbSettingsSaveState);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('system');
   const [selectedTheme, setSelectedTheme] = useState<ThemeType>(theme);
@@ -106,9 +108,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
       setKbPinnedWeight(kbSettings.pinnedWeight);
       setKbEmbeddingHost(kbSettings.embeddingHost);
       setKbEmbeddingModel(kbSettings.embeddingModel);
+      // 每次打开设置面板，KB 保存提示归零（不再驻留 saved/error）
+      resetKbSettingsSaveState();
       loadRecentAccounts();
     }
-  }, [isOpen, theme, language, loadRecentAccounts, kbSettings]);
+  }, [isOpen, theme, language, loadRecentAccounts, kbSettings, resetKbSettingsSaveState]);
 
   // AI Tab 打开/进入时加载配置与同意记录（不落明文 key）
   useEffect(() => {
@@ -747,7 +751,18 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
             </div>
           </div>
 
-          {aiLoading && <p className="text-xs text-[var(--text-muted)]">Saving...</p>}
+          <div className="flex items-center gap-3">
+            {kbSettingsSaveState === 'saving' && (
+              <p className="text-xs text-[var(--text-muted)]">{t('ai.settings.kb.saving')}</p>
+            )}
+            {kbSettingsSaveState === 'saved' && (
+              <p className="text-xs text-[var(--text-muted)]">{t('ai.settings.kb.saved')}</p>
+            )}
+            {kbSettingsSaveState === 'error' && (
+              <p className="text-xs text-red-400">{t('ai.settings.kb.saveFailed')}</p>
+            )}
+            {aiLoading && <p className="text-xs text-[var(--text-muted)]">Saving...</p>}
+          </div>
         </div>
       )}
     </Modal>

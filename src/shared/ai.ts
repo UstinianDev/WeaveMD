@@ -220,6 +220,37 @@ export interface IKbSettings {
   embeddingModel: string;
 }
 
+/** KB 召回/检索设置的默认值（与 agentStore RESET_FIELDS 对齐，避免双源真值）。 */
+export const DEFAULT_KB_SETTINGS: IKbSettings = {
+  topK: 5,
+  fuse: 0.5,
+  threshold: 0.6,
+  pinnedWeight: 1.5,
+  embeddingHost: 'http://localhost:11434',
+  embeddingModel: 'nomic-embed-text',
+};
+
+/**
+ * 将部分/可疑的 KB 设置合并到默认值；缺失或非法（非有限数字 / 空字符串）字段回落默认。
+ * 主进程持久化缺省兜底与渲染默认共用同一真值。
+ */
+export function normalizeKbSettings(
+  partial?: Partial<IKbSettings> | null | undefined
+): IKbSettings {
+  const n = (v: unknown, fallback: number): number =>
+    typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+  const s = (v: unknown, fallback: string): string =>
+    typeof v === 'string' && v.length > 0 ? v : fallback;
+  return {
+    topK: n(partial?.topK, DEFAULT_KB_SETTINGS.topK),
+    fuse: n(partial?.fuse, DEFAULT_KB_SETTINGS.fuse),
+    threshold: n(partial?.threshold, DEFAULT_KB_SETTINGS.threshold),
+    pinnedWeight: n(partial?.pinnedWeight, DEFAULT_KB_SETTINGS.pinnedWeight),
+    embeddingHost: s(partial?.embeddingHost, DEFAULT_KB_SETTINGS.embeddingHost),
+    embeddingModel: s(partial?.embeddingModel, DEFAULT_KB_SETTINGS.embeddingModel),
+  };
+}
+
 /** AI 流式事件：扩展 AIStreamEvent 判别联合，新增工具调用轨迹事件。 */
 export type IAgentStreamEvent = AIStreamEvent | IAgentStreamToolEvent;
 
@@ -250,6 +281,16 @@ export interface AgentRunPayload {
   useKnowledgeBase?: boolean;
   /** 知识库检索设置（topK/fuse/threshold/pinnedWeight/embedding host+model），透传给 kbSearch。 */
   kbSettings?: IKbSettings;
+  /**
+   * 当前文档 markdown 内容快照（渲染侧 editorStore.content 注入，只读上下文）。
+   * 供 editBlocks 工具产生改写建议（proposal），AI 无落盘能力（铁律一）。
+   */
+  currentDocument?: string;
+}
+
+/** editBlocks 工具参数：定向块改写建议（结构校验后仅产 proposal，不落盘）。 */
+export interface EditBlocksArgs {
+  block_ops: EditBlockOp[];
 }
 
 /** KB_IMPORT_DIR invoke 请求：主进程 fs 读取 folderPath 下 *.md/*.txt。 */

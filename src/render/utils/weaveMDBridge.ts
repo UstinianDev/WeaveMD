@@ -656,6 +656,8 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
     reindex: async () => ({ success: false }),
     delete: async () => ({ success: false }),
     status: async () => ({ success: false }),
+    getSettings: async () => ({ success: false }),
+    setSettings: async () => ({ success: false }),
   },
 });
 

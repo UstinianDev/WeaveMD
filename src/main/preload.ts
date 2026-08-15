@@ -21,6 +21,7 @@ import type {
   IAIConversation,
   IKbDocumentStatus,
   IKbImportResult,
+  IKbSettings,
   KbDeleteResult,
   KbImportDirRequest,
   KbStatusResponse,
@@ -140,6 +141,11 @@ export interface WeaveMDApi {
     reindex: (input: { userId: string; fileId: string }) => Promise<IpcResponse<IKbImportResult>>;
     delete: (input: { userId: string; fileId: string }) => Promise<IpcResponse<KbDeleteResult>>;
     status: (userId: string) => Promise<IpcResponse<KbStatusResponse>>;
+    getSettings: (userId: string) => Promise<IpcResponse<IKbSettings>>;
+    setSettings: (input: {
+      userId: string;
+      settings: IKbSettings;
+    }) => Promise<IpcResponse<IKbSettings>>;
   };
 }
 
@@ -301,6 +307,8 @@ const api: WeaveMDApi = {
     reindex: (input) => ipcRenderer.invoke(IPC_CHANNELS.KB_REINDEX, input),
     delete: (input) => ipcRenderer.invoke(IPC_CHANNELS.KB_DELETE, input),
     status: (userId) => ipcRenderer.invoke(IPC_CHANNELS.KB_STATUS, { userId }),
+    getSettings: (userId) => ipcRenderer.invoke(IPC_CHANNELS.KB_GET_SETTINGS, { userId }),
+    setSettings: (input) => ipcRenderer.invoke(IPC_CHANNELS.KB_SET_SETTINGS, input),
   },
 };
 

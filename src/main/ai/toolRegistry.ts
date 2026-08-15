@@ -1,8 +1,8 @@
 // ============================================
 // WeaveMD — Agent tool registry (read-only)
 // ============================================
-// 内置只读工具：listFiles / readFile / searchKB / runSkill。
-// 铁律一：无任何写工具（无 editBlocks / 无写盘）——本轮 Agent 无直接落盘能力。
+// 内置只读工具：listFiles / readFile / searchKB / runSkill + editBlocks（改写建议）。
+// 铁律一：无落盘工具（editBlocks 也只产 proposal，不写盘/不写库）——本轮 Agent 无直接落盘能力。
 // 数据访问全部按 ctx.userId 隔离（SECURITY：即使工具参数含 user_id，也只以 ctx.userId 为准）。
 
 import type { IKbSearchResult, ToolDef } from '@shared/ai';
@@ -45,9 +45,14 @@ export interface ToolCtx {
   skill?: SkillRunnerCtx;
   /** 已加载技能列表（由调用方注入；缺省为空）。 */
   skills?: CoreSkill[];
+  /**
+   * 当前文档 markdown 快照（渲染侧 editorStore.content 注入，只读上下文）。
+   * 供 editBlocks 产生改写建议；缺失时 editBlocks 拒绝执行。
+   */
+  currentDocument?: string;
 }
 
-/** 定义 4 个只读核心工具（OpenAI function JSON Schema）。 */
+/** 定义只读核心工具（OpenAI function JSON Schema）。含 editBlocks（仅产改写建议，不落盘）。 */
 export function defineCoreTools(): ToolDef[] {
   return [
     {
@@ -103,6 +108,32 @@ export function defineCoreTools(): ToolDef[] {
             params: { type: 'object', description: '可选技能参数' },
           },
           required: ['skill', 'input'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'editBlocks',
+        description:
+          '针对当前文档的定向块改写建议。仅产 proposal（applied:false），不会落盘修改文档，请基于返回的建议文本与用户确认后再告知渲染侧应用。',
+        parameters: {
+          type: 'object',
+          properties: {
+            block_ops: {
+              type: 'array',
+              description: '要改写的块操作列表（block_id 为渲染侧提供的稳定标识）。',
+              items: {
+                type: 'object',
+                properties: {
+                  block_id: { type: 'string', description: '目标块 id' },
+                  new_content: { type: 'string', description: '改写后的块内容' },
+                },
+                required: ['block_id', 'new_content'],
+              },
+            },
+          },
+          required: ['block_ops'],
         },
       },
     },
@@ -218,6 +249,56 @@ export async function executeTool(
         return { content: '', status: 'error', errorDesc: result.errorDesc };
       }
       return { content: result.content, status: 'ok' };
+    }
+
+    case 'editBlocks': {
+      // 铁律一：只产改写建议（proposal），无任何写盘/写库触发点。
+      // 限制说明：主进程无块树内核（第 5 期 C2 架构），渲染侧 blockId 无法在主进程重建，
+      // 故不做 block_id 存在性校验——仅结构校验（数组 + 每项非空字符串），合法则返回 proposal。
+      if (!ctx.currentDocument) {
+        return {
+          content: '',
+          status: 'error',
+          errorDesc: 'editBlocks: 当前文档上下文未就绪',
+        };
+      }
+      const ops = Array.isArray(argObj.block_ops) ? argObj.block_ops : null;
+      if (!ops) {
+        return {
+          content: '',
+          status: 'error',
+          errorDesc: 'editBlocks: 缺少 block_ops',
+        };
+      }
+      const proposed: Array<{ block_id: string; new_content: string }> = [];
+      for (const op of ops) {
+        if (!op || typeof op !== 'object') {
+          return {
+            content: '',
+            status: 'error',
+            errorDesc: 'editBlocks: block_ops 元素必须为对象',
+          };
+        }
+        const rec = op as Record<string, unknown>;
+        const blockId = typeof rec.block_id === 'string' ? rec.block_id : '';
+        const newContent = typeof rec.new_content === 'string' ? rec.new_content : '';
+        if (!blockId || !newContent) {
+          return {
+            content: '',
+            status: 'error',
+            errorDesc: 'editBlocks: 每项须含非空 block_id 与 new_content',
+          };
+        }
+        proposed.push({ block_id: blockId, new_content: newContent });
+      }
+      return {
+        content: JSON.stringify({
+          applied: false,
+          proposed,
+          documentSnapshotLength: ctx.currentDocument.length,
+        }),
+        status: 'ok',
+      };
     }
 
     default:

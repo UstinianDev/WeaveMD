@@ -107,12 +107,13 @@
 - `docs/modules/11-AI代理面板-Agent.md` — AI 代理面板 + 知识库导入设计（第1/2期基建+Chat、
   第3/4期知识库+Agent 均交付；需求 AGT-01~19 / KB-01~05 见 REQUIREMENTS 3.7/3.8）
 
-## AI 代理面板与知识库（2026-08-15：第 1/2/3/4/5 期均已交付；第 6 期收尾为后续）
+## AI 代理面板与知识库（2026-08-15：第 1/2/3/4/5 期均已交付；第 6 期 KB 参数持久化 + stretch editBlocks 均已交付）
 
 - 右侧 AI 面板（导航栏「AI」按钮开合），Chat（纯对话）/ Agent（辅助创作）双智能体
 - 铁律一：**AI 无直接落盘能力**——第 5 期块级改写已交付，写路径=「红删绿增预览 → 用户确认 →
   `editorStore.updateContent(rewrittenMd)` 入 undo 栈一次可撤销」；主进程只产 LLM 文本（薄代理 rewrite.ts），
-  块级替换在渲染侧 blockEdit.ts（只算不写）；Agent 工具仍全部只读（listFiles/readFile/searchKB/runSkill）
+  块级替换在渲染侧 blockEdit.ts（只算不写）；Agent 工具全部只读/仅产 proposal（listFiles/readFile/searchKB/runSkill
+  + editBlocks，第6期 stretch 仅产 proposal 不落盘）
 - 铁律二：**联网 / 笔记外发必须用户知情同意**（首次弹同意页，consent 分层：联网闸
   allowNetwork + KB 外发闸 allowSend）；key 用 safeStorage 加密存 SQLite，网络全走
   主进程、密钥不落渲染进程
@@ -123,14 +124,15 @@
 - 知识库 = 账号内全部笔记 + 导入文档（md/txt）：kb DAO + FTS5 虚拟表 `kb_chunks_fts`
   （CJK 前缀匹配注意）+ embeddingClient（nomic-embed-text 未装降级仅 FTS5）+ kbIndexer
   （保存防抖重嵌入/删除清理）；双路召回（FTS5 BM25 + 向量余弦 0.5/0.5）+ 拒答 0.6 +
-  出处可跳转 + 置顶 ×1.5
+  出处可跳转 + 置顶 ×1.5；**KB 参数（topK/fuse/threshold/置顶权重/embedding host+model）第 6 期已持久化
+  到 ai_config**（kb:get/setSettings IPC，agentStore.init 拉取 + setKbSettings async；KB_STATUS 探针与
+  AGENT_RUN 检索兜底均消费持久化值）
 - Agent 能力：toolRegistry/agentLoop（≤6 轮函数调用循环，仅 remote 可靠，ollama 降级纯 chat）/
   skillLoader（3 内置 + 用户扩展 SKILL.md）/intentRouter（6 类 + 候选提问卡片）/
   contextManager（/4 估算 + 80% 压缩）；渲染端 AgentTab + ToolCallTrace + IntentCard +
   MarkdownMessage（HAST→React 安全富文本，无 dangerouslySetInnerHTML）
-- 延期不交付：真 MCP server 管理（fetchContext7/fetchFirecrawl）、GitHub 自取 writing-shape、
-  KB 参数持久化（本轮内存态，agentStore.kbSettings）、editBlocks agent 工具（stretch 未并入）；
-  门禁全绿见 docs/plan/ai-agent-panel.status.md
+- 延期不交付：真 MCP server 管理（fetchContext7/fetchFirecrawl）、GitHub 自取 writing-shape；
+  门禁全绿见 docs/plan/ai-agent-panel.status.md（第 6 期：typecheck 0 | vitest 90/1261 | lint 0 | Playwright 14/14 | 真库迁移 smoke 0）
 
 ## 已知限制（详见 spec 13.x）
 

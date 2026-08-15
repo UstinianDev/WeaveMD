@@ -75,6 +75,8 @@ const mockWeaveMD = {
     reindex: vi.fn(),
     delete: vi.fn(),
     status: vi.fn(),
+    getSettings: vi.fn(),
+    setSettings: vi.fn(),
   },
 };
 
