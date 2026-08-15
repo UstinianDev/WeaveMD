@@ -200,7 +200,7 @@ test('块类型下拉：标题级别切换与转回正文', async ({ page }) => 
   await expect(page.locator('p.paragraph-block')).toContainText('二级标题');
 });
 
-test('G1：选中 h1 + h2 混合类型 → 浮动工具栏不出现', async ({ page }) => {
+test('G1（第 7 期 A2 更新）：选中 h1 + h2 混合类型 → 工具栏出现且仅含「AI 改写」、无行内格式/块类型下拉', async ({ page }) => {
   await openEditor(page);
   const editable = page.locator('span.block-content[contenteditable="true"]').first();
   await editable.click();
@@ -250,7 +250,14 @@ test('G1：选中 h1 + h2 混合类型 → 浮动工具栏不出现', async ({ p
   expect(selInfo?.startId).not.toBe(selInfo?.endId);
   expect(selInfo?.collapsed).toBe(false);
 
-  await expect(page.locator('.floating-toolbar-v2')).toHaveCount(0);
+  // A2（第 7 期）：混合类型不再 hide —— 工具栏出现，仅含「AI 改写」，行内格式/块类型隐藏
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible({ timeout: 5000 });
+  await expect(toolbar).toHaveAttribute('data-mixed', 'true');
+  await expect(toolbar.locator('button[title="AI 改写"]')).toBeVisible();
+  await expect(toolbar.locator('button[title="加粗"]')).toHaveCount(0);
+  await expect(toolbar.locator('button[title="斜体"]')).toHaveCount(0);
+  await expect(toolbar.locator('.block-type-trigger')).toHaveCount(0);
 });
 
 test('G3②：代码块选中 → 下拉显示"代码块"且其余目标禁用', async ({ page }) => {
