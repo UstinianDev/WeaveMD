@@ -131,7 +131,7 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 - 质量门禁：`tsc --noEmit` + `vitest run` + ESLint(0 error) + `vite build` + `npx playwright test`
   + `vitest --coverage`（改动文件口径 ≥80%，当前全量 95.45%；`@vitest/coverage-v8`）
 
-## 5. AI 代理面板与知识库（2026-08-15：第 1/2 期基建+Chat、第 3+4 期知识库+Agent 能力均已交付；第 5 期块级改写 + 第 6 期收尾为后续）
+## 5. AI 代理面板与知识库（2026-08-15：第 1/2 期基建+Chat、第 3+4 期知识库+Agent 能力、第 5 期块级改写均已交付；第 6 期收尾为后续）
 
 **第 1/2 期已交付（2026-08-14）**：ai_* 4 表 DDL + kb_* 预留、`ai:*` IPC + preload、
 设置面板 AI Tab（safeStorage 加密 key）、知情同意页、导航栏 AI 按钮、llmClient（统一 OpenAI 兼容双后端 + SSE 流式）、
@@ -148,11 +148,17 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 - **渲染**：AgentTab 全功能、安全富文本（HAST→React，无 dangerouslySetInnerHTML）、
   ToolCallTrace/IntentCard/KnowledgeBaseSettings、AI 面板 i18n（77 键/文件）、出处 openFile + 尽力滚动
 
-延期不交付（如实标注，勿写成已交付）：第 5 期块级改写（选区/定向块编辑/红删绿增预览）、真 MCP server 管理
-（fetchContext7/fetchFirecrawl 工具）、GitHub 自取 writing-shape 技能、KB 参数持久化（本轮内存态）、
+**第 5 期块级改写已交付（2026-08-15）**：
+- 选区触发（编辑器 FloatingToolbar「AI 改写」→ AI 面板 composer 描述）+ 面板 @ 兜底（AgentTab `@ + 描述`）
+- 定向块编辑协议：内部统一 `EditBlockOp[]`；面板 @ 走编号块 `[{block_index,new_content}]` 映射校验、定位失败 `locateFailed` 拒应用
+- 红删绿增预览（`rewriteDiff` 行级 LCS + `RewritePreviewCard`，复用 renderAIMarkdownSafe 安全渲染）→ 确认 `updateContent(rewrittenMd)` 入 undo 栈一次可撤销；stale 校验（content===原文）
+- **铁律一落地**：主进程只产 LLM 文本（薄代理 `rewrite.ts`），块级替换在渲染侧（`blockEdit.ts`，只算不写），写入仅确认后
+
+延期不交付（如实标注，勿写成已交付）：真 MCP server 管理（fetchContext7/fetchFirecrawl 工具）、
+GitHub 自取 writing-shape 技能、KB 参数持久化（本轮内存态）、editBlocks agent 工具（stretch 未并入）、
 embedding 双路真验依赖本地安装 nomic-embed-text。
 
-门禁：typecheck 0 error | vitest 82 files/1152 tests | lint 0 error | Playwright ai spec 10/10 | vite build；
+门禁：第 5 期 typecheck 0 error | vitest 88 files/1229 tests | lint 0 error | Playwright ai spec 14/14（含 4 改写用例）| vite build；
 详见 docs/plan/ai-agent-panel.status.md。需求：REQUIREMENTS 3.7/3.8（AGT-/KB- 编号）；设计：modules/11；选型：TECH_STACK 2.10。
 
 > 各模块详细实现见 `docs/modules/`，需求见 `docs/REQUIREMENTS.md`，技术选型见 `docs/TECH_STACK.md`。

@@ -268,3 +268,62 @@ export interface KbStatusResponse {
 export interface KbDeleteResult {
   deleted: boolean;
 }
+
+// ============================================
+// 第 5 期（块级改写）新增共享类型
+// 架构修正：主进程 = 薄 LLM 代理（consent 闸 + 调 LLM 返回原始文本）；
+// 块级替换 / proposal 计算全部在渲染侧（块树内核在渲染侧）。
+// 铁律一：AI 无直接落盘能力，proposal 不落盘，确认后才写入（入 undo 栈）。
+// ============================================
+
+/** 定向块编辑操作（内部统一协议）。 */
+export interface EditBlockOp {
+  blockId: string;
+  newContent: string;
+}
+
+/** 选区引用（渲染侧内部：文档序叶子下标 + 块内 UTF-16 offset；blockId 仅供 UX）。 */
+export interface SelectionRef {
+  startLeafIndex: number;
+  startOffset: number;
+  endLeafIndex: number;
+  endOffset: number;
+  startBlockId?: string;
+  endBlockId?: string;
+}
+
+export type RewriteScope = 'selection' | 'document';
+
+/** 编号块（document scope：渲染侧内核构造，供 LLM 输入）。 */
+export interface RewriteBlockRef {
+  blockIndex: number;
+  blockId: string;
+  markdown: string;
+}
+
+/** AI_REWRITE_PREVIEW 请求载荷（主进程只读 LLM 输入，不解析 markdown）。 */
+export interface RewriteRequestPayload {
+  userId: string;
+  scope: RewriteScope;
+  instruction: string;
+  /** scope:'selection'：渲染侧导出的选区 markdown 片段。 */
+  selectionMarkdown?: string;
+  /** scope:'document'：渲染侧构造的编号块列表。 */
+  numberedBlocks?: RewriteBlockRef[];
+}
+
+/** 主进程返回：LLM 原始输出文本（selection=改写后 md；document=JSON 数组文本）。 */
+export interface RewriteReply {
+  text: string;
+}
+
+/** 渲染侧构造的改写提案（不落盘；确认后才写入）。 */
+export interface RewriteProposal {
+  originalMd: string;
+  rewrittenMd: string;
+  ops: EditBlockOp[];
+  /** 面板 @ 定位失败（下标越界/映射不存在）→ 渲染侧拒应用并提示。 */
+  locateFailed?: boolean;
+  /** 改写结果与原文一致 → 不弹预览卡片。 */
+  unchanged?: boolean;
+}

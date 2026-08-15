@@ -1,6 +1,6 @@
 # AI 代理面板 (Agent) 功能总结
 
-> 模块编号：11 | 优先级：P1 | 最后更新：2026-08-15 | 状态：**第 1/2 期基建+Chat、第 3+4 期知识库+Agent 能力均已交付；第 5 期块级改写 + 第 6 期收尾为后续**
+> 模块编号：11 | 优先级：P1 | 最后更新：2026-08-15 | 状态：**第 1/2 期基建+Chat、第 3+4 期知识库+Agent 能力、第 5 期块级改写均已交付；第 6 期收尾为后续**
 > 需求编号：AGT-01~19 / KB-01~05（docs/REQUIREMENTS.md 3.7 / 3.8）
 > 交付记录：第1期基建 + 第2期 Chat 闭环（2026-08-14）、第3期知识库 + 第4期 Agent 能力
 > （2026-08-15，详见 docs/plan/ai-agent-panel.status.md）；远程 DeepSeek 后端已真连验证通过；
@@ -12,7 +12,8 @@
 
 - **Chat**：纯对话——无工具、无知识库、无 @ 文件、无块改写、无意图路由
 - **Agent**：辅助创作（第3+4期已交付）——内置 4 只读工具（listFiles/readFile/searchKB/runSkill）+ 3 内置 skills + 用户扩展 + 可选「依照知识库创作」+ 意图识别/提问卡片/上下文压缩/工具调用轨迹 +
-  知识库双路召回与出处；⚠️ MCP（context7/firecrawl，第 6 期）与 @ 文件块级改写（第 5 期）为**延期未交付**
+  知识库双路召回与出处；⚠️ MCP（context7/firecrawl）为**第 6 期延期未交付**
+- **块级改写**（第5期已交付）：编辑器选区触发（FloatingToolbar「AI 改写」→ AI 面板 composer 描述 → 红删绿增预览 → 确认 `updateContent` 一次可撤销）+ 面板 @ 兜底；定向块编辑协议（内部 `EditBlockOp[]`，面板 @ 走编号块 `[{block_index,new_content}]`，定位失败拒应用）；主进程只产 LLM 文本（薄代理），块级替换在渲染侧，**AI 无直接落盘**（写仅确认后）
 
 两条铁律：**① AI 无直接落盘能力**，写路径必经「红删绿增预览 → 用户确认」；**② 联网/笔记外发必须用户知情同意**。
 
@@ -29,10 +30,15 @@ src/main/ai/                  # AI 主进程服务（第1/2/3/4期已交付）
 ├── skillLoader.ts            # skills 体系（3 内置 + userData/skills/ 用户扩展）
 ├── toolRegistry.ts           # 内置只读工具注册（listFiles/readFile/searchKB/runSkill）
 ├── agentLoop.ts              # 函数调用循环（≤6 轮，仅 remote 可靠；ollama 降级纯 chat）
+├── rewrite.ts                # 改写薄 LLM 代理（第5期：consent 'chat' 闸 + 调 LLM 返回 {text}，零 markdown 解析）
 └── consent.ts                # 知情同意（联网闸 allowNetwork + KB 外发闸 allowSend）
 src/render/components/AIAgent/   # 面板 UI（已交付）：ChatTab / AgentTab / ToolCallTrace / IntentCard /
-                                 #   MarkdownMessage / KnowledgeBaseSettings / ConsentOverlay
+                                 #   MarkdownMessage / KnowledgeBaseSettings / ConsentOverlay / RewritePreviewCard（第5期）
+src/render/editor/rewrite/       # 改写块逻辑（第5期，渲染侧内核所在）：selectionExport.ts（DOM 选区→SelectionRef+片段）/
+                                 #   blockEdit.ts（proposal 计算，仅替换目标块，只算不写）
+src/render/filters/rewriteDiff.ts  # 行级红删绿增 diff（纯函数，第5期）
 src/render/stores/agentStore.ts  # 会话状态（已交付，agent 模式 + tool 事件 + kbSettings 内存态）
+src/render/stores/rewriteStore.ts# 改写状态机（第5期：selectionContext/pendingRewrite/applyRewrite stale 校验→updateContent）
 src/main/db/ai.ts / kb.ts        # 会话 CRUD + 知识库 DAO（已交付）
 ```
 
@@ -51,8 +57,8 @@ IPC 通道 `ai:*`（白名单）+ `kb:*` + `agent:*` + 流式 `ai:stream:tool`�
 | 导入 | ✅ md/txt（单文件 + 目录批量，主进程读盘），进 SQLite 按账号隔离；pdf/docx 后续（需引入解析器） |
 | Skills | ✅ 内置 3 个 core skill（润色/缩写/扩写、技术资料整理、知识库问答引导）+ 用户可扩展（`userData/skills/` 下 SKILL.md）；**GitHub 自取 `writing-shape` 延期**，未实施 |
 | MCP | ⚠️ **延期**：真 MCP server 进程管理（context7/firecrawl 拉起/下载）本轮未交付；仅工具注册表 + 函数调用循环先行，`fetchContext7`/`fetchFirecrawl` 工具未注册 |
-| 块级改写 | ⚠️ **延期（第 5 期）**：定向块编辑协议 + 红删绿增预览均未实施；本轮全部工具只读，**无 editBlocks 写工具** |
-| 预览应用 | ⚠️ **延期（第 5 期）**：diff 红删绿增 → 确认后经 `stateToMarkdown` 写入编辑器未实施 |
+| 块级改写 | ✅ **第 5 期已交付**（2026-08-15）：选区触发（编辑器 FloatingToolbar「AI 改写」）+ 面板 @ 兜底（AgentTab composer `@ + 描述`）；定向块编辑协议内部统一 `EditBlockOp[] {blockId,newContent}`（选区=整段替换、面板=编号块 `[{block_index,new_content}]` 映射校验，定位失败 `locateFailed` 拒应用）；主进程只产 LLM 文本（薄代理 `rewrite.ts`），块级替换在渲染侧（`blockEdit.ts`，内核所在） |
+| 预览应用 | ✅ **第 5 期已交付**：diff 红删绿增（`rewriteDiff` 行级 LCS）→ 用户确认后才经 `updateContent(rewrittenMd)` 写入编辑器（入 undo 栈一次可撤销）；stale 校验（确认时 content===原文，不一致拒应用） |
 | 意图识别 | ✅ 规则启发式 6 类（创作/改写、知识库问答、技术资料、网页抓取、闲聊、其他）；模糊 → 候选提问卡片（IntentCard）；工具失败自动兜底降级 |
 | 上下文压缩 | ✅ token 估算 = 字符数/4（非精确计分器，仅作相对阈值）；达 80% 自动 + 手动；早期对话合并为「历史摘要」，保留最近 N 轮原文 |
 | 工具权限 | ✅ 只读 4 工具（listFiles/readFile/searchKB/runSkill）自动执行；**无写工具**；
@@ -82,7 +88,7 @@ kb_chunks(id, document_id, seq, content, vector BLOB, source_ref /*文件+块定
 
 | 模块 | 交互 |
 | ---- | ---- |
-| 编辑主区 v2 | ⚠️ 块级改写复用块树（markdownToState/stateToMarkdown）+ 选区触发 + 确认写入可撤销，**均属第 5 期延期未实施**；已交付的 KB-04 出处「打开文档」复用 editorStore.openFile |
+| 编辑主区 v2 | ✅ 块级改写（第5期）复用块树（markdownToState/stateToMarkdown/blockTree，渲染侧）+ 选区触发（FloatingToolbar 读 DOM 选区）+ 确认写入 `updateContent` 可撤销；KB-04 出处「打开文档」复用 editorStore.openFile |
 | 文件管理 | ✅ 知识库检索账号内文件（files 表）；KB-06 保存/删除联动重嵌入与清理 |
 | 设置界面 | AI 配置（后端选择、key、阈值、召回融合权重、授权开关）加入设置面板 |
 | 数据持久化 | 新增 4 表 + 迁移；safeStorage 加密密钥 |
@@ -91,7 +97,7 @@ kb_chunks(id, document_id, seq, content, vector BLOB, source_ref /*文件+块定
 
 ## 6. 未决项 / 延期标注（不写成已交付）
 
-- ⚠️ **第 5 期块级改写**（选区触发 / 定向块编辑协议 / 红删绿增预览 / 确认写入）——**后续未交付**；本轮工具全部只读无写工具
+- ✅ **第 5 期块级改写已交付**（2026-08-15）：选区触发 + 面板 @ 兜底 + 定向块编辑协议 + 红删绿增预览 + 确认写入（可撤销）；写路径仍仅确认后写入，AI 无直接落盘（工具仍全部只读，无 editBlocks agent 工具——该工具为 stretch 未并入）
 - ⚠️ **真 MCP server 管理**（context7/firecrawl 的 `mcpManager.ts` 拉起/下载、`fetchContext7`/`fetchFirecrawl` 工具）——**延期**；仅工具注册表 + 函数调用循环先行
 - ⚠️ **GitHub 自取 `writing-shape` 技能**——**延期未实施**；已交付的是 3 个内置 core skill + `userData/skills/` 用户扩展
 - ⚠️ **KB 参数持久化**（topK/fuse/threshold/置顶权重/embedding host+model）——本轮为 `agentStore.kbSettings` 内存态，**持久化到 ai_config 延后**
@@ -104,7 +110,7 @@ kb_chunks(id, document_id, seq, content, vector BLOB, source_ref /*文件+块定
 2. ✅ **Chat 闭环**（第2期，2026-08-14）：llmClient（Ollama/远程 SSE 流式）+ 面板 UI + 会话持久化 → 可对话；远程 DeepSeek 真连验证通过
 3. ✅ **知识库**（第3期，2026-08-15）：导入 → kb 表 → FTS5 关键词召回 → embeddingClient（nomic 未装降级）→ 双路召回 + 拒答 + 出处 + 置顶；KB-06 保存防抖重嵌入/删除清理
 4. ✅ **Agent 能力**（第4期，2026-08-15)：skills 体系（3 内置 + 用户扩展）+ 工具注册表 + agentLoop 函数调用循环 + 意图识别/提问卡片 + 上下文压缩 + 失败兜底；consent 分层（allowNetwork + allowSend）
-5. ⚠️ **块级改写**（第5期，**后续**）：选区触发 + 定向块编辑协议 + 红删绿增预览 + 确认写入——未交付
+5. ✅ **块级改写**（第5期，2026-08-15 已交付）：选区触发 + 面板 @ 兜底 + 定向块编辑协议 + 红删绿增预览 + 确认写入（可撤销）；主进程只产 LLM 文本、块级替换在渲染侧；e2e 4 用例 + 门禁全绿
 6. ⚠️ **收尾**（第6期，**后续**）：真 MCP 进程管理、`fetchContext7`/`fetchFirecrawl` 工具、KB 参数持久化、GitHub 自取 skill——未交付（i18n/Vitest/Playwright 已在第3+4期完成）
 
-> 已完成各阶段独立可交付、可验证；需求/技术文档先行更新。第 3+4 期门禁全绿（typecheck 0 error、vitest 82 files/1152 tests、lint 0 error、Playwright ai spec 10/10、vite build）。
+> 已完成各阶段独立可交付、可验证；需求/技术文档先行更新。第 3+4 期门禁全绿（typecheck 0 error、vitest 82 files/1152 tests、lint 0 error、Playwright ai spec 10/10、vite build）；第 5 期门禁全绿（typecheck 0 error、vitest 88 files/1229 tests、lint 0 error、Playwright ai spec 14/14 含 4 改写用例、vite build）。

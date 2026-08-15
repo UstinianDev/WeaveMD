@@ -21,6 +21,9 @@ import {
 } from './types';
 import { computeToolbarState, syntaxTypeToOption, type LinkRect, type SelectionState } from './toolbarState';
 import { createRafThrottle } from '@render/utils/rafThrottle';
+import { readDocumentSelection } from '@render/editor/rewrite/selectionExport';
+import { useEditorStore } from '@render/stores/editorStore';
+import { useRewriteStore } from '@render/stores/rewriteStore';
 import InsertUrlModal from './InsertUrlModal';
 import ImageToolbar from './ImageToolbar';
 import ToolbarButton from './ToolbarButton';
@@ -485,6 +488,15 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     stickyRef.current = true;
   }, [selection, onUnlink]);
 
+  /** 第 5 期「AI 改写」：读编辑器 content + DOM 选区 → 触发选区改写（批次 4 落地 store 行为） */
+  const handleRewriteClick = useCallback(() => {
+    const content = useEditorStore.getState().content;
+    const sel = readDocumentSelection(content);
+    if (!sel) return; // 选区为空 / 端点异常 → 禁用（保守 no-op）
+    useRewriteStore.getState().startSelectionRewrite(content, sel);
+    hideToolbar();
+  }, [hideToolbar]);
+
   const handleBlockChange = useCallback(
     (target: BlockTypeOption) => {
       if (selection && target !== currentType) {
@@ -595,6 +607,16 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
           onClick={() => handleFormat(button)}
         />
       ))}
+
+      <div className="ft-divider" />
+
+      {/* 第 5 期「AI 改写」：选区态触发块级改写（选区为空时工具栏本身不显示） */}
+      <ToolbarButton
+        title="AI 改写"
+        label="AI 改写"
+        className="text-[var(--accent)]"
+        onClick={handleRewriteClick}
+      />
 
       <div className="ft-divider" />
 
