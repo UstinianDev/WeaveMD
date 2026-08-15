@@ -21,6 +21,12 @@ vi.mock('@render/editor/rewrite/blockEdit', () => ({
     unchanged: false,
   })),
   proposeDocumentRewrite: vi.fn(() => ({ originalMd: 'orig', rewrittenMd: 'docRe', ops: [] })),
+  proposeFullDocumentRewrite: vi.fn((_c: string, _r: string) => ({
+    originalMd: _c,
+    rewrittenMd: _r.trim(),
+    ops: [],
+    unchanged: _r.trim() === _c,
+  })),
 }));
 
 // ---- fixtures ----
@@ -235,6 +241,102 @@ describe('rewriteStore 改写状态机', () => {
     expect(s.content).toBe('new-md');
     expect(s.isDirty).toBe(true);
     expect(s.undoStack).toEqual(['original-md']);
+  });
+
+  // ============================================================
+  // 第 7 期 A1c：整篇写（runFullDocumentRewrite / previewDocumentFromReply）
+  // ============================================================
+
+  it('runFullDocumentRewrite 未打开文档 → rewriteError=no-document 且不调 IPC、无 proposal', async () => {
+    useEditorStore.setState({ currentFile: null, content: 'should-not-write' });
+    await useRewriteStore.getState().runFullDocumentRewrite('帮我从 0 到 1 写一篇');
+
+    expect(rewritePreviewMock()).not.toHaveBeenCalled();
+    expect(useRewriteStore.getState().pendingRewrite).toBeNull();
+    expect(useRewriteStore.getState().rewriteError).toBe('no-document');
+  });
+
+  it('runFullDocumentRewrite consent 未授权 → pendingConsent 且不调 IPC', async () => {
+    useEditorStore.setState({
+      currentFile: { id: 'f1', content: 'doc' } as unknown as import('@shared/types').IFile,
+    });
+    useAgentStore.setState({ config: remoteConfig, consent: noConsent });
+    await useRewriteStore.getState().runFullDocumentRewrite('从 0 到 1 写文档');
+
+    expect(useAgentStore.getState().pendingConsent).toBe(true);
+    expect(rewritePreviewMock()).not.toHaveBeenCalled();
+    expect(useRewriteStore.getState().pendingRewrite).toBeNull();
+  });
+
+  it('runFullDocumentRewrite 授权 → document scope 空 numberedBlocks → proposeFullDocumentRewrite → pendingRewrite', async () => {
+    useEditorStore.setState({
+      currentFile: { id: 'f1', content: 'doc' } as unknown as import('@shared/types').IFile,
+      content: '原文档',
+    });
+    const blockEdit = await import('@render/editor/rewrite/blockEdit');
+    const proposeFullDocumentRewrite =
+      blockEdit.proposeFullDocumentRewrite as ReturnType<typeof vi.fn>;
+    // 默认 mock 实现：originalMd=_c、rewrittenMd=_r.trim()、unchanged=trim相同时。此处直接复用。
+    rewritePreviewMock().mockResolvedValue({ success: true, data: { text: '整篇新文档' } });
+
+    await useRewriteStore.getState().runFullDocumentRewrite('帮我从 0 到 1 写一篇关于 AI 的文档');
+
+    // 载荷：document scope + 空 numberedBlocks（空文档/整篇协议）+ instruction
+    expect(rewritePreviewMock()).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'u1',
+        scope: 'document',
+        instruction: '帮我从 0 到 1 写一篇关于 AI 的文档',
+        numberedBlocks: [],
+      })
+    );
+    expect(proposeFullDocumentRewrite).toHaveBeenCalledWith('原文档', '整篇新文档');
+    expect(useRewriteStore.getState().pendingRewrite?.rewrittenMd).toBe('整篇新文档');
+    expect(useRewriteStore.getState().rewriting).toBe(false);
+  });
+
+  it('runFullDocumentRewrite 结果 unchanged → 不弹卡（pendingRewrite null + no-change）', async () => {
+    useEditorStore.setState({
+      currentFile: { id: 'f1', content: 'doc' } as unknown as import('@shared/types').IFile,
+      content: '原文档',
+    });
+    rewritePreviewMock().mockResolvedValue({ success: true, data: { text: '原文档' } });
+    await useRewriteStore.getState().runFullDocumentRewrite('重写');
+
+    expect(useRewriteStore.getState().pendingRewrite).toBeNull();
+    expect(useRewriteStore.getState().rewriteError).toBe('no-change');
+  });
+
+  it('previewDocumentFromReply（Agent 回复路径）无需 IPC：current content + 回复 → pendingRewrite', () => {
+    useEditorStore.setState({
+      currentFile: { id: 'f1', content: 'doc' } as unknown as import('@shared/types').IFile,
+      content: '当前文档',
+    });
+    useRewriteStore.getState().previewDocumentFromReply('# 整篇 markdown\n\n正文');
+
+    // 不调 IPC
+    expect(rewritePreviewMock()).not.toHaveBeenCalled();
+    expect(useRewriteStore.getState().pendingRewrite?.originalMd).toBe('当前文档');
+    expect(useRewriteStore.getState().pendingRewrite?.rewrittenMd).toBe('# 整篇 markdown\n\n正文');
+  });
+
+  it('previewDocumentFromReply 未打开文档 → no-document 且不产生 proposal', () => {
+    useEditorStore.setState({ currentFile: null, content: '' });
+    useRewriteStore.getState().previewDocumentFromReply('# 回复内容');
+
+    expect(useRewriteStore.getState().pendingRewrite).toBeNull();
+    expect(useRewriteStore.getState().rewriteError).toBe('no-document');
+  });
+
+  it('previewDocumentFromReply 回复为空白 → 不产生 proposal（视为无变化）', () => {
+    useEditorStore.setState({
+      currentFile: { id: 'f1', content: 'doc' } as unknown as import('@shared/types').IFile,
+      content: '当前文档',
+    });
+    useRewriteStore.getState().previewDocumentFromReply('   ');
+
+    expect(useRewriteStore.getState().pendingRewrite).toBeNull();
+    expect(useRewriteStore.getState().rewriteError).toBe('no-change');
   });
 
   it('clearRewrite 重置全部改写状态', () => {

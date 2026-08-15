@@ -993,3 +993,74 @@ test('A4 回归：含列表文档跨块选区改写 → 仅替换选中区间（
   await expect(page.getByText('outside', { exact: true }).first()).toBeVisible();
   expect(errors.length).toBe(0);
 });
+
+// ============================================================
+// 第 7 期 A1c：从 0 到 1 写整篇。
+// 闭环：空文档 → 说「从 0 到 1 写一篇」→ 整篇生成（document scope 空 numberedBlocks）→
+//       预览卡 → 应用 → 写入当前文档 → 一次 Ctrl+Z 还原。
+// 验收 2：未打开文档 → 引导提示（不产生空写）。mock 不上网。
+// ============================================================
+test('A1c 从0到1写整篇：空文档 composer 触发 → 预览卡 → 应用写入 → 一次撤销还原', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  const doc = '# 关于 AI\n\n这是一篇 AI 生成的整篇文档。';
+  // 空文档打开（seedContent 默认 ''）；documentText = AI 产整篇 markdown（空 numberedBlocks 协议）
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    rewrite: { documentText: doc },
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await openEditor(page); // 新建空文档
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await expect(editable).toHaveText('');
+
+  const panel = await openAgentPanel(page);
+  const composer = panel.locator('textarea').first();
+  // 「从 0 到 1 写一篇」→ WRITE_WHOLE_DOC_RE 命中 → runFullDocumentRewrite
+  await composer.fill('帮我从 0 到 1 写一篇关于 AI 的文档');
+  await composer.press('Enter');
+  await page.waitForTimeout(400);
+
+  // 预览卡出现（整篇生成，红删绿增——原始空行被 + 全文替换）
+  await expect(panel.getByText('改写预览', { exact: true })).toBeVisible({ timeout: 5000 });
+
+  // 应用 → 编辑器写入整篇 markdown
+  await panel.getByText('应用', { exact: true }).click();
+  await page.waitForTimeout(400);
+  await expect(editable).toHaveText('关于 AI');
+  // 整篇多块渲染（标题 + 段落）
+  await expect(page.getByText('这是一篇 AI 生成的整篇文档。', { exact: true })).toBeVisible();
+
+  // 一次 Ctrl+Z（编辑器 undo）还原为空文档
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('');
+  expect(errors.length).toBe(0);
+});
+
+test('A1c 未打开文档 + 整篇写诉求 → 引导提示，不产生空写', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  // 不打开任何编辑器文档
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  const panel = await openAgentPanel(page);
+
+  const composer = panel.locator('textarea').first();
+  await composer.fill('帮我从 0 到 1 写一篇关于 AI 的文档');
+  await composer.press('Enter');
+  await page.waitForTimeout(400);
+
+  // 引导提示条渲染（ai.rewrite.noDocument），不弹预览卡（无 proposal）
+  await expect(panel.getByText(/请先打开一个文档/)).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText('改写预览', { exact: true })).toBeHidden();
+  expect(errors.length).toBe(0);
+});

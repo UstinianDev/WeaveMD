@@ -26,6 +26,7 @@ vi.mock('@render/i18n', () => ({
       'ai.intent.rewrite': '改写',
       'ai.intent.create.prompt': '请帮我创作一篇文章',
       'ai.rewrite.selectionHint': '描述如何改写选中内容',
+      'ai.rewrite.previewWrite': '预览写入文档',
       'ai.tab.agent': '代理',
       'navbar.confirmDeleteFile': '删除',
     };
@@ -190,5 +191,64 @@ describe('AgentTab', () => {
     });
     fireEvent.click(screen.getByText('发送'));
     expect(startDocumentRewrite).toHaveBeenCalledWith('文档全文', '把全文改写成学术风格');
+  });
+
+  it('A1c: 整篇写诉求（从 0 到 1 写一篇）→ 走 runFullDocumentRewrite，不 sendAgentMessage', () => {
+    const runFullDocumentRewrite = vi.fn().mockResolvedValue(undefined);
+    const sendAgentMessage = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(useRewriteStore.getState(), 'runFullDocumentRewrite').mockImplementation(
+      runFullDocumentRewrite
+    );
+    vi.spyOn(useAgentStore.getState(), 'sendAgentMessage').mockImplementation(sendAgentMessage);
+    useAgentStore.setState({ ...defaultState });
+    useEditorStore.setState({ content: '', currentFile: null });
+    render(<AgentTab />);
+    fireEvent.change(screen.getByPlaceholderText('输入问题'), {
+      target: { value: '帮我从 0 到 1 写一篇关于 AI 的文档' },
+    });
+    fireEvent.click(screen.getByText('发送'));
+    expect(runFullDocumentRewrite).toHaveBeenCalledWith('帮我从 0 到 1 写一篇关于 AI 的文档');
+    expect(sendAgentMessage).not.toHaveBeenCalled();
+  });
+
+  it('A1c: 非整篇写诉求（如「帮我优化」）→ 仍走 agent 对话（不误拦截）', () => {
+    const runFullDocumentRewrite = vi.fn().mockResolvedValue(undefined);
+    const sendAgentMessage = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(useRewriteStore.getState(), 'runFullDocumentRewrite').mockImplementation(
+      runFullDocumentRewrite
+    );
+    vi.spyOn(useAgentStore.getState(), 'sendAgentMessage').mockImplementation(sendAgentMessage);
+    useAgentStore.setState({ ...defaultState });
+    render(<AgentTab />);
+    // 「优化这篇文档」是 rewrite 意图，不开整篇写协议（整篇写协议仅掐从 0 到 1 / 写整篇）
+    fireEvent.change(screen.getByPlaceholderText('输入问题'), {
+      target: { value: '帮我优化这篇文档' },
+    });
+    fireEvent.click(screen.getByText('发送'));
+    expect(runFullDocumentRewrite).not.toHaveBeenCalled();
+    expect(sendAgentMessage).toHaveBeenCalledWith('帮我优化这篇文档');
+  });
+
+  it('A1c: assistant 消息且文档已打开 → 「预览写入文档」按钮点击调用 previewDocumentFromReply', () => {
+    const previewDocumentFromReply = vi.fn();
+    vi.spyOn(useRewriteStore.getState(), 'previewDocumentFromReply').mockImplementation(
+      previewDocumentFromReply
+    );
+    useEditorStore.setState({
+      currentFile: { id: 'f1', name: 'doc', content: '当前文档' } as never,
+    });
+    useAgentStore.setState({ ...defaultState, messages: [assistantMsg] });
+    render(<AgentTab />);
+    const btn = screen.getByText('预览写入文档');
+    // 打开文档时按钮可见
+    fireEvent.click(btn);
+    expect(previewDocumentFromReply).toHaveBeenCalledWith('**好的**，我来写。');
+  });
+
+  it('A1c: 未打开文档 → assistant 消息不显示「预览写入文档」按钮', () => {
+    useEditorStore.setState({ currentFile: null, content: '' });
+    useAgentStore.setState({ ...defaultState, messages: [assistantMsg] });
+    render(<AgentTab />);
+    expect(screen.queryByText('预览写入文档')).not.toBeInTheDocument();
   });
 });

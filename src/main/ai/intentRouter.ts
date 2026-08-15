@@ -17,7 +17,8 @@ interface IntentRule {
 const RULES: IntentRule[] = [
   {
     intent: 'rewrite',
-    keywords: ['修改', '改写', '润色', '缩写', '扩写', '精简', '压缩', '润一下', '改一下', '润色一下', '缩一下', '扩一下', 'polish', 'rewrite', 'shorten', 'expand', 'summarize', 'paraphrase'],
+    // A1b 补词：优化/整理/美化/改进/润一润 及其变体（含英文，避免落 chat fallback）
+    keywords: ['修改', '改写', '润色', '缩写', '扩写', '精简', '压缩', '优化', '整理', '美化', '改进', '润一润', '润一下', '改一下', '润色一下', '优化一下', '整理一下', '美化一下', '改进一下', '缩一下', '扩一下', 'polish', 'rewrite', 'shorten', 'expand', 'summarize', 'paraphrase', 'optimize', 'improve', 'refine', 'clean up'],
   },
   {
     intent: 'kbQa',

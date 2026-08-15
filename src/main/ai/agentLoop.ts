@@ -55,6 +55,27 @@ const CONTEXT_WINDOW = 64_000;
 const COMPRESS_THRESHOLD = 0.8;
 const KEEP_RECENT_ROUNDS = 6;
 
+/** 文档上下文注入：估算 >5000 tokens（约 2 万字符）时截断到 20000 字符 + 尾部标记。 */
+const DOC_CONTEXT_TOKEN_LIMIT = 5000;
+const DOC_CONTEXT_CHAR_LIMIT = 20_000;
+const DOC_CONTEXT_CUT_MARKER = '\n\n[文档过长已截断…]';
+
+/**
+ * 组装当前文档上下文 system 消息（只读，供 LLM 优化/改写整篇参考）。
+ * 无文档 / 空文档 → 返回 null（不注入）。超长截断而非二次 LLM 压缩。
+ */
+function buildDocumentContext(currentDocument: string | undefined): string | null {
+  const doc = (currentDocument ?? '').trim();
+  if (!doc) return null;
+  if (estimateTokens(doc) > DOC_CONTEXT_TOKEN_LIMIT) {
+    return `以下为当前编辑文档内容（只读，供改写/优化参考）：\n\n${doc.slice(
+      0,
+      DOC_CONTEXT_CHAR_LIMIT
+    )}${DOC_CONTEXT_CUT_MARKER}`;
+  }
+  return `以下为当前编辑文档内容（只读，供改写/优化参考）：\n\n${doc}`;
+}
+
 function makeAgentResult(partial: {
   conversationId: string;
   assistantId: string;
@@ -211,6 +232,12 @@ export async function runAgentFlow(
   let llmMessages: AgentLlmMessage[] = summary
     ? buildCompressed(history, summary, KEEP_RECENT_ROUNDS)
     : [...history];
+
+  // A1a：注入当前文档上下文（只读，供 LLM 真正看到文档；首条 system）。空文档不注入。
+  const documentContext = buildDocumentContext(payload.currentDocument);
+  if (documentContext) {
+    llmMessages = [{ role: 'system', content: documentContext }, ...llmMessages];
+  }
 
   let roundsUsed = 0;
   let reasoningTokenCount: number | null = null;
