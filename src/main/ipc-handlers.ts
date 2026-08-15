@@ -12,6 +12,8 @@ import {
   USERNAME_REGEX,
 } from '@shared/constants';
 import { registerAiIpcHandlers } from './ai/ipc';
+import { reindexAfterSave, removeByFile } from './ai/kbIndexer';
+import type { IndexFileInput } from './ai/kbIndexer';
 import { createFile, deleteFile, getFile, listFiles, updateFileContent } from './db/files';
 import { exportFile } from './export/exportService';
 import type { ExportRequest } from './export/types';
@@ -43,6 +45,39 @@ function verifyToken(token: string): { userId: string; username: string } | null
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// KB-06 钩子：文件保存后防抖异步重嵌入 + 删除文件同步清理知识库
+// ---------------------------------------------------------------------------
+
+/** 保存重嵌入防抖（~1200ms）：key = `${userId}:${fileId}`，防频繁保存风暴。 */
+const reindexTimers = new Map<string, NodeJS.Timeout>();
+const REINDEX_DEBOUNCE_MS = 1200;
+
+/** 保存后挂防抖重嵌入：只重索引该 fileId；清理该文件既有防抖定时器避免竞争。 */
+function scheduleReindexAfterSave(userId: string, file: IndexFileInput): void {
+  const key = `${userId}:${file.id}`;
+  const existing = reindexTimers.get(key);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    reindexTimers.delete(key);
+    // 索引选项保守为仅关键词；异常静默降级（不影响已返回的保存成功）
+    void reindexAfterSave(userId, file, { vectorEnabled: false }).catch(() => {});
+  }, REINDEX_DEBOUNCE_MS);
+  reindexTimers.set(key, timer);
+}
+
+/** 删除文件后同步清理知识库文档。 */
+function cleanupKbAfterFileDelete(userId: string, fileId: string): void {
+  // 先撤销可能仍在排队的保存重嵌入
+  const key = `${userId}:${fileId}`;
+  const timer = reindexTimers.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    reindexTimers.delete(key);
+  }
+  removeByFile(userId, fileId);
 }
 
 export function registerAllIpcHandlers(): void {
@@ -321,6 +356,8 @@ export function registerAllIpcHandlers(): void {
       if (!updated) {
         return { success: false, message: 'File not found' };
       }
+      // KB-06：保存后防抖异步重嵌入该 fileId 的知识库文档（不阻塞保存返回）
+      scheduleReindexAfterSave(userId, updated);
       return { success: true, data: updated };
     } catch (error) {
       return { success: false, message: 'Failed to save file' };
@@ -330,6 +367,8 @@ export function registerAllIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.FILE_DELETE, async (_event, { fileId, userId }) => {
     try {
       const success = deleteFile(fileId, userId);
+      // KB-06：删除文件同步清理知识库（撤销在途的保存重嵌入 + removeByFile）
+      if (success) cleanupKbAfterFileDelete(userId, fileId);
       return { success, message: success ? 'File deleted' : 'File not found' };
     } catch (error) {
       return { success: false, message: 'Failed to delete file' };

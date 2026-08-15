@@ -21,9 +21,12 @@
   ImageToolbar（图片工具栏）+ toolbarState（纯函数）
 - `src/render/components/Editor/` — EditorView 薄编排器（v2 唯一）
 - `src/render/stores/ services/ styles/` — Zustand / markdown 服务 / globals.css
-- `src/main/ai/` — AI 主进程服务（**第1/2期已交付**：llmClient/consent/secureConfig/ipc；第3-6期规划：
-  embeddingClient / mcpManager / kbIndexer / kbSearch / intentRouter / contextManager / toolRegistry）
-- `src/render/components/AIAgent/` — AI 面板（**第1/2期已交付**：AIAgentPanel/ChatTab/AgentTab/ConsentOverlay；第3-6期规划提问卡片、diff 预览）
+- `src/main/ai/` — AI 主进程服务（**第1/2/3/4期均已交付**：llmClient/consent/secureConfig/ipc +
+  embeddingClient / kbIndexer / kbSearch / intentRouter / contextManager / toolRegistry /
+  skillLoader / agentLoop；`mcpManager` 真 MCP 进程管理延期）
+- `src/render/components/AIAgent/` — AI 面板（**第1/2/3/4期均已交付**：AIAgentPanel/ChatTab/AgentTab/
+  ConsentOverlay + ToolCallTrace/IntentCard/MarkdownMessage/KnowledgeBaseSettings；提问卡片已交付，
+  diff 预览留第5期）
 - `docs/` — REQUIREMENTS / TECH_STACK / SUMMARY / modules/ / specs/
 
 ## 规范
@@ -99,18 +102,27 @@
   （纯算术下沉 resizeMath；`imageAnchor.ts` 提供 findImageEl/readImageRect 共享查询）
 - `src/render/components/Editor/v2/modalConstants.ts` — 弹层共享常量（EMPTY_URL_MESSAGE）
 - `src/render/components/Editor/EditorView.tsx` — 薄编排器（v2 唯一）
-- `docs/modules/11-AI代理面板-Agent.md` — AI 代理面板 + 知识库导入设计（第1/2期已交付；
-  需求 AGT-01~19 / KB-01~05 见 REQUIREMENTS 3.7/3.8）
+- `docs/modules/11-AI代理面板-Agent.md` — AI 代理面板 + 知识库导入设计（第1/2期基建+Chat、
+  第3/4期知识库+Agent 均交付；需求 AGT-01~19 / KB-01~05 见 REQUIREMENTS 3.7/3.8）
 
-## AI 代理面板与知识库（第1/2期已交付；第3-6期规划）
+## AI 代理面板与知识库（2026-08-15：第 1/2 期基建+Chat、第 3+4 期知识库+Agent 能力均已交付；第 5 期块级改写 + 第 6 期收尾为后续）
 
 - 右侧 AI 面板（导航栏「AI」按钮开合），Chat（纯对话）/ Agent（辅助创作）双智能体
-- 铁律一：**AI 无直接落盘能力**，写路径必经「红删绿增预览 → 用户确认」后经
-  `stateToMarkdown` 写入（可撤销）；块级改写走定向块编辑协议
-- 铁律二：**联网 / 笔记外发必须用户知情同意**（首次弹同意页）；key 用 safeStorage
-  加密存 SQLite，网络全走主进程、密钥不落渲染进程
-- 知识库 = 账号内全部笔记 + 导入文档（md/txt），双路召回（FTS5 + 本地向量）；
-  拒答阈值以下拒答；出处可跳转原文；置顶文档加权
+- 铁律一：**AI 无直接落盘能力**，Agent 工具一律只读（listFiles/readFile/searchKB/runSkill）；
+  写路径（红删绿增预览 → `stateToMarkdown` 写入）属**第 5 期块级改写后续**，非本轮交付
+- 铁律二：**联网 / 笔记外发必须用户知情同意**（首次弹同意页，consent 分层：联网闸
+  allowNetwork + KB 外发闸 allowSend）；key 用 safeStorage 加密存 SQLite，网络全走
+  主进程、密钥不落渲染进程
+- 知识库 = 账号内全部笔记 + 导入文档（md/txt）：kb DAO + FTS5 虚拟表 `kb_chunks_fts`
+  （CJK 前缀匹配注意）+ embeddingClient（nomic-embed-text 未装降级仅 FTS5）+ kbIndexer
+  （保存防抖重嵌入/删除清理）；双路召回（FTS5 BM25 + 向量余弦 0.5/0.5）+ 拒答 0.6 +
+  出处可跳转 + 置顶 ×1.5
+- Agent 能力：toolRegistry/agentLoop（≤6 轮函数调用循环，仅 remote 可靠，ollama 降级纯 chat）/
+  skillLoader（3 内置 + 用户扩展 SKILL.md）/intentRouter（6 类 + 候选提问卡片）/
+  contextManager（/4 估算 + 80% 压缩）；渲染端 AgentTab + ToolCallTrace + IntentCard +
+  MarkdownMessage（HAST→React 安全富文本，无 dangerouslySetInnerHTML）
+- 延期不交付：真 MCP server 管理（fetchContext7/fetchFirecrawl）、GitHub 自取 writing-shape、
+  KB 参数持久化（本轮内存态，agentStore.kbSettings）；门禁全绿见 docs/plan/ai-agent-panel.status.md
 
 ## 已知限制（详见 spec 13.x）
 

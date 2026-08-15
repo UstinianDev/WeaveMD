@@ -60,8 +60,9 @@ describe('ChatTab', () => {
     useAgentStore.setState({ ...defaultState, messages: [userMsg, assistantMsg] });
     render(<ChatTab />);
     expect(screen.getByText('Hello AI')).toBeInTheDocument();
-    // assistant 内容以纯文本安全渲染
-    expect(screen.getByText('**Hi** there')).toBeInTheDocument();
+    // assistant 内容经安全富文本渲染（**Hi** → <strong>Hi</strong>，无 dangerouslySetInnerHTML）
+    expect(screen.getByText('Hi')).toBeInTheDocument();
+    expect(document.body.textContent).toContain('there');
   });
 
   it('输入并回车发送,调用 sendMessage 并清空输入', async () => {

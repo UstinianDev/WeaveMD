@@ -18,6 +18,15 @@ interface AiMockOptions {
   consented?: boolean;
   /** 预置会话数 */
   seedConversations?: number;
+  /** Agent 运行行为（runAgent 返回值，控制意图卡片/后端降级提示）。 */
+  agentResult?: {
+    intentCard?: boolean;
+    backendHint?: string;
+    /** 是否流式发送 tool 轨迹（searchKB 命中）。 */
+    withTool?: boolean;
+  };
+  /** 预置知识库文档数（kb.list 返回）。 */
+  seedKbDocuments?: number;
 }
 
 /**
@@ -30,6 +39,8 @@ function installWeaveMDMock(opts: AiMockOptions): void {
   const backend = opts.backend ?? 'ollama';
   const consented = opts.consented ?? false;
   const seed = opts.seedConversations ?? 0;
+  const agentResult = opts.agentResult ?? {};
+  const seedKb = opts.seedKbDocuments ?? 0;
   const user = {
     id: 'u1',
     username: 'ai_tester',
@@ -72,6 +83,28 @@ function installWeaveMDMock(opts: AiMockOptions): void {
     });
   }
 
+  // 知识库文档（kb.status / kb.list 内存库）
+  const kbDocuments: Array<{
+    docId: string;
+    fileId: string | null;
+    title: string;
+    sourceType: string;
+    pinned: boolean;
+    status: string;
+    chunkCount: number;
+  }> = [];
+  for (let i = 0; i < seedKb; i++) {
+    kbDocuments.push({
+      docId: `kb_${i}`,
+      fileId: `f_kb_${i}`,
+      title: `知识库文档 ${i}`,
+      sourceType: 'import',
+      pinned: false,
+      status: 'done',
+      chunkCount: 3,
+    });
+  }
+
   let consentGiven = consented;
   let streamCb: ((evt: unknown) => void) | null = null;
   const win = window as unknown as Record<string, unknown>;
@@ -98,6 +131,38 @@ function installWeaveMDMock(opts: AiMockOptions): void {
         }
       }, i * 40);
     });
+  };
+
+  const streamTool = (
+    conversationId: string,
+    toolCallId: string,
+    name: string,
+    args: unknown,
+    result: string,
+    cb: (evt: unknown) => void
+  ): void => {
+    // 先推 tool 开始，再推 ok 结果（分两步模拟流式状态）
+    setTimeout(() => {
+      cb({
+        type: 'tool',
+        conversationId,
+        toolCallId,
+        name,
+        args: JSON.stringify(args),
+        status: 'ok',
+      });
+      setTimeout(() => {
+        cb({
+          type: 'tool',
+          conversationId,
+          toolCallId,
+          name,
+          args: JSON.stringify(args),
+          status: 'ok',
+          result,
+        });
+      }, 15);
+    }, 5);
   };
 
   win.weaveMD = {
@@ -179,6 +244,49 @@ function installWeaveMDMock(opts: AiMockOptions): void {
         });
       },
       chatAbort: async () => ok(),
+      runAgent: async (payload: {
+        userId: string;
+        conversationId: string | null;
+        message: string;
+        mode?: string;
+        useKnowledgeBase?: boolean;
+      }) => {
+        const convId =
+          payload.conversationId ??
+          (conversations.find((c) => c.userId === payload.userId && c.mode === 'agent')?.id ??
+            nextId('c'));
+        const cb = streamCb;
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            if (agentResult.withTool && cb) {
+              streamTool(convId, 'call_t1', 'searchKB', { query: payload.message, topK: 5 }, '命中知识库片段 seed', cb);
+              streamTool(convId, 'call_t2', 'readFile', { file_id: 'f_kb_0' }, '读取到文档内容', cb);
+            }
+            const reply = `Agent 完成：${payload.message}`;
+            streamChunk(convId, reply.match(/.{1,6}/g) ?? [], () => {
+              resolve(
+                ok({
+                  conversationId: convId,
+                  assistantId: nextId('a'),
+                  roundsUsed: agentResult.withTool ? 2 : 1,
+                  intent: agentResult.intentCard
+                    ? {
+                        intent: 'kbQa',
+                        confidence: 0.4,
+                        candidates: ['kbQa', 'tech'],
+                        reason: 'low confidence',
+                      }
+                    : null,
+                  ...(agentResult.backendHint
+                    ? { agentBackendHint: agentResult.backendHint }
+                    : {}),
+                })
+              );
+            });
+          }, 20);
+        });
+      },
+      agentAbort: async () => ok(),
       listConversations: async (userId: string, mode: string) =>
         ok(conversations.filter((c) => c.userId === userId && c.mode === mode)),
       getConversation: async (conversationId: string, userId: string) => {
@@ -215,6 +323,16 @@ function installWeaveMDMock(opts: AiMockOptions): void {
           streamCb = null;
         };
       },
+    },
+    kb: {
+      list: async (_userId: string) =>
+        ok(kbDocuments.map((d) => ({ ...d, chunkCount: d.chunkCount }))),
+      importFile: async () =>
+        ok({ docId: nextId('kb'), title: 'imported', chunks: 1, status: 'done' }),
+      importDir: async () => ok([]),
+      reindex: async () => ok({ docId: 'kb_0', title: '', chunks: 0, status: 'done' }),
+      delete: async () => ok({ deleted: true }),
+      status: async () => ok({ documents: kbDocuments.length, embedding: { available: true, dims: 768 } }),
     },
   };
 }
@@ -293,11 +411,17 @@ test('会话列表：新建 / 切换 / 删除可用', async ({ page }) => {
   await expect(panel.getByText('预置会话 0')).not.toBeVisible();
 });
 
-test('Agent Tab 显示「第 4 期上线」占位', async ({ page }) => {
+test('Agent Tab：进入后显示知识库开关/压缩/知识点设置」，空态文案', async ({ page }) => {
   await bootAiPanel(page);
+  const panel = aiPanel(page);
   // 默认 zh-CN：Agent Tab 标签为「代理」
-  await aiPanel(page).getByText('代理', { exact: true }).click();
-  await expect(page.getByText('Agent 能力第 4 期上线')).toBeVisible();
+  await panel.getByText('代理', { exact: true }).click();
+  // Agent 骨架已上线：知识库开关、压缩、知识库设置入口可见
+  await expect(panel.getByText('依照知识库创作')).toBeVisible();
+  await expect(panel.getByText('压缩上下文')).toBeVisible();
+  await expect(panel.getByRole('button', { name: '知识库' })).toBeVisible();
+  // 空态：无会话提示
+  await expect(panel.getByText('新建一个会话，或选择一个已有会话')).toBeVisible();
 });
 
 test('ConsentOverlay：remote 未同意时发送触发 overlay，同意后放行并持久化（setConsent 被调用）', async ({
@@ -362,5 +486,122 @@ test('ConsentOverlay：remote 未同意时拒绝则中止（不发送 / 无 assi
   // 不应出现 user 气泡或 assistant 气泡
   await expect(panel.getByText('不应发送的内容')).toBeHidden();
   await expect(panel.getByText('你好，我是 mock AI。你说的是：不应发送的内容')).toBeHidden();
+  expect(errors.length).toBe(0);
+});
+
+test('Agent 全流程：发送 → tool 轨迹渲染 → assistant 富文本落显（mock runAgent，无外发）', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  // backend=ollama（无需同意），withTool 触发 searchKB/readFile 轨迹
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    agentResult: { withTool: true },
+    seedKbDocuments: 1,
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await page.getByTitle('AI').click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+
+  // 切到 Agent tab
+  await panel.getByText('代理', { exact: true }).click();
+  const textarea = panel.locator('textarea').first();
+  await textarea.fill('帮我查知识库里的项目计划');
+  await panel.getByText('发送', { exact: true }).click();
+
+  // user 气泡
+  await expect(panel.getByText('帮我查知识库里的项目计划', { exact: true })).toBeVisible();
+  // assistant 富文本流式完整落显（工具栏轨迹 name 也断言）
+  await expect(panel.getByText('Agent 完成：帮我查知识库里的项目计划')).toBeVisible({
+    timeout: 5000,
+  });
+  // 工具轨迹：searchKB / readFile 出现 + 结果折叠可展开
+  await expect(panel.getByText('searchKB')).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText('readFile')).toBeVisible();
+  // 日志门禁：无未捕获错误
+  expect(errors.length).toBe(0);
+});
+
+test('知识库设置区：kb.status/list 状态列表渲染 + 导入按钮存在', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, { seedKbDocuments: 2 });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await page.getByTitle('AI').click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+
+  await panel.getByText('代理', { exact: true }).click();
+  // 展开知识库设置抽屉
+  await panel.getByText('知识库', { exact: true }).click();
+  // 状态列表渲染（kb.list 返回 2 篇）
+  await expect(panel.getByText('知识库文档 0')).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText('知识库文档 1')).toBeVisible();
+  // embedding 可用提示（kb.status 返回 available:true）
+  await expect(panel.getByText('已启用语义召回（向量可用）')).toBeVisible();
+  // 导入按钮存在
+  await expect(panel.getByRole('button', { name: '导入文件', exact: true })).toBeVisible();
+  await expect(panel.getByRole('button', { name: '导入文件夹', exact: true })).toBeVisible();
+  expect(errors.length).toBe(0);
+});
+
+test('意图卡片：runAgent 返回低置信 intent → 卡片渲染、点击发送', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    agentResult: { intentCard: true },
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await page.getByTitle('AI').click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+
+  await panel.getByText('代理', { exact: true }).click();
+  const textarea = panel.locator('textarea').first();
+  await textarea.fill('怎么组织这次演讲？');
+  await panel.getByText('发送', { exact: true }).click();
+
+  // 意图卡片（候选提问）出现
+  await expect(panel.getByText('你想做什么？')).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText('知识库问答')).toBeVisible();
+  // 点击候选卡片 -> 触发发送（assistant 收到重发的提示模板）
+  await panel.getByText('知识库问答', { exact: true }).last().click();
+  await expect(
+    panel.getByText('请在知识库中检索并作答。')
+  ).toBeVisible({ timeout: 5000 });
+  expect(errors.length).toBe(0);
+});
+
+test('后端降级：runAgent 返回 agentBackendHint → 提示条渲染', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    agentResult: { backendHint: 'Agent 能力需远程后端，当前为纯生成模式' },
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await page.getByTitle('AI').click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+
+  await panel.getByText('代理', { exact: true }).click();
+  const textarea = panel.locator('textarea').first();
+  await textarea.fill('普通对话');
+  await panel.getByText('发送', { exact: true }).click();
+
+  // 降级提示条渲染（runAgent 返回 agentBackendHint）
+  await expect(
+    panel.getByText('Agent 能力需远程后端，当前为纯生成模式')
+  ).toBeVisible({ timeout: 5000 });
   expect(errors.length).toBe(0);
 });
