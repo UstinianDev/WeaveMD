@@ -96,6 +96,8 @@ describe('AgentTab', () => {
     intentCard: null,
     agentBackendHint: null,
     useKnowledgeBase: false,
+    // B3：AgentTab 现为统一 body，agent 专属控件仅在 activeMode==='agent' 显示
+    activeMode: 'agent' as 'chat' | 'agent',
   };
 
   it('渲染消息列表（assistant 富文本）', () => {
@@ -364,4 +366,96 @@ describe('AgentTab', () => {
     fireEvent.keyDown(ta, { key: 'Escape' });
     expect(screen.queryByText('运行技能')).not.toBeInTheDocument();
   });
+
+  // ---- 第 7 期批次⑥ B3：统一 body 模式专属控件归属 ----
+
+  const chatState = {
+    ...defaultState,
+    activeMode: 'chat' as 'chat' | 'agent',
+  };
+
+  it('chat 模式：KB 开关/压缩/KB 设置/工具轨迹/意图卡不显示，走 sendMessage', () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    const sendAgentMessage = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(useAgentStore.getState(), 'sendMessage').mockImplementation(sendMessage);
+    vi.spyOn(useAgentStore.getState(), 'sendAgentMessage').mockImplementation(sendAgentMessage);
+    useAgentStore.setState({
+      ...chatState,
+      toolCalls: [toolCall],
+      intentCard: ambiguousIntent,
+      agentBackendHint: 'hint',
+    });
+    render(<AgentTab />);
+
+    // 纯对话：agent 专属控件不显示
+    expect(screen.queryByLabelText('依照知识库创作')).toBeNull();
+    expect(screen.queryByText('压缩')).toBeNull();
+    expect(screen.queryByText('知识库', { exact: true })).toBeNull();
+    expect(screen.queryByText('searchKB')).toBeNull();
+    expect(screen.queryByText('你想做什么？')).toBeNull();
+    expect(screen.queryByText('hint')).toBeNull();
+
+    // 发送走 sendMessage（不 sendAgentMessage）
+    fireEvent.change(screen.getByPlaceholderText('输入问题'), {
+      target: { value: '普通对话' },
+    });
+    fireEvent.click(screen.getByText('发送'));
+    expect(sendMessage).toHaveBeenCalledWith('普通对话');
+    expect(sendAgentMessage).not.toHaveBeenCalled();
+  });
+
+  it('chat 模式：无 `/` `@` 自动补全菜单（输入 / 不弹技能菜单）', async () => {
+    const listSkills = vi.fn().mockResolvedValue({
+      success: true,
+      data: [{ name: 'polish_rewrite', description: '润色文本' }],
+    });
+    (window.weaveMD as unknown as { ai: Record<string, unknown> }).ai.listSkills = listSkills;
+    useAgentStore.setState({ ...chatState });
+    render(<AgentTab />);
+    const ta = screen.getByPlaceholderText('输入问题');
+    fireEvent.change(ta, { target: { value: '/' } });
+    // B1 补全仅在智能体模式可用；chat 模式输入 / 不弹菜单
+    expect(screen.queryByText('运行技能')).toBeNull();
+    expect(screen.queryByTestId('completion-menu')).toBeNull();
+  });
+
+  it('agent 模式：KB 开关/压缩/KB 设置/工具轨迹/意图卡/降级提示显示', () => {
+    useAgentStore.setState({ ...defaultState, toolCalls: [toolCall] });
+    render(<AgentTab />);
+    expect(screen.getByLabelText('依照知识库创作')).toBeInTheDocument();
+    expect(screen.getByText('压缩')).toBeInTheDocument();
+    expect(screen.getByText('知识库', { exact: true })).toBeInTheDocument();
+    expect(screen.getByText('searchKB')).toBeInTheDocument();
+  });
+});
+
+// ---- 第 7 期批次⑥ B3 回归：chat 挂载 → 切 agent 后 / 补全仍可用 ----
+it('B3: chat 模式挂载 → 切 agent 后输入 / 仍弹技能补全（模式切换不丢失单面板补全能力）', async () => {
+  const listSkills = vi.fn().mockResolvedValue({
+    success: true,
+    data: [{ name: 'polish_rewrite', description: '润色文本' }],
+  });
+  (window.weaveMD as unknown as { ai: Record<string, unknown> }).ai.listSkills = listSkills;
+  useAgentStore.setState({
+    conversations: [],
+    activeConversationId: null,
+    messages: [],
+    isStreaming: false,
+    streamBuffer: '',
+    pendingConsent: false,
+    toolCalls: [],
+    intentCard: null,
+    agentBackendHint: null,
+    useKnowledgeBase: false,
+    activeMode: 'chat',
+  });
+  const { rerender } = render(<AgentTab />);
+  await new Promise((r) => setTimeout(r, 0)); // 让 listSkills 微任务 + [skills] effect 落地
+  // 切到 agent（模拟下拉切换 activeMode 域）
+  useAgentStore.setState({ activeMode: 'agent', activeTab: 'agent' });
+  rerender(<AgentTab />);
+  const ta = screen.getByPlaceholderText('输入问题');
+  fireEvent.change(ta, { target: { value: '/' } });
+  expect(useAgentStore.getState().activeMode).toBe('agent');
+  expect(screen.getByText('运行技能')).toBeInTheDocument();
 });

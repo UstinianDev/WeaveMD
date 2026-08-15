@@ -541,6 +541,47 @@ describe('agentStore agent 模式', () => {
     expect(s.activeMode).toBe('agent');
   });
 
+  // ---- 第 7 期批次⑥ B3：toggleMode 域切换 + loadConversations 按 mode 隔离 ----
+
+  it("toggleMode('agent') 置 activeMode=agent（UI 下拉调用，不残留 activeTab 语义）", () => {
+    useAgentStore.getState().toggleMode('agent');
+    expect(useAgentStore.getState().activeMode).toBe('agent');
+    useAgentStore.getState().toggleMode('chat');
+    expect(useAgentStore.getState().activeMode).toBe('chat');
+  });
+
+  it('loadConversations(mode) 按 mode 域隔离拉取：chat/agent 不串号', async () => {
+    const listConversations = (
+      window.weaveMD.ai as unknown as { listConversations: ReturnType<typeof vi.fn> }
+    ).listConversations;
+    listConversations.mockImplementation(async (_uid: string, mode: string) => ({
+      success: true,
+      data:
+        mode === 'chat'
+          ? [
+              { id: 'chat-c1', userId: 'u1', mode: 'chat', summary: '聊', createdAt: '', updatedAt: '' },
+            ]
+          : [
+              { id: 'agt-c1', userId: 'u1', mode: 'agent', summary: '智', createdAt: '', updatedAt: '' },
+            ],
+    }));
+
+    // chat 域
+    await useAgentStore.getState().loadConversations('chat');
+    expect(useAgentStore.getState().conversations.map((c) => c.id)).toEqual(['chat-c1']);
+
+    // 切 agent 域 → 列表随域切换，不残留 chat
+    useAgentStore.getState().toggleMode('agent');
+    await useAgentStore.getState().loadConversations('agent');
+    expect(useAgentStore.getState().activeMode).toBe('agent');
+    expect(useAgentStore.getState().conversations.map((c) => c.id)).toEqual(['agt-c1']);
+
+    // 回 chat 域 → 会话隔离不串号
+    useAgentStore.getState().toggleMode('chat');
+    await useAgentStore.getState().loadConversations('chat');
+    expect(useAgentStore.getState().conversations.map((c) => c.id)).toEqual(['chat-c1']);
+  });
+
   it('reset 清空 agent 扩展状态（toolCalls/intentCard/agentBackendHint/kbStatus）', () => {
     useAgentStore.setState({
       toolCalls: [{ toolCallId: 'tc1', name: 'searchKB', args: '{}', status: 'ok' }],

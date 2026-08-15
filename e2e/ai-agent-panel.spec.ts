@@ -404,6 +404,18 @@ async function bootAiPanel(page: Page, opts: AiMockOptions = {}): Promise<void> 
   await page.waitForTimeout(300);
 }
 
+/** B3：通过模式下拉切换「对话 / 智能体」，断言切到目标域后生效。 */
+async function switchMode(
+  page: import('@playwright/test').Page,
+  mode: 'chat' | 'agent'
+): Promise<import('@playwright/test').Locator> {
+  const panel = aiPanel(page);
+  const select = panel.getByTestId('ai-mode-select');
+  await select.selectOption(mode);
+  await page.waitForTimeout(300);
+  return panel;
+}
+
 test('导航栏 AI 按钮开合面板，宽度拖拽把手存在', async ({ page }) => {
   await bootAiPanel(page);
   const panel = aiPanel(page);
@@ -464,11 +476,10 @@ test('会话列表：新建 / 切换 / 删除可用', async ({ page }) => {
   await expect(panel.getByText('预置会话 0')).not.toBeVisible();
 });
 
-test('Agent Tab：进入后显示知识库开关/压缩/知识点设置」，空态文案', async ({ page }) => {
+test('智能体模式：进入后显示知识库开关/压缩/知识点设置，空态文案', async ({ page }) => {
   await bootAiPanel(page);
-  const panel = aiPanel(page);
-  // 默认 zh-CN agent 标签（B2：智能体）
-  await panel.getByText('智能体', { exact: true }).click();
+  // B3：下拉切到 智能体 模式
+  const panel = await switchMode(page, 'agent');
   // Agent 骨架已上线：知识库开关、压缩、知识库设置入口可见
   await expect(panel.getByText('依照知识库创作')).toBeVisible();
   await expect(panel.getByText('压缩上下文')).toBeVisible();
@@ -560,8 +571,8 @@ test('Agent 全流程：发送 → tool 轨迹渲染 → assistant 富文本落�
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
-  // 切到 Agent tab
-  await panel.getByText('智能体', { exact: true }).click();
+  // 切到 智能体 模式（B3 下拉）
+  await switchMode(page, 'agent');
   const textarea = panel.locator('textarea').first();
   await textarea.fill('帮我查知识库里的项目计划');
   await panel.getByText('发送', { exact: true }).click();
@@ -589,7 +600,8 @@ test('知识库设置区：kb.status/list 状态列表渲染 + 导入按钮存�
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
-  await panel.getByText('智能体', { exact: true }).click();
+  // 切到 智能体 模式（B3 下拉）
+  await switchMode(page, 'agent');
   // 展开知识库设置抽屉
   await panel.getByText('知识库', { exact: true }).click();
   // 状态列表渲染（kb.list 返回 2 篇）
@@ -617,7 +629,8 @@ test('意图卡片：runAgent 返回低置信 intent → 卡片渲染、点击�
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
-  await panel.getByText('智能体', { exact: true }).click();
+  // 切到 智能体 模式（B3 下拉）
+  await switchMode(page, 'agent');
   const textarea = panel.locator('textarea').first();
   await textarea.fill('怎么组织这次演讲？');
   await panel.getByText('发送', { exact: true }).click();
@@ -647,7 +660,8 @@ test('后端降级：runAgent 返回 agentBackendHint → 提示条渲染', asyn
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
-  await panel.getByText('智能体', { exact: true }).click();
+  // 切到 智能体 模式（B3 下拉）
+  await switchMode(page, 'agent');
   const textarea = panel.locator('textarea').first();
   await textarea.fill('普通对话');
   await panel.getByText('发送', { exact: true }).click();
@@ -672,14 +686,11 @@ async function openEditor(page: import('@playwright/test').Page): Promise<void> 
   await page.waitForSelector('span.block-content[contenteditable="true"]');
 }
 
-/** 打开 AI 面板并切到 Agent 智能体页（RewritePreviewCard 与改写 composer 均在此页）。 */
+/** 打开 AI 面板并切到 智能体 模式（RewritePreviewCard 与改写 composer 均在此模式）。 */
 async function openAgentPanel(page: import('@playwright/test').Page): Promise<import('@playwright/test').Locator> {
   await page.getByTitle('AI').click();
   await page.waitForTimeout(300);
-  const panel = aiPanel(page);
-  await panel.getByText('智能体', { exact: true }).click();
-  await page.waitForTimeout(300);
-  return panel;
+  return switchMode(page, 'agent');
 }
 
 /**
@@ -1266,5 +1277,95 @@ test('B1 / 补全：输入 / → 弹出技能清单（mock listSkills），选�
   await expect(panel.getByText('把这段润色', { exact: true })).toBeVisible({ timeout: 5000 });
   // 剥前缀生效：user 气泡内容为剥除 /技能名 后的指令正文
   await expect(panel.getByText('把这段润色', { exact: true })).toHaveText('把这段润色');
+  expect(errors.length).toBe(0);
+});
+
+// ============================================================
+// 第 7 期批次⑥ B3：双 Tab 合并 单面板 + composer 上下拉模式选择。
+// ① 单面板无 Tab、模式下拉存在；② 切换模式消息/会话随 mode 域切换（不串号）；
+// ③ agent 模式保专属控件、chat 纯对话。mock 不上网。
+// ============================================================
+
+test('B3 单面板：无 Chat/Agent 双 Tab按钮，头部有模式下拉（对话/智能体）', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await bootAiPanel(page);
+  const panel = aiPanel(page);
+
+  // 无 Tab 割裂：面板内不存在「对话」「智能体」按钮（模式由下拉承载）
+  await expect(panel.getByRole('button', { name: '对话' })).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: '智能体' })).toHaveCount(0);
+
+  // 头部存在模式下拉，选项为 对话/智能体
+  const select = panel.getByTestId('ai-mode-select');
+  await expect(select).toBeVisible();
+  await expect(select.locator('option[value="chat"]')).toHaveText('对话');
+  await expect(select.locator('option[value="agent"]')).toHaveText('智能体');
+  expect(errors.length).toBe(0);
+});
+
+test('B3 模式切换：chat ↔ agent 消息与会话随 mode 域切换，字段不串号', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await bootAiPanel(page);
+  const panel = aiPanel(page);
+  const select = panel.getByTestId('ai-mode-select');
+
+  // 默认 chat 域：无 agent 专属控件
+  await expect(select).toHaveValue('chat');
+  await expect(panel.getByText('依照知识库创作')).toHaveCount(0);
+
+  // chat 域发一条消息 → 等待流式 assistant 完整落显（避免流未结束就切换导致回复泄漏）
+  await panel.locator('textarea').first().fill('对话消息');
+  await panel.getByText('发送', { exact: true }).click();
+  await expect(panel.getByText('对话消息', { exact: true })).toBeVisible();
+  await expect(
+    panel.getByText('你好，我是 mock AI。你说的是：对话消息')
+  ).toBeVisible({ timeout: 5000 });
+
+  // 切 agent 域：agent 专属控件出现 + 会话/消息切到 agent 域（newChat 清空 chat 消息，无串号泄漏）
+  await switchMode(page, 'agent');
+  await expect(panel.getByText('依照知识库创作')).toBeVisible();
+  // chat 消息（user 气泡 + assistant 回复）不跨域泄漏进 agent
+  await expect(panel.getByText('对话消息', { exact: true })).toHaveCount(0);
+  await expect(
+    panel.getByText('你好，我是 mock AI。你说的是：对话消息')
+  ).toHaveCount(0);
+
+  // agent 域发一条 → runAgent mock 回复
+  await panel.locator('textarea').first().fill('agent指令');
+  await panel.getByText('发送', { exact: true }).click();
+  await expect(panel.getByText('agent指令', { exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText('Agent 完成：agent指令')).toBeVisible({ timeout: 5000 });
+
+  // 切回 chat 域：agent 专属控件消失 + agent 消息不跨域泄漏
+  await switchMode(page, 'chat');
+  await expect(panel.getByText('依照知识库创作')).toHaveCount(0);
+  await expect(panel.getByText('agent指令', { exact: true })).toHaveCount(0);
+  await expect(panel.getByText('Agent 完成：agent指令')).toHaveCount(0);
+  expect(errors.length).toBe(0);
+});
+
+test('B3 专属控件归属：agent 保 知识库开关/压缩/KB设置，chat 纯对话无 /@ 补全', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await bootAiPanel(page);
+  const panel = aiPanel(page);
+
+  // chat 模式：输入 / 不弹技能补全（纯对话），无 agent 控件
+  const composer = panel.locator('textarea').first();
+  await composer.fill('/');
+  await expect(panel.getByText('运行技能', { exact: true })).toHaveCount(0);
+  await expect(panel.getByText('依照知识库创作')).toHaveCount(0);
+  // 清空输入，避免切换后残留 '/' 使第二次 fill 成为无变化操作（React onChange 不触发）
+  await composer.fill('');
+
+  // 切 agent 模式：控齐全 + / 技能补全出现（对同一个 composer 再次输入 / → 真实 value 变化）
+  await switchMode(page, 'agent');
+  await expect(panel.getByText('依照知识库创作')).toBeVisible();
+  await expect(panel.getByText('压缩上下文')).toBeVisible();
+  await expect(panel.getByRole('button', { name: '知识库' })).toBeVisible();
+  await composer.fill('/');
+  await expect(panel.getByText('运行技能', { exact: true })).toBeVisible({ timeout: 5000 });
   expect(errors.length).toBe(0);
 });
