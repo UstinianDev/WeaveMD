@@ -74,6 +74,61 @@ describe('proposeSelectionRewrite — 选区叶子区间替换', () => {
   });
 });
 
+describe('proposeSelectionRewrite — A4 含容器文档的选区替换（叶序下标）', () => {
+  it('含列表容器：选中「列表项 → 正文」跨块 → 仅替换选区内叶子，区间外字节不变', () => {
+    // content = "- item one\n\ntail para" → 叶序 [para"item one", para"tail para"]（0/1）
+    const CONTENT = '- item one\n\ntail para';
+    // 叶序 SelectionRef：start(leaf0,'it') → end(leaf1,'ail para' 保留 1..)
+    const sel: SelectionRef = {
+      startLeafIndex: 0,
+      startOffset: 2, // 'it' 保留
+      endLeafIndex: 1,
+      endOffset: 1, // 保留 'ail para' 的 .slice(1) = 'ail para'
+    };
+    const p = proposeSelectionRewrite(CONTENT, sel, 'X');
+    // 首叶前段 'it' 保留、中间整块替换为 X、尾叶后段 'ail para' 保留
+    expect(p.unchanged).toBe(false);
+    expect(p.rewrittenMd).toContain('it');
+    expect(p.rewrittenMd).toContain('ail para');
+    // 区间外字节（'it' + 'ail para' 两段）必须原样出现
+    expect(p.rewrittenMd).not.toContain('item');
+  });
+
+  it('含引用容器：选中「引用内容 → 正文」跨块 → 仅选区内变，引用外正文保持', () => {
+    // content = "> quote\n\ntail para" → 叶序 [para"quote", para"tail para"]（0/1）
+    const CONTENT = '> quote\n\ntail para';
+    // 只替换叶 0 全文（start 0,end offset=全文），不改叶 1
+    const sel: SelectionRef = {
+      startLeafIndex: 0,
+      startOffset: 0,
+      endLeafIndex: 0,
+      endOffset: 5, // 'quote' 全文
+    };
+    const p = proposeSelectionRewrite(CONTENT, sel, 'QX');
+    expect(p.unchanged).toBe(false);
+    // 引用内改写为 QX，引用外 'tail para' 原样不变
+    expect(p.rewrittenMd).toContain('QX');
+    expect(p.rewrittenMd).toContain('tail para');
+  });
+
+  it('含容器文档 + 跨界到中间多块：中间块整块替换、首尾前后段保留', () => {
+    // content = "alpha\n\n- b\n\n> c\n\ntail para" → 叶序 [para a, para b, para c, para tail para]（0..3）
+    const C2 = 'alpha\n\n- b\n\n> c\n\ntail para';
+    const sel: SelectionRef = {
+      startLeafIndex: 1, // 'b' 全文选中
+      startOffset: 0,
+      endLeafIndex: 2, // 'c' 全文选中（offset=1 → 后段 '' → 整块移除）
+      endOffset: 1,
+    };
+    const p = proposeSelectionRewrite(C2, sel, 'XY');
+    expect(p.unchanged).toBe(false);
+    expect(p.rewrittenMd).toContain('XY');
+    // 区间外：a 与 tail para 原样，被选中的 b/c 不再整字出现
+    expect(p.rewrittenMd).toContain('alpha');
+    expect(p.rewrittenMd).toContain('tail para');
+  });
+});
+
 describe('proposeDocumentRewrite — 编号块 JSON 协议', () => {
   const CONTENT = 'alpha\n\nbeta\n\ngamma';
   const numbered: RewriteBlockRef[] = [

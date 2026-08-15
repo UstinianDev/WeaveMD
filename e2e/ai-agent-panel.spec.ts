@@ -894,3 +894,102 @@ test('unchanged：mock 改写结果与原文相同 → 提示「无变化」，�
   await expect(editable).toHaveText('hello world');
   expect(errors.length).toBe(0);
 });
+
+/**
+ * 跨两个 `.block-content` 内容叶 span 建立真实 Range 选区（按文档序取第 start/end 个，
+ * startOffset/endOffset 作用于各自首文本节点）——复刻 Chromium 拖选跨块的选区形态
+ * （anchor 在第 start 块、focus 在第 end 块）。注意：Chromium 对跨编辑宿主
+ * Selection.toString() 只返回 anchor 块内文本，断言用块文本/预览 diff，勿用 toString()。
+ */
+async function selectCrossBlocks(
+  page: import('@playwright/test').Page,
+  start: number,
+  startOffset: number,
+  end: number,
+  endOffset: number
+): Promise<void> {
+  await page.evaluate(
+    (cfg: { start: number; startOffset: number; end: number; endOffset: number }) => {
+      const spans = Array.from(
+        document.querySelectorAll<HTMLElement>('span.block-content[contenteditable="true"]')
+      );
+      const a = spans[cfg.start];
+      const b = spans[cfg.end];
+      if (!a || !b) return;
+      const range = document.createRange();
+      range.setStart(a.firstChild as Node, cfg.startOffset);
+      range.setEnd(b.firstChild as Node, cfg.endOffset);
+      const sel = window.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    },
+    { start, startOffset, end, endOffset }
+  );
+}
+
+// ============================================================
+// 第 7 期 A4：含列表容器文档的跨块选区改写 → 落到正确叶子（叶序下标），区间外字节零改动。
+// 修复前 DOM `[data-block-id]` 序含容器 div → 叶序下标偏大 → 改写落错块。mock 不上网。
+// ============================================================
+test('A4 回归：含列表文档跨块选区改写 → 仅替换选中区间（含列表项与中间叶），区间外正文保持不变', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  // seedContent：列表两叶 + 区间外正文一叶（markdownToState 叶序 [item-a, item-b, outside]）
+  const seed = '- item-a\n\n- item-b\n\noutside';
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    seedContent: seed,
+    rewrite: { selectionText: '改写块' },
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await openEditor(page);
+
+  // 确认渲染出 2 个列表项内容叶 + 1 个正文内容叶
+  const contentSpans = page.locator('span.block-content[contenteditable="true"]');
+  await expect(contentSpans).toHaveCount(3);
+  await expect(contentSpans.nth(0)).toHaveText('item-a');
+  await expect(contentSpans.nth(1)).toHaveText('item-b');
+  await expect(contentSpans.nth(2)).toHaveText('outside');
+
+  const panel = await openAgentPanel(page);
+
+  // 跨块选中：列表项 item-a（叶 0）→ 列表项 item-b（叶 1），区间外 'outside' 不被选中
+  await selectCrossBlocks(page, 0, 0, 1, 1);
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="AI 改写"]').click();
+  await page.waitForTimeout(300);
+
+  const composer = panel.locator('textarea').first();
+  await composer.fill('改一下');
+  await composer.press('Enter');
+  await page.waitForTimeout(400);
+
+  // 预览卡出现（改写成功；修复前落错块会 unchanged/noop 无预览）
+  await expect(panel.getByText('改写预览', { exact: true })).toBeVisible({ timeout: 5000 });
+  // 红删（del）覆盖选中区间文本（item-a / item-b），且不含区间外 'outside' 整词
+  const del = panel.locator('[data-type="del"]');
+  await expect(del.first()).toBeVisible();
+  const delText = (await del.allTextContents()).join('');
+  expect(delText).toContain('item-a');
+  expect(delText).toContain('item-b');
+  expect(delText).not.toContain('outside');
+
+  // 应用 → 编辑器更新：选中的列表项被改写为 '改写块'，区间外 'outside' 原样保留。
+  // 跨块替换会合并中/尾叶，span 下标随之收敛——只断言「改写块」已写入且区间外正文未变。
+  await panel.getByText('应用', { exact: true }).click();
+  await page.waitForTimeout(400);
+  const left = (await page.locator('span.block-content[contenteditable="true"]').allTextContents()).join('');
+  expect(left).toContain('改写块');
+  expect(left).not.toContain('item-a');
+  // 区间外正文块保持原样（列表改写不影响它）
+  await expect(page.getByText('outside', { exact: true }).first()).toBeVisible();
+  expect(errors.length).toBe(0);
+});
