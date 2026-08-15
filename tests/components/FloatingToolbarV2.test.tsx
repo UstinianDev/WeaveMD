@@ -630,7 +630,7 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
     );
   }
 
-  it('TB1: 按钮集合与顺序 = 块下拉 → 分隔线 → B/I/U/S/</>/H → 分隔线 → 🔗/🖼/∑ → 分隔线 → ⌫', async () => {
+  it('TB1: 按钮集合与顺序 = 块下拉 → 分隔线 → B/I/U/S/</>/H → 分隔线 → 🔗/🖼/∑ → 分隔线 → AI 改写 → 分隔线 → ⌫', async () => {
     let tree = createDocumentTree();
     const p = makeParagraph(tree, 'hello world');
     tree = appendChild(tree, tree.root.id, p);
@@ -662,7 +662,8 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
         t === '链接' ||
         t === '图片' ||
         t === '数学公式' ||
-        t === '橡皮擦'
+        t === '橡皮擦' ||
+        t === 'AI 改写'
     );
     expect(fmtButtons).toEqual([
       '加粗',
@@ -674,11 +675,12 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
       '链接',
       '图片',
       '数学公式',
+      'AI 改写',
       '橡皮擦',
     ]);
 
     const dividers = toolbar?.querySelectorAll('.ft-divider');
-    expect(dividers?.length).toBe(3);
+    expect(dividers?.length).toBe(4);
   });
 
   it('TB2: 下划线 / 数学按钮点击 → onFormat(blockId, underline|math, s, e)', async () => {

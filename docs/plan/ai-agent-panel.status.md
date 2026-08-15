@@ -278,5 +278,140 @@
 - 冒烟参考：`scripts/fts5-smoke.cjs`（已实证的 Electron 冒烟模式）
 - 活验入口：`src/main/ai/agentLoop.ts`（runAgentFlow）+ `src/main/ai/kbSearch.ts`（searchKB）
 
+---
+
+# 第 5 期延续（块级改写：选区触发 + 定向块编辑协议 + 红删绿增预览 + 确认写入）
+
+## 阶段 0：分级与分类 ✅ 2026-08-15
+
+- **请求类型**：功能开发（第 5 期块级改写，AGT-12/13/14/17；第 6 期收尾视精力）
+- **跨模块判断**：跨模块——编辑器 v2（选区→块区间导出、确认写入 updateContent + 可撤销）+ 主进程
+  （改写管线、定向块编辑协议、预览事件、无落盘 editBlocks）+ 渲染进程（红删绿增预览 UI/确认流）
+  + 既有铁律一（AI 无直接落盘）→ **判为跨模块**
+- **定档**：**L**（新 API/新 IPC、写路径涉铁律、多模块、多天工作量）
+- **裁剪**：无——L 级走全部阶段（TDD strict）；活验优先远程 DeepSeek（本地 qwen3.5 故障）
+- **现状 ground truth**（Explore 摸底 2026-08-15）：
+  - **写回基元现成**：`editorStore.updateContent`（editorStore.ts:42，入 undo 栈 49 步、可撤销）；
+    `editorInstance.getMarkdown()`（editorInstance.ts:48）+ `setContent`；`markdownToState`/`stateToMarkdown`
+    双向无损；`replaceLeafRange`/`removeBlock`/`replaceBlock`/`insertBlockAfter`/`splitLeaf` 全套块树操作
+  - **选区→块端点现成**：`getCrossBlockSelection()`（selection.ts:139，双端点）+ `resolveSyntaxTypesInRange`/
+    `getNextLeaf`（中间块枚举）——**缺口**：无"选区导出 markdown 片段"组合函数、无"markdown 替换回选区"端到端
+  - **主进程无任何写工具**：toolRegistry 4 只读工具，无 editBlocks 占位；agentLoop 工具协议/回填/AI_STREAM_TOOL
+    事件三件套现成；AgentRunPayload 无"当前文档/选区"字段
+  - **渲染安全渲染现成**：`renderAIMarkdownSafe`（aiMarkdown.tsx HAST→React 白名单）可复用为 diff 预览渲染器
+  - **编辑器实例是 React ref 局部单例**（EditorV2.tsx:43），无全局 getEditorInstance——确认写入走
+    `updateContent(整文)`（外部 effect 重建整树会丢光标）或需暴露实例句柄
+  - 测试骨架：agentLoop/toolRegistry 的 vi.mock+hoisted 模式可沿用；toolRegistry.test 的 WRITE_NAMES 断言
+    加写工具后需同步改造
+
+## 阶段 1：需求对齐（grill-me）✅ 2026-08-15
+
+用户确认「全按推荐」，需求记录已产出 `docs/requirements/ai-agent-panel-ph5.req.md`：
+
+- **Q1 交付范围**（A）：第 5 期 = 选区触发 + 面板 @ 兜底都做，共享同一改写管线与定向块编辑协议；完整覆盖 AGT-12 P1
+- **Q2 改写入口架构**（A 主 + C stretch）：独立一次性改写管线（`ai:rewrite:preview`）为主交付；`editBlocks`
+  工具注册为 stretch（仅产 proposal 不落盘），精力够才做
+- **Q3 定向块编辑协议**：选区 = LLM 见选区 markdown 片段返回改写文本（整段替换）；面板 @ = LLM 见编号块列表
+  返回 `[{blockIndex, newContent}]`，主进程映射校验、定位失败拒应用；内部统一 `EditBlockOp[] {blockId, newContent}`
+- **Q4 预览 UI**：AI 面板内「改写预览卡片」（红删绿增 + 确认/取消），复用 MarkdownMessage/aiMarkdown 安全渲染
+- **Q5 stale 失效**：确认时校验 `当前 content === 预览时原文`，不一致拒绝应用并提示重新生成
+- **Q6 第 6 期**：第 5 期后视精力 ①KB 参数持久化优先（小、独立、收尾性）；②真 MCP / ③GitHub skill 继续延
+- **Q7 活验**：做改写循环真验（DeepSeek key 文件 + env 均在，仿 agent-smoke.cjs harness，key 不打码）
+
+## 阶段 2：规划 ✅ 2026-08-15（Plan 智能体 + 主指挥修正）
+
+计划已写入 docs/plan/ai-agent-panel-ph5.plan.md。要点：
+
+- **关键修正**：SelectionRef 用**文档序叶子下标**（startLeafIndex/endLeafIndex）+ 块内 offset 跨进程定位（渲染进程 blockId 在主进程重建树后不匹配）；主/渲染对同一 documentMarkdown 的文档序叶子序列一致，下标天然对齐。渲染侧**不做**选区替换（主进程算好 rewrittenMd，确认只 updateContent），避免双实现。
+- **变更清单**：A shared/preload 3 处 + B 主进程 blockEdit.ts 新增 + ipc 注册 + C 渲染 selectionExport + FloatingToolbar/AgentTab 触发 + D rewriteDiff/rewriteStore/RewritePreviewCard + E 测试 7 文件 + i18n 三文件；stretch（editBlocks agent 工具）单列 F 默认不做
+- **IPC**：仅 1 条新 invoke `AI_REWRITE_PREVIEW`（确认写入走渲染侧 updateContent，不新增确认通道）
+- **主进程 blockEdit.ts**：双 scope（selection 选区片段 / document 编号块协议）→ streamChatCompletion 纯对话无 tools → 校验（定位失败 locateFailed 拒应用）→ proposal（原文+改写后+ops，不落盘）；consent 'chat' 闸（allowNetwork）
+- **渲染**：rewriteStore 状态机（pendingRewrite/applyRewrite stale 校验→updateContent 入 undo）+ RewritePreviewCard（行级 diff 红删绿增 + renderAIMarkdownSafe）+ FloatingToolbar「AI 改写」+ AgentTab composer @ 兜底
+- **批次**：批次 1 shared 地基 → 批次 2（B 主进程）与批次 3（C 渲染侧）可双智能体并行 → 批次 4 预览 UI/store → 批次 5 收尾 + stretch
+
+## 阶段 3-5：并行实现 ✅ 2026-08-15（5 批次全交付，fullstack-detail-dev 智能体，TDD strict + C2 架构修正）
+
+> **实现期架构修正（C2）**：原计划主进程 blockEdit.ts 用渲染内核，但 main 经 vite-plugin-electron 单独打包、内核链含
+> `katex.min.css` CSS 导入且 main→render 无先例 → **主进程改为薄 LLM 代理**（`src/main/ai/rewrite.ts` 只产 `{text}`），
+> 块级替换/proposal 计算移到渲染侧（`src/render/editor/rewrite/blockEdit.ts`，内核所在）；shared 类型随迁
+> （`RewriteRequestPayload` 载 LLM 输入 selectionMarkdown/numberedBlocks + `RewriteReply{text}`）。需求/验收/铁律不变。
+
+- **批次 1 shared 地基**：shared/ai.ts 增 EditBlockOp/SelectionRef/RewriteScope/RewriteBlockRef/RewriteRequestPayload/RewriteReply/RewriteProposal；
+  constants 增 AI_REWRITE_PREVIEW；preload `ai.rewritePreview`；weaveMDBridge noop（既有模式）
+- **批次 2 主进程薄代理**（并行）：`src/main/ai/rewrite.ts`（consent 'chat' 闸在 ipc 层；buildRewriteMessages 双 scope→streamChatCompletion
+  纯对话无 tools→`{text}`）；ipc.ts 注册 AI_REWRITE_PREVIEW + 错误规范化；tests/main/ai/{rewrite,ipc}.test.ts（34 tests）
+- **批次 3 渲染侧**（并行）：`selectionExport.ts`（readDocumentSelection DOM 读跨块/同块/折叠 null/DOM 序下标；exportSelectionMarkdown 首尾 offset+中间 serializeBlock）、
+  `blockEdit.ts`（buildNumberedBlockList；proposeSelectionRewrite 仅替换选区叶子区间、区间外字节不变、unchanged；proposeDocumentRewrite JSON 映射/越界 locateFailed）；
+  FloatingToolbar「AI 改写」+ AgentTab composer @ 兜底；rewriteStore 最小占位；tests 19 用例 + FloatingToolbarV2 组件回归
+- **批次 4 预览 UI + store**：`rewriteDiff.ts`（行级 LCS 红删绿增）；`rewriteStore.ts` 完整状态机（startSelectionRewrite 开面板不调 IPC →
+  runSelectionRewrite consent 闸→ai.rewritePreview→proposeSelectionRewrite→pendingRewrite；startDocumentRewrite；applyRewrite stale 校验→updateContent 入 undo；
+  clearRewrite）；`RewritePreviewCard.tsx`（红删绿增 + renderAIMarkdownSafe 无 dangerouslySetInnerHTML）；AgentTab composer 分流；uiStore 补 setAIPanelOpen；
+  i18n 三文件 ai.rewrite.* 12 键；tests 38 用例
+- **批次 5 收尾**：e2e/ai-agent-panel.spec.ts 扩展 4 改写用例（改写闭环/面板@兜底/stale 拒绝/unchanged，mock rewritePreview 不上网）；
+  文档同步（模块 11 §1/§3/§4/§5/§6/§7 + SUMMARY §5 + CLAUDE.md AI 节 + 本 status）
+
+**集成验证（主指挥复核）**：
+- typecheck 0 error | vitest **88 files / 1229 tests** 全绿 | lint 0 error（8 warning 均既有）
+- **Playwright ai-agent-panel spec 14/14 通过**（含 4 新改写用例 + 既有 10 回归）
+- 批次 5 agent 中途 API 中断，e2e 与文档由主指挥接手验证/补齐
+
+## 阶段 6：测试与质量门禁 ✅ 2026-08-15（testing-quality-agent 独立核验）
+
+- **typecheck** 0 error | **vitest** 88 files / 1229 tests 全绿 | **lint** 0 error（8 warning 均既有）
+- **vite build** 编译通过（electron-builder 打包失败为既有 icon.png 缺失，非本任务）
+- **Playwright ai-agent-panel spec 14/14**（含 4 改写用例：改写闭环/面板@兜底/stale 拒绝/unchanged，mock 不上网）
+- **覆盖率抽查**：整体 97.08% stmts / 86.63% branch；新模块（rewrite/selectionExport/blockEdit/rewriteStore/rewriteDiff/RewritePreviewCard）单测全过、错误路径（unchanged/locateFailed/stale）覆盖充分，无关键缺口
+- **铁律核验**：铁律一（rewrite.ts 零落盘零 markdown 解析、blockEdit 只算不写、唯一写入点 applyRewrite→updateContent 入 undo）✅；铁律二（ipc.ts + rewriteStore 双 consent 'chat' 闸）✅；SECURITY（无 dangerouslySetInnerHTML / 无 any / 无密钥 / 本任务无新 SQL）✅
+- 已知既有失败（drag-selection e2e 5 RED / fts5-smoke.cjs）不修、如实保留
+
+## 阶段 7：合规核对 ✅ 2026-08-15（git-diff-reviewer）→ APPROVED
+
+- **铁律一**：✅ 主进程 rewrite.ts 零 markdown 解析/零写盘（只产 {text}）；渲染侧 blockEdit/selectionExport 只算不写；
+  唯一写入点 rewriteStore.applyRewrite → updateContent 入 undo；无绕过「预览→确认」路径
+- **铁律二**：✅ ipc.ts + rewriteStore 双 consent 'chat' 闸，未授权不发外发请求
+- **SECURITY**：✅ 无 dangerouslySetInnerHTML（RewritePreviewCard 用 renderAIMarkdownSafe）、无 any、无密钥、本任务无新 SQL；
+  IPC userId 弱校验沿用既有 AGENT_RUN 模式（低优，非本任务回退）
+- **CONVENTIONS**：✅ 命名/导入/组件 export；i18n 三文件 ai.rewrite.* 12 键一致无缺漏
+- **范围控制**：✅ 编辑器内核（selection/blockTree/markdownToState/stateToMarkdown）零修改；无无关功能改动；
+  合理越界已记录（uiStore.setAIPanelOpen / weaveMDBridge noop / tests/setup mock / FloatingToolbarV2 分隔线 3→4）；
+  ⚠️ i18n 三文件无害重排（无键删改，±200 行）——知悉项，不回退
+- **文档一致性**：✅ 模块11/SUMMARY/CLAUDE.md/status 如实标注「第 5 期已交付」vs 延期权项（真 MCP/GitHub/KB 持久化/editBlocks stretch 均未写成已交付）
+
+## 活体验证：真实 DeepSeek 改写循环 PASS ✅ 2026-08-15
+
+用 `scripts/rewrite-smoke.cjs`（Electron 运行时，esbuild 打包真实生产模块 + env key 不打码）验证：
+
+- **selection scope**：真实 LLM 收到选区片段 + 改写指令 → 返回改写后完整 Markdown，**≠ 原文**、结构保留（示例：`### 本周项目进展` 改写为精简版）✅
+- **document scope**：真实 LLM 收到编号块列表 → 返回 **JSON 数组可解析**，ops=2、首个 block_index=1（合法下标）✅
+- **铁律一**：全程只产 {text}，未写盘/未落库 ✅；key 从 env 读取不打码 ✅
+- harness 清理：临时 bundle 运行后删除；脚本保留 scripts/ 下作 dev 验证工具
+
+## 阶段 8：交付核对（gate）✅ 2026-08-15
+
+- **最终门禁全绿**：typecheck 0 error | vitest **88 files / 1229 tests** | lint 0 error（8 warning 均既有）| vite build 编译通过（electron-builder MSI 失败为既有 icon 缺失）| **Playwright ai-agent-panel spec 14/14**（含 4 改写用例）
+- **变更核对**：21 改 + 19 新（40 文件），与计划 §1 变更清单一致 + 合理越界（均已记录）；无编辑器内核/无关功能改动；无密钥泄露
+- **活验**：改写循环真验 PASS（见上）
+- **剩余风险**：
+  1. 本地 qwen3.5:0.8b 故障（改写走远程 DeepSeek 可用；ollama 本地改写未真验）
+  2. 改写后光标丢失（第 5 期接受，best-effort 未做——写入重建整树）
+  3. i18n 三文件无害重排（知悉项）
+  4. IPC userId 弱校验沿用既有模式（低优，建议后续统一收紧）
+  5. 既有遗留：drag-selection 5 RED / icon 打包环境 / KB 参数持久化（内存态）
+
+## 遗留问题（后续里程碑）
+
+- [ ] **第 6 期收尾**：①KB 参数持久化（topK/fuse/threshold/置顶/embedding host+model → ai_config，本轮内存态）优先；②真 MCP server 管理（context7/firecrawl + fetch 工具）；③GitHub 自取 writing-shape skill
+- [ ] stretch：editBlocks agent 工具（toolRegistry 注册，仅产 proposal 不落盘；WRITE_NAMES 断言同步改造）
+- [ ] 既有：drag-selection 5 RED / icon 打包环境 / qwen3.5 本地模型故障 / IPC userId 统一收紧
+- [ ] 活验 harness scripts/rewrite-smoke.cjs 与 agent-smoke.cjs 处置：保留作 dev 验证工具（不随功能提交）
+
+## 提交 ✅ 2026-08-15
+
+- `606e882 feat(ai): add phase-5 block rewrite with preview-confirm write path`（34 文件 +3527/−613）
+- 分支 `feat/ai-agent-ph3-ph4` 领先 origin 1（**未推送**，符合授权）
+- 未提交（保留工作区）：scripts/rewrite-smoke.cjs（活验 harness，dev 工具惯例）、.claude/agents/ph5-*.md（任务脚手架）、
+  .claude/agent-memory/ 自动生成的 agent 状态
+- 第 6 期收尾：用户选择**暂停**，留后续里程碑
+
 
 
