@@ -295,6 +295,8 @@
 3. e2e 双模式切换用例。
 4. 门禁 → 提交 `feat(ai): merge chat-agent into single panel with mode dropdown (phase-7 B3)`。
 
+> ✅ **批次⑥ B3 已交付（2026-08-15）**：AIAgentPanel 头部双 Tab 按钮 → 模式下拉（`ai-mode-select`，`ai.tab.chat/agent`）；统一渲染单个 AgentTab body（双模式），agent 专属控件随 `activeMode==='agent'` 条件渲染，chat 纯对话（`sendMessage`）无 `/@` 补全；消息与会话随域切换（挂载/切域 effect 触发 `newChat()+loadConversations(mode)`，不串号）。**实现取向**：保留 ChatTab 为已验证纯对话参考组件（不删测试）；store `activeMode`/`toggleMode`/loadConversations 域隔离原样，未改发送链路。门禁：typecheck 0 | vitest 93 files/1338 | lint 0（8 既有 warning）| vite build | 真库 e2e ai spec 24/24。
+
 ---
 
 ### 批次 ⑦ —— C1（frontend-design + impeccable-skill 视觉美化）【最后】

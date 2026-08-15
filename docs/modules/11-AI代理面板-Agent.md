@@ -1,6 +1,6 @@
 # AI 代理面板 (Agent) 功能总结
 
-> 模块编号：11 | 优先级：P1 | 最后更新：2026-08-15 | 状态：**第 1/2/3+4/5 期均已交付；第 6 期 KB 参数持久化 + stretch editBlocks 均已交付（2026-08-15）；真 MCP / GitHub 继续延**
+> 模块编号：11 | 优先级：P1 | 最后更新：2026-08-15 | 状态：**第 1/2/3+4/5/6 期均已交付；第 7 期体验重构 ①~⑦（A4/A1/A2+A3/B1/B2/B3/C1）全部交付（2026-08-15）；真 MCP / GitHub 继续延**
 > 需求编号：AGT-01~19 / KB-01~05（docs/REQUIREMENTS.md 3.7 / 3.8）
 > 交付记录：第1期基建 + 第2期 Chat 闭环（2026-08-14）、第3期知识库 + 第4期 Agent 能力
 > （2026-08-15，详见 docs/plan/ai-agent-panel.status.md）；远程 DeepSeek 后端已真连验证通过；
@@ -32,8 +32,9 @@ src/main/ai/                  # AI 主进程服务（第1/2/3/4期已交付）
 ├── agentLoop.ts              # 函数调用循环（≤6 轮，仅 remote 可靠；ollama 降级纯 chat）
 ├── rewrite.ts                # 改写薄 LLM 代理（第5期：consent 'chat' 闸 + 调 LLM 返回 {text}，零 markdown 解析）
 └── consent.ts                # 知情同意（联网闸 allowNetwork + KB 外发闸 allowSend）
-src/render/components/AIAgent/   # 面板 UI（已交付）：ChatTab / AgentTab / ToolCallTrace / IntentCard /
-                                 #   MarkdownMessage / KnowledgeBaseSettings / ConsentOverlay / RewritePreviewCard（第5期）
+src/render/components/AIAgent/   # 面板 UI（已交付）：AIAgentPanel（第7期B3 统一单面板 + 模式下拉，AgentTab 承担双模式）/
+                                 #   ToolCallTrace / IntentCard / MarkdownMessage / KnowledgeBaseSettings /
+                                 #   ConsentOverlay / RewritePreviewCard（第5期）/ CompletionMenu（第7期B1）
 src/render/editor/rewrite/       # 改写块逻辑（第5期，渲染侧内核所在）：selectionExport.ts（DOM 选区→SelectionRef+片段）/
                                  #   blockEdit.ts（proposal 计算，仅替换目标块，只算不写）
 src/render/filters/rewriteDiff.ts  # 行级红删绿增 diff（纯函数，第5期）
@@ -113,5 +114,6 @@ kb_chunks(id, document_id, seq, content, vector BLOB, source_ref /*文件+块定
 4. ✅ **Agent 能力**（第4期，2026-08-15)：skills 体系（3 内置 + 用户扩展）+ 工具注册表 + agentLoop 函数调用循环 + 意图识别/提问卡片 + 上下文压缩 + 失败兜底；consent 分层（allowNetwork + allowSend）
 5. ✅ **块级改写**（第5期，2026-08-15 已交付）：选区触发 + 面板 @ 兜底 + 定向块编辑协议 + 红删绿增预览 + 确认写入（可撤销）；主进程只产 LLM 文本、块级替换在渲染侧；e2e 4 用例 + 门禁全绿
 6. ✅ **收尾**（第6期，2026-08-15）：**KB 参数持久化已交付**（ai_config 6 列幂等迁移 + `kb:get/setSettings` + 主进程消费修正 + 真库三态实证）+ **stretch `editBlocks` 已交付**（仅产 proposal 不落盘）；真 MCP 进程管理、`fetchContext7`/`fetchFirecrawl` 工具、GitHub 自取 skill 继续延
+7. ✅ **第 7 期辅助创作强化**（2026-08-15，批次①~⑦ 全部交付）：A4 选区改写叶序错位修复（`data-block-id` 同时挂容器 div 与叶子 → DOM 序下标偏大；readDocumentSelection 改用 content 解析叶序 = 位置+文本对齐映射，失同步保守 null）、A1 当前文档上下文注入（agentLoop system prompt + estimateTokens 截断）+ 意图补词（优化/整理/美化/改进…）+ 从 0 到 1 整篇写（`proposeFullDocumentRewrite` + `runFullDocumentRewrite`/`previewDocumentFromReply`，预览确认 → updateContent 入 undo；未打开文档拒写引导）、A2 混合类型工具栏（mouseup 弹 AI 改写，隐藏行内格式按钮）、A3 持久选区高亮（`highlight.ts` 纯函数 + `.rewrite-highlight` 纯 CSS overlay 不入 contentEditable，随改写状态清除）、B1 `/ @` 自动补全（`AGENT_SKILLS_LIST` 只读 IPC + `CompletionMenu` ↑↓/Enter/Esc/外部点击）、B2 命名「智能体」（仅文案 + i18n 三文件）、**B3 双 Tab 合并统一单面板 + composer 上下拉「对话/智能体」模式选择**（保留 `activeMode` 域隔离，chat 纯对话 / agent 保专属控件，消息与会话随域切换不串号）、C1 视觉美化（frontend-design + impeccable-skill：字号 ≥13px、composer 收紧、圆角/间距节奏统一、CSS 变量体系，修复 ConsentOverlay 硬编码色）
 
-> 已完成各阶段独立可交付、可验证；需求/技术文档先行更新。第 3+4 期门禁全绿（typecheck 0 error、vitest 82 files/1152 tests、lint 0 error、Playwright ai spec 10/10、vite build）；第 5 期门禁全绿（typecheck 0 error、vitest 88 files/1229 tests、lint 0 error、Playwright ai spec 14/14 含 4 改写用例、vite build）；第 6 期门禁全绿（typecheck 0 error、vitest 90 files/1256 tests、lint 0 error、Playwright ai spec 14/14、vite build + 真库迁移 smoke 退出码 0）。
+> 已完成各阶段独立可交付、可验证；需求/技术文档先行更新。第 3+4 期门禁全绿（typecheck 0 error、vitest 82 files/1152 tests、lint 0 error、Playwright ai spec 10/10、vite build）；第 5 期门禁全绿（typecheck 0 error、vitest 88 files/1229 tests、lint 0 error、Playwright ai spec 14/14 含 4 改写用例、vite build）；第 6 期门禁全绿（typecheck 0 error、vitest 90 files/1256 tests、lint 0 error、Playwright ai spec 14/14、vite build + 真库迁移 smoke 退出码 0）；第 7 期门禁全绿（typecheck 0 error、vitest 93 files/1338 tests、lint 0 error、Playwright ai spec 24/24、vite build；全量 e2e 95 passed/5 failed 均为既有 drag-selection RED）。

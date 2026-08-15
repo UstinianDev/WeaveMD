@@ -558,3 +558,128 @@
 - [ ] GitHub 自取 writing-shape skill——继续延
 - [ ] 既有：drag-selection 5 RED / icon 打包环境 / qwen3.5 本地模型故障 / IPC userId 统一收紧 / AGENT_RUN 无条件 getAiConfig 低优
 - [ ] 活验 harness scripts/{agent,rewrite,kb-migration,fts5}-smoke.cjs：保留作 dev 验证工具（不随功能提交）
+
+---
+
+# 第 7 期体验重构（A4 bug + A1~A3 编辑主区集成 + B1~B3 面板体验 + C1 视觉）
+
+## 阶段 0：分级与分类 ✅ 2026-08-15
+
+- **请求类型**：功能开发（体验重构 7 条）+ **Bug 修复（A4 选区改写错位，最优先）**
+- **跨模块判断**：跨模块——编辑器 v2（selectionExport/blockEdit/toolbarState/EditorV2 高亮）+ 主进程
+  （agentLoop/toolRegistry/intentRouter/ipc）+ 渲染面板（AIAgentPanel/ChatTab/AgentTab/agentStore/rewriteStore）
+  + i18n 三文件 → **判为跨模块**
+- **定档**：**L**（新 IPC 载荷、跨模块、写路径涉铁律、多天工作量）
+- **裁剪**：无——L 级走全部阶段（TDD strict）；**需求已对齐**（grill-me 2026-08-15 完成，
+  docs/requirements/ai-agent-panel-ph7.req.md §3 全决策已定，不重做）
+- **批次**（req §7，每批 TDD strict、门禁全绿、提交后再下一批）：
+  ① A4 bug 修复（最优先，先复现后测）→ ② A1（文档上下文注入+关键词补词+0到1整篇）→ ③ A2+A3 →
+  ④ B1（/ 与 @ 补全）→ ⑤ B2（命名「智能体」文案+i18n）→ ⑥ B3（双 Tab 合并+composer 下拉）→ ⑦ C1（美化）
+- **现状 ground truth**：分支 feat/ai-agent-ph3-ph4；第 6 期 6440dcd 已提交未推送；
+  工作区仅 ph7 需求文档 + ph6 脚手架/活验 harness（`.claude/agents/*`、`.claude/agent-memory/`、
+  `scripts/kb-migration-smoke.cjs` —— 不混入功能提交）
+- **两铁律**：① AI 无直接落盘——写路径必经「红删绿增预览 → 确认 → updateContent 入 undo」；
+  ② 联网/笔记外发必知情同意（allowNetwork/allowSend 分层闸）
+
+## 阶段 2：规划 ✅ 2026-08-15（Plan 智能体）
+
+计划已写入 docs/plan/ai-agent-panel-ph7.plan.md。关键结论：
+
+- **A4 根因实证**：`data-block-id` 同时挂在容器 div（BlockRenderer.tsx:40 list-block / CodeBlock.tsx:49 / BlockquoteBlock.tsx:23）与叶子内容元素（LeafBlock/ListItemBlock/ContentBlock）→ DOM 序 findIndex 含容器块、比叶序偏大；既有 selectionExport 测试未挂容器 div 故未暴露
+- **A1a 根因实证**：currentDocument 第 6 期已透传 toolCtx（供 editBlocks），但 runAgentFlow 组装 messages 未注入 LLM → 注入 system prompt + estimateTokens 截断 ~20k 字符
+- **A1c 方案**：新增 proposeFullDocumentRewrite（整篇全量 proposal，空文档编号块协议失效走此函数）；rewriteStore.runFullDocumentRewrite + currentFile===null 拒写引导；复用第 5 期预览→确认→updateContent 管线
+- **A2 方案**：computeToolbarState 混合类型改 show + mixedSyntax:true；FloatingToolbar 混合态仅「AI 改写」+ 提示，隐藏行内格式按钮
+- **A3 方案**：纯 CSS overlay（.rewrite-highlight，pointer-events:none 不入 contentEditable），highlight.ts 纯函数按叶序下标+offset 算 range；随 rewriteStore.selectionContext 生命周期清除
+- **B1 方案**：新 IPC AGENT_SKILLS_LIST（skillLoader.listSkillsForUi 返回 name+desc）+ CompletionMenu 组件（↑↓/Enter/Esc/外部点击）+ AgentTab 前缀触发（/ 技能、@ 当前文档/知识库）
+- **B3 方案**：保留 activeMode 域隔离（loadConversations(mode)），仅合并渲染壳（单消息流 + 单 composer + 模式下拉），模式专属控件条件渲染
+- **批次与并行裁定**：7 批**串行**推进（每批 TDD strict、门禁全绿、提交后再下一批）：① A4 → ② A1 → ③ A2+A3 → ④ B1 → ⑤ B2 → ⑥ B3 → ⑦ C1；②③ 共 touch rewriteStore/blockEdit、④⑤ 共 touch AgentTab/i18n，并行冲突面大于收益，串行最稳
+
+## 批次①（A4 选区改写错位 bug）✅ 2026-08-15（fullstack-detail-dev，TDD strict）
+
+- **修复**：`selectionExport.ts` 启用 `_content` 参数，`markdownToState` 解析得叶序权威结构；DOM `.block-content` 内容叶按**文档序位置 + 文本对齐**映射叶序下标（`stripZeroWidth` 逐叶对齐校验）；任何失同步 → 返回 `null` 保守禁用；文件头注释同步「下标源 = markdownToState 叶序」
+- **实现期修正（vs plan 字面，A4 目标不变）**：plan 原拟「按 blockId 在重解析树 indexWhere」——但 blockId 含 `Math.random()`（blockTree.ts:36），每次 markdownToState 全新随机 id，DOM span id 永无法命中 → 照字面实现 100% 返回 null 改写全失效。改为文档序位置 + 文本对齐映射（已记录 agent-memory rewrite-leaf-index-a4.md，供批次②/③ 高亮定位沿用）
+- **RED 复现证据**：修复前 4 fail——列表/代码块/引用容器场景 `expected 0 received 1`（容器致 DOM 下标偏大）+ 失同步未拦截
+- **测试**：selectionExport +4（列表/代码块/引用容器叶序下标 + 失同步→null）、blockEdit +3（容器跨块替换区间外字节不变）
+- **门禁**：typecheck 0 | vitest **90 files/1268 tests** | lint 0 error（8 warning 既有）| vite build | **Playwright ai spec 15/15**（+1 A4 回归）
+- **提交**：`6ef1f54` feat(ai): fix phase-7 A4 leaf-index selection rewrite mismatch（6 文件，未 push）
+
+## 批次②（A1 文档上下文 + 整篇写）✅ 2026-08-15（fullstack-detail-dev，TDD strict）
+
+- **A1a**：agentLoop.ts 新增 `buildDocumentContext`——currentDocument 注入 system 消息（首条，只读提示）；`estimateTokens >5000`（约 2 万字符）截断 20000 字符 + 截断标记；空文档不注入；与 toolsForIntent 共用同一 payload.currentDocument
+- **A1b**：intentRouter rewrite 关键词补词（优化/整理/美化/改进/润一润/优化一下/整理一下/美化一下/改进一下 + optimize/improve/refine/clean up），rewrite 规则仍居首 →「帮我优化这篇文档」命中 rewrite 不再落 chat
+- **A1c**：blockEdit 新增 `proposeFullDocumentRewrite`（整篇全量替换、同文本→unchanged、只算不写）；rewrite.ts document scope + 空 numberedBlocks → 系统指令「目标文档为空，直接生成完整 Markdown」；rewriteStore 新增 `runFullDocumentRewrite`（no-document 闸 → consent('chat') 闸 → rewritePreview → pendingRewrite → applyRewrite 入 undo）与 `previewDocumentFromReply`（Agent 回复路径无 IPC）；AgentTab `WRITE_WHOLE_DOC_RE` 路由 + assistant 消息「预览写入文档」按钮（文档打开且回复非空才显示）；RewritePreviewCard no-document 引导条；i18n 三文件 +2 键（ai.rewrite.noDocument / previewWrite）
+- **RED**：首轮 17 失败（agentLoop 3 / intentRouter 2 / rewrite 1 / blockEdit 4 / rewriteStore 7，均为缺特性）
+- **门禁**：typecheck 0 | vitest **90 files/1289 tests** | lint 0 error（8 warning 既有）| vite build | **Playwright ai spec 17/17**（+2：整篇写闭环/未打开引导）
+- **提交**：`ec62a65` feat(ai): add phase-7 A1 current-doc context + full-document write（17 文件，未 push）
+- **剩余风险**：WRITE_WHOLE_DOC_RE 浅启发式（极端措辞落 agent 对话，有「预览写入文档」按钮兜底）；A1a 对非 rewrite 意图也带整篇 system 上下文（有截断保护，远端消耗未实测）
+
+## 批次③（A2 混合类型工具栏 + A3 选区持久高亮）✅ 2026-08-15（fullstack-detail-dev，TDD strict）
+
+- **A2**：toolbarState `SelectionState` 增 `mixedSyntax?`——跨块语法类型不一致不再 hide，改 `{kind:'show', mixedSyntax:true}`（沿用 rect 定位）；FloatingToolbar 混合态隐藏块类型下拉 + 行内格式按钮组 + 解链/橡皮擦，仅「跨块选区」提示 + 「AI 改写」按钮（根节点 `data-mixed="true"`）；mouseup 触发时机未动
+- **A3**：新增 `highlight.ts` 纯函数 `buildHighlightRanges(content, sel)`（叶序下标+offset 映射当前解析树叶，越界/失同步返回空数组，绝不改块文本）；EditorV2 渲染绝对定位 `.rewrite-highlight` overlay（getBoundingClientRect 定位 + scroll/resize 重算，随 selectionContext 生命周期清除——面板聚焦/输入不清除）；globals.css `.rewrite-highlight`（color-mix accent 18% + outline + pointer-events:none + z-index:60）+ `.ft-mixed-hint`
+- **RED**：toolbarState 混合类型期望 show 实际 hide；FloatingToolbarV2 期望非 null 实际 null；highlight 模块不存在 import 失败
+- **门禁**：typecheck 0 | vitest **91 files/1300 tests** | lint 0 error（8 warning 既有）| vite build | **Playwright ai spec 19/19**（+2：A2 混合类型、A3 高亮三态）
+- **提交**：`973b9e4` feat(ai): add phase-7 A2 mixed toolbar + A3 persistent selection highlight（10 文件，未 push）
+- **剩余风险**：高亮定位 jsdom 下不可信（以 e2e 为准）；依赖 `.block-content` DOM 序与解析叶序对齐（image/table 等非文本叶 mid-leaf 高亮保守 skip）
+
+## 批次④（B1 `/` 与 `@` 自动补全）✅ 2026-08-15（fullstack-detail-dev，TDD strict）
+
+- **数据源**：constants `AGENT_SKILLS_LIST` + shared `AgentSkillInfo`；`skillLoader.listSkillsForUi`（剥离 instructions，仅 name+desc；用户扩展并入；缺失目录 core-only 不抛错）；ipc handler（userId 校验 + app.getPath('userData')/skills）；preload `ai.listSkills` + weaveMDBridge noop + tests/setup mock
+- **组件**：`CompletionMenu.tsx`（新增，纯展示 + capture 键盘协议：↑/↓ 循环、Enter 选中、Esc 关闭、外部点击关闭）
+- **AgentTab 集成**：token 检测 `/(^|\s)([/@])([^\s/@]*)$/`；`/` 技能 / `@` 引用（当前文档/知识库）构建与过滤；handleSend 分流 `SLASH_SKILL_RE`、`@文档`、`@知识库` 优先于 WRITE_WHOLE_DOC_RE；i18n `ai.completion.*` 6 键三文件一致
+- **RED**：14 fail（skillLoader 3 / ipc 3 / CompletionMenu 10 / AgentTab 8 中缺模块部分）
+- **门禁**：typecheck 0 | vitest **92 files/1324 tests** | lint 0 error（8 warning 既有）| vite build | **Playwright ai spec 21/21**（+2：@ 补全/Esc、/ 技能清单）
+- **提交**：`d236068` feat(ai): add phase-7 B1 slash-at autocomplete menu（17 文件，未 push）
+- **剩余风险**：B3 合并统一 composer 需同步补全触发逻辑（已判串行）；`/技能名` 剥前缀后指令若无 tech/create 关键词可能落 chat fallback（非阻塞）
+
+## 批次⑤（B2 命名「智能体」）✅ 2026-08-15（fullstack-detail-dev，TDD strict 文案版）
+
+- **i18n**：zh-CN `ai.tab.agent`「代理」→「智能体」、zh-TW →「智能體」、en 保持「Agent」；两处消费点（AgentTab 会话 chip 兜底名 + AIAgentPanel Tab 按钮）自动生效；全 render 扫描确认源码非注释处无「代理」展示字面量
+- **测试**：新增 `tests/render/i18n/agent-label.test.ts`（5 例：键集一致/中文=智能体(en=Agent)/ai.* 域无「代理」/全键无「代理」）——初跑 3 failed 改后 GREEN
+- **e2e**：6 处功能定位器「代理」→「智能体」+ 注释同步（文件头「AI 代理面板」/「薄代理」为架构表述保留）
+- **门禁**：typecheck 0 | vitest **93 files/1329 tests** | lint 0 error（8 warning 既有）| vite build | **Playwright ai spec 21/21**
+- **提交**：`6e52cbd` feat(ai): rename agent label to 智能体 (phase-7 B2)（4 文件，未 push）
+- **剩余风险**：低——`ai.agent.placeholder` 未使用遗留键含英文 Agent（非「代理」不触发验收）；e2e 注释含架构措辞非用户可见
+
+## 批次⑥（B3 双 Tab 合并单面板）✅ 2026-08-15（fullstack-detail-dev，TDD strict）
+
+- **壳合并**：AIAgentPanel 移除双 Tab 按钮 → 模式下拉 `ai-mode-select`（ai.tab.chat/ai.tab.agent）；统一渲染单个 AgentTab body；下拉切换走 toggleMode
+- **AgentTab 统一 body**：读 activeMode 双模式渲染；agent 专属控件（KB 开关/压缩/KB 设置/agentBackendHint/ToolCallTrace/IntentCard/RewritePreviewCard/`/` `@` 补全/预览写入）随 `activeMode==='agent'` 条件渲染；chat 纯对话走 sendMessage 无补全；挂载/切域 effect 触发 newChat()+loadConversations(mode)，消息与会话随域切换不串号
+- **发送链路隔离**：sendMessage(chat) vs sendAgentMessage(agent) 原样保留；ChatTab 保留为已验证参考组件（prod 死代码但不删不删测，避免回归）
+- **i18n**：三文件新增 `ai.modeSelectLabel`，键集一致
+- **RED**：5 failed（ai-mode-select 不存在、双 Tab 仍在、chat 模式 KB 开关未隐藏）；agentStore 域隔离天然通过（store 本已隔离）
+- **门禁**：typecheck 0 | vitest **93 files/1338 tests** | lint 0 error（8 warning 既有）| vite build | **Playwright ai spec 24/24**（+3：单面板无 Tab+下拉、模式切换域隔离、专属控件归属；7 处旧 Tab 定位器同步改造）
+- **提交**：`bcdb240` feat(ai): merge chat-agent into single panel with mode dropdown (phase-7 B3)（9 文件，未 push）
+- **剩余风险**：模式切换时 chat 流未完成即切会丢事件（store 未改，铁律纯 UI 约束下接受，属既有 finishStream 语义）；e2e 下拉 onChange 行为在测试中显式清空输入规避（无产品行为变更）
+
+## 批次⑦（C1 视觉美化）✅ 2026-08-15（fullstack-detail-dev + frontend-design + impeccable-skill）
+
+- **frontend-design 分析**：字号阶梯过密（10/11/12/14px 四级小字）；composer 周边距过大；深浅层次缺失（气泡/轨迹/意图卡全扁平）；会话 chip 无边框
+- **impeccable-skill 打磨**：全程既有 token（--accent/--radius-input/--radius-card/--shadow-dropdown/bg-bg-*），零内联 style 零硬编码色；遵循 product register 约束（Selection 沿用既有 accent 背景色调、radius 顶到 rounded-card 12px、shadow-sm 弱阴影仅抬升交互卡片）；**修复既有违红点**：ConsentOverlay `accent-[#7C3AED]` 硬编码 → `accent-[var(--accent)]`
+- **改动**：11 文件 +55/−46 纯样式——AIAgentPanel（标题/下拉弹性）、AIMessageBubble（气泡浅阴影+accent 边框+角色标签 12px）、AgentTab/ChatTab（composer `px-2.5 pt-2 pb-2.5 space-y-1.5` + textarea 收紧 + focus ring + 会话 chip 边框）、CompletionMenu（shadow-dropdown/rounded-card）、ToolCallTrace（rounded-card+shadow-sm+error 态红边）、IntentCard/KB 设置/改写卡（rounded-card+shadow-sm）、globals.css `.rewrite-highlight` 圆角 4px
+- **门禁**：typecheck 0 | vitest **93 files/1338 tests** 全绿（零样式回归）| lint 0 error（8 warning 既有）| vite build | **Playwright ai spec 24/24**（语义选择器不依赖像素；clamp 260~520 未动）
+- **提交**：`ced4dcf` feat(ai): polish ai agent panel visuals (phase-7 C1)（11 文件，未 push）
+
+## 阶段 6：测试与质量门禁 ✅ 2026-08-15（testing-quality-agent 独立核验）
+
+- **独立实测**：typecheck 0 error | vitest **93 files/1338 tests** 全绿 | lint 0 error（8 warning 均既有）| vite build 通过 | **Playwright ai spec 24/24** | 全量 e2e **95 passed / 5 failed**（5 个均既有 drag-selection RED，用例名自标「当前 RED」）
+- **i18n 键集**：三文件 ai.* 各 101 键完全一致；ai.tab.agent = Agent/智能体/智能體 ✓
+- **覆盖率抽查**：A4（容器叶序 13 cases）/ blockEdit（9）/ highlight（5）/ CompletionMenu（10）/ agentLoop（9）/ intentRouter（10）/ rewriteStore（23 含全部错误路径）/ AgentTab（25）/ toolbarState（mixedSyntax）/ agentStore（22 mode 域）——需求列错误路径全覆盖
+- **铁律抽核**：铁律一 ✅ 渲染侧 updateContent 全局唯一调用点 = rewriteStore.applyRewrite（先 stale 校验再入 undo），无旁路自动写；7 期主进程 AI 改动 grep 零写盘；AGENT_SKILLS_LIST 为只读 IPC（不含 instructions）；铁律二 ✅ needsConsent('chat') 在 runSelectionRewrite/startDocumentRewrite/runFullDocumentRewrite 全部存在、allowSend 分层语义未变；无 dangerouslySetInnerHTML 新增（Editor 侧 2 处为既有非 7 期）、无 any、无密钥
+- **发现并修复（中）**：`e2e/floating-toolbar.spec.ts` G1 过期断言与 A2 冲突（旧断言「混合类型→工具栏不出现」被 A2 推翻，批次③漏同步既有测试）→ 按 A2 新行为更新断言（工具栏出现 + data-mixed + 仅 AI 改写）→ 已提交 `9153e66` test(ai): sync floating-toolbar G1 assertion（全量 e2e 从 94+6 恢复到 95+5）
+- **低级建议（未修，记录留档）**：① proposeFullDocumentRewrite 对「非空原文+空白回复→清空」无 proposal 层防御（store 层已拦截，纵深可选）；② A2 按钮组显隐逻辑可抽纯函数补单测（当前组件/e2e 覆盖）
+
+## 阶段 7：合规核对 ✅ 2026-08-15（git-diff-reviewer）→ APPROVED
+
+- **两铁律** ✅：铁律一——主进程 AI 文件（agentLoop/rewrite/intentRouter/skillLoader/ipc）零写盘、rewrite.ts 仍只产 {text}、渲染侧唯一写入口 applyRewrite（stale 校验 + 入 undo）；A3 高亮纯 CSS overlay 注释明示不写 contentEditable；未打开文档拒写（no-document 引导）。铁律二——needsConsent('chat') 在 runSelectionRewrite/startDocumentRewrite/runFullDocumentRewrite 全部存在；previewDocumentFromReply 本地 transform 不弹 consent（无网络调用，LLM 调用在前置 AGENT_RUN 已有闸）合规；allowSend 分层语义未变
+- **SECURITY** ✅：无 dangerouslySetInnerHTML 新增 / 无 any / 无密钥 / AGENT_SKILLS_LIST 只读（不含 instructions、userData 不可读降级 core-only）
+- **CONVENTIONS** ✅：命名/导入合规；i18n 三文件各 262 键完全一致（新增 11 键同步）；无内联 style（唯二动态定位像素坐标例外属既有模式）
+- **范围控制** ✅：51 文件逐一映射计划 §1 批次零 unmapped；编辑器内核（markdownToState/blockTree 等）零修改；无新表新列无迁移；新 IPC 仅 AGENT_SKILLS_LIST；计划外改动仅 9153e66（G1 测试同步，判定必要）+ tests/setup +1 mock（批次④必需）
+- **问题**：无 HIGH/MEDIUM；LOW×2（IPC userId 弱校验沿用既有模式、WRITE_WHOLE_DOC_RE 启发式取舍）均记入遗留
+
+## 阶段 8：交付核对（gate）✅ 2026-08-15
+
+- **最终门禁全绿**（阶段 6 独立实测）：typecheck 0 error | vitest **93 files/1338 tests** | lint 0 error（8 warning 既有）| vite build | **Playwright ai spec 24/24** | 全量 e2e 95 passed/5 failed（5 个均既有 drag-selection RED）
+- **提交序列**（8 个，未推送）：6ef1f54（A4）→ ec62a65（A1）→ 973b9e4（A2+A3）→ d236068（B1）→ 6e52cbd（B2）→ bcdb240（B3）→ ced4dcf（C1）→ 9153e66（G1 测试同步）；+3352/−225（51 文件）
+- **文档同步**：模块 11 §7 + SUMMARY §5 + CLAUDE.md AI 节 + 本 status（阶段 0-8）
+- **遗留问题**：① IPC userId 弱校验统一收紧（含 AGENT_SKILLS_LIST）；② WRITE_WHOLE_DOC_RE 浅启发式（极端措辞落 agent 对话，有预览按钮兜底）；③ proposeFullDocumentRewrite 空白回复 proposal 层防御（store 层已拦截，纵深可选）；④ 真 MCP/GitHub skill 继续延；⑤ 既有：drag-selection 5 RED / icon 打包环境 / qwen3.5 本地模型故障 / A1a 长文档远端 token 消耗未实测
