@@ -31,6 +31,7 @@ interface UIStore {
   setOutlineWidth: (width: number) => void;
   setHistoryPanelWidth: (width: number) => void;
   setAIPanelWidth: (width: number) => void;
+  setAIPanelOpen: (open: boolean) => void;
   toggleSidebar: () => void;
   toggleOutlinePanel: () => void;
   setPageWidth: (width: PageWidth) => void;
@@ -97,6 +98,10 @@ export const useUIStore = create<UIStore>((set, get) => ({
   setAIPanelWidth: (width) => {
     set({ aiPanelWidth: Math.max(260, Math.min(520, width)) });
     get().persistSettings();
+  },
+
+  setAIPanelOpen: (open) => {
+    set({ isAIPanelOpen: open });
   },
 
   toggleSidebar: () => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),

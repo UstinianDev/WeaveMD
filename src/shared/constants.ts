@@ -105,6 +105,9 @@ export const IPC_CHANNELS = {
   AGENT_RUN: 'agent:run',
   AGENT_ABORT: 'agent:abort',
 
+  // AI — block rewrite (第5期) invoke
+  AI_REWRITE_PREVIEW: 'ai:rewrite:preview',
+
   // AI — stream push (main -> render, webContents.send)
   AI_STREAM_CHUNK: 'ai:stream:chunk',
   AI_STREAM_DONE: 'ai:stream:done',

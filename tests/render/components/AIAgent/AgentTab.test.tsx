@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import AgentTab from '@render/components/AIAgent/AgentTab';
 import { useAgentStore } from '@render/stores/agentStore';
-import type { IAgentToolCall, IAIMessage, IIntent } from '@shared/ai';
+import { resetRewriteStore, useRewriteStore } from '@render/stores/rewriteStore';
+import { useEditorStore } from '@render/stores/editorStore';
+import type { IAgentToolCall, IAIMessage, IIntent, SelectionRef } from '@shared/ai';
 
 vi.mock('@render/i18n', () => ({
   useI18n: () => {
@@ -23,6 +25,7 @@ vi.mock('@render/i18n', () => ({
       'ai.intent.create': '创作',
       'ai.intent.rewrite': '改写',
       'ai.intent.create.prompt': '请帮我创作一篇文章',
+      'ai.rewrite.selectionHint': '描述如何改写选中内容',
       'ai.tab.agent': '代理',
       'navbar.confirmDeleteFile': '删除',
     };
@@ -72,6 +75,7 @@ describe('AgentTab', () => {
 
   afterEach(() => {
     cleanup();
+    resetRewriteStore();
   });
 
   const defaultState = {
@@ -147,5 +151,44 @@ describe('AgentTab', () => {
     fireEvent.click(screen.getByText('发送'));
     expect(sendAgentMessage).toHaveBeenCalledWith('新的请求');
     expect((screen.getByPlaceholderText('输入问题') as HTMLTextAreaElement).value).toBe('');
+  });
+
+  it('有选区上下文 → composer 发送走 runSelectionRewrite（选区改写）', () => {
+    const runSelectionRewrite = vi.fn().mockResolvedValue(undefined);
+    const sel: SelectionRef = {
+      startLeafIndex: 0,
+      startOffset: 0,
+      endLeafIndex: 0,
+      endOffset: 3,
+    };
+    vi.spyOn(useRewriteStore.getState(), 'runSelectionRewrite').mockImplementation(
+      runSelectionRewrite
+    );
+    useRewriteStore.setState({ selectionContext: { md: 'abc', sel } });
+
+    useAgentStore.setState({ ...defaultState });
+    render(<AgentTab />);
+    // placeholder 切为选区改写提示
+    expect(screen.getByPlaceholderText('描述如何改写选中内容')).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText('描述如何改写选中内容'), {
+      target: { value: '改成大写' },
+    });
+    fireEvent.click(screen.getByText('发送'));
+    expect(runSelectionRewrite).toHaveBeenCalledWith('改成大写');
+  });
+
+  it('无选区上下文 + `@描述` → document scope 改写（startDocumentRewrite）', () => {
+    const startDocumentRewrite = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(useRewriteStore.getState(), 'startDocumentRewrite').mockImplementation(
+      startDocumentRewrite
+    );
+    useEditorStore.setState({ content: '文档全文' });
+    useAgentStore.setState({ ...defaultState });
+    render(<AgentTab />);
+    fireEvent.change(screen.getByPlaceholderText('输入问题'), {
+      target: { value: '@ 把全文改写成学术风格' },
+    });
+    fireEvent.click(screen.getByText('发送'));
+    expect(startDocumentRewrite).toHaveBeenCalledWith('文档全文', '把全文改写成学术风格');
   });
 });

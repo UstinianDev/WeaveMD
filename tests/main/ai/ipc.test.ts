@@ -95,6 +95,11 @@ const agentLoopMock = vi.hoisted(() => ({
 }));
 vi.mock('@main/ai/agentLoop', () => agentLoopMock);
 
+const rewriteMock = vi.hoisted(() => ({
+  runRewrite: vi.fn(),
+}));
+vi.mock('@main/ai/rewrite', () => rewriteMock);
+
 import { IPC_CHANNELS } from '@shared/constants';
 import { registerAiIpcHandlers } from '@main/ai/ipc';
 
@@ -125,6 +130,7 @@ beforeEach(() => {
   kbSearchMock.searchKB.mockReset();
   embeddingMock.probeEmbedding.mockReset();
   agentLoopMock.runAgentFlow.mockReset();
+  rewriteMock.runRewrite.mockReset();
   // abort 归属校验：getConversation 默认返回 u1 名下的 c1（供 chatAbort/agentAbort 通过）
   dbMock.getConversation.mockReset().mockImplementation((conversationId: string, userId: string) =>
     conversationId === 'c1' && userId === 'u1'
@@ -512,5 +518,64 @@ describe('ai:ipc handlers', () => {
     )) as { success: boolean; data: { aborted: boolean } };
     expect(result.success).toBe(false);
     expect(result.data.aborted).toBe(false);
+  });
+
+  // --- 第 5 期：AI_REWRITE_PREVIEW 通道（主进程薄 LLM 代理） ---
+
+  it('registers an AI_REWRITE_PREVIEW handler', () => {
+    expect(electronMock.handlers.get(IPC_CHANNELS.AI_REWRITE_PREVIEW)).toBeDefined();
+  });
+
+  it('AI_REWRITE_PREVIEW returns consent_required when needsConsent(chat) true and never calls runRewrite', async () => {
+    consentMock.needsConsent.mockReturnValue(true);
+    const result = (await getHandler(IPC_CHANNELS.AI_REWRITE_PREVIEW)(makeEvent(), {
+      userId: 'u1',
+      scope: 'selection',
+      instruction: '改写',
+      selectionMarkdown: '# hi',
+    })) as { success: boolean; code: string };
+    expect(result.success).toBe(false);
+    expect(result.code).toBe('consent_required');
+    // 未授权绝不发外发请求
+    expect(rewriteMock.runRewrite).not.toHaveBeenCalled();
+  });
+
+  it('AI_REWRITE_PREVIEW calls runRewrite with userId-derived config and returns { success, data: reply }', async () => {
+    // default needsConsent(false) 授权路径
+    rewriteMock.runRewrite.mockResolvedValue({ text: '改写后内容' });
+    const result = (await getHandler(IPC_CHANNELS.AI_REWRITE_PREVIEW)(makeEvent(), {
+      userId: 'u1',
+      scope: 'selection',
+      instruction: '改写',
+      selectionMarkdown: '# hi',
+    })) as { success: boolean; data: { text: string } };
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ text: '改写后内容' });
+    expect(rewriteMock.runRewrite).toHaveBeenCalledTimes(1);
+    const [, payload, config, apiKeyEnc, controller] = rewriteMock.runRewrite.mock.calls[0] as [
+      unknown,
+      { userId: string; scope: string },
+      { backend: string },
+      unknown,
+      AbortController,
+    ];
+    // user_id 归属：payload 携带 userId，config 按该 userId getAiConfig 而来
+    expect(payload.userId).toBe('u1');
+    expect(payload.scope).toBe('selection');
+    expect(config.backend).toBe('ollama'); // beforeEach 默认 getAiConfig → ollama 行
+    expect(apiKeyEnc).toBeNull();
+    expect(controller.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('AI_REWRITE_PREVIEW surfaces structured error code from runRewrite (http_500)', async () => {
+    rewriteMock.runRewrite.mockRejectedValue(Object.assign(new Error('HTTP 500'), { code: 'http_500' }));
+    const result = (await getHandler(IPC_CHANNELS.AI_REWRITE_PREVIEW)(makeEvent(), {
+      userId: 'u1',
+      scope: 'selection',
+      instruction: '改写',
+      selectionMarkdown: '# hi',
+    })) as { success: boolean; code: string };
+    expect(result.success).toBe(false);
+    expect(result.code).toBe('http_500');
   });
 });
