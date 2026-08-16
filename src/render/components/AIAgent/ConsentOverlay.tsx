@@ -42,7 +42,7 @@ const ConsentOverlay: React.FC<ConsentOverlayProps> = ({ visible, onRemember, on
               className="mt-0.5 accent-[var(--accent)]"
               aria-label={t('ai.consent.allowNetwork')}
             />
-            <span className="text-sm text-text-sub">{t('ai.consent.allowNetwork')}</span>
+            <span className="text-[15px] text-text-sub">{t('ai.consent.allowNetwork')}</span>
           </label>
 
           <label className="flex items-start gap-3 cursor-pointer">
@@ -53,7 +53,7 @@ const ConsentOverlay: React.FC<ConsentOverlayProps> = ({ visible, onRemember, on
               className="mt-0.5 accent-[var(--accent)]"
               aria-label={t('ai.consent.allowSend')}
             />
-            <span className="text-sm text-text-sub">{t('ai.consent.allowSend')}</span>
+            <span className="text-[15px] text-text-sub">{t('ai.consent.allowSend')}</span>
           </label>
         </div>
 
@@ -61,14 +61,14 @@ const ConsentOverlay: React.FC<ConsentOverlayProps> = ({ visible, onRemember, on
           <button
             type="button"
             onClick={() => onRemember({ allowNetwork, allowSend })}
-            className="flex-1 rounded-input px-3 py-2 text-sm font-medium text-white bg-[var(--accent)] hover:opacity-90 transition-opacity"
+            className="flex-1 rounded-input px-3 py-2 text-[15px] font-medium text-white bg-[var(--accent)] hover:opacity-90 transition-opacity"
           >
             {t('ai.consent.remember')}
           </button>
           <button
             type="button"
             onClick={onDeny}
-            className="flex-1 rounded-input px-3 py-2 text-sm font-medium text-text-sub bg-bg-tertiary hover:bg-bg-quaternary transition-colors"
+            className="flex-1 rounded-input px-3 py-2 text-[15px] font-medium text-text-sub bg-bg-tertiary hover:bg-bg-quaternary transition-colors"
           >
             {t('ai.consent.deny')}
           </button>

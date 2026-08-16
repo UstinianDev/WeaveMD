@@ -2452,18 +2452,49 @@ span.comment-marker {
 }
 
 /* ============================================================
-   A3 选区持久高亮（第 7 期）：改写模式下标记被改写范围的纯 CSS overlay
-   - 不入 contentEditable 内容、不改块文本
-   - pointer-events:none 不拦截编辑器交互；z-index 60 < 工具栏 z-[100]，不遮浮动工具栏
+   M5 选区覆盖块整块渐变蓝高亮（纯 CSS overlay）
+   - 选区覆盖的每个块整块高亮，不入 contentEditable 内容、不改块文本
+   - 渐变蓝左浅右深（明/暗主题均可见）
+   - 高亮本体 pointer-events:none 不拦截编辑器交互；z-index 60 < 工具栏 z-[100]，不遮浮动工具栏
    ============================================================ */
 .rewrite-highlight {
   position: absolute;
   z-index: 60;
   pointer-events: none;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  outline: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--border-color) 60%, transparent) inset;
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.16), rgba(37, 99, 235, 0.45));
+  outline: 1px solid rgba(59, 130, 246, 0.45);
+}
+
+/* M5：左端「取消」渐变蓝胶囊——始终可见（非悬停），定位在首个高亮块左缘上方。
+   - 定位容器 absolute（left/top 由 EditorV2 按首块 rect 注入），z-70 高于正文/高亮 overlay
+   - 负 margin-top 上移胶囊高度 + 间距，避免覆盖正文文本；pointer-events:auto 可点击 */
+.rewrite-cancel-capsule {
+  position: absolute;
+  z-index: 70;
+  pointer-events: auto;
+  transform: translateY(-100%);
+  margin-top: -8px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #3b82f6, #2563eb);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.24);
+}
+.rewrite-cancel-capsule button {
+  pointer-events: auto;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: #fff;
+  font-size: 13px;
+  line-height: 20px;
+  padding: 2px 14px;
+  border-radius: inherit;
+  white-space: nowrap;
+}
+.rewrite-cancel-capsule button:hover {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 /* A2 混合语法类型工具栏：跨块选区提示文案（行内格式/块类型被隐藏） */

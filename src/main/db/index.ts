@@ -126,7 +126,7 @@ function runMigrations(database: Database.Database): void {
     CREATE TABLE IF NOT EXISTS ai_config (
       id                TEXT PRIMARY KEY,
       user_id           TEXT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      backend           TEXT NOT NULL DEFAULT 'ollama',   -- ollama | remote
+      backend           TEXT NOT NULL DEFAULT 'remote',   -- 恒 remote（遗留 ollama 值读时收敛 remote，不再写）
       ollama_base_url   TEXT DEFAULT 'http://localhost:11434',
       remote_base_url   TEXT DEFAULT 'https://api.deepseek.com',
       model             TEXT DEFAULT '',

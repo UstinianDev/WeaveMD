@@ -87,7 +87,7 @@ const CompletionMenu: React.FC<CompletionMenuProps> = ({
       data-testid="completion-menu"
       className="absolute left-0 bottom-full mb-1 w-full z-50 rounded-card border border-border bg-bg-secondary shadow-dropdown py-1 max-h-56 overflow-y-auto"
     >
-      <div className="px-3 pt-1.5 pb-1 text-[11px] font-medium uppercase tracking-wide text-text-muted">{title}</div>
+      <div className="px-3 pt-1.5 pb-1 text-[12px] font-medium uppercase tracking-wide text-text-muted">{title}</div>
       {items.map((item, idx) => {
         const isActive = idx === activeIndex;
         return (
@@ -101,7 +101,7 @@ const CompletionMenu: React.FC<CompletionMenuProps> = ({
               e.preventDefault(); // 保持 textarea 焦点，防止 blur 触发外部点击关闭
             }}
             onClick={() => onSelect(item)}
-            className={`block w-full text-left px-3 py-1.5 text-sm transition-colors ${
+            className={`block w-full text-left px-3 py-1.5 text-[15px] transition-colors ${
               isActive
                 ? 'bg-[var(--accent)]/15 text-text-primary'
                 : 'text-text-sub hover:bg-bg-tertiary'
@@ -109,7 +109,7 @@ const CompletionMenu: React.FC<CompletionMenuProps> = ({
           >
             <span className="block">{item.label}</span>
             {item.description && (
-              <span className="block text-xs text-text-muted truncate">{item.description}</span>
+              <span className="block text-[13px] text-text-muted truncate">{item.description}</span>
             )}
           </button>
         );

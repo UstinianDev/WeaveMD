@@ -1,8 +1,8 @@
 // ============================================
 // WeaveMD — Composer 底部模型选择下拉（R18/R19）
 // ============================================
-// 挂载时拉取 `ai.listModels(userId)`（ollama /api/tags + remote /models，key 在主进程不落渲染）；
-// 选中项 → `setConfig({ model })` 持久化到 ai_config.model（复用 iaplace setConfig）。
+// 挂载时拉取 `ai.listModels(userId)`（remote /models，key 在主进程不落渲染）；
+// 选中项 → `setConfig({ model })` 持久化到 ai_config.model（复用 ai.setConfig）。
 // 拉取失败/为空 → 降级：显示当前配置 model + 允许手动输入回退（R19）。
 // 无 dangerouslySetInnerHTML、无 any。
 
@@ -82,7 +82,7 @@ const ModelDropdown: React.FC = () => {
   const buttonLabel = manualValue || currentModel || t('ai.modelDropdown.label');
 
   return (
-    <div className="relative inline-block text-xs">
+    <div className="relative inline-block text-[13px]">
       <button
         type="button"
         data-testid="model-dropdown"
@@ -90,10 +90,10 @@ const ModelDropdown: React.FC = () => {
         className="flex items-center gap-1 rounded-input border border-border bg-bg-secondary px-2 py-1 text-text-sub hover:border-[var(--accent)] hover:text-text-primary transition-colors"
       >
         <span className="max-w-[8rem] truncate">{buttonLabel}</span>
-        <span className="text-[10px] text-text-muted">▾</span>
+        <span className="text-[11px] text-text-muted">▾</span>
       </button>
 
-      {loadState === 'loading' && <span className="ml-1 text-[10px] text-text-muted">…</span>}
+      {loadState === 'loading' && <span className="ml-1 text-[11px] text-text-muted">…</span>}
 
       {open && (
         <div
@@ -102,7 +102,7 @@ const ModelDropdown: React.FC = () => {
         >
           {loadState === 'ok' && models.length > 0 && (
             <>
-              <div className="px-3 pt-1.5 pb-1 text-[10px] font-medium uppercase tracking-wide text-text-muted">
+              <div className="px-3 pt-1.5 pb-1 text-[11px] font-medium uppercase tracking-wide text-text-muted">
                 {t('ai.modelDropdown.label')}
               </div>
               {models.map((m) => (
@@ -110,7 +110,7 @@ const ModelDropdown: React.FC = () => {
                   key={m}
                   type="button"
                   onClick={() => selectModel(m)}
-                  className={`block w-full text-left px-3 py-1.5 text-xs transition-colors ${
+                  className={`block w-full text-left px-3 py-1.5 text-[13px] transition-colors ${
                     m === currentModel
                       ? 'bg-[var(--accent)]/15 text-text-primary'
                       : 'text-text-sub hover:bg-bg-tertiary'
@@ -124,7 +124,7 @@ const ModelDropdown: React.FC = () => {
 
           {/* 拉取失败/为空提示（R19 降级说明；loadState 为 manual 时不重复展示） */}
           {loadState === 'manual' && models.length === 0 && (
-            <div className="px-3 pt-1 pb-0.5 text-[10px] text-amber-600">
+            <div className="px-3 pt-1 pb-0.5 text-[11px] text-amber-600">
               {t('ai.modelDropdown.loadFailed')}
             </div>
           )}
@@ -138,7 +138,7 @@ const ModelDropdown: React.FC = () => {
               setOpen(true);
             }}
             data-testid="model-manual-toggle"
-            className="block w-full text-left px-3 py-1.5 text-xs text-text-muted hover:bg-bg-tertiary"
+            className="block w-full text-left px-3 py-1.5 text-[13px] text-text-muted hover:bg-bg-tertiary"
           >
             {t('ai.modelDropdown.manual')}
           </button>
@@ -157,7 +157,7 @@ const ModelDropdown: React.FC = () => {
                   }
                 }}
                 placeholder={t('ai.modelDropdown.manualPlaceholder')}
-                className="w-full border border-border rounded-input px-2 py-1 text-xs text-text-primary bg-bg-primary outline-none focus:border-[var(--accent)]"
+                className="w-full border border-border rounded-input px-2 py-1 text-[13px] text-text-primary bg-bg-primary outline-none focus:border-[var(--accent)]"
               />
             </div>
           )}

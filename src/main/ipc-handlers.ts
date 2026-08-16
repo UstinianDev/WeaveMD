@@ -62,8 +62,8 @@ function scheduleReindexAfterSave(userId: string, file: IndexFileInput): void {
   if (existing) clearTimeout(existing);
   const timer = setTimeout(() => {
     reindexTimers.delete(key);
-    // 索引选项保守为仅关键词；异常静默降级（不影响已返回的保存成功）
-    void reindexAfterSave(userId, file, { vectorEnabled: false }).catch(() => {});
+    // 索引纯 FTS5（无向量）；异常静默降级（不影响已返回的保存成功）
+    void reindexAfterSave(userId, file, {}).catch(() => {});
   }, REINDEX_DEBOUNCE_MS);
   reindexTimers.set(key, timer);
 }

@@ -17,19 +17,19 @@ import type {
 } from '@shared/ai';
 
 // ---- fixtures ----
+// M2 收敛：唯一后端为 remote，IAIConfig 无 ollamaBaseUrl。
 const remoteConfig: IAIConfig = {
   backend: 'remote',
-  ollamaBaseUrl: 'http://localhost:11434',
   remoteBaseUrl: 'https://api.deepseek.com',
   model: 'deepseek-chat',
   hasApiKey: true,
 };
 
-const ollamaConfig: IAIConfig = {
-  backend: 'ollama',
-  ollamaBaseUrl: 'http://localhost:11434',
+/** 未配置 key 的 remote 配置（hasApiKey=false），用于「断开/未配置」场景。 */
+const remoteNoKeyConfig: IAIConfig = {
+  backend: 'remote',
   remoteBaseUrl: 'https://api.deepseek.com',
-  model: 'qwen3.5',
+  model: 'deepseek-chat',
   hasApiKey: false,
 };
 
@@ -65,8 +65,8 @@ describe('needsConsent 纯函数', () => {
     expect(needsConsent(remoteConfig, grantedConsent)).toBe(false);
   });
 
-  it('ollama 本地 chat -> false（不触发同意）', () => {
-    expect(needsConsent(ollamaConfig, noConsent)).toBe(false);
+  it('唯一后端 remote：未配置 key（hasApiKey=false）未允许联网 -> true', () => {
+    expect(needsConsent(remoteNoKeyConfig, noConsent)).toBe(true);
   });
 
   it('config 为 null -> true（需配置后再同意）', () => {
@@ -87,7 +87,7 @@ describe('agentStore 会话状态机', () => {
   it('init 拉取 config + consent + conversations + kb settings', async () => {
     vi.mocked(window.weaveMD.ai as unknown as {
       getConfig: ReturnType<typeof vi.fn>;
-    }).getConfig.mockResolvedValue({ success: true, data: ollamaConfig });
+    }).getConfig.mockResolvedValue({ success: true, data: remoteConfig });
     vi.mocked((window.weaveMD.ai as unknown as { getConsent: ReturnType<typeof vi.fn> }).getConsent).mockResolvedValue({
       success: true,
       data: noConsent,
@@ -101,24 +101,24 @@ describe('agentStore 会话状态机', () => {
     });
     vi.mocked((window.weaveMD.kb as unknown as { getSettings: ReturnType<typeof vi.fn> }).getSettings).mockResolvedValue({
       success: true,
-      data: { topK: 8, fuse: 0.4, threshold: 0.7, pinnedWeight: 2, embeddingHost: 'http://h', embeddingModel: 'm' },
+      data: { topK: 8, fuse: 0.4, threshold: 0.7, pinnedWeight: 2 },
     });
 
     await useAgentStore.getState().init('u1');
 
     const s = useAgentStore.getState();
-    expect(s.config?.backend).toBe('ollama');
+    expect(s.config?.backend).toBe('remote');
     expect(s.consent?.allowNetwork).toBe(false);
     expect(s.conversations).toHaveLength(1);
-    // 持久化 KB 参数覆盖默认
+    // 持久化 KB 参数覆盖默认（不再含 embedding 字段）
     expect(s.kbSettings.topK).toBe(8);
-    expect(s.kbSettings.embeddingHost).toBe('http://h');
+    expect(s.kbSettings.pinnedWeight).toBe(2);
   });
 
   it('init 拉取 kb.getSettings 失败 -> 保留默认、不阻塞', async () => {
     vi.mocked(window.weaveMD.ai as unknown as {
       getConfig: ReturnType<typeof vi.fn>;
-    }).getConfig.mockResolvedValue({ success: true, data: ollamaConfig });
+    }).getConfig.mockResolvedValue({ success: true, data: remoteConfig });
     vi.mocked((window.weaveMD.ai as unknown as { getConsent: ReturnType<typeof vi.fn> }).getConsent).mockResolvedValue({
       success: true,
       data: noConsent,
@@ -138,11 +138,11 @@ describe('agentStore 会话状态机', () => {
     await useAgentStore.getState().init('u1');
 
     const s = useAgentStore.getState();
-    expect(s.config?.backend).toBe('ollama');
+    expect(s.config?.backend).toBe('remote');
     expect(s.conversations).toHaveLength(1);
     // 失败保留默认值（不覆盖，不抛错阻塞）
     expect(s.kbSettings.topK).toBe(5);
-    expect(s.kbSettings.embeddingModel).toBe('nomic-embed-text');
+    expect(s.kbSettings.pinnedWeight).toBe(1.5);
   });
 
   it('logout 后 reset 防串号', async () => {
@@ -215,7 +215,7 @@ describe('agentStore 会话状态机', () => {
       data: { id: CONVERSATION_ID, userId: 'u1', mode: 'chat', summary: '', createdAt: '', updatedAt: '' },
     });
 
-    useAgentStore.setState({ config: ollamaConfig, consent: noConsent });
+    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent });
 
     const sendPromise = useAgentStore.getState().sendMessage('hello');
     // 排空微任务队列，让 sendMessage 走到「append user msg + 订阅流」之后
@@ -264,7 +264,7 @@ describe('agentStore 会话状态机', () => {
       data: { id: CONVERSATION_ID, userId: 'u1', mode: 'chat', summary: '', createdAt: '', updatedAt: '' },
     });
 
-    useAgentStore.setState({ config: ollamaConfig, consent: noConsent });
+    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent });
 
     const emit = (evt: AIStreamEvent) => streamCb?.(evt);
 
@@ -284,7 +284,7 @@ describe('agentStore 会话状态机', () => {
   it('stopStream 调用 chatAbort/agentAbort（归属校验 userId）并复位流状态', async () => {
     useAgentStore.setState({
       userId: 'u1',
-      config: ollamaConfig,
+      config: remoteConfig,
       consent: noConsent,
       isStreaming: true,
       activeConversationId: CONVERSATION_ID,
@@ -307,7 +307,7 @@ describe('agentStore 会话状态机', () => {
   it('stopStream 未登录（无 userId）不调用 abort', () => {
     useAgentStore.setState({
       userId: '',
-      config: ollamaConfig,
+      config: remoteConfig,
       consent: noConsent,
       isStreaming: true,
       activeConversationId: CONVERSATION_ID,
@@ -342,7 +342,7 @@ describe('agentStore 会话状态机', () => {
       success: true,
       data: { conversationId: 'conv-title' },
     });
-    useAgentStore.setState({ config: ollamaConfig, consent: noConsent });
+    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent });
 
     const longMsg = 'a'.repeat(80);
     await useAgentStore.getState().sendMessage(longMsg);
@@ -358,8 +358,8 @@ describe('agentStore 会话状态机', () => {
       data: { conversationId: 'existing-conv' },
     });
     useAgentStore.setState({
-      config: ollamaConfig,
-      consent: noConsent,
+      config: remoteConfig,
+      consent: grantedConsent,
       activeConversationId: 'existing-conv',
     });
 
@@ -386,8 +386,8 @@ describe('needsConsent agent 动作', () => {
     // 分层语义对齐主进程 consent.ts：agent 联网闸不含 allowSend
     expect(needsConsent(remoteConfig, allowNetworkNoSend, 'agent')).toBe(false);
   });
-  it('agent + ollama 本地 -> false（无联网外发）', () => {
-    expect(needsConsent(ollamaConfig, noConsent, 'agent')).toBe(false);
+  it('agent + remote 未配置 key（hasApiKey=false）且未授权 -> true', () => {
+    expect(needsConsent(remoteNoKeyConfig, noConsent, 'agent')).toBe(true);
   });
   it('chat 动作默认行为不变（remote 未授权 true）', () => {
     expect(needsConsent(remoteConfig, noConsent, 'chat')).toBe(true);
@@ -503,11 +503,10 @@ describe('agentStore agent 模式', () => {
         assistantId: 'a1',
         roundsUsed: 1,
         intent: null,
-        agentBackendHint: 'Agent 能力需远程后端，当前为纯生成模式',
       },
     });
 
-    useAgentStore.setState({ config: ollamaConfig, consent: noConsent, activeMode: 'agent' });
+    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent, activeMode: 'agent' });
     const sendPromise = useAgentStore.getState().sendAgentMessage('写一篇介绍');
     await new Promise((r) => setTimeout(r, 0));
 
@@ -528,7 +527,6 @@ describe('agentStore agent 模式', () => {
     expect(s.isStreaming).toBe(false);
     const assistant = s.messages.find((m) => m.role === 'assistant');
     expect(assistant?.content).toBe('结果');
-    expect(s.agentBackendHint).toContain('Agent');
   });
 
   it('sendAgentMessage 建会话成功后 updateConversationSummary 写入首条消息（agent 域）', async () => {
@@ -541,7 +539,7 @@ describe('agentStore agent 模式', () => {
       success: true,
       data: { conversationId: 'agent-conv-title', assistantId: 'a1', roundsUsed: 1, intent: null },
     });
-    useAgentStore.setState({ config: ollamaConfig, consent: noConsent, activeMode: 'agent' });
+    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent, activeMode: 'agent' });
 
     const firstMsgText = '帮我生成一篇代理介绍文档，内容要完整且覆盖要点';
     await useAgentStore.getState().sendAgentMessage(firstMsgText);
@@ -569,7 +567,7 @@ describe('agentStore agent 模式', () => {
       data: { conversationId: 'agent-conv-2', assistantId: 'a1', roundsUsed: 1, intent: null },
     });
 
-    useAgentStore.setState({ config: ollamaConfig, consent: grantedConsent, activeMode: 'agent' });
+    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent, activeMode: 'agent' });
     const sendPromise = useAgentStore.getState().sendAgentMessage('查找');
     await new Promise((r) => setTimeout(r, 0));
 
@@ -640,11 +638,10 @@ describe('agentStore agent 模式', () => {
     expect(useAgentStore.getState().conversations.map((c) => c.id)).toEqual(['chat-c1']);
   });
 
-  it('reset 清空 agent 扩展状态（toolCalls/intentCard/agentBackendHint/kbStatus）', () => {
+  it('reset 清空 agent 扩展状态（toolCalls/intentCard/kbStatus）', () => {
     useAgentStore.setState({
       toolCalls: [{ toolCallId: 'tc1', name: 'searchKB', args: '{}', status: 'ok' }],
       intentCard: { intent: 'create', confidence: 0.3 },
-      agentBackendHint: 'hint',
       kbStatus: { documents: 3, embedding: { available: true, dims: 768 } },
       useKnowledgeBase: true,
     });
@@ -652,7 +649,6 @@ describe('agentStore agent 模式', () => {
     const s = useAgentStore.getState();
     expect(s.toolCalls).toEqual([]);
     expect(s.intentCard).toBeNull();
-    expect(s.agentBackendHint).toBeNull();
     expect(s.kbStatus).toBeNull();
     expect(s.useKnowledgeBase).toBe(false);
   });
@@ -671,7 +667,7 @@ describe('agentStore setKbSettings 持久化', () => {
   it('成功 -> kbSettings=用户值 + saveState=saved', async () => {
     vi.mocked((window.weaveMD.kb as unknown as { setSettings: ReturnType<typeof vi.fn> }).setSettings).mockResolvedValue({
       success: true,
-      data: { topK: 12, fuse: 0.3, threshold: 0.65, pinnedWeight: 2.5, embeddingHost: 'http://h', embeddingModel: 'm' },
+      data: { topK: 12, fuse: 0.3, threshold: 0.65, pinnedWeight: 2.5 },
     });
 
     await useAgentStore.getState().setKbSettings({
@@ -679,8 +675,6 @@ describe('agentStore setKbSettings 持久化', () => {
       fuse: 0.3,
       threshold: 0.65,
       pinnedWeight: 2.5,
-      embeddingHost: 'http://h',
-      embeddingModel: 'm',
     });
 
     const s = useAgentStore.getState();
@@ -703,8 +697,6 @@ describe('agentStore setKbSettings 持久化', () => {
       fuse: 0.8,
       threshold: 0.55,
       pinnedWeight: 3,
-      embeddingHost: 'http://h2',
-      embeddingModel: 'm2',
     });
 
     const s = useAgentStore.getState();
@@ -723,8 +715,6 @@ describe('agentStore setKbSettings 持久化', () => {
       fuse: 0.6,
       threshold: 0.6,
       pinnedWeight: 1.5,
-      embeddingHost: 'http://localhost:11434',
-      embeddingModel: 'nomic-embed-text',
     });
 
     expect(settingsState().topK).toBe(9);
@@ -735,10 +725,10 @@ describe('agentStore setKbSettings 持久化', () => {
     // 成功路径 -> saved，随后归位 -> idle
     vi.mocked((window.weaveMD.kb as unknown as { setSettings: ReturnType<typeof vi.fn> }).setSettings).mockResolvedValue({
       success: true,
-      data: { topK: 12, fuse: 0.3, threshold: 0.65, pinnedWeight: 2.5, embeddingHost: 'http://h', embeddingModel: 'm' },
+      data: { topK: 12, fuse: 0.3, threshold: 0.65, pinnedWeight: 2.5 },
     });
     await useAgentStore.getState().setKbSettings({
-      topK: 12, fuse: 0.3, threshold: 0.65, pinnedWeight: 2.5, embeddingHost: 'http://h', embeddingModel: 'm',
+      topK: 12, fuse: 0.3, threshold: 0.65, pinnedWeight: 2.5,
     });
     expect(useAgentStore.getState().kbSettingsSaveState).toBe('saved');
 
@@ -751,7 +741,7 @@ describe('agentStore setKbSettings 持久化', () => {
       message: 'db write failed',
     });
     await useAgentStore.getState().setKbSettings({
-      topK: 1, fuse: 0.9, threshold: 0.5, pinnedWeight: 3, embeddingHost: 'http://h2', embeddingModel: 'm2',
+      topK: 1, fuse: 0.9, threshold: 0.5, pinnedWeight: 3,
     });
     expect(useAgentStore.getState().kbSettingsSaveState).toBe('error');
 

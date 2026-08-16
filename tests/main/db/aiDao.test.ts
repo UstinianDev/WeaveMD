@@ -71,7 +71,7 @@ const fakeDbMock = vi.hoisted(() => {
             return {
               id: aiConfigRow.id ?? 'cfg1',
               user_id: aiConfigRow.user_id,
-              backend: 'ollama',
+              backend: 'remote',
               ollama_base_url: 'http://localhost:11434',
               remote_base_url: 'https://api.deepseek.com',
               model: '',
@@ -216,7 +216,7 @@ describe('ai DAO — SQL 参数化与归属过滤行为', () => {
 
   // ---- 第 6 期批次 2：KB 参数列（upsert UPDATE/INSERT + mapConfigRow NULL 兜底） ----
 
-  it('upsertAiConfig UPDATE：含全部 KB 列，参数顺序 = 既有值/传入值按序', () => {
+  it('upsertAiConfig UPDATE：含纯 FTS KB 列（embedding 遗留列不再写入）', () => {
     // 既有行带 KB 值（触发 UPDATE 分支）
     fakeDbMock.setAiConfigRow({
       user_id: 'u1',
@@ -224,8 +224,6 @@ describe('ai DAO — SQL 参数化与归属过滤行为', () => {
       kb_fuse: 0.4,
       kb_threshold: 0.5,
       kb_pinned_weight: 1.2,
-      kb_embedding_host: 'http://host:1',
-      kb_embedding_model: 'm',
     });
     upsertAiConfig('u1', { kbTopK: 8 });
     const upd = callOf('run', 'UPDATE ai_config');
@@ -233,14 +231,15 @@ describe('ai DAO — SQL 参数化与归属过滤行为', () => {
     expect(upd?.sql).toContain('kb_fuse = ?');
     expect(upd?.sql).toContain('kb_threshold = ?');
     expect(upd?.sql).toContain('kb_pinned_weight = ?');
-    expect(upd?.sql).toContain('kb_embedding_host = ?');
-    expect(upd?.sql).toContain('kb_embedding_model = ?');
-    const kbArgs = upd?.args?.slice(8, 14) as unknown[];
+    // 遗留列不再写入
+    expect(upd?.sql).not.toContain('kb_embedding_host');
+    expect(upd?.sql).not.toContain('kb_embedding_model');
+    const kbArgs = upd?.args?.slice(8, 12) as unknown[];
     // 只改传的字段（kbTopK=8 覆盖），其余沿用既有值
-    expect(kbArgs).toEqual([8, 0.4, 0.5, 1.2, 'http://host:1', 'm']);
+    expect(kbArgs).toEqual([8, 0.4, 0.5, 1.2]);
   });
 
-  it('upsertAiConfig INSERT：含全部 KB 列，参数用 update 或 DEFAULT_KB_SETTINGS 兜底', () => {
+  it('upsertAiConfig INSERT：含纯 FTS KB 列，参数用 update 或 DEFAULT_KB_SETTINGS 兜底', () => {
     // 无既有行 → INSERT 分支；只传部分 KB 字段。post-write 回读需返回行，故 skipFirst
     fakeDbMock.setAiConfigRow({ user_id: 'u1' });
     fakeDbMock.setSkipFirstAiConfigGet(true);
@@ -250,18 +249,17 @@ describe('ai DAO — SQL 参数化与归属过滤行为', () => {
     expect(ins?.sql).toContain('kb_fuse');
     expect(ins?.sql).toContain('kb_threshold');
     expect(ins?.sql).toContain('kb_pinned_weight');
-    expect(ins?.sql).toContain('kb_embedding_host');
-    expect(ins?.sql).toContain('kb_embedding_model');
+    // 遗留 embedding 列不再写入
+    expect(ins?.sql).not.toContain('kb_embedding_host');
+    expect(ins?.sql).not.toContain('kb_embedding_model');
     // col list: id,user_id,backend,ollama_base_url,remote_base_url,model,api_key_enc,
-    //           allow_network,allow_send,consent_updated_at,kb_top_k,kb_fuse,...(4 后续)
-    const kbArgs = ins?.args?.slice(10, 16) as unknown[];
+    //           allow_network,allow_send,consent_updated_at,kb_top_k,kb_fuse,...
+    const kbArgs = ins?.args?.slice(10, 14) as unknown[];
     expect(kbArgs).toEqual([
       8,
       0.7,
       DEFAULT_KB_SETTINGS.threshold,
       DEFAULT_KB_SETTINGS.pinnedWeight,
-      DEFAULT_KB_SETTINGS.embeddingHost,
-      DEFAULT_KB_SETTINGS.embeddingModel,
     ]);
   });
 
@@ -273,8 +271,6 @@ describe('ai DAO — SQL 参数化与归属过滤行为', () => {
     expect(config?.kbFuse).toBe(DEFAULT_KB_SETTINGS.fuse);
     expect(config?.kbThreshold).toBe(DEFAULT_KB_SETTINGS.threshold);
     expect(config?.kbPinnedWeight).toBe(DEFAULT_KB_SETTINGS.pinnedWeight);
-    expect(config?.kbEmbeddingHost).toBe(DEFAULT_KB_SETTINGS.embeddingHost);
-    expect(config?.kbEmbeddingModel).toBe(DEFAULT_KB_SETTINGS.embeddingModel);
   });
 
   it('mapConfigRow：KB 列有值时保留持久化值（非法/缺失才兜底）', () => {
@@ -282,12 +278,11 @@ describe('ai DAO — SQL 参数化与归属过滤行为', () => {
       user_id: 'u1',
       kb_top_k: 7,
       kb_fuse: 0.9,
-      kb_embedding_host: '',
     });
     const config = getAiConfig('u1');
     expect(config?.kbTopK).toBe(7);
     expect(config?.kbFuse).toBe(0.9);
-    // 空字符串 host 视为非法 → 兜底默认
-    expect(config?.kbEmbeddingHost).toBe(DEFAULT_KB_SETTINGS.embeddingHost);
+    expect(config?.kbThreshold).toBe(DEFAULT_KB_SETTINGS.threshold);
+    expect(config?.kbPinnedWeight).toBe(DEFAULT_KB_SETTINGS.pinnedWeight);
   });
 });

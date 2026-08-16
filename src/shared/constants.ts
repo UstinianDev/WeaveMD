@@ -84,7 +84,6 @@ export const IPC_CHANNELS = {
   AI_SET_CONFIG: 'ai:set-config',
   AI_GET_CONSENT: 'ai:get-consent',
   AI_SET_CONSENT: 'ai:set-consent',
-  AI_HEALTH: 'ai:health',
   AI_CHAT: 'ai:chat',
   AI_CHAT_ABORT: 'ai:chat-abort',
   AI_CONVERSATION_LIST: 'ai:conversation:list',

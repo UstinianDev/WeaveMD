@@ -13,6 +13,10 @@ import { useAgentStore } from '@render/stores/agentStore';
 import AIPanelComposer from './AIPanelComposer';
 
 interface AIPanelHomeProps {
+  /** 受控草稿（M4）：由 AIAgentPanel 持有，home 与 session 共享。 */
+  draft: string;
+  /** 受控草稿变更回调。 */
+  setDraft: (value: string) => void;
   /** 点击最近会话 → loadConversation + 进 session 视图。 */
   onOpenConversation: (id: string) => void;
   /** RECENT「View All」→ 全部会话列表视图（此处暂进 home 全列，范围外分页）——需求 R4 仅列出即可。 */
@@ -41,6 +45,8 @@ export function formatRecentDate(iso: string | undefined, t: (key: string, fb?: 
 }
 
 const AIPanelHome: React.FC<AIPanelHomeProps> = ({
+  draft,
+  setDraft,
   onOpenConversation,
   onViewAll,
   onCreateSession,
@@ -65,13 +71,13 @@ const AIPanelHome: React.FC<AIPanelHomeProps> = ({
         {/* RECENT 区块（R4/R5） */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+            <span className="text-[13px] font-semibold uppercase tracking-wide text-text-muted">
               {t('ai.home.recent')}
             </span>
             <button
               type="button"
               onClick={onViewAll}
-              className="text-xs text-text-muted hover:text-[var(--accent)] transition-colors"
+              className="text-[13px] text-text-muted hover:text-[var(--accent)] transition-colors"
             >
               {t('ai.home.viewAll')}{' '}
               <span aria-hidden>
@@ -81,7 +87,7 @@ const AIPanelHome: React.FC<AIPanelHomeProps> = ({
           </div>
 
           {recent.length === 0 ? (
-            <p className="text-sm text-text-muted py-6 text-center">{t('ai.home.noRecent')}</p>
+            <p className="text-[15px] text-text-muted py-6 text-center">{t('ai.home.noRecent')}</p>
           ) : (
             <div className="space-y-1.5">
               {recent.map((c) => (
@@ -92,10 +98,10 @@ const AIPanelHome: React.FC<AIPanelHomeProps> = ({
                   onClick={() => onOpenConversation(c.id)}
                   className="block w-full text-left rounded-card border border-border bg-bg-secondary/40 px-3 py-2 hover:border-[var(--accent)] hover:bg-bg-tertiary transition-colors"
                 >
-                  <span className="block truncate text-sm text-text-primary">
+                  <span className="block truncate text-[15px] text-text-primary">
                     {c.summary || (activeMode === 'agent' ? t('ai.tab.agent') : t('ai.tab.chat'))}
                   </span>
-                  <span className="block text-xs text-text-muted mt-0.5">
+                  <span className="block text-[13px] text-text-muted mt-0.5">
                     {formatRecentDate(c.updatedAt, t)}
                   </span>
                 </button>
@@ -105,8 +111,13 @@ const AIPanelHome: React.FC<AIPanelHomeProps> = ({
         </div>
       </div>
 
-      {/* 底部共享 composer：发送即建会话并入 session（onCreateSession） */}
-      <AIPanelComposer onCompose={onCreateSession} />
+      {/* 底部共享 composer：发送即清空草稿 + 建会话并入 session（onCreateSession） */}
+      <AIPanelComposer
+        value={draft}
+        onChange={setDraft}
+        onSend={() => setDraft('')}
+        onCompose={onCreateSession}
+      />
     </div>
   );
 };

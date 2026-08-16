@@ -45,17 +45,17 @@ const ToolCallTrace: React.FC<ToolCallTraceProps> = ({ call }) => {
 
   return (
     <div
-      className={`rounded-card border px-3 py-2 text-sm space-y-1.5 shadow-sm transition-colors ${
+      className={`rounded-card border px-3 py-2 text-[15px] space-y-1.5 shadow-sm transition-colors ${
         isError ? 'border-red-500/30 bg-red-500/5' : 'border-border bg-bg-tertiary/60'
       }`}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="font-mono text-xs font-medium text-text-primary truncate">
+          <span className="font-mono text-[13px] font-medium text-text-primary truncate">
             {call.name}
           </span>
           <span
-            className={`flex-shrink-0 text-[11px] px-1.5 py-0.5 rounded-full border ${
+            className={`flex-shrink-0 text-[12px] px-1.5 py-0.5 rounded-full border ${
               isError
                 ? 'bg-red-500/15 text-red-500 border-red-500/20'
                 : 'bg-green-500/15 text-green-600 border-green-500/20'
@@ -67,20 +67,20 @@ const ToolCallTrace: React.FC<ToolCallTraceProps> = ({ call }) => {
         <button
           type="button"
           onClick={() => setExpanded((prev) => !prev)}
-          className="flex-shrink-0 text-xs text-text-muted hover:text-text-primary transition-colors"
+          className="flex-shrink-0 text-[13px] text-text-muted hover:text-text-primary transition-colors"
         >
           {expanded ? t('ai.tool.collapse') : t('ai.tool.expand')}
         </button>
       </div>
 
       {/* 参数摘要 */}
-      <div className="text-xs text-text-sub break-words whitespace-pre-wrap">
+      <div className="text-[13px] text-text-sub break-words whitespace-pre-wrap">
         {truncate(summarizeArgs(call.args), ARGS_PREVIEW_LIMIT)}
       </div>
 
       {/* 折叠的结果区 */}
       {expanded && (
-        <div className="text-xs break-words whitespace-pre-wrap bg-bg-secondary rounded-md px-2.5 py-1.5 border border-border">
+        <div className="text-[13px] break-words whitespace-pre-wrap bg-bg-secondary rounded-md px-2.5 py-1.5 border border-border">
           {isError && resultText ? (
             <span className="text-red-500">{resultText || t('ai.tool.resultError')}</span>
           ) : resultText ? (

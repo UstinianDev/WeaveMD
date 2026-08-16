@@ -53,13 +53,6 @@ vi.mock('@main/db/index', () => ({
   getDatabase: () => new FakeDatabase(),
 }));
 
-// --- 模块级 embedding mock：indexFile 内部走 embedBatch ---
-const embedBatchMock = vi.hoisted(() => vi.fn());
-vi.mock('@main/ai/embeddingClient', () => ({
-  embedBatch: embedBatchMock,
-  probeEmbedding: vi.fn(),
-}));
-
 import { splitNote, indexFile, indexImportedText, reindexAfterSave, removeByFile } from '@main/ai/kbIndexer';
 
 const { calls } = fakeDbMock;
@@ -74,7 +67,6 @@ function howMany(method: 'get' | 'all' | 'run', sqlFragment: string): number {
 
 beforeEach(() => {
   fakeDbMock.reset();
-  embedBatchMock.mockReset();
 });
 
 describe('kbIndexer.splitNote — 纯函数', () => {
@@ -119,40 +111,19 @@ describe('kbIndexer.splitNote — 纯函数', () => {
 describe('kbIndexer.indexFile — 状态流转与 SQL 顺序', () => {
   const file = { id: 'f1', name: 'n.md', content: '# 标题\n\n正文内容。' };
 
-  it('vectorEnabled=false：仅 FTS，不调 embedBatch', async () => {
-    const result = await indexFile('u1', file, { vectorEnabled: false });
+  it('indexFile：分块落库后置 done（纯 FTS，无向量嵌入）', async () => {
+    const result = await indexFile('u1', file, {});
     expect(result.chunks).toBeGreaterThanOrEqual(1);
     expect(result.status).toBe('done');
-    expect(embedBatchMock).not.toHaveBeenCalled();
     // 插入块后置 done
     expect(howMany('run', 'INSERT INTO kb_chunks')).toBeGreaterThanOrEqual(1);
     expect(result.docId).toBeTruthy();
   });
 
-  it('vectorEnabled=true：每块调 embedBatch 且 insertChunk 携带 vector', async () => {
-    embedBatchMock.mockResolvedValue([[0.1, 0.2]]);
-    const result = await indexFile('u1', file, { vectorEnabled: true });
-    expect(result.status).toBe('done');
-    expect(embedBatchMock).toHaveBeenCalled();
-    // 有 INSERT INTO kb_chunks 且部分参数为 Buffer（vector 落盘）
-    const insert = callOf('run', 'INSERT INTO kb_chunks');
-    expect(insert).toBeTruthy();
-    expect(Buffer.isBuffer(insert?.args[4])).toBe(true);
-  });
-
-  it('embedBatch 失败 → 降级仅 FTS，状态仍 done（不中断）', async () => {
-    embedBatchMock.mockRejectedValue(new Error('embed fail'));
-    const result = await indexFile('u1', file, { vectorEnabled: true });
-    expect(result.status).toBe('done');
-    // insertChunk 仍落盘（无向量），且 embedBatch 被调用过（尝试后降级）
-    expect(embedBatchMock).toHaveBeenCalled();
-    expect(howMany('run', 'INSERT INTO kb_chunks')).toBeGreaterThanOrEqual(1);
-  });
-
   it('写库异常 → 状态置 error，不抛', async () => {
     // 让 insertChunk 的 run 抛错，模拟 DB 写入失败 → status→error
     fakeDbMock.throwOnChunkInsert = true;
-    const result = await indexFile('u1', file, { vectorEnabled: false });
+    const result = await indexFile('u1', file, {});
     expect(result.status).toBe('error');
     // 状态置 error 的 UPDATE 被发出
     expect(howMany('run', 'UPDATE kb_documents')).toBeGreaterThanOrEqual(1);
@@ -162,7 +133,7 @@ describe('kbIndexer.indexFile — 状态流转与 SQL 顺序', () => {
 describe('kbIndexer.reindexAfterSave / indexImportedText / removeByFile', () => {
   it('reindexAfterSave 删旧文档后重建（delete + insert 顺序）', async () => {
     const file = { id: 'f1', name: 'n.md', content: 'hello' };
-    const result = await reindexAfterSave('u1', file, { vectorEnabled: false });
+    const result = await reindexAfterSave('u1', file, {});
     const delOrder = calls.findIndex(
       (c) => c.method === 'run' && c.sql.includes('DELETE FROM kb_documents')
     );
@@ -176,9 +147,7 @@ describe('kbIndexer.reindexAfterSave / indexImportedText / removeByFile', () => 
   });
 
   it('indexImportedText 用 source_type=import 且 file_id 为 null', async () => {
-    const result = await indexImportedText('u1', '导入.md', '这是导入内容。', {
-      vectorEnabled: false,
-    });
+    const result = await indexImportedText('u1', '导入.md', '这是导入内容。', {});
     const insert = callOf('run', 'INSERT INTO kb_documents');
     expect(insert?.args[2]).toBeNull(); // file_id 位置（id, userId, file_id, ...）
     expect(result.status).toBe('done');

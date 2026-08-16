@@ -21,9 +21,9 @@
   ImageToolbar（图片工具栏）+ toolbarState（纯函数）
 - `src/render/components/Editor/` — EditorView 薄编排器（v2 唯一）
 - `src/render/stores/ services/ styles/` — Zustand / markdown 服务 / globals.css
-- `src/main/ai/` — AI 主进程服务（**第1/2/3/4/5期均已交付**：llmClient/consent/secureConfig/ipc +
-  embeddingClient / kbIndexer / kbSearch / intentRouter / contextManager / toolRegistry /
-  skillLoader / agentLoop / rewrite（改写薄 LLM 代理，第5期）；`mcpManager` 真 MCP 进程管理延期）
+- `src/main/ai/` — AI 主进程服务（**第1/2/3/4/5期均已交付 + 后端收敛 remote-only**：llmClient/consent/secureConfig/ipc +
+  kbIndexer / kbSearch / intentRouter / contextManager / toolRegistry /
+  skillLoader / agentLoop / modelList / rewrite（改写薄 LLM 代理，第5期）；`mcpManager` 真 MCP 进程管理延期）
 - `src/render/components/AIAgent/` — AI 面板（**第1~7期均已交付 + 三视图重构**：AIAgentPanel 为三视图外壳
   （home 主界面 RECENT 最近3 / session 会话 / settings 设置侧栏，顶部 WeaveMD+新建+⚙+×）+
   AIPanelComposer（共享 composer：模式下拉+ModelDropdown+handleSendAgent 分流）+
@@ -111,8 +111,13 @@
 - `docs/modules/11-AI代理面板-Agent.md` — AI 代理面板 + 知识库导入设计（第1/2期基建+Chat、
   第3/4期知识库+Agent 均交付；需求 AGT-01~19 / KB-01~05 见 REQUIREMENTS 3.7/3.8）
 
-## AI 代理面板与知识库（2026-08-15：第 1~6 期均已交付；第 7 期体验重构 7 批全部交付）
+## AI 代理面板与知识库（2026-08-16：第 1~7 期均已交付 + 后端收敛 remote-only）
 
+- **后端收敛 remote-only（ai-panel-ux-optimize，2026-08-16）**：彻底去除 ollama（`ChatBackend` 收敛为 `'remote'`；
+  主进程删 `probeOllama`/AI_HEALTH/ollama 分支/`agentBackendHint`/`embeddingClient.ts` 整文件）；
+  KB 降级**仅 FTS5**、后端固定远程、必须填 key；DB 遗留列保留但读时 `'ollama'`→`'remote'` 收敛。① ModelForm
+  API key 与允许联网间新增「当前提供商」状态行 + 断开连接（清 key）；② composer 草稿提升到 AIAgentPanel
+  跨视图保留；① 选区改写 → 覆盖块整块渐变蓝高亮 + 左端取消胶囊（见第 7 期 A3）；⑤ AI 面板字号整体放大一档。
 - 右侧 AI 面板（导航栏「AI」按钮开合），Chat（纯对话）/ Agent（辅助创作）双智能体
 - 铁律一：**AI 无直接落盘能力**——第 5 期块级改写已交付，写路径=「红删绿增预览 → 用户确认 →
   `editorStore.updateContent(rewrittenMd)` 入 undo 栈一次可撤销」；主进程只产 LLM 文本（薄代理 rewrite.ts），
@@ -126,18 +131,18 @@
   内部统一 `EditBlockOp[]`；红删绿增预览（rewriteDiff 行级 LCS + RewritePreviewCard，复用
   renderAIMarkdownSafe 无 dangerouslySetInnerHTML）；stale 校验（确认时 content===原文，不一致拒应用）
 - 知识库 = 账号内全部笔记 + 导入文档（md/txt）：kb DAO + FTS5 虚拟表 `kb_chunks_fts`
-  （CJK 前缀匹配注意）+ embeddingClient（nomic-embed-text 未装降级仅 FTS5）+ kbIndexer
-  （保存防抖重嵌入/删除清理）；双路召回（FTS5 BM25 + 向量余弦 0.5/0.5）+ 拒答 0.6 +
-  出处可跳转 + 置顶 ×1.5；**KB 参数（topK/fuse/threshold/置顶权重/embedding host+model）第 6 期已持久化
+  （CJK 前缀匹配注意；**后端收敛后仅 FTS5 关键词召回，向量/embedding 已去除**）+ kbIndexer
+  （保存防抖重嵌入/删除清理）；FTS5 BM25 召回 + 拒答 0.6 +
+  出处可跳转 + 置顶 ×1.5；**KB 参数（topK/fuse/threshold/置顶权重）第 6 期已持久化
   到 ai_config**（kb:get/setSettings IPC，agentStore.init 拉取 + setKbSettings async；KB_STATUS 探针与
   AGENT_RUN 检索兜底均消费持久化值）
-- Agent 能力：toolRegistry/agentLoop（≤6 轮函数调用循环，仅 remote 可靠，ollama 降级纯 chat）/
+- Agent 能力：toolRegistry/agentLoop（≤6 轮函数调用循环，后端恒 remote、无降级）/
   skillLoader（3 内置 + 用户扩展 SKILL.md）/intentRouter（6 类 + 候选提问卡片）/
   contextManager（/4 估算 + 80% 压缩）；渲染端 AgentTab + ToolCallTrace + IntentCard +
   MarkdownMessage（HAST→React 安全富文本，无 dangerouslySetInnerHTML）
 - 第 7 期体验重构（2026-08-15 全部交付）：A4 选区改写叶序错位修复（DOM 序含容器块 → 改用 content 解析叶序=位置+文本对齐，失同步保守 null）+
   A1 当前文档上下文注入（agentLoop system prompt + 截断）+ rewrite 意图补词 + 从 0 到 1 整篇写（预览确认 → updateContent 入 undo；未打开拒写）+
-  A2 混合类型工具栏（mouseup 弹 AI 改写）+ A3 选区持久高亮（highlight.ts + .rewrite-highlight 纯 CSS overlay 不入 contentEditable）+
+  A2 混合类型工具栏（mouseup 弹 AI 改写）+ A3 选区改写 → **覆盖块整块渐变蓝高亮（.rewrite-highlight 纯 CSS overlay 不入 contentEditable）+ 左端取消胶囊（.rewrite-cancel-capsule）** +
   B1 / @ 补全（AGENT_SKILLS_LIST 只读 IPC + CompletionMenu）+ B2 命名「智能体」（文案+i18n）+ B3 双 Tab 合并单面板 + 模式下拉（activeMode 域隔离）+ C1 美化
 - 延期不交付：真 MCP server 管理（fetchContext7/fetchFirecrawl）、GitHub 自取 writing-shape；
   门禁全绿见 docs/plan/ai-agent-panel.status.md（第 6 期：typecheck 0 | vitest 90/1261 | lint 0 | Playwright 14/14 | 真库迁移 smoke 0；第 7 期：typecheck 0 | vitest 93/1338 | lint 0 | Playwright 24/24）

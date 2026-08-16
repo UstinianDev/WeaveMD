@@ -36,13 +36,13 @@ const SkillsPanel: React.FC = () => {
   }, [user?.id]);
 
   if (!loaded) {
-    return <p className="text-sm text-text-muted">{t('ai.settings.skillsLoading', '加载中...')}</p>;
+    return <p className="text-[15px] text-text-muted">{t('ai.settings.skillsLoading', '加载中...')}</p>;
   }
 
   return (
     <div className="space-y-2">
       {skills.length === 0 ? (
-        <p className="text-sm text-text-muted">{t('ai.settings.skillsEmpty', '暂无技能')}</p>
+        <p className="text-[15px] text-text-muted">{t('ai.settings.skillsEmpty', '暂无技能')}</p>
       ) : (
         skills.map((s) => (
           <div
@@ -50,8 +50,8 @@ const SkillsPanel: React.FC = () => {
             data-testid="skill-item"
             className="rounded-card border border-border bg-bg-secondary/40 px-3 py-2"
           >
-            <p className="text-sm font-medium text-text-primary">{s.name}</p>
-            <p className="text-xs text-text-sub mt-0.5">{s.description}</p>
+            <p className="text-[15px] font-medium text-text-primary">{s.name}</p>
+            <p className="text-[13px] text-text-sub mt-0.5">{s.description}</p>
           </div>
         ))
       )}

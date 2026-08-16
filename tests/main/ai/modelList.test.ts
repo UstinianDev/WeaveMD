@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ChatBackend } from '@shared/ai';
 import { normalizeModels, listModelsForUser } from '@main/ai/modelList';
 
 // decryptApiKey 依赖 electron.safeStorage -> 测试态 mock（明文=密文 base64 解码，便于断言 URL/Bearer）
@@ -33,8 +32,6 @@ function makeJsonResponse(bodyJson: unknown, ok = true): Response {
 }
 
 function config(over: {
-  backend?: ChatBackend;
-  ollamaBaseUrl?: string;
   remoteBaseUrl?: string;
   apiKeyEnc?: string | null;
   model?: string;
@@ -42,8 +39,8 @@ function config(over: {
   return {
     id: 'cfg1',
     userId: 'u1',
-    backend: (over.backend ?? 'ollama') as ChatBackend,
-    ollamaBaseUrl: over.ollamaBaseUrl ?? 'http://localhost:11434',
+    backend: 'remote' as const,
+    ollamaBaseUrl: 'http://localhost:11434',
     remoteBaseUrl: over.remoteBaseUrl ?? 'https://api.deepseek.com',
     model: over.model ?? '',
     apiKeyEnc: over.apiKeyEnc === undefined ? null : over.apiKeyEnc,
@@ -62,41 +59,25 @@ function config(over: {
 }
 
 describe('modelList.normalizeModels', () => {
-  it('ollama: extracts models[].name', () => {
-    const out = normalizeModels('ollama', {
-      models: [{ name: 'qwen3.5:0.8b' }, { name: 'llama3' }],
-    });
-    expect(out).toEqual(['qwen3.5:0.8b', 'llama3']);
-  });
-
   it('remote: extracts data[].id', () => {
-    const out = normalizeModels('remote', {
+    const out = normalizeModels({
       data: [{ id: 'deepseek-chat' }, { id: 'deepseek-reasoner' }],
     });
     expect(out).toEqual(['deepseek-chat', 'deepseek-reasoner']);
   });
 
-  it('ollama: returns [] for wrong shape (no models field)', () => {
-    expect(normalizeModels('ollama', { data: [{ id: 'x' }] })).toEqual([]);
-  });
-
   it('remote: returns [] for wrong shape (no data field)', () => {
-    expect(normalizeModels('remote', { models: [{ name: 'x' }] })).toEqual([]);
+    expect(normalizeModels({ models: [{ name: 'x' }] })).toEqual([]);
   });
 
   it('returns [] for null/missing/non-object json (半包)', () => {
-    expect(normalizeModels('ollama', null)).toEqual([]);
-    expect(normalizeModels('remote', undefined)).toEqual([]);
-    expect(normalizeModels('ollama', 'not-json')).toEqual([]);
+    expect(normalizeModels(null)).toEqual([]);
+    expect(normalizeModels(undefined)).toEqual([]);
+    expect(normalizeModels('not-json')).toEqual([]);
   });
 
-  it('filters out blank names/ids and drops non-string entries', () => {
-    expect(
-      normalizeModels('ollama', { models: [{ name: 'a' }, { name: '' }, { name: '  ' }] })
-    ).toEqual(['a']);
-    expect(
-      normalizeModels('remote', { data: [{ id: 'a' }, { id: '' }, { id: 123 }] })
-    ).toEqual(['a']);
+  it('filters out blank ids and drops non-string entries', () => {
+    expect(normalizeModels({ data: [{ id: 'a' }, { id: '' }, { id: 123 }] })).toEqual(['a']);
   });
 });
 
@@ -109,25 +90,6 @@ describe('modelList.listModelsForUser', () => {
     fetchMock?.mockReset();
   });
 
-  it('ollama backend: GET {ollamaBaseUrl}/api/tags and returns name array', async () => {
-    fetchMock.mockResolvedValue(
-      makeJsonResponse({ models: [{ name: 'qwen3.5:0.8b' }, { name: 'llama3' }] })
-    );
-    const models = await listModelsForUser(config({ backend: 'ollama' }));
-    expect(models).toEqual(['qwen3.5:0.8b', 'llama3']);
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe('http://localhost:11434/api/tags');
-    // ollama 不加 Authorization
-    expect((init as RequestInit | undefined)?.headers).toBeUndefined();
-  });
-
-  it('ollama uses persisted custom ollamaBaseUrl', async () => {
-    fetchMock.mockResolvedValue(makeJsonResponse({ models: [] }));
-    await listModelsForUser(config({ backend: 'ollama', ollamaBaseUrl: 'http://custom:1234' }));
-    const [url] = fetchMock.mock.calls[0];
-    expect(url).toBe('http://custom:1234/api/tags');
-  });
-
   it('remote backend: GET {remoteBaseUrl}/models with Bearer key and returns id array', async () => {
     fetchMock.mockResolvedValue(
       makeJsonResponse({ data: [{ id: 'deepseek-chat' }, { id: 'deepseek-reasoner' }] })
@@ -135,7 +97,7 @@ describe('modelList.listModelsForUser', () => {
     // apiKeyEnc 为 base64（mock 的 decryptString 解码后即明文）
     const enc = Buffer.from('secret-key', 'utf-8').toString('base64');
     const models = await listModelsForUser(
-      config({ backend: 'remote', remoteBaseUrl: 'https://remote.example.com', apiKeyEnc: enc })
+      config({ remoteBaseUrl: 'https://remote.example.com', apiKeyEnc: enc })
     );
     expect(models).toEqual(['deepseek-chat', 'deepseek-reasoner']);
     const [url, init] = fetchMock.mock.calls[0];
@@ -145,7 +107,7 @@ describe('modelList.listModelsForUser', () => {
   });
 
   it('remote without apiKey: returns [] without calling fetch (key never leaves main)', async () => {
-    const models = await listModelsForUser(config({ backend: 'remote', apiKeyEnc: null }));
+    const models = await listModelsForUser(config({ apiKeyEnc: null }));
     expect(models).toEqual([]);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -158,13 +120,13 @@ describe('modelList.listModelsForUser', () => {
 
   it('returns [] when fetch rejects (network error, silent)', async () => {
     fetchMock.mockRejectedValue(new Error('connection refused'));
-    const models = await listModelsForUser(config({ backend: 'ollama' }));
+    const models = await listModelsForUser(config());
     expect(models).toEqual([]);
   });
 
   it('returns [] on non-200 response', async () => {
     fetchMock.mockResolvedValue(makeJsonResponse({ models: [] }, false));
-    const models = await listModelsForUser(config({ backend: 'ollama' }));
+    const models = await listModelsForUser(config());
     expect(models).toEqual([]);
   });
 
@@ -178,13 +140,13 @@ describe('modelList.listModelsForUser', () => {
         throw new Error('bad json');
       },
     } as unknown as Response);
-    const models = await listModelsForUser(config({ backend: 'ollama' }));
+    const models = await listModelsForUser(config());
     expect(models).toEqual([]);
   });
 
   it('returns [] when response body is wrong shape', async () => {
     fetchMock.mockResolvedValue(makeJsonResponse({ unexpected: true }));
-    const models = await listModelsForUser(config({ backend: 'ollama' }));
+    const models = await listModelsForUser(config());
     expect(models).toEqual([]);
   });
 });
