@@ -32,8 +32,10 @@ const IntentCard: React.FC<IntentCardProps> = ({ intent, onPick }) => {
   if (names.length === 0) return null;
 
   return (
-    <div className="rounded-lg border border-border bg-bg-tertiary/60 px-3 py-2 space-y-1.5">
-      <div className="text-xs text-text-muted">{t('ai.intent.hint')}</div>
+    <div className="rounded-card border border-border bg-bg-tertiary/60 px-3 py-2 space-y-1.5 shadow-sm">
+      <div className="text-[11px] font-medium uppercase tracking-wide text-text-muted">
+        {t('ai.intent.hint')}
+      </div>
       <div className="flex flex-wrap gap-1.5">
         {names.map((name) => (
           <button

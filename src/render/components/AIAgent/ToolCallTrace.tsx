@@ -44,17 +44,21 @@ const ToolCallTrace: React.FC<ToolCallTraceProps> = ({ call }) => {
     : call.result ?? '';
 
   return (
-    <div className="rounded-lg border border-border bg-bg-tertiary/60 px-3 py-2 text-sm space-y-1.5">
+    <div
+      className={`rounded-card border px-3 py-2 text-sm space-y-1.5 shadow-sm transition-colors ${
+        isError ? 'border-red-500/30 bg-red-500/5' : 'border-border bg-bg-tertiary/60'
+      }`}
+    >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-mono text-xs font-medium text-text-primary truncate">
             {call.name}
           </span>
           <span
-            className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded-full ${
+            className={`flex-shrink-0 text-[11px] px-1.5 py-0.5 rounded-full border ${
               isError
-                ? 'bg-red-500/15 text-red-500'
-                : 'bg-green-500/15 text-green-500'
+                ? 'bg-red-500/15 text-red-500 border-red-500/20'
+                : 'bg-green-500/15 text-green-600 border-green-500/20'
             }`}
           >
             {t(isError ? 'ai.tool.statusError' : 'ai.tool.statusOk')}
@@ -76,7 +80,7 @@ const ToolCallTrace: React.FC<ToolCallTraceProps> = ({ call }) => {
 
       {/* 折叠的结果区 */}
       {expanded && (
-        <div className="text-xs break-words whitespace-pre-wrap bg-bg-secondary rounded-md px-2 py-1.5 border border-border">
+        <div className="text-xs break-words whitespace-pre-wrap bg-bg-secondary rounded-md px-2.5 py-1.5 border border-border">
           {isError && resultText ? (
             <span className="text-red-500">{resultText || t('ai.tool.resultError')}</span>
           ) : resultText ? (

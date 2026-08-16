@@ -314,6 +314,13 @@ function installWeaveMDMock(opts: AiMockOptions): void {
         }
         return ok({ text: rewrite.selectionText ?? '改写后文本' });
       },
+      // 第 7 期 B1：技能清单 mock（本地，不上网）
+      listSkills: async () =>
+        ok([
+          { name: 'polish_rewrite', description: '润色、缩写或扩写文本' },
+          { name: 'tech_organize', description: '整理技术资料' },
+          { name: 'kb_qa_guide', description: '基于知识库引导式问答' },
+        ]),
       listConversations: async (userId: string, mode: string) =>
         ok(conversations.filter((c) => c.userId === userId && c.mode === mode)),
       getConversation: async (conversationId: string, userId: string) => {
@@ -360,6 +367,25 @@ function installWeaveMDMock(opts: AiMockOptions): void {
       reindex: async () => ok({ docId: 'kb_0', title: '', chunks: 0, status: 'done' }),
       delete: async () => ok({ deleted: true }),
       status: async () => ok({ documents: kbDocuments.length, embedding: { available: true, dims: 768 } }),
+      // 第 6 期：KB 参数持久化契约（agentStore.init 会调 getSettings）
+      getSettings: async () =>
+        ok({
+          topK: 5,
+          fuse: 0.5,
+          threshold: 0.6,
+          pinnedWeight: 1.5,
+          embeddingHost: 'http://localhost:11434',
+          embeddingModel: 'nomic-embed-text',
+        }),
+      setSettings: async (_input: { userId: string; settings: unknown }) =>
+        ok({
+          topK: 5,
+          fuse: 0.5,
+          threshold: 0.6,
+          pinnedWeight: 1.5,
+          embeddingHost: 'http://localhost:11434',
+          embeddingModel: 'nomic-embed-text',
+        }),
     },
   };
 }
@@ -376,6 +402,18 @@ async function bootAiPanel(page: Page, opts: AiMockOptions = {}): Promise<void> 
   await page.waitForTimeout(300);
   await page.getByTitle('AI').click();
   await page.waitForTimeout(300);
+}
+
+/** B3：通过模式下拉切换「对话 / 智能体」，断言切到目标域后生效。 */
+async function switchMode(
+  page: import('@playwright/test').Page,
+  mode: 'chat' | 'agent'
+): Promise<import('@playwright/test').Locator> {
+  const panel = aiPanel(page);
+  const select = panel.getByTestId('ai-mode-select');
+  await select.selectOption(mode);
+  await page.waitForTimeout(300);
+  return panel;
 }
 
 test('导航栏 AI 按钮开合面板，宽度拖拽把手存在', async ({ page }) => {
@@ -438,11 +476,10 @@ test('会话列表：新建 / 切换 / 删除可用', async ({ page }) => {
   await expect(panel.getByText('预置会话 0')).not.toBeVisible();
 });
 
-test('Agent Tab：进入后显示知识库开关/压缩/知识点设置」，空态文案', async ({ page }) => {
+test('智能体模式：进入后显示知识库开关/压缩/知识点设置，空态文案', async ({ page }) => {
   await bootAiPanel(page);
-  const panel = aiPanel(page);
-  // 默认 zh-CN：Agent Tab 标签为「代理」
-  await panel.getByText('代理', { exact: true }).click();
+  // B3：下拉切到 智能体 模式
+  const panel = await switchMode(page, 'agent');
   // Agent 骨架已上线：知识库开关、压缩、知识库设置入口可见
   await expect(panel.getByText('依照知识库创作')).toBeVisible();
   await expect(panel.getByText('压缩上下文')).toBeVisible();
@@ -534,8 +571,8 @@ test('Agent 全流程：发送 → tool 轨迹渲染 → assistant 富文本落�
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
-  // 切到 Agent tab
-  await panel.getByText('代理', { exact: true }).click();
+  // 切到 智能体 模式（B3 下拉）
+  await switchMode(page, 'agent');
   const textarea = panel.locator('textarea').first();
   await textarea.fill('帮我查知识库里的项目计划');
   await panel.getByText('发送', { exact: true }).click();
@@ -563,7 +600,8 @@ test('知识库设置区：kb.status/list 状态列表渲染 + 导入按钮存�
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
-  await panel.getByText('代理', { exact: true }).click();
+  // 切到 智能体 模式（B3 下拉）
+  await switchMode(page, 'agent');
   // 展开知识库设置抽屉
   await panel.getByText('知识库', { exact: true }).click();
   // 状态列表渲染（kb.list 返回 2 篇）
@@ -591,7 +629,8 @@ test('意图卡片：runAgent 返回低置信 intent → 卡片渲染、点击�
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
-  await panel.getByText('代理', { exact: true }).click();
+  // 切到 智能体 模式（B3 下拉）
+  await switchMode(page, 'agent');
   const textarea = panel.locator('textarea').first();
   await textarea.fill('怎么组织这次演讲？');
   await panel.getByText('发送', { exact: true }).click();
@@ -621,7 +660,8 @@ test('后端降级：runAgent 返回 agentBackendHint → 提示条渲染', asyn
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
-  await panel.getByText('代理', { exact: true }).click();
+  // 切到 智能体 模式（B3 下拉）
+  await switchMode(page, 'agent');
   const textarea = panel.locator('textarea').first();
   await textarea.fill('普通对话');
   await panel.getByText('发送', { exact: true }).click();
@@ -646,14 +686,11 @@ async function openEditor(page: import('@playwright/test').Page): Promise<void> 
   await page.waitForSelector('span.block-content[contenteditable="true"]');
 }
 
-/** 打开 AI 面板并切到 Agent 代理页（RewritePreviewCard 与改写 composer 均在此页）。 */
+/** 打开 AI 面板并切到 智能体 模式（RewritePreviewCard 与改写 composer 均在此模式）。 */
 async function openAgentPanel(page: import('@playwright/test').Page): Promise<import('@playwright/test').Locator> {
   await page.getByTitle('AI').click();
   await page.waitForTimeout(300);
-  const panel = aiPanel(page);
-  await panel.getByText('代理', { exact: true }).click();
-  await page.waitForTimeout(300);
-  return panel;
+  return switchMode(page, 'agent');
 }
 
 /**
@@ -728,7 +765,7 @@ test('改写闭环：选区选中 → FloatingToolbar AI 改写 → 面板 compo
   const editable = page.locator('span.block-content[contenteditable="true"]').first();
   await expect(editable).toHaveText('hello world');
 
-  // 打开 AI 面板并切到 Agent 代理页
+  // 打开 AI 面板并切到 Agent 智能体页
   const panel = await openAgentPanel(page);
 
   // 编辑器选中整段文本 → 浮动工具栏出现，「AI 改写」按钮存在
@@ -873,5 +910,462 @@ test('unchanged：mock 改写结果与原文相同 → 提示「无变化」，�
   await expect(panel.getByText('改写预览', { exact: true })).toBeHidden();
   // 编辑器未被改写
   await expect(editable).toHaveText('hello world');
+  expect(errors.length).toBe(0);
+});
+
+/**
+ * 跨两个 `.block-content` 内容叶 span 建立真实 Range 选区（按文档序取第 start/end 个，
+ * startOffset/endOffset 作用于各自首文本节点）——复刻 Chromium 拖选跨块的选区形态
+ * （anchor 在第 start 块、focus 在第 end 块）。注意：Chromium 对跨编辑宿主
+ * Selection.toString() 只返回 anchor 块内文本，断言用块文本/预览 diff，勿用 toString()。
+ */
+async function selectCrossBlocks(
+  page: import('@playwright/test').Page,
+  start: number,
+  startOffset: number,
+  end: number,
+  endOffset: number
+): Promise<void> {
+  await page.evaluate(
+    (cfg: { start: number; startOffset: number; end: number; endOffset: number }) => {
+      const spans = Array.from(
+        document.querySelectorAll<HTMLElement>('span.block-content[contenteditable="true"]')
+      );
+      const a = spans[cfg.start];
+      const b = spans[cfg.end];
+      if (!a || !b) return;
+      const range = document.createRange();
+      range.setStart(a.firstChild as Node, cfg.startOffset);
+      range.setEnd(b.firstChild as Node, cfg.endOffset);
+      const sel = window.getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    },
+    { start, startOffset, end, endOffset }
+  );
+}
+
+// ============================================================
+// 第 7 期 A4：含列表容器文档的跨块选区改写 → 落到正确叶子（叶序下标），区间外字节零改动。
+// 修复前 DOM `[data-block-id]` 序含容器 div → 叶序下标偏大 → 改写落错块。mock 不上网。
+// ============================================================
+test('A4 回归：含列表文档跨块选区改写 → 仅替换选中区间（含列表项与中间叶），区间外正文保持不变', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  // seedContent：列表两叶 + 区间外正文一叶（markdownToState 叶序 [item-a, item-b, outside]）
+  const seed = '- item-a\n\n- item-b\n\noutside';
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    seedContent: seed,
+    rewrite: { selectionText: '改写块' },
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await openEditor(page);
+
+  // 确认渲染出 2 个列表项内容叶 + 1 个正文内容叶
+  const contentSpans = page.locator('span.block-content[contenteditable="true"]');
+  await expect(contentSpans).toHaveCount(3);
+  await expect(contentSpans.nth(0)).toHaveText('item-a');
+  await expect(contentSpans.nth(1)).toHaveText('item-b');
+  await expect(contentSpans.nth(2)).toHaveText('outside');
+
+  const panel = await openAgentPanel(page);
+
+  // 跨块选中：列表项 item-a（叶 0）→ 列表项 item-b（叶 1），区间外 'outside' 不被选中
+  await selectCrossBlocks(page, 0, 0, 1, 1);
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="AI 改写"]').click();
+  await page.waitForTimeout(300);
+
+  const composer = panel.locator('textarea').first();
+  await composer.fill('改一下');
+  await composer.press('Enter');
+  await page.waitForTimeout(400);
+
+  // 预览卡出现（改写成功；修复前落错块会 unchanged/noop 无预览）
+  await expect(panel.getByText('改写预览', { exact: true })).toBeVisible({ timeout: 5000 });
+  // 红删（del）覆盖选中区间文本（item-a / item-b），且不含区间外 'outside' 整词
+  const del = panel.locator('[data-type="del"]');
+  await expect(del.first()).toBeVisible();
+  const delText = (await del.allTextContents()).join('');
+  expect(delText).toContain('item-a');
+  expect(delText).toContain('item-b');
+  expect(delText).not.toContain('outside');
+
+  // 应用 → 编辑器更新：选中的列表项被改写为 '改写块'，区间外 'outside' 原样保留。
+  // 跨块替换会合并中/尾叶，span 下标随之收敛——只断言「改写块」已写入且区间外正文未变。
+  await panel.getByText('应用', { exact: true }).click();
+  await page.waitForTimeout(400);
+  const left = (await page.locator('span.block-content[contenteditable="true"]').allTextContents()).join('');
+  expect(left).toContain('改写块');
+  expect(left).not.toContain('item-a');
+  // 区间外正文块保持原样（列表改写不影响它）
+  await expect(page.getByText('outside', { exact: true }).first()).toBeVisible();
+  expect(errors.length).toBe(0);
+});
+
+// ============================================================
+// 第 7 期 A1c：从 0 到 1 写整篇。
+// 闭环：空文档 → 说「从 0 到 1 写一篇」→ 整篇生成（document scope 空 numberedBlocks）→
+//       预览卡 → 应用 → 写入当前文档 → 一次 Ctrl+Z 还原。
+// 验收 2：未打开文档 → 引导提示（不产生空写）。mock 不上网。
+// ============================================================
+test('A1c 从0到1写整篇：空文档 composer 触发 → 预览卡 → 应用写入 → 一次撤销还原', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  const doc = '# 关于 AI\n\n这是一篇 AI 生成的整篇文档。';
+  // 空文档打开（seedContent 默认 ''）；documentText = AI 产整篇 markdown（空 numberedBlocks 协议）
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    rewrite: { documentText: doc },
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await openEditor(page); // 新建空文档
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await expect(editable).toHaveText('');
+
+  const panel = await openAgentPanel(page);
+  const composer = panel.locator('textarea').first();
+  // 「从 0 到 1 写一篇」→ WRITE_WHOLE_DOC_RE 命中 → runFullDocumentRewrite
+  await composer.fill('帮我从 0 到 1 写一篇关于 AI 的文档');
+  await composer.press('Enter');
+  await page.waitForTimeout(400);
+
+  // 预览卡出现（整篇生成，红删绿增——原始空行被 + 全文替换）
+  await expect(panel.getByText('改写预览', { exact: true })).toBeVisible({ timeout: 5000 });
+
+  // 应用 → 编辑器写入整篇 markdown
+  await panel.getByText('应用', { exact: true }).click();
+  await page.waitForTimeout(400);
+  await expect(editable).toHaveText('关于 AI');
+  // 整篇多块渲染（标题 + 段落）
+  await expect(page.getByText('这是一篇 AI 生成的整篇文档。', { exact: true })).toBeVisible();
+
+  // 一次 Ctrl+Z（编辑器 undo）还原为空文档
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(300);
+  await expect(editable).toHaveText('');
+  expect(errors.length).toBe(0);
+});
+
+test('A1c 未打开文档 + 整篇写诉求 → 引导提示，不产生空写', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  // 不打开任何编辑器文档
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  const panel = await openAgentPanel(page);
+
+  const composer = panel.locator('textarea').first();
+  await composer.fill('帮我从 0 到 1 写一篇关于 AI 的文档');
+  await composer.press('Enter');
+  await page.waitForTimeout(400);
+
+  // 引导提示条渲染（ai.rewrite.noDocument），不弹预览卡（无 proposal）
+  await expect(panel.getByText(/请先打开一个文档/)).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText('改写预览', { exact: true })).toBeHidden();
+  expect(errors.length).toBe(0);
+});
+
+// ============================================================
+// 第 7 期 A2：混合语法类型选中 → 弹「AI 改写」工具栏（无行内格式/块类型下拉）。
+// 文档 = 标题 + 正文 + 列表（heading/paragraph/bullet-list 混合），跨块选中标题→正文。
+// mock 不上网。
+// ============================================================
+test('A2 混合语法类型：跨块选中标题+正文 → 工具栏含「AI 改写」、无行内格式/块类型下拉', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  const seed = '# 大标题\n\n正文段落';
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    seedContent: seed,
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await openEditor(page);
+
+  // 标题叶 + 正文叶 各 1 个 `.block-content` span
+  const contentSpans = page.locator('span.block-content[contenteditable="true"]');
+  await expect(contentSpans).toHaveCount(2);
+
+  // 跨块选中标题 → 正文（heading + paragraph，语法类型混合）
+  await selectCrossBlocks(page, 0, 0, 1, 1);
+  await page.waitForTimeout(300);
+
+  const toolbar = page.locator('.floating-toolbar-v2');
+  // A2：混合类型 → 工具栏出现（修复前整个隐藏）
+  await expect(toolbar).toBeVisible({ timeout: 5000 });
+  // 仅「AI 改写」入口；行内格式 / 块类型下拉隐藏
+  await expect(toolbar.locator('button[title="AI 改写"]')).toBeVisible();
+  await expect(toolbar.locator('button[title="加粗"]')).toHaveCount(0);
+  await expect(toolbar.locator('button[title="链接"]')).toHaveCount(0);
+  await expect(toolbar.locator('.block-type-trigger')).toHaveCount(0);
+  // 混合标记已置位
+  await expect(toolbar).toHaveAttribute('data-mixed', 'true');
+
+  // 点「AI 改写」→ 面板打开，composer 获焦后选区高亮仍在（A3 联动）
+  await toolbar.locator('button[title="AI 改写"]').click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+  await expect(panel).toBeVisible();
+  expect(errors.length).toBe(0);
+});
+
+// ============================================================
+// 第 7 期 A3：选区保持 —— 点「AI 改写」、面板 composer 获焦输入后，编辑器内被改写
+// 范围仍以 `.rewrite-highlight` 持久高亮；取消/应用后高亮清除，编辑器跳转改写内容。
+// mock 不上网。
+// ============================================================
+test('A3 选区保持：点 AI 改写 → 编辑器内 .rewrite-highlight 高亮 + 面板聚焦不清除 → 应用后高亮清除', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    seedContent: 'hello world',
+    rewrite: { selectionText: '改写后内容' },
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await expect(editable).toHaveText('hello world');
+
+  const panel = await openAgentPanel(page);
+
+  // 编辑器选中整段 → 浮动工具栏出现 → 点「AI 改写」
+  await selectTextRange(page, 0, 11);
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="AI 改写"]').click();
+  await page.waitForTimeout(300);
+
+  // A3：面板打开后编辑器内出现持久高亮（改写范围被标记）
+  const highlight = panel.page().locator('.rewrite-highlight');
+  await expect(highlight.first()).toBeVisible({ timeout: 5000 });
+
+  // 面板 composer 聚焦输入 → 高亮不消失（选中不丢）
+  const composer = panel.locator('textarea').first();
+  await composer.click();
+  await composer.fill('改写成这样');
+  await page.waitForTimeout(200);
+  await expect(highlight.first()).toBeVisible();
+  expect(errors.length).toBe(0);
+
+  // 应用改写 → 高亮清除 + 编辑器内容更新为改写后文本
+  await composer.press('Enter');
+  await page.waitForTimeout(400);
+  await expect(panel.getByText('改写预览', { exact: true })).toBeVisible({ timeout: 5000 });
+  await panel.getByText('应用', { exact: true }).click();
+  await page.waitForTimeout(400);
+  // 高亮随 selectionContext 清空而移除
+  await expect(panel.page().locator('.rewrite-highlight')).toHaveCount(0);
+  // 编辑器跳转到改写后内容
+  await expect(editable).toHaveText('改写后内容');
+  expect(errors.length).toBe(0);
+});
+
+// ============================================
+// 第 7 期批次④ B1：/ 与 @ 自动补全（全部本地 mock，不上网）
+// ============================================
+
+test('B1 @ 补全：输入 @ → 弹出引用菜单（当前文档/知识库），选中「当前文档」注入前缀，Esc 关闭', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    seedContent: '第一段内容',
+    rewrite: { documentText: '[{"block_index":0,"new_content":"改写后 document"}]' },
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await expect(editable).toHaveText('第一段内容');
+
+  const panel = await openAgentPanel(page);
+  const composer = panel.locator('textarea').first();
+  // 输入 @ → 引用补全菜单出现（含标题「引用」与两类目标）
+  await composer.fill('@');
+  await expect(panel.getByText('引用', { exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText('当前文档')).toBeVisible();
+  await expect(panel.getByText('知识库文档')).toBeVisible();
+
+  // 选中「知识库文档」→ 注入 @知识库 前缀 + 空格
+  await panel.getByText('知识库文档').click();
+  await expect(composer).toHaveValue('@知识库 ');
+  // 输入 @ 重新触发 → 选中「当前文档」→ 注入 @文档 前缀
+  await composer.fill('@');
+  await expect(panel.getByText('当前文档')).toBeVisible();
+  await panel.getByText('当前文档').click();
+  await expect(composer).toHaveValue('@文档 ');
+
+  // 补充指令 → Enter → document scope 预览卡（复用现有 @ 协议消费）
+  await composer.fill('@文档 把第一段改成 B1 改写');
+  await composer.press('Enter');
+  await page.waitForTimeout(400);
+  await expect(panel.getByText('改写预览', { exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(panel.locator('[data-type="ins"]').first()).toContainText('改写后 document');
+
+  // 取消后验证 Esc 关闭逻辑：重新输入 @ 弹菜单 → Esc 关闭
+  await panel.getByText('取消', { exact: true }).click();
+  await page.waitForTimeout(300);
+  await composer.fill('@');
+  await expect(panel.getByText('引用', { exact: true })).toBeVisible({ timeout: 5000 });
+  await composer.press('Escape');
+  await expect(panel.getByText('引用', { exact: true })).toHaveCount(0);
+  expect(errors.length).toBe(0);
+});
+
+test('B1 / 补全：输入 / → 弹出技能清单（mock listSkills），选中注入 /技能名 前缀, Enter 发送剥前缀走 agent', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    seedContent: '内容',
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await openEditor(page);
+
+  const panel = await openAgentPanel(page);
+  const composer = panel.locator('textarea').first();
+  // 输入 / → 技能补全菜单（标题「运行技能」+ 3 个内置技能名称）
+  await composer.fill('/');
+  await expect(panel.getByText('运行技能', { exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText('polish_rewrite')).toBeVisible();
+  await expect(panel.getByText('tech_organize')).toBeVisible();
+  await expect(panel.getByText('kb_qa_guide')).toBeVisible();
+
+  // 选中技能 → 注入 /polish_rewrite 前缀 + 空格
+  await panel.getByText('polish_rewrite').click();
+  await expect(composer).toHaveValue('/polish_rewrite ');
+
+  // 补充指令 → Enter → 剥前缀后走 sendAgentMessage（本地 mock，无网络）
+  await composer.fill('/polish_rewrite 把这段润色');
+  await composer.press('Enter');
+  await page.waitForTimeout(400);
+  // agent 对话对本地 mock 返回脚本回复；验证出现 user 气泡（指令正文，精确匹配 user 气泡元素）
+  await expect(panel.getByText('把这段润色', { exact: true })).toBeVisible({ timeout: 5000 });
+  // 剥前缀生效：user 气泡内容为剥除 /技能名 后的指令正文
+  await expect(panel.getByText('把这段润色', { exact: true })).toHaveText('把这段润色');
+  expect(errors.length).toBe(0);
+});
+
+// ============================================================
+// 第 7 期批次⑥ B3：双 Tab 合并 单面板 + composer 上下拉模式选择。
+// ① 单面板无 Tab、模式下拉存在；② 切换模式消息/会话随 mode 域切换（不串号）；
+// ③ agent 模式保专属控件、chat 纯对话。mock 不上网。
+// ============================================================
+
+test('B3 单面板：无 Chat/Agent 双 Tab按钮，头部有模式下拉（对话/智能体）', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await bootAiPanel(page);
+  const panel = aiPanel(page);
+
+  // 无 Tab 割裂：面板内不存在「对话」「智能体」按钮（模式由下拉承载）
+  await expect(panel.getByRole('button', { name: '对话' })).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: '智能体' })).toHaveCount(0);
+
+  // 头部存在模式下拉，选项为 对话/智能体
+  const select = panel.getByTestId('ai-mode-select');
+  await expect(select).toBeVisible();
+  await expect(select.locator('option[value="chat"]')).toHaveText('对话');
+  await expect(select.locator('option[value="agent"]')).toHaveText('智能体');
+  expect(errors.length).toBe(0);
+});
+
+test('B3 模式切换：chat ↔ agent 消息与会话随 mode 域切换，字段不串号', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await bootAiPanel(page);
+  const panel = aiPanel(page);
+  const select = panel.getByTestId('ai-mode-select');
+
+  // 默认 chat 域：无 agent 专属控件
+  await expect(select).toHaveValue('chat');
+  await expect(panel.getByText('依照知识库创作')).toHaveCount(0);
+
+  // chat 域发一条消息 → 等待流式 assistant 完整落显（避免流未结束就切换导致回复泄漏）
+  await panel.locator('textarea').first().fill('对话消息');
+  await panel.getByText('发送', { exact: true }).click();
+  await expect(panel.getByText('对话消息', { exact: true })).toBeVisible();
+  await expect(
+    panel.getByText('你好，我是 mock AI。你说的是：对话消息')
+  ).toBeVisible({ timeout: 5000 });
+
+  // 切 agent 域：agent 专属控件出现 + 会话/消息切到 agent 域（newChat 清空 chat 消息，无串号泄漏）
+  await switchMode(page, 'agent');
+  await expect(panel.getByText('依照知识库创作')).toBeVisible();
+  // chat 消息（user 气泡 + assistant 回复）不跨域泄漏进 agent
+  await expect(panel.getByText('对话消息', { exact: true })).toHaveCount(0);
+  await expect(
+    panel.getByText('你好，我是 mock AI。你说的是：对话消息')
+  ).toHaveCount(0);
+
+  // agent 域发一条 → runAgent mock 回复
+  await panel.locator('textarea').first().fill('agent指令');
+  await panel.getByText('发送', { exact: true }).click();
+  await expect(panel.getByText('agent指令', { exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText('Agent 完成：agent指令')).toBeVisible({ timeout: 5000 });
+
+  // 切回 chat 域：agent 专属控件消失 + agent 消息不跨域泄漏
+  await switchMode(page, 'chat');
+  await expect(panel.getByText('依照知识库创作')).toHaveCount(0);
+  await expect(panel.getByText('agent指令', { exact: true })).toHaveCount(0);
+  await expect(panel.getByText('Agent 完成：agent指令')).toHaveCount(0);
+  expect(errors.length).toBe(0);
+});
+
+test('B3 专属控件归属：agent 保 知识库开关/压缩/KB设置，chat 纯对话无 /@ 补全', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await bootAiPanel(page);
+  const panel = aiPanel(page);
+
+  // chat 模式：输入 / 不弹技能补全（纯对话），无 agent 控件
+  const composer = panel.locator('textarea').first();
+  await composer.fill('/');
+  await expect(panel.getByText('运行技能', { exact: true })).toHaveCount(0);
+  await expect(panel.getByText('依照知识库创作')).toHaveCount(0);
+  // 清空输入，避免切换后残留 '/' 使第二次 fill 成为无变化操作（React onChange 不触发）
+  await composer.fill('');
+
+  // 切 agent 模式：控齐全 + / 技能补全出现（对同一个 composer 再次输入 / → 真实 value 变化）
+  await switchMode(page, 'agent');
+  await expect(panel.getByText('依照知识库创作')).toBeVisible();
+  await expect(panel.getByText('压缩上下文')).toBeVisible();
+  await expect(panel.getByRole('button', { name: '知识库' })).toBeVisible();
+  await composer.fill('/');
+  await expect(panel.getByText('运行技能', { exact: true })).toBeVisible({ timeout: 5000 });
   expect(errors.length).toBe(0);
 });

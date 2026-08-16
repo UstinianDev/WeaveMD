@@ -84,7 +84,7 @@ describe('agentStore 会话状态机', () => {
     vi.clearAllMocks();
   });
 
-  it('init 拉取 config + consent + conversations', async () => {
+  it('init 拉取 config + consent + conversations + kb settings', async () => {
     vi.mocked(window.weaveMD.ai as unknown as {
       getConfig: ReturnType<typeof vi.fn>;
     }).getConfig.mockResolvedValue({ success: true, data: ollamaConfig });
@@ -99,6 +99,10 @@ describe('agentStore 会话状态机', () => {
       success: true,
       data: [{ id: CONVERSATION_ID, userId: 'u1', mode: 'chat', summary: '', createdAt: '', updatedAt: '' }],
     });
+    vi.mocked((window.weaveMD.kb as unknown as { getSettings: ReturnType<typeof vi.fn> }).getSettings).mockResolvedValue({
+      success: true,
+      data: { topK: 8, fuse: 0.4, threshold: 0.7, pinnedWeight: 2, embeddingHost: 'http://h', embeddingModel: 'm' },
+    });
 
     await useAgentStore.getState().init('u1');
 
@@ -106,6 +110,39 @@ describe('agentStore 会话状态机', () => {
     expect(s.config?.backend).toBe('ollama');
     expect(s.consent?.allowNetwork).toBe(false);
     expect(s.conversations).toHaveLength(1);
+    // 持久化 KB 参数覆盖默认
+    expect(s.kbSettings.topK).toBe(8);
+    expect(s.kbSettings.embeddingHost).toBe('http://h');
+  });
+
+  it('init 拉取 kb.getSettings 失败 -> 保留默认、不阻塞', async () => {
+    vi.mocked(window.weaveMD.ai as unknown as {
+      getConfig: ReturnType<typeof vi.fn>;
+    }).getConfig.mockResolvedValue({ success: true, data: ollamaConfig });
+    vi.mocked((window.weaveMD.ai as unknown as { getConsent: ReturnType<typeof vi.fn> }).getConsent).mockResolvedValue({
+      success: true,
+      data: noConsent,
+    });
+    vi.mocked(
+      (window.weaveMD.ai as unknown as { listConversations: ReturnType<typeof vi.fn> })
+        .listConversations
+    ).mockResolvedValue({
+      success: true,
+      data: [{ id: CONVERSATION_ID, userId: 'u1', mode: 'chat', summary: '', createdAt: '', updatedAt: '' }],
+    });
+    vi.mocked((window.weaveMD.kb as unknown as { getSettings: ReturnType<typeof vi.fn> }).getSettings).mockResolvedValue({
+      success: false,
+      message: 'boom',
+    });
+
+    await useAgentStore.getState().init('u1');
+
+    const s = useAgentStore.getState();
+    expect(s.config?.backend).toBe('ollama');
+    expect(s.conversations).toHaveLength(1);
+    // 失败保留默认值（不覆盖，不抛错阻塞）
+    expect(s.kbSettings.topK).toBe(5);
+    expect(s.kbSettings.embeddingModel).toBe('nomic-embed-text');
   });
 
   it('logout 后 reset 防串号', async () => {
@@ -504,6 +541,47 @@ describe('agentStore agent 模式', () => {
     expect(s.activeMode).toBe('agent');
   });
 
+  // ---- 第 7 期批次⑥ B3：toggleMode 域切换 + loadConversations 按 mode 隔离 ----
+
+  it("toggleMode('agent') 置 activeMode=agent（UI 下拉调用，不残留 activeTab 语义）", () => {
+    useAgentStore.getState().toggleMode('agent');
+    expect(useAgentStore.getState().activeMode).toBe('agent');
+    useAgentStore.getState().toggleMode('chat');
+    expect(useAgentStore.getState().activeMode).toBe('chat');
+  });
+
+  it('loadConversations(mode) 按 mode 域隔离拉取：chat/agent 不串号', async () => {
+    const listConversations = (
+      window.weaveMD.ai as unknown as { listConversations: ReturnType<typeof vi.fn> }
+    ).listConversations;
+    listConversations.mockImplementation(async (_uid: string, mode: string) => ({
+      success: true,
+      data:
+        mode === 'chat'
+          ? [
+              { id: 'chat-c1', userId: 'u1', mode: 'chat', summary: '聊', createdAt: '', updatedAt: '' },
+            ]
+          : [
+              { id: 'agt-c1', userId: 'u1', mode: 'agent', summary: '智', createdAt: '', updatedAt: '' },
+            ],
+    }));
+
+    // chat 域
+    await useAgentStore.getState().loadConversations('chat');
+    expect(useAgentStore.getState().conversations.map((c) => c.id)).toEqual(['chat-c1']);
+
+    // 切 agent 域 → 列表随域切换，不残留 chat
+    useAgentStore.getState().toggleMode('agent');
+    await useAgentStore.getState().loadConversations('agent');
+    expect(useAgentStore.getState().activeMode).toBe('agent');
+    expect(useAgentStore.getState().conversations.map((c) => c.id)).toEqual(['agt-c1']);
+
+    // 回 chat 域 → 会话隔离不串号
+    useAgentStore.getState().toggleMode('chat');
+    await useAgentStore.getState().loadConversations('chat');
+    expect(useAgentStore.getState().conversations.map((c) => c.id)).toEqual(['chat-c1']);
+  });
+
   it('reset 清空 agent 扩展状态（toolCalls/intentCard/agentBackendHint/kbStatus）', () => {
     useAgentStore.setState({
       toolCalls: [{ toolCallId: 'tc1', name: 'searchKB', args: '{}', status: 'ok' }],
@@ -519,5 +597,107 @@ describe('agentStore agent 模式', () => {
     expect(s.agentBackendHint).toBeNull();
     expect(s.kbStatus).toBeNull();
     expect(s.useKnowledgeBase).toBe(false);
+  });
+});
+
+describe('agentStore setKbSettings 持久化', () => {
+  beforeEach(() => {
+    resetAgentStore();
+    vi.clearAllMocks();
+    // 默认登录态：init 不自动点亮，直接 set userId 以命中 IPC 分支
+    useAgentStore.setState({ userId: 'u1' });
+  });
+
+  const settingsState = () => useAgentStore.getState().kbSettings;
+
+  it('成功 -> kbSettings=用户值 + saveState=saved', async () => {
+    vi.mocked((window.weaveMD.kb as unknown as { setSettings: ReturnType<typeof vi.fn> }).setSettings).mockResolvedValue({
+      success: true,
+      data: { topK: 12, fuse: 0.3, threshold: 0.65, pinnedWeight: 2.5, embeddingHost: 'http://h', embeddingModel: 'm' },
+    });
+
+    await useAgentStore.getState().setKbSettings({
+      topK: 12,
+      fuse: 0.3,
+      threshold: 0.65,
+      pinnedWeight: 2.5,
+      embeddingHost: 'http://h',
+      embeddingModel: 'm',
+    });
+
+    const s = useAgentStore.getState();
+    expect(s.kbSettings.topK).toBe(12);
+    expect(s.kbSettingsSaveState).toBe('saved');
+    // 归属校验：以 store.userId 调 IPC
+    expect(
+      (window.weaveMD.kb as unknown as { setSettings: ReturnType<typeof vi.fn> }).setSettings
+    ).toHaveBeenCalledWith({ userId: 'u1', settings: s.kbSettings });
+  });
+
+  it('失败 -> 内存态仍保留用户值 + saveState=error', async () => {
+    vi.mocked((window.weaveMD.kb as unknown as { setSettings: ReturnType<typeof vi.fn> }).setSettings).mockResolvedValue({
+      success: false,
+      message: 'db write failed',
+    });
+
+    await useAgentStore.getState().setKbSettings({
+      topK: 20,
+      fuse: 0.8,
+      threshold: 0.55,
+      pinnedWeight: 3,
+      embeddingHost: 'http://h2',
+      embeddingModel: 'm2',
+    });
+
+    const s = useAgentStore.getState();
+    // Q4 语义：写失败不回滚，保留用户刚设的值，差异靠 UI 提示
+    expect(s.kbSettings.topK).toBe(20);
+    expect(s.kbSettingsSaveState).toBe('error');
+  });
+
+  it('未登录（userId 空）仅更新内存态，不触发 IPC', async () => {
+    resetAgentStore();
+    vi.clearAllMocks();
+    const setSettings = (window.weaveMD.kb as unknown as { setSettings: ReturnType<typeof vi.fn> }).setSettings;
+
+    await useAgentStore.getState().setKbSettings({
+      topK: 9,
+      fuse: 0.6,
+      threshold: 0.6,
+      pinnedWeight: 1.5,
+      embeddingHost: 'http://localhost:11434',
+      embeddingModel: 'nomic-embed-text',
+    });
+
+    expect(settingsState().topK).toBe(9);
+    expect(setSettings).not.toHaveBeenCalled();
+  });
+
+  it('resetKbSettingsSaveState 把 saved/error 归位为 idle（设置面板重开提示归零）', async () => {
+    // 成功路径 -> saved，随后归位 -> idle
+    vi.mocked((window.weaveMD.kb as unknown as { setSettings: ReturnType<typeof vi.fn> }).setSettings).mockResolvedValue({
+      success: true,
+      data: { topK: 12, fuse: 0.3, threshold: 0.65, pinnedWeight: 2.5, embeddingHost: 'http://h', embeddingModel: 'm' },
+    });
+    await useAgentStore.getState().setKbSettings({
+      topK: 12, fuse: 0.3, threshold: 0.65, pinnedWeight: 2.5, embeddingHost: 'http://h', embeddingModel: 'm',
+    });
+    expect(useAgentStore.getState().kbSettingsSaveState).toBe('saved');
+
+    useAgentStore.getState().resetKbSettingsSaveState();
+    expect(useAgentStore.getState().kbSettingsSaveState).toBe('idle');
+
+    // 失败路径 -> error，随后归位 -> idle
+    vi.mocked((window.weaveMD.kb as unknown as { setSettings: ReturnType<typeof vi.fn> }).setSettings).mockResolvedValue({
+      success: false,
+      message: 'db write failed',
+    });
+    await useAgentStore.getState().setKbSettings({
+      topK: 1, fuse: 0.9, threshold: 0.5, pinnedWeight: 3, embeddingHost: 'http://h2', embeddingModel: 'm2',
+    });
+    expect(useAgentStore.getState().kbSettingsSaveState).toBe('error');
+
+    useAgentStore.getState().resetKbSettingsSaveState();
+    expect(useAgentStore.getState().kbSettingsSaveState).toBe('idle');
   });
 });

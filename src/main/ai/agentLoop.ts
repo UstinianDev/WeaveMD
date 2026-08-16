@@ -38,6 +38,8 @@ interface AgentReqPayload {
   message: string;
   /** 是否启用知识库检索（kbQa 意图时可作为 searchKB 工具候选）。 */
   useKnowledgeBase?: boolean;
+  /** 当前文档 markdown 快照（只读上下文，供 editBlocks 产改写建议；不落盘）。 */
+  currentDocument?: string;
 }
 
 /** 工具回填消息（OpenAI 续轮约定，额外字段随序列化传给远端）。
@@ -52,6 +54,27 @@ const MAX_ROUNDS = 6;
 const CONTEXT_WINDOW = 64_000;
 const COMPRESS_THRESHOLD = 0.8;
 const KEEP_RECENT_ROUNDS = 6;
+
+/** 文档上下文注入：估算 >5000 tokens（约 2 万字符）时截断到 20000 字符 + 尾部标记。 */
+const DOC_CONTEXT_TOKEN_LIMIT = 5000;
+const DOC_CONTEXT_CHAR_LIMIT = 20_000;
+const DOC_CONTEXT_CUT_MARKER = '\n\n[文档过长已截断…]';
+
+/**
+ * 组装当前文档上下文 system 消息（只读，供 LLM 优化/改写整篇参考）。
+ * 无文档 / 空文档 → 返回 null（不注入）。超长截断而非二次 LLM 压缩。
+ */
+function buildDocumentContext(currentDocument: string | undefined): string | null {
+  const doc = (currentDocument ?? '').trim();
+  if (!doc) return null;
+  if (estimateTokens(doc) > DOC_CONTEXT_TOKEN_LIMIT) {
+    return `以下为当前编辑文档内容（只读，供改写/优化参考）：\n\n${doc.slice(
+      0,
+      DOC_CONTEXT_CHAR_LIMIT
+    )}${DOC_CONTEXT_CUT_MARKER}`;
+  }
+  return `以下为当前编辑文档内容（只读，供改写/优化参考）：\n\n${doc}`;
+}
 
 function makeAgentResult(partial: {
   conversationId: string;
@@ -83,19 +106,24 @@ function sendStream(
 }
 
 /**
- * 按意图决定可用工具子集（全部只读）。
- * searchKB 仅在「kbQa 意图 + 启用知识库 + 已授权 KB 外发（allowSend）」时提供：
- * allowSend 未授权则不给 searchKB 工具——笔记不外发，Agent 降级普通作答（不抛错）。
- * consent 未传入（安全默认）不提供 searchKB。
+ * 按意图决定可用工具子集（全部只读；editBlocks 仅产改写建议，不落盘）。
+ * - searchKB 仅在「kbQa 意图 + 启用知识库 + 已授权 KB 外发（allowSend）」时提供。
+ * - editBlocks 仅在「rewrite 意图 + 已提供 currentDocument」时提供——无文档上下文则不给，
+ *   避免 LLM 调用无上下文工具。
+ * allowSend / consent 未授权则不提供对应外发工具（降级作答，不抛错）。
  */
 function toolsForIntent(
   intent: IIntent,
   useKnowledgeBase: boolean,
-  kbEgressAuthorized: boolean
+  kbEgressAuthorized: boolean,
+  currentDocument?: string
 ): ToolDef[] {
   const all = defineCoreTools();
   if (useKnowledgeBase && intent.intent === 'kbQa' && kbEgressAuthorized) {
     return all.filter((t) => t.function.name === 'searchKB');
+  }
+  if (intent.intent === 'rewrite' && !!currentDocument) {
+    return all.filter((t) => t.function.name === 'editBlocks');
   }
   if (intent.intent === 'tech' || intent.intent === 'create') {
     return all.filter((t) =>
@@ -168,13 +196,25 @@ export async function runAgentFlow(
     signal: controller.signal,
   };
   const skills: CoreSkill[] = loadSkills();
-  const toolCtx = { userId, searchKb: deps.searchKb, skill: skillContext, skills };
+  const toolCtx = {
+    userId,
+    searchKb: deps.searchKb,
+    skill: skillContext,
+    skills,
+    // 只读文档上下文（editBlocks 改写建议用；不落盘，铁律一）
+    currentDocument: payload.currentDocument,
+  };
 
   const isRemote = config.backend === 'remote';
   // KB 检索外发授权：allowSend 已授权才提供 searchKB 工具（未授权则笔记不外发，降级普通作答）。
   const kbEgressAuthorized = !needsKbSendConsent(config, consent);
   const tools = isRemote
-    ? toolsForIntent(intent, !!payload.useKnowledgeBase, kbEgressAuthorized)
+    ? toolsForIntent(
+        intent,
+        !!payload.useKnowledgeBase,
+        kbEgressAuthorized,
+        payload.currentDocument
+      )
     : [];
   const isOllamaHint =
     config.backend === 'ollama'
@@ -192,6 +232,12 @@ export async function runAgentFlow(
   let llmMessages: AgentLlmMessage[] = summary
     ? buildCompressed(history, summary, KEEP_RECENT_ROUNDS)
     : [...history];
+
+  // A1a：注入当前文档上下文（只读，供 LLM 真正看到文档；首条 system）。空文档不注入。
+  const documentContext = buildDocumentContext(payload.currentDocument);
+  if (documentContext) {
+    llmMessages = [{ role: 'system', content: documentContext }, ...llmMessages];
+  }
 
   let roundsUsed = 0;
   let reasoningTokenCount: number | null = null;

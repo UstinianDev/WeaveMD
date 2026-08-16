@@ -28,7 +28,7 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 | IPC 机制   | [modules/08-IPC通信机制.md](./modules/08-IPC通信机制.md)                     | 安全架构、preload 类型定义                   |
 | 国际化     | [modules/09-国际化-i18n.md](./modules/09-国际化-i18n.md)                     | Provider、多语言                             |
 | 导出功能   | [modules/10-导出功能-Export.md](./modules/10-导出功能-Export.md)             | 8 格式导出（md/html/pdf/doc/docx/png/jpg/jpeg）|
-| AI 代理面板 | [modules/11-AI代理面板-Agent.md](./modules/11-AI代理面板-Agent.md)           | 双智能体、知识库双路召回、块级改写（规划）     |
+| AI 代理面板 | [modules/11-AI代理面板-Agent.md](./modules/11-AI代理面板-Agent.md)           | 双智能体、知识库双路召回、块级改写、KB 参数持久化、第 7 期体验重构（已交付） |
 
 ## 3. 编辑主区 v2（当前主线）
 
@@ -131,7 +131,7 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 - 质量门禁：`tsc --noEmit` + `vitest run` + ESLint(0 error) + `vite build` + `npx playwright test`
   + `vitest --coverage`（改动文件口径 ≥80%，当前全量 95.45%；`@vitest/coverage-v8`）
 
-## 5. AI 代理面板与知识库（2026-08-15：第 1/2 期基建+Chat、第 3+4 期知识库+Agent 能力、第 5 期块级改写均已交付；第 6 期收尾为后续）
+## 5. AI 代理面板与知识库（2026-08-15：第 1/2/3+4/5/6 期均已交付；第 7 期体验重构 7 批全部交付）
 
 **第 1/2 期已交付（2026-08-14）**：ai_* 4 表 DDL + kb_* 预留、`ai:*` IPC + preload、
 设置面板 AI Tab（safeStorage 加密 key）、知情同意页、导航栏 AI 按钮、llmClient（统一 OpenAI 兼容双后端 + SSE 流式）、
@@ -154,11 +154,28 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 - 红删绿增预览（`rewriteDiff` 行级 LCS + `RewritePreviewCard`，复用 renderAIMarkdownSafe 安全渲染）→ 确认 `updateContent(rewrittenMd)` 入 undo 栈一次可撤销；stale 校验（content===原文）
 - **铁律一落地**：主进程只产 LLM 文本（薄代理 `rewrite.ts`），块级替换在渲染侧（`blockEdit.ts`，只算不写），写入仅确认后
 
-延期不交付（如实标注，勿写成已交付）：真 MCP server 管理（fetchContext7/fetchFirecrawl 工具）、
-GitHub 自取 writing-shape 技能、KB 参数持久化（本轮内存态）、editBlocks agent 工具（stretch 未并入）、
-embedding 双路真验依赖本地安装 nomic-embed-text。
+**第 6 期 KB 参数持久化已交付（2026-08-15）**：
+- KB 参数（topK/fuse/threshold/置顶权重/embedding host+model）→ ai_config 6 列幂等迁移（`pragma_table_info` 探测缺失列 + 逐列 `ADD COLUMN`；**实证**：better-sqlite3 11.10.0/sqlite3.49.2 不支持 `ADD COLUMN IF NOT EXISTS`，见 status.md 阶段 7 H1）
+- 新增 `kb:get-settings`/`kb:set-settings` IPC；agentStore.init 拉取 + setKbSettings async 持久化（写失败保留内存态 + 非阻塞提示）
+- 主进程消费修正：KB_STATUS 探针用持久化 host/model（消除硬编码）、AGENT_RUN 以持久化 kbSettings 为默认兜底（payload 显式 > 持久化 > kbSearch 内置默认）
+- 真库三态实证：`scripts/kb-migration-smoke.cjs`（Electron 运行时 better-sqlite3 in-memory，新库/既有库/重复执行 + 读写闭环，退出码 0）
 
-门禁：第 5 期 typecheck 0 error | vitest 88 files/1229 tests | lint 0 error | Playwright ai spec 14/14（含 4 改写用例）| vite build；
+**第 6 期 stretch editBlocks 已交付（2026-08-15）**：
+- toolRegistry 第 5 个工具 `editBlocks`（`{block_ops:[{block_id,new_content}]}`），`executeTool` 仅产 `{applied:false,proposed}` 不落盘（铁律一）；`currentDocument`（渲染侧 editorStore.content 快照）经 AgentRunPayload→ipc→agentLoop→toolCtx 注入，rewrite 意图 + 有上下文才提供；WRITE_NAMES 断言改造；主进程无块树内核故不做 block_id 存在性校验（仅结构校验），无应用闭环
+
+**第 7 期体验重构已交付（2026-08-15，7 批全部）**：
+- A4 选区改写叶序错位 bug 修复（`data-block-id` 同时挂容器 div 与叶子 → DOM 序下标偏大；readDocumentSelection 改用 content 解析叶序 = 位置+文本对齐映射，失同步保守 null）+ 列表/引用/代码块容器回归测试
+- A1 当前文档上下文注入（agentLoop system prompt + estimateTokens 截断）+ rewrite 意图补词（优化/整理/美化/改进…）+ 从 0 到 1 整篇写（`proposeFullDocumentRewrite` + `runFullDocumentRewrite`/`previewDocumentFromReply`，预览确认 → updateContent 入 undo；未打开文档拒写引导）
+- A2 混合语法类型选中弹「AI 改写」（toolbarState mixedSyntax → 仅 AI 改写按钮）+ A3 选区持久高亮（`highlight.ts` 纯函数 + `.rewrite-highlight` 纯 CSS overlay，不入 contentEditable，随改写状态清除）
+- B1 `/ @` 自动补全（`AGENT_SKILLS_LIST` 只读 IPC + `CompletionMenu` ↑↓/Enter/Esc/外部点击；@ 当前文档/知识库）
+- B2 命名「智能体」（仅文案 + i18n 三文件，代码标识符不动）
+- B3 双 Tab 合并统一单面板 + composer 上下拉「对话/智能体」模式选择（保留 `activeMode` 域隔离，chat 纯对话 / agent 保专属控件）
+- C1 视觉美化（frontend-design + impeccable-skill：字号 ≥13px、composer 收紧、圆角/间距节奏统一、CSS 变量体系；修复 ConsentOverlay 硬编码色违红点）
+
+延期不交付（如实标注，勿写成已交付）：真 MCP server 管理（fetchContext7/fetchFirecrawl 工具）、
+GitHub 自取 writing-shape 技能、embedding 双路真验依赖本地安装 nomic-embed-text。
+
+门禁：第 5 期 typecheck 0 error | vitest 88 files/1229 tests | lint 0 error | Playwright ai spec 14/14（含 4 改写用例）| vite build；第 6 期 typecheck 0 error | vitest 90 files/1261 tests（含 editBlocks stretch）| lint 0 error | Playwright ai spec 14/14 | vite build；第 7 期 typecheck 0 error | vitest 93 files/1338 tests | lint 0 error | Playwright ai spec 24/24 | vite build；
 详见 docs/plan/ai-agent-panel.status.md。需求：REQUIREMENTS 3.7/3.8（AGT-/KB- 编号）；设计：modules/11；选型：TECH_STACK 2.10。
 
 > 各模块详细实现见 `docs/modules/`，需求见 `docs/REQUIREMENTS.md`，技术选型见 `docs/TECH_STACK.md`。

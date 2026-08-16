@@ -72,7 +72,7 @@ const KnowledgeBaseSettings: React.FC = () => {
   const embeddingAvailable = kbStatus?.embedding.available ?? false;
 
   return (
-    <div className="rounded-lg border border-border bg-bg-tertiary/40 px-3 py-2 space-y-2">
+    <div className="rounded-card border border-border bg-bg-tertiary/40 px-3 py-2 space-y-2 shadow-sm">
       {/* 操作按钮 */}
       <div className="flex items-center gap-2">
         <button
@@ -113,7 +113,7 @@ const KnowledgeBaseSettings: React.FC = () => {
           kbDocuments.map((doc) => (
             <div
               key={doc.docId}
-              className="flex items-center gap-2 text-xs bg-bg-secondary rounded-md px-2 py-1"
+              className="flex items-center gap-2 text-xs bg-bg-secondary rounded-md px-2 py-1.5"
             >
               <span className="flex-1 truncate text-text-primary">{doc.title}</span>
               {doc.pinned && <span className="text-[10px] text-amber-500">★</span>}

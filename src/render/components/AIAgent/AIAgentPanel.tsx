@@ -1,16 +1,16 @@
 // ============================================
 // WeaveMD — AI 代理面板（右侧 dock 容器）
 // ============================================
-// 头部：Chat/Agent Tab 切换 + 关闭 ✕（toggleAIPanel）；宽度 aiPanelWidth；
+// 头部：模式下拉（对话/智能体）切换 + 关闭 ✕（toggleAIPanel）；宽度 aiPanelWidth；
 // 右侧反向拖拽把手（startX - clientX，clamp 260~520，mouseup 持久化）；
-// 内部渲染 ChatTab / AgentTab 与 ConsentOverlay。
+// 统一渲染单个 body（原 AgentTab 承担双模式），模式专属控件随 activeMode 分支；
+// ConsentOverlay 覆盖全面板，不随模式变化。
 
 import React, { useCallback, useState } from 'react';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
 import { useAgentStore } from '@render/stores/agentStore';
 import { useUIStore } from '@render/stores/uiStore';
-import ChatTab from './ChatTab';
 import AgentTab from './AgentTab';
 import ConsentOverlay from './ConsentOverlay';
 
@@ -18,8 +18,8 @@ const AIAgentPanel: React.FC = () => {
   const { t } = useI18n();
   const user = useAuthStore((s) => s.user);
 
-  const activeTab = useAgentStore((s) => s.activeTab);
-  const toggleTab = useAgentStore((s) => s.toggleTab);
+  const activeMode = useAgentStore((s) => s.activeMode);
+  const toggleMode = useAgentStore((s) => s.toggleMode);
   const pendingConsent = useAgentStore((s) => s.pendingConsent);
   const setPendingConsent = useAgentStore((s) => s.setPendingConsent);
   const setConsent = useAgentStore((s) => s.setConsent);
@@ -84,46 +84,34 @@ const AIAgentPanel: React.FC = () => {
         }`}
         style={{ width: aiPanelWidth }}
       >
-        {/* 头部 */}
-        <div className="flex items-center justify-between px-3 h-12 border-b border-border bg-bg-secondary">
-          <span className="text-sm font-semibold text-text-primary">{t('ai.panelTitle')}</span>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => toggleTab('chat')}
-              className={`px-2.5 py-1 text-xs rounded-input transition-colors ${
-                activeTab === 'chat'
-                  ? 'bg-[var(--accent)] text-white'
-                  : 'text-text-sub hover:text-text-primary'
-              }`}
-            >
-              {t('ai.tab.chat')}
-            </button>
-            <button
-              type="button"
-              onClick={() => toggleTab('agent')}
-              className={`px-2.5 py-1 text-xs rounded-input transition-colors ${
-                activeTab === 'agent'
-                  ? 'bg-[var(--accent)] text-white'
-                  : 'text-text-sub hover:text-text-primary'
-              }`}
-            >
-              {t('ai.tab.agent')}
-            </button>
-          </div>
+        {/* 头部：面板标题 + 模式下拉 + 关闭 ✕（B3 无 Tab 割裂改用下拉） */}
+        <div className="flex items-center justify-between gap-2 px-3 h-12 border-b border-border bg-bg-secondary">
+          <span className="flex-1 min-w-0 truncate text-sm font-semibold text-text-primary">
+            {t('ai.panelTitle')}
+          </span>
+          <select
+            data-testid="ai-mode-select"
+            value={activeMode}
+            onChange={(e) => toggleMode(e.target.value as 'chat' | 'agent')}
+            aria-label={t('ai.modeSelectLabel')}
+            className="flex-shrink-0 text-xs px-2 py-1 rounded-input bg-bg-secondary border border-border text-text-primary focus:border-[var(--accent)] outline-none cursor-pointer"
+          >
+            <option value="chat">{t('ai.tab.chat')}</option>
+            <option value="agent">{t('ai.tab.agent')}</option>
+          </select>
           <button
             type="button"
             onClick={handleClose}
             title={t('navbar.close')}
-            className="text-text-muted hover:text-text-primary transition-colors"
+            className="flex-shrink-0 text-text-muted hover:text-text-primary transition-colors"
           >
             ✕
           </button>
         </div>
 
-        {/* Tab 内容 */}
+        {/* 统一 body（原 AgentTab 承担双模式） */}
         <div className="flex-1 flex flex-col min-h-0">
-          {activeTab === 'chat' ? <ChatTab /> : <AgentTab />}
+          <AgentTab />
         </div>
 
         {/* 反向拖拽把手：位于面板左侧缘，向右拉 = 变宽 */}
@@ -134,7 +122,7 @@ const AIAgentPanel: React.FC = () => {
         />
       </aside>
 
-      {/* 知情同意弹层（覆盖整个面板） */}
+      {/* 知情同意弹层（覆盖整个面板，不随模式变化） */}
       <div className="absolute inset-0 z-20 pointer-events-none">
         <ConsentOverlay
           visible={pendingConsent}
@@ -155,3 +143,4 @@ const AIAgentPanel: React.FC = () => {
 };
 
 export default AIAgentPanel;
+

@@ -100,6 +100,14 @@ const rewriteMock = vi.hoisted(() => ({
 }));
 vi.mock('@main/ai/rewrite', () => rewriteMock);
 
+const skillLoaderMock = vi.hoisted(() => ({
+  listSkillsForUi: vi.fn(() => [
+    { name: 'polish_rewrite', description: '润色' },
+    { name: 'tech_organize', description: '整理' },
+  ]),
+}));
+vi.mock('@main/ai/skillLoader', () => skillLoaderMock);
+
 import { IPC_CHANNELS } from '@shared/constants';
 import { registerAiIpcHandlers } from '@main/ai/ipc';
 
@@ -131,6 +139,10 @@ beforeEach(() => {
   embeddingMock.probeEmbedding.mockReset();
   agentLoopMock.runAgentFlow.mockReset();
   rewriteMock.runRewrite.mockReset();
+  skillLoaderMock.listSkillsForUi.mockReset().mockReturnValue([
+    { name: 'polish_rewrite', description: '润色' },
+    { name: 'tech_organize', description: '整理' },
+  ]);
   // abort 归属校验：getConversation 默认返回 u1 名下的 c1（供 chatAbort/agentAbort 通过）
   dbMock.getConversation.mockReset().mockImplementation((conversationId: string, userId: string) =>
     conversationId === 'c1' && userId === 'u1'
@@ -150,6 +162,12 @@ beforeEach(() => {
     consentUpdatedAt: null,
     createdAt: 'now',
     updatedAt: 'now',
+    kbTopK: 5,
+    kbFuse: 0.5,
+    kbThreshold: 0.6,
+    kbPinnedWeight: 1.5,
+    kbEmbeddingHost: 'http://localhost:11434',
+    kbEmbeddingModel: 'nomic-embed-text',
   });
   dbMock.createConversation.mockReset().mockReturnValue({
     id: 'c1',
@@ -577,5 +595,319 @@ describe('ai:ipc handlers', () => {
     })) as { success: boolean; code: string };
     expect(result.success).toBe(false);
     expect(result.code).toBe('http_500');
+  });
+
+  // ---- 第 6 期批次 2：KB 参数持久化读写 + 消费修正 ----
+
+  it('registers KB_GET_SETTINGS / KB_SET_SETTINGS handlers', () => {
+    expect(electronMock.handlers.get(IPC_CHANNELS.KB_GET_SETTINGS)).toBeDefined();
+    expect(electronMock.handlers.get(IPC_CHANNELS.KB_SET_SETTINGS)).toBeDefined();
+  });
+
+  it('KB_GET_SETTINGS returns persisted kb values (user_id 隔离)', async () => {
+    dbMock.getAiConfig.mockReturnValue({
+      id: 'cfg1',
+      userId: 'u1',
+      backend: 'ollama',
+      ollamaBaseUrl: 'http://localhost:11434',
+      remoteBaseUrl: 'https://api.deepseek.com',
+      model: '',
+      apiKeyEnc: null,
+      allowNetwork: false,
+      allowSend: false,
+      consentUpdatedAt: null,
+      createdAt: 'now',
+      updatedAt: 'now',
+      kbTopK: 9,
+      kbFuse: 0.8,
+      kbThreshold: 0.4,
+      kbPinnedWeight: 2,
+      kbEmbeddingHost: 'http://custom:1234',
+      kbEmbeddingModel: 'custom-model',
+    });
+    const result = (await getHandler(IPC_CHANNELS.KB_GET_SETTINGS)(makeEvent(), {
+      userId: 'u1',
+    })) as { success: boolean; data: Record<string, unknown> };
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({
+      topK: 9,
+      fuse: 0.8,
+      threshold: 0.4,
+      pinnedWeight: 2,
+      embeddingHost: 'http://custom:1234',
+      embeddingModel: 'custom-model',
+    });
+    expect(dbMock.getAiConfig).toHaveBeenCalledWith('u1');
+  });
+
+  it('KB_GET_SETTINGS without persisted config returns DEFAULT and success:true (不报错)', async () => {
+    dbMock.getAiConfig.mockReturnValue(null);
+    const result = (await getHandler(IPC_CHANNELS.KB_GET_SETTINGS)(makeEvent(), {
+      userId: 'u1',
+    })) as { success: boolean; data: Record<string, unknown> };
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({
+      topK: 5,
+      fuse: 0.5,
+      threshold: 0.6,
+      pinnedWeight: 1.5,
+      embeddingHost: 'http://localhost:11434',
+      embeddingModel: 'nomic-embed-text',
+    });
+  });
+
+  it('KB_SET_SETTINGS normalizes + upserts KB fields and returns written-back values', async () => {
+    dbMock.upsertAiConfig.mockReturnValue({
+      id: 'cfg1',
+      userId: 'u1',
+      backend: 'ollama',
+      ollamaBaseUrl: 'http://localhost:11434',
+      remoteBaseUrl: 'https://api.deepseek.com',
+      model: '',
+      apiKeyEnc: null,
+      allowNetwork: false,
+      allowSend: false,
+      consentUpdatedAt: null,
+      createdAt: 'now',
+      updatedAt: 'now',
+      kbTopK: 3,
+      kbFuse: 0.6,
+      kbThreshold: 0.7,
+      kbPinnedWeight: 1.8,
+      kbEmbeddingHost: 'http://custom:4321',
+      kbEmbeddingModel: 'other-model',
+    });
+    const result = (await getHandler(IPC_CHANNELS.KB_SET_SETTINGS)(makeEvent(), {
+      userId: 'u1',
+      settings: { topK: 3, threshold: 0.7 },
+    })) as { success: boolean; data: Record<string, unknown> };
+    expect(result.success).toBe(true);
+    // 写后回读返回归一/落盘值（upsert 返回行被 normalize 回读）
+    expect(result.data).toEqual({
+      topK: 3,
+      fuse: 0.6,
+      threshold: 0.7,
+      pinnedWeight: 1.8,
+      embeddingHost: 'http://custom:4321',
+      embeddingModel: 'other-model',
+    });
+    // upsertAiConfig 收到归一后的 6 个 KB 字段
+    expect(dbMock.upsertAiConfig).toHaveBeenCalledWith('u1', {
+      kbTopK: 3,
+      kbFuse: 0.5, // 未传 → normalize 回默认
+      kbThreshold: 0.7,
+      kbPinnedWeight: 1.5,
+      kbEmbeddingHost: 'http://localhost:11434',
+      kbEmbeddingModel: 'nomic-embed-text',
+    });
+  });
+
+  it('KB_SET_SETTINGS returns config_incomplete on write failure', async () => {
+    dbMock.upsertAiConfig.mockImplementation(() => {
+      throw new Error('db gone');
+    });
+    const result = (await getHandler(IPC_CHANNELS.KB_SET_SETTINGS)(makeEvent(), {
+      userId: 'u1',
+      settings: { topK: 3 },
+    })) as { success: boolean; code: string };
+    expect(result.success).toBe(false);
+    expect(result.code).toBe('config_incomplete');
+  });
+
+  it('KB_STATUS uses persisted embedding host/model (消除硬编码)', async () => {
+    dbMock.getAiConfig.mockReturnValue({
+      id: 'cfg1',
+      userId: 'u1',
+      backend: 'ollama',
+      ollamaBaseUrl: 'http://localhost:11434',
+      remoteBaseUrl: 'https://api.deepseek.com',
+      model: '',
+      apiKeyEnc: null,
+      allowNetwork: false,
+      allowSend: false,
+      consentUpdatedAt: null,
+      createdAt: 'now',
+      updatedAt: 'now',
+      kbTopK: 5,
+      kbFuse: 0.5,
+      kbThreshold: 0.6,
+      kbPinnedWeight: 1.5,
+      kbEmbeddingHost: 'http://persisted:9999',
+      kbEmbeddingModel: 'persisted-model',
+    });
+    kbDaoMock.listKbDocumentsByUser.mockReturnValue([]);
+    embeddingMock.probeEmbedding.mockResolvedValue({ ok: true, dims: 768 });
+    const result = (await getHandler(IPC_CHANNELS.KB_STATUS)(makeEvent(), {
+      userId: 'u1',
+    })) as { success: boolean; data: unknown };
+    expect(result.success).toBe(true);
+    // 探针收到持久化 host/model，而非硬编码
+    expect(embeddingMock.probeEmbedding).toHaveBeenCalledWith(
+      'http://persisted:9999',
+      'persisted-model'
+    );
+  });
+
+  it('KB_STATUS falls back to default host/model when row missing (persisted null)', async () => {
+    dbMock.getAiConfig.mockReturnValue(null);
+    embeddingMock.probeEmbedding.mockResolvedValue({ ok: false, dims: null });
+    await getHandler(IPC_CHANNELS.KB_STATUS)(makeEvent(), { userId: 'u1' });
+    expect(embeddingMock.probeEmbedding).toHaveBeenCalledWith(
+      'http://localhost:11434',
+      'nomic-embed-text'
+    );
+  });
+
+  it('AGENT_RUN 未传 kbSettings：searchKb 用持久化默认兜底', async () => {
+    dbMock.getAiConfig.mockReturnValue({
+      id: 'cfg1',
+      userId: 'u1',
+      backend: 'ollama',
+      ollamaBaseUrl: 'http://localhost:11434',
+      remoteBaseUrl: 'https://api.deepseek.com',
+      model: '',
+      apiKeyEnc: null,
+      allowNetwork: false,
+      allowSend: false,
+      consentUpdatedAt: null,
+      createdAt: 'now',
+      updatedAt: 'now',
+      kbTopK: 8,
+      kbFuse: 0.7,
+      kbThreshold: 0.4,
+      kbPinnedWeight: 2.1,
+      kbEmbeddingHost: 'http://agent-persisted:1234',
+      kbEmbeddingModel: 'agent-model',
+    });
+    agentLoopMock.runAgentFlow.mockResolvedValue({
+      conversationId: 'c1',
+      assistantId: 'a1',
+      roundsUsed: 1,
+      intent: null,
+    });
+    await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
+      userId: 'u1',
+      conversationId: 'c1',
+      message: 'q',
+    });
+    // 取出注入的 searchKb 闭包并真实调用（命中 kbSearch mock）
+    const deps = agentLoopMock.runAgentFlow.mock.calls[0][5] as {
+      searchKb: (u: string, q: string, o?: Record<string, unknown>) => Promise<unknown>;
+    };
+    kbSearchMock.searchKB.mockResolvedValue({
+      refused: true,
+      threshold: 0.4,
+      best: null,
+      results: [],
+    });
+    await deps.searchKb('u1', 'query', {});
+    expect(kbSearchMock.searchKB).toHaveBeenCalledWith(
+      'u1',
+      'query',
+      expect.objectContaining({
+        topK: 8,
+        fuse: 0.7,
+        pinnedWeight: 2.1,
+        threshold: 0.4,
+        embeddingHost: 'http://agent-persisted:1234',
+        embeddingModel: 'agent-model',
+        vectorEnabled: false,
+      })
+    );
+  });
+
+  it('AGENT_RUN 传部分 kbSettings：其余持久化兜底（payload 显式 > 持久化）', async () => {    dbMock.getAiConfig.mockReturnValue({
+      id: 'cfg1',
+      userId: 'u1',
+      backend: 'ollama',
+      ollamaBaseUrl: 'http://localhost:11434',
+      remoteBaseUrl: 'https://api.deepseek.com',
+      model: '',
+      apiKeyEnc: null,
+      allowNetwork: false,
+      allowSend: false,
+      consentUpdatedAt: null,
+      createdAt: 'now',
+      updatedAt: 'now',
+      kbTopK: 2,
+      kbFuse: 0.3,
+      kbThreshold: 0.9,
+      kbPinnedWeight: 1.1,
+      kbEmbeddingHost: 'http://persist-host:1',
+      kbEmbeddingModel: 'persist-model',
+    });
+    agentLoopMock.runAgentFlow.mockResolvedValue({
+      conversationId: 'c1',
+      assistantId: 'a1',
+      roundsUsed: 1,
+      intent: null,
+    });
+    await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
+      userId: 'u1',
+      conversationId: 'c1',
+      message: 'q',
+      kbSettings: { topK: 99, fuse: 0.99 },
+    });
+    const deps = agentLoopMock.runAgentFlow.mock.calls[0][5] as {
+      searchKb: (u: string, q: string, o?: Record<string, unknown>) => Promise<unknown>;
+    };
+    kbSearchMock.searchKB.mockResolvedValue({
+      refused: true,
+      threshold: 0.9,
+      best: null,
+      results: [],
+    });
+    await deps.searchKb('u1', 'query', {});
+    expect(kbSearchMock.searchKB).toHaveBeenCalledWith(
+      'u1',
+      'query',
+      expect.objectContaining({
+        topK: 99, // payload 显式覆盖
+        fuse: 0.99,
+        pinnedWeight: 1.1, // 其余持久化
+        threshold: 0.9,
+        embeddingHost: 'http://persist-host:1',
+        embeddingModel: 'persist-model',
+        vectorEnabled: false,
+      })
+    );
+  });
+
+  // --- 第 7 期批次④ B1：AGENT_SKILLS_LIST（技能清单，只读 IPC） ---
+
+  it('registers an AGENT_SKILLS_LIST handler', () => {
+    expect(electronMock.handlers.get(IPC_CHANNELS.AGENT_SKILLS_LIST)).toBeDefined();
+  });
+
+  it('AGENT_SKILLS_LIST returns [name, description] skill list via listSkillsForUi', async () => {
+    skillLoaderMock.listSkillsForUi.mockReturnValue([
+      { name: 'polish_rewrite', description: '润色文本' },
+      { name: 'tech_organize', description: '整理技术资料' },
+    ]);
+    const result = (await getHandler(IPC_CHANNELS.AGENT_SKILLS_LIST)(
+      makeEvent(),
+      { userId: 'u1' }
+    )) as { success: boolean; data: Array<{ name: string; description: string }> };
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual([
+      { name: 'polish_rewrite', description: '润色文本' },
+      { name: 'tech_organize', description: '整理技术资料' },
+    ]);
+    // userData 路径解析：listSkillsForUi 传入 userData 下 skills 目录
+    const callArgs = skillLoaderMock.listSkillsForUi.mock.calls[0] as unknown[];
+    const dirArg = callArgs[0] as string | undefined;
+    expect(String(dirArg)).toContain('skills');
+  });
+
+  it('AGENT_SKILLS_LIST returns success:false envelope when listSkillsForUi throws', async () => {
+    skillLoaderMock.listSkillsForUi.mockImplementation(() => {
+      throw new Error('fs read failed');
+    });
+    const result = (await getHandler(IPC_CHANNELS.AGENT_SKILLS_LIST)(
+      makeEvent(),
+      { userId: 'u1' }
+    )) as { success: boolean; message: string };
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('skills');
   });
 });

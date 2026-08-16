@@ -100,10 +100,14 @@ export const IPC_CHANNELS = {
   KB_REINDEX: 'kb:reindex',
   KB_DELETE: 'kb:delete',
   KB_STATUS: 'kb:status',
+  KB_GET_SETTINGS: 'kb:get-settings',
+  KB_SET_SETTINGS: 'kb:set-settings',
 
   // AI — Agent (第4期) invoke
   AGENT_RUN: 'agent:run',
   AGENT_ABORT: 'agent:abort',
+  // AI — Agent（第7期 B1）技能清单（只读，渲染补全菜单用）
+  AGENT_SKILLS_LIST: 'agent:skills:list',
 
   // AI — block rewrite (第5期) invoke
   AI_REWRITE_PREVIEW: 'ai:rewrite:preview',
