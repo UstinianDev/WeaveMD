@@ -25,6 +25,7 @@ export { renderMath } from './katex';
 export { escapeImagePathForMarkdown, escapeMarkdownUrl, replaceImageRange } from './imageReplace';
 export * from './imageBlock';
 export { stripInlineSyntax, stripSameStylePairs } from './inlineStrip';
+export * from './tableCodec';
 export { markdownToState } from './markdownToState';
 export * from './selection';
 export { stateToMarkdown } from './stateToMarkdown';

@@ -10,6 +10,7 @@ import { parseImageBlockText } from '@render/editor/kernel';
 import { setCursorAtOffset, stripZeroWidth } from '@render/editor/kernel/selection';
 import { toDisplayHtml, applyRuntimeWidths } from '@render/editor/kernel';
 import ContentBlock from './ContentBlock';
+import TableBlock from './TableBlock';
 import type { BlockHandlers, InlineWidthMap } from '@render/components/Editor/v2/types';
 
 interface LeafBlockProps {
@@ -71,14 +72,9 @@ const LeafBlock: React.FC<LeafBlockProps> = ({ block, handlers, blockWidthMap })
     case 'thematic-break':
       return <hr data-block-id={block.id} className="thematic-break-block my-4 border-t border-[var(--border-color)]" contentEditable={false} />;
     case 'table':
+      // M2：可编辑表格块（单元格编辑 + 增删行列 + 跨格导航）。保留 data-block-id 外壳。
       return (
-        <div data-block-id={block.id} className="table-block mb-4">
-          <div className="markdown-table-wrap overflow-x-auto rounded-lg border border-[var(--border-color)]">
-            <pre className="p-4 text-sm font-mono text-[var(--text-secondary)] m-0 whitespace-pre-wrap">
-              {block.text ?? ''}
-            </pre>
-          </div>
-        </div>
+        <TableBlock block={block} handlers={handlers} blockWidthMap={blockWidthMap} />
       );
     case 'image-block': {
       // 非编辑块：对齐时外层 div 加 textAlign（内层 HTML 由 renderBlockHtml 生成，
