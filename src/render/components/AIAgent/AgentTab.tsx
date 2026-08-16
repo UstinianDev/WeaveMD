@@ -27,7 +27,6 @@ const AgentTab: React.FC = () => {
   const streamBuffer = useAgentStore((s) => s.streamBuffer);
   const toolCalls = useAgentStore((s) => s.toolCalls);
   const intentCard = useAgentStore((s) => s.intentCard);
-  const agentBackendHint = useAgentStore((s) => s.agentBackendHint);
   const sendAgentMessage = useAgentStore((s) => s.sendAgentMessage);
 
   const previewDocumentFromReply = useRewriteStore((s) => s.previewDocumentFromReply);
@@ -54,16 +53,9 @@ const AgentTab: React.FC = () => {
       {/* agent 模式：改写预览卡片（选区/@ 改写提案确认，红删绿增 + 确认/取消） */}
       {isAgentMode && <RewritePreviewCard />}
 
-      {/* agent 模式：后端降级提示条 */}
-      {isAgentMode && agentBackendHint && (
-        <div className="mx-3 text-[11px] px-2 py-1 rounded-md bg-amber-500/10 text-amber-600 border border-amber-500/20">
-          {agentBackendHint}
-        </div>
-      )}
-
       {messages.length === 0 && (
         <div className="flex flex-col items-center justify-center h-full text-center px-6 space-y-2">
-          <p className="text-sm text-text-muted">{t('ai.empty.noMessage')}</p>
+          <p className="text-[15px] text-text-muted">{t('ai.empty.noMessage')}</p>
         </div>
       )}
 
@@ -82,7 +74,7 @@ const AgentTab: React.FC = () => {
               <button
                 type="button"
                 onClick={() => previewDocumentFromReply(m.content)}
-                className="ml-10 mt-0.5 text-[11px] px-2 py-0.5 rounded-md bg-bg-tertiary border border-border text-text-sub hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors"
+                className="ml-10 mt-0.5 text-[12px] px-2 py-0.5 rounded-md bg-bg-tertiary border border-border text-text-sub hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors"
               >
                 {t('ai.rewrite.previewWrite')}
               </button>

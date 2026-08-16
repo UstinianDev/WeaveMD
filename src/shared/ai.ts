@@ -4,11 +4,10 @@
 // 铁律：绝不含明文 API key。IAIConfig 仅暴露 hasApiKey 布尔标记。
 // 复用 shared/types.ts 的 IpcResponse<T>。
 
-export type ChatBackend = 'ollama' | 'remote';
+export type ChatBackend = 'remote';
 
 export interface IAIConfig {
   backend: ChatBackend;
-  ollamaBaseUrl: string;
   remoteBaseUrl: string;
   model: string;
   /** 是否已配置 API key（仅布尔标记，绝不含 key 明文） */
@@ -24,18 +23,9 @@ export interface IAIConsent {
 /** setConfig 单次更新载荷：全部字段可选，仅传需更新的项（apiKey 空串 === 清除已存 key）。 */
 export interface AiConfigUpdate {
   backend?: ChatBackend;
-  ollamaBaseUrl?: string;
   remoteBaseUrl?: string;
   model?: string;
   apiKey?: string;
-}
-
-/** AI_HEALTH 返回：探测默认 Ollama 的健康信息（与账号无关）。 */
-export interface AiHealth {
-  backend: string;
-  ollamaOnline: boolean;
-  ollamaModelId: string | null;
-  error?: string | null;
 }
 
 /** AI_CHAT 主推流请求返回：会话/assistant 落库后的引用（流式内容经 onStream 送达）。 */
@@ -76,7 +66,6 @@ export interface IAIMessage {
 
 /** AI 错误码。http_* 具体值如 'http_500'。 */
 export type AIErrorCode =
-  | 'ollama_offline'
   | 'network'
   | 'timeout'
   | 'aborted'
@@ -200,8 +189,6 @@ export interface AgentRunResult {
   /** 拒答（知识库检索未见足够相关来源，未生成答案）。 */
   refused?: boolean;
   usage?: { reasoningTokenCount: number | null };
-  /** ollama 后端降级为纯生成时的提示字段。 */
-  agentBackendHint?: string;
 }
 
 /** 知识库检索/召回设置（设置面板 ai.* 与 KB 问答生效）。 */
@@ -214,10 +201,6 @@ export interface IKbSettings {
   threshold: number;
   /** 置顶文档加权（默认 1.5）。 */
   pinnedWeight: number;
-  /** embedding 服务 host（Ollama）。 */
-  embeddingHost: string;
-  /** embedding 模型 id（nomic-embed-text）。 */
-  embeddingModel: string;
 }
 
 /** KB 召回/检索设置的默认值（与 agentStore RESET_FIELDS 对齐，避免双源真值）。 */
@@ -226,12 +209,10 @@ export const DEFAULT_KB_SETTINGS: IKbSettings = {
   fuse: 0.5,
   threshold: 0.6,
   pinnedWeight: 1.5,
-  embeddingHost: 'http://localhost:11434',
-  embeddingModel: 'nomic-embed-text',
 };
 
 /**
- * 将部分/可疑的 KB 设置合并到默认值；缺失或非法（非有限数字 / 空字符串）字段回落默认。
+ * 将部分/可疑的 KB 设置合并到默认值；缺失或非法（非有限数字）字段回落默认。
  * 主进程持久化缺省兜底与渲染默认共用同一真值。
  */
 export function normalizeKbSettings(
@@ -239,15 +220,11 @@ export function normalizeKbSettings(
 ): IKbSettings {
   const n = (v: unknown, fallback: number): number =>
     typeof v === 'number' && Number.isFinite(v) ? v : fallback;
-  const s = (v: unknown, fallback: string): string =>
-    typeof v === 'string' && v.length > 0 ? v : fallback;
   return {
     topK: n(partial?.topK, DEFAULT_KB_SETTINGS.topK),
     fuse: n(partial?.fuse, DEFAULT_KB_SETTINGS.fuse),
     threshold: n(partial?.threshold, DEFAULT_KB_SETTINGS.threshold),
     pinnedWeight: n(partial?.pinnedWeight, DEFAULT_KB_SETTINGS.pinnedWeight),
-    embeddingHost: s(partial?.embeddingHost, DEFAULT_KB_SETTINGS.embeddingHost),
-    embeddingModel: s(partial?.embeddingModel, DEFAULT_KB_SETTINGS.embeddingModel),
   };
 }
 

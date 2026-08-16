@@ -15,11 +15,15 @@ import KnowledgeBaseSettings from './KnowledgeBaseSettings';
 import AIPanelComposer from './AIPanelComposer';
 
 interface AIPanelSessionProps {
+  /** 受控草稿（M4）：由 AIAgentPanel 持有，home 与 session 共享。 */
+  draft: string;
+  /** 受控草稿变更回调。 */
+  setDraft: (value: string) => void;
   /** 顶部标题行 × 关闭当前会话 → 调用方 newChat + 回 home。 */
   onCloseConversation: () => void;
 }
 
-const AIPanelSession: React.FC<AIPanelSessionProps> = ({ onCloseConversation }) => {
+const AIPanelSession: React.FC<AIPanelSessionProps> = ({ draft, setDraft, onCloseConversation }) => {
   const { t } = useI18n();
   const activeMode = useAgentStore((s) => s.activeMode);
   const conversations = useAgentStore((s) => s.conversations);
@@ -40,11 +44,11 @@ const AIPanelSession: React.FC<AIPanelSessionProps> = ({ onCloseConversation }) 
     <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
       {/* 当前会话标题行（R14）：标题 + 最右 × 关闭会话 → 回 home */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-        <span className="flex-1 min-w-0 truncate text-sm font-semibold text-text-primary" data-testid="session-title">
+        <span className="flex-1 min-w-0 truncate text-[15px] font-semibold text-text-primary" data-testid="session-title">
           {title}
         </span>
         {isAgentMode && (
-          <span className="shrink-0 text-[11px] text-text-muted">{t('ai.tab.agent')}</span>
+          <span className="shrink-0 text-[12px] text-text-muted">{t('ai.tab.agent')}</span>
         )}
         <button
           type="button"
@@ -61,7 +65,7 @@ const AIPanelSession: React.FC<AIPanelSessionProps> = ({ onCloseConversation }) 
       {isAgentMode && (
         <div className="px-3 pt-2 pb-1 border-b border-border space-y-1.5">
           <div className="flex items-center gap-2">
-            <label className="flex items-center gap-1.5 text-xs text-text-sub cursor-pointer">
+            <label className="flex items-center gap-1.5 text-[13px] text-text-sub cursor-pointer">
               <input
                 type="checkbox"
                 checked={useKnowledgeBase}
@@ -74,14 +78,14 @@ const AIPanelSession: React.FC<AIPanelSessionProps> = ({ onCloseConversation }) 
               type="button"
               onClick={() => void runManualCompress()}
               disabled={isStreaming}
-              className="text-xs px-2 py-1 rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary disabled:opacity-40 transition-colors"
+              className="text-[13px] px-2 py-1 rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary disabled:opacity-40 transition-colors"
             >
               {t('ai.agent.compress')}
             </button>
             <button
               type="button"
               onClick={() => setShowKbSettings((prev) => !prev)}
-              className="ml-auto text-xs px-2 py-1 rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
+              className="ml-auto text-[13px] px-2 py-1 rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
             >
               {t('ai.agent.kbSettings')}
             </button>
@@ -94,8 +98,12 @@ const AIPanelSession: React.FC<AIPanelSessionProps> = ({ onCloseConversation }) 
       {/* 消息流（精瘦 body，含 RewritePreviewCard / ToolCallTrace / IntentCard / AIMessageBubble / 流式） */}
       <AgentTab />
 
-      {/* 底部共享 composer */}
-      <AIPanelComposer />
+      {/* 底部共享 composer：发送成功 via onSend 清空草稿 */}
+      <AIPanelComposer
+        value={draft}
+        onChange={setDraft}
+        onSend={() => setDraft('')}
+      />
     </div>
   );
 };

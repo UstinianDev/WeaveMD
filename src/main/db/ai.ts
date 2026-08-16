@@ -40,8 +40,6 @@ export interface AiConfigRow {
   kbFuse: number;
   kbThreshold: number;
   kbPinnedWeight: number;
-  kbEmbeddingHost: string;
-  kbEmbeddingModel: string;
 }
 
 interface AiConfigDbRow {
@@ -61,8 +59,7 @@ interface AiConfigDbRow {
   kb_fuse: number | null;
   kb_threshold: number | null;
   kb_pinned_weight: number | null;
-  kb_embedding_host: string | null;
-  kb_embedding_model: string | null;
+  // 遗留列（kb_embedding_host / kb_embedding_model）不再读取/写入，保留 NULL
 }
 
 function mapConfigRow(row: AiConfigDbRow): AiConfigRow {
@@ -72,13 +69,12 @@ function mapConfigRow(row: AiConfigDbRow): AiConfigRow {
     fuse: row.kb_fuse ?? undefined,
     threshold: row.kb_threshold ?? undefined,
     pinnedWeight: row.kb_pinned_weight ?? undefined,
-    embeddingHost: row.kb_embedding_host ?? undefined,
-    embeddingModel: row.kb_embedding_model ?? undefined,
   });
   return {
     id: row.id,
     userId: row.user_id,
-    backend: (row.backend as ChatBackend) || 'ollama',
+    // 后端恒 remote；遗留 'ollama' 值视同 remote（收敛，不做 schema 迁移）
+    backend: 'remote',
     ollamaBaseUrl: row.ollama_base_url,
     remoteBaseUrl: row.remote_base_url,
     model: row.model || '',
@@ -92,8 +88,6 @@ function mapConfigRow(row: AiConfigDbRow): AiConfigRow {
     kbFuse: kb.fuse,
     kbThreshold: kb.threshold,
     kbPinnedWeight: kb.pinnedWeight,
-    kbEmbeddingHost: kb.embeddingHost,
-    kbEmbeddingModel: kb.embeddingModel,
   };
 }
 
@@ -120,8 +114,6 @@ export interface AiConfigUpdate {
   kbFuse?: number;
   kbThreshold?: number;
   kbPinnedWeight?: number;
-  kbEmbeddingHost?: string;
-  kbEmbeddingModel?: string;
 }
 
 export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfigRow {
@@ -135,7 +127,6 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
          backend = ?, ollama_base_url = ?, remote_base_url = ?, model = ?,
          api_key_enc = ?, allow_network = ?, allow_send = ?, consent_updated_at = ?,
          kb_top_k = ?, kb_fuse = ?, kb_threshold = ?, kb_pinned_weight = ?,
-         kb_embedding_host = ?, kb_embedding_model = ?,
          updated_at = datetime('now')
        WHERE user_id = ?`
     ).run(
@@ -151,8 +142,6 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
       update.kbFuse ?? existing.kbFuse,
       update.kbThreshold ?? existing.kbThreshold,
       update.kbPinnedWeight ?? existing.kbPinnedWeight,
-      update.kbEmbeddingHost ?? existing.kbEmbeddingHost,
-      update.kbEmbeddingModel ?? existing.kbEmbeddingModel,
       userId
     );
   } else {
@@ -162,13 +151,12 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
       `INSERT INTO ai_config
          (id, user_id, backend, ollama_base_url, remote_base_url, model,
           api_key_enc, allow_network, allow_send, consent_updated_at,
-          kb_top_k, kb_fuse, kb_threshold, kb_pinned_weight,
-          kb_embedding_host, kb_embedding_model)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          kb_top_k, kb_fuse, kb_threshold, kb_pinned_weight)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       userId,
-      update.backend ?? 'ollama',
+      'remote',
       update.ollamaBaseUrl ?? 'http://localhost:11434',
       update.remoteBaseUrl ?? 'https://api.deepseek.com',
       update.model ?? '',
@@ -179,9 +167,7 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
       update.kbTopK ?? DEFAULT_KB_SETTINGS.topK,
       update.kbFuse ?? DEFAULT_KB_SETTINGS.fuse,
       update.kbThreshold ?? DEFAULT_KB_SETTINGS.threshold,
-      update.kbPinnedWeight ?? DEFAULT_KB_SETTINGS.pinnedWeight,
-      update.kbEmbeddingHost ?? DEFAULT_KB_SETTINGS.embeddingHost,
-      update.kbEmbeddingModel ?? DEFAULT_KB_SETTINGS.embeddingModel
+      update.kbPinnedWeight ?? DEFAULT_KB_SETTINGS.pinnedWeight
     );
   }
 

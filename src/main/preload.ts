@@ -13,7 +13,6 @@ import type {
   AiChatResult,
   AiConfigUpdate,
   AiConversationDetail,
-  AiHealth,
   ConversationMode,
   IAgentStreamToolEvent,
   IAIConfig,
@@ -98,7 +97,6 @@ export interface WeaveMDApi {
     setConfig: (userId: string, config: AiConfigUpdate) => Promise<IpcResponse<IAIConfig>>;
     getConsent: (userId: string) => Promise<IpcResponse<IAIConsent>>;
     setConsent: (userId: string, consent: IAIConsent) => Promise<IpcResponse<IAIConsent>>;
-    health: () => Promise<IpcResponse<AiHealth>>;
     chat: (payload: {
       userId: string;
       conversationId: string | null;
@@ -221,7 +219,6 @@ const api: WeaveMDApi = {
     getConsent: (userId) => ipcRenderer.invoke(IPC_CHANNELS.AI_GET_CONSENT, userId),
     setConsent: (userId, consent) =>
       ipcRenderer.invoke(IPC_CHANNELS.AI_SET_CONSENT, { userId, consent }),
-    health: () => ipcRenderer.invoke(IPC_CHANNELS.AI_HEALTH),
     chat: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AI_CHAT, payload),
     chatAbort: (conversationId, userId) =>
       ipcRenderer.invoke(IPC_CHANNELS.AI_CHAT_ABORT, conversationId, userId),

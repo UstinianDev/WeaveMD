@@ -8,7 +8,7 @@
 
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
-import type { AgentSkillInfo, ChatBackend } from '@shared/ai';
+import type { AgentSkillInfo } from '@shared/ai';
 import { streamChatCompletion } from './llmClient';
 
 /** 单技能定义：执行时把 instructions 注入 role:'system' 片段。 */
@@ -23,7 +23,6 @@ export interface CoreSkill {
 
 /** runSkill 所需的 LLM 调用上下文（与工具执行器解耦）。 */
 export interface SkillRunnerCtx {
-  backend: ChatBackend;
   baseUrl: string;
   model: string;
   apiKey?: string;
@@ -176,7 +175,6 @@ export async function runSkill(
 ): Promise<{ content: string; status: 'ok' | 'error'; errorDesc?: string }> {
   try {
     const gen = streamChatCompletion({
-      backend: ctx.backend,
       baseUrl: ctx.baseUrl,
       model: ctx.model,
       apiKey: ctx.apiKey,

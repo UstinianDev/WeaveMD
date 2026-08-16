@@ -8,20 +8,21 @@
 //  5) ConsentOverlay：remote 未同意时发送触发 overlay；同意后放行并持久化（setConsent 被调用）；拒绝则中止
 //  6) 全程无 uncaught error（pageerror 门禁）
 //
-// 铁律：不真正连接 Ollama/网络 —— ai.* 全部走 addInitScript 注入的本地 mock。
+// 铁律：不真正连接网络 —— ai.* 全部走 addInitScript 注入的本地 mock（唯一后端 remote）。
 // ============================================
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 interface AiMockOptions {
-  backend?: 'ollama' | 'remote';
+  backend?: 'remote';
   consented?: boolean;
+  /** 是否已配置远程 API key（provider 状态行「已连接 / 未配置」数据源）。 */
+  hasApiKey?: boolean;
   /** 预置会话数 */
   seedConversations?: number;
-  /** Agent 运行行为（runAgent 返回值，控制意图卡片/后端降级提示）。 */
+  /** Agent 运行行为（runAgent 返回值，控制意图卡片渲染）。 */
   agentResult?: {
     intentCard?: boolean;
-    backendHint?: string;
     /** 是否流式发送 tool 轨迹（searchKB 命中）。 */
     withTool?: boolean;
   };
@@ -48,8 +49,9 @@ interface AiMockOptions {
  */
 function installWeaveMDMock(opts: AiMockOptions): void {
   const ok = (data?: unknown) => ({ success: true, data });
-  const backend = opts.backend ?? 'ollama';
+  const backend = opts.backend ?? 'remote';
   const consented = opts.consented ?? false;
+  const hasApiKey = opts.hasApiKey ?? true;
   const seed = opts.seedConversations ?? 0;
   const agentResult = opts.agentResult ?? {};
   const seedKb = opts.seedKbDocuments ?? 0;
@@ -126,17 +128,15 @@ function installWeaveMDMock(opts: AiMockOptions): void {
   let streamCb: ((evt: unknown) => void) | null = null;
   // 内存态配置（ModelForm 保存 / ModelDropdown 选中持久化；model 可被更新）
   let mockConfig: {
-    backend: 'ollama' | 'remote';
-    ollamaBaseUrl: string;
+    backend: 'remote';
     remoteBaseUrl: string;
     model: string;
     hasApiKey: boolean;
   } = {
     backend,
-    ollamaBaseUrl: 'http://localhost:11434',
     remoteBaseUrl: 'https://api.example.com',
     model: 'mock-model',
-    hasApiKey: backend === 'remote',
+    hasApiKey,
   };
   const win = window as unknown as Record<string, unknown>;
 
@@ -243,9 +243,11 @@ function installWeaveMDMock(opts: AiMockOptions): void {
     },
     ai: {
       getConfig: async () => ok({ ...mockConfig }),
-      setConfig: async (userId: string, cfg: { model?: string; backend?: 'ollama' | 'remote' }) => {
+      setConfig: async (userId: string, cfg: { model?: string; remoteBaseUrl?: string; apiKey?: string }) => {
         if (cfg.model !== undefined) mockConfig = { ...mockConfig, model: cfg.model };
-        if (cfg.backend !== undefined) mockConfig = { ...mockConfig, backend: cfg.backend };
+        if (cfg.remoteBaseUrl !== undefined) mockConfig = { ...mockConfig, remoteBaseUrl: cfg.remoteBaseUrl };
+        // ④ apiKey 空串 === 断开（hasApiKey=false）；非空 === 已配置（hasApiKey=true）
+        if (cfg.apiKey !== undefined) mockConfig = { ...mockConfig, hasApiKey: cfg.apiKey.length > 0 };
         return ok({ ...mockConfig });
       },
       getConsent: async () =>
@@ -305,9 +307,6 @@ function installWeaveMDMock(opts: AiMockOptions): void {
                         reason: 'low confidence',
                       }
                     : null,
-                  ...(agentResult.backendHint
-                    ? { agentBackendHint: agentResult.backendHint }
-                    : {}),
                 })
               );
             });
@@ -390,16 +389,15 @@ function installWeaveMDMock(opts: AiMockOptions): void {
       importDir: async () => ok([]),
       reindex: async () => ok({ docId: 'kb_0', title: '', chunks: 0, status: 'done' }),
       delete: async () => ok({ deleted: true }),
-      status: async () => ok({ documents: kbDocuments.length, embedding: { available: true, dims: 768 } }),
-      // 第 6 期：KB 参数持久化契约（agentStore.init 会调 getSettings）
+      // 本次 UX 收尾移除向量：唯一后端 remote + 仅 FTS5 关键词召回（embedding 不可用）
+      status: async () => ok({ documents: kbDocuments.length, embedding: { available: false, dims: null } }),
+      // KB 参数持久化契约（agentStore.init 会调 getSettings）；本次 UI 优化移除向量，仅 FTS5，无 embedding 字段
       getSettings: async () =>
         ok({
           topK: 5,
           fuse: 0.5,
           threshold: 0.6,
           pinnedWeight: 1.5,
-          embeddingHost: 'http://localhost:11434',
-          embeddingModel: 'nomic-embed-text',
         }),
       setSettings: async (_input: { userId: string; settings: unknown }) =>
         ok({
@@ -407,8 +405,6 @@ function installWeaveMDMock(opts: AiMockOptions): void {
           fuse: 0.5,
           threshold: 0.6,
           pinnedWeight: 1.5,
-          embeddingHost: 'http://localhost:11434',
-          embeddingModel: 'nomic-embed-text',
         }),
     },
   };
@@ -467,7 +463,8 @@ test('Chat Tab：发送消息 → user 气泡 → 流式 assistant 逐块出现 
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
-  await page.addInitScript(installWeaveMDMock, {});
+  // 唯一后端 remote：已同意联网才放行发送（chat 消息链路无 ollama 免同意路径）
+  await page.addInitScript(installWeaveMDMock, { backend: 'remote', consented: true });
   await page.goto('/');
   await page.waitForSelector('header');
   await page.getByTitle('AI').click();
@@ -588,9 +585,9 @@ test('Agent 全流程：发送 → tool 轨迹渲染 → assistant 富文本落�
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
-  // backend=ollama（无需同意），withTool 触发 searchKB/readFile 轨迹
+  // 唯一后端 remote 且已同意（allowNetwork），withTool 触发 searchKB/readFile 轨迹
   await page.addInitScript(installWeaveMDMock, {
-    backend: 'ollama',
+    backend: 'remote',
     consented: true,
     agentResult: { withTool: true },
     seedKbDocuments: 1,
@@ -637,8 +634,8 @@ test('知识库设置区：kb.status/list 状态列表渲染 + 导入按钮存�
   // 状态列表渲染（kb.list 返回 2 篇）
   await expect(panel.getByText('知识库文档 0')).toBeVisible({ timeout: 5000 });
   await expect(panel.getByText('知识库文档 1')).toBeVisible();
-  // embedding 可用提示（kb.status 返回 available:true）
-  await expect(panel.getByText('已启用语义召回（向量可用）')).toBeVisible();
+  // 本次 UX 收尾移除向量：kb.status 返回 available:false（仅 FTS5 关键词召回）→ 不显示向量可用提示
+  await expect(panel.getByText('已启用语义召回（向量可用）')).toHaveCount(0);
   // 导入按钮存在
   await expect(panel.getByRole('button', { name: '导入文件', exact: true })).toBeVisible();
   await expect(panel.getByRole('button', { name: '导入文件夹', exact: true })).toBeVisible();
@@ -649,7 +646,7 @@ test('意图卡片：runAgent 返回低置信 intent → 卡片渲染、点击�
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
   await page.addInitScript(installWeaveMDMock, {
-    backend: 'ollama',
+    backend: 'remote',
     consented: true,
     agentResult: { intentCard: true },
   });
@@ -672,33 +669,6 @@ test('意图卡片：runAgent 返回低置信 intent → 卡片渲染、点击�
   await panel.getByText('知识库问答', { exact: true }).last().click();
   await expect(
     panel.getByText('请在知识库中检索并作答。')
-  ).toBeVisible({ timeout: 5000 });
-  expect(errors.length).toBe(0);
-});
-
-test('后端降级：runAgent 返回 agentBackendHint → 提示条渲染', async ({ page }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (err) => errors.push(String(err)));
-  await page.addInitScript(installWeaveMDMock, {
-    backend: 'ollama',
-    consented: true,
-    agentResult: { backendHint: 'Agent 能力需远程后端，当前为纯生成模式' },
-  });
-  await page.goto('/');
-  await page.waitForSelector('header');
-  await page.getByTitle('AI').click();
-  await page.waitForTimeout(300);
-  const panel = aiPanel(page);
-
-  // 切到 智能体 模式（B3 下拉）
-  await switchMode(page, 'agent');
-  const textarea = panel.locator('textarea').first();
-  await textarea.fill('普通对话');
-  await panel.getByText('发送', { exact: true }).click();
-
-  // 降级提示条渲染（runAgent 返回 agentBackendHint）
-  await expect(
-    panel.getByText('Agent 能力需远程后端，当前为纯生成模式')
   ).toBeVisible({ timeout: 5000 });
   expect(errors.length).toBe(0);
 });
@@ -783,7 +753,7 @@ test('改写闭环：选区选中 → FloatingToolbar AI 改写 → 面板 compo
   page.on('pageerror', (err) => errors.push(String(err)));
   // seedContent：新建文档即含文本，undo 栈干净（openFile 重置），确保「一次撤销」只回退改写自身
   await page.addInitScript(installWeaveMDMock, {
-    backend: 'ollama',
+    backend: 'remote',
     consented: true,
     seedContent: 'hello world',
   });
@@ -836,7 +806,7 @@ test('面板 @ 兜底：Agent composer @+描述 → document scope 预览卡 →
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
   await page.addInitScript(installWeaveMDMock, {
-    backend: 'ollama',
+    backend: 'remote',
     consented: true,
     seedContent: '第一段内容',
   });
@@ -868,7 +838,7 @@ test('stale 拒绝：预览卡出现后改文档 → 应用被拒（文档已变
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
   await page.addInitScript(installWeaveMDMock, {
-    backend: 'ollama',
+    backend: 'remote',
     consented: true,
     seedContent: 'hello world',
   });
@@ -909,7 +879,7 @@ test('unchanged：mock 改写结果与原文相同 → 提示「无变化」，�
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
   await page.addInitScript(installWeaveMDMock, {
-    backend: 'ollama',
+    backend: 'remote',
     consented: true,
     seedContent: 'hello world',
     // 改写返回与选中原文完全一致 → 渲染侧比较 unchanged=true
@@ -989,7 +959,7 @@ test('A4 回归：含列表文档跨块选区改写 → 仅替换选中区间（
   // seedContent：列表两叶 + 区间外正文一叶（markdownToState 叶序 [item-a, item-b, outside]）
   const seed = '- item-a\n\n- item-b\n\noutside';
   await page.addInitScript(installWeaveMDMock, {
-    backend: 'ollama',
+    backend: 'remote',
     consented: true,
     seedContent: seed,
     rewrite: { selectionText: '改写块' },
@@ -1056,7 +1026,7 @@ test('A1c 从0到1写整篇：空文档 composer 触发 → 预览卡 → 应用
   const doc = '# 关于 AI\n\n这是一篇 AI 生成的整篇文档。';
   // 空文档打开（seedContent 默认 ''）；documentText = AI 产整篇 markdown（空 numberedBlocks 协议）
   await page.addInitScript(installWeaveMDMock, {
-    backend: 'ollama',
+    backend: 'remote',
     consented: true,
     rewrite: { documentText: doc },
   });
@@ -1095,7 +1065,7 @@ test('A1c 未打开文档 + 整篇写诉求 → 引导提示，不产生空写',
   page.on('pageerror', (err) => errors.push(String(err)));
   // 不打开任何编辑器文档
   await page.addInitScript(installWeaveMDMock, {
-    backend: 'ollama',
+    backend: 'remote',
     consented: true,
   });
   await page.goto('/');
@@ -1125,7 +1095,7 @@ test('A2 混合语法类型：跨块选中标题+正文 → 工具栏含「AI �
   page.on('pageerror', (err) => errors.push(String(err)));
   const seed = '# 大标题\n\n正文段落';
   await page.addInitScript(installWeaveMDMock, {
-    backend: 'ollama',
+    backend: 'remote',
     consented: true,
     seedContent: seed,
   });
@@ -1171,7 +1141,7 @@ test('A3 选区保持：点 AI 改写 → 编辑器内 .rewrite-highlight 高亮
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
   await page.addInitScript(installWeaveMDMock, {
-    backend: 'ollama',
+    backend: 'remote',
     consented: true,
     seedContent: 'hello world',
     rewrite: { selectionText: '改写后内容' },
@@ -1227,7 +1197,7 @@ test('B1 @ 补全：输入 @ → 弹出引用菜单（当前文档/知识库）�
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
   await page.addInitScript(installWeaveMDMock, {
-    backend: 'ollama',
+    backend: 'remote',
     consented: true,
     seedContent: '第一段内容',
     rewrite: { documentText: '[{"block_index":0,"new_content":"改写后 document"}]' },
@@ -1278,7 +1248,7 @@ test('B1 / 补全：输入 / → 弹出技能清单（mock listSkills），选�
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
   await page.addInitScript(installWeaveMDMock, {
-    backend: 'ollama',
+    backend: 'remote',
     consented: true,
     seedContent: '内容',
   });
@@ -1337,7 +1307,8 @@ test('B3 单面板：无 Chat/Agent 双 Tab按钮，头部有模式下拉（对�
 test('B3 模式切换：chat ↔ agent 时 mode 下拉生效、消息同一会话内累积', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
-  await bootAiPanel(page);
+  // 唯一后端 remote：已同意联网才放行发送（chat/agent 消息链路无 ollama 免同意路径）
+  await bootAiPanel(page, { consented: true });
   const panel = aiPanel(page);
   const select = panel.getByTestId('ai-mode-select');
 
@@ -1432,7 +1403,8 @@ test('三视图：默认 home 视图 + [+] 新建会话进入 session，标题�
 test('首条消息 → 会话标题=首条问题；回 home 后 RECENT 显示该标题', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
-  await page.addInitScript(installWeaveMDMock, {});
+  // 唯一后端 remote：已同意联网才放行发送
+  await page.addInitScript(installWeaveMDMock, { backend: 'remote', consented: true });
   await page.goto('/');
   await page.waitForSelector('header');
   await page.getByTitle('AI').click();
@@ -1544,7 +1516,7 @@ test('改写失败条出现 ✕ 可关闭（dismissRewriteBanner）', async ({ p
   // 「无变化」路径：rewritePreview 返回与原文相同 → rewriteError='no-change'、pendingRewrite=null
   // → 渲染无提案提示条（含 ✕ dismiss），点 ✕ → dismissRewriteBanner 清除。
   await page.addInitScript(installWeaveMDMock, {
-    backend: 'ollama',
+    backend: 'remote',
     consented: true,
     seedContent: 'hello world',
     rewrite: { selectionText: 'hello world' }, // 与原文相同 → 无变化提示条
@@ -1575,5 +1547,188 @@ test('改写失败条出现 ✕ 可关闭（dismissRewriteBanner）', async ({ p
   await panel.getByRole('button', { name: '关闭' }).click();
   await page.waitForTimeout(200);
   await expect(panel.getByText('改写结果与原文相同，无变化', { exact: true })).toBeHidden();
+  expect(errors.length).toBe(0);
+});
+
+// ============================================================
+// ai-panel-ux-optimize：验收 E2E —— ① 整块渐变高亮 + 取消胶囊 / ② 草稿跨视图 /
+// ④ provider 状态 + 断开 / ③ 无 ollama 回归。mock 全本地不上网（唯一后端 remote）。
+// ============================================================
+
+// —— ① 取消胶囊：整块渐变高亮 + 左缘取消胶囊 + 点击清高亮（selectionContext 清空）——
+test('① 整块高亮+取消：选区生成渐变高亮与取消胶囊，点取消 → 高亮消失、改写状态重置', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'remote',
+    consented: true,
+    seedContent: 'hello world',
+    rewrite: { selectionText: '改写后内容' },
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await openEditor(page);
+  const editable = page.locator('span.block-content[contenteditable="true"]').first();
+  await expect(editable).toHaveText('hello world');
+
+  const panel = await openAgentPanel(page);
+
+  // 选区选中整段 → 浮动工具栏「AI 改写」→ 触发整块渐变高亮 + 取消胶囊
+  await selectTextRange(page, 0, 11);
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="AI 改写"]').click();
+  await page.waitForTimeout(300);
+
+  // A1/A2：整块渐变蓝高亮出现（background 为 linear-gradient，纯 CSS overlay 不入 contentEditable）
+  const highlight = panel.page().locator('.rewrite-highlight');
+  await expect(highlight.first()).toBeVisible({ timeout: 5000 });
+  const gradient = await highlight.first().evaluate((el) =>
+    getComputedStyle(el).backgroundImage
+  );
+  expect(gradient).toContain('linear-gradient');
+
+  // A3：取消胶囊渲染（首个高亮块左缘上方），始终可见
+  const capsule = panel.page().locator('.rewrite-cancel-capsule');
+  await expect(capsule).toBeVisible({ timeout: 5000 });
+  await expect(capsule.getByText('取消', { exact: true })).toBeVisible();
+
+  // 高亮为整块（覆盖首个内容块），胶囊定位在首个高亮块左缘附近：left 与高亮 left 偏差在胶囊宽度内
+  const hlBox = (await highlight.first().boundingBox()) ?? { x: 0 };
+  const capBox = (await capsule.boundingBox()) ?? { x: -1 };
+  expect(Math.abs((capBox.x ?? -1) - (hlBox.x ?? 0))).toBeLessThan(40);
+
+  // 点「取消」→ 高亮消失、胶囊消失（clearRewrite → selectionContext 清空）
+  await capsule.getByText('取消', { exact: true }).click();
+  await page.waitForTimeout(300);
+  await expect(panel.page().locator('.rewrite-highlight')).toHaveCount(0);
+  await expect(panel.page().locator('.rewrite-cancel-capsule')).toHaveCount(0);
+  // 编辑器内容未被高亮写入（往返不变式，文本无改动）
+  await expect(editable).toHaveText('hello world');
+  expect(errors.length).toBe(0);
+});
+
+// —— ② composer 草稿跨视图保留：输入 → ⚙ 设置 → 返回 → 输入仍在；发送后清空 ——
+test('② 草稿跨视图：composer 输入 → 切设置 → 返回输入仍在；发送后清空', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'remote',
+    consented: true,
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await page.getByTitle('AI').click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+
+  const composer = panel.locator('textarea').first();
+  await composer.fill('跨视图草稿文本');
+
+  // 切到 ⚙ 设置视图 → 再返回 home → composer 草稿仍在（B2：视图切换不丢）
+  await panel.getByTestId('open-settings-btn').click();
+  await page.waitForTimeout(300);
+  await expect(panel.getByTestId('settings-back')).toBeVisible();
+  await panel.getByTestId('settings-back').click();
+  await page.waitForTimeout(300);
+  await expect(composer).toHaveValue('跨视图草稿文本');
+
+  // home ↔ session 视图切换同样保留（home composer 发送前先在 session 侧确认草稿不透传丢失）
+  await panel.getByTestId('new-chat-btn').click();
+  await page.waitForTimeout(300);
+  // 注意：newChat 语义为「新建会话」→ 清空草稿（B3）。此断言验证清空即新建，与需求一致
+  await expect(composer).toHaveValue('');
+  expect(errors.length).toBe(0);
+});
+
+// —— ② 草稿发送后清空 ——
+test('② 草稿发送后清空：composer 输入发送 → 草稿归零', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, { backend: 'remote', consented: true });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await page.getByTitle('AI').click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+
+  const composer = panel.locator('textarea').first();
+  await composer.fill('发送后要被清空的草稿');
+  await panel.getByText('发送', { exact: true }).click();
+  await expect(panel.getByText('你好，我是 mock AI。你说的是：发送后要被清空的草稿')).toBeVisible({
+    timeout: 5000,
+  });
+  // B3：发送成功 → 草稿清空
+  await expect(composer).toHaveValue('');
+  expect(errors.length).toBe(0);
+});
+
+// —— ④ provider 状态 + 断开：设置页「已连接」→ 断开 →「未配置 API key，AI 不可用」→ 重填恢复 ——
+test('④ provider 状态+断开：设置页显示已连接 → 断开 → 未配置 AI 不可用 → 重填 key 恢复', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'remote',
+    consented: true,
+    hasApiKey: true,
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await page.getByTitle('AI').click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+
+  // 进入设置（默认模型 tab，ModelForm 渲染 provider 状态行）
+  await panel.getByTestId('open-settings-btn').click();
+  await page.waitForTimeout(300);
+  await expect(panel.getByTestId('settings-tab-model')).toBeVisible();
+
+  // D1/D4：初始为「已连接：远程 API」（hasApiKey=true）
+  await expect(panel.getByText(/已连接/)).toBeVisible({ timeout: 5000 });
+
+  // 点「断开连接」→ 清 key → 状态变「未配置 API key，AI 不可用」
+  await panel.getByTestId('provider-disconnect').click();
+  await page.waitForTimeout(300);
+  await expect(panel.getByText('未配置 API key，AI 不可用', { exact: true })).toBeVisible();
+
+  // D2/D3：重填 key 保存 → 状态恢复「已连接」（ModelForm 进入设置时经 getConfig 刷新，故回 home 再进设置验证）
+  const apiKeyInput = panel.locator('input[placeholder="sk-..."]');
+  await apiKeyInput.fill('sk-reconnected-key');
+  await panel.getByTestId('model-form-save').click();
+  await page.waitForTimeout(400);
+  // 回 home → 重新进入设置 → 刷新 getConfig → hasApiKey=true → 恢复「已连接」
+  await panel.getByTestId('settings-back').click();
+  await page.waitForTimeout(300);
+  await panel.getByTestId('open-settings-btn').click();
+  await page.waitForTimeout(300);
+  await expect(panel.getByText(/已连接/)).toBeVisible({ timeout: 5000 });
+  expect(errors.length).toBe(0);
+});
+
+// —— ③ 无 ollama 回归：设置页无 Ollama 选项/字段；后端固定 remote ——
+test('③ 无 ollama 回归：设置页无 Ollama 选项/字段（后端固定 remote）', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, { backend: 'remote', consented: true });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await page.getByTitle('AI').click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+
+  await panel.getByTestId('open-settings-btn').click();
+  await page.waitForTimeout(300);
+  await expect(panel.getByTestId('settings-tab-model')).toBeVisible();
+
+  // C4：无任何 Ollama / localhost:11434 选项或字段
+  await expect(panel.getByText(/ollama/i)).toHaveCount(0);
+  await expect(panel.getByText(/11434/i)).toHaveCount(0);
+  // 后端固定远程 API：设置表单可见「后端」标签且无「后端切换器」元素（ModelForm 直接渲染 provider 状态行）
+  await expect(panel.getByText('后端', { exact: true })).toBeVisible();
   expect(errors.length).toBe(0);
 });

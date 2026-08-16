@@ -1,13 +1,15 @@
 // ============================================
 // WeaveMD — 设置·模型表单（从 SettingsModal ai Tab 整体迁入，M3）
 // ============================================
-// 后端选择 / ollama 地址 / remote 地址 / 模型 ID / API 密钥(hasApiKey) /
-// 同意开关(allowNetwork+allowSend) / KB 检索参数(topK/fuse/threshold/pinnedWeight/embedding host+model)。
-// 保存行为与现状一致：setConfig（key 内部 safeStorage 加密，不落渲染）+ setConsent + setKbSettings。
-// 打开/保持时经 ai.getConfig/getConsent 拉取当前配置。无 dangerouslySetInnerHTML、无 any。
+// remote 地址 / 模型 ID / API 密钥(hasApiKey) / ④当前提供商状态与断开连接 /
+// 同意开关(allowNetwork+allowSend) / KB 检索参数(topK/fuse/threshold/pinnedWeight)。
+// 唯一后端为 remote。保存行为与现状一致：setConfig（key 内部 safeStorage 加密，不落渲染）+
+// setConsent + setKbSettings。打开/保持时经 ai.getConfig/getConsent 拉取当前配置。
+// 断开连接（④）：清 key 即断开，setConfig({apiKey:''}) → hasApiKey=false → 状态行显示「未配置」。
+// 无 dangerouslySetInnerHTML、无 any。
 
 import React, { useEffect, useState } from 'react';
-import type { ChatBackend, IKbSettings } from '@shared/ai';
+import type { IKbSettings } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
 import { useAgentStore } from '@render/stores/agentStore';
@@ -23,10 +25,9 @@ const ModelForm: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const kbSettings = useAgentStore((s) => s.kbSettings);
   const kbSettingsSaveState = useAgentStore((s) => s.kbSettingsSaveState);
+  const storeConfig = useAgentStore((s) => s.config);
 
   // —— AI 配置表单（内存态草稿，Save 时写回落盘） ——
-  const [aiBackend, setAiBackend] = useState<ChatBackend>('ollama');
-  const [aiOllamaBaseUrl, setAiOllamaBaseUrl] = useState('http://localhost:11434');
   const [aiRemoteBaseUrl, setAiRemoteBaseUrl] = useState('https://api.deepseek.com');
   const [aiModel, setAiModel] = useState('');
   const [aiApiKey, setAiApiKey] = useState('');
@@ -41,8 +42,6 @@ const ModelForm: React.FC = () => {
   const [kbFuse, setKbFuse] = useState<number>(kbSettings.fuse);
   const [kbThreshold, setKbThreshold] = useState<number>(kbSettings.threshold);
   const [kbPinnedWeight, setKbPinnedWeight] = useState<number>(kbSettings.pinnedWeight);
-  const [kbEmbeddingHost, setKbEmbeddingHost] = useState<string>(kbSettings.embeddingHost);
-  const [kbEmbeddingModel, setKbEmbeddingModel] = useState<string>(kbSettings.embeddingModel);
 
   // 进入时加载配置与同意记录（不落明文 key）；KB 草稿从 agentStore.kbSettings 内存态拉取
   useEffect(() => {
@@ -54,8 +53,6 @@ const ModelForm: React.FC = () => {
       .then(([cfgRes, consentRes]) => {
         if (cancelled) return;
         if (cfgRes.success && cfgRes.data) {
-          setAiBackend(cfgRes.data.backend);
-          setAiOllamaBaseUrl(cfgRes.data.ollamaBaseUrl);
           setAiRemoteBaseUrl(cfgRes.data.remoteBaseUrl);
           setAiModel(cfgRes.data.model);
           setAiHasApiKey(cfgRes.data.hasApiKey);
@@ -78,8 +75,6 @@ const ModelForm: React.FC = () => {
     setKbFuse(kbSettings.fuse);
     setKbThreshold(kbSettings.threshold);
     setKbPinnedWeight(kbSettings.pinnedWeight);
-    setKbEmbeddingHost(kbSettings.embeddingHost);
-    setKbEmbeddingModel(kbSettings.embeddingModel);
   }, [kbSettings]);
 
   const handleSave = async () => {
@@ -90,8 +85,6 @@ const ModelForm: React.FC = () => {
       fuse: clampNum(kbFuse, 0, 1, 0.5),
       threshold: clampNum(kbThreshold, 0, 1, 0.6),
       pinnedWeight: clampNum(kbPinnedWeight, 0.1, 10, 1.5),
-      embeddingHost: kbEmbeddingHost.trim() || 'http://localhost:11434',
-      embeddingModel: kbEmbeddingModel.trim() || 'nomic-embed-text',
     };
     await useAgentStore.getState().setKbSettings(next);
 
@@ -102,19 +95,22 @@ const ModelForm: React.FC = () => {
         const ai = window.weaveMD?.ai;
         if (ai) {
           const cfg: {
-            backend: ChatBackend;
-            ollamaBaseUrl: string;
+            backend: 'remote';
             remoteBaseUrl: string;
             model: string;
             apiKey?: string;
           } = {
-            backend: aiBackend,
-            ollamaBaseUrl: aiOllamaBaseUrl,
+            backend: 'remote',
             remoteBaseUrl: aiRemoteBaseUrl,
             model: aiModel,
           };
           if (aiApiKey.trim()) cfg.apiKey = aiApiKey.trim();
-          await ai.setConfig(user.id, cfg);
+          const res = await ai.setConfig(user.id, cfg);
+          // ④ 同步最新 provider 状态（含重填 key 后的连接恢复），避免 store/local 状态陈旧
+          if (res.success && res.data) {
+            setAiHasApiKey(res.data.hasApiKey);
+            useAgentStore.setState({ config: res.data });
+          }
           await ai.setConsent(user.id, {
             allowNetwork: aiAllowNetwork,
             allowSend: aiAllowSend,
@@ -130,68 +126,54 @@ const ModelForm: React.FC = () => {
     }
   };
 
+  // ④ 断开连接：清 key 即断开（setConfig({apiKey:''}) → hasApiKey=false），并同步 store 状态
+  const handleDisconnect = async () => {
+    if (!user) return;
+    const ai = window.weaveMD?.ai;
+    if (!ai) return;
+    try {
+      const res = await ai.setConfig(user.id, { apiKey: '' });
+      if (res.success && res.data) {
+        setAiHasApiKey(false);
+        setAiApiKey('');
+        useAgentStore.setState({ config: res.data });
+      }
+    } catch {
+      // 断开失败静默（主进程侧错误），不阻断 UI
+    }
+  };
+
+  // ④ 提供商状态数据源：优先读 agentStore.config（store init 拉取），本地 aiHasApiKey 兜底（表单独立加载）
+  // —— 避免脏读：断开后本地同步置 false，store.config 由 handleDisconnect 回写，两者一致
+  const effectiveHasApiKey = storeConfig?.hasApiKey ?? aiHasApiKey;
+  const effectiveRemoteBaseUrl = storeConfig?.remoteBaseUrl || aiRemoteBaseUrl;
+  const providerConnected = effectiveHasApiKey;
+  const remoteHost = (() => {
+    try {
+      return new URL(effectiveRemoteBaseUrl).host || '';
+    } catch {
+      return '';
+    }
+  })();
+
   return (
     <div className="space-y-5">
-      {/* 后端选择 */}
-      <div>
-        <label className="text-sm text-[var(--text-primary)] font-medium mb-2 block">
-          {t('ai.settings.backend')}
-        </label>
-        <div className="space-y-1">
-          <label className="flex items-center gap-3 px-3 py-2 rounded-input hover:bg-[var(--bg-tertiary)] cursor-pointer transition-colors">
-            <input
-              type="radio"
-              name="ai-backend"
-              value="ollama"
-              checked={aiBackend === 'ollama'}
-              onChange={() => setAiBackend('ollama')}
-              className="accent-[#7C3AED]"
-            />
-            <span className="text-sm text-[var(--text-sub)]">{t('ai.settings.backend.ollama')}</span>
-          </label>
-          <label className="flex items-center gap-3 px-3 py-2 rounded-input hover:bg-[var(--bg-tertiary)] cursor-pointer transition-colors">
-            <input
-              type="radio"
-              name="ai-backend"
-              value="remote"
-              checked={aiBackend === 'remote'}
-              onChange={() => setAiBackend('remote')}
-              className="accent-[#7C3AED]"
-            />
-            <span className="text-sm text-[var(--text-sub)]">{t('ai.settings.backend.remote')}</span>
-          </label>
-        </div>
-      </div>
-
-      {/* Ollama base URL */}
-      <div>
-        <label className="text-sm text-[var(--text-primary)] font-medium mb-1.5 block">
-          {t('ai.settings.ollamaBaseUrl')}
-        </label>
-        <input
-          type="text"
-          value={aiOllamaBaseUrl}
-          onChange={(e) => setAiOllamaBaseUrl(e.target.value)}
-          className="w-full border rounded-input px-3 py-2 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
-        />
-      </div>
-
       {/* Remote base URL */}
       <div>
-        <label className="text-sm text-[var(--text-primary)] font-medium mb-1.5 block">
+        <label className="text-[15px] text-[var(--text-primary)] font-medium mb-1.5 block">
           {t('ai.settings.remoteBaseUrl')}
         </label>
         <input
           type="text"
           value={aiRemoteBaseUrl}
           onChange={(e) => setAiRemoteBaseUrl(e.target.value)}
-          className="w-full border rounded-input px-3 py-2 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+          className="w-full border rounded-input px-3 py-2 text-[15px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
         />
       </div>
 
       {/* Model id */}
       <div>
-        <label className="text-sm text-[var(--text-primary)] font-medium mb-1.5 block">
+        <label className="text-[15px] text-[var(--text-primary)] font-medium mb-1.5 block">
           {t('ai.settings.model')}
         </label>
         <input
@@ -199,18 +181,18 @@ const ModelForm: React.FC = () => {
           value={aiModel}
           onChange={(e) => setAiModel(e.target.value)}
           placeholder="e.g. qwen3.5 / deepseek-chat"
-          className="w-full border rounded-input px-3 py-2 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+          className="w-full border rounded-input px-3 py-2 text-[15px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
         />
       </div>
 
       {/* API key */}
       <div>
         <div className="flex items-center justify-between mb-1.5">
-          <label className="text-sm text-[var(--text-primary)] font-medium">
+          <label className="text-[15px] text-[var(--text-primary)] font-medium">
             {t('ai.settings.apiKey')}
           </label>
           {aiHasApiKey && (
-            <span className="text-xs text-[var(--text-muted)]">{t('ai.settings.apiKeySet')}</span>
+            <span className="text-[13px] text-[var(--text-muted)]">{t('ai.settings.apiKeySet')}</span>
           )}
         </div>
         <input
@@ -219,14 +201,45 @@ const ModelForm: React.FC = () => {
           onChange={(e) => setAiApiKey(e.target.value)}
           placeholder="sk-..."
           autoComplete="off"
-          className="w-full border rounded-input px-3 py-2 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+          className="w-full border rounded-input px-3 py-2 text-[15px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
         />
-        <p className="text-xs text-[var(--text-muted)] mt-1">{t('ai.security.weakKeyring')}</p>
+        <p className="text-[13px] text-[var(--text-muted)] mt-1">{t('ai.security.weakKeyring')}</p>
+      </div>
+
+      {/* ④ 当前提供商状态与断开连接：清 key 即断开 → hasApiKey=false → 显示「未配置」 */}
+      <div>
+        <label className="text-[15px] text-[var(--text-primary)] font-medium mb-1.5 block">
+          {t('ai.settings.backend')}
+        </label>
+        {providerConnected ? (
+          <div className="flex items-center justify-between gap-2 rounded-input border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2">
+            <span className="text-[15px] text-green-500">
+              {remoteHost
+                ? `${t('ai.settings.provider.connected')} · ${remoteHost}`
+                : t('ai.settings.provider.connected')}
+            </span>
+            <button
+              type="button"
+              data-testid="provider-disconnect"
+              onClick={() => void handleDisconnect()}
+              className="text-[13px] px-2 py-1 rounded-input border border-[var(--border-color)] text-[var(--text-primary)] hover:border-red-400 hover:text-red-400 transition-colors"
+            >
+              {t('ai.settings.disconnect')}
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <span className="text-[15px] text-[var(--text-muted)]">
+              {t('ai.settings.provider.disconnected')}
+            </span>
+            <span className="text-[13px] text-[var(--text-muted)]">{t('ai.settings.reconnect')}</span>
+          </div>
+        )}
       </div>
 
       {/* 同意开关 */}
       <div>
-        <label className="text-sm text-[var(--text-primary)] font-medium mb-2 block">
+        <label className="text-[15px] text-[var(--text-primary)] font-medium mb-2 block">
           {t('ai.settings.allowNetwork')}
         </label>
         <div className="space-y-2">
@@ -237,7 +250,7 @@ const ModelForm: React.FC = () => {
               onChange={(e) => setAiAllowNetwork(e.target.checked)}
               className="accent-[#7C3AED]"
             />
-            <span className="text-sm text-[var(--text-sub)]">{t('ai.settings.allowNetwork')}</span>
+            <span className="text-[15px] text-[var(--text-sub)]">{t('ai.settings.allowNetwork')}</span>
           </label>
           <label className="flex items-center gap-3 px-3 py-2 rounded-input hover:bg-[var(--bg-tertiary)] cursor-pointer transition-colors">
             <input
@@ -246,7 +259,7 @@ const ModelForm: React.FC = () => {
               onChange={(e) => setAiAllowSend(e.target.checked)}
               className="accent-[#7C3AED]"
             />
-            <span className="text-sm text-[var(--text-sub)]">{t('ai.settings.allowSend')}</span>
+            <span className="text-[15px] text-[var(--text-sub)]">{t('ai.settings.allowSend')}</span>
           </label>
         </div>
       </div>
@@ -254,15 +267,15 @@ const ModelForm: React.FC = () => {
       {/* KB（Agent 知识库）参数区 —— 仅 Agent 知识库问答生效 */}
       <div className="border-t border-[var(--border-color)] pt-4">
         <div className="flex items-center justify-between mb-1.5">
-          <label className="text-sm text-[var(--text-primary)] font-medium">
+          <label className="text-[15px] text-[var(--text-primary)] font-medium">
             {t('ai.settings.kb.title')}
           </label>
         </div>
-        <p className="text-xs text-[var(--text-muted)] mb-3">{t('ai.settings.kb.hint')}</p>
+        <p className="text-[13px] text-[var(--text-muted)] mb-3">{t('ai.settings.kb.hint')}</p>
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-[var(--text-primary)] font-medium mb-1 block">
+            <label className="text-[13px] text-[var(--text-primary)] font-medium mb-1 block">
               {t('ai.settings.kb.topK')}
             </label>
             <input
@@ -272,11 +285,11 @@ const ModelForm: React.FC = () => {
               step={1}
               value={Number.isFinite(kbTopK) ? kbTopK : 5}
               onChange={(e) => setKbTopK(e.currentTarget.valueAsNumber)}
-              className="w-full border rounded-input px-3 py-1.5 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+              className="w-full border rounded-input px-3 py-1.5 text-[15px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
             />
           </div>
           <div>
-            <label className="text-xs text-[var(--text-primary)] font-medium mb-1 block">
+            <label className="text-[13px] text-[var(--text-primary)] font-medium mb-1 block">
               {t('ai.settings.kb.fuse')}
             </label>
             <input
@@ -286,11 +299,11 @@ const ModelForm: React.FC = () => {
               step={0.05}
               value={Number.isFinite(kbFuse) ? kbFuse : 0.5}
               onChange={(e) => setKbFuse(e.currentTarget.valueAsNumber)}
-              className="w-full border rounded-input px-3 py-1.5 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+              className="w-full border rounded-input px-3 py-1.5 text-[15px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
             />
           </div>
           <div>
-            <label className="text-xs text-[var(--text-primary)] font-medium mb-1 block">
+            <label className="text-[13px] text-[var(--text-primary)] font-medium mb-1 block">
               {t('ai.settings.kb.threshold')}
             </label>
             <input
@@ -300,11 +313,11 @@ const ModelForm: React.FC = () => {
               step={0.05}
               value={Number.isFinite(kbThreshold) ? kbThreshold : 0.6}
               onChange={(e) => setKbThreshold(e.currentTarget.valueAsNumber)}
-              className="w-full border rounded-input px-3 py-1.5 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+              className="w-full border rounded-input px-3 py-1.5 text-[15px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
             />
           </div>
           <div>
-            <label className="text-xs text-[var(--text-primary)] font-medium mb-1 block">
+            <label className="text-[13px] text-[var(--text-primary)] font-medium mb-1 block">
               {t('ai.settings.kb.pinnedWeight')}
             </label>
             <input
@@ -314,49 +327,24 @@ const ModelForm: React.FC = () => {
               step={0.1}
               value={Number.isFinite(kbPinnedWeight) ? kbPinnedWeight : 1.5}
               onChange={(e) => setKbPinnedWeight(e.currentTarget.valueAsNumber)}
-              className="w-full border rounded-input px-3 py-1.5 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+              className="w-full border rounded-input px-3 py-1.5 text-[15px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
             />
           </div>
-        </div>
-
-        <div className="mt-3">
-          <label className="text-xs text-[var(--text-primary)] font-medium mb-1 block">
-            {t('ai.settings.kb.embeddingHost')}
-          </label>
-          <input
-            type="text"
-            value={kbEmbeddingHost}
-            onChange={(e) => setKbEmbeddingHost(e.target.value)}
-            placeholder="http://localhost:11434"
-            className="w-full border rounded-input px-3 py-1.5 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
-          />
-        </div>
-        <div className="mt-3">
-          <label className="text-xs text-[var(--text-primary)] font-medium mb-1 block">
-            {t('ai.settings.kb.embeddingModel')}
-          </label>
-          <input
-            type="text"
-            value={kbEmbeddingModel}
-            onChange={(e) => setKbEmbeddingModel(e.target.value)}
-            placeholder="nomic-embed-text"
-            className="w-full border rounded-input px-3 py-1.5 text-sm outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
-          />
         </div>
       </div>
 
       {/* 保存状态提示 */}
       <div className="flex items-center gap-3">
-        {aiLoading && <p className="text-xs text-[var(--text-muted)]">Saving...</p>}
-        {saved && <p className="text-xs text-green-500">{t('settings.save')}</p>}
+        {aiLoading && <p className="text-[13px] text-[var(--text-muted)]">Saving...</p>}
+        {saved && <p className="text-[13px] text-green-500">{t('settings.save')}</p>}
         {kbSettingsSaveState === 'saving' && (
-          <p className="text-xs text-[var(--text-muted)]">{t('ai.settings.kb.saving')}</p>
+          <p className="text-[13px] text-[var(--text-muted)]">{t('ai.settings.kb.saving')}</p>
         )}
         {kbSettingsSaveState === 'saved' && (
-          <p className="text-xs text-[var(--text-muted)]">{t('ai.settings.kb.saved')}</p>
+          <p className="text-[13px] text-[var(--text-muted)]">{t('ai.settings.kb.saved')}</p>
         )}
         {kbSettingsSaveState === 'error' && (
-          <p className="text-xs text-red-400">{t('ai.settings.kb.saveFailed')}</p>
+          <p className="text-[13px] text-red-400">{t('ai.settings.kb.saveFailed')}</p>
         )}
       </div>
 
@@ -366,7 +354,7 @@ const ModelForm: React.FC = () => {
           data-testid="model-form-save"
           onClick={() => void handleSave()}
           disabled={aiLoading}
-          className="px-3.5 py-1 text-sm rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 transition-opacity"
+          className="px-3.5 py-1 text-[15px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 transition-opacity"
         >
           {t('settings.save')}
         </button>
