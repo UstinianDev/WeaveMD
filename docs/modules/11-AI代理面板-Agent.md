@@ -17,6 +17,8 @@
 
 两条铁律：**① AI 无直接落盘能力**，写路径必经「红删绿增预览 → 用户确认」；**② 联网/笔记外发必须用户知情同意**。
 
+**三视图 UI（2026-08-16 重构）**：面板为 home（主界面：大图标 + RECENT 最近 3 会话，点击进入）/ session（会话标题=第一个问题，标题行 × 关闭；agent 模式复用知识库导入）/ settings（左侧栏 模型·skills·MCP，AI 设置从导航栏设置弹窗迁入模型模块）。composer 底部含 chat/agent 模式下拉 + 模型下拉（`ai.listModels`：ollama `/api/tags`、remote `/models`）。改写失败状态条可 × 关闭。
+
 ## 2. 架构位置
 
 ```
@@ -31,8 +33,12 @@ src/main/ai/                  # AI 主进程服务（第1/2/3/4期已交付）
 ├── toolRegistry.ts           # 内置只读工具注册（listFiles/readFile/searchKB/runSkill + editBlocks 仅产 proposal，第6期 stretch）
 ├── agentLoop.ts              # 函数调用循环（≤6 轮，仅 remote 可靠；ollama 降级纯 chat）
 ├── rewrite.ts                # 改写薄 LLM 代理（第5期：consent 'chat' 闸 + 调 LLM 返回 {text}，零 markdown 解析）
+├── modelList.ts              # ai.listModels（面板模型下拉数据源）：ollama /api/tags、remote /models（Bearer key 主进程）
 └── consent.ts                # 知情同意（联网闸 allowNetwork + KB 外发闸 allowSend）
-src/render/components/AIAgent/   # 面板 UI（已交付）：AIAgentPanel（第7期B3 统一单面板 + 模式下拉，AgentTab 承担双模式）/
+src/render/components/AIAgent/   # 面板 UI（已交付 + 三视图重构）：AIAgentPanel 三视图外壳（home 主界面 RECENT 最近3 /
+                                 #   session 会话 / settings 设置侧栏 模型·skills·MCP，顶部 WeaveMD+新建+⚙+×）/
+                                 #   AIPanelComposer（共享 composer：模式下拉 + ModelDropdown + handleSendAgent 分流）/
+                                 #   AgentTab 精瘦为消息流展示区 / settings/{ModelForm 迁自 SettingsModal ai Tab, SkillsPanel 只读, McpPanel 延期占位} /
                                  #   ToolCallTrace / IntentCard / MarkdownMessage / KnowledgeBaseSettings /
                                  #   ConsentOverlay / RewritePreviewCard（第5期）/ CompletionMenu（第7期B1）
 src/render/editor/rewrite/       # 改写块逻辑（第5期，渲染侧内核所在）：selectionExport.ts（DOM 选区→SelectionRef+片段）/

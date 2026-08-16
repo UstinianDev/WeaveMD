@@ -20,6 +20,7 @@ const RewritePreviewCard: React.FC = () => {
   const staleRejected = useRewriteStore((s) => s.staleRejected);
   const applyRewrite = useRewriteStore((s) => s.applyRewrite);
   const clearRewrite = useRewriteStore((s) => s.clearRewrite);
+  const dismissRewriteBanner = useRewriteStore((s) => s.dismissRewriteBanner);
 
   // 改写进行中
   if (rewriting) {
@@ -30,40 +31,51 @@ const RewritePreviewCard: React.FC = () => {
     );
   }
 
+  // 无提案提示条统一布局：文案 + 末尾 ✕ dismiss（R16）
+  const banner = (content: React.ReactNode, className: string) => (
+    <div
+      className={`px-4 py-2 text-xs ${className} rounded-md flex items-center justify-between gap-2`}
+    >
+      <span>{content}</span>
+      <button
+        type="button"
+        aria-label={t('ai.rewrite.dismiss', '关闭')}
+        onClick={() => dismissRewriteBanner()}
+        className="shrink-0 text-sm leading-none opacity-70 hover:opacity-100 transition-opacity"
+      >
+        ✕
+      </button>
+    </div>
+  );
+
   // 无提案时：错误 / 无变化 / 无法定位提示（短暂状态条）
   if (!pendingRewrite) {
     if (staleRejected) {
-      return (
-        <div className="px-4 py-2 text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded-md">
-          {t('ai.rewrite.staleRejected')}
-        </div>
+      return banner(
+        t('ai.rewrite.staleRejected'),
+        'text-red-500 bg-red-500/10 border border-red-500/20'
       );
     }
     if (rewriteError === 'no-change') {
-      return (
-        <div className="px-4 py-2 text-xs text-text-sub">{t('ai.rewrite.noChange')}</div>
-      );
+      return banner(t('ai.rewrite.noChange'), 'text-text-sub');
     }
     if (rewriteError === 'locate-failed') {
-      return (
-        <div className="px-4 py-2 text-xs text-amber-600 bg-amber-500/10 border border-amber-500/20 rounded-md">
-          {t('ai.rewrite.locateFailed')}
-        </div>
+      return banner(
+        t('ai.rewrite.locateFailed'),
+        'text-amber-600 bg-amber-500/10 border border-amber-500/20'
       );
     }
     if (rewriteError === 'no-document') {
       // A1c：整篇写但未打开文档 → 引导先打开文档，不产生空写
-      return (
-        <div className="px-4 py-2 text-xs text-amber-600 bg-amber-500/10 border border-amber-500/20 rounded-md">
-          {t('ai.rewrite.noDocument')}
-        </div>
+      return banner(
+        t('ai.rewrite.noDocument'),
+        'text-amber-600 bg-amber-500/10 border border-amber-500/20'
       );
     }
     if (rewriteError) {
-      return (
-        <div className="px-4 py-2 text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded-md">
-          {t('ai.rewrite.failure')}
-        </div>
+      return banner(
+        t('ai.rewrite.failure'),
+        'text-red-500 bg-red-500/10 border border-red-500/20'
       );
     }
     return null;

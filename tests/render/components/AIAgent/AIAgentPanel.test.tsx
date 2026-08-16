@@ -1,8 +1,10 @@
 // ============================================
-// WeaveMD — AIAgentPanel 测试（TDD strict，第 7 期批次⑥ B3：单面板 + 模式下拉）
-// 覆盖：面板头部无双 Tab 按钮、有模式下拉；下拉切 chat/agent触发 store 域切换；
-// 关闭回调 / 宽度拖拽把手存在与店宽 clamp / init 触发
+// WeaveMD — AIAgentPanel 三视图外壳测试（M3）
 // ============================================
+// 覆盖：init 触发；顶部栏（+ / ⚙ / ×）；默认 home 视图；+ 建会话进 session；
+// ⚙ 进 settings；settings 返回回原视图；拖拽把手 / clamp；关闭延迟 toggleAIPanel。
+// 模式下拉已移入 AIPanelComposer（见其测试），此处仅校验壳行为。
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import AIAgentPanel from '@render/components/AIAgent/AIAgentPanel';
@@ -10,25 +12,37 @@ import { useAgentStore } from '@render/stores/agentStore';
 import { useUIStore } from '@render/stores/uiStore';
 import { useAuthStore } from '@render/stores/authStore';
 
-// B3：面板统一渲染单个 body（原 AgentTab 承担双模式）；此处 mock 为轻量占位，
-// 便于稳定断言「无 tab / 有下拉 / 切换触发 store 域切换」的壳行为。
-vi.mock('@render/components/AIAgent/AgentTab', () => ({
-  default: () => <div data-testid="mock-body">Body Placeholder</div>,
+// 三视图子组件 mock：稳定断言壳的顶部栏 / 视图切换行为
+vi.mock('@render/components/AIAgent/AIPanelHome', () => ({
+  default: () => <div data-testid="view-home">Home</div>,
+}));
+vi.mock('@render/components/AIAgent/AIPanelSession', () => ({
+  default: () => <div data-testid="view-session">Session</div>,
+}));
+vi.mock('@render/components/AIAgent/AIPanelSettings', () => ({
+  default: () => <div data-testid="view-settings">Settings</div>,
 }));
 
 vi.mock('@render/i18n', () => ({
-  useI18n: () => ({
-    t: (key: string) => `[${key}]`,
-    language: 'zh-CN',
-  }),
+  useI18n: () => {
+    const dict: Record<string, string> = {
+      'ai.newChat': '新建会话',
+      'ai.settings.title': 'AI',
+      'navbar.close': '关闭',
+    };
+    return {
+      t: (key: string, fallback?: string) => dict[key] ?? fallback ?? `[${key}]`,
+      language: 'zh-CN',
+    };
+  },
 }));
 
 const MOCK_USER = { id: 'u1', username: 'tester', createdAt: '', lastLogin: null };
 
-describe('AIAgentPanel (B3 单面板 + 模式下拉)', () => {
+describe('AIAgentPanel（三视图外壳）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useUIStore.setState({ isAIPanelOpen: true, aiPanelWidth: 320 });
+    useUIStore.setState({ isAIPanelOpen: true, aiPanelWidth: 480 });
     useAgentStore.setState({ activeMode: 'chat', activeTab: 'chat', pendingConsent: false });
     useAuthStore.setState({
       user: MOCK_USER,
@@ -48,32 +62,32 @@ describe('AIAgentPanel (B3 单面板 + 模式下拉)', () => {
     expect(initSpy).toHaveBeenCalledWith(MOCK_USER.id);
   });
 
-  it('面板头部不再有 Chat/Agent 双 Tab 按钮（B3 无 Tab 割裂）', () => {
+  it('顶部栏品牌「WeaveMD」+ 新建(+) + 设置(⚙) + 关闭(✕) 存在', () => {
     render(<AIAgentPanel />);
-    // 无「对话」「智能体」按钮（模式改由下拉选择，不复用 tab 按钮）
-    expect(screen.queryByRole('button', { name: '[ai.tab.chat]' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '[ai.tab.agent]' })).toBeNull();
+    expect(screen.getByText('WeaveMD')).toBeInTheDocument();
+    expect(screen.getByTestId('new-chat-btn')).toBeInTheDocument();
+    expect(screen.getByTestId('open-settings-btn')).toBeInTheDocument();
+    expect(screen.getByTestId('close-panel-btn')).toBeInTheDocument();
   });
 
-  it('面板头部存在模式下拉（select，含 对话/智能体 两项）', () => {
+  it('默认显示 home 视图', () => {
     render(<AIAgentPanel />);
-    const select = screen.getByTestId('ai-mode-select');
-    expect(select).toBeInstanceOf(HTMLSelectElement);
-    const options = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
-    expect(options).toEqual(['[ai.tab.chat]', '[ai.tab.agent]']);
+    expect(screen.getByTestId('view-home')).toBeInTheDocument();
+    expect(screen.queryByTestId('view-session')).toBeNull();
   });
 
-  it('下拉切到智能体 → store activeMode 域切换（chat → agent）', () => {
+  it('点 + 新建会话 → 进 session 视图', () => {
     render(<AIAgentPanel />);
-    fireEvent.change(screen.getByTestId('ai-mode-select'), { target: { value: 'agent' } });
-    expect(useAgentStore.getState().activeMode).toBe('agent');
+    fireEvent.click(screen.getByTestId('new-chat-btn'));
+    expect(screen.getByTestId('view-session')).toBeInTheDocument();
+    expect(screen.queryByTestId('view-home')).toBeNull();
   });
 
-  it('下拉切回 对话 → store activeMode 域回切（agent → chat）', () => {
-    useAgentStore.setState({ activeMode: 'agent', activeTab: 'agent' });
+  it('点 ⚙ 设置 → 进 settings 视图（home 隐藏）', () => {
     render(<AIAgentPanel />);
-    fireEvent.change(screen.getByTestId('ai-mode-select'), { target: { value: 'chat' } });
-    expect(useAgentStore.getState().activeMode).toBe('chat');
+    fireEvent.click(screen.getByTestId('open-settings-btn'));
+    expect(screen.getByTestId('view-settings')).toBeInTheDocument();
+    expect(screen.queryByTestId('view-home')).toBeNull();
   });
 
   it('宽度拖拽把手存在（cursor-col-resize）', () => {
@@ -86,7 +100,7 @@ describe('AIAgentPanel (B3 单面板 + 模式下拉)', () => {
     vi.useFakeTimers();
     try {
       render(<AIAgentPanel />);
-      fireEvent.click(screen.getByTitle('[navbar.close]'));
+      fireEvent.click(screen.getByTestId('close-panel-btn'));
       expect(useUIStore.getState().isAIPanelOpen).toBe(true); // 未到 150ms 尚未关闭
       act(() => {
         vi.advanceTimersByTime(160);

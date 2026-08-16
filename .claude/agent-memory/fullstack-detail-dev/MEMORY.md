@@ -10,3 +10,6 @@
 - [高亮叶序定位 A3 + 零宽陷阱](rewrite-highlight-leaf-index-a3.md) — buildHighlightRanges 位置映射/视口-容器坐标/E2E 权威；零宽空格字面量被 eslint 拒、须转义
 - [A1c 整篇写协议](ai-a1c-full-doc-write-protocol.md) — 复用 document scope + 空 numberedBlocks（非新增 scope）；buildRewriteMessages 空数组分支/undefined 抛错
 - [B1 / @ 补全菜单](ai-completion-b1-menu.md) — listSkills IPC 只读+剥离 instructions；CompletionMenu capture 键盘协议；/ 与 @ 前缀优先 WRITE_WHOLE_DOC_RE；挂载异步 skills 需重估
+- [AI 面板重设计 M2 store 改动](ai-redesign-m2-stores.md) — 首条 title/R16 dismiss/面板加宽落点；activeMode 需补解构；store 测试分叉两目录
+- [AI 面板重设计 M3 三视图 UI](ai-redesign-m3-ui.md) — 视图归属/AIComposer 宿主/settings i18n tab 键冲突/vitest setup 需 listModels/SettingsModal ai 测试迁 ModelForm
+- [三视图 E2E 改写要点](ai-redesign-e2e-threeview.md) — 标题=首条消息 strict 冲突/preview 仅 session 渲染需自动切视图/selector 勿链式多订阅(areHookInputsEqual 崩溃)/mock 须持久化 summary+setConfig

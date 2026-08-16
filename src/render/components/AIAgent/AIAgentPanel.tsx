@@ -1,33 +1,43 @@
 // ============================================
-// WeaveMD — AI 代理面板（右侧 dock 容器）
+// WeaveMD — AI 代理面板（三视图容器，M3）
 // ============================================
-// 头部：模式下拉（对话/智能体）切换 + 关闭 ✕（toggleAIPanel）；宽度 aiPanelWidth；
-// 右侧反向拖拽把手（startX - clientX，clamp 260~520，mouseup 持久化）；
-// 统一渲染单个 body（原 AgentTab 承担双模式），模式专属控件随 activeMode 分支；
-// ConsentOverlay 覆盖全面板，不随模式变化。
+// 外壳：顶部栏（左「WeaveMD」；右 [+ 新建会话] [⚙ 设置] [× 关闭 toggleAIPanel]）+
+// view 切换（home/session/settings 互跳）+ 保留左侧反向拖拽把手（clamp 260~520）+
+// ConsentOverlay 覆盖全面板。
+// home → AIPanelHome；session → AIPanelSession；settings → AIPanelSettings。
+// 移除原「标题+模式下拉」头部（模式下拉已移入 AIPanelComposer）。
 
 import React, { useCallback, useState } from 'react';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
 import { useAgentStore } from '@render/stores/agentStore';
 import { useUIStore } from '@render/stores/uiStore';
-import AgentTab from './AgentTab';
+import { useRewriteStore } from '@render/stores/rewriteStore';
+import AIPanelHome from './AIPanelHome';
+import AIPanelSession from './AIPanelSession';
+import AIPanelSettings from './AIPanelSettings';
 import ConsentOverlay from './ConsentOverlay';
+
+type View = 'home' | 'session' | 'settings';
 
 const AIAgentPanel: React.FC = () => {
   const { t } = useI18n();
   const user = useAuthStore((s) => s.user);
 
-  const activeMode = useAgentStore((s) => s.activeMode);
-  const toggleMode = useAgentStore((s) => s.toggleMode);
   const pendingConsent = useAgentStore((s) => s.pendingConsent);
   const setPendingConsent = useAgentStore((s) => s.setPendingConsent);
   const setConsent = useAgentStore((s) => s.setConsent);
   const init = useAgentStore((s) => s.init);
+  const newChat = useAgentStore((s) => s.newChat);
+  const loadConversation = useAgentStore((s) => s.loadConversation);
+  const activeMode = useAgentStore((s) => s.activeMode);
 
   const aiPanelWidth = useUIStore((s) => s.aiPanelWidth);
   const setAIPanelWidth = useUIStore((s) => s.setAIPanelWidth);
   const toggleAIPanel = useUIStore((s) => s.toggleAIPanel);
+
+  // 视图状态（平凡，无须 store）：home 主界面 / session 会话 / settings 设置
+  const [view, setView] = useState<View>('home');
 
   const [isCollapsing, setIsCollapsing] = useState(false);
 
@@ -39,6 +49,21 @@ const AIAgentPanel: React.FC = () => {
     initedRef.current = user.id;
     void init(user.id);
   }, [user, init]);
+
+  // 改写触发（选区「AI 改写」或 @ document scope）→ 预览卡/状态条只在 session 视图渲染，
+  // 故从任意视图（home 为主）自动切到 session，保证校验/预览链路可见。
+  // 覆盖 selectionContext（选区改写模式）、rewriting、pendingRewrite 及错误/拒答提示条。
+  const rewriteActive = useRewriteStore(
+    (s) =>
+      s.selectionContext !== null ||
+      s.pendingRewrite !== null ||
+      s.rewriting ||
+      s.rewriteError !== null ||
+      s.staleRejected
+  );
+  React.useEffect(() => {
+    if (rewriteActive) setView('session');
+  }, [rewriteActive]);
 
   // 反向拖拽：拉宽面板时把手在左侧，clientX 减小 -> 宽度增大
   const handleDragStart = useCallback(
@@ -76,6 +101,67 @@ const AIAgentPanel: React.FC = () => {
     }, 150);
   };
 
+  // + 新建会话：清空当前会话 + 进 session
+  const handleNewChat = () => {
+    newChat();
+    setView('session');
+  };
+
+  // 打开最近会话（home RECENT 点击）→ loadConversation + 进 session
+  const handleOpenConversation = (id: string) => {
+    void loadConversation(id, activeMode);
+    setView('session');
+  };
+
+  // session 标题行 × 关闭当前会话 → newChat + 回 home（R14）
+  const handleCloseConversation = () => {
+    newChat();
+    setView('home');
+  };
+
+  // 顶部栏（home/session 共用；settings 也保留顶部栏以便 ⚙ 返回/关面板）
+  const renderTopBar = (rightExtra: React.ReactNode) => (
+    <div className="flex items-center justify-between gap-2 px-3 h-12 border-b border-border bg-bg-secondary flex-shrink-0">
+      <span className="flex-1 min-w-0 truncate text-sm font-semibold text-text-primary">
+        WeaveMD
+      </span>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          data-testid="new-chat-btn"
+          title={t('ai.newChat')}
+          onClick={handleNewChat}
+          className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-input text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          data-testid="open-settings-btn"
+          title={t('ai.settings.title')}
+          onClick={() => setView('settings')}
+          className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-input transition-colors ${
+            view === 'settings'
+              ? 'bg-[var(--accent)]/15 text-[var(--accent)]'
+              : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
+          }`}
+        >
+          ⚙
+        </button>
+        {rightExtra}
+        <button
+          type="button"
+          data-testid="close-panel-btn"
+          onClick={handleClose}
+          title={t('navbar.close')}
+          className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-input text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <>
       <aside
@@ -84,34 +170,23 @@ const AIAgentPanel: React.FC = () => {
         }`}
         style={{ width: aiPanelWidth }}
       >
-        {/* 头部：面板标题 + 模式下拉 + 关闭 ✕（B3 无 Tab 割裂改用下拉） */}
-        <div className="flex items-center justify-between gap-2 px-3 h-12 border-b border-border bg-bg-secondary">
-          <span className="flex-1 min-w-0 truncate text-sm font-semibold text-text-primary">
-            {t('ai.panelTitle')}
-          </span>
-          <select
-            data-testid="ai-mode-select"
-            value={activeMode}
-            onChange={(e) => toggleMode(e.target.value as 'chat' | 'agent')}
-            aria-label={t('ai.modeSelectLabel')}
-            className="flex-shrink-0 text-xs px-2 py-1 rounded-input bg-bg-secondary border border-border text-text-primary focus:border-[var(--accent)] outline-none cursor-pointer"
-          >
-            <option value="chat">{t('ai.tab.chat')}</option>
-            <option value="agent">{t('ai.tab.agent')}</option>
-          </select>
-          <button
-            type="button"
-            onClick={handleClose}
-            title={t('navbar.close')}
-            className="flex-shrink-0 text-text-muted hover:text-text-primary transition-colors"
-          >
-            ✕
-          </button>
-        </div>
+        {renderTopBar(null)}
 
-        {/* 统一 body（原 AgentTab 承担双模式） */}
+        {/* 视图主体 */}
         <div className="flex-1 flex flex-col min-h-0">
-          <AgentTab />
+          {view === 'home' && (
+            <AIPanelHome
+              onOpenConversation={handleOpenConversation}
+              onViewAll={() => setView('session')}
+              onCreateSession={() => setView('session')}
+            />
+          )}
+          {view === 'session' && (
+            <AIPanelSession onCloseConversation={handleCloseConversation} />
+          )}
+          {view === 'settings' && (
+            <AIPanelSettings onBack={() => setView('home')} />
+          )}
         </div>
 
         {/* 反向拖拽把手：位于面板左侧缘，向右拉 = 变宽 */}
@@ -122,7 +197,7 @@ const AIAgentPanel: React.FC = () => {
         />
       </aside>
 
-      {/* 知情同意弹层（覆盖整个面板，不随模式变化） */}
+      {/* 知情同意弹层（覆盖整个面板，不随视图变化） */}
       <div className="absolute inset-0 z-20 pointer-events-none">
         <ConsentOverlay
           visible={pendingConsent}
@@ -143,4 +218,3 @@ const AIAgentPanel: React.FC = () => {
 };
 
 export default AIAgentPanel;
-

@@ -1,38 +1,34 @@
 // ============================================
-// WeaveMD — SettingsModal 'ai' 分支测试（TDD strict）
-// 覆盖：切到 AI tab 后加载 config/consent；保存后端为 remote 时调用 setConfig/setConsent。
-// 不落明文 key 到渲染进程（ai.load 只读 hasApiKey 布尔）。
+// WeaveMD — ModelForm 测试（M3：自 SettingsModal ai Tab 迁入）
+// 覆盖：加载 config/consent；保存后端为 remote 时调用 setConfig/setConsent。
+// 不落明文 key 到渲染进程（load 只读 hasApiKey 布尔）。等价于原 SettingsModal.ai.test.tsx 断言。
 // ============================================
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { IAIConsent } from '@shared/ai';
-import SettingsModal from '@render/components/Settings/SettingsModal';
+import ModelForm from '@render/components/AIAgent/settings/ModelForm';
 import { useAuthStore } from '@render/stores/authStore';
-import { useUIStore } from '@render/stores/uiStore';
+import { useAgentStore } from '@render/stores/agentStore';
 
 vi.mock('@render/i18n', () => ({
-  useI18n: () => ({ t: (key: string) => `[${key}]`, language: 'zh-CN' }),
-}));
-
-vi.mock('@render/components/Common/Modal', () => ({
-  default: ({ children, footer }: { children?: React.ReactNode; footer?: React.ReactNode }) => (
-    <div data-testid="mock-modal">
-      {children}
-      {footer}
-    </div>
-  ),
-}));
-
-vi.mock('@render/components/Common/Button', () => ({
-  default: ({ children, onClick }: { children?: React.ReactNode; onClick?: () => void }) => (
-    <button type="button" onClick={onClick}>
-      {children}
-    </button>
-  ),
+  useI18n: () => {
+    const dict: Record<string, string> = {
+      'ai.settings.backend': '后端',
+      'ai.settings.backend.ollama': 'Ollama（本地）',
+      'ai.settings.backend.remote': '远程 API',
+      'ai.settings.allowNetwork': '允许联网',
+      'ai.settings.allowSend': '允许将笔记发送给 AI',
+      'settings.save': '保存',
+      'ai.settings.kb.title': '知识库检索（Agent）',
+    };
+    return {
+      t: (key: string, fallback?: string) => dict[key] ?? fallback ?? `[${key}]`,
+      language: 'zh-CN',
+    };
+  },
 }));
 
 const MOCK_USER = { id: 'u1', username: 'tester', createdAt: '', lastLogin: null };
-const onClose = vi.fn();
 
 /** setup.ts 的 window.weaveMD.ai 以 vi.fn 实现；类型层面 cast 为可 mock 形态。 */
 type MockFn = ReturnType<typeof vi.fn>;
@@ -56,7 +52,7 @@ function loadAiMock() {
   });
 }
 
-describe('SettingsModal ai branch', () => {
+describe('ModelForm (AI 配置，迁自 SettingsModal ai Tab)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAuthStore.setState({
@@ -65,48 +61,51 @@ describe('SettingsModal ai branch', () => {
       isAuthenticated: true,
       recentAccounts: [],
     });
-    useUIStore.setState({
-      theme: 'light-header',
-      language: 'zh-CN',
-      activeModal: null,
+    useAgentStore.setState({
+      kbSettings: {
+        topK: 5,
+        fuse: 0.5,
+        threshold: 0.6,
+        pinnedWeight: 1.5,
+        embeddingHost: 'http://localhost:11434',
+        embeddingModel: 'nomic-embed-text',
+      },
+      kbSettingsSaveState: 'idle',
     });
     const ai = aiMock();
-    ai.setConfig.mockResolvedValue({ success: true });
-    ai.setConsent.mockResolvedValue({ success: true });
-    // handleSave 还会写系统 settings，需返回 Promise 才可 .catch
-    (window as unknown as { weaveMD: { settings: { update: MockFn } } }).weaveMD.settings.update.mockResolvedValue(
-      { success: true }
-    );
+    ai.setConfig.mockResolvedValue({ success: true, data: {} });
+    ai.setConsent.mockResolvedValue({ success: true, data: {} });
   });
 
   afterEach(() => {
     cleanup();
   });
 
-  it('切到 AI tab 时加载 config 与 consent 并渲染表单', async () => {
+  it('加载 config 与 consent 并渲染表单字段', async () => {
     loadAiMock();
-    render(<SettingsModal isOpen onClose={onClose} />);
-    fireEvent.click(screen.getByText('[ai.settings.title]'));
-
+    render(<ModelForm />);
     await waitFor(() => {
       expect(aiMock().getConfig).toHaveBeenCalledWith(MOCK_USER.id);
       expect(aiMock().getConsent).toHaveBeenCalledWith(MOCK_USER.id);
     });
-    expect(screen.getByText('[ai.settings.backend.ollama]')).toBeInTheDocument();
-    expect(screen.getByText('[ai.settings.backend.remote]')).toBeInTheDocument();
+    // 后端 radio 已渲染（含 remote 项）
+    expect(screen.getByText('Ollama（本地）')).toBeInTheDocument();
+    expect(screen.getByText('远程 API')).toBeInTheDocument();
+    expect(screen.getByText('知识库检索（Agent）')).toBeInTheDocument();
   });
 
-  it('AI tab 保存：切到 remote 后端，调用 setConfig 传 remote + setConsent 传完整 consent', async () => {
+  it('保存：切到 remote 后端，调用 setConfig 传 remote + setConsent 传完整 consent（不落明文 key）', async () => {
     loadAiMock();
-    render(<SettingsModal isOpen onClose={onClose} />);
-    fireEvent.click(screen.getByText('[ai.settings.title]'));
+    render(<ModelForm />);
     await waitFor(() => expect(aiMock().getConfig).toHaveBeenCalled());
 
-    // 选择 remote 后端并勾选联网
-    fireEvent.click(screen.getByText('[ai.settings.backend.remote]'));
-    fireEvent.click(screen.getByLabelText('[ai.settings.allowNetwork]'));
+    // 选择 remote 后端并勾选「允许联网」
+    fireEvent.click(screen.getByText('远程 API'));
+    fireEvent.click(screen.getByLabelText('允许联网'));
 
-    fireEvent.click(screen.getByText('[settings.save]'));
+    const setKbSettings = vi.spyOn(useAgentStore.getState(), 'setKbSettings').mockResolvedValue(undefined);
+
+    fireEvent.click(screen.getByText('保存'));
 
     const ai = aiMock();
     await waitFor(() => {
@@ -130,5 +129,8 @@ describe('SettingsModal ai branch', () => {
     expect(consentArg.allowNetwork).toBe(true);
     expect(consentArg.allowSend).toBe(false);
     expect(typeof consentArg.consentUpdatedAt).toBe('string');
+
+    // KB 参数同步写回 agentStore.kbSettings（setKbSettings）
+    await waitFor(() => expect(setKbSettings).toHaveBeenCalled());
   });
 });
