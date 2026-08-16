@@ -19,7 +19,6 @@ vi.mock('electron', () => ({
 // --- llmClient mock (hoisted) ---
 const llmMock = vi.hoisted(() => ({
   streamChatCompletion: vi.fn(),
-  probeOllama: vi.fn(),
 }));
 vi.mock('@main/ai/llmClient', () => llmMock);
 
@@ -41,7 +40,6 @@ function makeEvent(): Electron.IpcMainInvokeEvent {
 function makeConfig(partial: Partial<IAIConfig> = {}): IAIConfig {
   return {
     backend: 'remote',
-    ollamaBaseUrl: 'http://localhost:11434',
     remoteBaseUrl: 'https://api.deepseek.com',
     model: 'deepseek-chat',
     hasApiKey: true,
@@ -211,13 +209,13 @@ describe('runRewrite', () => {
     expect(secureMock.decryptApiKey).toHaveBeenCalledWith('enc:mykey');
   });
 
-  it('passes null/undefined apiKey for ollama local backend (no decrypt needed)', async () => {
+  it('passes hidden apiKeyEnc (undecryptable) and does not decrypt', async () => {
     llmMock.streamChatCompletion.mockImplementation(() => streamOf('x'));
     await runRewrite(
       makeEvent(),
       makeSelectionPayload(),
-      makeConfig({ backend: 'ollama' }),
-      'enc:key', // ollama 本地即便有 enc 也不解密外发
+      makeConfig(),
+      null, // 无密文 → 不解密、不外发 key
       new AbortController()
     );
     const opts = llmMock.streamChatCompletion.mock.calls[0][0] as { apiKey?: string };

@@ -96,18 +96,17 @@ describe('共享 AI 类型（批次 0 新增）', () => {
     expect(err.status).toBe('error');
   });
 
-  it('AgentRunResult 汇总含轮数/意图/拒答/降级提示', () => {
+  it('AgentRunResult 汇总含轮数/意图/拒答（无 agentBackendHint，ollama 已去除）', () => {
     const run: AgentRunResult = {
       conversationId: 'c1',
       assistantId: 'a1',
       roundsUsed: 2,
       intent: { intent: 'kbQa', confidence: 0.9 },
       usage: { reasoningTokenCount: null },
-      agentBackendHint: 'ollama 降级纯生成',
     };
     expect(run.roundsUsed).toBeLessThanOrEqual(6);
     expect(run.intent?.intent).toBe('kbQa');
-    expect(run.agentBackendHint).toBeTruthy();
+    expect(run).not.toHaveProperty('agentBackendHint');
   });
 
   it('IAgentStreamEvent 判别联合：tool 变体可与 chunk/done/error 判别', () => {
@@ -137,17 +136,17 @@ describe('共享 AI 类型（批次 0 新增）', () => {
     }
   });
 
-  it('IKbSettings 最小字段齐全', () => {
+  it('IKbSettings 最小字段齐全（无 embeddingHost/embeddingModel，ollama 已去除）', () => {
     const s: IKbSettings = {
       topK: 5,
       fuse: 0.5,
       threshold: 0.6,
       pinnedWeight: 1.5,
-      embeddingHost: 'http://localhost:11434',
-      embeddingModel: 'nomic-embed-text',
     };
     expect(s.topK).toBe(5);
     expect(s.fuse + 0.5).toBe(1);
+    expect(s).not.toHaveProperty('embeddingHost');
+    expect(s).not.toHaveProperty('embeddingModel');
   });
 
   it('新增 IPC 通道与流式事件常量已注册', () => {

@@ -41,7 +41,7 @@ const AIPanelSettings: React.FC<AIPanelSettingsProps> = ({ onBack }) => {
         >
           ‹
         </button>
-        <span className="text-sm font-semibold text-text-primary">{t('ai.settings.title')}</span>
+        <span className="text-[15px] font-semibold text-text-primary">{t('ai.settings.title')}</span>
       </div>
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -53,7 +53,7 @@ const AIPanelSettings: React.FC<AIPanelSettingsProps> = ({ onBack }) => {
               type="button"
               data-testid={`settings-tab-${tb.key}`}
               onClick={() => setTab(tb.key)}
-              className={`block w-full text-left px-2.5 py-1.5 text-xs rounded-input transition-colors ${
+              className={`block w-full text-left px-2.5 py-1.5 text-[13px] rounded-input transition-colors ${
                 tab === tb.key
                   ? 'bg-[var(--accent)]/15 text-text-primary border border-[var(--accent)]/30'
                   : 'text-text-sub hover:bg-bg-tertiary border border-transparent'

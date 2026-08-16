@@ -36,7 +36,7 @@ describe('ModelDropdown', () => {
       .mockResolvedValue({ success: true, data: ['qwen3.5:0.8b', 'deepseek-chat'] });
     const setConfig = vi.fn().mockResolvedValue({
       success: true,
-      data: { backend: 'ollama', ollamaBaseUrl: '', remoteBaseUrl: '', model: 'deepseek-chat', hasApiKey: false },
+      data: { backend: 'remote', remoteBaseUrl: '', model: 'deepseek-chat', hasApiKey: false },
     });
     (window.weaveMD as unknown as { ai: Record<string, unknown> }).ai.setConfig = setConfig;
     useAgentStore.setState({ config: null });
@@ -58,7 +58,7 @@ describe('ModelDropdown', () => {
       .mockResolvedValue({ success: false });
     const setConfig = vi.fn().mockResolvedValue({
       success: true,
-      data: { backend: 'ollama', ollamaBaseUrl: '', remoteBaseUrl: '', model: 'my-model', hasApiKey: false },
+      data: { backend: 'remote', remoteBaseUrl: '', model: 'my-model', hasApiKey: false },
     });
     (window.weaveMD as unknown as { ai: Record<string, unknown> }).ai.setConfig = setConfig;
     useAgentStore.setState({ config: null });

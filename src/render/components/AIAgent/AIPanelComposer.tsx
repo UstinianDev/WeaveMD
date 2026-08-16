@@ -33,13 +33,25 @@ const WRITE_WHOLE_DOC_RE =
 
 interface AIPanelComposerProps {
   /**
-   * 发送（user/agent 消息调度成功后）触发的回调。
-   * home 视图用它切到 session 视图（发送即自动建会话并入会话视图）；session 视图可省略。
+   * 受控草稿（M4）：草稿提升到 AIAgentPanel state，本组件为受控 textarea，
+   * 视图切换（home/session/settings 互跳）不再卸载即丢草稿。
+   */
+  value: string;
+  /** 受控变更：父级持有草稿，写在 onChange 里。 */
+  onChange: (value: string) => void;
+  /**
+   * 发送调度成功后触发（由父级清空草稿 setDraft('')）。
+   * home / session / 面板发送成功都走它清空。
+   */
+  onSend?: () => void;
+  /**
+   * 发送（user/agent 消息调度成功后）触发的回调（兼容原 onCompose）。
+   * home 视图用它切到 session 视图（发送即自动建会话并入会话视图）。
    */
   onCompose?: () => void;
 }
 
-const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ onCompose }) => {
+const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSend, onCompose }) => {
   const { t } = useI18n();
   const user = useAuthStore((s) => s.user);
 
@@ -52,8 +64,6 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ onCompose }) => {
 
   // 改写状态：选区改写模式（selectionContext 非空 → composer 输入改写指令）
   const selectionContext = useRewriteStore((s) => s.selectionContext);
-
-  const [input, setInput] = useState('');
 
   // —— 第 7 期 B1：/ 与 @ 自动补全（仅智能体模式可用） ——
   const [skills, setSkills] = useState<AgentSkillInfo[]>([]);
@@ -136,14 +146,14 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ onCompose }) => {
     setCompletionOpen(true);
   };
 
-  const handleInputChange = (value: string) => {
-    setInput(value);
-    refreshCompletion(value);
+  const handleInputChange = (v: string) => {
+    onChange(v);
+    refreshCompletion(v);
   };
 
   const handleCompletionSelect = (item: CompletionMenuItem) => {
     // 用 insertText 替换从触发符到当前结尾的不完整 token（prefix 结尾带空格，避免误再开菜单）
-    setInput((prev) => prev.slice(0, completionInsertAt) + item.insertText);
+    onChange(value.slice(0, completionInsertAt) + item.insertText);
     setCompletionOpen(false);
   };
 
@@ -156,7 +166,7 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ onCompose }) => {
 
   // 技能就绪后重估当前 `/` 补全（避免首挂载空技能导致输入 `/` 时菜单未开）
   useEffect(() => {
-    if (skills.length > 0) refreshCompletion(input);
+    if (skills.length > 0) refreshCompletion(value);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skills]);
 
@@ -212,15 +222,16 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ onCompose }) => {
   };
 
   const handleSend = () => {
-    const text = input.trim();
+    const text = value.trim();
     if (!text || isStreaming) return;
-    setInput('');
     setCompletionOpen(false);
     if (activeMode === 'agent') {
       handleSendAgent(text);
     } else {
       void sendMessage(text);
     }
+    // M4：清空由父级 onSend 回调执行（setDraft('')）；不再组件本地清空，保证草稿归属唯一。
+    onSend?.();
     onCompose?.();
   };
 
@@ -245,7 +256,7 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ onCompose }) => {
           />
         )}
         <textarea
-          value={input}
+          value={value}
           onChange={(e) => handleInputChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -264,7 +275,7 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ onCompose }) => {
               : t('ai.placeholder')
           }
           rows={3}
-          className="w-full resize-none bg-bg-primary border border-border rounded-input px-2.5 py-1.5 text-sm text-text-primary placeholder-text-muted outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/30 transition-colors"
+          className="w-full resize-none bg-bg-primary border border-border rounded-input px-2.5 py-1.5 text-[15px] text-text-primary placeholder-text-muted outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/30 transition-colors"
         />
       </div>
       {/* 底部控制条：左→右 模式下拉 + 模型下拉 …… 发送/停止 */}
@@ -274,7 +285,7 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ onCompose }) => {
           value={activeMode}
           onChange={(e) => toggleMode(e.target.value as 'chat' | 'agent')}
           aria-label={t('ai.modeSelectLabel')}
-          className="text-xs px-2 py-1 rounded-input bg-bg-secondary border border-border text-text-primary focus:border-[var(--accent)] outline-none cursor-pointer"
+          className="text-[13px] px-2 py-1 rounded-input bg-bg-secondary border border-border text-text-primary focus:border-[var(--accent)] outline-none cursor-pointer"
         >
           <option value="chat">{t('ai.tab.chat')}</option>
           <option value="agent">{t('ai.tab.agent')}</option>
@@ -285,7 +296,7 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ onCompose }) => {
             <button
               type="button"
               onClick={stopStream}
-              className="px-3 py-1 text-sm rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
+              className="px-3 py-1 text-[15px] rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
             >
               {t('ai.stop')}
             </button>
@@ -293,9 +304,9 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ onCompose }) => {
             <button
               type="button"
               onClick={handleSend}
-              disabled={!input.trim()}
+              disabled={!value.trim()}
               data-testid="ai-composer-send"
-              className="px-3.5 py-1 text-sm rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+              className="px-3.5 py-1 text-[15px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
             >
               {t('ai.send')}
             </button>

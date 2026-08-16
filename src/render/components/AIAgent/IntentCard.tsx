@@ -33,7 +33,7 @@ const IntentCard: React.FC<IntentCardProps> = ({ intent, onPick }) => {
 
   return (
     <div className="rounded-card border border-border bg-bg-tertiary/60 px-3 py-2 space-y-1.5 shadow-sm">
-      <div className="text-[11px] font-medium uppercase tracking-wide text-text-muted">
+      <div className="text-[12px] font-medium uppercase tracking-wide text-text-muted">
         {t('ai.intent.hint')}
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -42,7 +42,7 @@ const IntentCard: React.FC<IntentCardProps> = ({ intent, onPick }) => {
             key={name}
             type="button"
             onClick={() => onPick(name)}
-            className="text-xs px-2.5 py-1 rounded-full bg-bg-secondary border border-border text-text-primary hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+            className="text-[13px] px-2.5 py-1 rounded-full bg-bg-secondary border border-border text-text-primary hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
           >
             {t(`ai.intent.${name}`)}
           </button>

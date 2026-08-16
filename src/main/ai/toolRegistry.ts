@@ -26,7 +26,7 @@ export type SearchKbFn = (
   query: string,
   opts?: {
     topK?: number;
-    vectorEnabled?: boolean;
+    fuse?: number;
     pinnedWeight?: number;
     threshold?: number;
   }

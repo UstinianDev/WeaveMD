@@ -1,8 +1,7 @@
 // ============================================
 // WeaveMD — Agent function-calling loop (main)
 // ============================================
-// 远程后端（DeepSeek）函数调用可靠；ollama 降级纯生成（不传 tools）。
-// 产物：AgentRunResult。consent 闸（agent）在入口先判 —— 未授权绝不发外发请求。
+// 远程后端（DeepSeek）函数调用。产物：AgentRunResult。consent 闸（agent）在入口先判 —— 未授权绝不发外发请求。
 // 铁律一：所有工具只读（toolRegistry 无写工具）。铁律二：KB 外发必经 needsConsent('agent')。
 
 import { BrowserWindow } from 'electron';
@@ -83,7 +82,6 @@ function makeAgentResult(partial: {
   intent: IIntent | null;
   refused?: boolean;
   usage?: { reasoningTokenCount: number | null };
-  agentBackendHint?: string;
 }): AgentRunResult {
   return {
     conversationId: partial.conversationId,
@@ -92,7 +90,6 @@ function makeAgentResult(partial: {
     intent: partial.intent,
     ...(partial.refused !== undefined ? { refused: partial.refused } : {}),
     ...(partial.usage ? { usage: partial.usage } : {}),
-    ...(partial.agentBackendHint ? { agentBackendHint: partial.agentBackendHint } : {}),
   };
 }
 
@@ -179,16 +176,14 @@ export async function runAgentFlow(
   appendMessage({ conversationId: convId, userId, role: 'user', content: message });
 
   const intent = classifyIntent(message);
-  const baseUrl = config.backend === 'remote' ? config.remoteBaseUrl : config.ollamaBaseUrl;
-  const model =
-    config.model?.trim() || (config.backend === 'remote' ? 'deepseek-chat' : 'qwen3.5:0.8b');
+  const baseUrl = config.remoteBaseUrl;
+  const model = config.model?.trim() || 'deepseek-chat';
   let apiKey: string | undefined;
-  if (config.backend === 'remote' && apiKeyEnc) {
+  if (apiKeyEnc) {
     apiKey = decryptApiKey(apiKeyEnc);
   }
 
   const skillContext: SkillRunnerCtx = {
-    backend: config.backend,
     baseUrl,
     model,
     apiKey,
@@ -205,22 +200,14 @@ export async function runAgentFlow(
     currentDocument: payload.currentDocument,
   };
 
-  const isRemote = config.backend === 'remote';
   // KB 检索外发授权：allowSend 已授权才提供 searchKB 工具（未授权则笔记不外发，降级普通作答）。
   const kbEgressAuthorized = !needsKbSendConsent(config, consent);
-  const tools = isRemote
-    ? toolsForIntent(
-        intent,
-        !!payload.useKnowledgeBase,
-        kbEgressAuthorized,
-        payload.currentDocument
-      )
-    : [];
-  const isOllamaHint =
-    config.backend === 'ollama'
-      ? { agentBackendHint: '当前为本地纯生成模式（Ollama 不支持工具调用），Agent 能力需远程后端。' }
-      : {};
-  const agentBackendHint = config.backend === 'ollama' ? isOllamaHint.agentBackendHint : undefined;
+  const tools = toolsForIntent(
+    intent,
+    !!payload.useKnowledgeBase,
+    kbEgressAuthorized,
+    payload.currentDocument
+  );
 
   const summary = ownedConv?.summary || '';
 
@@ -264,7 +251,6 @@ export async function runAgentFlow(
       }
 
       const gen = streamChatCompletion({
-        backend: config.backend,
         baseUrl,
         model,
         apiKey,
@@ -309,7 +295,6 @@ export async function runAgentFlow(
           roundsUsed,
           intent,
           usage: { reasoningTokenCount },
-          ...(agentBackendHint ? { agentBackendHint } : {}),
         });
       }
 
@@ -384,7 +369,6 @@ export async function runAgentFlow(
       roundsUsed,
       intent,
       usage: { reasoningTokenCount },
-      ...(agentBackendHint ? { agentBackendHint } : {}),
     });
   } catch (err) {
     if ((err as { code?: string })?.code === 'consent_required') {

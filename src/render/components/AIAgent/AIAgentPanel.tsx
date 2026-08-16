@@ -39,6 +39,10 @@ const AIAgentPanel: React.FC = () => {
   // 视图状态（平凡，无须 store）：home 主界面 / session 会话 / settings 设置
   const [view, setView] = useState<View>('home');
 
+  // M4：composer 草稿跨视图保留。草稿提升到本容器 state，home/session 共享同一份；
+  // 视图切换（home↔settings↔session 互跳）不触发清空；仅新建/打开会话/发送成功/关面板清空。
+  const [draft, setDraft] = useState('');
+
   const [isCollapsing, setIsCollapsing] = useState(false);
 
   // 每次展开/用户登录时初始化会话状态
@@ -95,34 +99,38 @@ const AIAgentPanel: React.FC = () => {
 
   const handleClose = () => {
     setIsCollapsing(true);
+    setDraft('');
     window.setTimeout(() => {
       setIsCollapsing(false);
       toggleAIPanel();
     }, 150);
   };
 
-  // + 新建会话：清空当前会话 + 进 session
+  // + 新建会话：清空当前会话 + 进 session + 重置草稿
   const handleNewChat = () => {
     newChat();
     setView('session');
+    setDraft('');
   };
 
-  // 打开最近会话（home RECENT 点击）→ loadConversation + 进 session
+  // 打开最近会话（home RECENT 点击）→ loadConversation + 进 session + 重置草稿
   const handleOpenConversation = (id: string) => {
     void loadConversation(id, activeMode);
     setView('session');
+    setDraft('');
   };
 
-  // session 标题行 × 关闭当前会话 → newChat + 回 home（R14）
+  // session 标题行 × 关闭当前会话 → newChat + 回 home（R14）+ 重置草稿
   const handleCloseConversation = () => {
     newChat();
     setView('home');
+    setDraft('');
   };
 
   // 顶部栏（home/session 共用；settings 也保留顶部栏以便 ⚙ 返回/关面板）
   const renderTopBar = (rightExtra: React.ReactNode) => (
     <div className="flex items-center justify-between gap-2 px-3 h-12 border-b border-border bg-bg-secondary flex-shrink-0">
-      <span className="flex-1 min-w-0 truncate text-sm font-semibold text-text-primary">
+      <span className="flex-1 min-w-0 truncate text-[15px] font-semibold text-text-primary">
         WeaveMD
       </span>
       <div className="flex items-center gap-1">
@@ -176,13 +184,19 @@ const AIAgentPanel: React.FC = () => {
         <div className="flex-1 flex flex-col min-h-0">
           {view === 'home' && (
             <AIPanelHome
+              draft={draft}
+              setDraft={setDraft}
               onOpenConversation={handleOpenConversation}
               onViewAll={() => setView('session')}
               onCreateSession={() => setView('session')}
             />
           )}
           {view === 'session' && (
-            <AIPanelSession onCloseConversation={handleCloseConversation} />
+            <AIPanelSession
+              draft={draft}
+              setDraft={setDraft}
+              onCloseConversation={handleCloseConversation}
+            />
           )}
           {view === 'settings' && (
             <AIPanelSettings onBack={() => setView('home')} />

@@ -165,7 +165,6 @@ describe('skillLoader.runSkill', () => {
     }
     llmMock.streamChatCompletion.mockImplementation(() => gen());
     const res = await runSkill(CORE_SKILLS[0], 'x', {
-      backend: 'remote',
       baseUrl: 'https://api.deepseek.com',
       model: 'deepseek-chat',
     });

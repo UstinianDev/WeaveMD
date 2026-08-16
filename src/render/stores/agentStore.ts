@@ -38,8 +38,8 @@ export type ConsentAction = 'chat' | 'agent';
 
 /**
  * 知情同意判定（与主进程服务端 consent.ts 语义一致）：
- * - chat:  remote 且未 allowNetwork -> 需同意；ollama 本地 chat -> 不需；
- * - agent: remote 需 allowNetwork（联网外发）；ollama 本地 agent（降级纯生成）不需；
+ * - chat:  remote 且未 allowNetwork -> 需同意（唯一后端，恒 remote）；
+ * - agent: remote 需 allowNetwork（联网外发）；
  * - config 缺失一律按「需同意」处理（先配置再放行）。
  * - 知识库检索外发（allowSend）在 sendAgentMessage 内单独 gating（useKnowledgeBase 时）。
  */
@@ -53,7 +53,6 @@ export function needsConsent(
     return config.backend === 'remote' && !consent?.allowNetwork;
   }
   // chat
-  if (config.backend === 'ollama') return false;
   return !consent?.allowNetwork;
 }
 
@@ -77,10 +76,9 @@ interface AgentStore {
   useKnowledgeBase: boolean;
   toolCalls: IAgentToolCall[];
   intentCard: IIntent | null;
-  agentBackendHint: string | null;
   kbStatus: KbStatusResponse | null;
   kbDocuments: IKbDocumentStatus[];
-  /** KB 召回/融合/拒答/置顶权重 + embedding 端点设置（内存态，持久化走 IPC kb.setSettings）。 */
+  /** KB 召回/融合/拒答/置顶权重 设置（内存态，持久化走 IPC kb.setSettings）。 */
   kbSettings: IKbSettings;
   /** KB 参数持久化状态（idle 初始 / saving 写入中 / saved 已保存 / error 保存失败）。 */
   kbSettingsSaveState: 'idle' | 'saving' | 'saved' | 'error';
@@ -129,7 +127,6 @@ const RESET_FIELDS: Pick<
   | 'useKnowledgeBase'
   | 'toolCalls'
   | 'intentCard'
-  | 'agentBackendHint'
   | 'kbStatus'
   | 'kbDocuments'
   | 'kbSettings'
@@ -149,7 +146,6 @@ const RESET_FIELDS: Pick<
   useKnowledgeBase: false,
   toolCalls: [],
   intentCard: null,
-  agentBackendHint: null,
   kbStatus: null,
   kbDocuments: [],
   kbSettings: DEFAULT_KB_SETTINGS,
@@ -200,7 +196,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       streamBuffer: '',
       toolCalls: [],
       intentCard: null,
-      agentBackendHint: null,
     });
   },
 
@@ -343,7 +338,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       pendingConsent: false,
       toolCalls: [],
       intentCard: null,
-      agentBackendHint: null,
     }));
 
     let unsubscribe: (() => void) | null = null;
@@ -424,11 +418,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         return;
       }
       if (res.success && res.data) {
-        const { intent, agentBackendHint } = res.data;
-        set({
-          ...(intent ? { intentCard: intent } : { intentCard: null }),
-          ...(agentBackendHint ? { agentBackendHint } : {}),
-        });
+        const { intent } = res.data;
+        set(intent ? { intentCard: intent } : { intentCard: null });
       }
     } catch (err) {
       if ((err as { code?: string })?.code === 'consent_required') {

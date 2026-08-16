@@ -81,18 +81,15 @@ export async function runRewrite(
 ): Promise<RewriteReply> {
   const messages = buildRewriteMessages(payload);
 
-  const baseUrl = config.backend === 'remote' ? config.remoteBaseUrl : config.ollamaBaseUrl;
-  const model =
-    config.model?.trim() || (config.backend === 'remote' ? 'deepseek-chat' : 'qwen3.5:0.8b');
+  const baseUrl = config.remoteBaseUrl;
+  const model = config.model?.trim() || 'deepseek-chat';
 
   let apiKey: string | undefined;
-  // remote 才需解密 key 外发；ollama 本地免 key
-  if (config.backend === 'remote' && apiKeyEnc) {
+  if (apiKeyEnc) {
     apiKey = decryptApiKey(apiKeyEnc);
   }
 
   const gen = streamChatCompletion({
-    backend: config.backend,
     baseUrl,
     model,
     apiKey,

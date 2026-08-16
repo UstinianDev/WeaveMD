@@ -74,7 +74,6 @@ import type { IAIConfig } from '@shared/ai';
 function makeConfig(over: Partial<IAIConfig> = {}): IAIConfig {
   return {
     backend: 'remote',
-    ollamaBaseUrl: 'http://localhost:11434',
     remoteBaseUrl: 'https://api.deepseek.com',
     model: 'deepseek-chat',
     hasApiKey: true,
@@ -349,25 +348,6 @@ describe('runAgentFlow', () => {
     );
     expect(assistantCalls.length).toBeGreaterThan(0);
     expect(res.roundsUsed).toBe(1);
-  });
-
-  it('ollama backend: pure generation without tools + returns agentBackendHint', async () => {
-    llmMock.streamChatCompletion.mockImplementation(() => {
-      async function* g() {
-        yield { delta: '本地回答' };
-      }
-      return g();
-    });
-    const controller = new AbortController();
-    const res = await runAgentFlow(makeEvent(), payload(), makeConfig({ backend: 'ollama' }), null, controller, {
-      consent: { allowNetwork: false, allowSend: false, consentUpdatedAt: null },
-    });
-    expect(res.agentBackendHint).toBeTruthy();
-    expect(res.agentBackendHint).toContain('本地纯生成');
-    // 不传 tools
-    const callOpts = llmMock.streamChatCompletion.mock.calls[0][0];
-    expect(callOpts.tools).toBeUndefined();
-    expect(llmMock.streamChatCompletion).toHaveBeenCalledTimes(1);
   });
 
   // ============================================================

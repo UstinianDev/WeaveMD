@@ -636,7 +636,6 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
     setConfig: async () => ({ success: false }),
     getConsent: async () => ({ success: false }),
     setConsent: async () => ({ success: false }),
-    health: async () => ({ success: false }),
     chat: async () => ({ success: false }),
     chatAbort: async () => ({ success: true }),
     listConversations: async () => createSuccessResult([]),

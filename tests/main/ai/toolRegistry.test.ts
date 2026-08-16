@@ -162,7 +162,7 @@ describe('toolRegistry.executeTool', () => {
   it('runSkill executes via skillLoader for a known skill', async () => {
     skillMock.runSkill.mockResolvedValue({ content: 'polished', status: 'ok' });
     const ctx = makeCtx({
-      skill: { backend: 'remote', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
+      skill: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
       skills: STUB_SKILLS,
     });
     const res = await executeTool('runSkill', '{"skill":"polish_rewrite","input":"text"}', ctx);
@@ -173,7 +173,7 @@ describe('toolRegistry.executeTool', () => {
 
   it('runSkill returns error for unknown skill', async () => {
     const ctx = makeCtx({
-      skill: { backend: 'remote', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
+      skill: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
       skills: STUB_SKILLS,
     });
     const res = await executeTool('runSkill', '{"skill":"nope","input":"x"}', ctx);
