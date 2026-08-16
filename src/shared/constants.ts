@@ -111,6 +111,8 @@ export const IPC_CHANNELS = {
 
   // AI — block rewrite (第5期) invoke
   AI_REWRITE_PREVIEW: 'ai:rewrite:preview',
+  // AI — model list (ai-panel-redesign M1, 需求 R17) invoke
+  AI_LIST_MODELS: 'ai:list-models',
 
   // AI — stream push (main -> render, webContents.send)
   AI_STREAM_CHUNK: 'ai:stream:chunk',

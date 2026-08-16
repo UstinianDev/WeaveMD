@@ -329,6 +329,45 @@ describe('agentStore 会话状态机', () => {
     useAgentStore.getState().clearMessages();
     expect(useAgentStore.getState().messages).toEqual([]);
   });
+
+  // ---- R20：建会话后首条消息写 summary（截断 50）----
+
+  it('sendMessage 建会话成功后 updateConversationSummary 写入首条消息（截断 50）', async () => {
+    (window.weaveMD.ai.onStream as unknown as { mockImplementation: (...a: unknown[]) => unknown }).mockImplementation(() => () => {});
+    (window.weaveMD.ai as unknown as { createConversation: ReturnType<typeof vi.fn> }).createConversation.mockResolvedValue({
+      success: true,
+      data: { id: 'conv-title', userId: 'u1', mode: 'chat', summary: '', createdAt: '', updatedAt: '' },
+    });
+    (window.weaveMD.ai as unknown as { chat: ReturnType<typeof vi.fn> }).chat.mockResolvedValue({
+      success: true,
+      data: { conversationId: 'conv-title' },
+    });
+    useAgentStore.setState({ config: ollamaConfig, consent: noConsent });
+
+    const longMsg = 'a'.repeat(80);
+    await useAgentStore.getState().sendMessage(longMsg);
+
+    const updateSummary = (window.weaveMD.ai as unknown as { updateConversationSummary: ReturnType<typeof vi.fn> }).updateConversationSummary;
+    expect(updateSummary).toHaveBeenCalledWith('conv-title', '', 'a'.repeat(50));
+  });
+
+  it('sendMessage 已有会话（未新建）不重复写 summary', async () => {
+    (window.weaveMD.ai.onStream as unknown as { mockImplementation: (...a: unknown[]) => unknown }).mockImplementation(() => () => {});
+    (window.weaveMD.ai as unknown as { chat: ReturnType<typeof vi.fn> }).chat.mockResolvedValue({
+      success: true,
+      data: { conversationId: 'existing-conv' },
+    });
+    useAgentStore.setState({
+      config: ollamaConfig,
+      consent: noConsent,
+      activeConversationId: 'existing-conv',
+    });
+
+    await useAgentStore.getState().sendMessage('hello');
+
+    const updateSummary = (window.weaveMD.ai as unknown as { updateConversationSummary: ReturnType<typeof vi.fn> }).updateConversationSummary;
+    expect(updateSummary).not.toHaveBeenCalled();
+  });
 });
 
 describe('needsConsent agent 动作', () => {
@@ -490,6 +529,25 @@ describe('agentStore agent 模式', () => {
     const assistant = s.messages.find((m) => m.role === 'assistant');
     expect(assistant?.content).toBe('结果');
     expect(s.agentBackendHint).toContain('Agent');
+  });
+
+  it('sendAgentMessage 建会话成功后 updateConversationSummary 写入首条消息（agent 域）', async () => {
+    (window.weaveMD.ai.onStream as unknown as { mockImplementation: (...a: unknown[]) => unknown }).mockImplementation(() => () => {});
+    (window.weaveMD.ai as unknown as { createConversation: ReturnType<typeof vi.fn> }).createConversation.mockResolvedValue({
+      success: true,
+      data: { id: 'agent-conv-title', userId: 'u1', mode: 'agent', summary: '', createdAt: '', updatedAt: '' },
+    });
+    (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent.mockResolvedValue({
+      success: true,
+      data: { conversationId: 'agent-conv-title', assistantId: 'a1', roundsUsed: 1, intent: null },
+    });
+    useAgentStore.setState({ config: ollamaConfig, consent: noConsent, activeMode: 'agent' });
+
+    const firstMsgText = '帮我生成一篇代理介绍文档，内容要完整且覆盖要点';
+    await useAgentStore.getState().sendAgentMessage(firstMsgText);
+
+    const updateSummary = (window.weaveMD.ai as unknown as { updateConversationSummary: ReturnType<typeof vi.fn> }).updateConversationSummary;
+    expect(updateSummary).toHaveBeenCalledWith('agent-conv-title', '', firstMsgText.slice(0, 50));
   });
 
   it('sendAgentMessage 累积 tool 事件到 toolCalls', async () => {
