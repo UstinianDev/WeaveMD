@@ -22,6 +22,8 @@ interface InputProps {
   onFocus?: () => void;
   onBlur?: () => void;
   onKeyDown?: (e: React.KeyboardEvent) => void;
+  /** 显示密码开关变化回调（visible=true 表示密码可见），供四小人物"偷看"动画驱动。 */
+  onVisibilityToggle?: (visible: boolean) => void;
 }
 
 const Input: React.FC<InputProps> = ({
@@ -42,6 +44,7 @@ const Input: React.FC<InputProps> = ({
   onFocus,
   onBlur,
   onKeyDown,
+  onVisibilityToggle,
 }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
@@ -94,7 +97,11 @@ const Input: React.FC<InputProps> = ({
         {isPassword && (
           <button
             type="button"
-            onClick={() => setShowPassword(!showPassword)}
+            onClick={() => {
+              const next = !showPassword;
+              setShowPassword(next);
+              onVisibilityToggle?.(next);
+            }}
             className="pr-3 text-text-sub hover:text-text-primary transition-colors flex-shrink-0"
             tabIndex={-1}
           >

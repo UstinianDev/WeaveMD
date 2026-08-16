@@ -206,13 +206,33 @@ describe('useCrossBlockDragSelection — 端点变化检测与停写', () => {
     flushFrames();
     expect(sel.removeAllRanges).toHaveBeenCalledTimes(1);
 
-    // 跨块但文本为空（Chromium 宿主边界截断产物）→ 不信任 → 重放 lastDragRange
+    // 跨块但文本为空（Chromium 宿主边界截断产物）→ 不信任 → 重放 lastDragRange 一次
     sel.anchorNode = text1;
     sel.focusNode = text2;
     fireEvent.mouseUp(document, { clientX: 120, clientY: 120 });
     flushFrames();
-    // 兜底帧端点未变 → 跳过；3 帧重放各写入一次
-    expect(sel.removeAllRanges).toHaveBeenCalledTimes(1 + 3);
-    expect(sel.addRange).toHaveBeenCalledTimes(1 + 3);
+    // editor-opt-drag-select ①：3 帧重放收敛为 1 次写入前校验（去重复覆盖），
+    // 宿主截断失败路径仅重写 lastRange 一次。
+    expect(sel.addRange).toHaveBeenCalledTimes(1 + 1);
+  });
+
+  it('mouseup 时现有选区已可信（跨块 + 有文本）→ 零重写（放弃末帧重放，不闪烁）', () => {
+    caretPoint = { node: text1, offset: 0 };
+    fireEvent.mouseDown(span1, { clientX: 10, clientY: 10 });
+
+    caretPoint = { node: text2, offset: 5 };
+    fireEvent.mouseMove(container, { clientX: 120, clientY: 120 });
+    flushFrames();
+    expect(sel.removeAllRanges).toHaveBeenCalledTimes(1);
+    expect(sel.addRange).toHaveBeenCalledTimes(1);
+
+    // 原生拖选在 mouseup 前已收尾为"跨块且有文本"的完整选区 → 信任，不再重写
+    sel.anchorNode = text1;
+    sel.focusNode = text2;
+    sel.toString = () => 'HelloWorld';
+    fireEvent.mouseUp(document, { clientX: 120, clientY: 120 });
+    flushFrames();
+    expect(sel.removeAllRanges).toHaveBeenCalledTimes(1);
+    expect(sel.addRange).toHaveBeenCalledTimes(1);
   });
 });

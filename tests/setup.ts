@@ -21,7 +21,12 @@ const mockWeaveMD = {
     list: vi.fn(),
     get: vi.fn(),
     write: vi.fn(),
-    readDisk: vi.fn(),
+    readDisk: vi.fn(async () => ({ success: false, data: undefined })),
+  },
+  folder: {
+    createFolder: vi.fn(),
+    deleteFolder: vi.fn(),
+    readFolder: vi.fn(async () => ({ success: false, data: [] })),
   },
   history: {
     list: vi.fn(),
@@ -79,6 +84,12 @@ const mockWeaveMD = {
     status: vi.fn(),
     getSettings: vi.fn(),
     setSettings: vi.fn(),
+  },
+  mail: {
+    get: vi.fn(),
+    set: vi.fn(),
+    send: vi.fn(),
+    pickImages: vi.fn(),
   },
 };
 

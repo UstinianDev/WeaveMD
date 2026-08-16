@@ -5,6 +5,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import { app } from 'electron';
+import { MAIL_CONFIG_SCHEMA } from './mail';
 
 let db: Database.Database | null = null;
 
@@ -190,6 +191,9 @@ function runMigrations(database: Database.Database): void {
 
   // 第 3 期：FTS5 关键词索引（表外虚拟表 + 触发器同步），幂等
   database.exec(FTS5_MIGRATION_SQL);
+
+  // 问题反馈邮件授权码表（user_id 唯一，每用户一条密文），幂等
+  database.exec(MAIL_CONFIG_SCHEMA);
 }
 
 /**

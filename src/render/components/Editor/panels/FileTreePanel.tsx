@@ -6,8 +6,10 @@ import React, { useCallback } from 'react';
 import type { IFile } from '@shared/types';
 import { useI18n } from '@render/i18n';
 import { saveCurrentDraftIfNeeded } from '@render/services/saveCurrentDraft';
+import { isWelcomeFile } from '@render/services/welcomeDocument';
 import { useEditorStore } from '@render/stores/editorStore';
 import { useFileTreeStore, type IFileNode, type IFolderNode } from '@render/stores/fileTreeStore';
+import { touchRecent } from '@render/stores/recentStore';
 
 const FileTreePanel: React.FC = () => {
   const { t } = useI18n();
@@ -31,6 +33,20 @@ const FileTreePanel: React.FC = () => {
       }
       // 点击当前已打开文件：no-op，避免重新读盘覆盖未保存编辑
       if (currentFileId === node.id) {
+        return;
+      }
+      // 欢迎文档为内存只读项（无磁盘路径）：用 node.content 直接打开，跳过 readDisk
+      if (isWelcomeFile(node.id)) {
+        const now = new Date().toISOString();
+        openFile({
+          id: node.id,
+          userId: '',
+          name: node.name,
+          content: node.content ?? '',
+          createdAt: now,
+          modifiedAt: now,
+          deletedAt: null,
+        });
         return;
       }
       // 始终以磁盘为准重新读取，不信任 fileTreeStore 中可能陈旧的 content 缓存
@@ -57,6 +73,7 @@ const FileTreePanel: React.FC = () => {
         deletedAt: null,
       };
       openFile(iFile);
+      touchRecent({ id: iFile.id, path: node.path, name: node.name });
     },
     [currentFileId, openFile]
   );
@@ -93,7 +110,7 @@ const FileTreePanel: React.FC = () => {
       const isFolder = node.isDirectory;
       const isSelected = selectedIds.includes(node.id);
       const isActive = !isFolder && node.id === currentFileId;
-      const hasChildren = node.children.length > 0;
+      const hasChildren = (node.children?.length ?? 0) > 0;
 
       // Trash only shows on root folders (not sub-folders, not files inside folders)
       const showTrash = isFolder && node.isRoot;
@@ -146,7 +163,7 @@ const FileTreePanel: React.FC = () => {
           </div>
 
           {isFolder && node.expanded && hasChildren && (
-            <div>{node.children.map((child) => renderNode(child, depth + 1))}</div>
+            <div>{(node.children ?? []).map((child) => renderNode(child, depth + 1))}</div>
           )}
         </div>
       );

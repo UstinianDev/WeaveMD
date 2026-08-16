@@ -2,9 +2,10 @@
 // WeaveMD — Top Navigation Bar
 // ============================================
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import IconButton from '@render/components/Common/IconButton';
 import { useI18n } from '@render/i18n';
+import FeedbackModal from '@render/components/Feedback/FeedbackModal';
 import ExportMenu from './ExportMenu';
 import FileMenu from './FileMenu';
 import HelpMenu from './HelpMenu';
@@ -13,6 +14,7 @@ import MoreMenu from './MoreMenu';
 import ViewMenu from './ViewMenu';
 import WindowControls from './WindowControls';
 import { useNavbarActions } from '@render/hooks/useNavbarActions';
+import { useRecentStore } from '@render/stores/recentStore';
 
 type ShortcutAction = 'new-file' | 'open-file' | 'undo' | 'redo' | null;
 
@@ -65,12 +67,12 @@ const NavSeparator = () => (
 
 const TopBar: React.FC = () => {
   const { t } = useI18n();
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const {
     user,
     currentFile,
     undoStack,
     redoStack,
-    files,
     isLoading,
     errorMessage,
     setErrorMessage,
@@ -86,10 +88,13 @@ const TopBar: React.FC = () => {
     handleNewFolder,
     handleOpenFolder,
     handleDeleteFolder,
-    handleHistoryOpenFile,
+    handleRecentOpen,
     handleFindReplace,
     handleExport,
   } = useNavbarActions();
+
+  // 编辑历史 = 最近打开（时间倒序），数据源切到 recentStore（persist）
+  const recentFiles = useRecentStore((s) => s.recent);
 
   useEffect(() => {
     const handleGlobalKeyDown = (event: KeyboardEvent) => {
@@ -163,13 +168,16 @@ const TopBar: React.FC = () => {
         />
 
         {/* Help menu */}
-        <HelpMenu onOpenSettings={() => openModal('settings')} />
+        <HelpMenu
+          onOpenSettings={() => openModal('settings')}
+          onOpenFeedback={() => setFeedbackOpen(true)}
+        />
 
         {/* History menu */}
         <HistoryMenu
-          files={files}
+          files={recentFiles}
           onOpenFile={(file) => {
-            void handleHistoryOpenFile(file);
+            void handleRecentOpen(file);
           }}
           onOpenHistory={toggleHistoryPanel}
         />
@@ -269,6 +277,9 @@ const TopBar: React.FC = () => {
         {/* Window Controls */}
         <WindowControls />
       </div>
+
+      {/* 问题反馈弹层 */}
+      <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
     </header>
   );
 };
