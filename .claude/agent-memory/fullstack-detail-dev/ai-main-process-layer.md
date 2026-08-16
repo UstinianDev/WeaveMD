@@ -43,3 +43,13 @@ WeaveMD AI 代理面板的**主进程 + 共享契约**层已落地（第1/2期�
 - **weaveMDBridge.ts**（渲染 mock，非本批次交付但 typecheck 门禁必需）：`ai.*` 接口一旦加 `runAgent/agentAbort`，渲染 mock 必须同步补 noop + 新增 `kb.*` 6 个 noop，否则 tsc/vitest 报缺属性。**这是每次接口扩展的必改点**。
 - 测试：ipc.test 在 `vi.hoisted` 里新增 mock `@main/db/kb`(listKbDocumentsByUser/countChunksByDoc)、`@main/db/files`(getFile)、`@main/ai/kbIndexer`、`@main/ai/kbSearch`、`@main/ai/embeddingClient`、`@main/ai/agentLoop`；mock fn 返回数组字面量会推断成 `never[]`，须 `as never[]` 强转（用 `any` 违反约定）。deps 注入断言：取 `agentLoopMock.runAgentFlow.mock.calls[0][5]` 的 `.searchKb` 再调用，断言 kbSearchMock 被以 user+query+opts 调用即证真实实现已接入。
 - 遗留 lint：`tests/main/ai/ipc.test.ts` 的 `AI_CHAT sends error event` 用无 yield 的 `async function*`（`require-yield`）是**既有**错误（stash 验证 line206 原样存在），非本批次引入；full-project eslint gate 需在阶段6处理。本批次只验证新增源码 0 lint 错误。
+
+**2026-08-16 M1：主进程完全去除 ollama + 向量（KB 纯 FTS5）**（共享层 M2 已收敛，本模块不碰 shared/ai.ts）：
+- `ChatBackend='remote'`，`llmClient.ts` `StreamChatCompletionOptions` 删 `backend`；`probeOllama`/`OllamaProbeResult` 删除；apiKey 必需（无 key 即抛 `config_incomplete`）。
+- `consent.ts` — `needsConsent`/`needsKbSendConsent` 恒按 `!allowNetwork`/`!allowSend`（后端恒 remote，signature 保留 `_config` 形参以兼容调用方）。
+- `kbSearch.ts` — **整仓改为纯 FTS5**：删 `cosineSimilarity`/`embedBatch`/`SearchCandidate.vector`；`rankCandidates(candidates, pinnedWeight, _fuse?)` 纯 BM25 归一+置顶；`searchKB` 不再嵌查询向量。`KbSearchOptions` 删 `vectorEnabled/embeddingHost/embeddingModel`。
+- `kbIndexer.ts` — `KbIndexOpts` 空接口 `{}`；删模块级 `embeddingHost/embeddingModel` 与 `setEmbeddingTarget`；`writeChunks` 不再调 embedBatch，`vector:null`。
+- `db/ai.ts` — `mapConfigRow` 恒 `backend:'remote'`（遗留 'ollama' 视同 remote，不做 schema 迁移）；`kbEmbeddingHost/Model` 从 `AiConfigRow/AiConfigDbRow/AiConfigUpdate` 及 UPDATE/INSERT SQL **完全移除**（遗留列不再写入、保留 NULL）；`ollamaBaseUrl` 字段**保留**（遗留列读回，task 明确要求）。
+- `ipc.ts` — 删 `AI_HEALTH` handler + `probeOllama`/`probeEmbedding` import；`KB_STATUS` 不再探针，恒 `embedding:{available:false,dims:null}`（`KbStatusResponse` 契约字段保留）；KB_GET/SET 只读写 4 个 FTS 参数；`kbIndexOpts()` 返回 `{}`；所有 `config.backend==='remote'?A:B` 三元化简恒 remote。
+- `embeddingClient.ts` 与其测试 **整文件删除**（无任何 import 残留）。
+- **必改点陷阱**：`SearchKbFn`/`SkillRunnerCtx`/`SummarizeCtx` 均含 `backend` 字段需同步删；`toolRegistry.test/skillLoader.test/rewrite.test/agentLoop.test` 的 makeConfig/makeCtx 里的 `ollamaBaseUrl`/`backend` 字面量会 TS2353 报错需清理。渲染侧 `agentStore.ts`/`AgentTab.tsx` 仍解构 `res.data.agentBackendHint`（AgentRunResult 已无此字段）——属并行 M 模块职责，本模块不触碰。
