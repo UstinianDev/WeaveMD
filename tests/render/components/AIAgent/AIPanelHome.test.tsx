@@ -26,8 +26,19 @@ vi.mock('@render/i18n', () => ({
   },
 }));
 
+/** 捕获 AIPanelHome 传给 composer 的受控 value（M4 草稿透传断言用）。 */
+let composerValue = '';
+let composerOnChange: ((v: string) => void) | undefined;
+
 vi.mock('@render/components/AIAgent/AIPanelComposer', () => ({
-  default: () => <div data-testid="mock-composer">Composer</div>,
+  default: ({ value, onChange }: {
+    value: string;
+    onChange?: (v: string) => void;
+  }) => {
+    composerValue = value;
+    composerOnChange = onChange;
+    return <div data-testid="mock-composer">Composer</div>;
+  },
 }));
 
 const conv = (id: string, summary: string, updatedAt: string): IAIConversation => ({
@@ -81,14 +92,19 @@ describe('AIPanelHome', () => {
   const viewAllFn = vi.fn();
   const createFn = vi.fn();
 
-  const renderHome = () =>
-    render(
+  const renderHome = () => {
+    composerValue = '';
+    composerOnChange = undefined;
+    return render(
       <AIPanelHome
+        draft=""
+        setDraft={() => undefined}
         onOpenConversation={openFn}
         onViewAll={viewAllFn}
         onCreateSession={createFn}
       />
     );
+  };
 
   it('空态：无会话显示「暂无最近会话」+ 大图标 + CTA', () => {
     useAgentStore.setState({ conversations: [], activeMode: 'chat' });
@@ -127,5 +143,23 @@ describe('AIPanelHome', () => {
     fireEvent.click(screen.getByText('查看全部'));
     expect(viewAllFn).toHaveBeenCalled();
     expect(screen.getByTestId('mock-composer')).toBeInTheDocument();
+  });
+
+  it('M4: 接收 draft 并受控透传给 composer（value=草案；onChange=setDraft）', () => {
+    useAgentStore.setState({ conversations: [], activeMode: 'chat' });
+    const setDraft = vi.fn();
+    render(
+      <AIPanelHome
+        draft="透传草稿"
+        setDraft={setDraft}
+        onOpenConversation={openFn}
+        onViewAll={viewAllFn}
+        onCreateSession={createFn}
+      />
+    );
+    expect(composerValue).toBe('透传草稿');
+    // onChange 是 setDraft（父级驱动受控）
+    composerOnChange?.('新值');
+    expect(setDraft).toHaveBeenCalledWith('新值');
   });
 });

@@ -79,7 +79,7 @@ const KnowledgeBaseSettings: React.FC = () => {
           type="button"
           onClick={() => void handleImportFile()}
           disabled={busy}
-          className="text-xs px-2.5 py-1 rounded-input bg-bg-secondary border border-border text-text-primary hover:border-[var(--accent)] disabled:opacity-40 transition-colors"
+          className="text-[13px] px-2.5 py-1 rounded-input bg-bg-secondary border border-border text-text-primary hover:border-[var(--accent)] disabled:opacity-40 transition-colors"
         >
           {t('ai.kb.importFile')}
         </button>
@@ -87,11 +87,11 @@ const KnowledgeBaseSettings: React.FC = () => {
           type="button"
           onClick={() => void handleImportDir()}
           disabled={busy}
-          className="text-xs px-2.5 py-1 rounded-input bg-bg-secondary border border-border text-text-primary hover:border-[var(--accent)] disabled:opacity-40 transition-colors"
+          className="text-[13px] px-2.5 py-1 rounded-input bg-bg-secondary border border-border text-text-primary hover:border-[var(--accent)] disabled:opacity-40 transition-colors"
         >
           {t('ai.kb.importDir')}
         </button>
-        <span className="ml-auto text-[11px] text-text-muted">
+        <span className="ml-auto text-[12px] text-text-muted">
           {t('ai.kb.docCount')
             .split('{count}')
             .join(String(kbStatus?.documents ?? 0))}
@@ -99,7 +99,7 @@ const KnowledgeBaseSettings: React.FC = () => {
       </div>
 
       {/* embedding 可用性提示 */}
-      <div className="text-[11px] text-text-sub">
+      <div className="text-[12px] text-text-sub">
         {embeddingAvailable
           ? t('ai.kb.embeddingEnabled')
           : t('ai.kb.embeddingDisabled')}
@@ -108,15 +108,15 @@ const KnowledgeBaseSettings: React.FC = () => {
       {/* 文档索引状态列表 */}
       <div className="space-y-1 max-h-40 overflow-y-auto">
         {kbDocuments.length === 0 ? (
-          <p className="text-xs text-text-muted">{t('ai.kb.empty')}</p>
+          <p className="text-[13px] text-text-muted">{t('ai.kb.empty')}</p>
         ) : (
           kbDocuments.map((doc) => (
             <div
               key={doc.docId}
-              className="flex items-center gap-2 text-xs bg-bg-secondary rounded-md px-2 py-1.5"
+              className="flex items-center gap-2 text-[13px] bg-bg-secondary rounded-md px-2 py-1.5"
             >
               <span className="flex-1 truncate text-text-primary">{doc.title}</span>
-              {doc.pinned && <span className="text-[10px] text-amber-500">★</span>}
+              {doc.pinned && <span className="text-[11px] text-amber-500">★</span>}
               <span className={`flex-shrink-0 ${STATUS_CLASS[doc.status]}`}>
                 {t(STATUS_LABEL[doc.status])}
               </span>

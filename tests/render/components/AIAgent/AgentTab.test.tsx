@@ -81,7 +81,6 @@ describe('AgentTab (消息流展示区)', () => {
     pendingConsent: false,
     toolCalls: [],
     intentCard: null,
-    agentBackendHint: null,
     useKnowledgeBase: false,
     activeMode: 'agent' as 'chat' | 'agent',
   };
@@ -111,12 +110,6 @@ describe('AgentTab (消息流展示区)', () => {
     fireEvent.click(screen.getByText('创作'));
     // 意图提示模板重发
     expect(sendAgentMessage).toHaveBeenCalledWith('请帮我创作一篇文章');
-  });
-
-  it('后端降级提示条可见', () => {
-    useAgentStore.setState({ ...defaultState, agentBackendHint: 'Agent 需远程后端' });
-    render(<AgentTab />);
-    expect(screen.getByText('Agent 需远程后端')).toBeInTheDocument();
   });
 
   it('A1c: assistant 消息且文档已打开 → 「预览写入文档」按钮点击调用 previewDocumentFromReply', () => {

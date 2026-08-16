@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { probeOllama, streamChatCompletion } from '@main/ai/llmClient';
+import { streamChatCompletion } from '@main/ai/llmClient';
 
 type FetchFn = typeof fetch;
 type FetchMock = ReturnType<typeof vi.fn> & FetchFn;
@@ -83,9 +83,10 @@ async function collectFull(
 
 function baseOpts(over = {}) {
   return {
-    backend: 'ollama' as const,
-    baseUrl: 'http://localhost:11434',
-    model: 'qwen3.5:0.8b',
+    backend: 'remote' as const,
+    baseUrl: 'https://api.deepseek.com',
+    model: 'deepseek-chat',
+    apiKey: 'key',
     messages: [{ role: 'user', content: 'hi' }],
     ...over,
   };
@@ -236,51 +237,8 @@ describe('llmClient.streamChatCompletion', () => {
 
   it('throws config_incomplete when remote backend lacks apiKey', async () => {
     await expect(
-      collect(streamChatCompletion(baseOpts({ backend: 'remote', apiKey: undefined })))
+      collect(streamChatCompletion(baseOpts({ apiKey: undefined })))
     ).rejects.toMatchObject({ code: 'config_incomplete' });
-  });
-});
-
-describe('llmClient.probeOllama', () => {
-  let fetchMock: FetchMock;
-  beforeEach(() => {
-    fetchMock = stubFetch();
-  });
-  afterEach(() => {
-    fetchMock?.mockReset();
-  });
-
-  it('returns online + models on 200', async () => {
-    fetchMock.mockResolvedValue(
-      makeResponse(
-        new ReadableStream({
-          start(c) {
-            c.enqueue(
-              new TextEncoder().encode(
-                JSON.stringify({ data: [{ id: 'qwen3.5:0.8b' }, { id: 'llama3' }] })
-              )
-            );
-            c.close();
-          },
-        })
-      )
-    );
-    const probe = await probeOllama('http://localhost:11434');
-    expect(probe.online).toBe(true);
-    expect(probe.models).toEqual(['qwen3.5:0.8b', 'llama3']);
-  });
-
-  it('returns online:false on non-200', async () => {
-    fetchMock.mockResolvedValue(makeResponse(new ReadableStream(), false, 404));
-    const probe = await probeOllama('http://localhost:11434');
-    expect(probe.online).toBe(false);
-    expect(probe.models).toEqual([]);
-  });
-
-  it('returns online:false when fetch rejects', async () => {
-    fetchMock.mockRejectedValue(new Error('connection refused'));
-    const probe = await probeOllama('http://localhost:11434');
-    expect(probe.online).toBe(false);
   });
 });
 

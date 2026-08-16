@@ -1,11 +1,10 @@
 // ============================================
-// WeaveMD — 知识库索引（导入/分块/嵌入/增量重建）
+// WeaveMD — 知识库索引（导入/分块/FTS5/增量重建）
 // ============================================
 // splitNote 纯函数分块；indexFile/indexImportedText/reindexAfterSave/removeByFile 落 kb.ts DAO。
 // 写 kb_documents / kb_chunks 属知识库索引存储（两铁律允许），绝不写 files 表/用户笔记。
-// 向量嵌入经 embeddingClient；vector 不可用时自动跳过（不抛，块仅存 FTS 文本）。
+// 纯 FTS5 关键词索引（向量已去除）。
 
-import { encodeFloat32Array } from '../db/kb';
 import {
   deleteChunksByDoc,
   deleteKbDocumentByFile,
@@ -14,20 +13,7 @@ import {
   setKbDocStatus,
   upsertKbDocument,
 } from '../db/kb';
-import { embedBatch } from './embeddingClient';
 import type { IKbImportResult } from '@shared/ai';
-
-// ---------------------------------------------------------------------------
-// 嵌入目标（默认 Ollama 本地）。宿主层可在启动/配置时 set 一次。
-// ---------------------------------------------------------------------------
-
-let embeddingHost = 'http://localhost:11434';
-let embeddingModel = 'nomic-embed-text';
-
-export function setEmbeddingTarget(host: string, model: string): void {
-  embeddingHost = host;
-  embeddingModel = model;
-}
 
 // ---------------------------------------------------------------------------
 // splitNote — 纯函数分块
@@ -122,44 +108,25 @@ export interface IndexFileInput {
 }
 
 export interface KbIndexOpts {
-  vectorEnabled: boolean;
-  embeddingHost?: string;
-  embeddingModel?: string;
+  // 纯 FTS5：无向量/嵌入选项
 }
 
-/** 分块并依次落库（含可选向量）。返回落库 chunk 数。 */
+/** 分块并依次落库（纯 FTS 文本）。返回落库 chunk 数。 */
 async function writeChunks(
   documentId: string,
   content: string,
-  fileName: string,
-  vectorEnabled: boolean,
-  host: string,
-  model: string
+  fileName: string
 ): Promise<number> {
   const chunks = splitNote(content);
   if (chunks.length === 0) return 0;
 
-  let vectors: number[][] | null = null;
-  if (vectorEnabled) {
-    try {
-      vectors = await embedBatch(host, model, chunks.map((c) => c.text));
-    } catch {
-      // 向量不可用 → 降级仅 FTS（不中断索引）
-      vectors = null;
-    }
-  }
-
-  for (const [i, chunk] of chunks.entries()) {
-    let vectorBuf = null;
-    if (vectors && vectors[i]) {
-      vectorBuf = encodeFloat32Array(vectors[i]);
-    }
+  for (const chunk of chunks) {
     const sourceRef = buildSourceRef(fileName, chunk.approxOffset);
     insertChunk({
       documentId,
       seq: chunk.seq,
       content: chunk.text,
-      vector: vectorBuf,
+      vector: null,
       sourceRef,
     });
   }
@@ -176,16 +143,14 @@ export function buildSourceRef(fileName: string, approxOffset: number, fileId?: 
 }
 
 /**
- * 索引一个 db 文件（source_type='db'，file_id 关联）。向量可用则逐块嵌入。
+ * 索引一个 db 文件（source_type='db'，file_id 关联）。纯 FTS5 分块落库。
  * 状态流转：importing →（分块插块）→ done；异常 → error（不抛）。
  */
 export async function indexFile(
   userId: string,
   file: IndexFileInput,
-  opts: KbIndexOpts
+  _opts: KbIndexOpts
 ): Promise<IKbImportResult> {
-  const host = opts.embeddingHost ?? embeddingHost;
-  const model = opts.embeddingModel ?? embeddingModel;
   let docId = '';
   let title = file.name;
 
@@ -199,7 +164,7 @@ export async function indexFile(
     docId = doc.id;
     title = doc.title;
     deleteChunksByDoc(docId);
-    const chunkCount = await writeChunks(docId, file.content, file.name, opts.vectorEnabled, host, model);
+    const chunkCount = await writeChunks(docId, file.content, file.name);
     setKbDocStatus(userId, docId, 'done');
     const fresh = getKbDocumentByFile(userId, file.id);
     return {
@@ -233,10 +198,8 @@ export async function indexImportedText(
   userId: string,
   title: string,
   text: string,
-  opts: KbIndexOpts
+  _opts: KbIndexOpts
 ): Promise<IKbImportResult> {
-  const host = opts.embeddingHost ?? embeddingHost;
-  const model = opts.embeddingModel ?? embeddingModel;
   let docId = '';
 
   try {
@@ -248,7 +211,7 @@ export async function indexImportedText(
     });
     docId = doc.id;
     deleteChunksByDoc(docId);
-    const chunkCount = await writeChunks(docId, text, title, opts.vectorEnabled, host, model);
+    const chunkCount = await writeChunks(docId, text, title);
     setKbDocStatus(userId, docId, 'done');
     return { docId, title, chunks: chunkCount, status: 'done' };
   } catch {

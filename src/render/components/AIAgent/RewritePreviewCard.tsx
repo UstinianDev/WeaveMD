@@ -25,7 +25,7 @@ const RewritePreviewCard: React.FC = () => {
   // 改写进行中
   if (rewriting) {
     return (
-      <div className="px-4 py-2 text-xs text-text-muted">
+      <div className="px-4 py-2 text-[13px] text-text-muted">
         {t('ai.rewrite.rewriting', '正在改写...')}
       </div>
     );
@@ -34,14 +34,14 @@ const RewritePreviewCard: React.FC = () => {
   // 无提案提示条统一布局：文案 + 末尾 ✕ dismiss（R16）
   const banner = (content: React.ReactNode, className: string) => (
     <div
-      className={`px-4 py-2 text-xs ${className} rounded-md flex items-center justify-between gap-2`}
+      className={`px-4 py-2 text-[13px] ${className} rounded-md flex items-center justify-between gap-2`}
     >
       <span>{content}</span>
       <button
         type="button"
         aria-label={t('ai.rewrite.dismiss', '关闭')}
         onClick={() => dismissRewriteBanner()}
-        className="shrink-0 text-sm leading-none opacity-70 hover:opacity-100 transition-opacity"
+        className="shrink-0 text-[15px] leading-none opacity-70 hover:opacity-100 transition-opacity"
       >
         ✕
       </button>
@@ -88,16 +88,16 @@ const RewritePreviewCard: React.FC = () => {
   return (
     <div className="mx-3 my-1 rounded-card border border-border bg-bg-tertiary/60 overflow-hidden shadow-sm">
       {staleRejected && (
-        <div className="px-3 pt-2 text-[11px] text-red-500">{t('ai.rewrite.staleRejected')}</div>
+        <div className="px-3 pt-2 text-[12px] text-red-500">{t('ai.rewrite.staleRejected')}</div>
       )}
       {/* header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-        <span className="text-xs font-medium text-text-primary">{t('ai.rewrite.previewTitle')}</span>
+        <span className="text-[13px] font-medium text-text-primary">{t('ai.rewrite.previewTitle')}</span>
         <div className="flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => clearRewrite()}
-            className="text-xs px-2 py-1 rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
+            className="text-[13px] px-2 py-1 rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
           >
             {t('ai.rewrite.previewCancel')}
           </button>
@@ -105,7 +105,7 @@ const RewritePreviewCard: React.FC = () => {
             type="button"
             onClick={() => applyRewrite()}
             disabled={staleRejected}
-            className="text-xs px-2.5 py-1 rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+            className="text-[13px] px-2.5 py-1 rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
           >
             {t('ai.rewrite.previewConfirm')}
           </button>
@@ -113,7 +113,7 @@ const RewritePreviewCard: React.FC = () => {
       </div>
 
       {/* body：行级红删绿增 diff */}
-      <div className="px-3 py-2 font-mono text-xs space-y-0.5 max-h-40 overflow-y-auto bg-bg-primary/60">
+      <div className="px-3 py-2 font-mono text-[13px] space-y-0.5 max-h-40 overflow-y-auto bg-bg-primary/60">
         {lines.map((ln, i) => (
           <div
             key={i}
@@ -132,7 +132,7 @@ const RewritePreviewCard: React.FC = () => {
       </div>
 
       {/* 改写后整段安全渲染 */}
-      <div className="px-3 py-2 border-t border-border text-sm text-text-primary">
+      <div className="px-3 py-2 border-t border-border text-[15px] text-text-primary">
         {renderAIMarkdownSafe(rewrittenMd)}
       </div>
     </div>

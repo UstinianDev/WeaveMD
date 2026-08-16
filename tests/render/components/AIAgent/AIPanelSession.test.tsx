@@ -33,8 +33,19 @@ vi.mock('@render/components/AIAgent/KnowledgeBaseSettings', () => ({
   default: () => <div data-testid="mock-kbsettings">KB Settings</div>,
 }));
 
+/** 捕获 AIPanelSession 传给 composer 的受控 value / onSend（M4 草稿透传断言用）。 */
+let composerValue = '';
+let composerOnSend: (() => void) | undefined;
+
 vi.mock('@render/components/AIAgent/AIPanelComposer', () => ({
-  default: () => <div data-testid="mock-composer">Composer</div>,
+  default: ({ value, onSend }: {
+    value: string;
+    onSend?: () => void;
+  }) => {
+    composerValue = value;
+    composerOnSend = onSend;
+    return <div data-testid="mock-composer">Composer</div>;
+  },
 }));
 
 const conv = (id: string, summary: string): IAIConversation => ({
@@ -60,7 +71,7 @@ describe('AIPanelSession', () => {
       activeMode: 'agent',
       useKnowledgeBase: false,
     });
-    render(<AIPanelSession onCloseConversation={closeFn} />);
+    render(<AIPanelSession draft="" setDraft={() => undefined} onCloseConversation={closeFn} />);
     expect(screen.getByTestId('session-title').textContent).toContain('当前标题');
     fireEvent.click(screen.getByTestId('close-conversation'));
     expect(closeFn).toHaveBeenCalled();
@@ -73,7 +84,7 @@ describe('AIPanelSession', () => {
       activeMode: 'agent',
       useKnowledgeBase: false,
     });
-    render(<AIPanelSession onCloseConversation={closeFn} />);
+    render(<AIPanelSession draft="" setDraft={() => undefined} onCloseConversation={closeFn} />);
     expect(screen.getByTestId('session-title').textContent).toContain('智能体');
   });
 
@@ -84,7 +95,7 @@ describe('AIPanelSession', () => {
       activeMode: 'agent',
       useKnowledgeBase: false,
     });
-    render(<AIPanelSession onCloseConversation={closeFn} />);
+    render(<AIPanelSession draft="" setDraft={() => undefined} onCloseConversation={closeFn} />);
     expect(screen.getByTestId('mock-message-flow')).toBeInTheDocument();
     expect(screen.getByTestId('mock-composer')).toBeInTheDocument();
     // 知识库设置抽屉初始隐藏
@@ -100,9 +111,26 @@ describe('AIPanelSession', () => {
       activeMode: 'chat',
       useKnowledgeBase: false,
     });
-    render(<AIPanelSession onCloseConversation={closeFn} />);
+    render(<AIPanelSession draft="" setDraft={() => undefined} onCloseConversation={closeFn} />);
     expect(screen.getByTestId('mock-message-flow')).toBeInTheDocument();
     expect(screen.queryByLabelText('依照知识库创作')).toBeNull();
     expect(screen.queryByText('知识库', { exact: true })).toBeNull();
+  });
+
+  it('M4: 接收 draft 受控透传 composer；onSend 清空草稿', () => {
+    useAgentStore.setState({
+      conversations: [conv('c1', '标题')],
+      activeConversationId: 'c1',
+      activeMode: 'chat',
+      useKnowledgeBase: false,
+    });
+    const setDraft = vi.fn();
+    render(
+      <AIPanelSession draft="会话草稿" setDraft={setDraft} onCloseConversation={closeFn} />
+    );
+    expect(composerValue).toBe('会话草稿');
+    // 发送成功 onSend → setDraft('')
+    composerOnSend?.();
+    expect(setDraft).toHaveBeenCalledWith('');
   });
 });

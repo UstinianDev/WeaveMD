@@ -4,7 +4,6 @@
 // 无 tokenizer 依赖的字量估算 + 阈值压缩 + 摘要置顶重排。
 // 估算 len/4 为相对阈值（误差 ≤2x 不影响「是否该压缩」判定）；压缩为幂等安全动作。
 
-import type { ChatBackend } from '@shared/ai';
 import { streamChatCompletion } from './llmClient';
 
 export interface LlmMessage {
@@ -73,7 +72,6 @@ function keepRecentTail(messages: LlmMessage[], keepRounds: number): LlmMessage[
 
 /** summarizeViaLlm 一次调用的输入端上下文。 */
 export interface SummarizeCtx {
-  backend: ChatBackend;
   baseUrl: string;
   model: string;
   apiKey?: string;
@@ -91,7 +89,6 @@ export async function summarizeViaLlm(
   ctx: SummarizeCtx
 ): Promise<string> {
   const gen = streamChatCompletion({
-    backend: ctx.backend,
     baseUrl: ctx.baseUrl,
     model: ctx.model,
     apiKey: ctx.apiKey,

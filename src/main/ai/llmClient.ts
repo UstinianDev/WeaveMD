@@ -1,22 +1,21 @@
 // ============================================
 // WeaveMD — Unified OpenAI-compatible LLM client
 // ============================================
-// 双后端：本地 Ollama / 远程 OpenAI 兼容 API。SSE 逐块解析、逐块 yield。
+// 远程 OpenAI 兼容 API（恒 remote）。SSE 逐块解析、逐块 yield。
 // 纯函数：除 node fetch 外不 import Electron，可单测（mock global fetch）。
 //
 // 特注意项（本机 curl 实测）：qwen3.5:0.8b 带 thinking，SSE 早期先发
 // delta.reasoning 且 delta.content 为空串/undefined -> 必须跳过空 content，
 // 只累加非空 delta.content。
 
-import type { ChatBackend, ToolDef } from '@shared/ai';
+import type { ToolDef } from '@shared/ai';
 
 export interface StreamChatCompletionOptions {
-  backend: ChatBackend;
   baseUrl: string;
   model: string;
   apiKey?: string;
   messages: Array<{ role: string; content: string }>;
-  /** OpenAI 兼容工具定义（仅 remote 可靠；ollama 后端勿传）。可选，缺省不发。 */
+  /** OpenAI 兼容工具定义。可选，缺省不发。 */
   tools?: ToolDef[];
   /** thinking 模式必须 'auto'。仅在同时传 tools 时生效。 */
   toolChoice?: 'auto';
@@ -36,32 +35,6 @@ export interface StreamChunk {
 
 const DEFAULT_TIMEOUT = 60_000;
 
-export interface OllamaProbeResult {
-  online: boolean;
-  models: string[];
-}
-
-/**
- * 探测 Ollama 是否在线（GET /v1/models）。失败返回 online:false（静默），
- * 供设置面板「检测 Ollama」与 Chat 空态提示使用。
- */
-export async function probeOllama(baseUrl: string): Promise<OllamaProbeResult> {
-  try {
-    const init: RequestInit = AbortSignal.timeout
-      ? { signal: AbortSignal.timeout(5_000) }
-      : {};
-    const res = await fetch(`${baseUrl}/v1/models`, init);
-    if (!res.ok) return { online: false, models: [] };
-    const json = (await res.json().catch(() => null)) as
-      | { data?: Array<{ id?: string }> }
-      | null;
-    const models = (json?.data ?? []).map((m) => m.id ?? '').filter(Boolean);
-    return { online: true, models };
-  } catch {
-    return { online: false, models: [] };
-  }
-}
-
 function makeError(code: string, message: string): Error & { code: string } {
   const err = new Error(message) as Error & { code: string };
   err.code = code;
@@ -75,7 +48,7 @@ function makeError(code: string, message: string): Error & { code: string } {
 export async function* streamChatCompletion(
   opts: StreamChatCompletionOptions
 ): AsyncGenerator<StreamChunk> {
-  if (opts.backend === 'remote' && !opts.apiKey) {
+  if (!opts.apiKey) {
     throw makeError('config_incomplete', 'Remote backend requires an API key');
   }
 

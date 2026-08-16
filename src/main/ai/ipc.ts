@@ -37,14 +37,13 @@ import { countChunksByDoc, listKbDocumentsByUser } from '../db/kb';
 import { getFile } from '../db/files';
 import { decryptApiKey, encryptApiKey } from './secureConfig';
 import { needsConsent } from './consent';
-import { probeOllama, streamChatCompletion } from './llmClient';
+import { streamChatCompletion } from './llmClient';
 import { listModelsForUser } from './modelList';
 import { runAgentFlow } from './agentLoop';
 import { runRewrite } from './rewrite';
 import { listSkillsForUi } from './skillLoader';
 import { indexFile, indexImportedText, removeByFile } from './kbIndexer';
 import { searchKB } from './kbSearch';
-import { probeEmbedding } from './embeddingClient';
 import type { IKbImportResult } from '@shared/ai';
 
 interface ChatReqPayload {
@@ -58,14 +57,13 @@ const activeStreams = new Map<string, AbortController>();
 
 function toIAIConfig(config: {
   backend: ChatBackend;
-  ollamaBaseUrl: string;
   remoteBaseUrl: string;
   model: string;
   apiKeyEnc: string | null;
 }): IAIConfig {
   return {
-    backend: config.backend,
-    ollamaBaseUrl: config.ollamaBaseUrl,
+    // 后端恒 remote（ollama 已去除，收敛标识）
+    backend: 'remote',
     remoteBaseUrl: config.remoteBaseUrl,
     model: config.model,
     hasApiKey: !!config.apiKeyEnc,
@@ -101,8 +99,7 @@ export function registerAiIpcHandlers(): void {
       const config: IAIConfig = row
         ? toIAIConfig(row)
         : {
-            backend: 'ollama',
-            ollamaBaseUrl: 'http://localhost:11434',
+            backend: 'remote',
             remoteBaseUrl: 'https://api.deepseek.com',
             model: '',
             hasApiKey: false,
@@ -121,7 +118,6 @@ export function registerAiIpcHandlers(): void {
         userId: string;
         config: {
           backend?: ChatBackend;
-          ollamaBaseUrl?: string;
           remoteBaseUrl?: string;
           model?: string;
           apiKey?: string;
@@ -138,7 +134,6 @@ export function registerAiIpcHandlers(): void {
         }
         const row = upsertAiConfig(payload.userId, {
           backend: payload.config.backend,
-          ollamaBaseUrl: payload.config.ollamaBaseUrl,
           remoteBaseUrl: payload.config.remoteBaseUrl,
           model: payload.config.model,
           apiKeyEnc,
@@ -184,20 +179,6 @@ export function registerAiIpcHandlers(): void {
       }
     }
   );
-
-  // --- health (探测 Ollama；与账号无关，用默认 baseUrl) ---
-  ipcMain.handle(IPC_CHANNELS.AI_HEALTH, async () => {
-    const probe = await probeOllama('http://localhost:11434');
-    return {
-      success: true,
-      data: {
-        backend: 'ollama',
-        ollamaOnline: probe.online,
-        ollamaModelId: probe.models[0] ?? null,
-        error: probe.online ? null : 'Ollama offline',
-      },
-    };
-  });
 
   // --- conversations ---
   ipcMain.handle(
@@ -286,8 +267,7 @@ export function registerAiIpcHandlers(): void {
     const config: IAIConfig = row
       ? toIAIConfig(row)
       : {
-          backend: 'ollama',
-          ollamaBaseUrl: 'http://localhost:11434',
+          backend: 'remote',
           remoteBaseUrl: 'https://api.deepseek.com',
           model: '',
           hasApiKey: false,
@@ -398,16 +378,12 @@ export function registerAiIpcHandlers(): void {
     async (_event, payload: { userId: string }) => {
       try {
         const docs = listKbDocumentsByUser(payload.userId);
-        // 探针用持久化 host/model（空值兜底 DEFAULT），消除硬编码
-        const row = getAiConfig(payload.userId);
-        const host = row?.kbEmbeddingHost || DEFAULT_KB_SETTINGS.embeddingHost;
-        const model = row?.kbEmbeddingModel || DEFAULT_KB_SETTINGS.embeddingModel;
-        const probe = await probeEmbedding(host, model);
+        // 纯 FTS5 降级：不再发起向量探针，embedding 恒不可用（KbStatusResponse 契约保留字段）
         return {
           success: true,
           data: {
             documents: docs.length,
-            embedding: { available: probe.ok, dims: probe.dims },
+            embedding: { available: false, dims: null },
           },
         };
       } catch (error) {
@@ -429,8 +405,6 @@ export function registerAiIpcHandlers(): void {
               fuse: row.kbFuse,
               threshold: row.kbThreshold,
               pinnedWeight: row.kbPinnedWeight,
-              embeddingHost: row.kbEmbeddingHost,
-              embeddingModel: row.kbEmbeddingModel,
             })
           : { ...DEFAULT_KB_SETTINGS };
         return { success: true, data: settings };
@@ -457,8 +431,6 @@ export function registerAiIpcHandlers(): void {
           kbFuse: settings.fuse,
           kbThreshold: settings.threshold,
           kbPinnedWeight: settings.pinnedWeight,
-          kbEmbeddingHost: settings.embeddingHost,
-          kbEmbeddingModel: settings.embeddingModel,
         });
         // 写后回读，返回实际落盘归一值
         return {
@@ -468,8 +440,6 @@ export function registerAiIpcHandlers(): void {
             fuse: row.kbFuse,
             threshold: row.kbThreshold,
             pinnedWeight: row.kbPinnedWeight,
-            embeddingHost: row.kbEmbeddingHost,
-            embeddingModel: row.kbEmbeddingModel,
           }),
         };
       } catch (error) {
@@ -489,8 +459,7 @@ export function registerAiIpcHandlers(): void {
     const config: IAIConfig = row
       ? toIAIConfig(row)
       : {
-          backend: 'ollama',
-          ollamaBaseUrl: 'http://localhost:11434',
+          backend: 'remote',
           remoteBaseUrl: 'https://api.deepseek.com',
           model: '',
           hasApiKey: false,
@@ -520,8 +489,6 @@ export function registerAiIpcHandlers(): void {
               fuse: row.kbFuse,
               threshold: row.kbThreshold,
               pinnedWeight: row.kbPinnedWeight,
-              embeddingHost: row.kbEmbeddingHost,
-              embeddingModel: row.kbEmbeddingModel,
             })
           : {};
         const kb = { ...persisted, ...(payload.kbSettings ?? {}) };
@@ -532,9 +499,6 @@ export function registerAiIpcHandlers(): void {
               fuse: kb.fuse,
               pinnedWeight: kb.pinnedWeight,
               threshold: kb.threshold,
-              embeddingHost: kb.embeddingHost,
-              embeddingModel: kb.embeddingModel,
-              vectorEnabled: o?.vectorEnabled ?? false,
             }),
           consent,
         });
@@ -605,8 +569,7 @@ export function registerAiIpcHandlers(): void {
       const config: IAIConfig = row
         ? toIAIConfig(row)
         : {
-            backend: 'ollama',
-            ollamaBaseUrl: 'http://localhost:11434',
+            backend: 'remote',
             remoteBaseUrl: 'https://api.deepseek.com',
             model: '',
             hasApiKey: false,
@@ -704,9 +667,9 @@ async function reindexFromKbOrFile(
   return null;
 }
 
-/** 当前 KB 索引选项（向量开关默认关闭，宿主层可在启动时 setEmbeddingTarget 后翻转；此处保守仅关键词）。 */
-function kbIndexOpts(): { vectorEnabled: boolean } {
-  return { vectorEnabled: false };
+/** 当前 KB 索引选项（纯 FTS5；无向量/嵌入）。 */
+function kbIndexOpts(): Record<string, never> {
+  return {};
 }
 
 async function runChatFlow(
@@ -745,13 +708,11 @@ async function runChatFlow(
     ? historyMessages
     : [{ role: 'user', content: message }];
 
-  const baseUrl =
-    config.backend === 'remote' ? config.remoteBaseUrl : config.ollamaBaseUrl;
-  // model 留空时按后端取默认（remote=deepseek-chat，ollama=qwen3.5:0.8b），避免发 model:"" 报错
-  const model =
-    config.model?.trim() || (config.backend === 'remote' ? 'deepseek-chat' : 'qwen3.5:0.8b');
+  const baseUrl = config.remoteBaseUrl;
+  // model 留空时取默认（deepseek-chat），避免发 model:"" 报错
+  const model = config.model?.trim() || 'deepseek-chat';
   let apiKey: string | undefined;
-  if (config.backend === 'remote' && apiKeyEnc) {
+  if (apiKeyEnc) {
     apiKey = decryptApiKey(apiKeyEnc);
   }
 
@@ -762,7 +723,6 @@ async function runChatFlow(
   try {
     const usage = { reasoningTokenCount: reasoningTokenCount };
     const gen = streamChatCompletion({
-      backend: config.backend,
       baseUrl,
       model,
       apiKey,

@@ -57,7 +57,6 @@ vi.mock('@main/ai/consent', () => consentMock);
 
 const llmMock = vi.hoisted(() => ({
   streamChatCompletion: vi.fn(),
-  probeOllama: vi.fn(),
 }));
 vi.mock('@main/ai/llmClient', () => llmMock);
 
@@ -84,11 +83,6 @@ const kbSearchMock = vi.hoisted(() => ({
   searchKB: vi.fn(),
 }));
 vi.mock('@main/ai/kbSearch', () => kbSearchMock);
-
-const embeddingMock = vi.hoisted(() => ({
-  probeEmbedding: vi.fn(),
-}));
-vi.mock('@main/ai/embeddingClient', () => embeddingMock);
 
 const agentLoopMock = vi.hoisted(() => ({
   runAgentFlow: vi.fn(),
@@ -136,7 +130,6 @@ beforeEach(() => {
   kbIndexerMock.indexFile.mockReset();
   kbIndexerMock.removeByFile.mockReset().mockReturnValue(true);
   kbSearchMock.searchKB.mockReset();
-  embeddingMock.probeEmbedding.mockReset();
   agentLoopMock.runAgentFlow.mockReset();
   rewriteMock.runRewrite.mockReset();
   skillLoaderMock.listSkillsForUi.mockReset().mockReturnValue([
@@ -152,10 +145,10 @@ beforeEach(() => {
   dbMock.getAiConfig.mockReset().mockReturnValue({
     id: 'cfg1',
     userId: 'u1',
-    backend: 'ollama',
+    backend: 'remote',
     ollamaBaseUrl: 'http://localhost:11434',
     remoteBaseUrl: 'https://api.deepseek.com',
-    model: 'qwen3.5:0.8b',
+    model: 'deepseek-chat',
     apiKeyEnc: null,
     allowNetwork: false,
     allowSend: false,
@@ -200,7 +193,6 @@ describe('ai:ipc handlers', () => {
       IPC_CHANNELS.AI_SET_CONFIG,
       IPC_CHANNELS.AI_GET_CONSENT,
       IPC_CHANNELS.AI_SET_CONSENT,
-      IPC_CHANNELS.AI_HEALTH,
       IPC_CHANNELS.AI_CHAT_ABORT,
       IPC_CHANNELS.AI_CONVERSATION_LIST,
       IPC_CHANNELS.AI_CONVERSATION_GET,
@@ -352,7 +344,7 @@ describe('ai:ipc handlers', () => {
       'u1',
       'note',
       'hello world',
-      expect.objectContaining({ vectorEnabled: false })
+      {}
     );
   });
 
@@ -402,16 +394,16 @@ describe('ai:ipc handlers', () => {
     expect(kbIndexerMock.indexFile).not.toHaveBeenCalled();
   });
 
-  it('KB_STATUS returns document count + embedding probe from probeEmbedding', async () => {
+  it('KB_STATUS returns document count + embedding unavailable (pure FTS no probe)', async () => {
     kbDaoMock.listKbDocumentsByUser.mockReturnValue([{ id: 'd1' } as never]);
     kbDaoMock.countChunksByDoc.mockReturnValue(2);
-    embeddingMock.probeEmbedding.mockResolvedValue({ ok: true, dims: 768 });
     const result = (await getHandler(IPC_CHANNELS.KB_STATUS)(makeEvent(), {
       userId: 'u1',
-    })) as { success: boolean; data: { documents: number; embedding: { available: boolean } } };
+    })) as { success: boolean; data: { documents: number; embedding: { available: boolean; dims: number | null } } };
     expect(result.success).toBe(true);
     expect(result.data.documents).toBe(1);
-    expect(result.data.embedding.available).toBe(true);
+    // 纯 FTS5 降级：向量探针不再发起（恒不可用）
+    expect(result.data.embedding).toEqual({ available: false, dims: null });
     expect(kbDaoMock.listKbDocumentsByUser).toHaveBeenCalledWith('u1');
   });
 
@@ -580,7 +572,7 @@ describe('ai:ipc handlers', () => {
     // user_id 归属：payload 携带 userId，config 按该 userId getAiConfig 而来
     expect(payload.userId).toBe('u1');
     expect(payload.scope).toBe('selection');
-    expect(config.backend).toBe('ollama'); // beforeEach 默认 getAiConfig → ollama 行
+    expect(config.backend).toBe('remote'); // 恒 remote（ollama 已去除）
     expect(apiKeyEnc).toBeNull();
     expect(controller.signal).toBeInstanceOf(AbortSignal);
   });
@@ -608,7 +600,7 @@ describe('ai:ipc handlers', () => {
     dbMock.getAiConfig.mockReturnValue({
       id: 'cfg1',
       userId: 'u1',
-      backend: 'ollama',
+      backend: 'remote',
       ollamaBaseUrl: 'http://localhost:11434',
       remoteBaseUrl: 'https://api.deepseek.com',
       model: '',
@@ -622,20 +614,17 @@ describe('ai:ipc handlers', () => {
       kbFuse: 0.8,
       kbThreshold: 0.4,
       kbPinnedWeight: 2,
-      kbEmbeddingHost: 'http://custom:1234',
-      kbEmbeddingModel: 'custom-model',
     });
     const result = (await getHandler(IPC_CHANNELS.KB_GET_SETTINGS)(makeEvent(), {
       userId: 'u1',
     })) as { success: boolean; data: Record<string, unknown> };
     expect(result.success).toBe(true);
+    // 纯 FTS 检索参数；embedding 已去除
     expect(result.data).toEqual({
       topK: 9,
       fuse: 0.8,
       threshold: 0.4,
       pinnedWeight: 2,
-      embeddingHost: 'http://custom:1234',
-      embeddingModel: 'custom-model',
     });
     expect(dbMock.getAiConfig).toHaveBeenCalledWith('u1');
   });
@@ -651,8 +640,6 @@ describe('ai:ipc handlers', () => {
       fuse: 0.5,
       threshold: 0.6,
       pinnedWeight: 1.5,
-      embeddingHost: 'http://localhost:11434',
-      embeddingModel: 'nomic-embed-text',
     });
   });
 
@@ -660,7 +647,7 @@ describe('ai:ipc handlers', () => {
     dbMock.upsertAiConfig.mockReturnValue({
       id: 'cfg1',
       userId: 'u1',
-      backend: 'ollama',
+      backend: 'remote',
       ollamaBaseUrl: 'http://localhost:11434',
       remoteBaseUrl: 'https://api.deepseek.com',
       model: '',
@@ -674,8 +661,6 @@ describe('ai:ipc handlers', () => {
       kbFuse: 0.6,
       kbThreshold: 0.7,
       kbPinnedWeight: 1.8,
-      kbEmbeddingHost: 'http://custom:4321',
-      kbEmbeddingModel: 'other-model',
     });
     const result = (await getHandler(IPC_CHANNELS.KB_SET_SETTINGS)(makeEvent(), {
       userId: 'u1',
@@ -688,17 +673,13 @@ describe('ai:ipc handlers', () => {
       fuse: 0.6,
       threshold: 0.7,
       pinnedWeight: 1.8,
-      embeddingHost: 'http://custom:4321',
-      embeddingModel: 'other-model',
     });
-    // upsertAiConfig 收到归一后的 6 个 KB 字段
+    // upsertAiConfig 收到归一后的 4 个 KB 字段（embedding 已去除）
     expect(dbMock.upsertAiConfig).toHaveBeenCalledWith('u1', {
       kbTopK: 3,
       kbFuse: 0.5, // 未传 → normalize 回默认
       kbThreshold: 0.7,
       kbPinnedWeight: 1.5,
-      kbEmbeddingHost: 'http://localhost:11434',
-      kbEmbeddingModel: 'nomic-embed-text',
     });
   });
 
@@ -714,55 +695,11 @@ describe('ai:ipc handlers', () => {
     expect(result.code).toBe('config_incomplete');
   });
 
-  it('KB_STATUS uses persisted embedding host/model (消除硬编码)', async () => {
-    dbMock.getAiConfig.mockReturnValue({
-      id: 'cfg1',
-      userId: 'u1',
-      backend: 'ollama',
-      ollamaBaseUrl: 'http://localhost:11434',
-      remoteBaseUrl: 'https://api.deepseek.com',
-      model: '',
-      apiKeyEnc: null,
-      allowNetwork: false,
-      allowSend: false,
-      consentUpdatedAt: null,
-      createdAt: 'now',
-      updatedAt: 'now',
-      kbTopK: 5,
-      kbFuse: 0.5,
-      kbThreshold: 0.6,
-      kbPinnedWeight: 1.5,
-      kbEmbeddingHost: 'http://persisted:9999',
-      kbEmbeddingModel: 'persisted-model',
-    });
-    kbDaoMock.listKbDocumentsByUser.mockReturnValue([]);
-    embeddingMock.probeEmbedding.mockResolvedValue({ ok: true, dims: 768 });
-    const result = (await getHandler(IPC_CHANNELS.KB_STATUS)(makeEvent(), {
-      userId: 'u1',
-    })) as { success: boolean; data: unknown };
-    expect(result.success).toBe(true);
-    // 探针收到持久化 host/model，而非硬编码
-    expect(embeddingMock.probeEmbedding).toHaveBeenCalledWith(
-      'http://persisted:9999',
-      'persisted-model'
-    );
-  });
-
-  it('KB_STATUS falls back to default host/model when row missing (persisted null)', async () => {
-    dbMock.getAiConfig.mockReturnValue(null);
-    embeddingMock.probeEmbedding.mockResolvedValue({ ok: false, dims: null });
-    await getHandler(IPC_CHANNELS.KB_STATUS)(makeEvent(), { userId: 'u1' });
-    expect(embeddingMock.probeEmbedding).toHaveBeenCalledWith(
-      'http://localhost:11434',
-      'nomic-embed-text'
-    );
-  });
-
   it('AGENT_RUN 未传 kbSettings：searchKb 用持久化默认兜底', async () => {
     dbMock.getAiConfig.mockReturnValue({
       id: 'cfg1',
       userId: 'u1',
-      backend: 'ollama',
+      backend: 'remote',
       ollamaBaseUrl: 'http://localhost:11434',
       remoteBaseUrl: 'https://api.deepseek.com',
       model: '',
@@ -809,9 +746,6 @@ describe('ai:ipc handlers', () => {
         fuse: 0.7,
         pinnedWeight: 2.1,
         threshold: 0.4,
-        embeddingHost: 'http://agent-persisted:1234',
-        embeddingModel: 'agent-model',
-        vectorEnabled: false,
       })
     );
   });
@@ -819,7 +753,7 @@ describe('ai:ipc handlers', () => {
   it('AGENT_RUN 传部分 kbSettings：其余持久化兜底（payload 显式 > 持久化）', async () => {    dbMock.getAiConfig.mockReturnValue({
       id: 'cfg1',
       userId: 'u1',
-      backend: 'ollama',
+      backend: 'remote',
       ollamaBaseUrl: 'http://localhost:11434',
       remoteBaseUrl: 'https://api.deepseek.com',
       model: '',
@@ -866,9 +800,6 @@ describe('ai:ipc handlers', () => {
         fuse: 0.99,
         pinnedWeight: 1.1, // 其余持久化
         threshold: 0.9,
-        embeddingHost: 'http://persist-host:1',
-        embeddingModel: 'persist-model',
-        vectorEnabled: false,
       })
     );
   });

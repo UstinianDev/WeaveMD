@@ -111,42 +111,10 @@ const EditorV2: React.FC<EditorV2Props> = ({
     for (const r of ranges) {
       const span = leaves[r.leafIndex];
       if (!span) continue; // 失同步/定位失败 → 保守跳过该叶（不阻断面板）
-      const length = (span.textContent ?? '').replace(/\u200b/g, '').length;
-      const start = Math.min(r.start, length);
-      const end = Math.min(r.end, length);
-      if (start >= end) continue;
       try {
-        const range = document.createRange();
-        // 用 TreeWalker 按"跳过零宽空格的可视长度"定位 [start, end) 边界点（与 selection 同口径）
-        const locate = (offset: number): { node: Node; offset: number } => {
-          const tw = document.createTreeWalker(span, NodeFilter.SHOW_TEXT);
-          let remaining = Math.max(0, offset);
-          let textNode: Text | null;
-          while ((textNode = tw.nextNode() as Text | null) !== null) {
-            const value = textNode.nodeValue ?? '';
-            const effective = value.replace(/\u200b/g, '').length;
-            if (remaining <= effective) {
-              let charCount = 0;
-              let pos = 0;
-              for (let i = 0; i < value.length; i++) {
-                if (value[i] !== '\u200B') charCount++;
-                if (remaining > 0 && charCount >= remaining) {
-                  pos = i + 1;
-                  break;
-                }
-              }
-              return { node: textNode, offset: pos };
-            }
-            remaining -= effective;
-          }
-          return { node: span, offset: span.childNodes.length };
-        };
-        const sp = locate(start);
-        const ep = locate(end);
-        range.setStart(sp.node, sp.offset);
-        range.setEnd(ep.node, ep.offset);
-        const rect = range.getBoundingClientRect();
-        if (rect.width === 0 && rect.height === 0) continue;
+        // M5：整块高亮——取 .block-content span 整行宽矩形（不再用选区子串 range）
+        const rect = span.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) continue; // 未布局/不可见 → 跳过
         rects.push({
           top: rect.top - hostRect.top,
           left: rect.left - hostRect.left,
@@ -159,6 +127,14 @@ const EditorV2: React.FC<EditorV2Props> = ({
     }
     return rects;
   }, [content, selectionSel, highlightTick]);
+
+  // M5：「取消」渐变蓝胶囊——始终可见（非悬停），定位在首个高亮块左缘上方。
+  const clearRewrite = useRewriteStore((s) => s.clearRewrite);
+  const cancelCapsuleRect = useMemo(() => {
+    const first = rewriteHighlights[0];
+    if (!first) return null;
+    return { left: first.left, top: first.top };
+  }, [rewriteHighlights]);
 
   // R1：行内图会话运行时宽度 map（G5）——key blockId → {`${data-start}:${data-end}`: px}。
   // 仅会话内生效，重载后重置。块卸载/重建时由 applyRuntimeWidths + 重建树自然清理（无泄漏）。
@@ -308,6 +284,18 @@ const EditorV2: React.FC<EditorV2Props> = ({
           style={{ top: `${r.top}px`, left: `${r.left}px`, width: `${r.width}px`, height: `${r.height}px` }}
         />
       ))}
+      {/* M5：「取消」渐变蓝胶囊——始终可见，定位在首个高亮块左缘上方（capsule 高度偏移见 globals.css 负 margin）。
+           pointer-events:auto 可点击，点击清高亮 + 重置全部改写状态；高亮本体仍 pointer-events:none 不挡编辑。 */}
+      {cancelCapsuleRect && (
+        <div
+          className="rewrite-cancel-capsule"
+          style={{ left: `${cancelCapsuleRect.left}px`, top: `${cancelCapsuleRect.top}px` }}
+        >
+          <button type="button" onClick={clearRewrite}>
+            取消
+          </button>
+        </div>
+      )}
       {/* R1：图片选中框 + 四角缩放手柄（选中图片时渲染；覆盖层 z-[90] < 图片工具栏 z-[100]） */}
       {imageSelection && (
         <ImageResizeBox
