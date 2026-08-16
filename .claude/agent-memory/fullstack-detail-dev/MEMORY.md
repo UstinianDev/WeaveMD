@@ -13,3 +13,5 @@
 - [AI 面板重设计 M2 store 改动](ai-redesign-m2-stores.md) — 首条 title/R16 dismiss/面板加宽落点；activeMode 需补解构；store 测试分叉两目录
 - [AI 面板重设计 M3 三视图 UI](ai-redesign-m3-ui.md) — 视图归属/AIComposer 宿主/settings i18n tab 键冲突/vitest setup 需 listModels/SettingsModal ai 测试迁 ModelForm
 - [三视图 E2E 改写要点](ai-redesign-e2e-threeview.md) — 标题=首条消息 strict 冲突/preview 仅 session 渲染需自动切视图/selector 勿链式多订阅(areHookInputsEqual 崩溃)/mock 须持久化 summary+setConfig
+- [M5 整块渐变高亮+取消胶囊](m5-fullblock-highlight-capsule.md) — buildHighlightRanges 整块[0,len]/EditorV2 span 整行 rect/.rewrite-cancel-capsule 常驻取消；Edit 工具对 U+200B 源码编辑坑须用 node 脚本替换
+

@@ -28,7 +28,7 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 | IPC 机制   | [modules/08-IPC通信机制.md](./modules/08-IPC通信机制.md)                     | 安全架构、preload 类型定义                   |
 | 国际化     | [modules/09-国际化-i18n.md](./modules/09-国际化-i18n.md)                     | Provider、多语言                             |
 | 导出功能   | [modules/10-导出功能-Export.md](./modules/10-导出功能-Export.md)             | 8 格式导出（md/html/pdf/doc/docx/png/jpg/jpeg）|
-| AI 代理面板 | [modules/11-AI代理面板-Agent.md](./modules/11-AI代理面板-Agent.md)           | 双智能体、知识库双路召回、块级改写、KB 参数持久化、第 7 期体验重构（已交付） |
+| AI 代理面板 | [modules/11-AI代理面板-Agent.md](./modules/11-AI代理面板-Agent.md)           | 双智能体、知识库（仅 FTS5 召回，后端收敛 remote-only）、块级改写、KB 参数持久化、第 7 期体验重构（已交付） |
 
 ## 3. 编辑主区 v2（当前主线）
 
@@ -131,18 +131,17 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 - 质量门禁：`tsc --noEmit` + `vitest run` + ESLint(0 error) + `vite build` + `npx playwright test`
   + `vitest --coverage`（改动文件口径 ≥80%，当前全量 95.45%；`@vitest/coverage-v8`）
 
-## 5. AI 代理面板与知识库（2026-08-15：第 1/2/3+4/5/6 期均已交付；第 7 期体验重构 7 批全部交付）
+## 5. AI 代理面板与知识库（2026-08-16：第 1/2/3+4/5/6/7 期均已交付 + 后端收敛 remote-only）
 
 **第 1/2 期已交付（2026-08-14）**：ai_* 4 表 DDL + kb_* 预留、`ai:*` IPC + preload、
 设置面板 AI Tab（safeStorage 加密 key）、知情同意页、导航栏 AI 按钮、llmClient（统一 OpenAI 兼容双后端 + SSE 流式）、
 右侧 AI 面板（Chat 全功能 + Agent 占位）、会话持久化；远程 DeepSeek 后端真连验证通过。
 
 **第 3+4 期已交付（2026-08-15）**：
-- **知识库**：kb DAO + FTS5 虚拟表 `kb_chunks_fts` + 触发器（CJK 前缀匹配注意）、embeddingClient
-  （Ollama `/api/embed`，nomic-embed-text 未装降级仅 FTS5）、kbIndexer（分块/状态流转/保存防抖重嵌入/删除清理）、
-  kbSearch（FTS5+向量 0.5/0.5 双路融合 + 拒答 0.6 + 置顶 ×1.5 + 出处）
+- **知识库**：kb DAO + FTS5 虚拟表 `kb_chunks_fts` + 触发器（CJK 前缀匹配注意）、kbIndexer（分块/状态流转/保存防抖重嵌入/删除清理）、
+  kbSearch（FTS5 BM25 召回 + 拒答 0.6 + 置顶 ×1.5 + 出处；**后端收敛后仅 FTS5，embeddingClient/向量召回已删除**）
 - **Agent 能力**：toolRegistry（listFiles/readFile/searchKB/runSkill，**只读无写工具**）、
-  agentLoop（≤6 轮函数调用循环，仅 remote 可靠、ollama 降级纯 chat）、skillLoader（3 内置技能 + 用户扩展 SKILL.md）、
+  agentLoop（≤6 轮函数调用循环，后端恒 remote、无降级）、skillLoader（3 内置技能 + 用户扩展 SKILL.md）、
   intentRouter（规则启发式 6 类 + 候选提问卡片）、contextManager（/4 估算 + 80% 压缩）、
   llmClient tools 支持、consent 分层（联网闸 allowNetwork + KB 外发闸 allowSend）
 - **渲染**：AgentTab 全功能、安全富文本（HAST→React，无 dangerouslySetInnerHTML）、
@@ -155,7 +154,7 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 - **铁律一落地**：主进程只产 LLM 文本（薄代理 `rewrite.ts`），块级替换在渲染侧（`blockEdit.ts`，只算不写），写入仅确认后
 
 **第 6 期 KB 参数持久化已交付（2026-08-15）**：
-- KB 参数（topK/fuse/threshold/置顶权重/embedding host+model）→ ai_config 6 列幂等迁移（`pragma_table_info` 探测缺失列 + 逐列 `ADD COLUMN`；**实证**：better-sqlite3 11.10.0/sqlite3.49.2 不支持 `ADD COLUMN IF NOT EXISTS`，见 status.md 阶段 7 H1）
+- KB 参数（topK/fuse/threshold/置顶权重；当前实现 embedding host+model 项已无向量，仅余前四参生效）→ ai_config 幂等迁移（`pragma_table_info` 探测缺失列 + 逐列 `ADD COLUMN`；**实证**：better-sqlite3 11.10.0/sqlite3.49.2 不支持 `ADD COLUMN IF NOT EXISTS`，见 status.md 阶段 7 H1）
 - 新增 `kb:get-settings`/`kb:set-settings` IPC；agentStore.init 拉取 + setKbSettings async 持久化（写失败保留内存态 + 非阻塞提示）
 - 主进程消费修正：KB_STATUS 探针用持久化 host/model（消除硬编码）、AGENT_RUN 以持久化 kbSettings 为默认兜底（payload 显式 > 持久化 > kbSearch 内置默认）
 - 真库三态实证：`scripts/kb-migration-smoke.cjs`（Electron 运行时 better-sqlite3 in-memory，新库/既有库/重复执行 + 读写闭环，退出码 0）
@@ -166,14 +165,19 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 **第 7 期体验重构已交付（2026-08-15，7 批全部）**：
 - A4 选区改写叶序错位 bug 修复（`data-block-id` 同时挂容器 div 与叶子 → DOM 序下标偏大；readDocumentSelection 改用 content 解析叶序 = 位置+文本对齐映射，失同步保守 null）+ 列表/引用/代码块容器回归测试
 - A1 当前文档上下文注入（agentLoop system prompt + estimateTokens 截断）+ rewrite 意图补词（优化/整理/美化/改进…）+ 从 0 到 1 整篇写（`proposeFullDocumentRewrite` + `runFullDocumentRewrite`/`previewDocumentFromReply`，预览确认 → updateContent 入 undo；未打开文档拒写引导）
-- A2 混合语法类型选中弹「AI 改写」（toolbarState mixedSyntax → 仅 AI 改写按钮）+ A3 选区持久高亮（`highlight.ts` 纯函数 + `.rewrite-highlight` 纯 CSS overlay，不入 contentEditable，随改写状态清除）
+- A2 混合语法类型选中弹「AI 改写」（toolbarState mixedSyntax → 仅 AI 改写按钮）+ A3 选区改写 → **覆盖块整块渐变蓝高亮（`.rewrite-highlight` 纯 CSS overlay，不入 contentEditable）+ 左端取消胶囊（`.rewrite-cancel-capsule`）**
 - B1 `/ @` 自动补全（`AGENT_SKILLS_LIST` 只读 IPC + `CompletionMenu` ↑↓/Enter/Esc/外部点击；@ 当前文档/知识库）
 - B2 命名「智能体」（仅文案 + i18n 三文件，代码标识符不动）
 - B3 双 Tab 合并统一单面板 + composer 上下拉「对话/智能体」模式选择（保留 `activeMode` 域隔离，chat 纯对话 / agent 保专属控件）
 - C1 视觉美化（frontend-design + impeccable-skill：字号 ≥13px、composer 收紧、圆角/间距节奏统一、CSS 变量体系；修复 ConsentOverlay 硬编码色违红点）
 
+**后端收敛 remote-only（ai-panel-ux-optimize，2026-08-16，已交付）**：
+- 彻底去除 ollama：`ChatBackend` 收敛为 `'remote'`；主进程删 `probeOllama`/AI_HEALTH/`agentBackendHint`/ollama 分支/`embeddingClient.ts`（整文件删）
+- KB 降级**仅 FTS5**（删向量召回/embedding host+model）；后端固定远程、必须填 key；DB 遗留列保留但读时 `'ollama'`→`'remote'` 收敛
+- ④ ModelForm API key 与「允许联网」之间新增「当前提供商」状态行 + 断开连接（清 key 即断开）；② composer 草稿提升到 AIAgentPanel 跨视图保留；① 选区改写 → 覆盖块整块渐变蓝高亮 + 左端取消胶囊；⑤ AI 面板字号整体放大一档
+
 延期不交付（如实标注，勿写成已交付）：真 MCP server 管理（fetchContext7/fetchFirecrawl 工具）、
-GitHub 自取 writing-shape 技能、embedding 双路真验依赖本地安装 nomic-embed-text。
+GitHub 自取 writing-shape 技能。embedding 双路真验已随后端收敛 remote-only / 仅 FTS5 一并去除，不再作为待验项。
 
 门禁：第 5 期 typecheck 0 error | vitest 88 files/1229 tests | lint 0 error | Playwright ai spec 14/14（含 4 改写用例）| vite build；第 6 期 typecheck 0 error | vitest 90 files/1261 tests（含 editBlocks stretch）| lint 0 error | Playwright ai spec 14/14 | vite build；第 7 期 typecheck 0 error | vitest 93 files/1338 tests | lint 0 error | Playwright ai spec 24/24 | vite build；
 详见 docs/plan/ai-agent-panel.status.md。需求：REQUIREMENTS 3.7/3.8（AGT-/KB- 编号）；设计：modules/11；选型：TECH_STACK 2.10。
