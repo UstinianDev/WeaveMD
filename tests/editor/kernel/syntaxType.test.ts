@@ -2,7 +2,7 @@
 // WeaveMD Editor v2 — syntaxType 单元测试（SPEC-EDIT-FT Phase 1）
 // 覆盖 resolveSyntaxType 判定矩阵 + resolveSyntaxTypesInRange 跨块枚举
 // ============================================
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import type { BlockTreeV2 } from '@render/editor/kernel';
 import {
@@ -19,6 +19,7 @@ import {
   makeThematicBreak,
 } from '@render/editor/kernel';
 import {
+  clearSyntaxRangeCache,
   resolveSyntaxType,
   resolveSyntaxTypesInRange,
   type SyntaxType,
@@ -298,5 +299,79 @@ describe('resolveSyntaxTypesInRange 短路与上限（SPEC-EDIT-DSF 4.4）', () 
       ids.push(h.id);
     }
     expect(selectionSyntaxTypesConsistent(tree, ids[0], ids[4])).toBe(true);
+  });
+});
+
+// ============ 单槽 memo（SPEC-EDIT-DSF 缓存，editor-opt-drag-select ①） ============
+describe('resolveSyntaxTypesInRange 单槽 memo（跨测试隔离）', () => {
+  afterEach(() => {
+    clearSyntaxRangeCache();
+  });
+
+  /** 构造 N 个根级 paragraph 返回 (tree, ids) */
+  function buildParagraphs(n: number): { tree: BlockTreeV2; ids: string[] } {
+    let tree = buildRoot();
+    const ids: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const p = makeParagraph(tree, `p${i}`);
+      tree = appendChild(tree, tree.root.id, p);
+      ids.push(p.id);
+    }
+    return { tree, ids };
+  }
+
+  it('同 tree + 同端点重复调用 → 返回同一数组引用（缓存命中，不重扫）', () => {
+    const { tree, ids } = buildParagraphs(3);
+    const first = resolveSyntaxTypesInRange(tree, ids[0], ids[2]);
+    const second = resolveSyntaxTypesInRange(tree, ids[0], ids[2]);
+    expect(first).not.toBeNull();
+    expect(second).toBe(first);
+  });
+
+  it('tree 引用变化（新树）→ 重新解析，引用不同（失效）', () => {
+    const a = buildParagraphs(3);
+    const first = resolveSyntaxTypesInRange(a.tree, a.ids[0], a.ids[2]);
+    const b = buildParagraphs(3);
+    const second = resolveSyntaxTypesInRange(b.tree, b.ids[0], b.ids[2]);
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
+  });
+
+  it('端点变化 → 重新解析，引用不同（失效）', () => {
+    const { tree, ids } = buildParagraphs(3);
+    const first = resolveSyntaxTypesInRange(tree, ids[0], ids[2]);
+    const second = resolveSyntaxTypesInRange(tree, ids[0], ids[1]);
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
+  });
+
+  it('方向翻转 (a,b) 与 (b,a) 是不同 key → 引用不同', () => {
+    const { tree, ids } = buildParagraphs(2);
+    const ab = resolveSyntaxTypesInRange(tree, ids[0], ids[1]);
+    const ba = resolveSyntaxTypesInRange(tree, ids[1], ids[0]);
+    expect(ab).not.toBe(ba);
+  });
+
+  it('clearSyntaxRangeCache() 重置缓存 → 下次调用重新解析，引用不同', () => {
+    const { tree, ids } = buildParagraphs(3);
+    const first = resolveSyntaxTypesInRange(tree, ids[0], ids[2]);
+    clearSyntaxRangeCache();
+    const second = resolveSyntaxTypesInRange(tree, ids[0], ids[2]);
+    expect(first).not.toBeNull();
+    expect(second).not.toBe(first);
+  });
+
+  it('null（类型不一致）结果同样进入缓存（同 tree + 同端点重复 null）', () => {
+    let tree = buildRoot();
+    const h = makeHeading(tree, 1, 't');
+    tree = appendChild(tree, tree.root.id, h);
+    const p = makeParagraph(tree, 't');
+    tree = appendChild(tree, tree.root.id, p);
+    const first = resolveSyntaxTypesInRange(tree, h.id, p.id);
+    const second = resolveSyntaxTypesInRange(tree, h.id, p.id);
+    expect(first).toBeNull();
+    expect(second).toBeNull();
   });
 });

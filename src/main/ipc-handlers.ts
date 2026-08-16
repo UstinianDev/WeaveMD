@@ -12,6 +12,7 @@ import {
   USERNAME_REGEX,
 } from '@shared/constants';
 import { registerAiIpcHandlers } from './ai/ipc';
+import { registerMailIpcHandlers } from './mail/ipc';
 import { reindexAfterSave, removeByFile } from './ai/kbIndexer';
 import type { IndexFileInput } from './ai/kbIndexer';
 import { createFile, deleteFile, getFile, listFiles, updateFileContent } from './db/files';
@@ -83,6 +84,9 @@ function cleanupKbAfterFileDelete(userId: string, fileId: string): void {
 export function registerAllIpcHandlers(): void {
   // AI panel (Chat/Agent) — config/consent/health/chat/conversations
   registerAiIpcHandlers();
+
+  // Mail — 问题反馈（mail:get/set/send/pick-images）
+  registerMailIpcHandlers();
 
   // ========================================
   // Window Controls

@@ -20,9 +20,10 @@ import type { MascotState } from './InteractiveMascot';
 interface SignupPageProps {
   onSwitchToLogin: (prefillUsername?: string) => void;
   onMascotStateChange: (state: MascotState) => void;
+  onPasswordVisibleChange: (visible: boolean) => void;
 }
 
-const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateChange }) => {
+const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateChange, onPasswordVisibleChange }) => {
   const { t } = useI18n();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -231,6 +232,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
           disabled={loading}
           onFocus={() => setFocusedField('password')}
           onBlur={() => setFocusedField(null)}
+          onVisibilityToggle={onPasswordVisibleChange}
         />
       </div>
 

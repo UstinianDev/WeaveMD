@@ -16,6 +16,7 @@ const AuthPage: React.FC = () => {
   const [mode, setMode] = useState<AuthMode>('login');
   const [prefillUsername, setPrefillUsername] = useState<string | undefined>();
   const [mascotState, setMascotState] = useState<MascotState>('idle');
+  const [passwordVisible, setPasswordVisible] = useState(false);
 
   const handleSwitchToRegister = useCallback(() => setMode('register'), []);
   const handleSwitchToLogin = useCallback((username?: string) => {
@@ -34,7 +35,7 @@ const AuthPage: React.FC = () => {
           <div className="absolute bottom-20 right-10 w-40 h-40 bg-indigo-200/20 rounded-full blur-3xl" />
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-purple-100/10 rounded-full blur-3xl" />
         </div>
-        <InteractiveMascot state={mascotState} />
+        <InteractiveMascot state={mascotState} passwordVisible={passwordVisible} />
       </div>
 
       {/* Right Panel — Auth Form */}
@@ -50,6 +51,7 @@ const AuthPage: React.FC = () => {
             <SignupPage
               onSwitchToLogin={handleSwitchToLogin}
               onMascotStateChange={setMascotState}
+              onPasswordVisibleChange={setPasswordVisible}
             />
           ) : (
             <LoginPage
@@ -57,6 +59,7 @@ const AuthPage: React.FC = () => {
               onCreateNewAccount={handleCreateNewAccount}
               prefillUsername={prefillUsername}
               onMascotStateChange={setMascotState}
+              onPasswordVisibleChange={setPasswordVisible}
             />
           )}
         </div>
