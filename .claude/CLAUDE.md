@@ -24,9 +24,12 @@
 - `src/main/ai/` — AI 主进程服务（**第1/2/3/4/5期均已交付**：llmClient/consent/secureConfig/ipc +
   embeddingClient / kbIndexer / kbSearch / intentRouter / contextManager / toolRegistry /
   skillLoader / agentLoop / rewrite（改写薄 LLM 代理，第5期）；`mcpManager` 真 MCP 进程管理延期）
-- `src/render/components/AIAgent/` — AI 面板（**第1~7期均已交付**：AIAgentPanel（第7期B3 统一单面板+模式下拉）/
-  AgentTab（双模式统一 body）+ ConsentOverlay + ToolCallTrace/IntentCard/MarkdownMessage/KnowledgeBaseSettings/
-  RewritePreviewCard（第5期）/CompletionMenu（第7期B1 补全））
+- `src/render/components/AIAgent/` — AI 面板（**第1~7期均已交付 + 三视图重构**：AIAgentPanel 为三视图外壳
+  （home 主界面 RECENT 最近3 / session 会话 / settings 设置侧栏，顶部 WeaveMD+新建+⚙+×）+
+  AIPanelComposer（共享 composer：模式下拉+ModelDropdown+handleSendAgent 分流）+
+  AgentTab 精瘦为消息流展示区 + ConsentOverlay + ToolCallTrace/IntentCard/MarkdownMessage/
+  KnowledgeBaseSettings/RewritePreviewCard（第5期）/CompletionMenu（第7期B1 补全）+
+  settings/{ModelForm（迁自 SettingsModal ai Tab）,SkillsPanel,MCP占位}）
 - `src/render/editor/rewrite/` — 改写块逻辑（第5期）：selectionExport.ts（DOM 选区→SelectionRef+片段）/
   blockEdit.ts（proposal 计算，只算不写）；`src/render/stores/rewriteStore.ts` 改写状态机；
   `src/render/filters/rewriteDiff.ts` 行级红删绿增 diff
