@@ -3,21 +3,23 @@
 // ============================================
 
 import React from 'react';
-import type { IFile } from '@shared/types';
+import type { RecentFileEntry } from '@render/stores/recentStore';
 import { useI18n } from '@render/i18n';
 import type { DropdownItem as DropdownItemType } from '@render/components/Common/Dropdown';
 import NavMenu from './NavMenu';
 
 interface HistoryMenuProps {
-  files: IFile[];
-  onOpenFile: (file: IFile) => void;
+  /** 最近打开列表（已按 lastOpenedAt 倒序，见 TopBar 数据源） */
+  files: RecentFileEntry[];
+  onOpenFile: (file: RecentFileEntry) => void;
   onOpenHistory: () => void;
 }
 
 const HistoryMenu: React.FC<HistoryMenuProps> = ({ files, onOpenFile, onOpenHistory }) => {
   const { t } = useI18n();
+  // 编辑历史 = 最近打开：按 lastOpenedAt 时间倒序
   const fileItems: DropdownItemType[] = [...files]
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .sort((a, b) => new Date(b.lastOpenedAt).getTime() - new Date(a.lastOpenedAt).getTime())
     .map((file) => ({
       label: file.name,
       onClick: () => onOpenFile(file),

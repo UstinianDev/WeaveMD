@@ -29,6 +29,13 @@ import type {
   RewriteRequestPayload,
 } from '@shared/ai';
 import type { IpcResponse } from '@shared/types';
+import type {
+  MailAuthStatus,
+  MailPickImagesResult,
+  MailSendRequest,
+  MailSendResult,
+  MailSetRequest,
+} from '@shared/mail';
 
 export interface WeaveMDApi {
   auth: {
@@ -147,6 +154,12 @@ export interface WeaveMDApi {
       userId: string;
       settings: IKbSettings;
     }) => Promise<IpcResponse<IKbSettings>>;
+  };
+  mail: {
+    get: (userId: string) => Promise<IpcResponse<MailAuthStatus>>;
+    set: (input: MailSetRequest) => Promise<IpcResponse<MailAuthStatus>>;
+    send: (input: MailSendRequest) => Promise<IpcResponse<MailSendResult>>;
+    pickImages: () => Promise<IpcResponse<MailPickImagesResult> | null>;
   };
 }
 
@@ -312,6 +325,12 @@ const api: WeaveMDApi = {
     status: (userId) => ipcRenderer.invoke(IPC_CHANNELS.KB_STATUS, { userId }),
     getSettings: (userId) => ipcRenderer.invoke(IPC_CHANNELS.KB_GET_SETTINGS, { userId }),
     setSettings: (input) => ipcRenderer.invoke(IPC_CHANNELS.KB_SET_SETTINGS, input),
+  },
+  mail: {
+    get: (userId) => ipcRenderer.invoke(IPC_CHANNELS.MAIL_GET, userId),
+    set: (input) => ipcRenderer.invoke(IPC_CHANNELS.MAIL_SET, input),
+    send: (input) => ipcRenderer.invoke(IPC_CHANNELS.MAIL_SEND, input),
+    pickImages: () => ipcRenderer.invoke(IPC_CHANNELS.MAIL_PICK_IMAGES),
   },
 };
 

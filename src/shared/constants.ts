@@ -118,6 +118,12 @@ export const IPC_CHANNELS = {
   AI_STREAM_DONE: 'ai:stream:done',
   AI_STREAM_ERROR: 'ai:stream:error',
   AI_STREAM_TOOL: 'ai:stream:tool',
+
+  // Mail — 问题反馈邮件（第⑤项）
+  MAIL_GET: 'mail:get',
+  MAIL_SET: 'mail:set',
+  MAIL_SEND: 'mail:send',
+  MAIL_PICK_IMAGES: 'mail:pick-images',
 } as const;
 
 // --- Design Tokens ---

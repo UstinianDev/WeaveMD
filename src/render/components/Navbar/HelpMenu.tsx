@@ -10,14 +10,19 @@ import NavMenu from './NavMenu';
 
 interface HelpMenuProps {
   onOpenSettings: () => void;
+  onOpenFeedback: () => void;
 }
 
-const HelpMenu: React.FC<HelpMenuProps> = ({ onOpenSettings }) => {
+const HelpMenu: React.FC<HelpMenuProps> = ({ onOpenSettings, onOpenFeedback }) => {
   const { t } = useI18n();
   const items: DropdownItemType[] = [
     {
       label: t('settings.title'),
       onClick: onOpenSettings,
+    },
+    {
+      label: t('feedback.title'),
+      onClick: onOpenFeedback,
     },
     { type: 'divider' },
     {
