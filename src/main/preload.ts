@@ -130,6 +130,7 @@ export interface WeaveMDApi {
     agentAbort: (conversationId: string, userId: string) => Promise<IpcResponse<{ aborted: boolean }>>;
     rewritePreview: (payload: RewriteRequestPayload) => Promise<IpcResponse<RewriteReply>>;
     listSkills: (userId: string) => Promise<IpcResponse<AgentSkillInfo[]>>;
+    listModels: (userId: string) => Promise<IpcResponse<string[]>>;
     onStream: (cb: (evt: AIStreamEvent | IAgentStreamToolEvent) => void) => () => void;
   };
   kb: {
@@ -241,6 +242,7 @@ const api: WeaveMDApi = {
       ipcRenderer.invoke(IPC_CHANNELS.AI_REWRITE_PREVIEW, payload),
     listSkills: (userId) =>
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_SKILLS_LIST, { userId }),
+    listModels: (userId) => ipcRenderer.invoke(IPC_CHANNELS.AI_LIST_MODELS, userId),
     onStream: (cb) => {
       const listeners: Array<() => void> = [];
       const subscribe = <T>(

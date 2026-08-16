@@ -22,6 +22,8 @@ vi.mock('@render/i18n', () => ({
       'ai.rewrite.staleRejected': '文档已变更，请重新生成',
       'ai.rewrite.failure': '改写失败',
       'ai.rewrite.locateFailed': '无法定位目标块，已拒绝应用',
+      'ai.rewrite.dismiss': '关闭',
+      'ai.rewrite.noDocument': '请先打开一个文档，再让 AI 整篇生成/写入',
     };
     return {
       t: (key: string, fallback?: string) => dict[key] ?? fallback ?? `[${key}]`,
@@ -121,5 +123,35 @@ describe('RewritePreviewCard', () => {
   it('无任何改写状态 → 渲染空（null）', () => {
     const { container } = render(<RewritePreviewCard />);
     expect(container.firstChild).toBeNull();
+  });
+
+  it('R16: 无提案错误提示条末尾有 ✕，点击调 dismissRewriteBanner', () => {
+    useRewriteStore.setState({ rewriteError: 'network' });
+    const dismissSpy = vi.spyOn(useRewriteStore.getState(), 'dismissRewriteBanner');
+    render(<RewritePreviewCard />);
+    // 提示条渲染 + ✕ 按钮（aria-label=关闭）
+    expect(screen.getByText('改写失败')).toBeInTheDocument();
+    const btn = screen.getByRole('button', { name: '关闭' });
+    expect(btn).toBeInTheDocument();
+    fireEvent.click(btn);
+    expect(dismissSpy).toHaveBeenCalled();
+  });
+
+  it('R16: stale 无提案提示条也有 ✕ 且点击清 staleRejected', () => {
+    useRewriteStore.setState({ staleRejected: true, pendingRewrite: null });
+    const dismissSpy = vi.spyOn(useRewriteStore.getState(), 'dismissRewriteBanner');
+    render(<RewritePreviewCard />);
+    const btn = screen.getByRole('button', { name: '关闭' });
+    fireEvent.click(btn);
+    expect(dismissSpy).toHaveBeenCalled();
+  });
+
+  it('R16: 有提案卡内 stale 提示不加重叠 ✕（头部已有取消/应用）', () => {
+    useRewriteStore.setState({ staleRejected: true, pendingRewrite: proposal });
+    render(<RewritePreviewCard />);
+    // 有提案时不渲染无提案的 ✕ 关闭按钮；头部取消/应用仍在
+    expect(screen.queryByRole('button', { name: '关闭' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '取消' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '应用' })).toBeInTheDocument();
   });
 });

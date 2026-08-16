@@ -207,7 +207,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   async sendMessage(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const { config, consent, activeConversationId } = get();
+    const { config, consent, activeConversationId, activeMode } = get();
 
     // 铁律二：联网/笔记外发必须知情同意（chat）
     if (needsConsent(config, consent, 'chat')) {
@@ -225,6 +225,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       conversationId = createRes.data.id;
       set({ activeConversationId: conversationId, activeMode: 'chat' });
       await get().loadConversations('chat');
+      // R20: 首条消息写入会话标题（截断 50 字符），复用 updateConversationSummary
+      const firstMsg = trimmed.slice(0, 50);
+      await ai.updateConversationSummary(conversationId, userId, firstMsg);
+      await get().loadConversations(activeMode);
     }
 
     const userMsg: IAIMessage = {
@@ -294,7 +298,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   async sendAgentMessage(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const { config, consent, activeConversationId, useKnowledgeBase } = get();
+    const { config, consent, activeConversationId, useKnowledgeBase, activeMode } = get();
 
     // 铁律二：agent 模式联网外发 + 知识库检索外发均需知情同意
     if (needsConsent(config, consent, 'agent')) {
@@ -317,6 +321,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       conversationId = createRes.data.id;
       set({ activeConversationId: conversationId, activeMode: 'agent' });
       await get().loadConversations('agent');
+      // R20: 首条消息写入会话标题（截断 50 字符），复用 updateConversationSummary
+      const firstMsg = trimmed.slice(0, 50);
+      await ai.updateConversationSummary(conversationId, userId, firstMsg);
+      await get().loadConversations(activeMode);
     }
 
     const userMsg: IAIMessage = {

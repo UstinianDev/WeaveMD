@@ -38,6 +38,7 @@ import { getFile } from '../db/files';
 import { decryptApiKey, encryptApiKey } from './secureConfig';
 import { needsConsent } from './consent';
 import { probeOllama, streamChatCompletion } from './llmClient';
+import { listModelsForUser } from './modelList';
 import { runAgentFlow } from './agentLoop';
 import { runRewrite } from './rewrite';
 import { listSkillsForUi } from './skillLoader';
@@ -635,6 +636,24 @@ export function registerAiIpcHandlers(): void {
           code,
           message: err instanceof Error ? err.message : String(err),
         };
+      }
+    }
+  );
+
+  // --- model list (ai-panel-redesign M1, 需求 R17: 能力模型下拉实时拉取) ---
+  // 失败/无 key/超时 → 空数组（不阻断），渲染侧降级为「当前配置 model + 手动输入」。
+  ipcMain.handle(
+    IPC_CHANNELS.AI_LIST_MODELS,
+    async (_event, userId: string) => {
+      try {
+        if (!userId || typeof userId !== 'string' || !userId) {
+          return { success: false, message: 'userId required' };
+        }
+        const row = getAiConfig(userId);
+        const models = await listModelsForUser(row);
+        return { success: true, data: models };
+      } catch (error) {
+        return { success: true, data: [] };
       }
     }
   );

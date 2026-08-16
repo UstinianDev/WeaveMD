@@ -58,6 +58,8 @@ interface RewriteStore {
   applyRewrite: () => void;
   /** 取消/复位：重置全部改写状态。 */
   clearRewrite: () => void;
+  /** 关闭无提案提示条（R16）：仅清 staleRejected/rewriteError，保留 pendingRewrite/selectionContext。 */
+  dismissRewriteBanner: () => void;
 }
 
 const INITIAL = {
@@ -235,6 +237,11 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
 
   clearRewrite() {
     set(INITIAL);
+  },
+
+  dismissRewriteBanner() {
+    // R16: 仅关闭无提案提示条（错误/拒绝），不触碰 pendingRewrite/selectionContext
+    set({ staleRejected: false, rewriteError: null });
   },
 }));
 

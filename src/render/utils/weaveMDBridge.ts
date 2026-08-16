@@ -653,6 +653,8 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
         { name: 'tech_organize', description: '整理技术资料' },
         { name: 'kb_qa_guide', description: '基于知识库引导式问答' },
       ]),
+    listModels: async () =>
+      createSuccessResult(['qwen3.5:0.8b', 'deepseek-chat']),
     onStream: () => () => {},
   },
   kb: {

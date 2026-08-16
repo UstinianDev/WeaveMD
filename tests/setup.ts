@@ -67,6 +67,7 @@ const mockWeaveMD = {
     agentAbort: vi.fn(),
     rewritePreview: vi.fn(),
     listSkills: vi.fn(),
+    listModels: vi.fn(),
     onStream: vi.fn(() => () => {}),
   },
   kb: {
