@@ -4,6 +4,7 @@
 
 import { create } from 'zustand';
 import type { IFile } from '@shared/types';
+import { isWelcomeFile } from '@render/services/welcomeDocument';
 
 interface EditorStore {
   currentFile: IFile | null;
@@ -54,6 +55,12 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   saveFile: async (): Promise<boolean> => {
     const { currentFile, content } = get();
     if (!currentFile) return false;
+
+    // 欢迎文档为内存只读项：不写盘 / 不写 DB，短路放最前（id 含 `/`，否则会误判为磁盘文件）
+    if (isWelcomeFile(currentFile.id)) {
+      set({ isDirty: false });
+      return true;
+    }
 
     try {
       // If file is a disk file (id contains path separator), write directly to disk

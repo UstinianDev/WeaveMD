@@ -666,6 +666,20 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
     getSettings: async () => ({ success: false }),
     setSettings: async () => ({ success: false }),
   },
+  mail: {
+    get: async (userId) => {
+      const key = `weavemd_mail_auth_${userId}`;
+      return createSuccessResult({ hasAuthCode: !!localStorage.getItem(key) });
+    },
+    set: async ({ userId, authCode }) => {
+      const key = `weavemd_mail_auth_${userId}`;
+      if (authCode) localStorage.setItem(key, 'set');
+      else localStorage.removeItem(key);
+      return createSuccessResult({ hasAuthCode: !!authCode });
+    },
+    send: async () => createSuccessResult(undefined),
+    pickImages: async () => createSuccessResult(null),
+  },
 });
 
 let hasWarnedAboutFallback = false;

@@ -3,6 +3,7 @@
 // ============================================
 
 import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
 
 export interface IFolderNode {
   id: string;
@@ -44,6 +45,14 @@ interface FileTreeActions {
   clearSelection: () => void;
   clearAll: () => void;
   getSelectedFolder: () => IFolderNode | null;
+  /** 重启恢复：磁盘失效路径剔除并返回移除项，有效 folder 实读重建 */
+  restore: () => Promise<{ removed: string[] }>;
+}
+
+/** restore() 结果，供 MainPage 汇总后 setErrorMessage 提示 */
+export interface RestoreSummary {
+  /** 因磁盘失效被剔除的路径（文件或文件夹） */
+  removed: string[];
 }
 
 function removeFromTree(nodes: IFolderNode[], targetId: string): IFolderNode[] {
@@ -62,19 +71,53 @@ function toggleInTree(nodes: IFolderNode[], targetId: string): IFolderNode[] {
 }
 
 function sortNodes(nodes: IFolderNode[]): IFolderNode[] {
-  return [...nodes]
+  return [...(nodes ?? [])]
     .sort((a, b) => {
       if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
       return a.name.localeCompare(b.name);
     })
-    .map((n) => ({ ...n, children: sortNodes(n.children) }));
+    .map((n) => ({ ...n, children: sortNodes(n.children ?? []) }));
 }
 
 function sortLooseFiles(files: IFileNode[]): IFileNode[] {
   return [...files].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export const useFileTreeStore = create<FileTreeState & FileTreeActions>((set, _get) => ({
+/** 仅保留路径结构，剔除 content（磁盘只存路径，不存内容） */
+function stripContent(nodes: IFolderNode[]): IFolderNode[] {
+  return (nodes ?? []).map((n) => ({
+    id: n.id,
+    name: n.name,
+    path: n.path,
+    isDirectory: n.isDirectory,
+    expanded: n.expanded,
+    isRoot: n.isRoot,
+    children: stripContent(n.children ?? []),
+  }));
+}
+
+/** 欢迎文档不持久化：内容不入盘、节点不入 localStorage（重启后重新注入带完整内容） */
+function isPersistableLooseFile(f: IFileNode): boolean {
+  return !f.id.startsWith('welcome://');
+}
+
+function stripLooseContent(files: IFileNode[]): Array<Omit<IFileNode, 'content'>> {
+  return files
+    .filter(isPersistableLooseFile)
+    .map((f) => ({ id: f.id, name: f.name, path: f.path }));
+}
+
+/** persist 需要持久化的切片（不含 content） */
+interface PersistedFileTreeState {
+  folders: IFolderNode[];
+  looseFiles: IFileNode[];
+  activeTab: 'outline' | 'files';
+  selectedIds: string[];
+}
+
+export const useFileTreeStore = create<FileTreeState & FileTreeActions>()(
+  persist(
+    (set, get) => ({
   folders: [],
   looseFiles: [],
   activeTab: 'files',
@@ -216,7 +259,7 @@ export const useFileTreeStore = create<FileTreeState & FileTreeActions>((set, _g
   clearSelection: () => set({ selectedIds: [] }),
 
   getSelectedFolder: () => {
-    const state = _get();
+    const state = get();
 
     // Recursively search for a selected folder node (root or nested)
     const findInNodes = (nodes: IFolderNode[]): IFolderNode | null => {
@@ -234,4 +277,90 @@ export const useFileTreeStore = create<FileTreeState & FileTreeActions>((set, _g
   },
 
   clearAll: () => set({ folders: [], looseFiles: [], selectedIds: [], error: null }),
-}));
+
+  restore: async (): Promise<RestoreSummary> => {
+    const { looseFiles, folders } = get();
+    const removed: string[] = [];
+    const remainingLoose: IFileNode[] = [];
+
+    // looseFile：readDisk 失败则剔除并记录移除项；welcome:// 遗留节点一并剔除（由注入重建，不入盘）
+    for (const file of looseFiles) {
+      if (file.id.startsWith('welcome://')) continue;
+      try {
+        const r = (await window.weaveMD.file.readDisk(file.path)) as unknown as {
+          success: boolean;
+        };
+        if (r.success) {
+          remainingLoose.push(file);
+        } else {
+          removed.push(file.path);
+        }
+      } catch {
+        removed.push(file.path);
+      }
+    }
+
+    // root folder：readFolder 失败剔除；成功则丢弃 persisted 子节点，用 loadFolderContents 实读重建
+    for (const folder of folders) {
+      if (!folder.isRoot) continue;
+      let folderOk = false;
+      try {
+        const r = (await window.weaveMD.folder.readFolder(folder.path)) as unknown as {
+          success: boolean;
+        };
+        folderOk = r.success;
+      } catch {
+        folderOk = false;
+      }
+      if (folderOk) {
+        // 实读重建（丢弃 persisted 子节点，避免磁盘漂移脏数据）
+        await get().loadFolderContents(folder.path);
+      } else {
+        removed.push(folder.path);
+      }
+    }
+
+    // 汇总最终文件夹：基于当前 state（loadFolderContents 已写入重建 root），再剔除失效 root
+    const finalFolders = get().folders.filter(
+      (f) => !removed.includes(f.path) || f.isRoot === false
+    );
+
+    set({
+      looseFiles: remainingLoose,
+      folders: finalFolders,
+      selectedIds: [],
+      error: null,
+    });
+    return { removed };
+  },
+}),
+    {
+      name: 'weavemd_filetree',
+      storage: createJSONStorage(() => localStorage),
+      version: 0,
+      partialize: (s): PersistedFileTreeState => ({
+        folders: stripContent(s.folders),
+        looseFiles: stripLooseContent(s.looseFiles),
+        activeTab: s.activeTab,
+        selectedIds: s.selectedIds,
+      }),
+    }
+  )
+);
+
+/** 供测试：重置内存态（并清掉持久化存储，避免测试间污染） */
+export function resetFileTreeStore(): void {
+  useFileTreeStore.setState({
+    folders: [],
+    looseFiles: [],
+    activeTab: 'files',
+    isLoading: false,
+    error: null,
+    selectedIds: [],
+  });
+  try {
+    window.localStorage.removeItem('weavemd_filetree');
+  } catch {
+    // noop
+  }
+}

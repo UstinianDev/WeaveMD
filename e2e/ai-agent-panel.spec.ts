@@ -1063,13 +1063,17 @@ test('A1c 从0到1写整篇：空文档 composer 触发 → 预览卡 → 应用
 test('A1c 未打开文档 + 整篇写诉求 → 引导提示，不产生空写', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
-  // 不打开任何编辑器文档
+  // 空态启动 → ④内置欢迎文档自动打开编辑区；先关闭它，回到「未打开文档」状态
   await page.addInitScript(installWeaveMDMock, {
     backend: 'remote',
     consented: true,
   });
   await page.goto('/');
   await page.waitForSelector('header');
+  // File → 关闭文件（欢迎文档为虚拟文件，saveFile 对 welcome:// 短路，关闭纯客户端操作）
+  await page.locator('header').getByText(/^文件/).first().click();
+  await page.getByText('关闭文件', { exact: true }).click();
+  await page.waitForTimeout(200);
   const panel = await openAgentPanel(page);
 
   const composer = panel.locator('textarea').first();

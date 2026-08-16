@@ -305,6 +305,57 @@ test('P1/P2：反向跨块拖选期间 selectionchange 计数收敛（≤ 帧数
   expect(countBeforeIdle).toBeLessThanOrEqual(MAX_SELECTIONCHANGE);
 });
 
+test('DSF：同构大选区拖选期间 selectionchange 计数收敛（单槽 memo 不重扫全链）', async ({
+  page,
+}) => {
+  // 注入计数探针（addInitScript，页面加载时生效）
+  await page.addInitScript(selectionCounterProbe);
+  await openEditor(page);
+
+  // 构造 ~30 段同类型（正文 paragraph）大选区：每段键入后回车
+  const editable = page.locator('span.block-content[contenteditable="true"]');
+  await editable.first().click();
+  await page.keyboard.type('块 0', { delay: 5 });
+  for (let i = 1; i < 30; i++) {
+    await page.keyboard.press('Enter');
+    await page.keyboard.type(`块 ${i}`, { delay: 5 });
+  }
+  await page.waitForTimeout(300);
+
+  // 清零计数后再拖选，确保只统计拖选窗口内的 selectionchange
+  await page.evaluate(() => {
+    (window as unknown as { __selChangeCount: number }).__selChangeCount = 0;
+  });
+
+  const firstSpan = page.locator('span.block-content[contenteditable="true"]').first();
+  const lastSpan = page.locator('span.block-content[contenteditable="true"]').last();
+  const firstBox = await firstSpan.boundingBox();
+  const lastBox = await lastSpan.boundingBox();
+  expect(firstBox).not.toBeNull();
+  expect(lastBox).not.toBeNull();
+
+  // 从首块左端向下拖到末块右端（超长跨块同构选区）
+  await page.mouse.move(firstBox!.x + 2, firstBox!.y + firstBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(
+    lastBox!.x + lastBox!.width - 2,
+    lastBox!.y + lastBox!.height / 2,
+    { steps: 40 }
+  );
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+
+  // 同构（全部 paragraph）大区间拖选后：memo 命中使 resolveSyntaxTypesInRange 不重扫全链。
+  // selectionchange 计数收敛，禁止"每帧全链 O(N)"风暴。
+  const countBeforeIdle = await readSelCount(page);
+  await page.waitForTimeout(500);
+  const countAfterIdle = await readSelCount(page);
+  expect(countAfterIdle).toBe(countBeforeIdle);
+  // 大选区拖选窗口（40 步 × rAF 1 帧）计数应明显低于"每帧重建"水平，取宽松阈值防 flaky
+  const MAX_SELECTIONCHANGE = 150;
+  expect(countBeforeIdle).toBeLessThanOrEqual(MAX_SELECTIONCHANGE);
+});
+
 test('G2：从下往上跨块拖选 → 反向选区覆盖两不同块', async ({ page }) => {
   await openEditor(page);
   const first = page.locator('span.block-content[contenteditable="true"]').first();

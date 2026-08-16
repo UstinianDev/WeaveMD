@@ -9,7 +9,9 @@
 // - D2 非内容区回退：caretRangeFromPoint 命中非内容区时从命中元素向上收敛到
 //   最近 content span 末尾，连续 N 帧未命中才停止更新；
 // - D3 方向无关：Range 一律 setStart(锚点) + setEnd(当前点)，每次有效更新同步 lastDragRange；
-// - D4 收尾校验：mouseup 清理待处理帧，重放前校验当前选区已是跨块则信任现有选区。
+// - D4 收尾校验：mouseup 清理待处理帧，写入前校验当前选区已是跨块则信任现有选区
+//   （editor-opt-drag-select ①：3 帧重放收敛为 1 次写入前校验，trusted 零重写，
+//   仅宿主截断失败路径重写一次 lastRange）。
 //
 // SPEC-EDIT-DSF 4.1/4.2（Phase 3）：
 // - 4.1 端点级变化检测：lastAppliedRangeRef 记录上一帧实际写入的端点，
@@ -221,15 +223,14 @@ export function useCrossBlockDragSelection(containerRef: RefObject<HTMLDivElemen
       dragMovedRef.current = false;
       lastAppliedRangeRef.current = null;
       if (lastRange) {
-        // 连续多帧重放：浏览器原生拖选会在 mouseup 同步收尾并覆盖选区，
-        // 且其收尾时序不可控，多帧重放确保最终生效。
-        let frames = 0;
-        const replay = (): void => {
-          frames += 1;
-          const sel = window.getSelection();
-          if (!sel) return;
-          // 现有选区已是"跨块且含文本"的完整选区则信任（避免重放覆盖浏览器正确结果）；
-          // 跨块但文本为空（宿主边界截断产物）时仍需重放 lastDragRange 修正
+        // editor-opt-drag-select ①：3 帧重放收敛为 1 次「写入前校验」。
+        // - 现有选区已是"跨块且含文本"的完整选区（anchor/focus 均最近内容 span、非同一
+        //   span、toString 非空）→ 信任，零重写（不再与浏览器还原竞争触发 selectionchange，
+        //   消除闪烁）；无需 rAF 重放。
+        // - 仅"宿主边界截断失败路径"（跨块但文本为空/端点超界）才 removeAllRanges +
+        //   addRange(lastRange) 修正 **一次**，保留 SPEC-EDIT-FT 失败兜底语义。
+        const sel = window.getSelection();
+        if (sel) {
           const curStart = nearestContentSpan(sel.anchorNode);
           const curEnd = nearestContentSpan(sel.focusNode);
           const currentText = sel.toString();
@@ -242,9 +243,7 @@ export function useCrossBlockDragSelection(containerRef: RefObject<HTMLDivElemen
             sel.removeAllRanges();
             sel.addRange(lastRange);
           }
-          if (frames < 3) requestAnimationFrame(replay);
-        };
-        requestAnimationFrame(replay);
+        }
       }
     };
 

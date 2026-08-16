@@ -21,6 +21,7 @@ interface LoginPageProps {
   onCreateNewAccount: () => void;
   prefillUsername?: string;
   onMascotStateChange: (state: MascotState) => void;
+  onPasswordVisibleChange: (visible: boolean) => void;
 }
 
 const LoginPage: React.FC<LoginPageProps> = ({
@@ -28,6 +29,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
   onCreateNewAccount,
   prefillUsername,
   onMascotStateChange,
+  onPasswordVisibleChange,
 }) => {
   const { t } = useI18n();
   const [username, setUsername] = useState(prefillUsername || '');
@@ -229,6 +231,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
           onKeyDown={(e) => {
             if (e.key === 'Enter') handleSubmit();
           }}
+          onVisibilityToggle={onPasswordVisibleChange}
         />
       </div>
 

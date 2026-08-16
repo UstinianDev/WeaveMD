@@ -16,6 +16,7 @@ import { useAuthStore } from '@render/stores/authStore';
 import { useEditorStore } from '@render/stores/editorStore';
 import { useFileTreeStore } from '@render/stores/fileTreeStore';
 import { useHistoryStore } from '@render/stores/historyStore';
+import { removeRecent, touchRecent } from '@render/stores/recentStore';
 import { useUIStore } from '@render/stores/uiStore';
 
 interface DialogPathResult {
@@ -92,6 +93,7 @@ export function useNavbarActions() {
       if (readResult.success && readResult.data) {
         const file: IFile = createDiskFile(user, readResult.data);
         openFile(file);
+        touchRecent({ id: file.id, path: readResult.data.path, name: readResult.data.name });
         addFile({
           id: readResult.data.path,
           name: readResult.data.name,
@@ -115,6 +117,7 @@ export function useNavbarActions() {
         // Use disk path as file ID for real-time filesystem sync
         const file: IFile = createDiskFile(user, result.data);
         openFile(file);
+        touchRecent({ id: file.id, path: result.data.path, name: result.data.name });
 
         // Add to file tree sidebar
         addFile({
@@ -233,8 +236,33 @@ export function useNavbarActions() {
         await saveCurrentDraftIfNeeded();
       }
       openFile(file);
+      // 磁盘文件 id 即 path；DB 文件无 path，回退用 id
+      touchRecent({ id: file.id, path: file.id, name: file.name });
     },
     [currentFile?.id, openFile]
+  );
+
+  // 打开「最近打开」菜单项：以磁盘为准实读内容后打开；磁盘失效则提示并跳过
+  const handleRecentOpen = useCallback(
+    async (entry: { id: string; path: string; name: string }) => {
+      if (!user) return;
+      await saveCurrentDraftIfNeeded();
+      try {
+        const result = (await window.weaveMD.file.readDisk(entry.path)) as unknown as ReadDiskResult;
+        if (!result.success || !result.data) {
+          setErrorMessage(t('navbar.openRecentFailed'));
+          removeRecent(entry.id);
+          return;
+        }
+        const file: IFile = createDiskFile(user, result.data);
+        openFile(file);
+        touchRecent({ id: file.id, path: result.data.path, name: result.data.name });
+      } catch {
+        setErrorMessage(t('navbar.openRecentFailed'));
+        removeRecent(entry.id);
+      }
+    },
+    [user, openFile, setErrorMessage, t]
   );
 
   // --- Misc ---
@@ -302,6 +330,7 @@ export function useNavbarActions() {
     handleOpenFolder,
     handleDeleteFolder,
     handleHistoryOpenFile,
+    handleRecentOpen,
     handleFindReplace,
     handleExport,
   };
