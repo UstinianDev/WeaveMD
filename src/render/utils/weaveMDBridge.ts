@@ -647,6 +647,12 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
     runAgent: async () => ({ success: false }),
     agentAbort: async () => ({ success: true }),
     rewritePreview: async () => ({ success: false }),
+    listSkills: async () =>
+      createSuccessResult([
+        { name: 'polish_rewrite', description: '润色、缩写或扩写文本' },
+        { name: 'tech_organize', description: '整理技术资料' },
+        { name: 'kb_qa_guide', description: '基于知识库引导式问答' },
+      ]),
     onStream: () => () => {},
   },
   kb: {
@@ -656,6 +662,8 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
     reindex: async () => ({ success: false }),
     delete: async () => ({ success: false }),
     status: async () => ({ success: false }),
+    getSettings: async () => ({ success: false }),
+    setSettings: async () => ({ success: false }),
   },
 });
 

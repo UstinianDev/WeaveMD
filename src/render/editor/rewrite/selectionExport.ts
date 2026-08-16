@@ -9,13 +9,19 @@
 // 设计约束：
 //   - 仅本文件的 readDocumentSelection 允许读 DOM（window.getSelection）；其余为纯函数可单测。
 //   - 不改编辑器内核（selection.ts / blockTree.ts / markdownToState / stateToMarkdown 零修改）。
-//   - SelectionRef 用文档序叶子下标（DOM 序 = 文档序），与主进程/渲染 markdownToState 树对齐。
-//   - 端点 blockId 在 DOM 序中找不到（异常）→ 返回 null（保守禁用触发）。
+//   - SelectionRef 用文档序叶子下标：下标源 = markdownToState(content) 解析树的叶序
+//     （与 proposeSelectionRewrite 对齐），而非 DOM `[data-block-id]` 序——
+//     `[data-block-id]` 同时挂在容器 div 与叶子 content span 上（A4 错位根因）。
+//   - 跨解析 id 漂移：newBlockId 含 Math.random，每次 markdownToState 新树随机 id，
+//     DOM content span 的 blockId 无法在重解析树中按 id 命中。故不跨解析存 blockId 作键，
+//     借用「当前解析树的叶序」映射 DOM `.block-content`（每个文本叶恰一个、文档序=叶序）。
+//   - `_content` 与 DOM 失同步（叶数/文本任一不一致）→ 返回 null（保守禁用，不产生错误替换）。
 
 import {
   getAllBlocksInOrder,
   isLeafBlockType,
   type BlockTreeV2,
+  type BlockNodeV2,
 } from '@render/editor/kernel';
 import { markdownToState } from '@render/editor/kernel/markdownToState';
 import { serializeBlock } from '@render/editor/kernel/stateToMarkdown';
@@ -23,6 +29,7 @@ import {
   getCrossBlockSelection,
   getCursorOffsets,
   nearestContentSpan,
+  stripZeroWidth,
 } from '@render/editor/kernel/selection';
 import type { SelectionRef } from '@shared/ai';
 
@@ -32,13 +39,50 @@ function documentOrderLeaves(tree: BlockTreeV2) {
 }
 
 /**
+ * 该叶子是否渲染一个 `.block-content` 内容 span（作为 DOM 叶 count 的判据）。
+ * paragraph/heading/code-block → span.block-content；thematic-break/image/table →
+ * 独立元素，不挂 `.block-content`（选区不改写这些非文本叶）。
+ */
+function rendersContentSpan(leaf: BlockNodeV2): boolean {
+  return leaf.type === 'paragraph' || leaf.type === 'heading' || leaf.type === 'code-block';
+}
+
+/**
+ * 把 DOM `.block-content` 内容叶（文档序）映射到 markdownToState(content) 解析树的叶序下标。
+ * indexByPos：DOM 内容叶位置 → 解析树叶序下标；同步校验失败（叶数/文本不一致）→ null。
+ */
+function mapContentSpansToLeafIndex(content: string): { indexByPos: Map<number, number> } | null {
+  const tree = markdownToState(content);
+  const allLeaves = documentOrderLeaves(tree);
+  const domSpans = Array.from(document.querySelectorAll('.block-content'));
+  // 解析树叶 → 内容叶下标（跳过不渲染 .block-content 的非文本叶）
+  const indexByPos = new Map<number, number>();
+  let di = 0;
+  for (let li = 0; li < allLeaves.length && di < domSpans.length; li++) {
+    const leaf = allLeaves[li];
+    if (leaf.text === null || !rendersContentSpan(leaf)) continue;
+    indexByPos.set(di, li);
+    di++;
+  }
+  if (di !== domSpans.length) return null; // 解析内容叶数与 DOM 内容叶数不一致 → 失同步
+  // 逐叶文本对齐校验：任一处不一致（content 与 DOM 漂移）→ 失同步 → null（保守禁用）
+  for (const [pos, li] of indexByPos) {
+    const domText = stripZeroWidth(domSpans[pos].textContent ?? '');
+    const leafText = stripZeroWidth(allLeaves[li].text ?? '');
+    if (domText !== leafText) return null;
+  }
+  return { indexByPos };
+}
+
+/**
  * 把当前 DOM 选区转换为 SelectionRef。
  * - 跨块：getCrossBlockSelection → {startBlockId,startOffset,endBlockId,endOffset}
  * - 同块：anchor/focus 最近 block-content span 同 id → getCursorOffsets 得 {start,end}
- * - 空 / 折叠 → null；端点 blockId 在 DOM `[data-block-id]` 序中找不到 → null（保守禁用）
- * @param _content 文档 markdown（参数为 API 兼容；下标只由 DOM 序决定，本函数不解析文本）
+ * - 空 / 折叠 → null；`_content` 与 DOM 失同步 / 端点 content span 缺失 → null（保守禁用）
+ * @param content 当前文档 markdown：用同一份文本 `markdownToState` 解析一次得叶序权威结构，
+ *   SelectionRef 下标一律取自该解析树的叶序（与 proposeSelectionRewrite 对齐，A4 修复）
  */
-export function readDocumentSelection(_content: string): SelectionRef | null {
+export function readDocumentSelection(content: string): SelectionRef | null {
   const sel = window.getSelection();
   if (!sel) return null;
 
@@ -71,11 +115,17 @@ export function readDocumentSelection(_content: string): SelectionRef | null {
 
   if (!startBlockId || !endBlockId) return null;
 
-  // 文档序叶子下标：DOM `[data-block-id]` 顺序 = 文档序叶子顺序
-  const domLeaves = Array.from(document.querySelectorAll('[data-block-id]'));
-  const startLeafIndex = domLeaves.findIndex((el) => el.getAttribute('data-block-id') === startBlockId);
-  const endLeafIndex = domLeaves.findIndex((el) => el.getAttribute('data-block-id') === endBlockId);
-  if (startLeafIndex === -1 || endLeafIndex === -1) return null; // 端点异常 → 保守禁用
+  // A4：下标源从 DOM `[data-block-id]` 序（含容器块）→ markdownToState(content) 叶序。
+  // domIndexOf：端点 blockId 是 `.block-content` span 的 id → 取该 span 在 DOM 内容叶序中的位置。
+  const mapped = mapContentSpansToLeafIndex(content);
+  if (!mapped) return null; // _content 与 DOM 失同步 → 保守禁用
+
+  const domSpans = Array.from(document.querySelectorAll('.block-content'));
+  const startPos = domSpans.findIndex((el) => el.getAttribute('data-block-id') === startBlockId);
+  const endPos = domSpans.findIndex((el) => el.getAttribute('data-block-id') === endBlockId);
+  const startLeafIndex = mapped.indexByPos.get(startPos);
+  const endLeafIndex = mapped.indexByPos.get(endPos);
+  if (startLeafIndex === undefined || endLeafIndex === undefined) return null; // 端点异常
 
   return { startLeafIndex, startOffset, endLeafIndex, endOffset, startBlockId, endBlockId };
 }

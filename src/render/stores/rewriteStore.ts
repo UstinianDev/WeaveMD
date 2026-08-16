@@ -20,6 +20,7 @@ import { exportSelectionMarkdown } from '@render/editor/rewrite/selectionExport'
 import {
   buildNumberedBlockList,
   proposeDocumentRewrite,
+  proposeFullDocumentRewrite,
   proposeSelectionRewrite,
 } from '@render/editor/rewrite/blockEdit';
 import { needsConsent, useAgentStore } from './agentStore';
@@ -49,6 +50,10 @@ interface RewriteStore {
   runSelectionRewrite: (instruction: string) => Promise<void>;
   /** 面板 @ 兜底：document scope 改写。 */
   startDocumentRewrite: (md: string, instruction: string) => Promise<void>;
+  /** 整篇写（A1c）：document scope 空 numberedBlocks → LLM 生成整篇 → preview。未打开文档拒写。 */
+  runFullDocumentRewrite: (instruction: string) => Promise<void>;
+  /** Agent 回复路径（A1c）：无需 IPC，当前 content + 回复 md → proposal 预览。未打开文档拒写。 */
+  previewDocumentFromReply: (replyText: string) => void;
   /** 确认应用：唯一写入点。校验 content===originalMd，一致则写入并入 undo 栈。 */
   applyRewrite: () => void;
   /** 取消/复位：重置全部改写状态。 */
@@ -150,6 +155,66 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
     } catch {
       set({ rewriting: false, rewriteError: 'rewrite-failed', pendingRewrite: null });
     }
+  },
+
+  async runFullDocumentRewrite(instruction) {
+    // 未打开文档 → 拒写（A1c 验收 2）：不调 IPC、不产生 proposal，引导用户先打开文档
+    if (useEditorStore.getState().currentFile === null) {
+      set({ rewriting: false, pendingRewrite: null, rewriteError: 'no-document' });
+      return;
+    }
+
+    // 铁律二：改写 = 联网，consent 'chat' 闸
+    const { config, consent, userId } = useAgentStore.getState();
+    if (needsConsent(config, consent, 'chat')) {
+      useAgentStore.getState().setPendingConsent(true); // 弹同意页，不发请求
+      return;
+    }
+
+    const content = useEditorStore.getState().content;
+    set({ rewriting: true, rewriteError: null, staleRejected: false });
+    try {
+      // 整篇写：document scope + 空 numberedBlocks（空文档/整篇生成协议）
+      const res = await window.weaveMD.ai.rewritePreview({
+        userId,
+        scope: 'document',
+        instruction,
+        numberedBlocks: [],
+      });
+      if (!res.success || !res.data) {
+        set({ rewriteError: res.message ?? 'rewrite-failed', rewriting: false });
+        return;
+      }
+      const proposal = proposeFullDocumentRewrite(content, res.data.text);
+      if (proposal.unchanged) {
+        set({ rewriting: false, pendingRewrite: null, rewriteError: 'no-change' });
+        return;
+      }
+      set({ pendingRewrite: proposal, rewriting: false });
+    } catch {
+      set({ rewriting: false, rewriteError: 'rewrite-failed', pendingRewrite: null });
+    }
+  },
+
+  previewDocumentFromReply(replyText) {
+    // 未打开文档 → 拒写（引导提示，不产生 proposal）
+    if (useEditorStore.getState().currentFile === null) {
+      set({ rewriting: false, pendingRewrite: null, rewriteError: 'no-document' });
+      return;
+    }
+    // 空回复 → 视为无变化，不产生 proposal
+    if (!(replyText ?? '').trim()) {
+      set({ rewriting: false, pendingRewrite: null, rewriteError: 'no-change' });
+      return;
+    }
+    const content = useEditorStore.getState().content;
+    // Agent 回复路径：无需 IPC，直接以当前 content + 回复产 proposal
+    const proposal = proposeFullDocumentRewrite(content, replyText);
+    if (proposal.unchanged) {
+      set({ rewriting: false, pendingRewrite: null, rewriteError: 'no-change' });
+      return;
+    }
+    set({ pendingRewrite: proposal, rewriting: false });
   },
 
   applyRewrite() {

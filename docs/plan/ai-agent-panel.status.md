@@ -413,5 +413,273 @@
   .claude/agent-memory/ 自动生成的 agent 状态
 - 第 6 期收尾：用户选择**暂停**，留后续里程碑
 
+---
 
+# 第 6 期收尾（KB 参数持久化 + stretch editBlocks agent 工具）
 
+## 阶段 0：分级与分类 ✅ 2026-08-15
+
+- **请求类型**：功能开发（第 6 期收尾：①KB 参数持久化优先 ②stretch editBlocks ③真 MCP/GitHub 继续延）
+- **跨模块判断**：跨模块——主进程（ai_config 表迁移加列、DAO 扩展、KB IPC 新通道、KB_STATUS/AGENT_RUN 消费修正、
+  toolRegistry/agentLoop stretch）+ 渲染进程（agentStore kbSettings 拉取/持久化、SettingsModal Save 持久化）→ **判为跨模块**
+- **定档**：**L**（DB 迁移、新 IPC、跨模块、用户明确指定 devflow-core L 级 TDD strict）
+- **裁剪**：无——L 级走全部阶段（TDD strict）
+- **现状 ground truth**（已读代码核实 2026-08-15）：
+  - **KB 参数内存态**：`agentStore.kbSettings`（agentStore.ts:81-82/148-155），默认 `{topK:5,fuse:0.5,threshold:0.6,
+    pinnedWeight:1.5,embeddingHost:'http://localhost:11434',embeddingModel:'nomic-embed-text'}`；`IKbSettings` 类型在
+    shared/ai.ts:208-221（无 vectorEnabled 字段）
+  - **编辑 UI**：SettingsModal 'ai' Tab KB 参数表单（SettingsModal.tsx:80-85 内存态草稿 + useEffect:102-108 打开同步 +
+    handleSave:154-163 写回 agentStore.kbSettings，仅内存态）
+  - **渲染→主进程透传**：`agentStore.sendAgentMessage` → `ai.runAgent({...kbSettings})` → `AgentRunPayload.kbSettings`
+    （shared/ai.ts:250-253）
+  - **主进程消费点**：
+    - `ipc.ts` AGENT_RUN searchKb（ipc.ts:440-449）**只透传 fuse**，topK/vectorEnabled/pinnedWeight/threshold 走工具
+      参数 `o?.*` 或 kbSearch.ts 默认值（kbSearch.ts:150-156）
+    - `ipc.ts` KB_STATUS probeEmbedding（ipc.ts:396）**硬编码** `embeddingProbeHost()/embeddingProbeModel()`
+      （ipc.ts:588-593 = localhost:11434 / nomic-embed-text）
+    - `kbIndexer` `kbIndexOpts()`（ipc.ts:583-585）硬编码 `vectorEnabled:false`；embedding host/model 消费点
+      **未启用**（vectorEnabled=false 时不 embed → 本期不改）
+  - **ai_config 表**（db/index.ts:103-117）：无 KB 参数字段 → 需迁移加 6 列（kb_top_k/kb_fuse/kb_threshold/
+    kb_pinned_weight/kb_embedding_host/kb_embedding_model）。`CREATE TABLE IF NOT EXISTS` 对既有表不生效 →
+    **需新增幂等 ALTER**（**实证**：项目锁定的 better-sqlite3 11.x/sqlite3.49.2 对 `ADD COLUMN IF NOT EXISTS`
+    报 `near "EXISTS": syntax error`；已改用「addAiConfigKbColumns 运行期 pragma_table_info 探测缺失列 +
+    逐列 ADD」，幂等由守卫保证，经 scripts/kb-migration-smoke.cjs 真库三态实证，见「真库迁移验证」）
+  - **DAO**（db/ai.ts）：`AiConfigRow`/`AiConfigDbRow`/`AiConfigUpdate`/`upsertAiConfig` 无 KB 字段 → 需扩展
+  - **IPC 通道现状**：constants.ts 已有 `KB_LIST/IMPORT_FILE/IMPORT_DIR/REINDEX/DELETE/STATUS`；无 settings 通道
+  - **preload**：`kb.*` 含 list/importFile/importDir/reindex/delete/status（preload.ts:132-143/297-304）→ 需补
+    getSettings/setSettings
+  - **测试基建**：tests/setup.ts mock window.weaveMD（ai.* + kb.*，需补 kb.getSettings/setSettings）；
+    tests/main/db/aiDao.test.ts FakeDatabase mock 模式（vi.mock better-sqlite3 + db/index）可沿用；
+    **迁移/真实 SQL 测试**需另法（in-memory better-sqlite3 或 prepare 断言）
+  - **stretch editBlocks**：toolRegistry.ts `defineCoreTools()` 4 只读工具（toolRegistry.ts:51-110）、`executeTool`
+    switch 无 editBlocks、`WRITE_NAMES` 断言（toolRegistry.test.ts:15 = `['editBlocks','writeFile','createFile',
+    'deleteFile','updateFile','upsert']` 断言「不含」）；agentLoop `toolCtx`（agentLoop.ts:171）+ `toolsForIntent`
+    （agentLoop.ts:91-106）无 editBlocks 注入；**缺「当前文档」上下文**——AGENT_RUN payload 无 currentDocument，
+    渲染侧需随 payload 注入（editorStore.content）
+  - **活验 harness**：scripts/rewrite-smoke.cjs / agent-smoke.cjs 保留（Electron 运行时 + esbuild + key 打码模式）
+
+## 合规核对修复 ✅ 2026-08-15（fullstack-detail-dev）
+
+- **H1（真库三态验证）**：新增 `scripts/kb-migration-smoke.cjs`（仿 fts5-smoke.cjs，Electron 运行时 better-sqlite3
+  in-memory 真库）实证 `KB_CONFIG_ALTER_SQL` 三态 + 读写闭环，退出码 0（态1 新库 / 态2 既有库 / 态3 重复执行 /
+  态4 upsertAiConfig 读写一致性）。**实证发现**：project 锁定 better-sqlite3（11.10.0/sqlite 3.49.2）对
+  `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 报 `near "EXISTS": syntax error` —— 原 `KB_CONFIG_ALTER_SQL`
+  若静默沿用会在每次 `initDatabase` 的 runMigrations 中抛错导致应用无法启动。已改为
+  `addAiConfigKbColumns`：运行期 `pragma_table_info` 探测缺失列 + 逐列 `ADD COLUMN`（幂等由守卫保证）；
+  迁移列结构/DEFAULT 语义不变。`tests/main/db/migrations.test.ts` 注释修正为「静态结构断言 + 真库 smoke 真验」，
+  正则假内存引擎移除。
+- **M2（kbSettingsSaveState 归位）**：agentStore 增 `resetKbSettingsSaveState: () => set({kbSettingsSaveState:'idle'})`；
+  SettingsModal 打开（isOpen 分支 useEffect）调用归位，使 saved/error 不再驻留；agentStore.test.ts 补归位用例。
+- **验证**：typecheck 0 error；migrations.test.ts 4 + agentStore.test.ts 32 + kb-settings-default 5 + main/db 全 34 通过；
+  `npx electron scripts/kb-migration-smoke.cjs` 退出码 0。
+
+## 阶段 1：需求对齐（grill-me）✅ 2026-08-15
+
+用户确认「全按推荐」，需求记录已产出 `docs/requirements/ai-agent-panel-ph6.req.md`：
+
+- **Q1 持久化载体**：ai_config 加 6 列（幂等 ALTER）；不建独立 kb_settings 表；vectorEnabled 不入列
+- **Q2 IPC 通道**：独立 `kb:get-settings`/`kb:set-settings`；不并入 ai:getConfig/setConfig
+- **Q3 生效范围**：3a KB_STATUS 探针用持久化 host/model；3b AGENT_RUN 以持久化 kbSettings 为默认兜底；3c kbIndexer 不改
+- **Q4 渲染持久化**：init 并行拉取；setKbSettings 改 async（先写主进程成功再更新内存态；写失败保留内存态 + 非阻塞提示）
+- **Q5 stretch editBlocks**：视精力；最小边界=仅产 proposal 文本、无应用闭环；WRITE_NAMES 断言同步改造
+- **Q6 活验**：KB 持久化走 vitest 真库（in-memory better-sqlite3）；editBlocks 若做则 DeepSeek 真验
+
+## 阶段 2：规划 ✅ 2026-08-15（Plan 智能体 + 技术调研）
+
+计划已写入 docs/plan/ai-agent-panel-ph6.plan.md（§1 变更清单 A/B/C/D、§2 迁移方案、§3 IPC 表、§4 消费修正、§5 渲染设计、§9 批次依赖）。
+
+- 调研结论：**SQLite 3.35+ 支持 `ADD COLUMN IF NOT EXISTS`（后被真库实证推翻——见阶段 7 H1：better-sqlite3 11.10.0/sqlite3.49.2 报 `near "EXISTS"` 语法错误，已如实修正）**
+- 变更清单：A shared 地基（constants/preload/shared 默认工厂/bridge/setup mock）→ B 主进程（迁移+DAO+IPC+消费修正）→ C 渲染（store+SettingsModal+i18n）→ D stretch（默认不做）
+- 批次：批次 1 必须先于一切；批次 2（B）与批次 3（C）可并行；批次 4 收尾；stretch 单独
+
+## 阶段 3-5：并行实现 ✅ 2026-08-15（fullstack-detail-dev 智能体，TDD strict）
+
+- **批次 1（shared 地基）**：constants 增 `KB_GET_SETTINGS`/`KB_SET_SETTINGS`；shared/ai.ts 增 `DEFAULT_KB_SETTINGS`+`normalizeKbSettings`；
+  preload kb.getSettings/setSettings 契约；weaveMDBridge noop 补全；tests/setup mock 补；tests/shared/kb-settings-default.test（5 用例）→ typecheck 0 / 89 files / 1234 tests
+- **批次 2（主进程）与批次 3（渲染）双智能体并行**：
+  - 主进程：db/index.ts `KB_CONFIG_ALTER_SQL`（6 列定义）+ `addAiConfigKbColumns`；db/ai.ts DAO 6 KB 字段（mapConfigRow NULL 兜底 + upsert 两处补列）；
+    ipc.ts 新增 `KB_GET_SETTINGS`/`KB_SET_SETTINGS` + `KB_STATUS` 探针用持久化 host/model（删除 `embeddingProbeHost()/Model()` 硬编码）+
+    `AGENT_RUN` 持久化 kbSettings 默认兜底合并（payload 显式 > 持久化 > kbSearch 内置默认）；
+    tests：migrations.test（新 4）/ aiDao.test（+4）/ ipc.test（+10）
+  - 渲染：agentStore init 并入 kb.getSettings 拉取（成功覆盖默认/失败保留默认不阻塞）；setKbSettings 改 async 持久化 + `kbSettingsSaveState`；
+    SettingsModal Save 走持久化 + saved/saving/saveFailed 提示；i18n 三文件补 3 键；agentStore.test 补 init/持久化/归位用例
+- **主指挥集成**：e2e `installWeaveMDMock` kb 块补 getSettings/setSettings（批次 3 后 agentStore.init 调用 kb.getSettings，
+  mock 缺函数导致 12/14 回归失败 → 补契约后 14/14）；typecheck 0 / vitest 90 files / 1255 tests / lint 0 / vite build / Playwright 14/14
+
+## 阶段 6：测试与质量门禁 ✅ 2026-08-15（testing-quality-agent 独立核验）
+
+- **typecheck** 0 error | **vitest** 90 files / 1256 tests 全绿 | **lint** 0 error（8 warning 均既有 useContentSync/useEditorActions）
+- **vite build** 编译通过（electron-builder 打包失败为既有 icon.png 缺失，非本任务）| **Playwright ai-agent-panel 14/14**
+- 覆盖率抽查充分（migrations/aiDao/ipc/agentStore/kb-settings-default 83 tests）；错误路径覆盖：写失败保留内存态（render+IPC 双端）、
+  getSettings 无配置返默认 success:true、AGENT_RUN 未传 kbSettings 持久化兜底
+- 铁律核验：铁律一 ✅（toolRegistry 仍 4 只读工具、WRITE_NAMES 未改、本期仅用户设置持久化非 AI 写盘）；
+  铁律二 ✅（无新外发、consent 语义未变）；SECURITY ✅（SQL 参数化/user_id 隔离/无 dangerouslySetInnerHTML/无 any）；i18n 三文件键集一致
+- 非阻塞发现：status.md 第 6 期文档未完整（本轮阶段 8 补齐）；迁移测试用静态 SQL 语义 + 真库 smoke 组合（见 H1）
+
+## 阶段 7：合规核对 ✅ 2026-08-15（git-diff-reviewer → CHANGES REQUESTED → 修复）
+
+- **两铁律** ✅：本期为「用户设置持久化」，无 AI 内容写盘新增；stretch 未做（toolRegistry/agentLoop 不在 diff、WRITE_NAMES 判项遵守）；
+  无新外发、consent 语义未变
+- **SECURITY** ✅：SQL 全参数化 / IPC user_id 隔离 / 无 dangerouslySetInnerHTML / 无 any / 不落明文密钥
+- **CONVENTIONS** ✅：命名映射 / import 顺序 / i18n 键集一致
+- **数据模型** ✅：6 列幂等迁移 + 回滚方案文档化；运行时 SQLite 3.49.2 实测
+- **范围控制** ✅：diff 与 plan §1 A/B/C 组逐项一致；无编辑器内核/无关改动
+- **修复**（git-diff-reviewer 发现 H1+M2）：
+  - H1（HIGH）迁移真库验证缺失 + 不实注释 → 新增 `scripts/kb-migration-smoke.cjs` 真库三态实证 → **抓出真实生产 bug**：
+    better-sqlite3 11.10.0（sqlite 3.49.2）对 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` 报 `near "EXISTS": syntax error`，
+    原实现若发布会导致 `initDatabase`→`runMigrations` 每次启动崩溃、应用无法启动 → 已改 `addAiConfigKbColumns`
+    （运行期 `pragma_table_info` 探测缺失列 + 逐列 `ADD COLUMN`，幂等守卫保证）真库三态 + 读写闭环退出码 0
+  - M2（MEDIUM）kbSettingsSaveState 停留 saved/error 不归位 → agentStore 增 `resetKbSettingsSaveState` + SettingsModal 打开归位
+- 低优保持现状：M1（AGENT_RUN 无条件 getAiConfig，成本可忽略）、L1（handleSave 未 await，Zustand 驱动）、L2（无配置建行取默认 consent）
+
+## 阶段 8：交付核对（gate）✅ 2026-08-15
+
+- **最终门禁全绿**（H1/M2 修复后复跑）：typecheck 0 error | vitest **90 files / 1256 tests** | lint 0 error（8 warning 既有）|
+  vite build 编译通过 | **Playwright ai-agent-panel 14/14**
+- **真库迁移验证**：`npx electron scripts/kb-migration-smoke.cjs` 三态（新库/既有库/重复执行）+ upsertAiConfig 读写闭环退出码 0
+- **变更核对**：18 修改 + 新增（tests 2 + 文档 2 + 脚手架 3）与 plan §1 A/B/C 组一致；
+  无无关功能改动、无密钥泄露；`scripts/kb-migration-smoke.cjs` 保留工作区（dev 工具惯例）
+- **文档同步**：本 status（阶段 1-8）+ 模块 11 §7 + SUMMARY + CLAUDE.md AI 节（本轮同步为「第 6 期 KB 参数持久化已交付」）
+- **剩余风险**：①AGENT_RUN 无条件 getAiConfig（低优）；②正式库升级需备份优先（迁移仅在 dev/内存库验证）；
+  ③既有遗留：drag-selection 5 RED / icon 打包环境 / qwen3.5 本地模型故障 / IPC userId 统一收紧
+
+## stretch editBlocks 交付 ✅ 2026-08-15（fullstack-detail-dev，用户确认「本轮做」）
+
+- **注册**：`toolRegistry.defineCoreTools()` 追加第 5 个工具 `editBlocks`（schema `{block_ops:[{block_id,new_content}]}`，description 注明「仅产 proposal 不落盘」）；`ToolCtx` 增 `currentDocument?`
+- **执行**：`executeTool('editBlocks')` 结构校验（数组 + 每项非空）→ 无 `currentDocument` 拒 → 合法返回 `{applied:false, proposed, documentSnapshotLength}`（**只算不写，铁律一**，无写盘/写库触发点）
+- **上下文注入**：`AgentRunPayload.currentDocument?` → ipc AGENT_RUN 归一透传 → `AgentReqPayload.currentDocument` → `toolsForIntent`（rewrite 意图 + currentDocument 存在才提供 editBlocks，避免无上下文调用）→ toolCtx；渲染侧 `sendAgentMessage` 载荷 `currentDocument: useEditorStore.getState().content` 快照
+- **WRITE_NAMES 断言改造**：`editBlocks` 移出「不含写工具」断言（保留 writeFile/createFile/deleteFile/updateFile/upsert 仍禁止），新增「5 工具含 editBlocks」+「仅产 proposal（applied:false + files/getFile 调用 0 次）」断言
+- **实现期裁定**：主进程无块树内核（第 5 期 C2），editBlocks 不做 block_id 存在性校验（仅结构校验 + 返回 proposal 文本，代码注释注明）；不做渲染侧 proposal→预览→确认 应用闭环（第 5 期既有管线职责）
+- **验证**：typecheck 0 error | vitest **90 files / 1261 tests** 全绿（editBlocks +5）| lint 0 error（8 warning 既有）| vite build | **Playwright ai-agent-panel 14/14** 回归全绿
+
+## 遗留问题（后续里程碑）
+
+- [ ] 真 MCP server 管理（context7/firecrawl 拉起、fetchContext7/fetchFirecrawl）——继续延
+- [ ] GitHub 自取 writing-shape skill——继续延
+- [ ] 既有：drag-selection 5 RED / icon 打包环境 / qwen3.5 本地模型故障 / IPC userId 统一收紧 / AGENT_RUN 无条件 getAiConfig 低优
+- [ ] 活验 harness scripts/{agent,rewrite,kb-migration,fts5}-smoke.cjs：保留作 dev 验证工具（不随功能提交）
+
+---
+
+# 第 7 期体验重构（A4 bug + A1~A3 编辑主区集成 + B1~B3 面板体验 + C1 视觉）
+
+## 阶段 0：分级与分类 ✅ 2026-08-15
+
+- **请求类型**：功能开发（体验重构 7 条）+ **Bug 修复（A4 选区改写错位，最优先）**
+- **跨模块判断**：跨模块——编辑器 v2（selectionExport/blockEdit/toolbarState/EditorV2 高亮）+ 主进程
+  （agentLoop/toolRegistry/intentRouter/ipc）+ 渲染面板（AIAgentPanel/ChatTab/AgentTab/agentStore/rewriteStore）
+  + i18n 三文件 → **判为跨模块**
+- **定档**：**L**（新 IPC 载荷、跨模块、写路径涉铁律、多天工作量）
+- **裁剪**：无——L 级走全部阶段（TDD strict）；**需求已对齐**（grill-me 2026-08-15 完成，
+  docs/requirements/ai-agent-panel-ph7.req.md §3 全决策已定，不重做）
+- **批次**（req §7，每批 TDD strict、门禁全绿、提交后再下一批）：
+  ① A4 bug 修复（最优先，先复现后测）→ ② A1（文档上下文注入+关键词补词+0到1整篇）→ ③ A2+A3 →
+  ④ B1（/ 与 @ 补全）→ ⑤ B2（命名「智能体」文案+i18n）→ ⑥ B3（双 Tab 合并+composer 下拉）→ ⑦ C1（美化）
+- **现状 ground truth**：分支 feat/ai-agent-ph3-ph4；第 6 期 6440dcd 已提交未推送；
+  工作区仅 ph7 需求文档 + ph6 脚手架/活验 harness（`.claude/agents/*`、`.claude/agent-memory/`、
+  `scripts/kb-migration-smoke.cjs` —— 不混入功能提交）
+- **两铁律**：① AI 无直接落盘——写路径必经「红删绿增预览 → 确认 → updateContent 入 undo」；
+  ② 联网/笔记外发必知情同意（allowNetwork/allowSend 分层闸）
+
+## 阶段 2：规划 ✅ 2026-08-15（Plan 智能体）
+
+计划已写入 docs/plan/ai-agent-panel-ph7.plan.md。关键结论：
+
+- **A4 根因实证**：`data-block-id` 同时挂在容器 div（BlockRenderer.tsx:40 list-block / CodeBlock.tsx:49 / BlockquoteBlock.tsx:23）与叶子内容元素（LeafBlock/ListItemBlock/ContentBlock）→ DOM 序 findIndex 含容器块、比叶序偏大；既有 selectionExport 测试未挂容器 div 故未暴露
+- **A1a 根因实证**：currentDocument 第 6 期已透传 toolCtx（供 editBlocks），但 runAgentFlow 组装 messages 未注入 LLM → 注入 system prompt + estimateTokens 截断 ~20k 字符
+- **A1c 方案**：新增 proposeFullDocumentRewrite（整篇全量 proposal，空文档编号块协议失效走此函数）；rewriteStore.runFullDocumentRewrite + currentFile===null 拒写引导；复用第 5 期预览→确认→updateContent 管线
+- **A2 方案**：computeToolbarState 混合类型改 show + mixedSyntax:true；FloatingToolbar 混合态仅「AI 改写」+ 提示，隐藏行内格式按钮
+- **A3 方案**：纯 CSS overlay（.rewrite-highlight，pointer-events:none 不入 contentEditable），highlight.ts 纯函数按叶序下标+offset 算 range；随 rewriteStore.selectionContext 生命周期清除
+- **B1 方案**：新 IPC AGENT_SKILLS_LIST（skillLoader.listSkillsForUi 返回 name+desc）+ CompletionMenu 组件（↑↓/Enter/Esc/外部点击）+ AgentTab 前缀触发（/ 技能、@ 当前文档/知识库）
+- **B3 方案**：保留 activeMode 域隔离（loadConversations(mode)），仅合并渲染壳（单消息流 + 单 composer + 模式下拉），模式专属控件条件渲染
+- **批次与并行裁定**：7 批**串行**推进（每批 TDD strict、门禁全绿、提交后再下一批）：① A4 → ② A1 → ③ A2+A3 → ④ B1 → ⑤ B2 → ⑥ B3 → ⑦ C1；②③ 共 touch rewriteStore/blockEdit、④⑤ 共 touch AgentTab/i18n，并行冲突面大于收益，串行最稳
+
+## 批次①（A4 选区改写错位 bug）✅ 2026-08-15（fullstack-detail-dev，TDD strict）
+
+- **修复**：`selectionExport.ts` 启用 `_content` 参数，`markdownToState` 解析得叶序权威结构；DOM `.block-content` 内容叶按**文档序位置 + 文本对齐**映射叶序下标（`stripZeroWidth` 逐叶对齐校验）；任何失同步 → 返回 `null` 保守禁用；文件头注释同步「下标源 = markdownToState 叶序」
+- **实现期修正（vs plan 字面，A4 目标不变）**：plan 原拟「按 blockId 在重解析树 indexWhere」——但 blockId 含 `Math.random()`（blockTree.ts:36），每次 markdownToState 全新随机 id，DOM span id 永无法命中 → 照字面实现 100% 返回 null 改写全失效。改为文档序位置 + 文本对齐映射（已记录 agent-memory rewrite-leaf-index-a4.md，供批次②/③ 高亮定位沿用）
+- **RED 复现证据**：修复前 4 fail——列表/代码块/引用容器场景 `expected 0 received 1`（容器致 DOM 下标偏大）+ 失同步未拦截
+- **测试**：selectionExport +4（列表/代码块/引用容器叶序下标 + 失同步→null）、blockEdit +3（容器跨块替换区间外字节不变）
+- **门禁**：typecheck 0 | vitest **90 files/1268 tests** | lint 0 error（8 warning 既有）| vite build | **Playwright ai spec 15/15**（+1 A4 回归）
+- **提交**：`6ef1f54` feat(ai): fix phase-7 A4 leaf-index selection rewrite mismatch（6 文件，未 push）
+
+## 批次②（A1 文档上下文 + 整篇写）✅ 2026-08-15（fullstack-detail-dev，TDD strict）
+
+- **A1a**：agentLoop.ts 新增 `buildDocumentContext`——currentDocument 注入 system 消息（首条，只读提示）；`estimateTokens >5000`（约 2 万字符）截断 20000 字符 + 截断标记；空文档不注入；与 toolsForIntent 共用同一 payload.currentDocument
+- **A1b**：intentRouter rewrite 关键词补词（优化/整理/美化/改进/润一润/优化一下/整理一下/美化一下/改进一下 + optimize/improve/refine/clean up），rewrite 规则仍居首 →「帮我优化这篇文档」命中 rewrite 不再落 chat
+- **A1c**：blockEdit 新增 `proposeFullDocumentRewrite`（整篇全量替换、同文本→unchanged、只算不写）；rewrite.ts document scope + 空 numberedBlocks → 系统指令「目标文档为空，直接生成完整 Markdown」；rewriteStore 新增 `runFullDocumentRewrite`（no-document 闸 → consent('chat') 闸 → rewritePreview → pendingRewrite → applyRewrite 入 undo）与 `previewDocumentFromReply`（Agent 回复路径无 IPC）；AgentTab `WRITE_WHOLE_DOC_RE` 路由 + assistant 消息「预览写入文档」按钮（文档打开且回复非空才显示）；RewritePreviewCard no-document 引导条；i18n 三文件 +2 键（ai.rewrite.noDocument / previewWrite）
+- **RED**：首轮 17 失败（agentLoop 3 / intentRouter 2 / rewrite 1 / blockEdit 4 / rewriteStore 7，均为缺特性）
+- **门禁**：typecheck 0 | vitest **90 files/1289 tests** | lint 0 error（8 warning 既有）| vite build | **Playwright ai spec 17/17**（+2：整篇写闭环/未打开引导）
+- **提交**：`ec62a65` feat(ai): add phase-7 A1 current-doc context + full-document write（17 文件，未 push）
+- **剩余风险**：WRITE_WHOLE_DOC_RE 浅启发式（极端措辞落 agent 对话，有「预览写入文档」按钮兜底）；A1a 对非 rewrite 意图也带整篇 system 上下文（有截断保护，远端消耗未实测）
+
+## 批次③（A2 混合类型工具栏 + A3 选区持久高亮）✅ 2026-08-15（fullstack-detail-dev，TDD strict）
+
+- **A2**：toolbarState `SelectionState` 增 `mixedSyntax?`——跨块语法类型不一致不再 hide，改 `{kind:'show', mixedSyntax:true}`（沿用 rect 定位）；FloatingToolbar 混合态隐藏块类型下拉 + 行内格式按钮组 + 解链/橡皮擦，仅「跨块选区」提示 + 「AI 改写」按钮（根节点 `data-mixed="true"`）；mouseup 触发时机未动
+- **A3**：新增 `highlight.ts` 纯函数 `buildHighlightRanges(content, sel)`（叶序下标+offset 映射当前解析树叶，越界/失同步返回空数组，绝不改块文本）；EditorV2 渲染绝对定位 `.rewrite-highlight` overlay（getBoundingClientRect 定位 + scroll/resize 重算，随 selectionContext 生命周期清除——面板聚焦/输入不清除）；globals.css `.rewrite-highlight`（color-mix accent 18% + outline + pointer-events:none + z-index:60）+ `.ft-mixed-hint`
+- **RED**：toolbarState 混合类型期望 show 实际 hide；FloatingToolbarV2 期望非 null 实际 null；highlight 模块不存在 import 失败
+- **门禁**：typecheck 0 | vitest **91 files/1300 tests** | lint 0 error（8 warning 既有）| vite build | **Playwright ai spec 19/19**（+2：A2 混合类型、A3 高亮三态）
+- **提交**：`973b9e4` feat(ai): add phase-7 A2 mixed toolbar + A3 persistent selection highlight（10 文件，未 push）
+- **剩余风险**：高亮定位 jsdom 下不可信（以 e2e 为准）；依赖 `.block-content` DOM 序与解析叶序对齐（image/table 等非文本叶 mid-leaf 高亮保守 skip）
+
+## 批次④（B1 `/` 与 `@` 自动补全）✅ 2026-08-15（fullstack-detail-dev，TDD strict）
+
+- **数据源**：constants `AGENT_SKILLS_LIST` + shared `AgentSkillInfo`；`skillLoader.listSkillsForUi`（剥离 instructions，仅 name+desc；用户扩展并入；缺失目录 core-only 不抛错）；ipc handler（userId 校验 + app.getPath('userData')/skills）；preload `ai.listSkills` + weaveMDBridge noop + tests/setup mock
+- **组件**：`CompletionMenu.tsx`（新增，纯展示 + capture 键盘协议：↑/↓ 循环、Enter 选中、Esc 关闭、外部点击关闭）
+- **AgentTab 集成**：token 检测 `/(^|\s)([/@])([^\s/@]*)$/`；`/` 技能 / `@` 引用（当前文档/知识库）构建与过滤；handleSend 分流 `SLASH_SKILL_RE`、`@文档`、`@知识库` 优先于 WRITE_WHOLE_DOC_RE；i18n `ai.completion.*` 6 键三文件一致
+- **RED**：14 fail（skillLoader 3 / ipc 3 / CompletionMenu 10 / AgentTab 8 中缺模块部分）
+- **门禁**：typecheck 0 | vitest **92 files/1324 tests** | lint 0 error（8 warning 既有）| vite build | **Playwright ai spec 21/21**（+2：@ 补全/Esc、/ 技能清单）
+- **提交**：`d236068` feat(ai): add phase-7 B1 slash-at autocomplete menu（17 文件，未 push）
+- **剩余风险**：B3 合并统一 composer 需同步补全触发逻辑（已判串行）；`/技能名` 剥前缀后指令若无 tech/create 关键词可能落 chat fallback（非阻塞）
+
+## 批次⑤（B2 命名「智能体」）✅ 2026-08-15（fullstack-detail-dev，TDD strict 文案版）
+
+- **i18n**：zh-CN `ai.tab.agent`「代理」→「智能体」、zh-TW →「智能體」、en 保持「Agent」；两处消费点（AgentTab 会话 chip 兜底名 + AIAgentPanel Tab 按钮）自动生效；全 render 扫描确认源码非注释处无「代理」展示字面量
+- **测试**：新增 `tests/render/i18n/agent-label.test.ts`（5 例：键集一致/中文=智能体(en=Agent)/ai.* 域无「代理」/全键无「代理」）——初跑 3 failed 改后 GREEN
+- **e2e**：6 处功能定位器「代理」→「智能体」+ 注释同步（文件头「AI 代理面板」/「薄代理」为架构表述保留）
+- **门禁**：typecheck 0 | vitest **93 files/1329 tests** | lint 0 error（8 warning 既有）| vite build | **Playwright ai spec 21/21**
+- **提交**：`6e52cbd` feat(ai): rename agent label to 智能体 (phase-7 B2)（4 文件，未 push）
+- **剩余风险**：低——`ai.agent.placeholder` 未使用遗留键含英文 Agent（非「代理」不触发验收）；e2e 注释含架构措辞非用户可见
+
+## 批次⑥（B3 双 Tab 合并单面板）✅ 2026-08-15（fullstack-detail-dev，TDD strict）
+
+- **壳合并**：AIAgentPanel 移除双 Tab 按钮 → 模式下拉 `ai-mode-select`（ai.tab.chat/ai.tab.agent）；统一渲染单个 AgentTab body；下拉切换走 toggleMode
+- **AgentTab 统一 body**：读 activeMode 双模式渲染；agent 专属控件（KB 开关/压缩/KB 设置/agentBackendHint/ToolCallTrace/IntentCard/RewritePreviewCard/`/` `@` 补全/预览写入）随 `activeMode==='agent'` 条件渲染；chat 纯对话走 sendMessage 无补全；挂载/切域 effect 触发 newChat()+loadConversations(mode)，消息与会话随域切换不串号
+- **发送链路隔离**：sendMessage(chat) vs sendAgentMessage(agent) 原样保留；ChatTab 保留为已验证参考组件（prod 死代码但不删不删测，避免回归）
+- **i18n**：三文件新增 `ai.modeSelectLabel`，键集一致
+- **RED**：5 failed（ai-mode-select 不存在、双 Tab 仍在、chat 模式 KB 开关未隐藏）；agentStore 域隔离天然通过（store 本已隔离）
+- **门禁**：typecheck 0 | vitest **93 files/1338 tests** | lint 0 error（8 warning 既有）| vite build | **Playwright ai spec 24/24**（+3：单面板无 Tab+下拉、模式切换域隔离、专属控件归属；7 处旧 Tab 定位器同步改造）
+- **提交**：`bcdb240` feat(ai): merge chat-agent into single panel with mode dropdown (phase-7 B3)（9 文件，未 push）
+- **剩余风险**：模式切换时 chat 流未完成即切会丢事件（store 未改，铁律纯 UI 约束下接受，属既有 finishStream 语义）；e2e 下拉 onChange 行为在测试中显式清空输入规避（无产品行为变更）
+
+## 批次⑦（C1 视觉美化）✅ 2026-08-15（fullstack-detail-dev + frontend-design + impeccable-skill）
+
+- **frontend-design 分析**：字号阶梯过密（10/11/12/14px 四级小字）；composer 周边距过大；深浅层次缺失（气泡/轨迹/意图卡全扁平）；会话 chip 无边框
+- **impeccable-skill 打磨**：全程既有 token（--accent/--radius-input/--radius-card/--shadow-dropdown/bg-bg-*），零内联 style 零硬编码色；遵循 product register 约束（Selection 沿用既有 accent 背景色调、radius 顶到 rounded-card 12px、shadow-sm 弱阴影仅抬升交互卡片）；**修复既有违红点**：ConsentOverlay `accent-[#7C3AED]` 硬编码 → `accent-[var(--accent)]`
+- **改动**：11 文件 +55/−46 纯样式——AIAgentPanel（标题/下拉弹性）、AIMessageBubble（气泡浅阴影+accent 边框+角色标签 12px）、AgentTab/ChatTab（composer `px-2.5 pt-2 pb-2.5 space-y-1.5` + textarea 收紧 + focus ring + 会话 chip 边框）、CompletionMenu（shadow-dropdown/rounded-card）、ToolCallTrace（rounded-card+shadow-sm+error 态红边）、IntentCard/KB 设置/改写卡（rounded-card+shadow-sm）、globals.css `.rewrite-highlight` 圆角 4px
+- **门禁**：typecheck 0 | vitest **93 files/1338 tests** 全绿（零样式回归）| lint 0 error（8 warning 既有）| vite build | **Playwright ai spec 24/24**（语义选择器不依赖像素；clamp 260~520 未动）
+- **提交**：`ced4dcf` feat(ai): polish ai agent panel visuals (phase-7 C1)（11 文件，未 push）
+
+## 阶段 6：测试与质量门禁 ✅ 2026-08-15（testing-quality-agent 独立核验）
+
+- **独立实测**：typecheck 0 error | vitest **93 files/1338 tests** 全绿 | lint 0 error（8 warning 均既有）| vite build 通过 | **Playwright ai spec 24/24** | 全量 e2e **95 passed / 5 failed**（5 个均既有 drag-selection RED，用例名自标「当前 RED」）
+- **i18n 键集**：三文件 ai.* 各 101 键完全一致；ai.tab.agent = Agent/智能体/智能體 ✓
+- **覆盖率抽查**：A4（容器叶序 13 cases）/ blockEdit（9）/ highlight（5）/ CompletionMenu（10）/ agentLoop（9）/ intentRouter（10）/ rewriteStore（23 含全部错误路径）/ AgentTab（25）/ toolbarState（mixedSyntax）/ agentStore（22 mode 域）——需求列错误路径全覆盖
+- **铁律抽核**：铁律一 ✅ 渲染侧 updateContent 全局唯一调用点 = rewriteStore.applyRewrite（先 stale 校验再入 undo），无旁路自动写；7 期主进程 AI 改动 grep 零写盘；AGENT_SKILLS_LIST 为只读 IPC（不含 instructions）；铁律二 ✅ needsConsent('chat') 在 runSelectionRewrite/startDocumentRewrite/runFullDocumentRewrite 全部存在、allowSend 分层语义未变；无 dangerouslySetInnerHTML 新增（Editor 侧 2 处为既有非 7 期）、无 any、无密钥
+- **发现并修复（中）**：`e2e/floating-toolbar.spec.ts` G1 过期断言与 A2 冲突（旧断言「混合类型→工具栏不出现」被 A2 推翻，批次③漏同步既有测试）→ 按 A2 新行为更新断言（工具栏出现 + data-mixed + 仅 AI 改写）→ 已提交 `9153e66` test(ai): sync floating-toolbar G1 assertion（全量 e2e 从 94+6 恢复到 95+5）
+- **低级建议（未修，记录留档）**：① proposeFullDocumentRewrite 对「非空原文+空白回复→清空」无 proposal 层防御（store 层已拦截，纵深可选）；② A2 按钮组显隐逻辑可抽纯函数补单测（当前组件/e2e 覆盖）
+
+## 阶段 7：合规核对 ✅ 2026-08-15（git-diff-reviewer）→ APPROVED
+
+- **两铁律** ✅：铁律一——主进程 AI 文件（agentLoop/rewrite/intentRouter/skillLoader/ipc）零写盘、rewrite.ts 仍只产 {text}、渲染侧唯一写入口 applyRewrite（stale 校验 + 入 undo）；A3 高亮纯 CSS overlay 注释明示不写 contentEditable；未打开文档拒写（no-document 引导）。铁律二——needsConsent('chat') 在 runSelectionRewrite/startDocumentRewrite/runFullDocumentRewrite 全部存在；previewDocumentFromReply 本地 transform 不弹 consent（无网络调用，LLM 调用在前置 AGENT_RUN 已有闸）合规；allowSend 分层语义未变
+- **SECURITY** ✅：无 dangerouslySetInnerHTML 新增 / 无 any / 无密钥 / AGENT_SKILLS_LIST 只读（不含 instructions、userData 不可读降级 core-only）
+- **CONVENTIONS** ✅：命名/导入合规；i18n 三文件各 262 键完全一致（新增 11 键同步）；无内联 style（唯二动态定位像素坐标例外属既有模式）
+- **范围控制** ✅：51 文件逐一映射计划 §1 批次零 unmapped；编辑器内核（markdownToState/blockTree 等）零修改；无新表新列无迁移；新 IPC 仅 AGENT_SKILLS_LIST；计划外改动仅 9153e66（G1 测试同步，判定必要）+ tests/setup +1 mock（批次④必需）
+- **问题**：无 HIGH/MEDIUM；LOW×2（IPC userId 弱校验沿用既有模式、WRITE_WHOLE_DOC_RE 启发式取舍）均记入遗留
+
+## 阶段 8：交付核对（gate）✅ 2026-08-15
+
+- **最终门禁全绿**（阶段 6 独立实测）：typecheck 0 error | vitest **93 files/1338 tests** | lint 0 error（8 warning 既有）| vite build | **Playwright ai spec 24/24** | 全量 e2e 95 passed/5 failed（5 个均既有 drag-selection RED）
+- **提交序列**（8 个，未推送）：6ef1f54（A4）→ ec62a65（A1）→ 973b9e4（A2+A3）→ d236068（B1）→ 6e52cbd（B2）→ bcdb240（B3）→ ced4dcf（C1）→ 9153e66（G1 测试同步）；+3352/−225（51 文件）
+- **文档同步**：模块 11 §7 + SUMMARY §5 + CLAUDE.md AI 节 + 本 status（阶段 0-8）
+- **遗留问题**：① IPC userId 弱校验统一收紧（含 AGENT_SKILLS_LIST）；② WRITE_WHOLE_DOC_RE 浅启发式（极端措辞落 agent 对话，有预览按钮兜底）；③ proposeFullDocumentRewrite 空白回复 proposal 层防御（store 层已拦截，纵深可选）；④ 真 MCP/GitHub skill 继续延；⑤ 既有：drag-selection 5 RED / icon 打包环境 / qwen3.5 本地模型故障 / A1a 长文档远端 token 消耗未实测

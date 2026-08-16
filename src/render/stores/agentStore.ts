@@ -17,8 +17,10 @@ import type {
   IKbSettings,
   KbStatusResponse,
 } from '@shared/ai';
+import { DEFAULT_KB_SETTINGS } from '@shared/ai';
 import type { WeaveMDApi } from '@main/preload';
 import { useAuthStore } from './authStore';
+import { useEditorStore } from '@render/stores/editorStore';
 
 /** 运行时入口：类型来自 preload 的 WeaveMDApi.ai 契约。 */
 type AiApi = WeaveMDApi['ai'];
@@ -78,8 +80,10 @@ interface AgentStore {
   agentBackendHint: string | null;
   kbStatus: KbStatusResponse | null;
   kbDocuments: IKbDocumentStatus[];
-  /** KB 召回/融合/拒答/置顶权重 + embedding 端点设置（内存态，持久化留后续批次）。 */
+  /** KB 召回/融合/拒答/置顶权重 + embedding 端点设置（内存态，持久化走 IPC kb.setSettings）。 */
   kbSettings: IKbSettings;
+  /** KB 参数持久化状态（idle 初始 / saving 写入中 / saved 已保存 / error 保存失败）。 */
+  kbSettingsSaveState: 'idle' | 'saving' | 'saved' | 'error';
 
   init: (userId: string) => Promise<void>;
   reset: () => void;
@@ -90,7 +94,9 @@ interface AgentStore {
   toggleTab: (tab: 'chat' | 'agent') => void;
   toggleMode: (mode: ConversationMode) => void;
   setUseKnowledgeBase: (enabled: boolean) => void;
-  setKbSettings: (settings: IKbSettings) => void;
+  setKbSettings: (settings: IKbSettings) => Promise<void>;
+  /** 归位 KB 参数保存状态为 idle（设置面板每次打开时调用，提示归零）。 */
+  resetKbSettingsSaveState: () => void;
   deleteConversation: (id: string) => Promise<void>;
   loadConversation: (id: string, mode?: ConversationMode) => Promise<void>;
   loadConversations: (mode?: ConversationMode) => Promise<void>;
@@ -127,6 +133,7 @@ const RESET_FIELDS: Pick<
   | 'kbStatus'
   | 'kbDocuments'
   | 'kbSettings'
+  | 'kbSettingsSaveState'
 > = {
   activeConversationId: null,
   userId: '',
@@ -145,14 +152,8 @@ const RESET_FIELDS: Pick<
   agentBackendHint: null,
   kbStatus: null,
   kbDocuments: [],
-  kbSettings: {
-    topK: 5,
-    fuse: 0.5,
-    threshold: 0.6,
-    pinnedWeight: 1.5,
-    embeddingHost: 'http://localhost:11434',
-    embeddingModel: 'nomic-embed-text',
-  },
+  kbSettings: DEFAULT_KB_SETTINGS,
+  kbSettingsSaveState: 'idle',
 };
 
 const makeId = () => `m-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -163,17 +164,28 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   async init(userId: string) {
     const ai = getAi();
-    const [configRes, consentRes, convRes] = await Promise.all([
+    const [configRes, consentRes, convRes, kbSettingsRes] = await Promise.all([
       ai.getConfig(userId),
       ai.getConsent(userId),
       ai.listConversations(userId, 'chat'),
+      getKb().getSettings(userId),
     ]);
 
     const config = configRes.success ? (configRes.data ?? null) : null;
     const consent = consentRes.success ? (consentRes.data ?? null) : null;
     const conversations = convRes.success ? (convRes.data ?? []) : [];
+    // KB 持久化参数拉取：成功覆盖默认；失败/undefined 保留默认，不阻塞 init
+    const kbSettings =
+      kbSettingsRes.success && kbSettingsRes.data ? kbSettingsRes.data : DEFAULT_KB_SETTINGS;
 
-    set({ userId, config, consent, conversations, activeMode: 'chat' });
+    set({
+      userId,
+      config,
+      consent,
+      conversations,
+      activeMode: 'chat',
+      kbSettings,
+    });
   },
 
   reset: () => {
@@ -392,6 +404,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         mode: 'agent',
         useKnowledgeBase,
         kbSettings: get().kbSettings,
+        // 当前文档 markdown 快照（只读上下文，供 editBlocks 产改写建议；不落盘）
+        currentDocument: useEditorStore.getState().content,
       });
       // IpcResponse 类型不含 code（主进程 AGENT_RUN 失败信封实际携带），此处按运行时桥契约读取。
       const failedCode = (res as unknown as { code?: string }).code;
@@ -435,7 +449,25 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   setUseKnowledgeBase: (enabled) => set({ useKnowledgeBase: enabled }),
 
-  setKbSettings: (settings) => set({ kbSettings: settings }),
+  async setKbSettings(settings) {
+    // 未登录（userId 空）仅更新内存态，不触发 IPC（防御）
+    const userId = get().userId;
+    if (!userId) {
+      set({ kbSettings: settings, kbSettingsSaveState: 'idle' });
+      return;
+    }
+
+    set({ kbSettingsSaveState: 'saving' });
+    const res = await getKb().setSettings({ userId, settings });
+    if (res.success) {
+      set({ kbSettings: settings, kbSettingsSaveState: 'saved' });
+    } else {
+      // 写失败保留内存态（不回滚），差异用 UI 提示
+      set({ kbSettings: settings, kbSettingsSaveState: 'error' });
+    }
+  },
+
+  resetKbSettingsSaveState: () => set({ kbSettingsSaveState: 'idle' }),
 
   async deleteConversation(id: string) {
     const userId = useAuthStore.getState().user?.id ?? '';

@@ -21,6 +21,8 @@ import type {
   IAIConversation,
   IKbDocumentStatus,
   IKbImportResult,
+  IKbSettings,
+  AgentSkillInfo,
   KbDeleteResult,
   KbImportDirRequest,
   KbStatusResponse,
@@ -127,6 +129,7 @@ export interface WeaveMDApi {
     runAgent: (payload: AgentRunPayload) => Promise<IpcResponse<AgentRunResult>>;
     agentAbort: (conversationId: string, userId: string) => Promise<IpcResponse<{ aborted: boolean }>>;
     rewritePreview: (payload: RewriteRequestPayload) => Promise<IpcResponse<RewriteReply>>;
+    listSkills: (userId: string) => Promise<IpcResponse<AgentSkillInfo[]>>;
     onStream: (cb: (evt: AIStreamEvent | IAgentStreamToolEvent) => void) => () => void;
   };
   kb: {
@@ -140,6 +143,11 @@ export interface WeaveMDApi {
     reindex: (input: { userId: string; fileId: string }) => Promise<IpcResponse<IKbImportResult>>;
     delete: (input: { userId: string; fileId: string }) => Promise<IpcResponse<KbDeleteResult>>;
     status: (userId: string) => Promise<IpcResponse<KbStatusResponse>>;
+    getSettings: (userId: string) => Promise<IpcResponse<IKbSettings>>;
+    setSettings: (input: {
+      userId: string;
+      settings: IKbSettings;
+    }) => Promise<IpcResponse<IKbSettings>>;
   };
 }
 
@@ -231,6 +239,8 @@ const api: WeaveMDApi = {
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_ABORT, conversationId, userId),
     rewritePreview: (payload) =>
       ipcRenderer.invoke(IPC_CHANNELS.AI_REWRITE_PREVIEW, payload),
+    listSkills: (userId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_SKILLS_LIST, { userId }),
     onStream: (cb) => {
       const listeners: Array<() => void> = [];
       const subscribe = <T>(
@@ -301,6 +311,8 @@ const api: WeaveMDApi = {
     reindex: (input) => ipcRenderer.invoke(IPC_CHANNELS.KB_REINDEX, input),
     delete: (input) => ipcRenderer.invoke(IPC_CHANNELS.KB_DELETE, input),
     status: (userId) => ipcRenderer.invoke(IPC_CHANNELS.KB_STATUS, { userId }),
+    getSettings: (userId) => ipcRenderer.invoke(IPC_CHANNELS.KB_GET_SETTINGS, { userId }),
+    setSettings: (input) => ipcRenderer.invoke(IPC_CHANNELS.KB_SET_SETTINGS, input),
   },
 };
 

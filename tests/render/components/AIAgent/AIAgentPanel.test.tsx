@@ -1,6 +1,7 @@
 // ============================================
-// WeaveMD — AIAgentPanel 测试（TDD strict）
-// 覆盖：面板头部 Tab 切换 / 关闭回调 / 宽度拖拽把手存在与店宽 clamp / init 触发
+// WeaveMD — AIAgentPanel 测试（TDD strict，第 7 期批次⑥ B3：单面板 + 模式下拉）
+// 覆盖：面板头部无双 Tab 按钮、有模式下拉；下拉切 chat/agent触发 store 域切换；
+// 关闭回调 / 宽度拖拽把手存在与店宽 clamp / init 触发
 // ============================================
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -9,10 +10,10 @@ import { useAgentStore } from '@render/stores/agentStore';
 import { useUIStore } from '@render/stores/uiStore';
 import { useAuthStore } from '@render/stores/authStore';
 
-// 子 Tab 使用真实实现（ChatTab/AgentTab 内部依赖 store，已在各自测试覆盖）；
-// 此处专注面板容器行为，将 AgentTab 替换为轻量占位便于稳定断言。
+// B3：面板统一渲染单个 body（原 AgentTab 承担双模式）；此处 mock 为轻量占位，
+// 便于稳定断言「无 tab / 有下拉 / 切换触发 store 域切换」的壳行为。
 vi.mock('@render/components/AIAgent/AgentTab', () => ({
-  default: () => <div data-testid="mock-agent-tab">Agent Placeholder</div>,
+  default: () => <div data-testid="mock-body">Body Placeholder</div>,
 }));
 
 vi.mock('@render/i18n', () => ({
@@ -24,12 +25,11 @@ vi.mock('@render/i18n', () => ({
 
 const MOCK_USER = { id: 'u1', username: 'tester', createdAt: '', lastLogin: null };
 
-describe('AIAgentPanel', () => {
+describe('AIAgentPanel (B3 单面板 + 模式下拉)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // 确保每个用例从干净的 store 状态出发
     useUIStore.setState({ isAIPanelOpen: true, aiPanelWidth: 320 });
-    useAgentStore.setState({ activeTab: 'chat', pendingConsent: false });
+    useAgentStore.setState({ activeMode: 'chat', activeTab: 'chat', pendingConsent: false });
     useAuthStore.setState({
       user: MOCK_USER,
       token: 'tok',
@@ -48,12 +48,32 @@ describe('AIAgentPanel', () => {
     expect(initSpy).toHaveBeenCalledWith(MOCK_USER.id);
   });
 
-  it('点击 Agent Tab 切换 activeTab', () => {
-    useAgentStore.setState({ activeTab: 'chat' });
+  it('面板头部不再有 Chat/Agent 双 Tab 按钮（B3 无 Tab 割裂）', () => {
     render(<AIAgentPanel />);
-    // 当前 tab 应为 chat，切换到 agent
-    fireEvent.click(screen.getByText('[ai.tab.agent]'));
-    expect(useAgentStore.getState().activeTab).toBe('agent');
+    // 无「对话」「智能体」按钮（模式改由下拉选择，不复用 tab 按钮）
+    expect(screen.queryByRole('button', { name: '[ai.tab.chat]' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '[ai.tab.agent]' })).toBeNull();
+  });
+
+  it('面板头部存在模式下拉（select，含 对话/智能体 两项）', () => {
+    render(<AIAgentPanel />);
+    const select = screen.getByTestId('ai-mode-select');
+    expect(select).toBeInstanceOf(HTMLSelectElement);
+    const options = Array.from(select.querySelectorAll('option')).map((o) => o.textContent);
+    expect(options).toEqual(['[ai.tab.chat]', '[ai.tab.agent]']);
+  });
+
+  it('下拉切到智能体 → store activeMode 域切换（chat → agent）', () => {
+    render(<AIAgentPanel />);
+    fireEvent.change(screen.getByTestId('ai-mode-select'), { target: { value: 'agent' } });
+    expect(useAgentStore.getState().activeMode).toBe('agent');
+  });
+
+  it('下拉切回 对话 → store activeMode 域回切（agent → chat）', () => {
+    useAgentStore.setState({ activeMode: 'agent', activeTab: 'agent' });
+    render(<AIAgentPanel />);
+    fireEvent.change(screen.getByTestId('ai-mode-select'), { target: { value: 'chat' } });
+    expect(useAgentStore.getState().activeMode).toBe('chat');
   });
 
   it('宽度拖拽把手存在（cursor-col-resize）', () => {

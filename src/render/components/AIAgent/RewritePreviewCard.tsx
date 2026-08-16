@@ -51,6 +51,14 @@ const RewritePreviewCard: React.FC = () => {
         </div>
       );
     }
+    if (rewriteError === 'no-document') {
+      // A1c：整篇写但未打开文档 → 引导先打开文档，不产生空写
+      return (
+        <div className="px-4 py-2 text-xs text-amber-600 bg-amber-500/10 border border-amber-500/20 rounded-md">
+          {t('ai.rewrite.noDocument')}
+        </div>
+      );
+    }
     if (rewriteError) {
       return (
         <div className="px-4 py-2 text-xs text-red-500 bg-red-500/10 border border-red-500/20 rounded-md">
@@ -66,7 +74,7 @@ const RewritePreviewCard: React.FC = () => {
   const lines = diffLines(originalMd, rewrittenMd);
 
   return (
-    <div className="mx-3 my-1 rounded-lg border border-border bg-bg-tertiary/60 overflow-hidden">
+    <div className="mx-3 my-1 rounded-card border border-border bg-bg-tertiary/60 overflow-hidden shadow-sm">
       {staleRejected && (
         <div className="px-3 pt-2 text-[11px] text-red-500">{t('ai.rewrite.staleRejected')}</div>
       )}

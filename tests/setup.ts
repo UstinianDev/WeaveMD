@@ -66,6 +66,7 @@ const mockWeaveMD = {
     runAgent: vi.fn(),
     agentAbort: vi.fn(),
     rewritePreview: vi.fn(),
+    listSkills: vi.fn(),
     onStream: vi.fn(() => () => {}),
   },
   kb: {
@@ -75,6 +76,8 @@ const mockWeaveMD = {
     reindex: vi.fn(),
     delete: vi.fn(),
     status: vi.fn(),
+    getSettings: vi.fn(),
+    setSettings: vi.fn(),
   },
 };
 

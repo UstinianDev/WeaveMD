@@ -9,6 +9,24 @@ describe('intentRouter.classifyIntent', () => {
     expect(classifyIntent('rewrite this paragraph').intent).toBe('rewrite');
   });
 
+  it('A1b: classifies optimization/smooth-touch keywords as rewrite (not chat)', () => {
+    // 用户说「帮我优化这篇文档」不得落 chat fallback
+    expect(classifyIntent('帮我优化这篇文档').intent).toBe('rewrite');
+    expect(classifyIntent('帮我整理一下这篇文档').intent).toBe('rewrite');
+    expect(classifyIntent('美化一下这个页面').intent).toBe('rewrite');
+    expect(classifyIntent('改进这段内容').intent).toBe('rewrite');
+    expect(classifyIntent('润一润这段文字').intent).toBe('rewrite');
+    expect(classifyIntent('优化一下开头段落').intent).toBe('rewrite');
+    expect(classifyIntent('improve this paragraph').intent).toBe('rewrite');
+    expect(classifyIntent('refine the wording').intent).toBe('rewrite');
+    expect(classifyIntent('clean up the style').intent).toBe('rewrite');
+  });
+
+  it('A1b: rewrite keywords out-prioritize create when both hit (optimize wins)', () => {
+    // 「优化一下」+「文档」命中 rewrite；即便含类似写意的词，rewrite 优先级在前
+    expect(classifyIntent('帮我优化这段文稿').intent).toBe('rewrite');
+  });
+
   it('classifies kbQa intents', () => {
     expect(classifyIntent('在我的笔记里搜索 agent 相关的内容').intent).toBe('kbQa');
     expect(classifyIntent('根据知识库回答这个问题').intent).toBe('kbQa');

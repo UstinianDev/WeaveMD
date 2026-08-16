@@ -106,8 +106,8 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
 
   if (role === 'user') {
     return (
-      <div className="flex justify-end px-4 py-1.5">
-        <div className="max-w-[85%] rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed bg-[var(--accent)] text-white">
+      <div className="flex justify-end px-3 py-1">
+        <div className="max-w-[85%] rounded-2xl rounded-tr-md px-3.5 py-2 text-sm leading-relaxed bg-[var(--accent)] text-white shadow-sm">
           <div className="whitespace-pre-wrap break-words">{content}</div>
         </div>
       </div>
@@ -135,9 +135,9 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
   };
 
   return (
-    <div className="flex px-4 py-1.5">
+    <div className="flex px-3 py-1">
       <div className="max-w-[92%] space-y-1">
-        <div className="text-xs text-text-muted">{ROLE_LABEL[role]}</div>
+        <div className="text-[11px] font-medium text-text-muted">{ROLE_LABEL[role]}</div>
 
         {isTool ? (
           /* 工具轨迹：一次 tool 消息可能含多次调用（流式累积） */
@@ -145,14 +145,14 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
             {toolCalls.length > 0
               ? toolCalls.map((c) => <ToolCallTrace key={c.toolCallId} call={c} />)
               : content && (
-                  <div className="rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words bg-bg-tertiary">
+                  <div className="rounded-2xl rounded-tl-md px-3.5 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words bg-bg-tertiary shadow-sm">
                     {content}
                   </div>
                 )}
           </div>
         ) : (
           <div
-            className={`rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm leading-relaxed break-words bg-bg-secondary`}
+            className={`rounded-2xl rounded-tl-md px-3.5 py-2 text-sm leading-relaxed break-words bg-bg-secondary border border-[var(--border-color)] shadow-sm`}
           >
             {isStreaming && !content ? (
               <span className="inline-block w-2 h-4 animate-pulse text-text-muted">▍</span>
@@ -183,14 +183,14 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
                   key={`${source.fileName}-${index}`}
                   type="button"
                   onClick={() => handleOpenSource(source)}
-                  className="text-[11px] px-2 py-0.5 rounded-md bg-bg-tertiary border border-border text-text-sub hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors"
+                  className="text-xs px-2 py-0.5 rounded-md bg-bg-tertiary border border-border text-text-sub hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors"
                 >
                   {label}
                 </button>
               ) : (
                 <span
                   key={`${source.fileName}-${index}`}
-                  className="text-[11px] px-2 py-0.5 rounded-md bg-bg-tertiary border border-border text-text-muted"
+                  className="text-xs px-2 py-0.5 rounded-md bg-bg-tertiary border border-border text-text-muted"
                 >
                   {label}
                 </span>

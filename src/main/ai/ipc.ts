@@ -5,8 +5,9 @@
 // for-await streamChatCompletion 逐块 webContents.send('ai:stream:chunk') ->
 // done 落库 assistant 消息 -> send('ai:stream:done')。abort 经模块级 Map。
 
-import { BrowserWindow, ipcMain } from 'electron';
+import { BrowserWindow, app, ipcMain } from 'electron';
 import fs from 'fs';
+import { join } from 'path';
 import { IPC_CHANNELS } from '@shared/constants';
 import type {
   AIErrorCode,
@@ -15,9 +16,11 @@ import type {
   ConversationMode,
   IAIConfig,
   IAIConsent,
+  IKbSettings,
   KbImportDirRequest,
   RewriteRequestPayload,
 } from '@shared/ai';
+import { DEFAULT_KB_SETTINGS, normalizeKbSettings } from '@shared/ai';
 import {
   appendMessage,
   assertConversationOwned,
@@ -37,6 +40,7 @@ import { needsConsent } from './consent';
 import { probeOllama, streamChatCompletion } from './llmClient';
 import { runAgentFlow } from './agentLoop';
 import { runRewrite } from './rewrite';
+import { listSkillsForUi } from './skillLoader';
 import { indexFile, indexImportedText, removeByFile } from './kbIndexer';
 import { searchKB } from './kbSearch';
 import { probeEmbedding } from './embeddingClient';
@@ -393,7 +397,11 @@ export function registerAiIpcHandlers(): void {
     async (_event, payload: { userId: string }) => {
       try {
         const docs = listKbDocumentsByUser(payload.userId);
-        const probe = await probeEmbedding(embeddingProbeHost(), embeddingProbeModel());
+        // 探针用持久化 host/model（空值兜底 DEFAULT），消除硬编码
+        const row = getAiConfig(payload.userId);
+        const host = row?.kbEmbeddingHost || DEFAULT_KB_SETTINGS.embeddingHost;
+        const model = row?.kbEmbeddingModel || DEFAULT_KB_SETTINGS.embeddingModel;
+        const probe = await probeEmbedding(host, model);
         return {
           success: true,
           data: {
@@ -403,6 +411,72 @@ export function registerAiIpcHandlers(): void {
         };
       } catch (error) {
         return { success: false, message: 'Failed to get knowledge base status' };
+      }
+    }
+  );
+
+  // --- KB 参数持久化读写（第 6 期批次 2；user_id 隔离 + IpcResponse<IKbSettings>） ---
+  ipcMain.handle(
+    IPC_CHANNELS.KB_GET_SETTINGS,
+    (_event, payload: { userId: string }) => {
+      try {
+        const row = getAiConfig(payload.userId);
+        // 无配置返回 DEFAULT，恒 success:true（缺省兜底）
+        const settings: IKbSettings = row
+          ? normalizeKbSettings({
+              topK: row.kbTopK,
+              fuse: row.kbFuse,
+              threshold: row.kbThreshold,
+              pinnedWeight: row.kbPinnedWeight,
+              embeddingHost: row.kbEmbeddingHost,
+              embeddingModel: row.kbEmbeddingModel,
+            })
+          : { ...DEFAULT_KB_SETTINGS };
+        return { success: true, data: settings };
+      } catch (error) {
+        return {
+          success: false,
+          code: 'network' as AIErrorCode,
+          message: 'Failed to get knowledge base settings',
+        };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.KB_SET_SETTINGS,
+    async (
+      _event,
+      payload: { userId: string; settings: Partial<IKbSettings> }
+    ) => {
+      try {
+        const settings = normalizeKbSettings(payload.settings);
+        const row = upsertAiConfig(payload.userId, {
+          kbTopK: settings.topK,
+          kbFuse: settings.fuse,
+          kbThreshold: settings.threshold,
+          kbPinnedWeight: settings.pinnedWeight,
+          kbEmbeddingHost: settings.embeddingHost,
+          kbEmbeddingModel: settings.embeddingModel,
+        });
+        // 写后回读，返回实际落盘归一值
+        return {
+          success: true,
+          data: normalizeKbSettings({
+            topK: row.kbTopK,
+            fuse: row.kbFuse,
+            threshold: row.kbThreshold,
+            pinnedWeight: row.kbPinnedWeight,
+            embeddingHost: row.kbEmbeddingHost,
+            embeddingModel: row.kbEmbeddingModel,
+          }),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          code: 'config_incomplete' as AIErrorCode,
+          message: 'Failed to save knowledge base settings',
+        };
       }
     }
   );
@@ -435,17 +509,31 @@ export function registerAiIpcHandlers(): void {
           message: payload.message,
           ...(payload.conversationId ? { conversationId: payload.conversationId } : {}),
           useKnowledgeBase: payload.useKnowledgeBase,
+          // 透传当前文档只读上下文（editBlocks 改写建议用；无则不传）
+          ...(payload.currentDocument ? { currentDocument: payload.currentDocument } : {}),
         };
+        // 合并优先级：payload 显式字段 > 持久化 DB 值 > kbSearch 内置默认
+        const persisted = row
+          ? normalizeKbSettings({
+              topK: row.kbTopK,
+              fuse: row.kbFuse,
+              threshold: row.kbThreshold,
+              pinnedWeight: row.kbPinnedWeight,
+              embeddingHost: row.kbEmbeddingHost,
+              embeddingModel: row.kbEmbeddingModel,
+            })
+          : {};
+        const kb = { ...persisted, ...(payload.kbSettings ?? {}) };
         const result = await runAgentFlow(event, agentPayload, config, row?.apiKeyEnc ?? null, controller, {
           searchKb: (u, q, o) =>
             searchKB(u, q, {
-              topK: o?.topK,
-              vectorEnabled: o?.vectorEnabled,
-              pinnedWeight: o?.pinnedWeight,
-              threshold: o?.threshold,
-              ...(payload.kbSettings
-                ? { fuse: payload.kbSettings.fuse }
-                : {}),
+              topK: kb.topK,
+              fuse: kb.fuse,
+              pinnedWeight: kb.pinnedWeight,
+              threshold: kb.threshold,
+              embeddingHost: kb.embeddingHost,
+              embeddingModel: kb.embeddingModel,
+              vectorEnabled: o?.vectorEnabled ?? false,
             }),
           consent,
         });
@@ -486,6 +574,24 @@ export function registerAiIpcHandlers(): void {
         activeStreams.delete(conversationId);
       }
       return { success: true, data: { aborted: !!controller } };
+    }
+  );
+
+  // --- agent: skills list (第 7 期 B1：渲染侧 / 补全菜单技能清单，只读 IPC) ---
+  // 仅返回 [{name, description}]，不含 instructions/argsSchema（不泄执行细节）。userData 目录不可读不抛错（core-only）。
+  ipcMain.handle(
+    IPC_CHANNELS.AGENT_SKILLS_LIST,
+    (_event, payload: { userId: string }) => {
+      if (!payload || typeof payload.userId !== 'string' || !payload.userId) {
+        return { success: false, message: 'userId required' };
+      }
+      try {
+        const userDataSkillsDir = join(app.getPath('userData'), 'skills');
+        const skills = listSkillsForUi(userDataSkillsDir);
+        return { success: true, data: skills };
+      } catch (error) {
+        return { success: false, message: 'Failed to list skills' };
+      }
     }
   );
 
@@ -582,14 +688,6 @@ async function reindexFromKbOrFile(
 /** 当前 KB 索引选项（向量开关默认关闭，宿主层可在启动时 setEmbeddingTarget 后翻转；此处保守仅关键词）。 */
 function kbIndexOpts(): { vectorEnabled: boolean } {
   return { vectorEnabled: false };
-}
-
-/** KB_STATUS embedding 探针 host/model（默认本机 Ollama + nomic-embed-text）。 */
-function embeddingProbeHost(): string {
-  return 'http://localhost:11434';
-}
-function embeddingProbeModel(): string {
-  return 'nomic-embed-text';
 }
 
 async function runChatFlow(

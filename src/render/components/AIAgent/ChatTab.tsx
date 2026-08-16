@@ -69,9 +69,9 @@ const ChatTab: React.FC = () => {
           {conversations.map((c) => (
             <div
               key={c.id}
-              className={`group flex items-center gap-1 flex-shrink-0 rounded-input px-2 py-1 text-xs cursor-pointer transition-colors ${
+              className={`group flex items-center gap-1.5 flex-shrink-0 rounded-input px-2 py-1 text-xs cursor-pointer border border-border transition-colors ${
                 c.id === activeConversationId
-                  ? 'bg-[var(--accent)]/15 text-text-primary'
+                  ? 'bg-[var(--accent)]/15 text-text-primary border-[var(--accent)]/30'
                   : 'bg-bg-primary hover:bg-bg-tertiary text-text-sub'
               }`}
               onClick={() => void loadConversation(c.id)}
@@ -116,7 +116,7 @@ const ChatTab: React.FC = () => {
       </div>
 
       {/* Composer */}
-      <div className="border-t border-border px-3 py-3 space-y-2">
+      <div className="border-t border-border px-2.5 pt-2 pb-2.5 space-y-1.5">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -128,14 +128,14 @@ const ChatTab: React.FC = () => {
           }}
           placeholder={t('ai.placeholder')}
           rows={3}
-          className="w-full resize-none bg-bg-primary border border-border rounded-input px-3 py-2 text-sm text-text-primary placeholder-text-muted outline-none focus:border-[var(--accent)] transition-colors"
+          className="w-full resize-none bg-bg-primary border border-border rounded-input px-2.5 py-1.5 text-sm text-text-primary placeholder-text-muted outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/30 transition-colors"
         />
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-1.5">
           {isStreaming ? (
             <button
               type="button"
               onClick={stopStream}
-              className="px-3 py-1.5 text-sm rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
+              className="px-3 py-1 text-sm rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
             >
               {t('ai.stop')}
             </button>
@@ -144,7 +144,7 @@ const ChatTab: React.FC = () => {
               type="button"
               onClick={handleSend}
               disabled={!input.trim()}
-              className="px-3 py-1.5 text-sm rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+              className="px-3.5 py-1 text-sm rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
             >
               {t('ai.send')}
             </button>

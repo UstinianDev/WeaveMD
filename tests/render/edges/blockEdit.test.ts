@@ -11,6 +11,7 @@ import type { SelectionRef } from '@shared/ai';
 import {
   buildNumberedBlockList,
   proposeDocumentRewrite,
+  proposeFullDocumentRewrite,
   proposeSelectionRewrite,
 } from '@render/editor/rewrite/blockEdit';
 
@@ -74,6 +75,61 @@ describe('proposeSelectionRewrite — 选区叶子区间替换', () => {
   });
 });
 
+describe('proposeSelectionRewrite — A4 含容器文档的选区替换（叶序下标）', () => {
+  it('含列表容器：选中「列表项 → 正文」跨块 → 仅替换选区内叶子，区间外字节不变', () => {
+    // content = "- item one\n\ntail para" → 叶序 [para"item one", para"tail para"]（0/1）
+    const CONTENT = '- item one\n\ntail para';
+    // 叶序 SelectionRef：start(leaf0,'it') → end(leaf1,'ail para' 保留 1..)
+    const sel: SelectionRef = {
+      startLeafIndex: 0,
+      startOffset: 2, // 'it' 保留
+      endLeafIndex: 1,
+      endOffset: 1, // 保留 'ail para' 的 .slice(1) = 'ail para'
+    };
+    const p = proposeSelectionRewrite(CONTENT, sel, 'X');
+    // 首叶前段 'it' 保留、中间整块替换为 X、尾叶后段 'ail para' 保留
+    expect(p.unchanged).toBe(false);
+    expect(p.rewrittenMd).toContain('it');
+    expect(p.rewrittenMd).toContain('ail para');
+    // 区间外字节（'it' + 'ail para' 两段）必须原样出现
+    expect(p.rewrittenMd).not.toContain('item');
+  });
+
+  it('含引用容器：选中「引用内容 → 正文」跨块 → 仅选区内变，引用外正文保持', () => {
+    // content = "> quote\n\ntail para" → 叶序 [para"quote", para"tail para"]（0/1）
+    const CONTENT = '> quote\n\ntail para';
+    // 只替换叶 0 全文（start 0,end offset=全文），不改叶 1
+    const sel: SelectionRef = {
+      startLeafIndex: 0,
+      startOffset: 0,
+      endLeafIndex: 0,
+      endOffset: 5, // 'quote' 全文
+    };
+    const p = proposeSelectionRewrite(CONTENT, sel, 'QX');
+    expect(p.unchanged).toBe(false);
+    // 引用内改写为 QX，引用外 'tail para' 原样不变
+    expect(p.rewrittenMd).toContain('QX');
+    expect(p.rewrittenMd).toContain('tail para');
+  });
+
+  it('含容器文档 + 跨界到中间多块：中间块整块替换、首尾前后段保留', () => {
+    // content = "alpha\n\n- b\n\n> c\n\ntail para" → 叶序 [para a, para b, para c, para tail para]（0..3）
+    const C2 = 'alpha\n\n- b\n\n> c\n\ntail para';
+    const sel: SelectionRef = {
+      startLeafIndex: 1, // 'b' 全文选中
+      startOffset: 0,
+      endLeafIndex: 2, // 'c' 全文选中（offset=1 → 后段 '' → 整块移除）
+      endOffset: 1,
+    };
+    const p = proposeSelectionRewrite(C2, sel, 'XY');
+    expect(p.unchanged).toBe(false);
+    expect(p.rewrittenMd).toContain('XY');
+    // 区间外：a 与 tail para 原样，被选中的 b/c 不再整字出现
+    expect(p.rewrittenMd).toContain('alpha');
+    expect(p.rewrittenMd).toContain('tail para');
+  });
+});
+
 describe('proposeDocumentRewrite — 编号块 JSON 协议', () => {
   const CONTENT = 'alpha\n\nbeta\n\ngamma';
   const numbered: RewriteBlockRef[] = [
@@ -117,5 +173,38 @@ describe('proposeDocumentRewrite — 编号块 JSON 协议', () => {
     const p = proposeDocumentRewrite(CONTENT, numbered, json);
     expect(p.unchanged).toBe(true);
     expect(p.rewrittenMd).toBe(CONTENT);
+  });
+});
+
+describe('proposeFullDocumentRewrite — 整篇全量替换（A1c）', () => {
+  it('非空文档：originalMd=原文、rewrittenMd=回复.trim()、全量替换', () => {
+    const p = proposeFullDocumentRewrite('原文第一行\n\n第二行', '  新第一行\n\n新第二行  ');
+    expect(p.originalMd).toBe('原文第一行\n\n第二行');
+    expect(p.rewrittenMd).toBe('新第一行\n\n新第二行'); // trim 去首尾空白
+    expect(p.unchanged).toBe(false);
+    expect(Array.isArray(p.ops)).toBe(true);
+  });
+
+  it('空文档（content=空串）：originalMd 为空串，仍产出整篇', () => {
+    const p = proposeFullDocumentRewrite('', '# 从 0 到 1\n\n正文');
+    expect(p.originalMd).toBe('');
+    expect(p.rewrittenMd).toBe('# 从 0 到 1\n\n正文');
+    expect(p.unchanged).toBe(false);
+  });
+
+  it('回复与原文相同（trim 后）→ unchanged:true', () => {
+    const p = proposeFullDocumentRewrite('相同的文档', '  相同的文档  ');
+    expect(p.unchanged).toBe(true);
+    expect(p.rewrittenMd).toBe('相同的文档');
+  });
+
+  it('空回复 → 与原文不同（除非原文亦空）→ 结果为空串', () => {
+    const p = proposeFullDocumentRewrite('原文档', '   ');
+    expect(p.rewrittenMd).toBe('');
+    expect(p.unchanged).toBe(false);
+
+    const empty = proposeFullDocumentRewrite('', '');
+    expect(empty.rewrittenMd).toBe('');
+    expect(empty.unchanged).toBe(true); // 空对空 → unchanged
   });
 });

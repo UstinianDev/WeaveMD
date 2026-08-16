@@ -9,6 +9,7 @@ import type { BlockTreeV2 } from '@render/editor/kernel';
 import {
   appendChild,
   createDocumentTree,
+  makeHeading,
   makeParagraph,
 } from '@render/editor/kernel';
 import { computeToolbarState, type LinkRect } from '@render/components/Editor/v2/toolbarState';
@@ -225,5 +226,90 @@ describe('computeToolbarState — R4 链接场景定位（链接正左方）', (
     expect(state.selection.inLink).toBe(true);
     expect(state.position.left).toBe(100 + 200 / 2 - TOOLBAR_WIDTH / 2);
     expect(state.position.top).toBe(400 - TOOLBAR_HEIGHT - 8);
+  });
+});
+
+describe('computeToolbarState — A2 混合语法类型选中（第 7 期）', () => {
+  // 构造 h1 + 正文两棵相邻叶子，DOM 挂两个 .block-content span，选区跨块（anchor 在 h1、focus 在正文）
+  function setupMixed(): {
+    tree: BlockTreeV2;
+    container: HTMLDivElement;
+    span1: HTMLSpanElement;
+    span2: HTMLSpanElement;
+  } {
+    let tree = createDocumentTree();
+    const h = makeHeading(tree, 1, '标题');
+    tree = appendChild(tree, tree.root.id, h);
+    const p = makeParagraph(tree, '正文');
+    tree = appendChild(tree, tree.root.id, p);
+    const container = document.createElement('div');
+    container.id = 'editor-container-mixed';
+    const span1 = document.createElement('span');
+    span1.className = 'block-content';
+    span1.textContent = '标题';
+    span1.dataset.blockId = h.id;
+    const span2 = document.createElement('span');
+    span2.className = 'block-content';
+    span2.textContent = '正文';
+    span2.dataset.blockId = p.id;
+    container.appendChild(span1);
+    container.appendChild(span2);
+    document.body.appendChild(container);
+    return { tree, container, span1, span2 };
+  }
+
+  // 跨块不同语法类型（h1 → paragraph）：anchorNode=span1 文本、focusNode=span2 文本
+  function mockMixedSelection(span1: HTMLSpanElement, span2: HTMLSpanElement): void {
+    const range = document.createRange();
+    range.setStart(span1.firstChild as Node, 0);
+    range.setEnd(span2.firstChild as Node, 1);
+    Object.defineProperty(range, 'getBoundingClientRect', {
+      value: () =>
+        ({ left: 100, top: 200, width: 200, height: 20, right: 300, bottom: 220 }) as DOMRect,
+    });
+    const sel = {
+      rangeCount: 1,
+      isCollapsed: false,
+      anchorNode: span1.firstChild,
+      focusNode: span2.firstChild,
+      getRangeAt: () => range,
+    } as unknown as Selection;
+    vi.spyOn(window, 'getSelection').mockReturnValue(sel);
+  }
+
+  it('混合语法类型跨块选区 → show + selection.mixedSyntax=true（而非 hide）', () => {
+    const { tree, container, span1, span2 } = setupMixed();
+    mockMixedSelection(span1, span2);
+    const state = computeToolbarState(
+      window.getSelection(),
+      container,
+      TOOLBAR_WIDTH,
+      TOOLBAR_HEIGHT,
+      tree
+    );
+    expect(state.kind).toBe('show');
+    if (state.kind !== 'show') return;
+    expect(state.selection.mixedSyntax).toBe(true);
+    // 沿用上方居中定位（未接入链接场景）
+    expect(state.position.left).toBe(100 + 200 / 2 - TOOLBAR_WIDTH / 2);
+    expect(state.position.top).toBe(200 - TOOLBAR_HEIGHT - 8);
+  });
+
+  it('同块单语法类型选区 → show + mixedSyntax 缺省为 falsy', () => {
+    const { tree, container, span } = setupWithText('hello world plain text');
+    mockSelectionWithRect(
+      span,
+      { left: 100, top: 400, width: 200, height: 20, right: 300, bottom: 420 } as DOMRect
+    );
+    const state = computeToolbarState(
+      window.getSelection(),
+      container,
+      TOOLBAR_WIDTH,
+      TOOLBAR_HEIGHT,
+      tree
+    );
+    expect(state.kind).toBe('show');
+    if (state.kind !== 'show') return;
+    expect(state.selection.mixedSyntax).toBeFalsy();
   });
 });
