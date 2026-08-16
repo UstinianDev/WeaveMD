@@ -24,7 +24,7 @@ import {
 } from '@render/editor/controllers';
 import type { EditorActionResult, EditorInstance } from '@render/editor/editorInstance';
 import type { BlockMetaV2, BlockNodeV2, BlockTreeV2, ImageAlign } from '@render/editor/kernel';
-import { deleteLeafRange, replaceLeafRange, updateMeta } from '@render/editor/kernel';
+import { deleteLeafRange, replaceLeafRange, setBlockText, updateMeta } from '@render/editor/kernel';
 import { resolveSyntaxType } from '@render/editor/kernel/syntaxType';
 import { setCursorAtOffset, setRangeAtOffset } from '@render/editor/kernel/selection';
 import { useEditorStore } from '@render/stores/editorStore';
@@ -403,6 +403,18 @@ export function useEditorActions({
     },
     [applyMetaUpdate]
   );
+  // M2：表格块编辑（单元格输入 / 增删行列）— setBlockText + setTree + syncContent，并入撤销栈。
+  // 纯文本输入时不传 focus；增删行列（树重建）时由 TableBlock 局部 pendingCellRef 恢复光标，
+  // 此处无需消费 focus（保持 setBlockText 决策，未修改块树结构）。
+  const onTableEdit = useCallback(
+    (blockId: string, text: string) => {
+      const instance = instanceRef.current;
+      if (!instance) return;
+      instance.tree = setBlockText(instance.tree, blockId, text);
+      commitTree(instance);
+    },
+    [commitTree]
+  );
   const handlers: BlockHandlers = useMemo(
     () => ({
       onInput,
@@ -425,6 +437,7 @@ export function useEditorActions({
       onUndo,
       onRedo,
       onFenceLanguageChange,
+      onTableEdit,
       registerDom,
       unregisterDom,
     }),
@@ -449,6 +462,7 @@ export function useEditorActions({
       onUndo,
       onRedo,
       onFenceLanguageChange,
+      onTableEdit,
       registerDom,
       unregisterDom,
     ]

@@ -161,6 +161,12 @@ export interface BlockHandlers {
   onFenceLanguageChange: (blockId: string, language: string) => void;
   registerDom: (blockId: string, el: HTMLElement) => void;
   unregisterDom: (blockId: string) => void;
+  /** 表格块编辑（M2）：单元格输入 / 增删行列后回写 block.text。focus 指定重建 DOM 后落焦点的靶格 */
+  onTableEdit: (
+    blockId: string,
+    text: string,
+    focus?: { row: number; col: number } | null
+  ) => void;
 }
 
 export interface BlockRendererProps {
