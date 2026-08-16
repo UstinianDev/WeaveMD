@@ -87,6 +87,12 @@
 - 跨块选区替换（2026-08-13）：字符输入/粘贴跨块选区时浏览器原生只改 DOM，`onInput` 仅同步
   焦点块模型 → 其余块"复活"。ContentBlock 原生 `beforeinput`/`onPaste` 拦截 → `replaceLeafRange`
   （blockTree.ts）块树级删除+插入收敛单块
+- 可编辑表格块（editor-table-block，2026-08-16）：`table` 仍为叶子块（text 存规范多行 markdown，
+  **不改内核** markdownToState/stateToMarkdown/syntaxType 语义）；`kernel/tableCodec.ts` 纯函数
+  parseTableText/serializeTable（`\|` 转义/解义、对齐分隔容错、保守空结构）；渲染层 `TableBlock.tsx`
+  `<table>` 网格每格 `contenteditable="plaintext-only"`（单元格编辑回写 text、悬停 +/- 手柄增删行列、
+  Enter/Tab/Shift+Tab 跨格、IME 守卫、幂等重渲染按 cellkey Map 差分防光标跳变）；selection/AI 改写/
+  outline 对 table 的既有只读排除行为保持（T4 零破坏）
 - **v1 回退路径已退役（2026-08-06）**：v2 为唯一路径，`__EDITOR_V2__` 开关已移除，
   v1 组件/服务/测试已删除（EditorView 1920 行重写为薄编排器）
 
