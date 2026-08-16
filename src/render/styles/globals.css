@@ -1831,6 +1831,64 @@ html.dark .code-fence-content .token.variable {
   font-weight: 600;
 }
 
+/* M2：可编辑表格块 —— 单元格光标/选型与行/列悬停手柄（纯 CSS overlay，contentEditable=false） */
+.table-block-grid .table-cell {
+  position: relative;
+  min-width: 48px;
+  vertical-align: top;
+}
+.table-block-grid .table-cell:focus {
+  outline: 2px solid var(--accent-color, #42d392);
+  outline-offset: -2px;
+}
+.table-col-handles,
+.table-row-handles {
+  position: absolute;
+  display: flex;
+  gap: 2px;
+  z-index: 20;
+  pointer-events: auto;
+  opacity: 0.95;
+}
+/* 列顶 +/−：悬停在表头格上，位于列右上 */
+.table-col-handles {
+  top: -9px;
+  right: -10px;
+}
+/* 行首 +/−：悬停在数据格上，位于行首左侧 */
+.table-row-handles {
+  left: -22px;
+  top: 50%;
+  transform: translateY(-50%);
+  flex-direction: column;
+}
+.table-col-handles button,
+.table-row-handles button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.table-col-handles button:hover,
+.table-row-handles button:hover {
+  border-color: var(--accent-color, #42d392);
+  color: var(--accent-color, #42d392);
+}
+.table-col-handles button:disabled,
+.table-row-handles button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 /* Blockquote block */
 .blockquote-block {
   scroll-margin-top: 24px;

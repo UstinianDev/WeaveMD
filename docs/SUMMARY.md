@@ -98,6 +98,16 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
   `onInput` 仅同步焦点块模型 → 其余块重渲染"复活"。ContentBlock 原生 `beforeinput` 拦截 +
   `onPaste`，经 `replaceLeafRange`（blockTree.ts）块树级删除 + 插入收敛单块。文档：
   `e2e/cross-block-replace-input.spec.ts`（R1/R2）
+- 可编辑表格块（editor-table-block，2026-08-16）：table 由「整块只读 `<pre>` 源码编辑」升级为
+  **可编辑 `<table>` 网格**（单元格编辑、增删行列、markdown 往返不变式）。**渲染层结构化**——
+  table 保持叶子块，`kernel/tableCodec.ts` 纯函数 parseTableText/serializeTable（`\|` 转义/解义、
+  对齐分隔容错、保守空结构、parse(serialize(m))===m 互逆）；`TableBlock.tsx` 每格
+  `contenteditable="plaintext-only"`（onInput 回写 block.text 入撤销栈、悬停 +/- 手柄增删行列、
+  Enter/Tab/Shift+Tab 跨格、IME 守卫、幂等重渲染按 cellkey Map 差分防光标跳变）；不改内核
+  markdownToState/stateToMarkdown/syntaxType，selection/AI 改写/outline 对 table 既有排除保持。
+  门禁：typecheck 0 / vitest 100 files 1400 / lint 0 / vite build 三包成功 / Playwright
+  editor-table 9/9 + 全量 115 绿（drag-selection 5 已知 RED 任务外）。文档：
+  `docs/requirements/editor-table-block.req.md`、`docs/plan/editor-table-block.*`
 - 编辑主区纯重构（REQ-EDITOR-TOOLBAR-IMAGE-LINK，2026-08-13）：删 `ImageToolbar.scheduleHide`
   死代码；`imageAnchor.ts`（findImageEl/readImageRect）收敛 ImageToolbar/ImageResizeBox 滚动
   重锚定重复；`modalConstants.ts` 收敛双份 `EMPTY_URL_MESSAGE`。断言零修改、845 全绿。
