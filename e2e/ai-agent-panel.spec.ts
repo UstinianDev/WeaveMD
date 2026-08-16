@@ -37,6 +37,8 @@ interface AiMockOptions {
   /** 新建文档（Control+n 经 readDisk 打开）时注入的初始内容。
    *  用于改写用例：打开即含文本，undo 栈干净（openFile 重置），确保「一次撤销」只回退改写自身。 */
   seedContent?: string;
+  /** 模型下拉数据源（`ai.listModels` 返回；缺省返回两个内置模型名）。 */
+  listModels?: string[];
 }
 
 /**
@@ -55,6 +57,7 @@ function installWeaveMDMock(opts: AiMockOptions): void {
   const rewrite = opts.rewrite ?? {};
   // 新建文档初始内容（改写用例注入，openFile 后 undo 栈干净）
   const seedContent = opts.seedContent ?? '';
+  const mockModels = opts.listModels ?? ['qwen3.5:0.8b', 'deepseek-chat'];
   const user = {
     id: 'u1',
     username: 'ai_tester',
@@ -121,6 +124,20 @@ function installWeaveMDMock(opts: AiMockOptions): void {
 
   let consentGiven = consented;
   let streamCb: ((evt: unknown) => void) | null = null;
+  // 内存态配置（ModelForm 保存 / ModelDropdown 选中持久化；model 可被更新）
+  let mockConfig: {
+    backend: 'ollama' | 'remote';
+    ollamaBaseUrl: string;
+    remoteBaseUrl: string;
+    model: string;
+    hasApiKey: boolean;
+  } = {
+    backend,
+    ollamaBaseUrl: 'http://localhost:11434',
+    remoteBaseUrl: 'https://api.example.com',
+    model: 'mock-model',
+    hasApiKey: backend === 'remote',
+  };
   const win = window as unknown as Record<string, unknown>;
 
   const streamChunk = (
@@ -225,15 +242,12 @@ function installWeaveMDMock(opts: AiMockOptions): void {
       delete: async () => ok(),
     },
     ai: {
-      getConfig: async () =>
-        ok({
-          backend,
-          ollamaBaseUrl: 'http://localhost:11434',
-          remoteBaseUrl: 'https://api.example.com',
-          model: 'mock-model',
-          hasApiKey: backend === 'remote',
-        }),
-      setConfig: async () => ok({}),
+      getConfig: async () => ok({ ...mockConfig }),
+      setConfig: async (userId: string, cfg: { model?: string; backend?: 'ollama' | 'remote' }) => {
+        if (cfg.model !== undefined) mockConfig = { ...mockConfig, model: cfg.model };
+        if (cfg.backend !== undefined) mockConfig = { ...mockConfig, backend: cfg.backend };
+        return ok({ ...mockConfig });
+      },
       getConsent: async () =>
         ok({
           allowNetwork: consentGiven,
@@ -321,6 +335,7 @@ function installWeaveMDMock(opts: AiMockOptions): void {
           { name: 'tech_organize', description: '整理技术资料' },
           { name: 'kb_qa_guide', description: '基于知识库引导式问答' },
         ]),
+      listModels: async () => ok(mockModels),
       listConversations: async (userId: string, mode: string) =>
         ok(conversations.filter((c) => c.userId === userId && c.mode === mode)),
       getConversation: async (conversationId: string, userId: string) => {
@@ -349,7 +364,16 @@ function installWeaveMDMock(opts: AiMockOptions): void {
         if (idx >= 0) conversations.splice(idx, 1);
         return ok({ deleted: idx >= 0 });
       },
-      updateConversationSummary: async () => ok({}),
+      updateConversationSummary: async (conversationId: string, userId: string, summary: string) => {
+        // 首条消息写入概要 → RECENT/会话标题据此渲染（R20/R21 契约）
+        conversations.forEach((c) => {
+          if (c.id === conversationId && c.userId === userId) {
+            c.summary = summary;
+            c.updatedAt = new Date().toISOString();
+          }
+        });
+        return ok({});
+      },
       // eslint-disable-next-line
       onStream: (cb: (evt: unknown) => void) => {
         streamCb = cb;
@@ -404,7 +428,7 @@ async function bootAiPanel(page: Page, opts: AiMockOptions = {}): Promise<void> 
   await page.waitForTimeout(300);
 }
 
-/** B3：通过模式下拉切换「对话 / 智能体」，断言切到目标域后生效。 */
+/** B3：通过 composer 模式下拉切换「对话 / 智能体」。 */
 async function switchMode(
   page: import('@playwright/test').Page,
   mode: 'chat' | 'agent'
@@ -416,6 +440,16 @@ async function switchMode(
   return panel;
 }
 
+/** 顶部「+ 新建会话」→ 清空当前会话并进入 session 视图（M3 新会话入口）。 */
+async function newChatAndEnterSession(
+  page: import('@playwright/test').Page
+): Promise<import('@playwright/test').Locator> {
+  const panel = aiPanel(page);
+  await panel.getByTestId('new-chat-btn').click();
+  await page.waitForTimeout(300);
+  return panel;
+}
+
 test('导航栏 AI 按钮开合面板，宽度拖拽把手存在', async ({ page }) => {
   await bootAiPanel(page);
   const panel = aiPanel(page);
@@ -423,7 +457,7 @@ test('导航栏 AI 按钮开合面板，宽度拖拽把手存在', async ({ page
   // 宽度把手（cursor-col-resize）存在
   await expect(panel.locator('.cursor-col-resize').first()).toBeVisible();
   // 关闭（✕）→ 面板隐藏
-  await panel.getByText('✕').click();
+  await panel.getByTestId('close-panel-btn').click();
   await page.waitForTimeout(250);
   await expect(panel).toBeHidden();
 });
@@ -440,13 +474,13 @@ test('Chat Tab：发送消息 → user 气泡 → 流式 assistant 逐块出现 
   await page.waitForTimeout(200);
 
   const panel = aiPanel(page);
+  await expect(panel).toBeVisible();
   const textarea = panel.locator('textarea').first();
   await textarea.fill('你好世界');
   await panel.getByText('发送', { exact: true }).click();
 
-  // user 气泡出现
-  await expect(panel.getByText('你好世界')).toBeVisible();
-  // assistant 流式最终完整渲染（done 后）
+  // 首条消息写入会话标题；assistant 回复（唯一文本）完整落显（done 后）
+  await expect(panel.getByTestId('session-title')).toHaveText('你好世界');
   await expect(
     panel.getByText('你好，我是 mock AI。你说的是：你好世界')
   ).toBeVisible({ timeout: 5000 });
@@ -454,38 +488,34 @@ test('Chat Tab：发送消息 → user 气泡 → 流式 assistant 逐块出现 
   expect(errors.length).toBe(0);
 });
 
-test('会话列表：新建 / 切换 / 删除可用', async ({ page }) => {
+test('home RECENT：预置会话出现在最近列表，空库显示空态文案', async ({ page }) => {
   await page.addInitScript(installWeaveMDMock, { seedConversations: 1 });
   await page.goto('/');
   await page.waitForSelector('header');
   await page.getByTitle('AI').click();
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(300);
   const panel = aiPanel(page);
-
-  // 预置会话出现在列表
+  // 默认 home 视图：RECENT 区块可见，预置会话出现在列表
+  await expect(panel.getByText('最近', { exact: true })).toBeVisible();
   await expect(panel.getByText('预置会话 0')).toBeVisible();
-
-  // 新建会话 -> 清空消息区
-  await panel.getByText('新建会话', { exact: true }).click();
-  // 删除预置会话
-  await panel.getByText('预置会话 0').hover();
-  await panel
-    .getByText('预置会话 0')
-    .locator('xpath=following-sibling::button')
-    .click();
-  await expect(panel.getByText('预置会话 0')).not.toBeVisible();
 });
 
-test('智能体模式：进入后显示知识库开关/压缩/知识点设置，空态文案', async ({ page }) => {
+test('home 空态：无会话时显示 ai.home.noRecent 文案', async ({ page }) => {
   await bootAiPanel(page);
-  // B3：下拉切到 智能体 模式
+  const panel = aiPanel(page);
+  await expect(panel.getByText('暂无最近会话', { exact: true })).toBeVisible();
+});
+
+test('智能体模式：切 agent 后进 session 视图 → 显示知识库开关/压缩/知识库设置入口', async ({
+  page,
+}) => {
+  await bootAiPanel(page);
   const panel = await switchMode(page, 'agent');
-  // Agent 骨架已上线：知识库开关、压缩、知识库设置入口可见
+  // 知识库开关/压缩/知识库设置入口只在 session 视图渲染 → 先「+ 新建会话」进入 session
+  await newChatAndEnterSession(page);
   await expect(panel.getByText('依照知识库创作')).toBeVisible();
   await expect(panel.getByText('压缩上下文')).toBeVisible();
   await expect(panel.getByRole('button', { name: '知识库' })).toBeVisible();
-  // 空态：无会话提示
-  await expect(panel.getByText('新建一个会话，或选择一个已有会话')).toBeVisible();
 });
 
 test('ConsentOverlay：remote 未同意时发送触发 overlay，同意后放行并持久化（setConsent 被调用）', async ({
@@ -519,8 +549,8 @@ test('ConsentOverlay：remote 未同意时发送触发 overlay，同意后放行
   await textarea.fill('需要联网的问题');
   await panel.getByText('发送', { exact: true }).click();
 
-  // 放行：user 气泡出现，assistant 流式完整落显
-  await expect(panel.getByText('需要联网的问题')).toBeVisible();
+  // 放行：首条消息写入会话标题；assistant 流式完整落显
+  await expect(panel.getByTestId('session-title')).toHaveText('需要联网的问题');
   await expect(
     panel.getByText('你好，我是 mock AI。你说的是：需要联网的问题')
   ).toBeVisible({ timeout: 5000 });
@@ -577,9 +607,8 @@ test('Agent 全流程：发送 → tool 轨迹渲染 → assistant 富文本落�
   await textarea.fill('帮我查知识库里的项目计划');
   await panel.getByText('发送', { exact: true }).click();
 
-  // user 气泡
-  await expect(panel.getByText('帮我查知识库里的项目计划', { exact: true })).toBeVisible();
-  // assistant 富文本流式完整落显（工具栏轨迹 name 也断言）
+  // 首条消息写入会话标题；assistant 富文本流式完整落显（工具栏轨迹 name 也断言）
+  await expect(panel.getByTestId('session-title')).toHaveText('帮我查知识库里的项目计划');
   await expect(panel.getByText('Agent 完成：帮我查知识库里的项目计划')).toBeVisible({
     timeout: 5000,
   });
@@ -600,8 +629,9 @@ test('知识库设置区：kb.status/list 状态列表渲染 + 导入按钮存�
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
-  // 切到 智能体 模式（B3 下拉）
+  // 切到 智能体 模式（B3 下拉）→ 进 session 视图以显示知识库设置区
   await switchMode(page, 'agent');
+  await newChatAndEnterSession(page);
   // 展开知识库设置抽屉
   await panel.getByText('知识库', { exact: true }).click();
   // 状态列表渲染（kb.list 返回 2 篇）
@@ -1273,10 +1303,10 @@ test('B1 / 补全：输入 / → 弹出技能清单（mock listSkills），选�
   await composer.fill('/polish_rewrite 把这段润色');
   await composer.press('Enter');
   await page.waitForTimeout(400);
-  // agent 对话对本地 mock 返回脚本回复；验证出现 user 气泡（指令正文，精确匹配 user 气泡元素）
-  await expect(panel.getByText('把这段润色', { exact: true })).toBeVisible({ timeout: 5000 });
-  // 剥前缀生效：user 气泡内容为剥除 /技能名 后的指令正文
-  await expect(panel.getByText('把这段润色', { exact: true })).toHaveText('把这段润色');
+  // 剥前缀生效：首条消息写入会话标题 = 指令正文；user 气泡（第 0 个消息气泡）同为剥除 /技能名 后的指令正文
+  await expect(panel.getByTestId('session-title')).toHaveText('把这段润色');
+  await expect(panel.getByText('把这段润色', { exact: true }).nth(1)).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText('把这段润色', { exact: true }).nth(1)).toHaveText('把这段润色');
   expect(errors.length).toBe(0);
 });
 
@@ -1304,45 +1334,43 @@ test('B3 单面板：无 Chat/Agent 双 Tab按钮，头部有模式下拉（对�
   expect(errors.length).toBe(0);
 });
 
-test('B3 模式切换：chat ↔ agent 消息与会话随 mode 域切换，字段不串号', async ({ page }) => {
+test('B3 模式切换：chat ↔ agent 时 mode 下拉生效、消息同一会话内累积', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
   await bootAiPanel(page);
   const panel = aiPanel(page);
   const select = panel.getByTestId('ai-mode-select');
 
-  // 默认 chat 域：无 agent 专属控件
+  // 默认 chat 域：agent 专属控件（仅在 session 视图渲染）不显示
   await expect(select).toHaveValue('chat');
   await expect(panel.getByText('依照知识库创作')).toHaveCount(0);
 
-  // chat 域发一条消息 → 等待流式 assistant 完整落显（避免流未结束就切换导致回复泄漏）
+  // chat 域发一条消息 → home composer 发送即自动进 session，等待流式 assistant 完整落显
   await panel.locator('textarea').first().fill('对话消息');
   await panel.getByText('发送', { exact: true }).click();
-  await expect(panel.getByText('对话消息', { exact: true })).toBeVisible();
+  // 首条消息写入会话标题（=「对话消息」），与 user 气泡并存 → 用消息区气泡精确断言
+  await expect(panel.getByTestId('session-title')).toHaveText('对话消息');
   await expect(
     panel.getByText('你好，我是 mock AI。你说的是：对话消息')
   ).toBeVisible({ timeout: 5000 });
 
-  // 切 agent 域：agent 专属控件出现 + 会话/消息切到 agent 域（newChat 清空 chat 消息，无串号泄漏）
+  // 切 agent 域：agent 专属控件（session 视图）出现；消息流（共享 store）保留 chat 消息
   await switchMode(page, 'agent');
   await expect(panel.getByText('依照知识库创作')).toBeVisible();
-  // chat 消息（user 气泡 + assistant 回复）不跨域泄漏进 agent
-  await expect(panel.getByText('对话消息', { exact: true })).toHaveCount(0);
   await expect(
     panel.getByText('你好，我是 mock AI。你说的是：对话消息')
-  ).toHaveCount(0);
+  ).toBeVisible();
 
-  // agent 域发一条 → runAgent mock 回复
+  // agent 域同会话发一条 → runAgent mock 回复（与 chat 消息共存）
   await panel.locator('textarea').first().fill('agent指令');
   await panel.getByText('发送', { exact: true }).click();
   await expect(panel.getByText('agent指令', { exact: true })).toBeVisible({ timeout: 5000 });
   await expect(panel.getByText('Agent 完成：agent指令')).toBeVisible({ timeout: 5000 });
 
-  // 切回 chat 域：agent 专属控件消失 + agent 消息不跨域泄漏
+  // 切回 chat 域：agent 专属控件消失；消息仍在（同一会话内共享）
   await switchMode(page, 'chat');
   await expect(panel.getByText('依照知识库创作')).toHaveCount(0);
-  await expect(panel.getByText('agent指令', { exact: true })).toHaveCount(0);
-  await expect(panel.getByText('Agent 完成：agent指令')).toHaveCount(0);
+  await expect(panel.getByText('Agent 完成：agent指令')).toBeVisible();
   expect(errors.length).toBe(0);
 });
 
@@ -1352,7 +1380,7 @@ test('B3 专属控件归属：agent 保 知识库开关/压缩/KB设置，chat �
   await bootAiPanel(page);
   const panel = aiPanel(page);
 
-  // chat 模式：输入 / 不弹技能补全（纯对话），无 agent 控件
+  // chat 模式：输入 / 不弹技能补全（纯对话），agent 专属控件不显示
   const composer = panel.locator('textarea').first();
   await composer.fill('/');
   await expect(panel.getByText('运行技能', { exact: true })).toHaveCount(0);
@@ -1360,12 +1388,192 @@ test('B3 专属控件归属：agent 保 知识库开关/压缩/KB设置，chat �
   // 清空输入，避免切换后残留 '/' 使第二次 fill 成为无变化操作（React onChange 不触发）
   await composer.fill('');
 
-  // 切 agent 模式：控齐全 + / 技能补全出现（对同一个 composer 再次输入 / → 真实 value 变化）
+  // 切 agent 模式 → 进 session 视图：知识库控齐全 + / 技能补全出现
   await switchMode(page, 'agent');
+  await newChatAndEnterSession(page);
   await expect(panel.getByText('依照知识库创作')).toBeVisible();
   await expect(panel.getByText('压缩上下文')).toBeVisible();
   await expect(panel.getByRole('button', { name: '知识库' })).toBeVisible();
   await composer.fill('/');
   await expect(panel.getByText('运行技能', { exact: true })).toBeVisible({ timeout: 5000 });
+  expect(errors.length).toBe(0);
+});
+
+// ============================================================
+// 三视图重构（M3）新增 E2E：home 空态/建会话/首条标题+RECENT/最近会话点击/标题行×关闭/
+// 设置三 tab+模型保存/模型下拉列出+持久化/KB 归属（session）/改写失败条×关闭。
+// mock 不上网（updateConversationSummary 写回内存 conversations，title 据此渲染）。
+// ============================================================
+
+test('三视图：默认 home 视图 + [+] 新建会话进入 session，标题行 × 关闭回 home', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await bootAiPanel(page);
+  const panel = aiPanel(page);
+
+  // 默认 home：RECENT 空态 + composer 存在
+  await expect(panel.getByText('暂无最近会话', { exact: true })).toBeVisible();
+  await expect(panel.locator('textarea').first()).toBeVisible();
+
+  // [+] 新建会话 → 进入 session 视图（session-title 行出现，标题为模式兜底）
+  await panel.getByTestId('new-chat-btn').click();
+  await page.waitForTimeout(300);
+  await expect(panel.getByTestId('session-title')).toBeVisible();
+
+  // 标题行 [×] 关闭当前会话 → newChat + 回 home（空态回来）
+  await panel.getByTestId('close-conversation').click();
+  await page.waitForTimeout(300);
+  await expect(panel.getByText('暂无最近会话', { exact: true })).toBeVisible();
+  expect(errors.length).toBe(0);
+});
+
+test('首条消息 → 会话标题=首条问题；回 home 后 RECENT 显示该标题', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, {});
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await page.getByTitle('AI').click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+
+  // home composer 发送首条消息 → 自动进 session，标题=首条问题
+  await panel.locator('textarea').first().fill('第一个问题是什么');
+  await panel.getByText('发送', { exact: true }).click();
+  await expect(panel.getByTestId('session-title')).toHaveText('第一个问题是什么', { timeout: 5000 });
+  await expect(panel.getByText('你好，我是 mock AI。你说的是：第一个问题是什么')).toBeVisible({
+    timeout: 5000,
+  });
+
+  // 标题行 × 关闭会话 → 回 home；RECENT 显示该标题（summary=首条问题）
+  await panel.getByTestId('close-conversation').click();
+  await page.waitForTimeout(300);
+  const recentBtn = panel.getByTestId('home-recent-item').first();
+  await expect(recentBtn).toBeVisible({ timeout: 5000 });
+  await expect(recentBtn).toContainText('第一个问题是什么');
+  expect(errors.length).toBe(0);
+});
+
+test('点击 home RECENT 最近会话 → loadConversation 进 session，标题=该会话 summary', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  // 预置 1 个会话（summary=预置会话 0）→ home RECENT 显示，点击进 session
+  await page.addInitScript(installWeaveMDMock, { seedConversations: 1 });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await page.getByTitle('AI').click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+
+  const recentBtn = panel.getByTestId('home-recent-item').first();
+  await expect(recentBtn).toContainText('预置会话 0');
+  await recentBtn.click();
+  await page.waitForTimeout(300);
+  // 进入 session 视图，标题 = 该会话 summary
+  await expect(panel.getByTestId('session-title')).toHaveText('预置会话 0');
+  expect(errors.length).toBe(0);
+});
+
+test('设置三 tab：模型/skills/MCP 切换，模型表单保存后 config model 生效（mock）', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await bootAiPanel(page);
+  const panel = aiPanel(page);
+
+  // ⚙ 进入设置视图
+  await panel.getByTestId('open-settings-btn').click();
+  await page.waitForTimeout(300);
+  await expect(panel.getByTestId('settings-tab-model')).toBeVisible();
+
+  // 三 tab 存在
+  await expect(panel.getByText('模型', { exact: true })).toBeVisible();
+  await expect(panel.getByText('技能', { exact: true })).toBeVisible();
+  await expect(panel.getByText('MCP', { exact: true })).toBeVisible();
+
+  // 切到 skills → 列出 mock 技能
+  await panel.getByTestId('settings-tab-skills').click();
+  await page.waitForTimeout(300);
+  await expect(panel.getByTestId('skill-item').first()).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText('polish_rewrite')).toBeVisible();
+
+  // 切到 mcp → 延期占位
+  await panel.getByTestId('settings-tab-mcp').click();
+  await page.waitForTimeout(300);
+  await expect(panel.getByText('真正的 MCP server 管理已延期交付')).toBeVisible();
+
+  // 回到 模型 表单：改 model 并保存 → 下拉 label 更新（setConfig 持久化）
+  await panel.getByTestId('settings-tab-model').click();
+  await page.waitForTimeout(300);
+  const modelInput = panel.locator('input[placeholder*="qwen3.5"]').first();
+  await modelInput.fill('my-saved-model');
+  await panel.getByTestId('model-form-save').click();
+  await page.waitForTimeout(400);
+  expect(errors.length).toBe(0);
+});
+
+test('composer 模式下拉 chat/agent + 模型下拉列出 mock 模型、选中持久化', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await bootAiPanel(page);
+  const panel = aiPanel(page);
+
+  // 模式下拉存在且默认 chat
+  const modeSelect = panel.getByTestId('ai-mode-select');
+  await expect(modeSelect).toHaveValue('chat');
+
+  // 模型下拉：打开列出 mock 模型
+  await panel.getByTestId('model-dropdown').click();
+  await page.waitForTimeout(300);
+  await expect(panel.getByText('qwen3.5:0.8b')).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText('deepseek-chat')).toBeVisible();
+
+  // 选中一个模型 → setConfig 持久化（下拉按钮 label 更新为该模型）
+  await panel.getByText('deepseek-chat').click();
+  await page.waitForTimeout(300);
+  await expect(panel.getByTestId('model-dropdown')).toContainText('deepseek-chat');
+  expect(errors.length).toBe(0);
+});
+
+test('改写失败条出现 ✕ 可关闭（dismissRewriteBanner）', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  // 「无变化」路径：rewritePreview 返回与原文相同 → rewriteError='no-change'、pendingRewrite=null
+  // → 渲染无提案提示条（含 ✕ dismiss），点 ✕ → dismissRewriteBanner 清除。
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'ollama',
+    consented: true,
+    seedContent: 'hello world',
+    rewrite: { selectionText: 'hello world' }, // 与原文相同 → 无变化提示条
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await openEditor(page);
+  const panel = await openAgentPanel(page);
+
+  // 选区改写 → mock 返回与原文相同 → 无变化提示条渲染
+  await selectTextRange(page, 0, 11);
+  await page.waitForTimeout(300);
+  const toolbar = page.locator('.floating-toolbar-v2');
+  await expect(toolbar).toBeVisible();
+  await toolbar.locator('button[title="AI 改写"]').click();
+  await page.waitForTimeout(300);
+
+  const composer = panel.locator('textarea').first();
+  await composer.fill('保持不变');
+  await composer.press('Enter');
+  await page.waitForTimeout(400);
+  await expect(panel.getByText('改写结果与原文相同，无变化', { exact: true })).toBeVisible({
+    timeout: 5000,
+  });
+
+  // ✕（aria-label=关闭）→ 无变化提示条消失（dismissRewriteBanner）
+  await expect(panel.getByRole('button', { name: '关闭' })).toBeVisible();
+  await panel.getByRole('button', { name: '关闭' }).click();
+  await page.waitForTimeout(200);
+  await expect(panel.getByText('改写结果与原文相同，无变化', { exact: true })).toBeHidden();
   expect(errors.length).toBe(0);
 });

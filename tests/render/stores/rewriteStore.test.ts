@@ -392,4 +392,45 @@ describe('rewriteStore 改写状态机', () => {
     expect(s.rewriteError).toBeNull();
     expect(s.staleRejected).toBe(false);
   });
+
+  // ============================================================
+  // R16：dismissRewriteBanner 仅清提示条，保留 pendingRewrite/selectionContext
+  // ============================================================
+  it('dismissRewriteBanner 清 staleRejected + rewriteError，保留 pendingRewrite', () => {
+    useRewriteStore.setState({
+      pendingRewrite: { originalMd: 'x', rewrittenMd: 'y', ops: [] },
+      staleRejected: true,
+      rewriteError: 'rewrite-failed',
+    });
+    useRewriteStore.getState().dismissRewriteBanner();
+    const s = useRewriteStore.getState();
+    expect(s.staleRejected).toBe(false);
+    expect(s.rewriteError).toBeNull();
+    // 仅关闭提示条，不触碰 pending（仍有提案可重新生成/确认）
+    expect(s.pendingRewrite).not.toBeNull();
+  });
+
+  it('dismissRewriteBanner 保留 selectionContext（无提案时仅消错误）', () => {
+    useRewriteStore.setState({
+      selectionContext: { md: 'x', sel },
+      staleRejected: true,
+    });
+    useRewriteStore.getState().dismissRewriteBanner();
+    const s = useRewriteStore.getState();
+    expect(s.staleRejected).toBe(false);
+    expect(s.selectionContext).not.toBeNull();
+  });
+
+  it('dismissRewriteBanner 与 clearRewrite 语义区分（clearRewrite 会清 pending）', () => {
+    useRewriteStore.setState({
+      pendingRewrite: { originalMd: 'x', rewrittenMd: 'y', ops: [] },
+      rewriteError: 'locate-failed',
+    });
+    useRewriteStore.getState().dismissRewriteBanner();
+    expect(useRewriteStore.getState().pendingRewrite).not.toBeNull();
+
+    // 对照：clearRewrite 会清空 pending
+    useRewriteStore.getState().clearRewrite();
+    expect(useRewriteStore.getState().pendingRewrite).toBeNull();
+  });
 });

@@ -65,6 +65,28 @@ describe('uiStore', () => {
     expect(useUIStore.getState().sidebarWidth).toBe(300);
   });
 
+  it('aiPanelWidth 默认 480（AI 面板加宽，R 面板加宽）', () => {
+    expect(useUIStore.getState().aiPanelWidth).toBe(480);
+  });
+
+  it('setAIPanelWidth clamp 260~520', () => {
+    useUIStore.getState().setAIPanelWidth(100);
+    expect(useUIStore.getState().aiPanelWidth).toBe(260);
+    useUIStore.getState().setAIPanelWidth(900);
+    expect(useUIStore.getState().aiPanelWidth).toBe(520);
+    useUIStore.getState().setAIPanelWidth(400);
+    expect(useUIStore.getState().aiPanelWidth).toBe(400);
+  });
+
+  it('loadSettings 兜底 aiPanelWidth 为 480（localStorage 无该字段时）', () => {
+    // 旧版持久化数据无 aiPanelWidth 字段 → 兜底默认 480
+    localStorage.setItem('weavemd_ui', JSON.stringify({ theme: 'light', language: 'en' }));
+    // 先污染 store 值，验证 loadSettings 会从持久化兜底覆盖
+    useUIStore.setState({ aiPanelWidth: 400 });
+    useUIStore.getState().loadSettings();
+    expect(useUIStore.getState().aiPanelWidth).toBe(480);
+  });
+
   it('should persist settings to localStorage', () => {
     useUIStore.getState().setTheme('light');
     useUIStore.getState().setLanguage('en');

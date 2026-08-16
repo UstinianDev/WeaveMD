@@ -66,7 +66,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   isSourceCodeMode: false,
   isFindReplaceOpen: false,
   isAIPanelOpen: false,
-  aiPanelWidth: 320,
+  aiPanelWidth: 480,
   editorDraftFlusher: null,
   beforeToggleSourceMode: null,
 
@@ -200,7 +200,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
           outlineWidth: outlineWidth || 280,
           historyPanelWidth: historyPanelWidth || 280,
           isAIPanelOpen: isAIPanelOpen ?? false,
-          aiPanelWidth: aiPanelWidth || 320,
+          aiPanelWidth: aiPanelWidth || 480,
         });
       }
     } catch {
