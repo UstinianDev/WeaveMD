@@ -5,6 +5,7 @@
 import { app, BrowserWindow, protocol } from 'electron';
 import { createMainWindow } from './window';
 import { registerAllIpcHandlers } from './ipc-handlers';
+import { initAutoUpdater } from './update';
 import { MEDIA_SCHEME_PRIVILEGES, registerMediaProtocol } from './media-protocol';
 import { initDatabase, closeDatabase } from './db/index';
 
@@ -41,6 +42,9 @@ app.whenReady().then(() => {
 
   // Register media:// protocol handler for local image loading
   registerMediaProtocol();
+
+  // Initialize auto-updater (no-op in dev mode)
+  initAutoUpdater();
 
   // Register all IPC handlers
   registerAllIpcHandlers();

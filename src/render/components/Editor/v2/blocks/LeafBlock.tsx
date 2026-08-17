@@ -70,7 +70,14 @@ const LeafBlock: React.FC<LeafBlockProps> = ({ block, handlers, blockWidthMap })
         </p>
       );
     case 'thematic-break':
-      return <hr data-block-id={block.id} className="thematic-break-block my-4 border-t border-[var(--border-color)]" contentEditable={false} />;
+      return (
+        <hr
+          data-block-id={block.id}
+          className="thematic-break-block"
+          style={{ height: 0, border: 'none', borderTop: '2px solid #666', margin: '1.5rem 0', cursor: 'default' }}
+          contentEditable={false}
+        />
+      );
     case 'table':
       // M2：可编辑表格块（单元格编辑 + 增删行列 + 跨格导航）。保留 data-block-id 外壳。
       return (

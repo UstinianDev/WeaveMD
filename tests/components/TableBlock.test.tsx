@@ -44,6 +44,7 @@ function makeHandlers(onTableEdit: BlockHandlers['onTableEdit'] = vi.fn()): Bloc
     registerDom: vi.fn(),
     unregisterDom: vi.fn(),
     onTableEdit,
+    onRemoveThematicBreak: vi.fn(),
   };
 }
 

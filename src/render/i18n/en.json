@@ -298,5 +298,15 @@
   "feedback.error.timeout": "Send timed out, please retry later",
   "feedback.error.invalidImage": "Invalid image or exceeds size/count limits",
   "feedback.error.generic": "Send failed, please retry later",
-  "feedback.cancel": "Cancel"
+  "feedback.cancel": "Cancel",
+  "update.checking": "Checking for updates...",
+  "update.available": "Update available",
+  "update.notAvailable": "You are up to date",
+  "update.downloading": "Downloading...",
+  "update.downloaded": "Update ready",
+  "update.error": "Update check failed",
+  "update.checkNow": "Check for Updates",
+  "update.install": "Restart & Install",
+  "update.skip": "Skip This Version",
+  "update.releaseNotes": "What's new"
 }

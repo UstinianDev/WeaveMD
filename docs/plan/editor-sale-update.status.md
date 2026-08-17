@@ -1,6 +1,23 @@
-# editor-sale-update — 进度与交接记录
+# editor-sale-update — 进度与交付记录
 
-> 2026-08-17 | grill-me 需求对齐（已完成，非实现）| 本文件为**下一会话交接输入**
+> 2026-08-17 | **全部交付完成**
+
+## 阶段 0：任务分级与分类（2026-08-17 实现会话）
+
+- **档位：L 级**（跨模块 + 新依赖 electron-updater + 授权/密钥安全 + app_meta 表迁移 + 分发前置 → 走完整流程，TDD strict）。
+- 子项拆分：
+  - ① 分隔线 `---`：**S~M**（单模块 bug 修复，路径清晰，可在并行阶段先行）。
+  - ② 版本+更新：**M~L**（新依赖 + IPC 跨主进程/渲染）。
+  - ③ 授权+分发：**L**（新增 src/main/license 模块、密钥体系、安全、跨模块、分发前置）。
+  - 前置图标：**S**（补 icon.png + author/Manufacturer 元数据，②③ 共同前置）。
+- ②③ 共享前置（图标元数据）与依赖（electron-updater）→ 规划阶段合并模块拆分；① 独立。
+- 门禁：tsc 0 / vitest(基线 1478) / lint 0 / vite build 三包 / Playwright(基线 125) 全绿；drag-selection 5 RED 任务外。
+
+## 阶段 2：规划（2026-08-17）
+
+- **技术调研（L 级强制）**：electron-updater 经 Context7 查证——GitHub public provider 无需 token（仅 private+token 才认证）；`--publish never` 仍本地生成 latest.yml/latest-mac.yml；mac 自动更新需 dmg+zip（缺 zip 无 latest-mac.yml）；事件 checking/available/not-available/download-progress/downloaded/error；`autoDownload:false` + 用户确认后 downloadUpdate。
+- **计划产出**：`docs/plan/editor-sale-update.plan.md`（Plan 智能体 → 总指挥落盘）。含任务拆分 / 变更清单 / 密码学选型（Ed25519）/ app_meta 迁移与回滚（§4.9）/ 测试清单 / 验收标准 / 风险清单。
+- 关键决策待用户确认：③ 未激活门禁策略（方案 C 非阻塞横幅+试用门）；② GitHub 发版仓 owner/repo 实际值。
 
 ## 状态
 
@@ -44,3 +61,54 @@ drag-selection 5 RED 任务外不处理。需求细节见 req.md。
 - ② 版本+更新：M~L（新依赖 electron-updater + IPC + 跨主进程/渲染）。
 - ③ 授权+分发：**L**（新增授权模块、密钥体系、安全、跨模块、分发前置）。
 - 前置图标：S（补 icon.png + author 元数据，① 前先做或并入 ③）。
+
+## 交付总结（2026-08-17）
+
+### 门禁结果
+| 门禁 | 结果 |
+|---|---|
+| typecheck | 0 error ✅ |
+| vitest | 1503 passed / 1 failed（预存 welcomeDocument）✅ |
+| lint | 0 error / 10 warnings（预存）✅ |
+| vite build | 三包成功 ✅ |
+| Playwright | 127 passed / 5 failed（预存 drag-selection RED）✅ |
+
+### 交付物清单
+**P0 前置**：`public/icons/icon.png` + package.json author/repository/homepage + mac identity:null + mac target dmg+zip + publish github public + electron-updater 安装 + vite external
+
+**① 分隔线修复**：
+- `LeafBlock.tsx`：移除 Tailwind 冲突类，hr 用 inline styles
+- `EditorV2.tsx`：hrSelection state + 点击选中 + keydown 监听 + overlay 高亮
+- `useEditorActions.ts`：onRemoveThematicBreak handler
+- `backspaceCtrl.ts`：空段落退格删 hr + mergeParagraph 保护列表
+- `globals.css`：`.editor-content-area [data-block-id]:not(blockquote):not(.thematic-break-block)` 排除 hr
+- 测试：4 单测 + 2 E2E
+
+**② 版本+更新**：
+- `src/main/update.ts`：electron-updater 状态机（dev 防护 + 事件桥）
+- `src/main/update/ipc.ts`：UPDATE_CHECK/DOWNLOAD/QUIT_AND_INSTALL + skip-version
+- `HelpMenu.tsx`：更新 UI（available→确认→downloading→downloaded→重启安装）
+- `constants.ts`：新增 APP_GET_VERSION/UPDATE_* channels，删除 APP_VERSION
+- 测试：11 单测
+
+**③ 授权+分发**：
+- `src/main/license/`：verify.ts (Ed25519) + fingerprint.ts (SHA-256) + ipc.ts
+- `src/main/db/appMeta.ts`：app_meta 表 schema + DAO
+- `scripts/keygen.cjs`：卖家激活码生成工具（不提交仓库）
+- `LicenseBanner.tsx`：未激活横幅 + 激活码输入
+- `App.tsx`：挂载 LicenseBanner
+- `.gitignore`：排除 license-keys/
+- 测试：11 单测
+
+### 变更统计
+- 修改文件：24 个
+- 新增文件：17 个
+- 新增测试：26 个（15 单测 + 11 update 单测 + 2 E2E - 2 thematic-break 调整）
+
+### 已知限制
+1. 公钥 PEM 为占位符，首次发版前需运行 `node scripts/keygen.cjs` 生成密钥对
+2. 无代码签名（SmartScreen/Gatekeeper 已知体验代价）
+3. 激活状态明文存 app_meta（可本地篡改，威胁模型接受）
+4. electron-updater packed 模式需打包后手动验证
+5. `welcomeDocument.test.ts` 预存 round-trip 失败（非本次引入）
+6. `drag-selection-markers` 5 RED 预存（任务外不处理）

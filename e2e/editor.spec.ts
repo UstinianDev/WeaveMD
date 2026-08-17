@@ -70,6 +70,68 @@ function mockApi(): void {
     link: {
       openExternal: async () => ok(),
     },
+    license: {
+      status: async () => ok({ status: 'activated' }),
+      activate: async () => ok({ ok: true }),
+    },
+    version: {
+      get: async () => '1.1.0',
+    },
+    update: {
+      check: async () => ok({ state: 'not-available' }),
+      download: async () => ok(),
+      quitAndInstall: async () => {},
+      onEvent: () => () => {},
+      skipVersion: async () => ok(),
+    },
+    recent: {
+      list: async () => ok([]),
+      add: async () => ok(),
+      remove: async () => ok(),
+    },
+    kb: {
+      list: async () => ok([]),
+      importFile: async () => ok(),
+      importDir: async () => ok(),
+      reindex: async () => ok(),
+      delete: async () => ok(),
+      status: async () => ok(),
+      getSettings: async () => ok(),
+      setSettings: async () => ok(),
+    },
+    ai: {
+      getConfig: async () => ok(),
+      setConfig: async () => ok(),
+      getConsent: async () => ok(),
+      setConsent: async () => ok(),
+      chat: async () => ok(),
+      chatAbort: async () => ok(),
+      listConversations: async () => ok([]),
+      getConversation: async () => ok(),
+      createConversation: async () => ok(),
+      deleteConversation: async () => ok(),
+      updateConversationSummary: async () => ok(),
+      runAgent: async () => ok(),
+      agentAbort: async () => ok(),
+      rewritePreview: async () => ok(),
+      listSkills: async () => ok([]),
+      listModels: async () => ok([]),
+      onStream: () => () => {},
+    },
+    mail: {
+      get: async () => ok(),
+      set: async () => ok(),
+      send: async () => ok(),
+      pickImages: async () => ok(),
+    },
+    export: {
+      file: async () => ok(),
+    },
+    account: {
+      info: async () => ok(),
+      delete: async () => ok(),
+    },
+    pickImage: async () => null,
   };
 }
 

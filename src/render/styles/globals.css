@@ -1972,7 +1972,7 @@ html.dark .code-fence-content .token.variable {
 
 /* Block styles within contentEditable container
    blockquote 除外：引用块需要显示左侧竖线（见 .blockquote-block） */
-.editor-content-area [data-block-id]:not(blockquote) {
+.editor-content-area [data-block-id]:not(blockquote):not(.thematic-break-block) {
   outline: none !important;
   border: none !important;
 }
@@ -2559,4 +2559,22 @@ span.comment-marker {
 .ft-mixed-hint {
   color: var(--text-secondary, var(--text-primary));
   white-space: nowrap;
+}
+
+/* ============================================ */
+/* 分隔线可见化 + 选中高亮（editor-sale-update） */
+/* ============================================ */
+/* .thematic-break-block 见 LeafBlock.tsx inline styles（优先级最高，不受 Tailwind 干扰） */
+.thematic-break-block {
+  display: block;
+}
+
+/* 分隔线选中高亮外壳（EditorV2 overlay，pointer-events none 不挡交互） */
+.thematic-break-selection {
+  position: absolute;
+  pointer-events: none;
+  z-index: 80;
+  border: 2px solid var(--accent, #7C3AED);
+  background: color-mix(in srgb, var(--accent, #7C3AED) 18%, transparent);
+  border-radius: 4px;
 }

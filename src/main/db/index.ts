@@ -6,6 +6,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { app } from 'electron';
 import { MAIL_CONFIG_SCHEMA } from './mail';
+import { APP_META_SCHEMA } from './appMeta';
 
 let db: Database.Database | null = null;
 
@@ -194,6 +195,9 @@ function runMigrations(database: Database.Database): void {
 
   // 问题反馈邮件授权码表（user_id 唯一，每用户一条密文），幂等
   database.exec(MAIL_CONFIG_SCHEMA);
+
+  // app_meta 表（激活状态 / 跳过版本等 app 级元数据），幂等
+  database.exec(APP_META_SCHEMA);
 }
 
 /**

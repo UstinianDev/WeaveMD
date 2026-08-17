@@ -40,8 +40,12 @@ export function handleBackspaceAtStart(
     return convertBlockToParagraph(instance, blockId);
   }
 
-  // 普通段落：合并到前一个内容块
+  // 分隔线：前驱是 hr 且当前段落为空 → 删除该分隔线（光标留段落开头）
   if (block.type === 'paragraph') {
+    const prevLeaf = getPrevLeaf(instance.tree, block.id);
+    if (prevLeaf?.type === 'thematic-break' && (block.text ?? '').trim() === '') {
+      return removeThematicBreakToPrev(instance, prevLeaf, block);
+    }
     return mergeParagraph(instance, block);
   }
 
@@ -56,7 +60,7 @@ function mergeParagraph(instance: EditorInstance, block: BlockNodeV2): EditorAct
     // 前块是代码块：段落受 Backspace 保护（不合并、不删除）——
     // 代码块后的空行是退出/分隔行，只有先删除代码块本身，该空行才恢复为普通段落
     // 图片块同受保护（R2）：独立图后的段落（空或非空）不会被退格合并进图片块
-    if (prevLeaf.type === 'code-block' || prevLeaf.type === 'image-block') {
+    if (prevLeaf.type === 'code-block' || prevLeaf.type === 'image-block' || prevLeaf.type === 'thematic-break') {
       return null;
     }
     // 合并到前一个内容块（跨容器也合并：列表项内容 / 引用内容，实现"退格跳回上一行"）
@@ -73,6 +77,17 @@ function mergeParagraph(instance: EditorInstance, block: BlockNodeV2): EditorAct
 
   // 无前兄弟：不处理
   return null;
+}
+
+/** 空段落前是分隔线：删除该分隔线，光标留在原空段落开头 */
+function removeThematicBreakToPrev(
+  instance: EditorInstance,
+  hrBlock: BlockNodeV2,
+  paragraphBlock: BlockNodeV2,
+): EditorActionResult | null {
+  const tree = removeBlock(instance.tree, hrBlock.id);
+  instance.tree = tree;
+  return { changedBlockIds: [hrBlock.id], focus: { blockId: paragraphBlock.id, offset: 0 } };
 }
 
 /** 空代码块退格：删除代码块，光标移到前一块末尾（无前块则下一块开头；唯一块转空段落） */

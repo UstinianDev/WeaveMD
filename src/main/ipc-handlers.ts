@@ -12,7 +12,9 @@ import {
   USERNAME_REGEX,
 } from '@shared/constants';
 import { registerAiIpcHandlers } from './ai/ipc';
+
 import { registerMailIpcHandlers } from './mail/ipc';
+import { registerUpdateIpcHandlers } from './update/ipc';
 import { reindexAfterSave, removeByFile } from './ai/kbIndexer';
 import type { IndexFileInput } from './ai/kbIndexer';
 import { createFile, deleteFile, getFile, listFiles, updateFileContent } from './db/files';
@@ -82,6 +84,12 @@ function cleanupKbAfterFileDelete(userId: string, fileId: string): void {
 }
 
 export function registerAllIpcHandlers(): void {
+  // APP_GET_VERSION（版本改由主进程 app.getVersion() 提供）
+  ipcMain.handle(IPC_CHANNELS.APP_GET_VERSION, () => app.getVersion());
+
+  // Update（electron-updater 自动更新 IPC）
+  registerUpdateIpcHandlers();
+
   // AI panel (Chat/Agent) — config/consent/health/chat/conversations
   registerAiIpcHandlers();
 

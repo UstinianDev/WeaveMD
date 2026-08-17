@@ -99,6 +99,12 @@ export interface ImageSelection {
   width?: number;
 }
 
+/** 分隔线点击选中态：命中 hr 后由 EditorV2 持有 */
+export interface ThematicBreakSelection {
+  blockId: string;
+  rect: { top: number; left: number; width: number; height: number };
+}
+
 /** R1：行内图会话运行时宽度 map（G5）——key `${data-start}:${data-end}` → 宽度 px。
  *  由 EditorV2 持有并透传给块渲染（applyRuntimeWidths 注入 style），重载/会话结束即重置。 */
 export type InlineWidthMap = Record<string, number>;
@@ -167,6 +173,8 @@ export interface BlockHandlers {
     text: string,
     focus?: { row: number; col: number } | null
   ) => void;
+  /** 删除分隔线块（点击选中 → Backspace/Delete） */
+  onRemoveThematicBreak: (blockId: string) => void;
 }
 
 export interface BlockRendererProps {
