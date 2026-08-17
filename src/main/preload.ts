@@ -161,6 +161,16 @@ export interface WeaveMDApi {
     send: (input: MailSendRequest) => Promise<IpcResponse<MailSendResult>>;
     pickImages: () => Promise<IpcResponse<MailPickImagesResult> | null>;
   };
+  version: {
+    get: () => Promise<string>;
+  };
+  update: {
+    check: () => Promise<IpcResponse<{ state: string }>>;
+    download: () => Promise<IpcResponse<{ success: boolean }>>;
+    quitAndInstall: () => Promise<void>;
+    skipVersion: (version: string) => Promise<IpcResponse<{ success: boolean }>>;
+    onEvent: (cb: (evt: unknown) => void) => () => void;
+  };
 }
 
 const api: WeaveMDApi = {
@@ -331,6 +341,25 @@ const api: WeaveMDApi = {
     set: (input) => ipcRenderer.invoke(IPC_CHANNELS.MAIL_SET, input),
     send: (input) => ipcRenderer.invoke(IPC_CHANNELS.MAIL_SEND, input),
     pickImages: () => ipcRenderer.invoke(IPC_CHANNELS.MAIL_PICK_IMAGES),
+  },
+  version: {
+    get: () => ipcRenderer.invoke(IPC_CHANNELS.APP_GET_VERSION),
+  },
+  update: {
+    check: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_CHECK),
+    download: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_DOWNLOAD),
+    quitAndInstall: () => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_QUIT_AND_INSTALL),
+    skipVersion: (version: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.UPDATE_SKIP_VERSION, version),
+    onEvent: (cb: (evt: unknown) => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, evt: unknown): void => {
+        cb(evt);
+      };
+      ipcRenderer.on(IPC_CHANNELS.UPDATE_EVENT, handler);
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.UPDATE_EVENT, handler);
+      };
+    },
   },
 };
 

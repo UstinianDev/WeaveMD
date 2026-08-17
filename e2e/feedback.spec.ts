@@ -126,6 +126,25 @@ function installWeaveMDMock(opts: FeedbackMockOptions): void {
       },
       pickImages: async () => ({ success: true, data: pickImages }),
     },
+    license: {
+      status: async () => ({ success: true, data: { status: 'activated' } }),
+      activate: async () => ({ success: true, data: { ok: true } }),
+    },
+    version: {
+      get: async () => '1.1.0',
+    },
+    update: {
+      check: async () => ({ success: true, data: { state: 'not-available' } }),
+      download: async () => ({ success: true }),
+      quitAndInstall: async () => {},
+      onEvent: () => () => {},
+      skipVersion: async () => ({ success: true }),
+    },
+    recent: {
+      list: async () => ({ success: true, data: [] }),
+      add: async () => ({ success: true }),
+      remove: async () => ({ success: true }),
+    },
   };
   // 暴露 sentCalls 供测试断言（只读快照）
   (window as unknown as { __mailSentCalls: () => unknown[] }).__mailSentCalls = () => sentCalls;

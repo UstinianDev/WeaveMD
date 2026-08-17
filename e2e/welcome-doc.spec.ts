@@ -61,6 +61,25 @@ function seedEmptyState(): void {
       isMaximized: async () => ok(false),
     },
     link: { openExternal: async () => ok() },
+    license: {
+      status: async () => ok({ status: 'activated' }),
+      activate: async () => ok({ ok: true }),
+    },
+    version: {
+      get: async () => '1.1.0',
+    },
+    update: {
+      check: async () => ok({ state: 'not-available' }),
+      download: async () => ok(),
+      quitAndInstall: async () => {},
+      onEvent: () => () => {},
+      skipVersion: async () => ok(),
+    },
+    recent: {
+      list: async () => ok([]),
+      add: async () => ok(),
+      remove: async () => ok(),
+    },
   };
 }
 

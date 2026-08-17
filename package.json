@@ -2,6 +2,12 @@
   "name": "weavemd",
   "version": "1.1.0",
   "description": "WeaveMD - Natural Language Markdown Visual Note Desktop App",
+  "author": {
+    "name": "WeaveMD",
+    "email": "weavemd@example.com"
+  },
+  "repository": "https://github.com/pengwenhua59/weavemd-releases.git",
+  "homepage": "https://github.com/pengwenhua59/weavemd-releases",
   "main": "dist-main/index.js",
   "scripts": {
     "dev": "vite",
@@ -30,7 +36,8 @@
     "remark-parse": "^11.0.0",
     "remark-rehype": "^11.1.2",
     "unified": "^11.0.0",
-    "zustand": "^4.5.0"
+    "zustand": "^4.5.0",
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
@@ -82,8 +89,9 @@
       "icon": "public/icons/icon.png"
     },
     "mac": {
-      "target": "dmg",
-      "icon": "public/icons/icon.png"
+      "target": ["dmg", "zip"],
+      "icon": "public/icons/icon.png",
+      "identity": null
     },
     "linux": {
       "target": "AppImage",
@@ -92,6 +100,12 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "pengwenhua59",
+      "repo": "weavemd-releases",
+      "private": false
     }
   }
 }

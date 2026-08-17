@@ -680,6 +680,16 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
     send: async () => createSuccessResult(undefined),
     pickImages: async () => createSuccessResult(null),
   },
+  version: {
+    get: async () => '1.0.0',
+  },
+  update: {
+    check: async () => createSuccessResult({ state: 'idle' }),
+    download: async () => createSuccessResult({ success: true }),
+    quitAndInstall: async () => undefined,
+    skipVersion: async () => createSuccessResult({ success: true }),
+    onEvent: () => () => {},
+  },
 });
 
 let hasWarnedAboutFallback = false;
