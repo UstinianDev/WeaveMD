@@ -407,6 +407,25 @@ function installWeaveMDMock(opts: AiMockOptions): void {
           pinnedWeight: 1.5,
         }),
     },
+    license: {
+      status: async () => ok({ status: 'activated' }),
+      activate: async () => ok({ ok: true }),
+    },
+    version: {
+      get: async () => '1.1.0',
+    },
+    update: {
+      check: async () => ok({ state: 'not-available' }),
+      download: async () => ok(),
+      quitAndInstall: async () => {},
+      onEvent: () => () => {},
+      skipVersion: async () => ok(),
+    },
+    recent: {
+      list: async () => ok([]),
+      add: async () => ok(),
+      remove: async () => ok(),
+    },
   };
 }
 

@@ -298,5 +298,15 @@
   "feedback.error.timeout": "傳送逾時，請稍後重試",
   "feedback.error.invalidImage": "圖片無效或超出大小/數量限制",
   "feedback.error.generic": "傳送失敗，請稍後重試",
-  "feedback.cancel": "取消"
+  "feedback.cancel": "取消",
+  "update.checking": "正在檢查更新...",
+  "update.available": "有新版本可用",
+  "update.notAvailable": "已是最新版本",
+  "update.downloading": "正在下載...",
+  "update.downloaded": "更新已就緒",
+  "update.error": "檢查更新失敗",
+  "update.checkNow": "檢查更新",
+  "update.install": "重啟並安裝",
+  "update.skip": "跳過此版本",
+  "update.releaseNotes": "更新內容"
 }

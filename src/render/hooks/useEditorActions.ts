@@ -24,7 +24,7 @@ import {
 } from '@render/editor/controllers';
 import type { EditorActionResult, EditorInstance } from '@render/editor/editorInstance';
 import type { BlockMetaV2, BlockNodeV2, BlockTreeV2, ImageAlign } from '@render/editor/kernel';
-import { deleteLeafRange, replaceLeafRange, setBlockText, updateMeta } from '@render/editor/kernel';
+import { deleteLeafRange, replaceLeafRange, setBlockText, updateMeta, removeBlock, adjacentLeafFocus, makeParagraph, replaceBlock, renderBlock } from '@render/editor/kernel';
 import { resolveSyntaxType } from '@render/editor/kernel/syntaxType';
 import { setCursorAtOffset, setRangeAtOffset } from '@render/editor/kernel/selection';
 import { useEditorStore } from '@render/stores/editorStore';
@@ -415,6 +415,26 @@ export function useEditorActions({
     },
     [commitTree]
   );
+  // 删除分隔线块（点击选中 → Backspace/Delete 删除，对齐 code-block/image-block 删除路径）
+  const onRemoveThematicBreak = useCallback(
+    (blockId: string) => {
+      applyBlockAction((instance) => {
+        const block = instance.tree.blocks[blockId];
+        if (!block || block.type !== 'thematic-break') return null;
+        const focus = adjacentLeafFocus(instance.tree, blockId, 'prev');
+        const next = removeBlock(instance.tree, blockId);
+        instance.tree = next;
+        if (focus) return { changedBlockIds: [blockId], focus };
+        // 唯一块：转为空段落
+        const p = makeParagraph(next, '');
+        let tree2 = replaceBlock(next, blockId, p);
+        tree2 = renderBlock(tree2, p.id, '');
+        instance.tree = tree2;
+        return { changedBlockIds: [p.id], focus: { blockId: p.id, offset: 0 } };
+      });
+    },
+    [applyBlockAction]
+  );
   const handlers: BlockHandlers = useMemo(
     () => ({
       onInput,
@@ -438,6 +458,7 @@ export function useEditorActions({
       onRedo,
       onFenceLanguageChange,
       onTableEdit,
+      onRemoveThematicBreak,
       registerDom,
       unregisterDom,
     }),
@@ -463,6 +484,7 @@ export function useEditorActions({
       onRedo,
       onFenceLanguageChange,
       onTableEdit,
+      onRemoveThematicBreak,
       registerDom,
       unregisterDom,
     ]

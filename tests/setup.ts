@@ -91,6 +91,15 @@ const mockWeaveMD = {
     send: vi.fn(),
     pickImages: vi.fn(),
   },
+  version: {
+    get: vi.fn(async () => '1.1.0'),
+  },
+  update: {
+    check: vi.fn(),
+    download: vi.fn(),
+    quitAndInstall: vi.fn(),
+    onEvent: vi.fn(() => () => {}),
+  },
 };
 
 Object.defineProperty(window, 'weaveMD', {

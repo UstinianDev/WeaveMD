@@ -25,7 +25,7 @@ import { useFocusRestore } from '@render/hooks/useFocusRestore';
 import { useOutlineNavigation } from '@render/hooks/useOutlineNavigation';
 import { useRewriteStore } from '@render/stores/rewriteStore';
 import { buildHighlightRanges } from '@render/editor/rewrite/highlight';
-import type { BlockWidthMap, ImageSelection } from './types';
+import type { BlockWidthMap, ImageSelection, ThematicBreakSelection } from './types';
 
 interface EditorV2Props {
   content: string;
@@ -73,6 +73,8 @@ const EditorV2: React.FC<EditorV2Props> = ({
 
   // K4：当前选中的图片（点击 img 后由 handleContainerClick 计算；动作执行后清空）
   const [imageSelection, setImageSelection] = useState<ImageSelection | null>(null);
+  // 分隔线点击选中态
+  const [hrSelection, setHrSelection] = useState<ThematicBreakSelection | null>(null);
 
   // ---- A3 选区持久高亮（第 7 期）----
   // 改写模式下 selectionContext 非空 → 计算改写范围的高亮矩形（纯 CSS overlay，
@@ -186,6 +188,25 @@ const EditorV2: React.FC<EditorV2Props> = ({
   // 跨块鼠标拖选（浏览器原生拖选被编辑宿主边界截断，见 spec 13.13）
   useCrossBlockDragSelection(containerRef);
 
+  // 分隔线选中态下 Backspace/Delete 键盘路由（hr 是 contentEditable=false，不走 ContentBlock handleKeyDown）
+  const onDeleteThematicBreak = handlers.onRemoveThematicBreak;
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !hrSelection) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        e.preventDefault();
+        e.stopPropagation();
+        onDeleteThematicBreak(hrSelection.blockId);
+        setHrSelection(null);
+      } else if (e.key === 'Escape') {
+        setHrSelection(null);
+      }
+    };
+    el.addEventListener('keydown', onKeyDown);
+    return () => el.removeEventListener('keydown', onKeyDown);
+  }, [hrSelection, onDeleteThematicBreak]);
+
   // 大纲导航与滚动高亮（注册导航 + 视口检测当前标题）
   const handleScroll = useOutlineNavigation({
     outline,
@@ -235,7 +256,22 @@ const EditorV2: React.FC<EditorV2Props> = ({
           return;
         }
       }
+      // 分隔线点击选中
+      const hr = target.closest('hr.thematic-break-block');
+      if (hr) {
+        const blockEl = target.closest('[data-block-id]');
+        const blockId = blockEl?.getAttribute('data-block-id');
+        const block = blockId ? tree.blocks[blockId] : undefined;
+        if (blockId && block?.type === 'thematic-break') {
+          const rect = hr.getBoundingClientRect();
+          setHrSelection({ blockId, rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height } });
+          setImageSelection(null);
+          containerRef.current?.focus();
+          return;
+        }
+      }
       setImageSelection(null);
+      setHrSelection(null);
     },
     [tree, blockWidthMap]
   );
@@ -263,7 +299,8 @@ const EditorV2: React.FC<EditorV2Props> = ({
     // 避免含 markdown 标记的选区被拖走破坏语法；跨块拖选走 mousedown/mousemove 自实现，不受影响。
     <div
       ref={containerRef}
-      className="relative w-full h-full"
+      tabIndex={-1}
+      className="relative w-full h-full outline-none"
       onClick={handleContainerClick}
       onDragStart={(e) => e.preventDefault()}
       onErrorCapture={handleContainerErrorCapture}
@@ -296,6 +333,22 @@ const EditorV2: React.FC<EditorV2Props> = ({
           </button>
         </div>
       )}
+      {/* 分隔线选中高亮外壳（pointer-events none 不挡交互） */}
+      {hrSelection && (() => {
+        const hostRect = containerRef.current?.getBoundingClientRect();
+        if (!hostRect) return null;
+        return (
+          <div
+            className="thematic-break-selection"
+            style={{
+              top: hrSelection.rect.top - hostRect.top,
+              left: hrSelection.rect.left - hostRect.left,
+              width: hrSelection.rect.width,
+              height: hrSelection.rect.height,
+            }}
+          />
+        );
+      })()}
       {/* R1：图片选中框 + 四角缩放手柄（选中图片时渲染；覆盖层 z-[90] < 图片工具栏 z-[100]） */}
       {imageSelection && (
         <ImageResizeBox

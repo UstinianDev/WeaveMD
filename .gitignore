@@ -15,3 +15,7 @@ Thumbs.db
 test-results/
 playwright-report/
 coverage/
+
+# 卖家私钥（绝不提交）
+license-keys/
+*.key

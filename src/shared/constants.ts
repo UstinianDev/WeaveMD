@@ -79,6 +79,14 @@ export const IPC_CHANNELS = {
   // Link
   LINK_OPEN_EXTERNAL: 'link:open-external',
 
+  // App / Update
+  APP_GET_VERSION: 'app:get-version',
+  UPDATE_CHECK: 'update:check',
+  UPDATE_DOWNLOAD: 'update:download',
+  UPDATE_QUIT_AND_INSTALL: 'update:quit-and-install',
+  UPDATE_SKIP_VERSION: 'update:skip-version',
+  UPDATE_EVENT: 'update:event',
+
   // AI (Chat/Agent panel)
   AI_GET_CONFIG: 'ai:get-config',
   AI_SET_CONFIG: 'ai:set-config',
@@ -144,4 +152,4 @@ export const THEME_PRESETS = {
   bgColors: ['#0F0F0F', '#FFFFFF', '#1a1a2e', '#0d1b2a', '#1b1b2f'],
 } as const;
 
-export const APP_VERSION = '1.1';
+// APP_VERSION 已移除：版本改由主进程 app.getVersion() 提供（IPC_CHANNELS.APP_GET_VERSION）
