@@ -40,12 +40,8 @@ export function handleBackspaceAtStart(
     return convertBlockToParagraph(instance, blockId);
   }
 
-  // 分隔线：前驱是 hr 且当前段落为空 → 删除该分隔线（光标留段落开头）
+  // 段落：合并到前一个内容块（或受保护时不处理）
   if (block.type === 'paragraph') {
-    const prevLeaf = getPrevLeaf(instance.tree, block.id);
-    if (prevLeaf?.type === 'thematic-break' && (block.text ?? '').trim() === '') {
-      return removeThematicBreakToPrev(instance, prevLeaf, block);
-    }
     return mergeParagraph(instance, block);
   }
 
@@ -79,16 +75,6 @@ function mergeParagraph(instance: EditorInstance, block: BlockNodeV2): EditorAct
   return null;
 }
 
-/** 空段落前是分隔线：删除该分隔线，光标留在原空段落开头 */
-function removeThematicBreakToPrev(
-  instance: EditorInstance,
-  hrBlock: BlockNodeV2,
-  paragraphBlock: BlockNodeV2,
-): EditorActionResult | null {
-  const tree = removeBlock(instance.tree, hrBlock.id);
-  instance.tree = tree;
-  return { changedBlockIds: [hrBlock.id], focus: { blockId: paragraphBlock.id, offset: 0 } };
-}
 
 /** 空代码块退格：删除代码块，光标移到前一块末尾（无前块则下一块开头；唯一块转空段落） */
 function removeCodeBlock(instance: EditorInstance, block: BlockNodeV2): EditorActionResult | null {

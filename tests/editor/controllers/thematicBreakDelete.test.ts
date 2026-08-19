@@ -12,34 +12,47 @@ function paragraphId(instance: EditorInstance): string {
 }
 
 describe('thematic-break delete', () => {
-  describe('空段落退格删 hr', () => {
-    it('空段落前是 hr → 退格删除 hr，光标留段落', () => {
-      // 构造：先输入文本并回车产生两段，第一段输入 --- 转 hr
-      // 实际 markdown 为 '---\n\n\n' (hr + 空段落 + 空段落)
+  describe('hr 转换后自动创建空行', () => {
+    it('输入 --- 转 hr 后自动创建尾随空行', () => {
       const inst = new EditorInstance('a');
       const id = paragraphId(inst);
-      // 回车产生第二段
-      enterCtrl.handleEnter(inst, id, 1);
-      // 第一段输入 --- 转 hr（第一段 id 仍有效）
+      // 输入 --- 转 hr
       inputCtrl.handleInput(inst, id, '---', 3);
 
       const hrBlock = Object.values(inst.tree.blocks).find(b => b.type === 'thematic-break');
       expect(hrBlock).toBeDefined();
 
-      // hr 后应有空段落（原回车产生的第二段）
+      // hr 后应有空段落（自动创建的尾随空行）
+      const paraBlock = Object.values(inst.tree.blocks).find(
+        b => b.type === 'paragraph' && (b.text ?? '').trim() === ''
+      );
+      expect(paraBlock).toBeDefined();
+
+      // 焦点应在尾随空行上
+      // （convertParagraphToBlock 返回的 focus 指向尾随空行）
+    });
+  });
+
+  describe('空段落退格不删 hr（保护）', () => {
+    it('空段落前是 hr → 退格不删除（保护）', () => {
+      const inst = new EditorInstance('a');
+      const id = paragraphId(inst);
+      // 输入 --- 转 hr（自动创建尾随空行）
+      inputCtrl.handleInput(inst, id, '---', 3);
+
+      const hrBlock = Object.values(inst.tree.blocks).find(b => b.type === 'thematic-break');
+      expect(hrBlock).toBeDefined();
+
+      // hr 后的空段落
       const paraBlock = Object.values(inst.tree.blocks).find(
         b => b.type === 'paragraph' && (b.text ?? '').trim() === ''
       );
       expect(paraBlock).toBeDefined();
 
       const result = handleBackspaceAtStart(inst, paraBlock!.id);
-      expect(result).not.toBeNull();
-      expect(result!.changedBlockIds).toContain(hrBlock!.id);
-      // hr 已被删除
-      expect(inst.tree.blocks[hrBlock!.id]).toBeUndefined();
-      // 光标留在原段落
-      expect(result!.focus?.blockId).toBe(paraBlock!.id);
-      expect(result!.focus?.offset).toBe(0);
+      // 不删除：mergeParagraph 中 hr 在保护列表 → 返回 null
+      expect(result).toBeNull();
+      expect(inst.tree.blocks[hrBlock!.id]).toBeDefined();
     });
   });
 
@@ -47,7 +60,7 @@ describe('thematic-break delete', () => {
     it('非空段落前是 hr → 退格不删不并（保护）', () => {
       const inst = new EditorInstance('a');
       const id = paragraphId(inst);
-      enterCtrl.handleEnter(inst, id, 1);
+      // 输入 --- 转 hr（自动创建尾随空行）
       inputCtrl.handleInput(inst, id, '---', 3);
 
       const hrBlock = Object.values(inst.tree.blocks).find(b => b.type === 'thematic-break');
@@ -71,7 +84,7 @@ describe('thematic-break delete', () => {
     it('非空段落退格时前驱是 hr → 不合并（保护）', () => {
       const inst = new EditorInstance('a');
       const id = paragraphId(inst);
-      enterCtrl.handleEnter(inst, id, 1);
+      // 输入 --- 转 hr（自动创建尾随空行）
       inputCtrl.handleInput(inst, id, '---', 3);
 
       const paraBlock = Object.values(inst.tree.blocks).find(

@@ -57,6 +57,9 @@
   内容后连续退格光标跳回上一行
 - 代码块尾随保护空行持久化（SPEC-EDIT-CBTP）：`markdownToState` 解析期若整树最后
   叶子为 code-block 自动补尾随空段落，重载/模式切换后不丢失；文本输出不变
+- 分割线后自动空行保护（2026-08-19）：输入 `---` 转为 `thematic-break` 后自动创建
+  尾随空行（对齐代码块行为）；空行受 Backspace 保护（不删除、不合并），只有分割线
+  被删除后空行才恢复为普通段落；焦点自动移到尾随空行
 - 浮动工具栏（SPEC-EDIT-FT v1.0）：选区触发且**仅单一语法类型显示**（h1+h2 不显示）；
   自定义块类型下拉（正文/H1-H6/代码块/引用/三类列表，`canConvertBlock` 矩阵置灰，
   `syntaxTypeToOption` 映射）——纯函数 `selectionSyntaxTypesConsistent` / `resolveSyntaxType`

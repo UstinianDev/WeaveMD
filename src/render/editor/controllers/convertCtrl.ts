@@ -186,6 +186,13 @@ export function convertParagraphToBlock(
       const hr = makeThematicBreak(tree);
       tree = replaceBlock(tree, blockId, hr);
       blockId = hr.id;
+      // 自动创建尾随空行（对齐代码块行为）
+      tree = ensureTrailingParagraph(tree, blockId);
+      // 焦点移到尾随空行（hr 不可编辑）
+      const nextLeaf = getNextLeaf(tree, blockId);
+      if (nextLeaf) {
+        blockId = nextLeaf.id;
+      }
       break;
     }
     default:
