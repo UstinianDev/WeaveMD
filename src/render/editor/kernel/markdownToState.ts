@@ -207,7 +207,10 @@ function appendTrailingParagraphIfLast(builder: Builder): void {
 
 export function markdownToState(markdown: string): BlockTreeV2 {
   const builder = new Builder();
-  const lines = markdown.split('\n');
+  // Normalize CRLF → LF: Windows-originated files (e.g. welcome.md) retain \r after
+  // split('\n'), causing fence-closing regex `[ \t]*$` and Setext underline regex to fail.
+  const normalized = markdown.replace(/\r\n/g, '\n');
+  const lines = normalized.split('\n');
   parseBlocks(builder, builder.root, lines, 0);
   // SPEC-EDIT-CBTP / R2：返回树之前执行尾部代码块/图片块保护空行补偿（解析期规范化）
   appendTrailingParagraphIfLast(builder);

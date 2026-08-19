@@ -127,7 +127,8 @@ describe('welcomeDocument 内置欢迎文档', () => {
   it('welcome.md 全文经 markdownToState / stateToMarkdown 往返收敛（回归 fixture）', () => {
     const tree = markdownToState(welcomeMd);
     const out = stateToMarkdown(tree);
-    expect(out).toBe(welcomeMd);
+    // markdownToState 归一化 CRLF→LF，故按 LF 比较
+    expect(out).toBe(welcomeMd.replace(/\r\n/g, '\n'));
   });
 
   it('saveFile 对欢迎项短路：不调用 file.save / file.write', async () => {
