@@ -39,6 +39,9 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 - 不可变块树内核 + 无损双向转换；仅叶子内容块 contentEditable（按需重渲染、IME 守卫）
 - 语法渲染对齐 marktext：标题 `#`×n 提示、深灰列表 marker、圆形任务复选框、引用绿色竖线，符号不可选中
 - 六条退出规则 + 退格链；代码块一键删除/受保护空行（重载后经解析期补偿恢复，SPEC-EDIT-CBTP）
+- 分割线后自动空行保护（2026-08-19）：输入 `---` 转为 `thematic-break` 后自动创建
+  尾随空行（对齐代码块行为）；空行受 Backspace 保护（不删除、不合并），只有分割线
+  被删除后空行才恢复为普通段落；焦点自动移到尾随空行
 - 浮动工具栏（SPEC-EDIT-FT，v1.0 已实施）：仅单一语法类型选区显示（G1）；自定义块类型下拉
   可展开（G3①），段落/标题/代码块/引用/三类列表一一正确对应（G3②），不可转目标置灰；
   块转换按 `canConvertBlock` 矩阵分发（kernel/syntaxType.ts 提供 `resolveSyntaxType`）

@@ -97,6 +97,10 @@ marktext/muya），不依赖 Monaco：
   `imageAnchor.ts`（`findImageEl`/`readImageRect` 纯函数，ImageToolbar/ImageResizeBox 共用）
 - **跨块选区替换输入**（2026-08-13）：ContentBlock 原生 `beforeinput` + `onPaste` → blockTree
   `replaceLeafRange`（`deleteLeafRange` + 后块文本并入前块 + 插入 insertText）收敛单块
+- **分割线后自动空行保护**（2026-08-19）：`convertCtrl.convertParagraphToBlock` 中 `thematic-break`
+  转换后调用 `ensureTrailingParagraph` 自动创建尾随空行（对齐代码块行为）；`backspaceCtrl.mergeParagraph`
+  保护列表含 `thematic-break`，空行受 Backspace 保护（不删除、不合并），只有分割线被删除后
+  空行才恢复为普通段落；焦点自动移到尾随空行
 
 v1（容器级 contentEditable）回退路径已退役（v2 唯一路径，2026-08-06）。
 

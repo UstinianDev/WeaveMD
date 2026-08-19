@@ -73,6 +73,9 @@ BlockNodeV2 = {
   叶子为 code-block **或 image-block**，自动在其同父容器末尾补空 paragraph（与编辑期
   `ensureTrailingParagraph` 镜像），代码块/图片块后的保护空行在重载/模式切换后不丢失；
   文本输出不变（`markdownToState.appendTrailingParagraphIfLast`）。
+- **分割线后自动空行保护**（2026-08-19）：输入 `---` 转为 `thematic-break` 后自动创建
+  尾随空行（对齐代码块行为）；空行受 Backspace 保护（不删除、不合并），只有分割线
+  被删除后空行才恢复为普通段落；焦点自动移到尾随空行。
 - 行内渲染：`inlineRenderer` 保留语法标记（`<span class="md-syntax">`），DOM
   `textContent` 与源文本一致——编辑/序列化不丢标记。
 - 语法类型解析：`kernel/syntaxType.ts` 提供 `resolveSyntaxType(tree, blockId)`（纯函数）——
