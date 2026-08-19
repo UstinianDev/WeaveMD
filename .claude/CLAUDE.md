@@ -151,7 +151,7 @@
   A2 混合类型工具栏（mouseup 弹 AI 改写）+ A3 选区改写 → **覆盖块整块渐变蓝高亮（.rewrite-highlight 纯 CSS overlay 不入 contentEditable）+ 左端取消胶囊（.rewrite-cancel-capsule）** +
   B1 / @ 补全（AGENT_SKILLS_LIST 只读 IPC + CompletionMenu）+ B2 命名「智能体」（文案+i18n）+ B3 双 Tab 合并单面板 + 模式下拉（activeMode 域隔离）+ C1 美化
 - 延期不交付：真 MCP server 管理（fetchContext7/fetchFirecrawl）、GitHub 自取 writing-shape；
-  门禁全绿见 docs/plan/ai-agent-panel.status.md（第 6 期：typecheck 0 | vitest 90/1261 | lint 0 | Playwright 14/14 | 真库迁移 smoke 0；第 7 期：typecheck 0 | vitest 93/1338 | lint 0 | Playwright 24/24）
+  门禁全绿（第 6 期：typecheck 0 | vitest 90/1261 | lint 0 | Playwright 14/14 | 真库迁移 smoke 0；第 7 期：typecheck 0 | vitest 93/1338 | lint 0 | Playwright 24/24）
 
 ## 已知限制（详见 spec 13.x）
 

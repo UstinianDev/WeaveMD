@@ -3,7 +3,7 @@
 > 模块编号：11 | 优先级：P1 | 最后更新：2026-08-16 | 状态：**第 1/2/3+4/5/6 期均已交付；第 7 期体验重构 ①~⑦（A4/A1/A2+A3/B1/B2/B3/C1）全部交付（2026-08-15）；后端收敛 remote-only（2026-08-16）；真 MCP / GitHub 继续延**
 > 需求编号：AGT-01~19 / KB-01~05（docs/REQUIREMENTS.md 3.7 / 3.8）
 > 交付记录：第1期基建 + 第2期 Chat 闭环（2026-08-14）、第3期知识库 + 第4期 Agent 能力
-> （2026-08-15，详见 docs/plan/ai-agent-panel.status.md）；远程 DeepSeek 后端已真连验证通过；
+> （2026-08-15）；远程 DeepSeek 后端已真连验证通过；
 > 历史曾试点本地 ollama qwen3.5:0.8b（实测故障：无限思考不产 content），2026-08-16 已彻底去除 ollama、收敛 remote-only
 
 ## 1. 功能概述
@@ -133,4 +133,4 @@ kb_chunks(id, document_id, seq, content, vector BLOB, source_ref /*文件+块定
 - **②** composer 草稿提升到 AIAgentPanel 跨视图保留（home/session 共享同一份 draft）
 - **①** 选区改写 → 覆盖块**整块渐变蓝高亮**（`.rewrite-highlight` 纯 CSS overlay，不入 contentEditable）+ **左端取消胶囊**（`.rewrite-cancel-capsule`）
 - **⑤** AI 面板字号整体放大一档（C1 基础上再放大）
-- 门禁：typecheck 0 error | vitest / lint 0 | Playwright 全绿 | vite build（详见 docs/plan/ai-panel-ux-optimize.status.md）
+- 门禁：typecheck 0 error | vitest / lint 0 | Playwright 全绿 | vite build

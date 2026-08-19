@@ -182,7 +182,7 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
 - **编辑主区纯重构**（REQ-EDITOR-TOOLBAR-IMAGE-LINK）：`ImageToolbar.scheduleHide` 死代码删除
   （no-op timer）；`imageAnchor.ts`（`findImageEl`/`readImageRect` 纯函数）收敛 ImageToolbar 与
   ImageResizeBox 的滚动重锚定重复查询；`modalConstants.ts` 收敛双份 `EMPTY_URL_MESSAGE`。
-  断言零修改、845 全绿。详情：`docs/refactor/editor-toolbar-image-link.refactor.md`。
+  断言零修改、845 全绿。
 
 ### 7.5 文件树切换保存修复（2026-08-14）
 
@@ -191,7 +191,7 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
   saveFile，与 Navbar 打开/删除/关闭一致）；点击当前文件 no-op；打开改**总 readDisk 以磁盘
   为准**（不信陈旧 content 缓存）；`editorStore.saveFile` 返回 `Promise<boolean>`（写盘失败
   保留 dirty）；Source 模式新增 `flushContent` 强制 flush Monaco 150ms 防抖内容（EditorView
-  flusher 按模式路由）。详情：`docs/plan/fix-file-switch-save-loss.status.md`。
+  flusher 按模式路由）。
 
 ## 8. 已知限制
 

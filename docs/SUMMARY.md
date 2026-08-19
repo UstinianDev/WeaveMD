@@ -92,8 +92,7 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
   位移」——宽度增量 = `√(dx²+dy²)`（方向取主轴向符号），斜向按对角距离顺滑增长；
   松手提交后选中框重锚定（`useLayoutEffect` 每次渲染后重查 img rect，修复"框比图小"）；
   宽度落点从外层 div 移到 `<img>` 自身（`renderImageBlock` 经 `applyImgWidth` 注入），
-  小图可放大、无溢出、居中/居右（含带宽度图）正确。文档：`docs/specs/editor-v2-architecture.md`
-  13.15、`docs/plan/editor-image-resize-fix.*`
+  小图可放大、无溢出、居中/居右（含带宽度图）正确。文档：`docs/specs/editor-v2-architecture.md` 13.15
 - 跨块选区替换输入（2026-08-13）：字符输入/IME/粘贴跨块选区时，浏览器原生删除只改 DOM、
   `onInput` 仅同步焦点块模型 → 其余块重渲染"复活"。ContentBlock 原生 `beforeinput` 拦截 +
   `onPaste`，经 `replaceLeafRange`（blockTree.ts）块树级删除 + 插入收敛单块。文档：
@@ -106,17 +105,14 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
   Enter/Tab/Shift+Tab 跨格、IME 守卫、幂等重渲染按 cellkey Map 差分防光标跳变）；不改内核
   markdownToState/stateToMarkdown/syntaxType，selection/AI 改写/outline 对 table 既有排除保持。
   门禁：typecheck 0 / vitest 100 files 1400 / lint 0 / vite build 三包成功 / Playwright
-  editor-table 9/9 + 全量 115 绿（drag-selection 5 已知 RED 任务外）。文档：
-  `docs/requirements/editor-table-block.req.md`、`docs/plan/editor-table-block.*`
+  editor-table 9/9 + 全量 115 绿（drag-selection 5 已知 RED 任务外）。
 - 编辑主区纯重构（REQ-EDITOR-TOOLBAR-IMAGE-LINK，2026-08-13）：删 `ImageToolbar.scheduleHide`
   死代码；`imageAnchor.ts`（findImageEl/readImageRect）收敛 ImageToolbar/ImageResizeBox 滚动
   重锚定重复；`modalConstants.ts` 收敛双份 `EMPTY_URL_MESSAGE`。断言零修改、845 全绿。
-  文档：`docs/plan/editor-toolbar-image-link-refactor.*`、`docs/refactor/editor-toolbar-image-link.refactor.md`
 - 文件树切换保存修复（2026-08-14）：FileTreePanel 切换前统一 `saveCurrentDraftIfNeeded()`
   （`services/saveCurrentDraft.ts`，flush + dirty 落盘，与 Navbar 一致）；点击当前文件 no-op；
   打开总 readDisk 以磁盘为真源（陈旧缓存不再覆盖新内容）；`saveFile` 返回 boolean（写盘失败
-  保留 dirty）；Source 模式 `flushContent` 强制 flush Monaco 防抖内容。文档：
-  `docs/plan/fix-file-switch-save-loss.status.md`
+  保留 dirty）；Source 模式 `flushContent` 强制 flush Monaco 防抖内容。
 
 ## 4. 验证与测试
 
@@ -189,7 +185,7 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 延期不交付（如实标注，勿写成已交付）：真 MCP server 管理（fetchContext7/fetchFirecrawl 工具）、
 GitHub 自取 writing-shape 技能。embedding 双路真验已随后端收敛 remote-only / 仅 FTS5 一并去除，不再作为待验项。
 
-门禁：第 5 期 typecheck 0 error | vitest 88 files/1229 tests | lint 0 error | Playwright ai spec 14/14（含 4 改写用例）| vite build；第 6 期 typecheck 0 error | vitest 90 files/1261 tests（含 editBlocks stretch）| lint 0 error | Playwright ai spec 14/14 | vite build；第 7 期 typecheck 0 error | vitest 93 files/1338 tests | lint 0 error | Playwright ai spec 24/24 | vite build；
-详见 docs/plan/ai-agent-panel.status.md。需求：REQUIREMENTS 3.7/3.8（AGT-/KB- 编号）；设计：modules/11；选型：TECH_STACK 2.10。
+门禁：第 5 期 typecheck 0 error | vitest 88 files/1229 tests | lint 0 error | Playwright ai spec 14/14（含 4 改写用例）| vite build；第 6 期 typecheck 0 error | vitest 90 files/1261 tests（含 editBlocks stretch）| lint 0 error | Playwright ai spec 14/14 | vite build；第 7 期 typecheck 0 error | vitest 93 files/1338 tests | lint 0 error | Playwright ai spec 24/24 | vite build。
+需求：REQUIREMENTS 3.7/3.8（AGT-/KB- 编号）；设计：modules/11；选型：TECH_STACK 2.10。
 
 > 各模块详细实现见 `docs/modules/`，需求见 `docs/REQUIREMENTS.md`，技术选型见 `docs/TECH_STACK.md`。
