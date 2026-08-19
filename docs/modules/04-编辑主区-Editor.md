@@ -173,7 +173,7 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
   `<img>` 自身（`renderImageBlock` 经 `applyImgWidth` 注入 `style.width`），小图可放大、
   无 wrapper 溢出、居中/居右（含带宽度图）正确；等比例拖拽 = 主轴向符号 × `√(dx²+dy²)`
   （`resizeMath.computeResizeWidth`），斜向对角顺滑增长；松手提交后选中框重锚定
-  （`useLayoutEffect` 每次渲染后重查 img rect）。详情：`docs/specs/editor-v2-architecture.md` 13.15。
+  （`useLayoutEffect` 每次渲染后重查 img rect）。详情：`docs/specs/editor-v2-progress.md` 13.15。
 - **跨块选区替换输入**（2026-08-13）：字符输入/IME 组合/粘贴跨块选区时，浏览器原生删除只改
   DOM、`onInput` 仅同步焦点块模型 → 其余块重渲染"复活"。ContentBlock 监听**原生 beforeinput**
   （React 合成 onBeforeInput 在 Chromium 不触发）+ `onPaste`，经 `replaceLeafRange`

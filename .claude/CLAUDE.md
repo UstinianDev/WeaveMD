@@ -153,6 +153,6 @@
 - 延期不交付：真 MCP server 管理（fetchContext7/fetchFirecrawl）、GitHub 自取 writing-shape；
   门禁全绿（第 6 期：typecheck 0 | vitest 90/1261 | lint 0 | Playwright 14/14 | 真库迁移 smoke 0；第 7 期：typecheck 0 | vitest 93/1338 | lint 0 | Playwright 24/24）
 
-## 已知限制（详见 spec 13.x）
+## 已知限制（详见 docs/specs/editor-v2-progress.md §13.x）
 
 - v2 Normal 无查找高亮；撤销/重做后光标回到重建树首块；段落级 MD Source 视图未迁移

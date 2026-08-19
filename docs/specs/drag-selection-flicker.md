@@ -3,7 +3,7 @@
 > 规范编号：SPEC-EDIT-DSF | 版本：v0.1（草案，待评审后实施）| 更新：2026-08-08
 > 关联需求：REQUIREMENTS.md EDIT-02（跨块选择）
 > 关联规范：[SPEC-EDIT-FT](./floating-toolbar-refactor.md)（G2 跨块拖选已修功能）、
-> [SPEC-EDITOR-V2](./editor-v2-architecture.md)（13.13 跨块拖选）
+> [SPEC-EDITOR-V2](./editor-v2-architecture.md)、[实施记录](./editor-v2-progress.md)（13.13 跨块拖选）
 > 关联模块：[docs/modules/04-编辑主区-Editor.md](../modules/04-编辑主区-Editor.md)
 
 ---

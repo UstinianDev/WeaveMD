@@ -92,7 +92,7 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
   位移」——宽度增量 = `√(dx²+dy²)`（方向取主轴向符号），斜向按对角距离顺滑增长；
   松手提交后选中框重锚定（`useLayoutEffect` 每次渲染后重查 img rect，修复"框比图小"）；
   宽度落点从外层 div 移到 `<img>` 自身（`renderImageBlock` 经 `applyImgWidth` 注入），
-  小图可放大、无溢出、居中/居右（含带宽度图）正确。文档：`docs/specs/editor-v2-architecture.md` 13.15
+  小图可放大、无溢出、居中/居右（含带宽度图）正确。文档：`docs/specs/editor-v2-progress.md` 13.15
 - 跨块选区替换输入（2026-08-13）：字符输入/IME/粘贴跨块选区时，浏览器原生删除只改 DOM、
   `onInput` 仅同步焦点块模型 → 其余块重渲染"复活"。ContentBlock 原生 `beforeinput` 拦截 +
   `onPaste`，经 `replaceLeafRange`（blockTree.ts）块树级删除 + 插入收敛单块。文档：

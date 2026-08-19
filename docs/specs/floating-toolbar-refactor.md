@@ -3,7 +3,7 @@
 > 规范编号：SPEC-EDIT-FT | 版本：v1.0（已实施）| 更新：2026-08-08
 > 关联需求：REQUIREMENTS.md EDIT-11（结构转换）、EDIT-13（语法渲染对齐）
 > 关联模块：[docs/modules/04-编辑主区-Editor.md](../modules/04-编辑主区-Editor.md)
-> 关联规范：[SPEC-EDITOR-V2](./editor-v2-architecture.md)（13.11 浮动工具栏、13.13 跨块拖选）、
+> 关联规范：[SPEC-EDITOR-V2](./editor-v2-architecture.md)、[实施记录](./editor-v2-progress.md)（13.11 浮动工具栏、13.13 跨块拖选）、
 > [SPEC-EDIT-EXIT](./markdown-block-exit-rules.md)
 > 实施证据：[docs/testing/spec-edit-ft.tdd.md](../testing/spec-edit-ft.tdd.md)
 
