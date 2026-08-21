@@ -4,7 +4,7 @@
 // 改写预览状态机（选区触发为主 + 面板 @ 兜底共享管线）。
 // 铁律一：applyRewrite 是唯一写入点（editorStore.updateContent，入 undo 栈）；
 //         AI 永不直接写 —— pendingRewrite 只存 proposal，任何情况不自动 updateContent。
-// 铁律二：改写 = 联网，触发前校验 consent 'chat'（needsConsent(config,consent,'chat')）。
+// 铁律二：改写 = 联网，触发前校验 consent（needsConsent(consent)）。
 // 跨 store 读统一 useXxxStore.getState()，不引循环依赖。
 //
 // 触发入口（批次 3 落点）：
@@ -88,8 +88,8 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
     const { md, sel } = selectionContext;
 
     // 铁律二：联网闸（chat）
-    const { config, consent, userId } = useAgentStore.getState();
-    if (needsConsent(config, consent, 'chat')) {
+    const { consent, userId } = useAgentStore.getState();
+    if (needsConsent(consent)) {
       useAgentStore.getState().setPendingConsent(true); // 弹同意页，不发请求
       return;
     }
@@ -125,8 +125,8 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
 
   async startDocumentRewrite(md, instruction) {
     // 铁律二：联网闸（chat）
-    const { config, consent, userId } = useAgentStore.getState();
-    if (needsConsent(config, consent, 'chat')) {
+    const { consent, userId } = useAgentStore.getState();
+    if (needsConsent(consent)) {
       useAgentStore.getState().setPendingConsent(true); // 弹同意页，不发请求
       return;
     }
@@ -167,8 +167,8 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
     }
 
     // 铁律二：改写 = 联网，consent 'chat' 闸
-    const { config, consent, userId } = useAgentStore.getState();
-    if (needsConsent(config, consent, 'chat')) {
+    const { consent, userId } = useAgentStore.getState();
+    if (needsConsent(consent)) {
       useAgentStore.getState().setPendingConsent(true); // 弹同意页，不发请求
       return;
     }

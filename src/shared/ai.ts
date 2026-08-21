@@ -20,6 +20,17 @@ export interface IAIConsent {
   consentUpdatedAt: string | null;
 }
 
+/**
+ * 知情同意判定（联网闸，主进程/渲染进程统一）。
+ * 后端恒 remote（ollama 已去除），因此联网即外发。
+ * - consent 缺失（null）→ 需同意；
+ * - allowNetwork 未授权 → 需同意。
+ * KB 检索外发（allowSend）由 needsKbSendConsent 单独把关。
+ */
+export function needsConsent(consent: IAIConsent | null): boolean {
+  return !consent?.allowNetwork;
+}
+
 /** setConfig 单次更新载荷：全部字段可选，仅传需更新的项（apiKey 空串 === 清除已存 key）。 */
 export interface AiConfigUpdate {
   backend?: ChatBackend;

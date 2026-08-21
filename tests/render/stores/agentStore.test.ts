@@ -56,25 +56,17 @@ const mockUserMsg = (content: string): IAIMessage => ({
   createdAt: '2026-08-14T00:00:00Z',
 });
 
-describe('needsConsent 纯函数', () => {
-  it('remote backend 且未允许联网 -> true', () => {
-    expect(needsConsent(remoteConfig, noConsent)).toBe(true);
+describe('needsConsent 纯函数（统一版，从 @shared/ai 导入）', () => {
+  it('未允许联网 -> true', () => {
+    expect(needsConsent(noConsent)).toBe(true);
   });
 
-  it('remote backend 但已授权联网 -> false', () => {
-    expect(needsConsent(remoteConfig, grantedConsent)).toBe(false);
+  it('已授权联网 -> false', () => {
+    expect(needsConsent(grantedConsent)).toBe(false);
   });
 
-  it('唯一后端 remote：未配置 key（hasApiKey=false）未允许联网 -> true', () => {
-    expect(needsConsent(remoteNoKeyConfig, noConsent)).toBe(true);
-  });
-
-  it('config 为 null -> true（需配置后再同意）', () => {
-    expect(needsConsent(null, noConsent)).toBe(true);
-  });
-
-  it('consent 为 null -> remote 判定为需要同意', () => {
-    expect(needsConsent(remoteConfig, null)).toBe(true);
+  it('consent 为 null -> true（需配置后再同意）', () => {
+    expect(needsConsent(null)).toBe(true);
   });
 });
 
@@ -370,30 +362,23 @@ describe('agentStore 会话状态机', () => {
   });
 });
 
-describe('needsConsent agent 动作', () => {
-  it('agent + remote 未授权联网 -> true', () => {
-    expect(needsConsent(remoteConfig, noConsent, 'agent')).toBe(true);
+describe('needsConsent 统一版（仅 consent 参数）', () => {
+  it('未授权联网 -> true', () => {
+    expect(needsConsent(noConsent)).toBe(true);
   });
-  it('agent + remote 已授权 -> false', () => {
-    expect(needsConsent(remoteConfig, grantedConsent, 'agent')).toBe(false);
+  it('已授权联网 -> false', () => {
+    expect(needsConsent(grantedConsent)).toBe(false);
   });
-  it('agent + remote 允许联网但未 allowSend -> false（联网闸通过；allowSend 单独把关）', () => {
+  it('允许联网但未 allowSend -> false（联网闸通过；allowSend 单独把关）', () => {
     const allowNetworkNoSend: IAIConsent = {
       allowNetwork: true,
       allowSend: false,
       consentUpdatedAt: null,
     };
-    // 分层语义对齐主进程 consent.ts：agent 联网闸不含 allowSend
-    expect(needsConsent(remoteConfig, allowNetworkNoSend, 'agent')).toBe(false);
+    expect(needsConsent(allowNetworkNoSend)).toBe(false);
   });
-  it('agent + remote 未配置 key（hasApiKey=false）且未授权 -> true', () => {
-    expect(needsConsent(remoteNoKeyConfig, noConsent, 'agent')).toBe(true);
-  });
-  it('chat 动作默认行为不变（remote 未授权 true）', () => {
-    expect(needsConsent(remoteConfig, noConsent, 'chat')).toBe(true);
-  });
-  it('config null -> true（需配置）', () => {
-    expect(needsConsent(null, noConsent, 'agent')).toBe(true);
+  it('consent null -> true（需同意）', () => {
+    expect(needsConsent(null)).toBe(true);
   });
 });
 

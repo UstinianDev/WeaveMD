@@ -1,26 +1,11 @@
 // ============================================
 // WeaveMD — AI 知情同意判定（纯函数，可单测）
 // ============================================
+// needsConsent 统一从 @shared/ai 导入（主进程/渲染进程共用同一实现）。
+// needsKbSendConsent 保留本模块（仅 agentLoop 使用）。
 
 import type { IAIConsent } from '@shared/ai';
-
-export type ConsentAction = 'chat' | 'agent';
-
-/**
- * 判定某动作是否需要用户知情同意（联网闸）。后端恒 remote（ollama 已去除），
- * 因此联网即外发。
- *
- * - chat/agent：均按 **联网闸** `!allowNetwork` 判定——未授权联网 → 需要同意。
- *   KB 检索外发给笔记再加一层 allowSend（`needsKbSendConsent`）；
- *   allowSend 不在本函数内判定，由 agentLoop 注入 searchKB 工具时把关。
- */
-export function needsConsent(
-  _config: unknown,
-  consent: IAIConsent,
-  _action: ConsentAction = 'chat'
-): boolean {
-  return !consent.allowNetwork;
-}
+export { needsConsent } from '@shared/ai';
 
 /**
  * KB 检索外发闸（笔记内容外发给远端模型）：

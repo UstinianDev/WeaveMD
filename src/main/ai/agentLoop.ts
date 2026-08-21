@@ -151,7 +151,7 @@ export async function runAgentFlow(
     allowSend: false,
     consentUpdatedAt: null,
   };
-  if (needsConsent(config, consent, 'agent')) {
+  if (needsConsent(consent)) {
     throw Object.assign(new Error('Agent network consent required'), {
       code: 'consent_required',
     });

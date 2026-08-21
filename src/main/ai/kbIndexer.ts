@@ -126,7 +126,6 @@ async function writeChunks(
       documentId,
       seq: chunk.seq,
       content: chunk.text,
-      vector: null,
       sourceRef,
     });
   }

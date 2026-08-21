@@ -41,6 +41,76 @@ function makeError(code: string, message: string): Error & { code: string } {
   return err;
 }
 
+// ---------------------------------------------------------------------------
+// SSE 解析（共享逻辑，消除主循环/残余 buffer 重复）
+// ---------------------------------------------------------------------------
+
+/** SSE JSON 数据行的 OpenAI 兼容结构。 */
+interface SseJsonShape {
+  choices?: Array<{
+    delta?: {
+      content?: string;
+      tool_calls?: Array<{
+        index?: number;
+        function?: { name?: string; arguments?: string };
+      }>;
+    };
+    finish_reason?: string | null;
+  }>;
+}
+
+/**
+ * 解析一组 SSE 文本行，累积工具调用增量，返回待 yield 的 StreamChunk 数组。
+ * 纯函数，供主循环和残余 buffer flush 共用。
+ */
+function processSseLines(
+  lines: string[],
+  toolAcc: Map<number, { name: string; arguments: string }>
+): StreamChunk[] {
+  const chunks: StreamChunk[] = [];
+  for (const line0 of lines) {
+    const line = line0.trim();
+    if (!line.startsWith('data:')) continue;
+    const payload = line.slice(5).trim();
+    if (!payload || payload === '[DONE]') continue;
+    let json: SseJsonShape;
+    try {
+      json = JSON.parse(payload);
+    } catch {
+      continue; // 容错半包
+    }
+    const choice = json.choices?.[0];
+    const delta = choice?.delta;
+    const content = delta?.content;
+    const toolCallsDelta = delta?.tool_calls;
+
+    let finishedToolCalls: Array<{ index: number; name: string; arguments: string }> = [];
+    if (toolCallsDelta && toolCallsDelta.length) {
+      for (const tc of toolCallsDelta) {
+        const index = tc.index ?? 0;
+        const cur = toolAcc.get(index) ?? { name: '', arguments: '' };
+        if (tc.function?.name) cur.name += tc.function.name;
+        if (tc.function?.arguments) cur.arguments += tc.function.arguments;
+        toolAcc.set(index, cur);
+      }
+      if (choice?.finish_reason === 'tool_calls') {
+        finishedToolCalls = flushToolCalls(toolAcc);
+      }
+    }
+
+    if (finishedToolCalls.length) {
+      chunks.push({ delta: '', toolCalls: finishedToolCalls });
+    } else if (content && content.length > 0) {
+      chunks.push({ delta: content });
+    }
+  }
+  return chunks;
+}
+
+// ---------------------------------------------------------------------------
+// 主入口
+// ---------------------------------------------------------------------------
+
 /**
  * 流式调用 chat/completions。逐块 yield { delta }。
  * 错误规范化：throw 结构化 Error { name, code, message }。
@@ -128,7 +198,7 @@ export async function* streamChatCompletion(
   const decoder = new TextDecoder();
   let buffer = '';
 
-  // 工具调用累积：index -> { name, arguments }。随流增量拼接 arguments 直至 finish。
+  // 工具调用累积：index -> { name, arguments }。随流增量拼接 arguments 直直至 finish。
   const toolAcc = new Map<number, { name: string; arguments: string }>();
 
   try {
@@ -141,49 +211,8 @@ export async function* streamChatCompletion(
       buffer = parts.pop() ?? '';
 
       for (const part of parts) {
-        for (const line0 of part.split('\n')) {
-          const line = line0.trim();
-          if (!line.startsWith('data:')) continue;
-          const payload = line.slice(5).trim();
-          if (!payload || payload === '[DONE]') continue;
-          let json: {
-            choices?: Array<{
-              delta?: { content?: string; tool_calls?: Array<{ index?: number; function?: { name?: string; arguments?: string } }> };
-              finish_reason?: string | null;
-            }>;
-          };
-          try {
-            json = JSON.parse(payload);
-          } catch {
-            continue; // 容错半包
-          }
-          const choice = json.choices?.[0];
-          const delta = choice?.delta;
-          const content = delta?.content;
-          const toolCallsDelta = delta?.tool_calls;
-
-          // 工具调用增量：按 index 累积 name/arguments（arguments 为 JSON 片段，拼接直至 finish）
-          let finishedToolCalls: Array<{ index: number; name: string; arguments: string }> = [];
-          if (toolCallsDelta && toolCallsDelta.length) {
-            for (const tc of toolCallsDelta) {
-              const index = tc.index ?? 0;
-              const cur = toolAcc.get(index) ?? { name: '', arguments: '' };
-              if (tc.function?.name) cur.name += tc.function.name;
-              if (tc.function?.arguments) cur.arguments += tc.function.arguments;
-              toolAcc.set(index, cur);
-            }
-            // 出现 finish_reason:'tool_calls' 或 message 已带 tool_calls 完成态 -> flush 全部累积
-            if (choice?.finish_reason === 'tool_calls') {
-              finishedToolCalls = flushToolCalls(toolAcc);
-            }
-          }
-
-          if (finishedToolCalls.length) {
-            yield { delta: '', toolCalls: finishedToolCalls };
-          } else if (content && content.length > 0) {
-            // 立即 yield，由调用方消费后再继续读流
-            yield { delta: content };
-          }
+        for (const chunk of processSseLines(part.split('\n'), toolAcc)) {
+          yield chunk;
         }
         if (external?.aborted || controller.signal.aborted) {
           await reader.cancel().catch(() => undefined);
@@ -205,41 +234,8 @@ export async function* streamChatCompletion(
 
   // 残留 buffer flush
   if (buffer && buffer !== '') {
-    const lines = buffer.split('\n');
-    for (const line0 of lines) {
-      const line = line0.trim();
-      if (!line.startsWith('data:')) continue;
-      const payload = line.slice(5).trim();
-      if (!payload || payload === '[DONE]') continue;
-      let json: {
-        choices?: Array<{
-          delta?: { content?: string; tool_calls?: Array<{ index?: number; function?: { name?: string; arguments?: string } }> };
-          finish_reason?: string | null;
-        }>;
-      };
-      try {
-        json = JSON.parse(payload);
-      } catch {
-        continue;
-      }
-      const choice = json.choices?.[0];
-      const delta = choice?.delta;
-      const content = delta?.content;
-      const toolCallsDelta = delta?.tool_calls;
-      if (toolCallsDelta && toolCallsDelta.length) {
-        for (const tc of toolCallsDelta) {
-          const index = tc.index ?? 0;
-          const cur = toolAcc.get(index) ?? { name: '', arguments: '' };
-          if (tc.function?.name) cur.name += tc.function.name;
-          if (tc.function?.arguments) cur.arguments += tc.function.arguments;
-          toolAcc.set(index, cur);
-        }
-        if (choice?.finish_reason === 'tool_calls' && toolAcc.size) {
-          yield { delta: '', toolCalls: flushToolCalls(toolAcc) };
-        }
-      } else if (content && content.length > 0) {
-        yield { delta: content };
-      }
+    for (const chunk of processSseLines(buffer.split('\n'), toolAcc)) {
+      yield chunk;
     }
     if (toolAcc.size) {
       yield { delta: '', toolCalls: flushToolCalls(toolAcc) };

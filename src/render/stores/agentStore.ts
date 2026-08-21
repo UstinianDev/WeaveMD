@@ -17,8 +17,11 @@ import type {
   IKbSettings,
   KbStatusResponse,
 } from '@shared/ai';
-import { DEFAULT_KB_SETTINGS } from '@shared/ai';
+import { DEFAULT_KB_SETTINGS, needsConsent } from '@shared/ai';
 import type { WeaveMDApi } from '@main/preload';
+
+// re-export 统一版 needsConsent（保持从 agentStore 导入的向后兼容）
+export { needsConsent } from '@shared/ai';
 import { useAuthStore } from './authStore';
 import { useEditorStore } from '@render/stores/editorStore';
 
@@ -35,26 +38,6 @@ function getKb(): KbApi {
 }
 
 export type ConsentAction = 'chat' | 'agent';
-
-/**
- * 知情同意判定（与主进程服务端 consent.ts 语义一致）：
- * - chat:  remote 且未 allowNetwork -> 需同意（唯一后端，恒 remote）；
- * - agent: remote 需 allowNetwork（联网外发）；
- * - config 缺失一律按「需同意」处理（先配置再放行）。
- * - 知识库检索外发（allowSend）在 sendAgentMessage 内单独 gating（useKnowledgeBase 时）。
- */
-export function needsConsent(
-  config: IAIConfig | null,
-  consent: IAIConsent | null,
-  action: ConsentAction = 'chat'
-): boolean {
-  if (!config) return true;
-  if (action === 'agent') {
-    return config.backend === 'remote' && !consent?.allowNetwork;
-  }
-  // chat
-  return !consent?.allowNetwork;
-}
 
 interface AgentStore {
   activeTab: 'chat' | 'agent';
@@ -154,6 +137,70 @@ const RESET_FIELDS: Pick<
 
 const makeId = () => `m-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+// ---------------------------------------------------------------------------
+// Stream 管理器（sendMessage / sendAgentMessage 共享逻辑提取）
+// ---------------------------------------------------------------------------
+
+interface StreamManagerOptions {
+  conversationId: string;
+  onTool?: (evt: IAgentToolCall) => void;
+  finishAndPersist: () => void;
+}
+
+/**
+ * 创建流式订阅管理器：封装 onStream 订阅 + chunk 累积 + done/error 结束。
+ * 调用方只需提供 onTool（agent 模式）和 finish 回调。
+ */
+function createStreamManager(
+  opts: StreamManagerOptions,
+  set: (fn: (s: AgentStore) => Partial<AgentStore>) => void,
+  get: () => AgentStore
+): { subscribe: () => void; unsubscribe: () => void; finishWithoutPersist: () => void } {
+  let unsub: (() => void) | null = null;
+
+  const finishWithoutPersist = (): void => {
+    unsub?.();
+    unsub = null;
+    set((s) => ({ isStreaming: false, streamUnsubscribe: null, streamBuffer: '' }));
+  };
+
+  const subscribe = (): void => {
+    const ai = getAi();
+    unsub = ai.onStream((evt) => {
+      if (evt.conversationId !== opts.conversationId) return;
+      if (evt.type === 'chunk') {
+        set((s) => ({ streamBuffer: s.streamBuffer + evt.delta }));
+        return;
+      }
+      if (evt.type === 'tool' && opts.onTool) {
+        opts.onTool({
+          toolCallId: evt.toolCallId,
+          name: evt.name,
+          args: evt.args,
+          status: evt.status,
+          ...(evt.result !== undefined ? { result: evt.result } : {}),
+          ...(evt.errorDesc !== undefined ? { errorDesc: evt.errorDesc } : {}),
+        });
+        return;
+      }
+      if (evt.type === 'done') {
+        opts.finishAndPersist();
+        return;
+      }
+      if (evt.type === 'error') {
+        finishWithoutPersist();
+      }
+    });
+  };
+
+  const unsubscribe = (): void => {
+    unsub?.();
+    unsub = null;
+  };
+
+  return { subscribe, unsubscribe, finishWithoutPersist };
+}
+
 export const useAgentStore = create<AgentStore>((set, get) => ({
   activeTab: 'chat',
   ...RESET_FIELDS,
@@ -202,10 +249,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   async sendMessage(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const { config, consent, activeConversationId, activeMode } = get();
+    const { consent, activeConversationId, activeMode } = get();
 
     // 铁律二：联网/笔记外发必须知情同意（chat）
-    if (needsConsent(config, consent, 'chat')) {
+    if (needsConsent(consent)) {
       set({ pendingConsent: true });
       return;
     }
@@ -220,7 +267,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       conversationId = createRes.data.id;
       set({ activeConversationId: conversationId, activeMode: 'chat' });
       await get().loadConversations('chat');
-      // R20: 首条消息写入会话标题（截断 50 字符），复用 updateConversationSummary
       const firstMsg = trimmed.slice(0, 50);
       await ai.updateConversationSummary(conversationId, userId, firstMsg);
       await get().loadConversations(activeMode);
@@ -241,62 +287,47 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       pendingConsent: false,
     }));
 
-    let unsubscribe: (() => void) | null = null;
-
-    const finishStream = (persist: boolean) => {
+    const appendAssistant = (): void => {
       const { streamBuffer } = get();
-      const finalContent = streamBuffer;
-      unsubscribe?.();
       set((s) => ({
         isStreaming: false,
         streamUnsubscribe: null,
         streamBuffer: '',
-        messages: persist
-          ? [
-              ...s.messages,
-              {
-                id: makeId(),
-                conversationId: conversationId ?? '',
-                role: 'assistant' as const,
-                content: finalContent,
-                refsJson: null,
-                createdAt: new Date().toISOString(),
-              },
-            ]
-          : s.messages,
+        messages: [
+          ...s.messages,
+          {
+            id: makeId(),
+            conversationId: conversationId ?? '',
+            role: 'assistant' as const,
+            content: streamBuffer,
+            refsJson: null,
+            createdAt: new Date().toISOString(),
+          },
+        ],
       }));
     };
 
-    unsubscribe = ai.onStream((evt) => {
-      if (evt.conversationId !== conversationId) return;
-      if (evt.type === 'chunk') {
-        set((s) => ({ streamBuffer: s.streamBuffer + evt.delta }));
-        return;
-      }
-      if (evt.type === 'done') {
-        finishStream(true);
-        return;
-      }
-      if (evt.type === 'error') {
-        finishStream(false);
-      }
-    });
-    set({ streamUnsubscribe: unsubscribe });
+    const mgr = createStreamManager({
+      conversationId,
+      finishAndPersist: appendAssistant,
+    }, set, get);
+    mgr.subscribe();
+    set({ streamUnsubscribe: mgr.unsubscribe });
 
     try {
       await ai.chat({ userId, conversationId, message: trimmed });
     } catch {
-      finishStream(false);
+      mgr.finishWithoutPersist();
     }
   },
 
   async sendAgentMessage(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const { config, consent, activeConversationId, useKnowledgeBase, activeMode } = get();
+    const { consent, activeConversationId, useKnowledgeBase, activeMode } = get();
 
     // 铁律二：agent 模式联网外发 + 知识库检索外发均需知情同意
-    if (needsConsent(config, consent, 'agent')) {
+    if (needsConsent(consent)) {
       set({ pendingConsent: true });
       return;
     }
@@ -316,7 +347,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       conversationId = createRes.data.id;
       set({ activeConversationId: conversationId, activeMode: 'agent' });
       await get().loadConversations('agent');
-      // R20: 首条消息写入会话标题（截断 50 字符），复用 updateConversationSummary
       const firstMsg = trimmed.slice(0, 50);
       await ai.updateConversationSummary(conversationId, userId, firstMsg);
       await get().loadConversations(activeMode);
@@ -340,63 +370,38 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       intentCard: null,
     }));
 
-    let unsubscribe: (() => void) | null = null;
-
-    const finishStream = (persist: boolean) => {
+    const appendAssistant = (): void => {
       const { streamBuffer } = get();
-      const finalContent = streamBuffer;
-      unsubscribe?.();
       set((s) => ({
         isStreaming: false,
         streamUnsubscribe: null,
         streamBuffer: '',
-        messages: persist
-          ? [
-              ...s.messages,
-              {
-                id: makeId(),
-                conversationId: conversationId ?? '',
-                role: 'assistant' as const,
-                content: finalContent,
-                refsJson: null,
-                createdAt: new Date().toISOString(),
-              },
-            ]
-          : s.messages,
+        messages: [
+          ...s.messages,
+          {
+            id: makeId(),
+            conversationId: conversationId ?? '',
+            role: 'assistant' as const,
+            content: streamBuffer,
+            refsJson: null,
+            createdAt: new Date().toISOString(),
+          },
+        ],
       }));
     };
 
-    unsubscribe = ai.onStream((evt) => {
-      if (evt.conversationId !== conversationId) return;
-      if (evt.type === 'chunk') {
-        set((s) => ({ streamBuffer: s.streamBuffer + evt.delta }));
-        return;
-      }
-      if (evt.type === 'tool') {
-        // 工具调用轨迹流式累积（专供 ToolCallTrace 回显）
-        const toolCall: IAgentToolCall = {
-          toolCallId: evt.toolCallId,
-          name: evt.name,
-          args: evt.args,
-          status: evt.status,
-          ...(evt.result !== undefined ? { result: evt.result } : {}),
-          ...(evt.errorDesc !== undefined ? { errorDesc: evt.errorDesc } : {}),
-        };
+    const mgr = createStreamManager({
+      conversationId,
+      onTool: (toolCall) => {
         set((s) => {
-          const rest = s.toolCalls.filter((c) => c.toolCallId !== evt.toolCallId);
+          const rest = s.toolCalls.filter((c) => c.toolCallId !== toolCall.toolCallId);
           return { toolCalls: [...rest, toolCall] };
         });
-        return;
-      }
-      if (evt.type === 'done') {
-        finishStream(true);
-        return;
-      }
-      if (evt.type === 'error') {
-        finishStream(false);
-      }
-    });
-    set({ streamUnsubscribe: unsubscribe });
+      },
+      finishAndPersist: appendAssistant,
+    }, set, get);
+    mgr.subscribe();
+    set({ streamUnsubscribe: mgr.unsubscribe });
 
     try {
       const res = await ai.runAgent({
@@ -413,7 +418,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       const failedCode = (res as unknown as { code?: string }).code;
       if (!res.success && failedCode === 'consent_required') {
         // 服务端同意闸未过（联网闸兜底）：弹同意页而非静默丢弃，同意后用户重发。
-        finishStream(false);
+        mgr.finishWithoutPersist();
         set({ pendingConsent: true });
         return;
       }
@@ -423,11 +428,11 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       }
     } catch (err) {
       if ((err as { code?: string })?.code === 'consent_required') {
-        finishStream(false);
+        mgr.finishWithoutPersist();
         set({ pendingConsent: true });
         return;
       }
-      finishStream(false);
+      mgr.finishWithoutPersist();
     }
   },
 

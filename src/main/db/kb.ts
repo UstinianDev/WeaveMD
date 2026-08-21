@@ -1,9 +1,9 @@
 // ============================================
 // WeaveMD — 知识库 Database Operations
 // ============================================
-// kb_documents / kb_chunks 表 DAO + float32 BLOB 编解码工具。
+// kb_documents / kb_chunks 表 DAO。
 // 全部操作按 user_id / document_id 参数化过滤，绝无字符串拼接（SECURITY.md）。
-// 向量以 Buffer（float32 little-endian）BLOB 存储；语义解码见 encodeFloat32Array/decodeFloat32Array。
+// 向量/embedding 已随后端收敛 remote-only 去除，仅 FTS5 关键词召回。
 
 import { randomUUID } from 'crypto';
 import { getDatabase } from './index';
@@ -11,26 +11,6 @@ import type { IKbDocumentStatus } from '@shared/ai';
 
 export type KbDocumentStatus = IKbDocumentStatus['status'];
 export type KbSourceType = IKbDocumentStatus['sourceType'];
-
-// ---------------------------------------------------------------------------
-// float32 BLOB 编解码（little-endian）
-// ---------------------------------------------------------------------------
-
-/** 将 number[] 编码为 little-endian float32 Buffer（部分向量 BLOB 落库）。 */
-export function encodeFloat32Array(nums: number[]): Buffer {
-  const buf = Buffer.alloc(nums.length * 4);
-  const view = new DataView(buf.buffer);
-  for (let i = 0; i < nums.length; i++) {
-    view.setFloat32(i * 4, nums[i], true);
-  }
-  return buf;
-}
-
-/** 将 float32（little-endian）BLOB 解码为 Float32Array；非 4 对齐末尾截断。 */
-export function decodeFloat32Array(buf: Buffer): Float32Array {
-  const usable = Math.floor(buf.length / 4) * 4;
-  return new Float32Array(buf.buffer, buf.byteOffset, usable / 4);
-}
 
 // ---------------------------------------------------------------------------
 // kb_documents
@@ -189,7 +169,6 @@ export interface KbChunkRow {
   documentId: string;
   seq: number;
   content: string;
-  vector: Buffer | null;
   sourceRef: string | null;
   createdAt: string;
 }
@@ -199,7 +178,6 @@ interface KbChunkDbRow {
   document_id: string;
   seq: number;
   content: string;
-  vector: Buffer | null;
   source_ref: string | null;
   created_at: string;
 }
@@ -210,7 +188,6 @@ function mapChunkRow(row: KbChunkDbRow): KbChunkRow {
     documentId: row.document_id,
     seq: row.seq,
     content: row.content,
-    vector: row.vector ?? null,
     sourceRef: row.source_ref ?? null,
     createdAt: row.created_at,
   };
@@ -220,7 +197,6 @@ export interface InsertChunkInput {
   documentId: string;
   seq: number;
   content: string;
-  vector?: Buffer | null;
   sourceRef?: string | null;
 }
 
@@ -229,9 +205,9 @@ export function insertChunk(chunk: InsertChunkInput): KbChunkRow {
   const id = randomUUID();
   db.prepare(
     `INSERT INTO kb_chunks
-       (id, document_id, seq, content, vector, source_ref)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(id, chunk.documentId, chunk.seq, chunk.content, chunk.vector ?? null, chunk.sourceRef ?? null);
+       (id, document_id, seq, content, source_ref)
+     VALUES (?, ?, ?, ?, ?)`
+  ).run(id, chunk.documentId, chunk.seq, chunk.content, chunk.sourceRef ?? null);
   // 回读失败（如 FakeDatabase 隔离）时以写入值组装，保证返回形状稳定。
   const row = db.prepare('SELECT * FROM kb_chunks WHERE id = ?').get(id) as
     | KbChunkDbRow
@@ -242,7 +218,6 @@ export function insertChunk(chunk: InsertChunkInput): KbChunkRow {
     documentId: chunk.documentId,
     seq: chunk.seq,
     content: chunk.content,
-    vector: chunk.vector ?? null,
     sourceRef: chunk.sourceRef ?? null,
     createdAt: new Date().toISOString(),
   };

@@ -61,7 +61,6 @@ vi.mock('@main/db/index', () => ({
   getDatabase: () => new FakeDatabase(),
 }));
 
-import { encodeFloat32Array } from '@main/db/kb';
 import {
   deleteAllKbForUser,
   deleteChunksByDoc,
@@ -136,13 +135,11 @@ describe('kb DAO — SQL 参数化与 user_id 归属过滤', () => {
     expect(stmt?.args).toEqual(['u1']);
   });
 
-  it('insertChunk 绑定 document_id / seq / content / vector BLOB / source_ref', () => {
-    const vector = encodeFloat32Array([0.1, 0.2, 0.3]);
+  it('insertChunk 绑定 document_id / seq / content / source_ref', () => {
     insertChunk({
       documentId: 'doc1',
       seq: 0,
       content: '片断文本',
-      vector,
       sourceRef: JSON.stringify({ fileName: 'n.md', line: 1 }),
     });
     const insert = callOf('run', 'INSERT INTO kb_chunks');
@@ -150,8 +147,7 @@ describe('kb DAO — SQL 参数化与 user_id 归属过滤', () => {
     expect(insert?.args[1]).toBe('doc1');
     expect(insert?.args[2]).toBe(0);
     expect(insert?.args[3]).toBe('片断文本');
-    expect(insert?.args[4]).toBeInstanceOf(Buffer);
-    expect(insert?.args[5]).toContain('fileName');
+    expect(insert?.args[4]).toContain('fileName');
   });
 
   it('deleteChunksByDoc 按 document_id 清理', () => {
@@ -166,13 +162,5 @@ describe('kb DAO — SQL 参数化与 user_id 归属过滤', () => {
     const stmt = callOf('all', 'FROM kb_chunks');
     expect(stmt?.sql).toMatch(/WHERE document_id = \?/);
     expect(stmt?.args).toEqual(['doc1']);
-  });
-});
-
-describe('float32 工具经 DAO 类型链路', () => {
-  it('encode 产出 Buffer 且被 insertChunk 传递', () => {
-    const vector = encodeFloat32Array([1, 2, 3]);
-    expect(Buffer.isBuffer(vector)).toBe(true);
-    expect(vector.length).toBe(12);
   });
 });
