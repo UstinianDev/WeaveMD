@@ -50,9 +50,6 @@ const AgentTab: React.FC = () => {
 
   return (
     <div ref={messageListRef} className="chat-scroll flex-1 overflow-y-auto py-2 space-y-1.5">
-      {/* agent 模式：改写预览卡片（选区/@ 改写提案确认，红删绿增 + 确认/取消） */}
-      {isAgentMode && <RewritePreviewCard />}
-
       {messages.length === 0 && (
         <div className="flex flex-col items-center justify-center h-full text-center px-6 space-y-2">
           <p className="text-[15px] text-text-muted">{t('ai.empty.noMessage')}</p>
@@ -81,6 +78,9 @@ const AgentTab: React.FC = () => {
             )}
         </div>
       ))}
+
+      {/* agent 模式：改写预览卡片（选区/@ 改写提案确认，红删绿增 + 确认/取消）——在消息列表之后显示 */}
+      {isAgentMode && <RewritePreviewCard />}
 
       {/* agent 模式：工具轨迹（当前轮累积，与消息列表共存——空消息也可显示轨迹） */}
       {isAgentMode &&

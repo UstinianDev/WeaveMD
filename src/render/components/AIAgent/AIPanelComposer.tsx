@@ -15,6 +15,7 @@ import { useAgentStore } from '@render/stores/agentStore';
 import { useEditorStore } from '@render/stores/editorStore';
 import { useRewriteStore } from '@render/stores/rewriteStore';
 import CompletionMenu, { type CompletionMenuItem } from './CompletionMenu';
+import ContextRing from './ContextRing';
 import ModelDropdown from './ModelDropdown';
 
 /** 引用前缀常量（B1 注入协议，与 handleSend 分流/意图消费对齐）。 */
@@ -79,13 +80,6 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
     const ratio = usedTokens / MAX_CONTEXT_TOKENS;
     return { usedTokens, ratio };
   }, [messages, streamBuffer]);
-
-  /** 上下文指示器颜色：绿(<50%) / 黄(50-80%) / 红(>80%)。 */
-  const getContextColor = (ratio: number): string => {
-    if (ratio > 0.8) return 'bg-red-500';
-    if (ratio > 0.5) return 'bg-yellow-500';
-    return 'bg-green-500';
-  };
 
   const contextTooltip = t(
     'ai.context.tooltip',
@@ -370,18 +364,13 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
           <option value="agent">{t('ai.tab.agent')}</option>
         </select>
         <ModelDropdown />
-        {/* R5: 上下文指示器 */}
-        <div
-          title={contextTooltip}
-          className="flex items-center gap-1 ml-1 cursor-help"
-        >
-          <div className={`w-2 h-2 rounded-full ${getContextColor(contextEstimate.ratio)}`} />
-          <span className="text-[11px] text-text-muted">
-            {contextEstimate.usedTokens >= 1000
-              ? `${Math.round(contextEstimate.usedTokens / 1000)}k`
-              : contextEstimate.usedTokens}
-          </span>
-        </div>
+        {/* R5: 上下文指示器（圆环形） */}
+        <ContextRing
+          usedTokens={contextEstimate.usedTokens}
+          maxTokens={MAX_CONTEXT_TOKENS}
+          ratio={contextEstimate.ratio}
+          tooltip={contextTooltip}
+        />
         <div className="ml-auto flex items-center gap-1.5">
           {isStreaming ? (
             <button

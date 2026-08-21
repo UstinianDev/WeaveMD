@@ -157,7 +157,8 @@
   A2 混合类型工具栏（mouseup 弹 AI 改写）+ A3 选区改写 → **覆盖块整块渐变蓝高亮（.rewrite-highlight 纯 CSS overlay 不入 contentEditable）+ 左端取消胶囊（.rewrite-cancel-capsule）** +
   B1 / @ 补全（AGENT_SKILLS_LIST 只读 IPC + CompletionMenu）+ B2 命名「智能体」（文案+i18n）+ B3 双 Tab 合并单面板 + 模式下拉（activeMode 域隔离）+ C1 美化
 - 延期不交付：真 MCP server 管理（fetchContext7/fetchFirecrawl）、GitHub 自取 writing-shape；
-- AI 面板体验优化（2026-08-21）：① 主界面最近会话删除按钮（🗑 + confirm）+ ② 历史会话列表视图（View All → history）+ ③ 会话标题栏布局（标题+🗑+×）+ ④ /compact 命令压缩上下文（含 CompletionMenu 补全，chat/agent 双模式）+ ⑤ 底栏上下文指示器（绿/黄/红圆点 + token 估算）+ ⑥ 选区改写消息入会话（user 消息 + 预览卡片作 AI 回复）+ ⑦ 改写预览仅 diff（可折叠 15px + AI 改动说明，移除整段输出）+ ⑧ 编辑器+目录区字体统一（Consolas+KaiTi）
+- AI 面板体验优化（2026-08-21）：① 主界面最近会话删除按钮（🗑 + confirm）+ ② 历史会话列表视图（View All → history）+ ③ 会话标题栏布局（标题+🗑+×）+ ④ /compact 命令压缩上下文（含 CompletionMenu 补全，chat/agent 双模式）+ ⑤ 底栏上下文指示器（圆环形进度条 + token 估算，悬停显示占比）+ ⑥ 选区改写消息入会话（user 消息 + 预览卡片作 AI 回复）+ ⑦ 改写预览仅 diff（可折叠 15px + AI 改动说明，移除整段输出）+ ⑧ 编辑器+目录区字体统一（Consolas+KaiTi）
+- AI 面板体验修复（2026-08-22）：⑨ 选区改写预览卡片位置修正（移至消息列表之后，跟随改写请求而非固定最上方）+ ⑩ AI 回答自动换行（whitespace-pre-wrap）
   门禁全绿（第 6 期：typecheck 0 | vitest 90/1261 | lint 0 | Playwright 14/14 | 真库迁移 smoke 0；第 7 期：typecheck 0 | vitest 93/1338 | lint 0 | Playwright 24/24）
 
 ## 已知限制（详见 docs/specs/editor-v2-progress.md §13.x）

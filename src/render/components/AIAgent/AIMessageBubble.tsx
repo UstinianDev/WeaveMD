@@ -152,7 +152,7 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
           </div>
         ) : (
           <div
-            className={`rounded-2xl rounded-tl-md px-3.5 py-2 text-[15px] leading-relaxed break-words bg-bg-secondary border border-[var(--border-color)] shadow-sm`}
+            className={`rounded-2xl rounded-tl-md px-3.5 py-2 text-[15px] leading-relaxed break-words whitespace-pre-wrap bg-bg-secondary border border-[var(--border-color)] shadow-sm`}
           >
             {isStreaming && !content ? (
               <span className="inline-block w-2 h-4 animate-pulse text-text-muted">▍</span>
