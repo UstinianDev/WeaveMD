@@ -234,16 +234,19 @@ describe('AIAgentPanel（三视图外壳）', () => {
     );
   });
 
-  it('M4: home↔session 共享同一草稿（切换视图不丢失）', () => {
+  it('M4: home↔settings↔home 共享同一草稿（切换视图不丢失）', () => {
     render(<AIAgentPanel />);
     fireEvent.change(screen.getByPlaceholderText('输入你的问题...'), {
       target: { value: '共享草稿' },
     });
     expect(lastHomeDraft).toBe('共享草稿');
-    // 点 ViewAll（home → session，不触发清空）→ session composer 受控 value 继承同一草稿
-    fireEvent.click(screen.getByTestId('mock-view-all'));
-    expect(screen.getByTestId('view-session')).toBeInTheDocument();
-    expect(lastSessionDraft).toBe('共享草稿');
+    // 点 ⚙ 进 settings（home → settings，不触发清空）
+    fireEvent.click(screen.getByTestId('open-settings-btn'));
+    expect(screen.getByTestId('view-settings')).toBeInTheDocument();
+    // settings 返回 → 回 home，草稿仍在
+    fireEvent.click(screen.getByTestId('settings-back'));
+    expect(screen.getByTestId('view-home')).toBeInTheDocument();
+    expect(lastHomeDraft).toBe('共享草稿');
     expect((screen.getByPlaceholderText('输入你的问题...') as HTMLTextAreaElement).value).toBe(
       '共享草稿'
     );

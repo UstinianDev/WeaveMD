@@ -219,6 +219,74 @@ describe('readDocumentSelection — A4 叶序下标（含容器块 DOM 场景）
   });
 });
 
+describe('readDocumentSelection — 多行段落 <br> ↔ \\n 映射', () => {
+  /** 挂载含 <br> 的多行内容 span（模拟行内渲染器的 <br> 换行） */
+  function mountMultilineSpan(id: string, lines: string[]): HTMLSpanElement {
+    const el = document.createElement('span');
+    el.className = 'block-content';
+    el.setAttribute('data-block-id', id);
+    el.contentEditable = 'true';
+    el.innerHTML = lines.map((l) => l || '​').join('<br>');
+    document.body.appendChild(el);
+    return el;
+  }
+
+  it('含 <br> 的段落：readDocumentSelection 正确匹配 leaf.text（\\n）', () => {
+    // DOM: "Line1<br>Line2" → spanTextWithNewlines = "Line1\nLine2"
+    const b1 = mountMultilineSpan('ml1', ['Line1', 'Line2']);
+    // 选区在第一个文本节点 "Line1" 内（offset 2~5 = "ne1"）
+    const firstText = b1.firstChild as Node;
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    const range = document.createRange();
+    range.setStart(firstText, 2);
+    range.setEnd(firstText, 5);
+    sel.addRange(range);
+
+    const content = 'Line1\nLine2';
+    const result = readDocumentSelection(content);
+    expect(result).not.toBeNull();
+    expect(result!.startLeafIndex).toBe(0);
+    expect(result!.endLeafIndex).toBe(0);
+    expect(result!.startBlockId).toBe('ml1');
+  });
+
+  it('含 <br> 的段落 + 普通段落：跨块选区正常', () => {
+    const ml = mountMultilineSpan('ml2', ['Alpha', 'Beta']);
+    const normal = mountSpan('n1', 'tail');
+    // 选区：ml 第一个文本节点 offset 1 → normal offset 3
+    const mlFirstText = ml.firstChild as Node;
+    const normalText = normal.firstChild as Node;
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    const range = document.createRange();
+    range.setStart(mlFirstText, 1);
+    range.setEnd(normalText, 3);
+    sel.addRange(range);
+
+    const content = 'Alpha\nBeta\n\ntail';
+    const result = readDocumentSelection(content);
+    expect(result).not.toBeNull();
+    expect(result!.startLeafIndex).toBe(0);
+    expect(result!.endLeafIndex).toBe(1);
+  });
+
+  it('失同步：含 <br> 的 DOM 与不含 \\n 的 content → null', () => {
+    // DOM: "Line1<br>Line2" → spanTextWithNewlines = "Line1\nLine2"
+    // content: "Line1Line2"（无换行）→ 不匹配 → null
+    const ml = mountMultilineSpan('ml3', ['Line1', 'Line2']);
+    const firstText = ml.firstChild as Node;
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    const range = document.createRange();
+    range.setStart(firstText, 0);
+    range.setEnd(firstText, 5);
+    sel.addRange(range);
+
+    expect(readDocumentSelection('Line1Line2')).toBeNull();
+  });
+});
+
 describe('exportSelectionMarkdown — 选区片段导出', () => {
   it('同块选区：首尾 offset 截取成一条片段（不含未选中字节）', () => {
     const sel: SelectionRef = {

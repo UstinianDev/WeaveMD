@@ -6,10 +6,9 @@
 // 取消 → clearRewrite。各状态提示：rewriting / staleRejected / no-change / locate-failed / failure。
 // 无 dangerouslySetInnerHTML（复用 aiMarkdown 白名单渲染）。
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useI18n } from '@render/i18n';
 import { useRewriteStore } from '@render/stores/rewriteStore';
-import { renderAIMarkdownSafe } from '@render/services/aiMarkdown';
 import { diffLines } from '@render/filters/rewriteDiff';
 
 const RewritePreviewCard: React.FC = () => {
@@ -21,6 +20,9 @@ const RewritePreviewCard: React.FC = () => {
   const applyRewrite = useRewriteStore((s) => s.applyRewrite);
   const clearRewrite = useRewriteStore((s) => s.clearRewrite);
   const dismissRewriteBanner = useRewriteStore((s) => s.dismissRewriteBanner);
+
+  // R7: diff 折叠状态（默认展开）
+  const [diffExpanded, setDiffExpanded] = useState(true);
 
   // 改写进行中
   if (rewriting) {
@@ -85,6 +87,10 @@ const RewritePreviewCard: React.FC = () => {
   const { originalMd, rewrittenMd } = pendingRewrite;
   const lines = diffLines(originalMd, rewrittenMd);
 
+  // R7: diff 统计
+  const delCount = lines.filter((l) => l.type === 'del').length;
+  const insCount = lines.filter((l) => l.type === 'ins').length;
+
   return (
     <div className="mx-3 my-1 rounded-card border border-border bg-bg-tertiary/60 overflow-hidden shadow-sm">
       {staleRejected && (
@@ -112,28 +118,53 @@ const RewritePreviewCard: React.FC = () => {
         </div>
       </div>
 
-      {/* body：行级红删绿增 diff */}
-      <div className="px-3 py-2 font-mono text-[13px] space-y-0.5 max-h-40 overflow-y-auto bg-bg-primary/60">
-        {lines.map((ln, i) => (
-          <div
-            key={i}
-            data-type={ln.type}
-            className={[
-              'whitespace-pre-wrap px-1 rounded-sm',
-              ln.type === 'del' ? 'text-red-500 bg-red-500/10' : '',
-              ln.type === 'ins' ? 'text-green-600 bg-green-500/10' : '',
-              ln.type === 'same' ? 'text-text-muted' : '',
-            ].join(' ')}
+      {/* R7: diff 区域（可折叠，字体放大） */}
+      <div className="border-b border-border">
+        <div className="flex items-center justify-between px-3 py-1.5 bg-bg-primary/40">
+          <span className="text-[13px] font-medium text-text-sub">
+            {t('ai.rewrite.diff')}（−{delCount} / +{insCount}）
+          </span>
+          <button
+            type="button"
+            onClick={() => setDiffExpanded((prev) => !prev)}
+            className="text-[12px] px-2 py-0.5 rounded-input text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
           >
-            {ln.type === 'del' ? '− ' : ln.type === 'ins' ? '+ ' : '  '}
-            {ln.line}
+            {diffExpanded ? t('ai.rewrite.collapse') : t('ai.rewrite.expand')}
+          </button>
+        </div>
+        {diffExpanded && (
+          <div className="px-3 py-2 font-mono text-[15px] space-y-0.5 max-h-60 overflow-y-auto bg-bg-primary/60">
+            {lines.map((ln, i) => (
+              <div
+                key={i}
+                data-type={ln.type}
+                className={[
+                  'whitespace-pre-wrap px-1 rounded-sm',
+                  ln.type === 'del' ? 'text-red-500 bg-red-500/10' : '',
+                  ln.type === 'ins' ? 'text-green-600 bg-green-500/10' : '',
+                  ln.type === 'same' ? 'text-text-muted' : '',
+                ].join(' ')}
+              >
+                {ln.type === 'del' ? '− ' : ln.type === 'ins' ? '+ ' : '  '}
+                {ln.line}
+              </div>
+            ))}
           </div>
-        ))}
+        )}
       </div>
 
-      {/* 改写后整段安全渲染 */}
-      <div className="px-3 py-2 border-t border-border text-[15px] text-text-primary">
-        {renderAIMarkdownSafe(rewrittenMd)}
+      {/* R7: AI 改动说明 */}
+      <div className="px-3 py-2 border-t border-border">
+        <span className="text-[13px] font-medium text-text-sub">{t('ai.rewrite.aiComment')}</span>
+        <p className="text-[14px] text-text-primary mt-1">
+          {delCount > 0 && insCount > 0
+            ? `删除了 ${delCount} 行，新增了 ${insCount} 行内容。`
+            : delCount > 0
+              ? `删除了 ${delCount} 行内容。`
+              : insCount > 0
+                ? `新增了 ${insCount} 行内容。`
+                : '无变化。'}
+        </p>
       </div>
     </div>
   );

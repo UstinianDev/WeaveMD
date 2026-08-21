@@ -13,12 +13,12 @@ import { useAuthStore } from '@render/stores/authStore';
 import { useAgentStore } from '@render/stores/agentStore';
 import { useUIStore } from '@render/stores/uiStore';
 import { useRewriteStore } from '@render/stores/rewriteStore';
-import AIPanelHome from './AIPanelHome';
+import AIPanelHome, { formatRecentDate } from './AIPanelHome';
 import AIPanelSession from './AIPanelSession';
 import AIPanelSettings from './AIPanelSettings';
 import ConsentOverlay from './ConsentOverlay';
 
-type View = 'home' | 'session' | 'settings';
+type View = 'home' | 'session' | 'settings' | 'history';
 
 const AIAgentPanel: React.FC = () => {
   const { t } = useI18n();
@@ -30,6 +30,8 @@ const AIAgentPanel: React.FC = () => {
   const init = useAgentStore((s) => s.init);
   const newChat = useAgentStore((s) => s.newChat);
   const loadConversation = useAgentStore((s) => s.loadConversation);
+  const deleteConversation = useAgentStore((s) => s.deleteConversation);
+  const conversations = useAgentStore((s) => s.conversations);
   const activeMode = useAgentStore((s) => s.activeMode);
 
   const aiPanelWidth = useUIStore((s) => s.aiPanelWidth);
@@ -127,6 +129,19 @@ const AIAgentPanel: React.FC = () => {
     setDraft('');
   };
 
+  // R2: 历史会话删除
+  const handleDeleteHistory = (id: string) => {
+    if (window.confirm(t('ai.home.deleteConfirm'))) {
+      void deleteConversation(id);
+    }
+  };
+
+  // R2: 历史会话列表（按 updatedAt 倒序）
+  const sortedConversations = React.useMemo(
+    () => [...conversations].sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')),
+    [conversations]
+  );
+
   // 顶部栏（home/session 共用；settings 也保留顶部栏以便 ⚙ 返回/关面板）
   const renderTopBar = (rightExtra: React.ReactNode) => (
     <div className="flex items-center justify-between gap-2 px-3 h-12 border-b border-border bg-bg-secondary flex-shrink-0">
@@ -187,7 +202,7 @@ const AIAgentPanel: React.FC = () => {
               draft={draft}
               setDraft={setDraft}
               onOpenConversation={handleOpenConversation}
-              onViewAll={() => setView('session')}
+              onViewAll={() => setView('history')}
               onCreateSession={() => setView('session')}
             />
           )}
@@ -200,6 +215,62 @@ const AIAgentPanel: React.FC = () => {
           )}
           {view === 'settings' && (
             <AIPanelSettings onBack={() => setView('home')} />
+          )}
+          {view === 'history' && (
+            <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+              {/* 历史会话标题栏 */}
+              <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+                <button
+                  type="button"
+                  onClick={() => setView('home')}
+                  className="shrink-0 text-text-muted hover:text-text-primary transition-colors"
+                >
+                  ←
+                </button>
+                <span className="flex-1 text-[15px] font-semibold text-text-primary">
+                  {t('ai.history.title')}
+                </span>
+              </div>
+              {/* 历史会话列表 */}
+              <div className="chat-scroll flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
+                {sortedConversations.length === 0 ? (
+                  <p className="text-[15px] text-text-muted py-6 text-center">
+                    {t('ai.history.empty')}
+                  </p>
+                ) : (
+                  sortedConversations.map((c) => (
+                    <div
+                      key={c.id}
+                      className="flex items-center w-full rounded-card border border-border bg-bg-secondary/40 px-3 py-2 hover:border-[var(--accent)] hover:bg-bg-tertiary transition-colors cursor-pointer"
+                      onClick={() => {
+                        void loadConversation(c.id, activeMode);
+                        setView('session');
+                        setDraft('');
+                      }}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <span className="block truncate text-[15px] text-text-primary">
+                          {c.summary || (activeMode === 'agent' ? t('ai.tab.agent') : t('ai.tab.chat'))}
+                        </span>
+                        <span className="block text-[13px] text-text-muted mt-0.5">
+                          {formatRecentDate(c.updatedAt, t)}
+                        </span>
+                      </div>
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        title={t('ai.home.delete')}
+                        onClick={(e) => { e.stopPropagation(); handleDeleteHistory(c.id); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); handleDeleteHistory(c.id); } }}
+                        className="shrink-0 w-6 h-6 flex items-center justify-center text-text-muted hover:text-red-400 transition-colors cursor-pointer"
+                      >
+                        🗑
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           )}
         </div>
 

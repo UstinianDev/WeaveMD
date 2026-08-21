@@ -24,6 +24,10 @@ vi.mock('@render/i18n', () => ({
       'ai.rewrite.locateFailed': '无法定位目标块，已拒绝应用',
       'ai.rewrite.dismiss': '关闭',
       'ai.rewrite.noDocument': '请先打开一个文档，再让 AI 整篇生成/写入',
+      'ai.rewrite.diff': '改动内容',
+      'ai.rewrite.aiComment': 'AI 的改动说明',
+      'ai.rewrite.collapse': '收起',
+      'ai.rewrite.expand': '展开',
     };
     return {
       t: (key: string, fallback?: string) => dict[key] ?? fallback ?? `[${key}]`,
@@ -48,7 +52,7 @@ describe('RewritePreviewCard', () => {
     cleanup();
   });
 
-  it('渲染红删绿增 diff + 改写后整段安全标记', () => {
+  it('渲染红删绿增 diff + AI 改动说明', () => {
     useRewriteStore.setState({ pendingRewrite: proposal });
     const { container } = render(<RewritePreviewCard />);
     expect(screen.getByText('改写预览')).toBeInTheDocument();
@@ -68,9 +72,9 @@ describe('RewritePreviewCard', () => {
     expect((delEl as HTMLElement).className).toMatch(/text-red-500/);
     expect((insEl as HTMLElement).className).toMatch(/text-green-600/);
 
-    // 改写后整段展示（renderAIMarkdownSafe 产物）；testing-library 会把换行归一化为空格
-    expect(screen.getByText(/\[MD:line1 new line3\]/)).toBeInTheDocument();
-    // 无危险注入（白名单渲染，绝无 dangerouslySetInnerHTML）
+    // R7: AI 改动说明（替代原整段输出）
+    expect(screen.getByText(/删除了 1 行，新增了 1 行内容/)).toBeInTheDocument();
+    // 无危险注入
     expect(container.innerHTML).not.toContain('dangerouslySetInnerHTML');
   });
 

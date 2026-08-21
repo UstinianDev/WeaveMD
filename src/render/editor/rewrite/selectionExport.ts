@@ -33,6 +33,28 @@ import {
 } from '@render/editor/kernel/selection';
 import type { SelectionRef } from '@shared/ai';
 
+/**
+ * 从 .block-content span 提取「带换行」的文本。
+ * textContent 会吞掉 <br>（返回 "AB" 而非 "A\nB"），但行内渲染器用 <br> 表示
+ * 段落内嵌换行（\n）。手动遍历子节点，<br> 映射为 \n，保证与 leaf.text 口径一致。
+ */
+function spanTextWithNewlines(span: Element): string {
+  let result = '';
+  for (const child of span.childNodes) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      result += child.textContent ?? '';
+    } else if (child.nodeType === Node.ELEMENT_NODE) {
+      const el = child as Element;
+      if (el.tagName === 'BR') {
+        result += '\n';
+      } else {
+        result += spanTextWithNewlines(el);
+      }
+    }
+  }
+  return result;
+}
+
 /** 从块树提取文档序叶子列表（含容器的叶子后代）。 */
 function documentOrderLeaves(tree: BlockTreeV2) {
   return getAllBlocksInOrder(tree).filter((b) => isLeafBlockType(b.type));
@@ -54,7 +76,7 @@ function rendersContentSpan(leaf: BlockNodeV2): boolean {
 function mapContentSpansToLeafIndex(content: string): { indexByPos: Map<number, number> } | null {
   const tree = markdownToState(content);
   const allLeaves = documentOrderLeaves(tree);
-  const domSpans = Array.from(document.querySelectorAll('.block-content'));
+  const domSpans = Array.from(document.querySelectorAll('.block-content')) as HTMLElement[];
   // 解析树叶 → 内容叶下标（跳过不渲染 .block-content 的非文本叶）
   const indexByPos = new Map<number, number>();
   let di = 0;
@@ -67,7 +89,7 @@ function mapContentSpansToLeafIndex(content: string): { indexByPos: Map<number, 
   if (di !== domSpans.length) return null; // 解析内容叶数与 DOM 内容叶数不一致 → 失同步
   // 逐叶文本对齐校验：任一处不一致（content 与 DOM 漂移）→ 失同步 → null（保守禁用）
   for (const [pos, li] of indexByPos) {
-    const domText = stripZeroWidth(domSpans[pos].textContent ?? '');
+    const domText = stripZeroWidth(spanTextWithNewlines(domSpans[pos]));
     const leafText = stripZeroWidth(allLeaves[li].text ?? '');
     if (domText !== leafText) return null;
   }

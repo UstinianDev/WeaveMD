@@ -21,9 +21,11 @@
   ImageToolbar（图片工具栏）+ toolbarState（纯函数）
 - `src/render/components/Editor/` — EditorView 薄编排器（v2 唯一）
 - `src/render/stores/ services/ styles/` — Zustand / markdown 服务 / globals.css
-- `src/main/ai/` — AI 主进程服务（**第1/2/3/4/5期均已交付 + 后端收敛 remote-only**：llmClient/consent/secureConfig/ipc +
+- `src/main/ai/` — AI 主进程服务（**第1/2/3/4/5期均已交付 + 后端收敛 remote-only**：llmClient/consent/secureConfig +
   kbIndexer / kbSearch / intentRouter / contextManager / toolRegistry /
-  skillLoader / agentLoop / modelList / rewrite（改写薄 LLM 代理，第5期）；`mcpManager` 真 MCP 进程管理延期）
+  skillLoader / agentLoop / modelList / rewrite（改写薄 LLM 代理，第5期）；
+  `ipc/` 按域拆分（shared + configConsent/chat/kb/agent/rewrite/model handlers，ipc.ts 薄 re-export）；
+  `mcpManager` 真 MCP 进程管理延期）
 - `src/render/components/AIAgent/` — AI 面板（**第1~7期均已交付 + 三视图重构**：AIAgentPanel 为三视图外壳
   （home 主界面 RECENT 最近3 / session 会话 / settings 设置侧栏，顶部 WeaveMD+新建+⚙+×）+
   AIPanelComposer（共享 composer：模式下拉+ModelDropdown+handleSendAgent 分流）+
@@ -41,6 +43,7 @@
 - 文档优先：改代码前先同步需求/技术文档，完成后更新进度与验证记录
 - 命名：组件 PascalCase，函数/文件 camelCase；不用 `any`
 - 标题字号：H1 26/700、H2 22/600、H3 18/600、H4 16/500、正文 14/400
+- 编辑器+目录区字体：中文楷体（KaiTi）、英文 Consolas（`.editor-scroll-container` + `.outline-scroll`）
 - 行前缀解析统一走 `src/render/services/lineMarkdown.ts`（含 U+00A0 分隔）
 
 ## 编辑主区 v2（当前主线，架构照搬 marktext/muya）
@@ -154,6 +157,7 @@
   A2 混合类型工具栏（mouseup 弹 AI 改写）+ A3 选区改写 → **覆盖块整块渐变蓝高亮（.rewrite-highlight 纯 CSS overlay 不入 contentEditable）+ 左端取消胶囊（.rewrite-cancel-capsule）** +
   B1 / @ 补全（AGENT_SKILLS_LIST 只读 IPC + CompletionMenu）+ B2 命名「智能体」（文案+i18n）+ B3 双 Tab 合并单面板 + 模式下拉（activeMode 域隔离）+ C1 美化
 - 延期不交付：真 MCP server 管理（fetchContext7/fetchFirecrawl）、GitHub 自取 writing-shape；
+- AI 面板体验优化（2026-08-21）：① 主界面最近会话删除按钮（🗑 + confirm）+ ② 历史会话列表视图（View All → history）+ ③ 会话标题栏布局（标题+🗑+×）+ ④ /compact 命令压缩上下文（含 CompletionMenu 补全，chat/agent 双模式）+ ⑤ 底栏上下文指示器（绿/黄/红圆点 + token 估算）+ ⑥ 选区改写消息入会话（user 消息 + 预览卡片作 AI 回复）+ ⑦ 改写预览仅 diff（可折叠 15px + AI 改动说明，移除整段输出）+ ⑧ 编辑器+目录区字体统一（Consolas+KaiTi）
   门禁全绿（第 6 期：typecheck 0 | vitest 90/1261 | lint 0 | Playwright 14/14 | 真库迁移 smoke 0；第 7 期：typecheck 0 | vitest 93/1338 | lint 0 | Playwright 24/24）
 
 ## 已知限制（详见 docs/specs/editor-v2-progress.md §13.x）

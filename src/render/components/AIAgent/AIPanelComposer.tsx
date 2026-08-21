@@ -7,7 +7,7 @@
 // 整篇写 / 纯 agent），不改写协议。铁律：AI 无直接落盘——改写/整篇写走预览确认，agent 工具只读。
 // 无 dangerouslySetInnerHTML、无 any。
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { AgentSkillInfo } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
@@ -22,6 +22,10 @@ const DOC_SCOPE_PREFIX = '@文档';
 const KB_SCOPE_PREFIX = '@知识库';
 /** `/技能名 ` 前缀剥除（runSkill 技能指令）。 */
 const SLASH_SKILL_RE = /^\/[a-z_]+\s+/;
+/** /compact 命令前缀。 */
+const COMPACT_CMD = '/compact';
+/** 上下文 token 估算上限（128k）。 */
+const MAX_CONTEXT_TOKENS = 128000;
 
 /**
  * A1c：整篇从 0 到 1 写文档的检测启发式。
@@ -61,9 +65,34 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
   const sendMessage = useAgentStore((s) => s.sendMessage);
   const sendAgentMessage = useAgentStore((s) => s.sendAgentMessage);
   const stopStream = useAgentStore((s) => s.stopStream);
+  const runManualCompress = useAgentStore((s) => s.runManualCompress);
+  const messages = useAgentStore((s) => s.messages);
+  const streamBuffer = useAgentStore((s) => s.streamBuffer);
 
   // 改写状态：选区改写模式（selectionContext 非空 → composer 输入改写指令）
   const selectionContext = useRewriteStore((s) => s.selectionContext);
+
+  // R5: 上下文 token 估算
+  const contextEstimate = useMemo(() => {
+    const totalChars = messages.reduce((acc, m) => acc + m.content.length, 0) + streamBuffer.length;
+    const usedTokens = Math.round(totalChars / 4);
+    const ratio = usedTokens / MAX_CONTEXT_TOKENS;
+    return { usedTokens, ratio };
+  }, [messages, streamBuffer]);
+
+  /** 上下文指示器颜色：绿(<50%) / 黄(50-80%) / 红(>80%)。 */
+  const getContextColor = (ratio: number): string => {
+    if (ratio > 0.8) return 'bg-red-500';
+    if (ratio > 0.5) return 'bg-yellow-500';
+    return 'bg-green-500';
+  };
+
+  const contextTooltip = t(
+    'ai.context.tooltip',
+    `Token 使用：${contextEstimate.usedTokens} / ${MAX_CONTEXT_TOKENS}`
+  )
+    .replace('{used}', String(contextEstimate.usedTokens))
+    .replace('{total}', String(MAX_CONTEXT_TOKENS));
 
   // —— 第 7 期 B1：/ 与 @ 自动补全（仅智能体模式可用） ——
   const [skills, setSkills] = useState<AgentSkillInfo[]>([]);
@@ -92,12 +121,20 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
   const buildCompletionItems = (trigger: '/' | '@', query: string): CompletionMenuItem[] => {
     let items: CompletionMenuItem[];
     if (trigger === '/') {
-      items = skills.map((s) => ({
-        value: s.name,
-        label: s.name,
-        description: s.description,
-        insertText: `/${s.name} `,
-      }));
+      items = [
+        {
+          value: 'compact',
+          label: t('ai.compact.command'),
+          description: t('ai.compact.description'),
+          insertText: `${COMPACT_CMD} `,
+        },
+        ...skills.map((s) => ({
+          value: s.name,
+          label: s.name,
+          description: s.description,
+          insertText: `/${s.name} `,
+        })),
+      ];
     } else {
       items = [
         {
@@ -124,6 +161,12 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
   /** 变更 input 时检测光标处 token 是否以 / 或 @ 开头，从而开/关补全菜单（仅 agent 模式）。 */
   const refreshCompletion = (value: string) => {
     if (activeMode !== 'agent') {
+      setCompletionOpen(false);
+      return;
+    }
+    // 输入完整 /compact 命令时关闭补全菜单（避免拦截 Enter）
+    const trimmed = value.trim();
+    if (trimmed === COMPACT_CMD || trimmed.startsWith(`${COMPACT_CMD} `)) {
       setCompletionOpen(false);
       return;
     }
@@ -170,9 +213,20 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skills]);
 
+  /** R4: /compact 命令处理。 */
+  const handleCompactCommand = (text: string): void => {
+    const description = text.slice(COMPACT_CMD.length).trim();
+    void runManualCompress();
+    if (description) {
+      // 有描述时，压缩后将描述作为 agent 消息发送
+      setTimeout(() => { void sendAgentMessage(description); }, 100);
+    }
+  };
+
   /** agent 模式发送分流（改写 / 技能 / 引用 / 整篇写 / 纯 agent 对话）。逐字保留自 AgentTab。 */
   const handleSendAgent = (text: string) => {
     // 分流（第 7 期 B1：/ 与 @ 前缀优先于 WRITE_WHOLE_DOC_RE 启发式判断）：
+    // 0) /compact 命令 → 压缩上下文
     // 1) 有选区上下文（编辑器「AI 改写」触发）→ 选区改写
     // 2) `/技能名 ` → 剥前缀后指令走 agent 对话（runSkill / tech 意图由 intentRouter + runSkill 工具消费）
     // 3) `@文档 `（B1 注入）→ document scope 块级改写
@@ -180,7 +234,25 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
     // 5) `@ + 描述`（手写协议）→ document scope 块级改写
     // 6) 整篇写诉求（A1c）→ runFullDocumentRewrite
     // 7) 否则 → 既有 agent 对话
+    if (text === COMPACT_CMD || text.startsWith(`${COMPACT_CMD} `)) {
+      handleCompactCommand(text);
+      return;
+    }
     if (selectionContext) {
+      // R6: 将用户改写指令作为消息显示在会话中
+      const store = useAgentStore.getState();
+      const convId = store.activeConversationId;
+      if (convId) {
+        const userMsg = {
+          id: `msg-${Date.now()}-user`,
+          conversationId: convId,
+          role: 'user' as const,
+          content: text,
+          refsJson: null,
+          createdAt: new Date().toISOString(),
+        };
+        useAgentStore.setState({ messages: [...store.messages, userMsg] });
+      }
       void useRewriteStore.getState().runSelectionRewrite(text);
       return;
     }
@@ -225,6 +297,13 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
     const text = value.trim();
     if (!text || isStreaming) return;
     setCompletionOpen(false);
+    // R4: /compact 命令在两种模式下都可用
+    if (text === COMPACT_CMD || text.startsWith(`${COMPACT_CMD} `)) {
+      handleCompactCommand(text);
+      onSend?.();
+      onCompose?.();
+      return;
+    }
     if (activeMode === 'agent') {
       handleSendAgent(text);
     } else {
@@ -291,6 +370,18 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
           <option value="agent">{t('ai.tab.agent')}</option>
         </select>
         <ModelDropdown />
+        {/* R5: 上下文指示器 */}
+        <div
+          title={contextTooltip}
+          className="flex items-center gap-1 ml-1 cursor-help"
+        >
+          <div className={`w-2 h-2 rounded-full ${getContextColor(contextEstimate.ratio)}`} />
+          <span className="text-[11px] text-text-muted">
+            {contextEstimate.usedTokens >= 1000
+              ? `${Math.round(contextEstimate.usedTokens / 1000)}k`
+              : contextEstimate.usedTokens}
+          </span>
+        </div>
         <div className="ml-auto flex items-center gap-1.5">
           {isStreaming ? (
             <button

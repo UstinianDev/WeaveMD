@@ -183,6 +183,20 @@ body {
   background: var(--text-muted);
 }
 
+/* Outline panel font (Chinese KaiTi + English Consolas) */
+.outline-scroll {
+  font-family:
+    'Consolas',
+    'KaiTi',
+    '楷体',
+    'STKaiti',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+}
+
 /* Outline panel scrollbar — wider for easier grabbing */
 .outline-scroll::-webkit-scrollbar {
   width: 10px;
@@ -1369,7 +1383,10 @@ html.light .markdown-block-rendered code {
 
 .editor-scroll-container {
   font-family:
-    'Inter',
+    'Consolas',
+    'KaiTi',
+    '楷体',
+    'STKaiti',
     -apple-system,
     BlinkMacSystemFont,
     'Segoe UI',

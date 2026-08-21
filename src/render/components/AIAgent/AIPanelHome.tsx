@@ -6,7 +6,7 @@
 // 底部共享 AIPanelComposer（发送即自动建会话并入 session 视图）。
 // 无 dangerouslySetInnerHTML、无 any。
 
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import type { IAIConversation } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 import { useAgentStore } from '@render/stores/agentStore';
@@ -54,8 +54,20 @@ const AIPanelHome: React.FC<AIPanelHomeProps> = ({
   const { t } = useI18n();
   const activeMode = useAgentStore((s) => s.activeMode);
   const conversations = useAgentStore((s) => s.conversations);
+  const deleteConversation = useAgentStore((s) => s.deleteConversation);
 
   const recent = useMemo(() => recentConversations(conversations), [conversations]);
+
+  // R1: 删除会话（确认后删除）
+  const handleDelete = useCallback(
+    (e: React.MouseEvent | React.KeyboardEvent, id: string) => {
+      e.stopPropagation();
+      if (window.confirm(t('ai.home.deleteConfirm'))) {
+        void deleteConversation(id);
+      }
+    },
+    [deleteConversation, t]
+  );
 
   return (
     <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
@@ -96,13 +108,26 @@ const AIPanelHome: React.FC<AIPanelHomeProps> = ({
                   type="button"
                   data-testid="home-recent-item"
                   onClick={() => onOpenConversation(c.id)}
-                  className="block w-full text-left rounded-card border border-border bg-bg-secondary/40 px-3 py-2 hover:border-[var(--accent)] hover:bg-bg-tertiary transition-colors"
+                  className="flex items-center w-full text-left rounded-card border border-border bg-bg-secondary/40 px-3 py-2 hover:border-[var(--accent)] hover:bg-bg-tertiary transition-colors"
                 >
-                  <span className="block truncate text-[15px] text-text-primary">
-                    {c.summary || (activeMode === 'agent' ? t('ai.tab.agent') : t('ai.tab.chat'))}
-                  </span>
-                  <span className="block text-[13px] text-text-muted mt-0.5">
-                    {formatRecentDate(c.updatedAt, t)}
+                  <div className="flex-1 min-w-0">
+                    <span className="block truncate text-[15px] text-text-primary">
+                      {c.summary || (activeMode === 'agent' ? t('ai.tab.agent') : t('ai.tab.chat'))}
+                    </span>
+                    <span className="block text-[13px] text-text-muted mt-0.5">
+                      {formatRecentDate(c.updatedAt, t)}
+                    </span>
+                  </div>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    data-testid="home-recent-delete"
+                    title={t('ai.home.delete')}
+                    onClick={(e) => handleDelete(e, c.id)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleDelete(e, c.id); }}
+                    className="shrink-0 w-6 h-6 flex items-center justify-center text-text-muted hover:text-red-400 transition-colors cursor-pointer"
+                  >
+                    🗑
                   </span>
                 </button>
               ))}

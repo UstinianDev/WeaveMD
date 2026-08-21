@@ -1,6 +1,6 @@
 # WeaveMD 项目总结
 
-> 版本：v3.11 | 最后更新：2026-08-20
+> 版本：v3.13 | 最后更新：2026-08-21
 
 ## 1. 项目概览
 
@@ -48,9 +48,21 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 - [code-block-trailing-paragraph.md](./specs/code-block-trailing-paragraph.md) — 代码块尾随空行
 - [editor-refactor-technical-debt.md](./specs/editor-refactor-technical-debt.md) — 重构技术债
 
+### 重构记录
+
+- [AI 模块重构·需求](./requirements/ai-module-refactor.req.md) — consent 统一 / 死代码清理 / SSE 去重 / IPC 拆分 / stream 提取
+- [AI 模块重构·计划](./plan/ai-module-refactor.plan.md) — 实施计划与变更清单
+- [AI 模块重构·报告](./refactor/ai-module-refactor.refactor.md) — 前后对比与验证证据
+
+### AI 面板体验优化（2026-08-21）
+
+- [需求文档](./requirements/ai-panel-adjustments.req.md) — 8 项 UI 调整需求
+- [实施计划](./plan/ai-panel-adjustments.plan.md) — 变更清单与验收标准
+- [任务状态](./plan/ai-panel-adjustments.status.md) — 全部完成（tsc 0 | vitest 1492 | lint 0）
+
 ## 4. 验证与测试
 
-- **Vitest**：919+ 例（内核/控制器/组件，含往返不变式、退出规则矩阵、格式化、拖选、图片、表格）
+- **Vitest**：1492 例（内核/控制器/组件/Store/IPC，含往返不变式、退出规则矩阵、格式化、拖选、图片、表格、AI 面板）
 - **Playwright E2E**：76+ 例（输入/IME/富文本渲染/语法外观/浮动工具栏/跨块拖选/图片/表格）
 - **质量门禁**：`tsc --noEmit` + `vitest run` + ESLint(0 error) + `vite build` + `npx playwright test` + 覆盖率 ≥80%
 

@@ -1,6 +1,6 @@
 # AI 代理面板 (Agent) 功能总结
 
-> 模块编号：11 | 优先级：P1 | 最后更新：2026-08-16 | 状态：**第 1/2/3+4/5/6 期均已交付；第 7 期体验重构 ①~⑦（A4/A1/A2+A3/B1/B2/B3/C1）全部交付（2026-08-15）；后端收敛 remote-only（2026-08-16）；真 MCP / GitHub 继续延**
+> 模块编号：11 | 优先级：P1 | 最后更新：2026-08-21 | 状态：**第 1/2/3+4/5/6 期均已交付；第 7 期体验重构全部交付（2026-08-15）；后端收敛 remote-only（2026-08-16）；AI 模块重构（2026-08-21：consent 统一/IPC 拆分/SSE 去重/stream 提取/死代码清理）；真 MCP / GitHub 继续延**
 > 需求编号：AGT-01~19 / KB-01~05（docs/REQUIREMENTS.md 3.7 / 3.8）
 > 交付记录：第1期基建 + 第2期 Chat 闭环（2026-08-14）、第3期知识库 + 第4期 Agent 能力
 > （2026-08-15）；远程 DeepSeek 后端已真连验证通过；
@@ -22,7 +22,7 @@
 ## 2. 架构位置
 
 ```
-src/main/ai/                  # AI 主进程服务（第1/2/3/4期已交付）
+src/main/ai/                  # AI 主进程服务（第1/2/3/4/5期已交付 + 2026-08-21 重构）
 ├── llmClient.ts              # LLM 调用（仅远程 OpenAI 兼容 API，SSE 流式 + tools 支持）
 ├── kbIndexer.ts              # 知识库导入/分块/增量重索引（保存防抖重嵌入、删除清理）
 ├── kbSearch.ts               # 关键词召回（仅 FTS5 BM25 + 拒答 + 置顶加权；向量召回已去除）
@@ -33,7 +33,16 @@ src/main/ai/                  # AI 主进程服务（第1/2/3/4期已交付）
 ├── agentLoop.ts              # 函数调用循环（≤6 轮，后端恒 remote、无降级）
 ├── rewrite.ts                # 改写薄 LLM 代理（第5期：consent 'chat' 闸 + 调 LLM 返回 {text}，零 markdown 解析）
 ├── modelList.ts              # ai.listModels（面板模型下拉数据源）：remote /models（Bearer key 主进程）
-└── consent.ts                # 知情同意（联网闸 allowNetwork + KB 外发闸 allowSend）
+├── consent.ts                # 知情同意（re-export needsConsent from @shared/ai + needsKbSendConsent）
+└── ipc/                      # IPC handler 按域拆分（原 ipc.ts 771 行 → 7 模块）
+    ├── index.ts              # 注册入口（registerAiIpcHandlers re-export）
+    ├── shared.ts             # 共享工具（toIAIConfig/toIAIConsent/activeStreams/sendStream/默认值）
+    ├── configConsentHandlers.ts  # AI 配置 + 知情同意（4 handler）
+    ├── chatHandlers.ts       # 对话 CRUD + 流式聊天 + abort（8 handler + runChatFlow）
+    ├── kbHandlers.ts         # 知识库导入/检索/设置（8 handler）
+    ├── agentHandlers.ts      # Agent 运行/中断/技能列表（3 handler）
+    ├── rewriteHandlers.ts    # 改写预览（1 handler）
+    └── modelHandlers.ts      # 模型列表（1 handler）
 src/render/components/AIAgent/   # 面板 UI（已交付 + 三视图重构）：AIAgentPanel 三视图外壳（home 主界面 RECENT 最近3 /
                                  #   session 会话 / settings 设置侧栏 模型·skills·MCP，顶部 WeaveMD+新建+⚙+×）/
                                  #   AIPanelComposer（共享 composer：模式下拉 + ModelDropdown + handleSendAgent 分流；②草稿提升到 AIAgentPanel 跨视图保留）/
@@ -134,3 +143,35 @@ kb_chunks(id, document_id, seq, content, vector BLOB, source_ref /*文件+块定
 - **①** 选区改写 → 覆盖块**整块渐变蓝高亮**（`.rewrite-highlight` 纯 CSS overlay，不入 contentEditable）+ **左端取消胶囊**（`.rewrite-cancel-capsule`）
 - **⑤** AI 面板字号整体放大一档（C1 基础上再放大）
 - 门禁：typecheck 0 error | vitest / lint 0 | Playwright 全绿 | vite build
+
+## 9. 2026-08-21 AI 面板体验优化
+
+> 本次调整为纯 UI 优化，无数据模型/IPC/后端变更。门禁全绿（tsc 0 | vitest 1492 | lint 0）。
+
+### 主界面（home）
+
+- **R1 最近会话删除**：每个会话项右侧 🗑 图标，点击 `window.confirm` 确认后删除（`deleteConversation` IPC）
+- **R2 历史会话列表**：「View All」切换到 `history` 视图，显示全部会话（updatedAt 倒序），含返回按钮 + 删除功能
+- **R3 会话标题栏**：session 视图顶部栏布局 = 会话名（左）+ 🗑（右）+ ✕（右）
+
+### 会话内界面
+
+- **R4 /compact 命令**：输入框支持 `/compact` 或 `/compact <描述>` 触发上下文压缩（`runManualCompress`），替代点击按钮；`CompletionMenu` 补全菜单含 `/compact` 选项；chat/agent 双模式可用
+- **R5 上下文指示器**：底栏 ModelDropdown 右侧绿/黄/红圆点 + token 估算数（字符数/4），悬停 `title` 显示 `Token 使用：{used} / {total}`；<50% 绿、50-80% 黄、>80% 红
+- **R6 改写消息显示**：选区改写模式下，用户指令作为 `user` 消息加入 `agentStore.messages`（仅 convId 存在时），改写预览卡片作为 AI 回复
+- **R7 改写预览格式**：移除整段输出（`renderAIMarkdownSafe`），仅保留 diff（红删绿增）；diff 可折叠（默认展开），字体 13px→15px；新增「AI 改动说明」区域（统计删除/新增行数）
+
+### 编辑主区与目录区
+
+- **R8 字体统一**：`.editor-scroll-container` 和 `.outline-scroll` 的 `font-family` 改为 `Consolas`（英文）+ `KaiTi`/`楷体`/`STKaiti`（中文）+ 系统 fallback；代码块字体不受影响（`--font-code` 独立控制）
+
+### 变更文件
+
+| 文件 | 变更 |
+|------|------|
+| `AIPanelHome.tsx` | 删除按钮 + history 视图入口 |
+| `AIAgentPanel.tsx` | `history` 视图（全量会话列表 + 删除） |
+| `AIPanelComposer.tsx` | /compact 命令 + 上下文指示器 + 改写消息入会话 |
+| `RewritePreviewCard.tsx` | diff 可折叠 + AI 改动说明 + 移除整段输出 |
+| `globals.css` | `.editor-scroll-container` + `.outline-scroll` 字体 |
+| `i18n/{en,zh-CN,zh-TW}.json` | 新增 12 个翻译键 |
