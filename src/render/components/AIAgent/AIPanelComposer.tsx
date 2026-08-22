@@ -349,6 +349,7 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
           }
           rows={3}
           className="w-full resize-none bg-bg-primary border border-border rounded-input px-2.5 py-1.5 text-[15px] text-text-primary placeholder-text-muted outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/30 transition-colors"
+          style={{ fontFamily: "'Consolas', 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}
         />
       </div>
       {/* 底部控制条：左→右 模式下拉 + 模型下拉 …… 发送/停止 */}

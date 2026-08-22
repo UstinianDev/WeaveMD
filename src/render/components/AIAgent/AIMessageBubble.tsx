@@ -107,7 +107,10 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
   if (role === 'user') {
     return (
       <div className="flex justify-end px-3 py-1">
-        <div className="max-w-[85%] rounded-2xl rounded-tr-md px-3.5 py-2 text-[15px] leading-relaxed bg-[var(--accent)] text-white shadow-sm">
+        <div
+          className="max-w-[85%] rounded-2xl rounded-tr-md px-3.5 py-2 text-[15px] leading-relaxed bg-[var(--accent)] text-white shadow-sm"
+          style={{ fontFamily: "'Consolas', 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}
+        >
           <div className="whitespace-pre-wrap break-words">{content}</div>
         </div>
       </div>

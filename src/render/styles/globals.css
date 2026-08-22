@@ -183,12 +183,13 @@ body {
   background: var(--text-muted);
 }
 
-/* Outline panel font (Chinese Alibaba PuHuiTi + English Consolas) */
+/* Outline panel font (Chinese KaiTi + English Consolas) */
 .outline-scroll {
   font-family:
     'Consolas',
-    'Alibaba PuHuiTi 2.0',
-    '阿里巴巴普惠体',
+    'KaiTi',
+    '楷体',
+    'STKaiti',
     -apple-system,
     BlinkMacSystemFont,
     'Segoe UI',
