@@ -49,7 +49,7 @@ const AgentTab: React.FC = () => {
   };
 
   return (
-    <div ref={messageListRef} className="chat-scroll flex-1 overflow-y-auto py-2 space-y-1.5">
+    <div ref={messageListRef} className="chat-scroll flex-1 overflow-y-auto py-2 space-y-1">
       {messages.length === 0 && (
         <div className="flex flex-col items-center justify-center h-full text-center px-6 space-y-2">
           <p className="text-[15px] text-text-muted">{t('ai.empty.noMessage')}</p>

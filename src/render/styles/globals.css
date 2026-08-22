@@ -183,13 +183,12 @@ body {
   background: var(--text-muted);
 }
 
-/* Outline panel font (Chinese KaiTi + English Consolas) */
+/* Outline panel font (Chinese Alibaba PuHuiTi + English Consolas) */
 .outline-scroll {
   font-family:
     'Consolas',
-    'KaiTi',
-    '楷体',
-    'STKaiti',
+    'Alibaba PuHuiTi 2.0',
+    '阿里巴巴普惠体',
     -apple-system,
     BlinkMacSystemFont,
     'Segoe UI',
@@ -1384,9 +1383,8 @@ html.light .markdown-block-rendered code {
 .editor-scroll-container {
   font-family:
     'Consolas',
-    'KaiTi',
-    '楷体',
-    'STKaiti',
+    'Alibaba PuHuiTi 2.0',
+    '阿里巴巴普惠体',
     -apple-system,
     BlinkMacSystemFont,
     'Segoe UI',
@@ -1665,6 +1663,7 @@ html.dark .code-fence-block {
   line-height: 1.65;
   background: var(--bg-code);
   color: var(--text-code);
+  font-family: 'Consolas', monospace;
 }
 
 .code-fence-content .markdown-code-block {
@@ -2594,4 +2593,124 @@ span.comment-marker {
   border: 2px solid var(--accent, #7C3AED);
   background: color-mix(in srgb, var(--accent, #7C3AED) 18%, transparent);
   border-radius: 4px;
+}
+
+/* ============================================ */
+/* AI 消息 Markdown 样式                         */
+/* ============================================ */
+
+.ai-markdown {
+  font-family:
+    'Consolas',
+    'Alibaba PuHuiTi 2.0',
+    '阿里巴巴普惠体',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+}
+
+.ai-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  margin: 0.25em 0;
+  font-size: 0.9em;
+}
+
+.ai-markdown thead {
+  background: color-mix(in srgb, var(--bg-secondary) 88%, var(--accent) 12%);
+}
+
+.ai-markdown th,
+.ai-markdown td {
+  padding: 0.5em 0.75em;
+  border: 1px solid var(--border-color);
+  text-align: left;
+  vertical-align: top;
+}
+
+.ai-markdown th {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ai-markdown tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
+}
+
+.ai-markdown pre {
+  margin: 0.25em 0;
+  padding: 0.5em 0.75em;
+  background: var(--bg-code);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow-x: auto;
+  font-family: 'Consolas', monospace;
+}
+
+.ai-markdown code {
+  font-family: 'Consolas', monospace;
+  font-size: 0.9em;
+  background: var(--bg-secondary);
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+}
+
+.ai-markdown pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.ai-markdown p {
+  margin: 0.2em 0;
+}
+
+.ai-markdown ul,
+.ai-markdown ol {
+  margin: 0.2em 0;
+  padding-left: 1.5em;
+}
+
+.ai-markdown li {
+  margin: 0.1em 0;
+}
+
+.ai-markdown blockquote {
+  margin: 0.25em 0;
+  padding: 0.35em 0.5em;
+  border-left: 3px solid var(--quote-bar-color, #42d392);
+  background: color-mix(in srgb, var(--bg-secondary) 84%, var(--accent) 16%);
+  border-radius: 0 8px 8px 0;
+}
+
+.ai-markdown a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+
+.ai-markdown a:hover {
+  color: var(--accent-hover);
+}
+
+.ai-markdown strong {
+  font-weight: 600;
+}
+
+.ai-markdown em {
+  font-style: italic;
+}
+
+.ai-markdown del {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.ai-markdown hr {
+  border: none;
+  height: 1px;
+  background: var(--border-color);
+  margin: 0.4em 0;
 }
