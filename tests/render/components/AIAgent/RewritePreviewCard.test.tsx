@@ -130,16 +130,20 @@ describe('RewritePreviewCard', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('rewriteResult=applied → 显示已应用反馈', () => {
-    useRewriteStore.setState({ rewriteResult: 'applied' });
+  it('rewriteResult=applied → 显示已应用反馈（在预览卡片内）', () => {
+    useRewriteStore.setState({ rewriteResult: 'applied', pendingRewrite: proposal });
     render(<RewritePreviewCard />);
     expect(screen.getByText(/已应用/)).toBeInTheDocument();
+    // 预览卡片内容仍然可见
+    expect(screen.getByText('改写预览')).toBeInTheDocument();
   });
 
-  it('rewriteResult=cancelled → 显示已取消反馈', () => {
-    useRewriteStore.setState({ rewriteResult: 'cancelled' });
+  it('rewriteResult=cancelled → 显示已取消反馈（在预览卡片内）', () => {
+    useRewriteStore.setState({ rewriteResult: 'cancelled', pendingRewrite: proposal });
     render(<RewritePreviewCard />);
     expect(screen.getByText('已取消改写')).toBeInTheDocument();
+    // 预览卡片内容仍然可见
+    expect(screen.getByText('改写预览')).toBeInTheDocument();
   });
 
   it('proposal 含 aiComment → 显示 LLM 改写说明', () => {

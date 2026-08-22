@@ -106,9 +106,9 @@ describe('EditorV2 — M5 整块渐变高亮 + 左端取消胶囊', () => {
       expect(btn).not.toBeNull();
       fireEvent.click(btn!);
       expect(clearSpy).toHaveBeenCalled();
-      // clearRewrite 设置 rewriteResult='cancelled'，selectionContext 延迟清除
+      // clearRewrite 设置 rewriteResult='cancelled'，selectionContext 同步清除
       expect(useRewriteStore.getState().rewriteResult).toBe('cancelled');
-      expect(useRewriteStore.getState().selectionContext).not.toBeNull();
+      expect(useRewriteStore.getState().selectionContext).toBeNull();
     } finally {
       clearSpy.mockRestore();
       restore();

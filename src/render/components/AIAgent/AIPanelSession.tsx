@@ -30,8 +30,6 @@ const AIPanelSession: React.FC<AIPanelSessionProps> = ({ draft, setDraft, onClos
   const activeConversationId = useAgentStore((s) => s.activeConversationId);
   const useKnowledgeBase = useAgentStore((s) => s.useKnowledgeBase);
   const setUseKnowledgeBase = useAgentStore((s) => s.setUseKnowledgeBase);
-  const runManualCompress = useAgentStore((s) => s.runManualCompress);
-  const isStreaming = useAgentStore((s) => s.isStreaming);
 
   const [showKbSettings, setShowKbSettings] = useState(false);
 
@@ -74,14 +72,6 @@ const AIPanelSession: React.FC<AIPanelSessionProps> = ({ draft, setDraft, onClos
               />
               {t('ai.agent.useKnowledgeBase')}
             </label>
-            <button
-              type="button"
-              onClick={() => void runManualCompress()}
-              disabled={isStreaming}
-              className="text-[13px] px-2 py-1 rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary disabled:opacity-40 transition-colors"
-            >
-              {t('ai.agent.compress')}
-            </button>
             <button
               type="button"
               onClick={() => setShowKbSettings((prev) => !prev)}

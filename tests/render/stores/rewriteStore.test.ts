@@ -399,17 +399,18 @@ describe('rewriteStore 改写状态机', () => {
     expect(useRewriteStore.getState().selectionContext).not.toBeNull();
   });
 
-  it('A3: clearRewrite 取消后 rewriteResult 设为 cancelled（pendingRewrite 保留）', () => {
+  it('A3: clearRewrite 取消后 rewriteResult 设为 cancelled（selectionContext 同步清除）', () => {
     useRewriteStore.getState().startSelectionRewrite('original-md', sel);
     expect(useRewriteStore.getState().selectionContext).not.toBeNull();
     useRewriteStore.getState().clearRewrite();
     expect(useRewriteStore.getState().rewriteResult).toBe('cancelled');
     // pendingRewrite 保留供卡片展示取消反馈
     expect(useRewriteStore.getState().pendingRewrite).toBeNull();
-    expect(useRewriteStore.getState().selectionContext).not.toBeNull();
+    // selectionContext 同步清除，编辑器高亮消失
+    expect(useRewriteStore.getState().selectionContext).toBeNull();
   });
 
-  it('clearRewrite 重置改写状态（pendingRewrite 保留供卡片展示取消反馈）', () => {
+  it('clearRewrite 重置改写状态（pendingRewrite 保留，selectionContext 清除）', () => {
     useRewriteStore.setState({
       selectionContext: { md: 'x', sel },
       pendingRewrite: { originalMd: 'x', rewrittenMd: 'y', ops: [] },
@@ -419,8 +420,9 @@ describe('rewriteStore 改写状态机', () => {
     });
     useRewriteStore.getState().clearRewrite();
     const s = useRewriteStore.getState();
+    // selectionContext 同步清除，编辑器高亮消失
+    expect(s.selectionContext).toBeNull();
     // pendingRewrite 保留供卡片展示取消反馈，用户通过 dismissRewriteResult 手动关闭
-    expect(s.selectionContext).not.toBeNull();
     expect(s.pendingRewrite).not.toBeNull();
     expect(s.rewriting).toBe(false);
     expect(s.rewriteError).toBeNull();

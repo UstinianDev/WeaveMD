@@ -252,8 +252,8 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
   },
 
   clearRewrite() {
-    // 保留 pendingRewrite 供卡片展示取消反馈，用户手动关闭
-    set({ rewriteResult: 'cancelled', rewriting: false, rewriteError: null, staleRejected: false });
+    // 保留 pendingRewrite 供卡片展示取消反馈，清除 selectionContext 让编辑器高亮消失
+    set({ rewriteResult: 'cancelled', rewriting: false, rewriteError: null, staleRejected: false, selectionContext: null });
   },
 
   /** 用户手动关闭改写结果卡片（确认/取消后）。 */

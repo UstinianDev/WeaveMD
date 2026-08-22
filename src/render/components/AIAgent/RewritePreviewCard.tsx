@@ -52,38 +52,6 @@ const RewritePreviewCard: React.FC = () => {
     </div>
   );
 
-  // 确认/取消后的反馈（保留至用户手动关闭）
-  if (rewriteResult === 'applied') {
-    return (
-      <div className="mx-3 my-1 px-4 py-2 text-[13px] text-green-600 bg-green-500/10 border border-green-500/20 rounded-md flex items-center justify-between gap-2">
-        <span>✓ {t('ai.rewrite.applied')}</span>
-        <button
-          type="button"
-          aria-label={t('ai.rewrite.dismiss', '关闭')}
-          onClick={() => dismissRewriteResult()}
-          className="shrink-0 text-[15px] leading-none opacity-70 hover:opacity-100 transition-opacity"
-        >
-          ✕
-        </button>
-      </div>
-    );
-  }
-  if (rewriteResult === 'cancelled') {
-    return (
-      <div className="mx-3 my-1 px-4 py-2 text-[13px] text-text-muted bg-bg-tertiary/60 border border-border rounded-md flex items-center justify-between gap-2">
-        <span>{t('ai.rewrite.cancelled')}</span>
-        <button
-          type="button"
-          aria-label={t('ai.rewrite.dismiss', '关闭')}
-          onClick={() => dismissRewriteResult()}
-          className="shrink-0 text-[15px] leading-none opacity-70 hover:opacity-100 transition-opacity"
-        >
-          ✕
-        </button>
-      </div>
-    );
-  }
-
   // 无提案时：错误 / 无变化 / 无法定位提示（短暂状态条）
   if (!pendingRewrite) {
     if (staleRejected) {
@@ -125,8 +93,23 @@ const RewritePreviewCard: React.FC = () => {
   const delCount = lines.filter((l) => l.type === 'del').length;
   const insCount = lines.filter((l) => l.type === 'ins').length;
 
+  // 是否已确认/取消（结果态：隐藏确认/取消按钮，显示关闭按钮）
+  const isResultState = rewriteResult !== null;
+
   return (
     <div className="mx-3 my-1 rounded-card border border-border bg-bg-tertiary/60 overflow-hidden shadow-sm">
+      {/* 结果态反馈横幅（在卡片顶部，不替换卡片内容） */}
+      {rewriteResult === 'applied' && (
+        <div className="px-3 py-2 text-[13px] text-green-600 bg-green-500/10 border-b border-green-500/20 flex items-center gap-2">
+          ✓ {t('ai.rewrite.applied')}
+        </div>
+      )}
+      {rewriteResult === 'cancelled' && (
+        <div className="px-3 py-2 text-[13px] text-text-muted bg-bg-primary/40 border-b border-border flex items-center gap-2">
+          {t('ai.rewrite.cancelled')}
+        </div>
+      )}
+
       {staleRejected && (
         <div className="px-3 pt-2 text-[12px] text-red-500">{t('ai.rewrite.staleRejected')}</div>
       )}
@@ -134,21 +117,35 @@ const RewritePreviewCard: React.FC = () => {
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
         <span className="text-[13px] font-medium text-text-primary">{t('ai.rewrite.previewTitle')}</span>
         <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => clearRewrite()}
-            className="text-[13px] px-2 py-1 rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
-          >
-            {t('ai.rewrite.previewCancel')}
-          </button>
-          <button
-            type="button"
-            onClick={() => applyRewrite()}
-            disabled={staleRejected}
-            className="text-[13px] px-2.5 py-1 rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
-          >
-            {t('ai.rewrite.previewConfirm')}
-          </button>
+          {isResultState ? (
+            // 结果态：仅显示关闭按钮
+            <button
+              type="button"
+              onClick={() => dismissRewriteResult()}
+              className="text-[13px] px-2.5 py-1 rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
+            >
+              {t('ai.rewrite.dismiss', '关闭')}
+            </button>
+          ) : (
+            // 预览态：取消 + 确认
+            <>
+              <button
+                type="button"
+                onClick={() => clearRewrite()}
+                className="text-[13px] px-2 py-1 rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
+              >
+                {t('ai.rewrite.previewCancel')}
+              </button>
+              <button
+                type="button"
+                onClick={() => applyRewrite()}
+                disabled={staleRejected}
+                className="text-[13px] px-2.5 py-1 rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+              >
+                {t('ai.rewrite.previewConfirm')}
+              </button>
+            </>
+          )}
         </div>
       </div>
 
