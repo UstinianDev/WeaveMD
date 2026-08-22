@@ -83,18 +83,20 @@ beforeEach(() => {
 });
 
 describe('buildRewriteMessages', () => {
-  it('selection scope: system instruction + user selectionMarkdown', () => {
+  it('selection scope: system instruction + user instruction + selectionMarkdown', () => {
     const messages = buildRewriteMessages(makeSelectionPayload());
     expect(messages).toHaveLength(2);
     expect(messages[0].role).toBe('system');
     expect(messages[0].content).toBe(systemInstruction());
-    // 仅输出改写后完整 Markdown 的指示在 system
-    expect(messages[0].content).toContain('改写后完整 Markdown');
+    // 仅输出改写后的完整 Markdown 正文的指示在 system
+    expect(messages[0].content).toContain('改写后的完整 Markdown');
     expect(messages[1].role).toBe('user');
-    expect(messages[1].content).toBe('# 标题\n\n原文段落');
+    // instruction 注入到 user 消息中
+    expect(messages[1].content).toContain('让这段更简洁');
+    expect(messages[1].content).toContain('# 标题\n\n原文段落');
   });
 
-  it('document scope: system instruction with block_index protocol + JSON(numberedBlocks)', () => {
+  it('document scope: system instruction with block_index protocol + instruction + JSON(numberedBlocks)', () => {
     const messages = buildRewriteMessages(makeDocumentPayload());
     expect(messages).toHaveLength(2);
     expect(messages[0].role).toBe('system');
@@ -102,8 +104,9 @@ describe('buildRewriteMessages', () => {
     expect(messages[0].content).toContain('block_index');
     expect(messages[0].content).toContain('JSON');
     expect(messages[1].role).toBe('user');
-    // user 消息为编号块的 JSON.stringify
-    expect(messages[1].content).toBe(JSON.stringify(makeDocumentPayload().numberedBlocks));
+    // user 消息包含 instruction + 编号块 JSON
+    expect(messages[1].content).toContain('帮我统一术语');
+    expect(messages[1].content).toContain(JSON.stringify(makeDocumentPayload().numberedBlocks));
   });
 
   it('throws structured parse error when selection scope lacks selectionMarkdown', () => {
@@ -159,7 +162,7 @@ describe('runRewrite', () => {
     expect(opts.tools).toBeUndefined();
     expect(opts.messages).toEqual([
       { role: 'system', content: systemInstruction() },
-      { role: 'user', content: makeSelectionPayload().selectionMarkdown },
+      { role: 'user', content: `改写要求：${makeSelectionPayload().instruction}\n\n原文：\n${makeSelectionPayload().selectionMarkdown}` },
     ]);
   });
 
@@ -175,7 +178,7 @@ describe('runRewrite', () => {
     const opts = llmMock.streamChatCompletion.mock.calls[0][0] as {
       messages: Array<{ role: string; content: string }>;
     };
-    expect(opts.messages[1].content).toBe(JSON.stringify(makeDocumentPayload().numberedBlocks));
+    expect(opts.messages[1].content).toContain(JSON.stringify(makeDocumentPayload().numberedBlocks));
   });
 
   it('accumulates multiple non-empty deltas into text (skips empty content)', async () => {

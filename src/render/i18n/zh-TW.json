@@ -69,6 +69,7 @@
   "ai.refs.chunk": "來源：{fileName} · {chunk}",
   "ai.refs.file": "來源：{fileName}",
   "ai.rewrite.applied": "已套用",
+  "ai.rewrite.cancelled": "已取消改寫",
   "ai.completion.skillsTitle": "執行技能",
   "ai.completion.refTitle": "引用",
   "ai.completion.currentDoc": "目前文件",

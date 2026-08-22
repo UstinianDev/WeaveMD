@@ -117,8 +117,31 @@ describe('rewriteStore 改写状态机', () => {
     const s = useRewriteStore.getState();
     expect(s.pendingRewrite?.rewrittenMd).toBe('rewritten-text');
     expect(s.rewriting).toBe(false);
-    // 消费后清空 selectionContext
-    expect(s.selectionContext).toBeNull();
+    // 消费后 selectionContext 保留（高亮保持到用户确认/取消）
+    expect(s.selectionContext).not.toBeNull();
+  });
+
+  it('runSelectionRewrite 解析 --- 分隔符 → aiComment 分离', async () => {
+    rewritePreviewMock().mockResolvedValue({
+      success: true,
+      data: { text: '将"old"替换为"new"\n---\nrewritten-text' },
+    });
+    useRewriteStore.getState().startSelectionRewrite('original-md', sel);
+    await useRewriteStore.getState().runSelectionRewrite('改写');
+    const s = useRewriteStore.getState();
+    expect(s.pendingRewrite?.aiComment).toBe('将"old"替换为"new"');
+    expect(s.pendingRewrite?.rewrittenMd).toBe('rewritten-text');
+  });
+
+  it('runSelectionRewrite 无 --- 分隔符 → aiComment undefined', async () => {
+    rewritePreviewMock().mockResolvedValue({
+      success: true,
+      data: { text: 'rewritten-text' },
+    });
+    useRewriteStore.getState().startSelectionRewrite('original-md', sel);
+    await useRewriteStore.getState().runSelectionRewrite('改写');
+    const s = useRewriteStore.getState();
+    expect(s.pendingRewrite?.aiComment).toBeUndefined();
   });
 
   it('runSelectionRewrite 授权但结果 unchanged → 不弹卡（pendingRewrite null）', async () => {
@@ -214,13 +237,14 @@ describe('rewriteStore 改写状态机', () => {
     expect(useRewriteStore.getState().pendingRewrite).not.toBeNull(); // 不清空 pending，供重生成
   });
 
-  it('applyRewrite 一致 → updateContent(rewrittenMd) 入 undo + clear', () => {
+  it('applyRewrite 一致 → updateContent(rewrittenMd) 入 undo + 保留 pending 供卡片展示', () => {
     useRewriteStore.setState({
       pendingRewrite: {
         originalMd: 'original-md',
         rewrittenMd: 'new-md',
         ops: [],
       },
+      selectionContext: { md: 'original-md', sel },
     });
     useEditorStore.setState({ content: 'original-md' });
 
@@ -228,8 +252,10 @@ describe('rewriteStore 改写状态机', () => {
     useRewriteStore.getState().applyRewrite();
 
     expect(updateSpy).toHaveBeenCalledWith('new-md');
-    expect(useRewriteStore.getState().pendingRewrite).toBeNull();
-    expect(useRewriteStore.getState().selectionContext).toBeNull();
+    // pendingRewrite 保留供卡片展示 AI 改动说明 + diff，用户手动关闭
+    expect(useRewriteStore.getState().pendingRewrite).not.toBeNull();
+    expect(useRewriteStore.getState().selectionContext).not.toBeNull();
+    expect(useRewriteStore.getState().rewriteResult).toBe('applied');
     expect(useRewriteStore.getState().rewriteError).toBeNull();
     expect(useRewriteStore.getState().staleRejected).toBe(false);
   });
@@ -351,32 +377,39 @@ describe('rewriteStore 改写状态机', () => {
     expect(useRewriteStore.getState().pendingRewrite).toBeNull();
   });
 
-  it('A3: runSelectionRewrite 落定 proposal 后 selectionContext 清空（高亮随预览出现而消退）', async () => {
+  it('A3: runSelectionRewrite 落定 proposal 后 selectionContext 保留（高亮保持到用户确认/取消）', async () => {
     rewritePreviewMock().mockResolvedValue({ success: true, data: { text: 'rewritten' } });
     useRewriteStore.getState().startSelectionRewrite('original-md', sel);
     await useRewriteStore.getState().runSelectionRewrite('改写');
     expect(useRewriteStore.getState().pendingRewrite).not.toBeNull();
-    expect(useRewriteStore.getState().selectionContext).toBeNull();
+    // selectionContext 不再立即清空，保留编辑器高亮到用户确认/取消
+    expect(useRewriteStore.getState().selectionContext).not.toBeNull();
   });
 
-  it('A3: applyRewrite 成功后 selectionContext 清空（高亮随写入清除）', () => {
+  it('A3: applyRewrite 成功后 rewriteResult 设为 applied（pendingRewrite 保留供展示）', () => {
     useRewriteStore.setState({
       pendingRewrite: { originalMd: 'original-md', rewrittenMd: 'new-md', ops: [] },
       selectionContext: { md: 'original-md', sel },
     });
     useEditorStore.setState({ content: 'original-md' });
     useRewriteStore.getState().applyRewrite();
-    expect(useRewriteStore.getState().selectionContext).toBeNull();
+    expect(useRewriteStore.getState().rewriteResult).toBe('applied');
+    // pendingRewrite 保留供卡片展示，用户通过 dismissRewriteResult 手动关闭
+    expect(useRewriteStore.getState().pendingRewrite).not.toBeNull();
+    expect(useRewriteStore.getState().selectionContext).not.toBeNull();
   });
 
-  it('A3: clearRewrite 取消后 selectionContext 清空（高亮随取消清除）', () => {
+  it('A3: clearRewrite 取消后 rewriteResult 设为 cancelled（pendingRewrite 保留）', () => {
     useRewriteStore.getState().startSelectionRewrite('original-md', sel);
     expect(useRewriteStore.getState().selectionContext).not.toBeNull();
     useRewriteStore.getState().clearRewrite();
-    expect(useRewriteStore.getState().selectionContext).toBeNull();
+    expect(useRewriteStore.getState().rewriteResult).toBe('cancelled');
+    // pendingRewrite 保留供卡片展示取消反馈
+    expect(useRewriteStore.getState().pendingRewrite).toBeNull();
+    expect(useRewriteStore.getState().selectionContext).not.toBeNull();
   });
 
-  it('clearRewrite 重置全部改写状态', () => {
+  it('clearRewrite 重置改写状态（pendingRewrite 保留供卡片展示取消反馈）', () => {
     useRewriteStore.setState({
       selectionContext: { md: 'x', sel },
       pendingRewrite: { originalMd: 'x', rewrittenMd: 'y', ops: [] },
@@ -386,11 +419,13 @@ describe('rewriteStore 改写状态机', () => {
     });
     useRewriteStore.getState().clearRewrite();
     const s = useRewriteStore.getState();
-    expect(s.selectionContext).toBeNull();
-    expect(s.pendingRewrite).toBeNull();
+    // pendingRewrite 保留供卡片展示取消反馈，用户通过 dismissRewriteResult 手动关闭
+    expect(s.selectionContext).not.toBeNull();
+    expect(s.pendingRewrite).not.toBeNull();
     expect(s.rewriting).toBe(false);
     expect(s.rewriteError).toBeNull();
     expect(s.staleRejected).toBe(false);
+    expect(s.rewriteResult).toBe('cancelled');
   });
 
   // ============================================================
@@ -421,16 +456,25 @@ describe('rewriteStore 改写状态机', () => {
     expect(s.selectionContext).not.toBeNull();
   });
 
-  it('dismissRewriteBanner 与 clearRewrite 语义区分（clearRewrite 会清 pending）', () => {
+  it('dismissRewriteBanner / clearRewrite / dismissRewriteResult 语义区分', () => {
     useRewriteStore.setState({
       pendingRewrite: { originalMd: 'x', rewrittenMd: 'y', ops: [] },
       rewriteError: 'locate-failed',
     });
+    // dismissRewriteBanner：仅清提示条，保留 pending
     useRewriteStore.getState().dismissRewriteBanner();
     expect(useRewriteStore.getState().pendingRewrite).not.toBeNull();
+    expect(useRewriteStore.getState().rewriteError).toBeNull();
 
-    // 对照：clearRewrite 会清空 pending
+    // clearRewrite：设 cancelled 反馈，保留 pending（供卡片展示取消反馈）
     useRewriteStore.getState().clearRewrite();
+    expect(useRewriteStore.getState().pendingRewrite).not.toBeNull();
+    expect(useRewriteStore.getState().rewriteResult).toBe('cancelled');
+
+    // dismissRewriteResult：彻底清空 pending + selectionContext
+    useRewriteStore.getState().dismissRewriteResult();
     expect(useRewriteStore.getState().pendingRewrite).toBeNull();
+    expect(useRewriteStore.getState().rewriteResult).toBeNull();
+    expect(useRewriteStore.getState().selectionContext).toBeNull();
   });
 });

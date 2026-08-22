@@ -17,9 +17,11 @@ const RewritePreviewCard: React.FC = () => {
   const rewriting = useRewriteStore((s) => s.rewriting);
   const rewriteError = useRewriteStore((s) => s.rewriteError);
   const staleRejected = useRewriteStore((s) => s.staleRejected);
+  const rewriteResult = useRewriteStore((s) => s.rewriteResult);
   const applyRewrite = useRewriteStore((s) => s.applyRewrite);
   const clearRewrite = useRewriteStore((s) => s.clearRewrite);
   const dismissRewriteBanner = useRewriteStore((s) => s.dismissRewriteBanner);
+  const dismissRewriteResult = useRewriteStore((s) => s.dismissRewriteResult);
 
   // R7: diff 折叠状态（默认展开）
   const [diffExpanded, setDiffExpanded] = useState(true);
@@ -49,6 +51,38 @@ const RewritePreviewCard: React.FC = () => {
       </button>
     </div>
   );
+
+  // 确认/取消后的反馈（保留至用户手动关闭）
+  if (rewriteResult === 'applied') {
+    return (
+      <div className="mx-3 my-1 px-4 py-2 text-[13px] text-green-600 bg-green-500/10 border border-green-500/20 rounded-md flex items-center justify-between gap-2">
+        <span>✓ {t('ai.rewrite.applied')}</span>
+        <button
+          type="button"
+          aria-label={t('ai.rewrite.dismiss', '关闭')}
+          onClick={() => dismissRewriteResult()}
+          className="shrink-0 text-[15px] leading-none opacity-70 hover:opacity-100 transition-opacity"
+        >
+          ✕
+        </button>
+      </div>
+    );
+  }
+  if (rewriteResult === 'cancelled') {
+    return (
+      <div className="mx-3 my-1 px-4 py-2 text-[13px] text-text-muted bg-bg-tertiary/60 border border-border rounded-md flex items-center justify-between gap-2">
+        <span>{t('ai.rewrite.cancelled')}</span>
+        <button
+          type="button"
+          aria-label={t('ai.rewrite.dismiss', '关闭')}
+          onClick={() => dismissRewriteResult()}
+          className="shrink-0 text-[15px] leading-none opacity-70 hover:opacity-100 transition-opacity"
+        >
+          ✕
+        </button>
+      </div>
+    );
+  }
 
   // 无提案时：错误 / 无变化 / 无法定位提示（短暂状态条）
   if (!pendingRewrite) {
@@ -157,13 +191,15 @@ const RewritePreviewCard: React.FC = () => {
       <div className="px-3 py-2 border-t border-border">
         <span className="text-[13px] font-medium text-text-sub">{t('ai.rewrite.aiComment')}</span>
         <p className="text-[14px] text-text-primary mt-1">
-          {delCount > 0 && insCount > 0
-            ? `删除了 ${delCount} 行，新增了 ${insCount} 行内容。`
-            : delCount > 0
-              ? `删除了 ${delCount} 行内容。`
-              : insCount > 0
-                ? `新增了 ${insCount} 行内容。`
-                : '无变化。'}
+          {pendingRewrite.aiComment
+            ? pendingRewrite.aiComment
+            : delCount > 0 && insCount > 0
+              ? `删除了 ${delCount} 行，新增了 ${insCount} 行内容。`
+              : delCount > 0
+                ? `删除了 ${delCount} 行内容。`
+                : insCount > 0
+                  ? `新增了 ${insCount} 行内容。`
+                  : '无变化。'}
         </p>
       </div>
     </div>

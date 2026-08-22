@@ -65,7 +65,8 @@ const AIAgentPanel: React.FC = () => {
       s.pendingRewrite !== null ||
       s.rewriting ||
       s.rewriteError !== null ||
-      s.staleRejected
+      s.staleRejected ||
+      s.rewriteResult !== null
   );
   React.useEffect(() => {
     if (rewriteActive) setView('session');

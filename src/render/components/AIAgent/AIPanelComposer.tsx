@@ -218,7 +218,7 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
   };
 
   /** agent 模式发送分流（改写 / 技能 / 引用 / 整篇写 / 纯 agent 对话）。逐字保留自 AgentTab。 */
-  const handleSendAgent = (text: string) => {
+  const handleSendAgent = async (text: string): Promise<void> => {
     // 分流（第 7 期 B1：/ 与 @ 前缀优先于 WRITE_WHOLE_DOC_RE 启发式判断）：
     // 0) /compact 命令 → 压缩上下文
     // 1) 有选区上下文（编辑器「AI 改写」触发）→ 选区改写
@@ -235,18 +235,29 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
     if (selectionContext) {
       // R6: 将用户改写指令作为消息显示在会话中
       const store = useAgentStore.getState();
-      const convId = store.activeConversationId;
-      if (convId) {
-        const userMsg = {
-          id: `msg-${Date.now()}-user`,
-          conversationId: convId,
-          role: 'user' as const,
-          content: text,
-          refsJson: null,
-          createdAt: new Date().toISOString(),
-        };
-        useAgentStore.setState({ messages: [...store.messages, userMsg] });
+      let convId = store.activeConversationId;
+      // 确保会话存在（与 sendMessage/sendAgentMessage 对齐）
+      if (!convId && user) {
+        try {
+          const ai = window.weaveMD?.ai;
+          const createRes = await ai?.createConversation(user.id, 'agent');
+          if (createRes?.success && createRes.data) {
+            convId = createRes.data.id;
+            useAgentStore.setState({ activeConversationId: convId, activeMode: 'agent' });
+          }
+        } catch {
+          /* 会话创建失败不阻断改写，消息仅内存显示 */
+        }
       }
+      const userMsg = {
+        id: `msg-${Date.now()}-user`,
+        conversationId: convId ?? 'rewrite-temp',
+        role: 'user' as const,
+        content: text,
+        refsJson: null,
+        createdAt: new Date().toISOString(),
+      };
+      useAgentStore.setState({ messages: [...store.messages, userMsg] });
       void useRewriteStore.getState().runSelectionRewrite(text);
       return;
     }
@@ -299,7 +310,7 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
       return;
     }
     if (activeMode === 'agent') {
-      handleSendAgent(text);
+      void handleSendAgent(text);
     } else {
       void sendMessage(text);
     }

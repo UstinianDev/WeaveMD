@@ -69,6 +69,7 @@
   "ai.refs.chunk": "Source: {fileName} · {chunk}",
   "ai.refs.file": "Source: {fileName}",
   "ai.rewrite.applied": "Applied",
+  "ai.rewrite.cancelled": "Rewrite cancelled",
   "ai.completion.skillsTitle": "Run a skill",
   "ai.completion.refTitle": "Reference",
   "ai.completion.currentDoc": "Current document",

@@ -351,6 +351,8 @@ export interface RewriteProposal {
   originalMd: string;
   rewrittenMd: string;
   ops: EditBlockOp[];
+  /** LLM 输出的改写说明（自然语言，可选）。 */
+  aiComment?: string;
   /** 面板 @ 定位失败（下标越界/映射不存在）→ 渲染侧拒应用并提示。 */
   locateFailed?: boolean;
   /** 改写结果与原文一致 → 不弹预览卡片。 */

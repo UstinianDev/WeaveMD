@@ -18,6 +18,7 @@ vi.mock('@render/i18n', () => ({
       'ai.rewrite.previewConfirm': '应用',
       'ai.rewrite.previewCancel': '取消',
       'ai.rewrite.applied': '已应用',
+      'ai.rewrite.cancelled': '已取消改写',
       'ai.rewrite.noChange': '改写结果与原文相同，无变化',
       'ai.rewrite.staleRejected': '文档已变更，请重新生成',
       'ai.rewrite.failure': '改写失败',
@@ -127,6 +128,34 @@ describe('RewritePreviewCard', () => {
   it('无任何改写状态 → 渲染空（null）', () => {
     const { container } = render(<RewritePreviewCard />);
     expect(container.firstChild).toBeNull();
+  });
+
+  it('rewriteResult=applied → 显示已应用反馈', () => {
+    useRewriteStore.setState({ rewriteResult: 'applied' });
+    render(<RewritePreviewCard />);
+    expect(screen.getByText(/已应用/)).toBeInTheDocument();
+  });
+
+  it('rewriteResult=cancelled → 显示已取消反馈', () => {
+    useRewriteStore.setState({ rewriteResult: 'cancelled' });
+    render(<RewritePreviewCard />);
+    expect(screen.getByText('已取消改写')).toBeInTheDocument();
+  });
+
+  it('proposal 含 aiComment → 显示 LLM 改写说明', () => {
+    const proposalWithComment: RewriteProposal = {
+      ...proposal,
+      aiComment: '将"old"替换为"new"，保持格式不变',
+    };
+    useRewriteStore.setState({ pendingRewrite: proposalWithComment });
+    render(<RewritePreviewCard />);
+    expect(screen.getByText('将"old"替换为"new"，保持格式不变')).toBeInTheDocument();
+  });
+
+  it('proposal 无 aiComment → 回退到行级统计', () => {
+    useRewriteStore.setState({ pendingRewrite: proposal });
+    render(<RewritePreviewCard />);
+    expect(screen.getByText(/删除了 1 行，新增了 1 行内容/)).toBeInTheDocument();
   });
 
   it('R16: 无提案错误提示条末尾有 ✕，点击调 dismissRewriteBanner', () => {

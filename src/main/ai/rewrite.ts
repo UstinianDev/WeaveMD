@@ -12,9 +12,9 @@ import type { IAIConfig, RewriteReply, RewriteRequestPayload } from '@shared/ai'
 import { decryptApiKey } from './secureConfig';
 import { streamChatCompletion } from './llmClient';
 
-/** selection 改写指令模板（LLM 只输出改写后完整 Markdown，无包裹无解释）。 */
+/** selection 改写指令模板（LLM 先输出一行改写说明，再输出改写后完整 Markdown）。 */
 export const REWRITE_SELECTION_SYSTEM_INSTRUCTION =
-  '你是一名专业的 Markdown 改写助手。根据用户的改写要求改写给定内容，保持原意与 Markdown 结构。只输出改写后完整 Markdown，不要任何包裹、代码块围栏或额外解释。';
+  '你是一名专业的 Markdown 改写助手。根据用户的改写要求改写给定内容，保持原意与 Markdown 结构。请先用一句话简要说明你做了哪些改动（不超过50字），然后另起一行输出 "---" 分隔符，最后输出改写后的完整 Markdown 正文。不要使用代码块围栏。';
 
 /** document 改写指令模板（输出 JSON 数组，仅替换目标块）。 */
 export const REWRITE_DOCUMENT_SYSTEM_INSTRUCTION =
@@ -46,7 +46,7 @@ export function buildRewriteMessages(
     }
     return [
       { role: 'system', content: REWRITE_SELECTION_SYSTEM_INSTRUCTION },
-      { role: 'user', content: payload.selectionMarkdown },
+      { role: 'user', content: `改写要求：${payload.instruction}\n\n原文：\n${payload.selectionMarkdown}` },
     ];
   }
   if (payload.scope === 'document') {
@@ -62,7 +62,7 @@ export function buildRewriteMessages(
     }
     return [
       { role: 'system', content: REWRITE_DOCUMENT_SYSTEM_INSTRUCTION },
-      { role: 'user', content: JSON.stringify(payload.numberedBlocks) },
+      { role: 'user', content: `改写要求：${payload.instruction}\n\n文档块列表：\n${JSON.stringify(payload.numberedBlocks)}` },
     ];
   }
   throw parseError(`Unsupported rewrite scope: ${String(payload.scope)}`);

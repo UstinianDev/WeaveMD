@@ -43,6 +43,8 @@ interface RewriteStore {
   rewriteError: string | null;
   /** 确认时文档已变更（stale）→ 拒绝写入并提示重生成。 */
   staleRejected: boolean;
+  /** 确认/取消后的短暂反馈状态（1.5s 后自动清除）。 */
+  rewriteResult: 'applied' | 'cancelled' | null;
 
   /** 选区触发第一步：记录上下文 + 开 AI 面板（不调 IPC，等 composer 指令）。 */
   startSelectionRewrite: (md: string, sel: SelectionRef) => void;
@@ -58,6 +60,8 @@ interface RewriteStore {
   applyRewrite: () => void;
   /** 取消/复位：重置全部改写状态。 */
   clearRewrite: () => void;
+  /** 用户手动关闭改写结果卡片（确认/取消后）。 */
+  dismissRewriteResult: () => void;
   /** 关闭无提案提示条（R16）：仅清 staleRejected/rewriteError，保留 pendingRewrite/selectionContext。 */
   dismissRewriteBanner: () => void;
 }
@@ -68,6 +72,8 @@ const INITIAL = {
   rewriting: false,
   rewriteError: null as string | null,
   staleRejected: false,
+  /** 确认/取消后的短暂反馈状态（1.5s 后自动清除）。 */
+  rewriteResult: null as 'applied' | 'cancelled' | null,
 };
 
 export const useRewriteStore = create<RewriteStore>((set, get) => ({
@@ -107,7 +113,16 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
         set({ rewriteError: res.message ?? 'rewrite-failed', rewriting: false });
         return;
       }
-      const proposal = proposeSelectionRewrite(md, sel, res.data.text);
+      // 解析 LLM 回复：分离改写说明（第一行）和改写内容（--- 之后）
+      let aiComment: string | undefined;
+      let rewriteText = res.data.text;
+      const sepIdx = res.data.text.indexOf('\n---\n');
+      if (sepIdx > 0) {
+        aiComment = res.data.text.slice(0, sepIdx).trim();
+        rewriteText = res.data.text.slice(sepIdx + 5).trim();
+      }
+      const proposal = proposeSelectionRewrite(md, sel, rewriteText);
+      if (aiComment) proposal.aiComment = aiComment;
       if (proposal.unchanged) {
         // 改写结果与原文相同 → 提示「无变化」，不弹卡片
         set({ rewriting: false, selectionContext: null, rewriteError: 'no-change' });
@@ -117,9 +132,9 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
         set({ rewriting: false, selectionContext: null, rewriteError: 'locate-failed' });
         return;
       }
-      set({ pendingRewrite: proposal, rewriting: false, selectionContext: null });
+      set({ pendingRewrite: proposal, rewriting: false });
     } catch {
-      set({ rewriting: false, rewriteError: 'rewrite-failed', selectionContext: null });
+      set({ rewriting: false, rewriteError: 'rewrite-failed' });
     }
   },
 
@@ -232,11 +247,18 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
     }
 
     useEditorStore.getState().updateContent(pendingRewrite.rewrittenMd);
-    get().clearRewrite();
+    // 保留 pendingRewrite 供卡片展示 AI 改动说明 + diff，用户手动关闭
+    set({ rewriteResult: 'applied' });
   },
 
   clearRewrite() {
-    set(INITIAL);
+    // 保留 pendingRewrite 供卡片展示取消反馈，用户手动关闭
+    set({ rewriteResult: 'cancelled', rewriting: false, rewriteError: null, staleRejected: false });
+  },
+
+  /** 用户手动关闭改写结果卡片（确认/取消后）。 */
+  dismissRewriteResult() {
+    set({ rewriteResult: null, pendingRewrite: null, selectionContext: null });
   },
 
   dismissRewriteBanner() {

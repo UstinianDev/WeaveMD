@@ -33,6 +33,7 @@ beforeEach(() => {
     pendingRewrite: null,
     rewriteError: null,
     staleRejected: false,
+    rewriteResult: null,
   });
 });
 
@@ -42,6 +43,7 @@ afterEach(() => {
     pendingRewrite: null,
     rewriteError: null,
     staleRejected: false,
+    rewriteResult: null,
   });
 });
 
@@ -104,8 +106,9 @@ describe('EditorV2 — M5 整块渐变高亮 + 左端取消胶囊', () => {
       expect(btn).not.toBeNull();
       fireEvent.click(btn!);
       expect(clearSpy).toHaveBeenCalled();
-      // clearRewrite 清 selectionContext → 触发重渲染 → 高亮消失
-      expect(useRewriteStore.getState().selectionContext).toBeNull();
+      // clearRewrite 设置 rewriteResult='cancelled'，selectionContext 延迟清除
+      expect(useRewriteStore.getState().rewriteResult).toBe('cancelled');
+      expect(useRewriteStore.getState().selectionContext).not.toBeNull();
     } finally {
       clearSpy.mockRestore();
       restore();
