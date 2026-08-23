@@ -27,11 +27,11 @@ const MainPage: React.FC = () => {
   const saveFile = useEditorStore((s) => s.saveFile);
   const isSidebarOpen = useUIStore((s) => s.isSidebarOpen);
   const isOutlinePanelCollapsed = useUIStore((s) => s.isOutlinePanelCollapsed);
-  const outlineWidth = useUIStore((s) => s.outlineWidth);
-  const setOutlineWidth = useUIStore((s) => s.setOutlineWidth);
+  const isEditorCollapsed = useUIStore((s) => s.isEditorCollapsed);
   const isHistoryPanelOpen = useUIStore((s) => s.isHistoryPanelOpen);
   const toggleHistoryPanel = useUIStore((s) => s.toggleHistoryPanel);
   const isAIPanelOpen = useUIStore((s) => s.isAIPanelOpen);
+
   const activeModal = useUIStore((s) => s.activeModal);
   const closeModal = useUIStore((s) => s.closeModal);
 
@@ -122,37 +122,6 @@ const MainPage: React.FC = () => {
     null
   );
   const [activeHeadingIndex, setActiveHeadingIndex] = useState<number | null>(null);
-  const [isDraggingOutline, setIsDraggingOutline] = useState(false);
-
-  // Outline panel drag-to-resize
-  const handleOutlineDragStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      setIsDraggingOutline(true);
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-
-      const startX = e.clientX;
-      const startWidth = outlineWidth;
-
-      const onMove = (ev: MouseEvent) => {
-        const delta = ev.clientX - startX;
-        setOutlineWidth(startWidth + delta);
-      };
-
-      const onUp = () => {
-        setIsDraggingOutline(false);
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-      };
-
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
-    },
-    [outlineWidth, setOutlineWidth]
-  );
 
   const handleNavigateReady = useCallback(
     (navFn: (lineNumber: number, headingIndex: number) => void) => {
@@ -199,7 +168,7 @@ const MainPage: React.FC = () => {
 
       {/* Main content area */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Outline Sidebar */}
+        {/* Outline Sidebar：始终保留（编辑区收起时用户仍可浏览文件） */}
         {isSidebarOpen && (
           <>
             {isOutlinePanelCollapsed ? (
@@ -211,55 +180,63 @@ const MainPage: React.FC = () => {
               </div>
             ) : (
               <div
-                className={`flex-shrink-0 relative ${isDraggingOutline ? 'border-r-2 border-accent' : ''}`}
-                style={{ width: outlineWidth }}
+                className="flex-shrink-0 relative"
+                style={{ width: '20%' }}
               >
                 <OutlinePanel
                   onNavigateToHeading={handleNavigateToHeading}
                   activeHeadingIndex={activeHeadingIndex}
-                />
-                {/* Drag handle */}
-                <div
-                  onMouseDown={handleOutlineDragStart}
-                  className="absolute top-0 right-0 h-full w-1 cursor-col-resize hover:bg-accent/30 transition-colors"
-                  style={{ marginRight: '-2px' }}
                 />
               </div>
             )}
           </>
         )}
 
-        {/* Editor area */}
-        <main
-          className={`flex-1 overflow-hidden relative ${isOutlinePanelCollapsed ? 'flex items-center justify-center' : ''}`}
-        >
-          <div className={isOutlinePanelCollapsed ? 'w-full max-w-4xl h-full' : 'w-full h-full'}>
-            {currentFile ? (
-              <EditorView
-                onNavigateReady={handleNavigateReady}
-                onActiveHeadingChange={setActiveHeadingIndex}
-              />
-            ) : (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center">
-                  <p className="text-4xl mb-4">📝</p>
-                  <p className="text-text-sub text-sm mb-1">
-                    Open or create a file to start editing
-                  </p>
-                  <p className="text-text-muted text-xs">
-                    Use File → New File or File → Open File from the menu
-                  </p>
+        {/* Editor area：编辑区收起时隐藏 */}
+        {!isEditorCollapsed && (
+          <main
+            className={`flex-1 overflow-hidden relative ${isOutlinePanelCollapsed ? 'flex items-center justify-center' : ''}`}
+          >
+            <div className={isOutlinePanelCollapsed ? 'w-full max-w-4xl h-full' : 'w-full h-full'}>
+              {currentFile ? (
+                <EditorView
+                  onNavigateReady={handleNavigateReady}
+                  onActiveHeadingChange={setActiveHeadingIndex}
+                />
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <p className="text-4xl mb-4">📝</p>
+                    <p className="text-text-sub text-sm mb-1">
+                      Open or create a file to start editing
+                    </p>
+                    <p className="text-text-muted text-xs">
+                      Use File → New File or File → Open File from the menu
+                    </p>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        </main>
+              )}
+            </div>
+          </main>
+        )}
 
-        {/* AI 代理面板（右侧 dock） */}
+        {/* AI 代理面板（右侧 dock）：编辑区收起时占满剩余空间 */}
         {isAIPanelOpen && (
-          <div className="relative flex-shrink-0">
+          <div className={`relative ${isEditorCollapsed ? 'flex-1 min-w-0' : 'flex-shrink-0'}`}>
             <AIAgentPanel />
           </div>
+        )}
+
+        {/* 编辑区和AI面板都收起时的占位提示 */}
+        {isEditorCollapsed && !isAIPanelOpen && (
+          <main className="flex-1 flex items-center justify-center">
+            <div className="text-center">
+              <p className="text-4xl mb-4">🪟</p>
+              <p className="text-text-sub text-sm">
+                {t('navbar.expandHint', '使用顶部按钮展开富文本编辑器或 AI Agent面板。')}
+              </p>
+            </div>
+          </main>
         )}
       </div>
 

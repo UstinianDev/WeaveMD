@@ -129,10 +129,9 @@ describe('AIAgentPanel（三视图外壳）', () => {
     (kb.getSettings as ReturnType<typeof vi.fn>).mockResolvedValue({ success: true, data: null });
     // 发送分流只关心「调度 + 清空草稿 + 切视图」，底层的 chat/agent 网络副作用与断言无关：
     // spy 掉 sendMessage/sendAgentMessage，避免真实 send 触发网络同意弹层盖住视图断言。
-    vi.spyOn(useAgentStore.getState(), 'sendMessage').mockResolvedValue(undefined);
     vi.spyOn(useAgentStore.getState(), 'sendAgentMessage').mockResolvedValue(undefined);
     useUIStore.setState({ isAIPanelOpen: true, aiPanelWidth: 480 });
-    useAgentStore.setState({ activeMode: 'chat', activeTab: 'chat', pendingConsent: false });
+    useAgentStore.setState({ activeMode: 'agent', pendingConsent: false });
     useAuthStore.setState({
       user: MOCK_USER,
       token: 'tok',
@@ -272,7 +271,7 @@ describe('AIAgentPanel（三视图外壳）', () => {
     expect(lastHomeDraft).toBe('会话前草稿');
     // 点 RECENT 项 → handleOpenConversation → loadConversation + 进 session + 草稿清空
     fireEvent.click(screen.getByTestId('mock-recent-item'));
-    expect(loadConversation).toHaveBeenCalledWith('c1', 'chat');
+    expect(loadConversation).toHaveBeenCalledWith('c1', 'agent');
     expect(screen.getByTestId('view-session')).toBeInTheDocument();
     expect(lastSessionDraft).toBe('');
   });

@@ -1,6 +1,6 @@
 # 跨块拖选光标闪烁优化规范（Drag Selection Flicker）
 
-> 规范编号：SPEC-EDIT-DSF | 版本：v0.1（草案，待评审后实施）| 更新：2026-08-08
+> 规范编号：SPEC-EDIT-DSF | 版本：v0.2（4.1b 原地更新 Range 补充）| 更新：2026-08-22
 > 关联需求：REQUIREMENTS.md EDIT-02（跨块选择）
 > 关联规范：[SPEC-EDIT-FT](./floating-toolbar-refactor.md)（G2 跨块拖选已修功能）、
 > [SPEC-EDITOR-V2](./editor-v2-architecture.md)、[实施记录](./editor-v2-progress.md)（13.13 跨块拖选）
@@ -75,6 +75,16 @@ SPEC-EDIT-FT v1.0 之后，编辑区**从下至上**跨块拖选（反向，跨�
     应有的 offset 精度，仅去掉"无变化"重建）；
   - **端点变化** → 写入并更新 `lastAppliedRangeRef`。
 - 保留 mouseup 末帧兜底与 3 帧重放（SPEC-EDIT-FT 4.4.6），逻辑不受影响。
+
+### 4.1b 原地更新 Range 消除空选区闪烁帧（P1 补充，同文件）
+
+> 4.1 的端点检测消除了"静止帧无变化重建"，但**移动帧**仍用 `removeAllRanges + addRange`
+> 重建选区——两者之间存在一帧"空选区"（光标消失），在反向跨块拖选中表现为残余闪烁。
+
+- 端点变化时，若 `selection.rangeCount === 1`，直接对已有 Range 调用 `setStart/setEnd`
+  原地修改端点，**不走 remove + add**，消除中间空选区帧；
+- `selectionchange` 事件从 2 次（remove 触发一次 + add 触发一次）收敛为 1 次；
+- `rangeCount !== 1` 的异常路径保留 `removeAllRanges + addRange` 回退。
 
 ### 4.2 原生拖选竞争的温和抑制（P1 辅助，同文件）
 

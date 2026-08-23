@@ -108,7 +108,7 @@ describe('AIPanelSession', () => {
     useAgentStore.setState({
       conversations: [conv('c1', '标题')],
       activeConversationId: 'c1',
-      activeMode: 'chat',
+      activeMode: 'agent',
       useKnowledgeBase: false,
     });
     render(<AIPanelSession draft="" setDraft={() => undefined} onCloseConversation={closeFn} />);
@@ -121,7 +121,7 @@ describe('AIPanelSession', () => {
     useAgentStore.setState({
       conversations: [conv('c1', '标题')],
       activeConversationId: 'c1',
-      activeMode: 'chat',
+      activeMode: 'agent',
       useKnowledgeBase: false,
     });
     const setDraft = vi.fn();

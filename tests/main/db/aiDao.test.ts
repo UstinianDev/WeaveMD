@@ -46,7 +46,7 @@ const fakeDbMock = vi.hoisted(() => {
             return {
               id: args[0],
               user_id: 'u1',
-              mode: 'chat',
+              mode: 'agent',
               summary: '',
               created_at: 'now',
               updated_at: 'now',
@@ -146,11 +146,11 @@ beforeEach(() => {
 
 describe('ai DAO — SQL 参数化与归属过滤行为', () => {
   it('createConversation binds userId/mode with uuid id', () => {
-    createConversation('u1', 'chat');
+    createConversation('u1', 'agent');
     const insert = callOf('run', 'INSERT INTO ai_conversations');
     expect(insert?.args[0]).toEqual(expect.stringMatching(/[0-9a-f-]{36}/));
     expect(insert?.args[1]).toBe('u1');
-    expect(insert?.args[2]).toBe('chat');
+    expect(insert?.args[2]).toBe('agent');
   });
 
   it('appendMessage binds conversation_id, user_id, role, content in order', () => {
@@ -165,11 +165,11 @@ describe('ai DAO — SQL 参数化与归属过滤行为', () => {
   });
 
   it('listConversationsByUser filters by user_id + mode and orders by updated_at DESC', () => {
-    listConversationsByUser('u1', 'chat');
+    listConversationsByUser('u1', 'agent');
     const stmt = callOf('all', 'ai_conversations');
     expect(stmt?.sql).toMatch(/WHERE user_id = \? AND mode = \?/);
     expect(stmt?.sql).toContain('ORDER BY updated_at DESC');
-    expect(stmt?.args).toEqual(['u1', 'chat']);
+    expect(stmt?.args).toEqual(['u1', 'agent']);
   });
 
   it('listConversationsByUser without mode filters only by user_id', () => {

@@ -45,7 +45,7 @@ const conv = (id: string, summary: string, updatedAt: string): IAIConversation =
   id,
   userId: 'u1',
   summary,
-  mode: 'chat',
+  mode: 'agent',
   createdAt: '2026-08-01T00:00:00Z',
   updatedAt,
 });
@@ -107,14 +107,14 @@ describe('AIPanelHome', () => {
   };
 
   it('空态：无会话显示「暂无最近会话」+ 大图标 + CTA', () => {
-    useAgentStore.setState({ conversations: [], activeMode: 'chat' });
+    useAgentStore.setState({ conversations: [], activeMode: 'agent' });
     renderHome();
     expect(screen.getByText('What can I do for you?')).toBeInTheDocument();
     expect(screen.getByText('暂无最近会话')).toBeInTheDocument();
   });
 
   it('展示 RECENT 最近 3 会话（标题 + 日期）并点击进会话', () => {
-    useAgentStore.setState({ conversations: [a, b, c, d], activeMode: 'chat' });
+    useAgentStore.setState({ conversations: [a, b, c, d], activeMode: 'agent' });
     renderHome();
     // 最近 3 个：d/c/b（第4个 a 不显示）
     expect(screen.getByText('第四个')).toBeInTheDocument();
@@ -138,7 +138,7 @@ describe('AIPanelHome', () => {
   });
 
   it('RECENT「查看全部」触发 onViewAll；底部 composer 存在', () => {
-    useAgentStore.setState({ conversations: [], activeMode: 'chat' });
+    useAgentStore.setState({ conversations: [], activeMode: 'agent' });
     renderHome();
     fireEvent.click(screen.getByText('查看全部'));
     expect(viewAllFn).toHaveBeenCalled();
@@ -146,7 +146,7 @@ describe('AIPanelHome', () => {
   });
 
   it('M4: 接收 draft 并受控透传给 composer（value=草案；onChange=setDraft）', () => {
-    useAgentStore.setState({ conversations: [], activeMode: 'chat' });
+    useAgentStore.setState({ conversations: [], activeMode: 'agent' });
     const setDraft = vi.fn();
     render(
       <AIPanelHome

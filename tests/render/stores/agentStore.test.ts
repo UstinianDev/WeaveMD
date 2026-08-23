@@ -89,7 +89,7 @@ describe('agentStore 会话状态机', () => {
         .listConversations
     ).mockResolvedValue({
       success: true,
-      data: [{ id: CONVERSATION_ID, userId: 'u1', mode: 'chat', summary: '', createdAt: '', updatedAt: '' }],
+      data: [{ id: CONVERSATION_ID, userId: 'u1', mode: 'agent', summary: '', createdAt: '', updatedAt: '' }],
     });
     vi.mocked((window.weaveMD.kb as unknown as { getSettings: ReturnType<typeof vi.fn> }).getSettings).mockResolvedValue({
       success: true,
@@ -120,7 +120,7 @@ describe('agentStore 会话状态机', () => {
         .listConversations
     ).mockResolvedValue({
       success: true,
-      data: [{ id: CONVERSATION_ID, userId: 'u1', mode: 'chat', summary: '', createdAt: '', updatedAt: '' }],
+      data: [{ id: CONVERSATION_ID, userId: 'u1', mode: 'agent', summary: '', createdAt: '', updatedAt: '' }],
     });
     vi.mocked((window.weaveMD.kb as unknown as { getSettings: ReturnType<typeof vi.fn> }).getSettings).mockResolvedValue({
       success: false,
@@ -145,7 +145,7 @@ describe('agentStore 会话状态机', () => {
         {
           id: CONVERSATION_ID,
           userId: 'u1',
-          mode: 'chat',
+          mode: 'agent',
           summary: '',
           createdAt: '',
           updatedAt: '',
@@ -168,19 +168,19 @@ describe('agentStore 会话状态机', () => {
     expect(s.pendingConsent).toBe(false);
   });
 
-  it('sendMessage 触发 pendingConsent（remote 未授权）', async () => {
-    useAgentStore.setState({ config: remoteConfig, consent: noConsent });
+  it('sendAgentMessage 触发 pendingConsent（remote 未授权）', async () => {
+    useAgentStore.setState({ config: remoteConfig, consent: noConsent, activeMode: 'agent' });
 
-    await useAgentStore.getState().sendMessage('hello');
+    await useAgentStore.getState().sendAgentMessage('hello');
 
     expect(useAgentStore.getState().pendingConsent).toBe(true);
     // 未授权时不真正发送
     expect(
-      (window.weaveMD.ai as unknown as { chat: ReturnType<typeof vi.fn> }).chat
+      (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent
     ).not.toHaveBeenCalled();
   });
 
-  it('sendMessage 流式 chunk 累积进 streamBuffer，done 后写 assistant msg', async () => {
+  it('sendAgentMessage 流式 chunk 累积进 streamBuffer，done 后写 assistant msg', async () => {
     let streamCb: ((evt: AIStreamEvent) => void) | null = null;
 
     (
@@ -196,21 +196,21 @@ describe('agentStore 会话状态机', () => {
 
     const emit = (evt: AIStreamEvent) => streamCb?.(evt);
 
-    vi.mocked((window.weaveMD.ai as unknown as { chat: ReturnType<typeof vi.fn> }).chat).mockResolvedValue(
-      { success: true, data: { conversationId: CONVERSATION_ID } }
+    vi.mocked((window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent).mockResolvedValue(
+      { success: true, data: { conversationId: CONVERSATION_ID, assistantId: 'a1', roundsUsed: 1, intent: null } }
     );
     vi.mocked(
       (window.weaveMD.ai as unknown as { createConversation: ReturnType<typeof vi.fn> })
         .createConversation
     ).mockResolvedValue({
       success: true,
-      data: { id: CONVERSATION_ID, userId: 'u1', mode: 'chat', summary: '', createdAt: '', updatedAt: '' },
+      data: { id: CONVERSATION_ID, userId: 'u1', mode: 'agent', summary: '', createdAt: '', updatedAt: '' },
     });
 
-    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent });
+    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent, activeMode: 'agent' });
 
-    const sendPromise = useAgentStore.getState().sendMessage('hello');
-    // 排空微任务队列，让 sendMessage 走到「append user msg + 订阅流」之后
+    const sendPromise = useAgentStore.getState().sendAgentMessage('hello');
+    // 排空微任务队列，让 sendAgentMessage 走到「append user msg + 订阅流」之后
     await new Promise((r) => setTimeout(r, 0));
 
     // 用户消息已 append
@@ -233,7 +233,7 @@ describe('agentStore 会话状态机', () => {
     expect(assistant?.content).toBe('Hello');
   });
 
-  it('sendMessage 遇 error 事件不写入 assistant，退订流', async () => {
+  it('sendAgentMessage 遇 error 事件不写入 assistant，退订流', async () => {
     let streamCb: ((evt: AIStreamEvent) => void) | null = null;
 
     const unsubscribe = vi.fn();
@@ -245,22 +245,22 @@ describe('agentStore 会话状态机', () => {
         return unsubscribe;
       }
     );
-    vi.mocked((window.weaveMD.ai as unknown as { chat: ReturnType<typeof vi.fn> }).chat).mockResolvedValue(
-      { success: true, data: { conversationId: CONVERSATION_ID } }
+    vi.mocked((window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent).mockResolvedValue(
+      { success: true, data: { conversationId: CONVERSATION_ID, assistantId: 'a1', roundsUsed: 1, intent: null } }
     );
     vi.mocked(
       (window.weaveMD.ai as unknown as { createConversation: ReturnType<typeof vi.fn> })
         .createConversation
     ).mockResolvedValue({
       success: true,
-      data: { id: CONVERSATION_ID, userId: 'u1', mode: 'chat', summary: '', createdAt: '', updatedAt: '' },
+      data: { id: CONVERSATION_ID, userId: 'u1', mode: 'agent', summary: '', createdAt: '', updatedAt: '' },
     });
 
-    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent });
+    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent, activeMode: 'agent' });
 
     const emit = (evt: AIStreamEvent) => streamCb?.(evt);
 
-    const sendPromise = useAgentStore.getState().sendMessage('hi');
+    const sendPromise = useAgentStore.getState().sendAgentMessage('hi');
     // 排空微任务：走到 append user msg + 订阅流
     await new Promise((r) => setTimeout(r, 0));
 
@@ -324,38 +324,39 @@ describe('agentStore 会话状态机', () => {
 
   // ---- R20：建会话后首条消息写 summary（截断 50）----
 
-  it('sendMessage 建会话成功后 updateConversationSummary 写入首条消息（截断 50）', async () => {
+  it('sendAgentMessage 建会话成功后 updateConversationSummary 写入首条消息（截断 50）', async () => {
     (window.weaveMD.ai.onStream as unknown as { mockImplementation: (...a: unknown[]) => unknown }).mockImplementation(() => () => {});
     (window.weaveMD.ai as unknown as { createConversation: ReturnType<typeof vi.fn> }).createConversation.mockResolvedValue({
       success: true,
-      data: { id: 'conv-title', userId: 'u1', mode: 'chat', summary: '', createdAt: '', updatedAt: '' },
+      data: { id: 'conv-title', userId: 'u1', mode: 'agent', summary: '', createdAt: '', updatedAt: '' },
     });
-    (window.weaveMD.ai as unknown as { chat: ReturnType<typeof vi.fn> }).chat.mockResolvedValue({
+    (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent.mockResolvedValue({
       success: true,
-      data: { conversationId: 'conv-title' },
+      data: { conversationId: 'conv-title', assistantId: 'a1', roundsUsed: 1, intent: null },
     });
-    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent });
+    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent, activeMode: 'agent' });
 
     const longMsg = 'a'.repeat(80);
-    await useAgentStore.getState().sendMessage(longMsg);
+    await useAgentStore.getState().sendAgentMessage(longMsg);
 
     const updateSummary = (window.weaveMD.ai as unknown as { updateConversationSummary: ReturnType<typeof vi.fn> }).updateConversationSummary;
     expect(updateSummary).toHaveBeenCalledWith('conv-title', '', 'a'.repeat(50));
   });
 
-  it('sendMessage 已有会话（未新建）不重复写 summary', async () => {
+  it('sendAgentMessage 已有会话（未新建）不重复写 summary', async () => {
     (window.weaveMD.ai.onStream as unknown as { mockImplementation: (...a: unknown[]) => unknown }).mockImplementation(() => () => {});
-    (window.weaveMD.ai as unknown as { chat: ReturnType<typeof vi.fn> }).chat.mockResolvedValue({
+    (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent.mockResolvedValue({
       success: true,
-      data: { conversationId: 'existing-conv' },
+      data: { conversationId: 'existing-conv', assistantId: 'a1', roundsUsed: 1, intent: null },
     });
     useAgentStore.setState({
       config: remoteConfig,
       consent: grantedConsent,
       activeConversationId: 'existing-conv',
+      activeMode: 'agent',
     });
 
-    await useAgentStore.getState().sendMessage('hello');
+    await useAgentStore.getState().sendAgentMessage('hello');
 
     const updateSummary = (window.weaveMD.ai as unknown as { updateConversationSummary: ReturnType<typeof vi.fn> }).updateConversationSummary;
     expect(updateSummary).not.toHaveBeenCalled();
@@ -573,54 +574,6 @@ describe('agentStore agent 模式', () => {
     expect(s.toolCalls).toHaveLength(1);
     expect(s.toolCalls[0]?.name).toBe('searchKB');
     expect(s.toolCalls[0]?.status).toBe('ok');
-  });
-
-  it("toggleTab('agent') 联动 activeMode=agent", () => {
-    useAgentStore.getState().toggleTab('agent');
-    const s = useAgentStore.getState();
-    expect(s.activeTab).toBe('agent');
-    expect(s.activeMode).toBe('agent');
-  });
-
-  // ---- 第 7 期批次⑥ B3：toggleMode 域切换 + loadConversations 按 mode 隔离 ----
-
-  it("toggleMode('agent') 置 activeMode=agent（UI 下拉调用，不残留 activeTab 语义）", () => {
-    useAgentStore.getState().toggleMode('agent');
-    expect(useAgentStore.getState().activeMode).toBe('agent');
-    useAgentStore.getState().toggleMode('chat');
-    expect(useAgentStore.getState().activeMode).toBe('chat');
-  });
-
-  it('loadConversations(mode) 按 mode 域隔离拉取：chat/agent 不串号', async () => {
-    const listConversations = (
-      window.weaveMD.ai as unknown as { listConversations: ReturnType<typeof vi.fn> }
-    ).listConversations;
-    listConversations.mockImplementation(async (_uid: string, mode: string) => ({
-      success: true,
-      data:
-        mode === 'chat'
-          ? [
-              { id: 'chat-c1', userId: 'u1', mode: 'chat', summary: '聊', createdAt: '', updatedAt: '' },
-            ]
-          : [
-              { id: 'agt-c1', userId: 'u1', mode: 'agent', summary: '智', createdAt: '', updatedAt: '' },
-            ],
-    }));
-
-    // chat 域
-    await useAgentStore.getState().loadConversations('chat');
-    expect(useAgentStore.getState().conversations.map((c) => c.id)).toEqual(['chat-c1']);
-
-    // 切 agent 域 → 列表随域切换，不残留 chat
-    useAgentStore.getState().toggleMode('agent');
-    await useAgentStore.getState().loadConversations('agent');
-    expect(useAgentStore.getState().activeMode).toBe('agent');
-    expect(useAgentStore.getState().conversations.map((c) => c.id)).toEqual(['agt-c1']);
-
-    // 回 chat 域 → 会话隔离不串号
-    useAgentStore.getState().toggleMode('chat');
-    await useAgentStore.getState().loadConversations('chat');
-    expect(useAgentStore.getState().conversations.map((c) => c.id)).toEqual(['chat-c1']);
   });
 
   it('reset 清空 agent 扩展状态（toolCalls/intentCard/kbStatus）', () => {

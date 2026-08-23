@@ -37,6 +37,7 @@ const AIAgentPanel: React.FC = () => {
   const aiPanelWidth = useUIStore((s) => s.aiPanelWidth);
   const setAIPanelWidth = useUIStore((s) => s.setAIPanelWidth);
   const toggleAIPanel = useUIStore((s) => s.toggleAIPanel);
+  const isEditorCollapsed = useUIStore((s) => s.isEditorCollapsed);
 
   // 视图状态（平凡，无须 store）：home 主界面 / session 会话 / settings 设置
   const [view, setView] = useState<View>('home');
@@ -189,10 +190,10 @@ const AIAgentPanel: React.FC = () => {
   return (
     <>
       <aside
-        className={`flex flex-col h-full flex-shrink-0 border-l border-border bg-bg-secondary transition-transform ${
-          isCollapsing ? 'translate-x-full' : 'translate-x-0'
-        }`}
-        style={{ width: aiPanelWidth }}
+        className={`flex flex-col h-full border-l border-border bg-bg-secondary transition-transform ${
+          isEditorCollapsed ? 'flex-1 min-w-0' : 'flex-shrink-0'
+        } ${isCollapsing ? 'translate-x-full' : 'translate-x-0'}`}
+        style={{ width: isEditorCollapsed ? '100%' : aiPanelWidth }}
       >
         {renderTopBar(null)}
 
@@ -275,12 +276,14 @@ const AIAgentPanel: React.FC = () => {
           )}
         </div>
 
-        {/* 反向拖拽把手：位于面板左侧缘，向右拉 = 变宽 */}
-        <div
-          onMouseDown={handleDragStart}
-          className="absolute top-0 left-0 h-full w-1.5 cursor-col-resize hover:bg-accent/30 transition-colors z-10"
-          style={{ marginLeft: '-3px' }}
-        />
+        {/* 反向拖拽把手：编辑区收起时隐藏（全屏无需调整宽度） */}
+        {!isEditorCollapsed && (
+          <div
+            onMouseDown={handleDragStart}
+            className="absolute top-0 left-0 h-full w-1.5 cursor-col-resize hover:bg-accent/30 transition-colors z-10"
+            style={{ marginLeft: '-3px' }}
+          />
+        )}
       </aside>
 
       {/* 知情同意弹层（覆盖整个面板，不随视图变化） */}

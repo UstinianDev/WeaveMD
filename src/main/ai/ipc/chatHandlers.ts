@@ -62,7 +62,7 @@ export function registerChatHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.AI_CONVERSATION_CREATE,
-    (_event, userId: string, mode: ConversationMode = 'chat') => {
+    (_event, userId: string, mode: ConversationMode = 'agent') => {
       try {
         const conversation = createConversation(userId, mode);
         return { success: true, data: conversation };
@@ -157,7 +157,7 @@ async function runChatFlow(
       return { success: false, message: 'Conversation not found' };
     }
   } else {
-    const created = createConversation(userId, 'chat');
+    const created = createConversation(userId, 'agent');
     convId = created.id;
   }
   activeStreams.set(convId, controller);

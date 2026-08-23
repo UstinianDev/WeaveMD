@@ -9,10 +9,10 @@ interface UIStore {
   theme: ThemeType;
   language: LanguageType;
   sidebarWidth: number;
-  outlineWidth: number;
   historyPanelWidth: number;
   isSidebarOpen: boolean;
   isOutlinePanelCollapsed: boolean;
+  isEditorCollapsed: boolean;
   pageWidth: PageWidth;
   activeModal: string | null;
   isLoading: boolean;
@@ -28,12 +28,12 @@ interface UIStore {
   setTheme: (theme: ThemeType) => void;
   setLanguage: (language: LanguageType) => void;
   setSidebarWidth: (width: number) => void;
-  setOutlineWidth: (width: number) => void;
   setHistoryPanelWidth: (width: number) => void;
   setAIPanelWidth: (width: number) => void;
   setAIPanelOpen: (open: boolean) => void;
   toggleSidebar: () => void;
   toggleOutlinePanel: () => void;
+  toggleEditorCollapse: () => void;
   setPageWidth: (width: PageWidth) => void;
   openModal: (modal: string) => void;
   closeModal: () => void;
@@ -54,10 +54,10 @@ export const useUIStore = create<UIStore>((set, get) => ({
   theme: 'light-header',
   language: 'zh-CN',
   sidebarWidth: 240,
-  outlineWidth: 280,
   historyPanelWidth: 280,
   isSidebarOpen: true,
   isOutlinePanelCollapsed: false,
+  isEditorCollapsed: false,
   pageWidth: 'default',
   activeModal: null,
   isLoading: false,
@@ -85,11 +85,6 @@ export const useUIStore = create<UIStore>((set, get) => ({
     get().persistSettings();
   },
 
-  setOutlineWidth: (width) => {
-    set({ outlineWidth: Math.max(200, width) });
-    get().persistSettings();
-  },
-
   setHistoryPanelWidth: (width) => {
     set({ historyPanelWidth: Math.max(200, width) });
     get().persistSettings();
@@ -107,6 +102,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
   toggleSidebar: () => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
 
   toggleOutlinePanel: () => set((s) => ({ isOutlinePanelCollapsed: !s.isOutlinePanelCollapsed })),
+
+  toggleEditorCollapse: () => set((s) => ({ isEditorCollapsed: !s.isEditorCollapsed })),
 
   setPageWidth: (pageWidth) => set({ pageWidth }),
 
@@ -164,7 +161,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   },
 
   persistSettings: () => {
-    const { theme, language, sidebarWidth, outlineWidth, historyPanelWidth, isAIPanelOpen, aiPanelWidth } =
+    const { theme, language, sidebarWidth, historyPanelWidth, isAIPanelOpen, aiPanelWidth } =
       get();
     localStorage.setItem(
       'weavemd_ui',
@@ -172,7 +169,6 @@ export const useUIStore = create<UIStore>((set, get) => ({
         theme,
         language,
         sidebarWidth,
-        outlineWidth,
         historyPanelWidth,
         isAIPanelOpen,
         aiPanelWidth,
@@ -188,7 +184,6 @@ export const useUIStore = create<UIStore>((set, get) => ({
           theme,
           language,
           sidebarWidth,
-          outlineWidth,
           historyPanelWidth,
           isAIPanelOpen,
           aiPanelWidth,
@@ -197,7 +192,6 @@ export const useUIStore = create<UIStore>((set, get) => ({
           theme: theme || 'light-header',
           language: language || 'zh-CN',
           sidebarWidth: sidebarWidth || 240,
-          outlineWidth: outlineWidth || 280,
           historyPanelWidth: historyPanelWidth || 280,
           isAIPanelOpen: isAIPanelOpen ?? false,
           aiPanelWidth: aiPanelWidth || 480,

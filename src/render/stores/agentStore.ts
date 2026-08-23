@@ -37,11 +37,10 @@ function getKb(): KbApi {
   return window.weaveMD?.kb;
 }
 
-export type ConsentAction = 'chat' | 'agent';
+export type ConsentAction = 'agent';
 
 interface AgentStore {
-  activeTab: 'chat' | 'agent';
-  /** 会话模式隔离（与 activeTab 联动，agent 独立会话域）。 */
+  /** 统一智能体模式（chat 模式已废弃）。 */
   activeMode: ConversationMode;
   activeConversationId: string | null;
   /** 当前登录用户 id（init 时从 userId 参数保存，供 abort 归属校验）。 */
@@ -66,14 +65,16 @@ interface AgentStore {
   /** KB 参数持久化状态（idle 初始 / saving 写入中 / saved 已保存 / error 保存失败）。 */
   kbSettingsSaveState: 'idle' | 'saving' | 'saved' | 'error';
 
+  // —— Composer 控制条 ——
+  /** 自动/手动应用改写开关（默认 true = 自动）。 */
+  autoApplyRewrite: boolean;
+  setAutoApplyRewrite: (value: boolean) => void;
+
   init: (userId: string) => Promise<void>;
   reset: () => void;
   newChat: () => void;
-  sendMessage: (text: string) => Promise<void>;
   sendAgentMessage: (text: string) => Promise<void>;
   stopStream: () => void;
-  toggleTab: (tab: 'chat' | 'agent') => void;
-  toggleMode: (mode: ConversationMode) => void;
   setUseKnowledgeBase: (enabled: boolean) => void;
   setKbSettings: (settings: IKbSettings) => Promise<void>;
   /** 归位 KB 参数保存状态为 idle（设置面板每次打开时调用，提示归零）。 */
@@ -125,7 +126,7 @@ const RESET_FIELDS: Pick<
   config: null,
   pendingConsent: false,
   streamUnsubscribe: null,
-  activeMode: 'chat',
+  activeMode: 'agent',
   useKnowledgeBase: false,
   toolCalls: [],
   intentCard: null,
@@ -202,7 +203,6 @@ function createStreamManager(
 }
 
 export const useAgentStore = create<AgentStore>((set, get) => ({
-  activeTab: 'chat',
   ...RESET_FIELDS,
 
   async init(userId: string) {
@@ -210,7 +210,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     const [configRes, consentRes, convRes, kbSettingsRes] = await Promise.all([
       ai.getConfig(userId),
       ai.getConsent(userId),
-      ai.listConversations(userId, 'chat'),
+      ai.listConversations(userId, 'agent'),
       getKb().getSettings(userId),
     ]);
 
@@ -226,14 +226,14 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       config,
       consent,
       conversations,
-      activeMode: 'chat',
+      activeMode: 'agent',
       kbSettings,
     });
   },
 
   reset: () => {
     get().streamUnsubscribe?.();
-    set({ ...RESET_FIELDS, activeTab: 'chat' });
+    set({ ...RESET_FIELDS });
   },
 
   newChat: () => {
@@ -246,85 +246,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     });
   },
 
-  async sendMessage(text: string) {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    const { consent, activeConversationId, activeMode } = get();
-
-    // 铁律二：联网/笔记外发必须知情同意（chat）
-    if (needsConsent(consent)) {
-      set({ pendingConsent: true });
-      return;
-    }
-
-    const ai = getAi();
-    const userId = useAuthStore.getState().user?.id ?? '';
-
-    let conversationId: string | null = activeConversationId;
-    if (!conversationId) {
-      const createRes = await ai.createConversation(userId, 'chat');
-      if (!createRes.success || !createRes.data) return;
-      conversationId = createRes.data.id;
-      set({ activeConversationId: conversationId, activeMode: 'chat' });
-      await get().loadConversations('chat');
-      const firstMsg = trimmed.slice(0, 50);
-      await ai.updateConversationSummary(conversationId, userId, firstMsg);
-      await get().loadConversations(activeMode);
-    }
-
-    const userMsg: IAIMessage = {
-      id: makeId(),
-      conversationId,
-      role: 'user',
-      content: trimmed,
-      refsJson: null,
-      createdAt: new Date().toISOString(),
-    };
-    set((s) => ({
-      messages: [...s.messages, userMsg],
-      isStreaming: true,
-      streamBuffer: '',
-      pendingConsent: false,
-    }));
-
-    const appendAssistant = (): void => {
-      const { streamBuffer } = get();
-      set((s) => ({
-        isStreaming: false,
-        streamUnsubscribe: null,
-        streamBuffer: '',
-        messages: [
-          ...s.messages,
-          {
-            id: makeId(),
-            conversationId: conversationId ?? '',
-            role: 'assistant' as const,
-            content: streamBuffer,
-            refsJson: null,
-            createdAt: new Date().toISOString(),
-          },
-        ],
-      }));
-    };
-
-    const mgr = createStreamManager({
-      conversationId,
-      finishAndPersist: appendAssistant,
-    }, set, get);
-    mgr.subscribe();
-    set({ streamUnsubscribe: mgr.unsubscribe });
-
-    try {
-      await ai.chat({ userId, conversationId, message: trimmed });
-    } catch {
-      mgr.finishWithoutPersist();
-    }
-  },
-
   async sendAgentMessage(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const { consent, activeConversationId, useKnowledgeBase, activeMode } = get();
+    const { consent, activeConversationId, useKnowledgeBase } = get();
 
     // 铁律二：agent 模式联网外发 + 知识库检索外发均需知情同意
     if (needsConsent(consent)) {
@@ -349,7 +274,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       await get().loadConversations('agent');
       const firstMsg = trimmed.slice(0, 50);
       await ai.updateConversationSummary(conversationId, userId, firstMsg);
-      await get().loadConversations(activeMode);
+      await get().loadConversations('agent');
     }
 
     const userMsg: IAIMessage = {
@@ -447,10 +372,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     set({ isStreaming: false, streamBuffer: '', streamUnsubscribe: null });
   },
 
-  toggleTab: (tab) => set({ activeTab: tab, activeMode: tab }),
-
-  toggleMode: (mode) => set({ activeMode: mode, activeTab: mode }),
-
   setUseKnowledgeBase: (enabled) => set({ useKnowledgeBase: enabled }),
 
   async setKbSettings(settings) {
@@ -488,7 +409,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     }
   },
 
-  async loadConversation(id: string, mode: ConversationMode = 'chat') {
+  async loadConversation(id: string, mode: ConversationMode = 'agent') {
     const userId = useAuthStore.getState().user?.id ?? '';
     const ai = getAi();
     const res = await ai.getConversation(id, userId);
@@ -504,7 +425,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     }
   },
 
-  async loadConversations(mode: ConversationMode = 'chat') {
+  async loadConversations(mode: ConversationMode = 'agent') {
     const userId = useAuthStore.getState().user?.id ?? '';
     const ai = getAi();
     const res = await ai.listConversations(userId, mode);

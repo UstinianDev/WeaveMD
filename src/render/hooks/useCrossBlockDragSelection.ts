@@ -150,8 +150,9 @@ export function useCrossBlockDragSelection(containerRef: RefObject<HTMLDivElemen
       lastDragRangeRef.current = next.cloneRange();
 
       // 仅跨块时程序化设置选区；同块由浏览器原生选择。
-      // SPEC-EDIT-DSF 4.1：端点级变化检测——端点全等则跳过 removeAllRanges + addRange，
-      // 鼠标静止时彻底停写（不再与原生拖选竞争触发 selectionchange）。
+      // SPEC-EDIT-DSF 4.1：端点级变化检测——端点全等则跳过，鼠标静止时彻底停写。
+      // SPEC-EDIT-DSF 4.1b：原地更新已有 Range（setStart/setEnd）代替 removeAllRanges +
+      // addRange，消除两者之间的"空选区"闪烁帧（反向跨块拖选光标闪烁的残余根因）。
       if (startSpan !== endSpan) {
         const candidate: RangeEndpoint = {
           startNode: next.startContainer,
@@ -162,8 +163,16 @@ export function useCrossBlockDragSelection(containerRef: RefObject<HTMLDivElemen
         if (!areRangeEndpointsEqual(lastAppliedRangeRef.current, candidate)) {
           const sel = window.getSelection();
           if (sel) {
-            sel.removeAllRanges();
-            sel.addRange(next);
+            if (sel.rangeCount === 1) {
+              // 原地更新：直接修改选区内已有 Range 的端点，避免 remove+add 触发
+              // selectionchange 两次 + 中间帧空选区闪烁。
+              const existing = sel.getRangeAt(0);
+              existing.setStart(next.startContainer, next.startOffset);
+              existing.setEnd(next.endContainer, next.endOffset);
+            } else {
+              sel.removeAllRanges();
+              sel.addRange(next);
+            }
           }
           lastAppliedRangeRef.current = candidate;
         }

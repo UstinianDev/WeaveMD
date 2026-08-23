@@ -114,6 +114,7 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
   const content = useEditorStore((s) => s.content);
   const isOutlinePanelCollapsed = useUIStore((s) => s.isOutlinePanelCollapsed);
   const toggleOutlinePanel = useUIStore((s) => s.toggleOutlinePanel);
+  const isEditorCollapsed = useUIStore((s) => s.isEditorCollapsed);
   const activeTab = useFileTreeStore((s) => s.activeTab);
 
   const outline = useMemo(() => {
@@ -122,6 +123,9 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
   }, [content]);
 
   const indexMap = useMemo(() => buildHeadingIndexMap(outline), [outline]);
+
+  // 编辑区收起时，大纲 tab 无意义（无文档内容），强制切到文件 tab
+  const effectiveTab = isEditorCollapsed ? 'files' : activeTab;
 
   if (isOutlinePanelCollapsed) {
     return (
@@ -154,11 +158,16 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
         style={{ borderColor: 'var(--border-color)' }}
       >
         <button
-          onClick={() => useFileTreeStore.getState().setActiveTab('outline')}
+          onClick={() => {
+            if (!isEditorCollapsed) useFileTreeStore.getState().setActiveTab('outline');
+          }}
+          disabled={isEditorCollapsed}
           className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded text-sm transition-colors ${
-            activeTab === 'outline'
-              ? 'bg-accent/20 text-text-primary'
-              : 'text-text-muted hover:text-text-primary'
+            isEditorCollapsed
+              ? 'opacity-40 cursor-not-allowed text-text-muted'
+              : effectiveTab === 'outline'
+                ? 'bg-accent/20 text-text-primary'
+                : 'text-text-muted hover:text-text-primary'
           }`}
         >
           <span>📑</span>
@@ -167,7 +176,7 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
         <button
           onClick={() => useFileTreeStore.getState().setActiveTab('files')}
           className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded text-sm transition-colors ${
-            activeTab === 'files'
+            effectiveTab === 'files'
               ? 'bg-accent/20 text-text-primary'
               : 'text-text-muted hover:text-text-primary'
           }`}
@@ -175,31 +184,21 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
           <span>📁</span>
           <span>{t('sidebar.files')}</span>
         </button>
+        {/* 收起侧栏按钮 */}
+        <button
+          onClick={toggleOutlinePanel}
+          className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
+          title={t('sidebar.collapse', '收起侧栏')}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+        </button>
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'outline' ? (
+      {effectiveTab === 'outline' ? (
         <>
-          {/* Toolbar */}
-          <div className="flex items-center justify-end px-3 py-1 border-b border-border">
-            <button
-              onClick={toggleOutlinePanel}
-              className="text-text-muted hover:text-white transition-colors p-0.5"
-              title="Collapse outline"
-            >
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <polyline points="15 18 9 12 15 6" />
-              </svg>
-            </button>
-          </div>
-
           {/* Outline List */}
           <div className="outline-scroll flex-1 overflow-y-auto py-2">
             {outline.length === 0 ? (

@@ -15,6 +15,7 @@ import ViewMenu from './ViewMenu';
 import WindowControls from './WindowControls';
 import { useNavbarActions } from '@render/hooks/useNavbarActions';
 import { useRecentStore } from '@render/stores/recentStore';
+import { useUIStore } from '@render/stores/uiStore';
 
 type ShortcutAction = 'new-file' | 'open-file' | 'undo' | 'redo' | null;
 
@@ -140,18 +141,33 @@ const TopBar: React.FC = () => {
           📔
         </span>
 
-        {/* Account badge */}
-        {user && (
-          <span
-            className="text-sm px-2 py-0.5 rounded select-none"
-            style={{
-              color: 'var(--navbar-text-sub, #999999)',
-              backgroundColor: 'var(--bg-tertiary)',
-            }}
+        {/* Toggle Editor collapse */}
+        <IconButton
+          onClick={() => useUIStore.getState().toggleEditorCollapse()}
+          title={t('navbar.toggleEditor', '收起/展开编辑器')}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <line x1="9" y1="3" x2="9" y2="21" />
+          </svg>
+        </IconButton>
+
+        {/* Toggle AI Panel */}
+        <IconButton onClick={toggleAIPanel} title={t('ai.panelTitle')}>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
           >
-            @{user.username}
-          </span>
-        )}
+            <rect x="4" y="8" width="16" height="12" rx="2" />
+            <path d="M12 8V4" />
+            <circle cx="12" cy="3" r="1" />
+            <path d="M8 12h8M8 15h5" />
+          </svg>
+        </IconButton>
 
         <NavSeparator />
 
@@ -245,23 +261,6 @@ const TopBar: React.FC = () => {
         </IconButton>
 
         <NavSeparator />
-
-        {/* AI 面板开关 */}
-        <IconButton onClick={toggleAIPanel} title={t('ai.panelTitle')}>
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <rect x="4" y="8" width="16" height="12" rx="2" />
-            <path d="M12 8V4" />
-            <circle cx="12" cy="3" r="1" />
-            <path d="M8 12h8M8 15h5" />
-          </svg>
-        </IconButton>
 
         {/* Export dropdown */}
         <ExportMenu

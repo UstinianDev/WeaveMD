@@ -82,7 +82,7 @@ describe('AgentTab (消息流展示区)', () => {
     toolCalls: [],
     intentCard: null,
     useKnowledgeBase: false,
-    activeMode: 'agent' as 'chat' | 'agent',
+    activeMode: 'agent' as const,
   };
 
   it('渲染消息列表（assistant 富文本）', () => {

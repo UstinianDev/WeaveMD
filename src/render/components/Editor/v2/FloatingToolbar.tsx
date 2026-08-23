@@ -21,9 +21,6 @@ import {
 } from './types';
 import { computeToolbarState, syntaxTypeToOption, type LinkRect, type SelectionState } from './toolbarState';
 import { createRafThrottle } from '@render/utils/rafThrottle';
-import { readDocumentSelection } from '@render/editor/rewrite/selectionExport';
-import { useEditorStore } from '@render/stores/editorStore';
-import { useRewriteStore } from '@render/stores/rewriteStore';
 import InsertUrlModal from './InsertUrlModal';
 import ImageToolbar from './ImageToolbar';
 import ToolbarButton from './ToolbarButton';
@@ -488,15 +485,6 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     stickyRef.current = true;
   }, [selection, onUnlink]);
 
-  /** 第 5 期「AI 改写」：读编辑器 content + DOM 选区 → 触发选区改写（批次 4 落地 store 行为） */
-  const handleRewriteClick = useCallback(() => {
-    const content = useEditorStore.getState().content;
-    const sel = readDocumentSelection(content);
-    if (!sel) return; // 选区为空 / 端点异常 → 禁用（保守 no-op）
-    useRewriteStore.getState().startSelectionRewrite(content, sel);
-    hideToolbar();
-  }, [hideToolbar]);
-
   const handleBlockChange = useCallback(
     (target: BlockTypeOption) => {
       if (selection && target !== currentType) {
@@ -544,8 +532,8 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         onMouseLeave={() => scheduleHide(300)}
         onMouseDown={(e) => e.stopPropagation()}
       >
-      {/* A2 混合语法类型：仅「AI 改写」（行内格式/块类型对混合选区语义模糊，隐藏）
-          非混合选区保留完整工具栏 —— 块类型下拉 + 行内格式 + AI 改写 + 解链/橡皮擦 */}
+      {/* 混合语法类型：行内格式/块类型对混合选区语义模糊，隐藏
+          非混合选区保留完整工具栏 —— 块类型下拉 + 行内格式 + 解链/橡皮擦 */}
       {!selection.mixedSyntax && (
         <>
       {/* 块类型下拉：正文 / H1-H6 / 代码块 / 引用 / 列表（自定义面板，SPEC-EDIT-FT G3①） */}
@@ -615,16 +603,6 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
 
       <div className="ft-divider" />
 
-      {/* 第 5 期「AI 改写」：选区态触发块级改写（选区为空时工具栏本身不显示） */}
-      <ToolbarButton
-        title="AI 改写"
-        label="AI 改写"
-        className="text-[var(--accent)]"
-        onClick={handleRewriteClick}
-      />
-
-      <div className="ft-divider" />
-
       {/* 选区命中链接时提供移除链接；橡皮擦：清除选区全部行内标记 */}
       {selection.inLink && (
         <ToolbarButton title="移除链接" label="解链" onClick={handleUnlink} />
@@ -636,20 +614,6 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
         onClick={handleClearFormat}
       />
         </>
-      )}
-      {/* A2 混合语法类型：仅「AI 改写」入口（跨块类型不一致无法单点 resolve 块格式） */}
-      {selection.mixedSyntax && (
-        <span className="ft-mixed-hint px-2 text-[11px] italic opacity-70 select-none">
-          跨块选区
-        </span>
-      )}
-      {selection.mixedSyntax && (
-        <ToolbarButton
-          title="AI 改写"
-          label="AI 改写"
-          className="text-[var(--accent)]"
-          onClick={handleRewriteClick}
-        />
       )}
       </div>
       )}

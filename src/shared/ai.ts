@@ -52,7 +52,8 @@ export interface AiConversationDetail {
   messages: IAIMessage[];
 }
 
-export type ConversationMode = 'chat' | 'agent';
+/** 统一智能体模式（chat 模式已废弃，保留类型兼容旧数据读取）。 */
+export type ConversationMode = 'agent';
 
 export interface IAIConversation {
   id: string;

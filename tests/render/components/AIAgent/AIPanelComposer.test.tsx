@@ -51,7 +51,7 @@ vi.mock('@render/i18n', () => ({
 }));
 
 const defaultState = {
-  activeMode: 'agent' as 'chat' | 'agent',
+  activeMode: 'agent' as 'agent',
   messages: [],
   isStreaming: false,
   streamBuffer: '',
@@ -173,27 +173,16 @@ describe('AIPanelComposer（handleSendAgent 分流）', () => {
     expect(sendAgentMessage).toHaveBeenCalledWith('检索 weavemd 相关信息');
   });
 
-  it('chat 模式：发送走 sendMessage（不 sendAgentMessage）', () => {
-    const sendMessage = vi.fn().mockResolvedValue(undefined);
+  it('agent 模式：发送走 sendAgentMessage', () => {
     const sendAgentMessage = vi.fn().mockResolvedValue(undefined);
-    vi.spyOn(useAgentStore.getState(), 'sendMessage').mockImplementation(sendMessage);
     vi.spyOn(useAgentStore.getState(), 'sendAgentMessage').mockImplementation(sendAgentMessage);
-    useAgentStore.setState({ ...defaultState, activeMode: 'chat' });
+    useAgentStore.setState({ ...defaultState, activeMode: 'agent' });
     render(<ControlledComposer />);
     fireEvent.change(screen.getByPlaceholderText('输入你的问题...'), {
       target: { value: '普通对话' },
     });
-    // 切换模式下拉后 placeholder 仍为通用（chat）
     fireEvent.click(screen.getByText('发送'));
-    expect(sendMessage).toHaveBeenCalledWith('普通对话');
-    expect(sendAgentMessage).not.toHaveBeenCalled();
-  });
-
-  it('模式下拉切换 chat/agent → store activeMode 域切换', () => {
-    useAgentStore.setState({ ...defaultState, activeMode: 'chat' });
-    render(<ControlledComposer />);
-    fireEvent.change(screen.getByTestId('ai-mode-select'), { target: { value: 'agent' } });
-    expect(useAgentStore.getState().activeMode).toBe('agent');
+    expect(sendAgentMessage).toHaveBeenCalledWith('普通对话');
   });
 
   it('chat 模式：无 `/` `@` 自动补全菜单（输入 / 不弹技能菜单）', async () => {
@@ -203,7 +192,7 @@ describe('AIPanelComposer（handleSendAgent 分流）', () => {
         success: true,
         data: [{ name: 'polish_rewrite', description: '润色文本' }],
       });
-    useAgentStore.setState({ ...defaultState, activeMode: 'chat' });
+    useAgentStore.setState({ ...defaultState, activeMode: 'agent' });
     render(<ControlledComposer />);
     const ta = screen.getByPlaceholderText('输入你的问题...');
     fireEvent.change(ta, { target: { value: '/' } });
@@ -245,7 +234,7 @@ describe('AIPanelComposer（handleSendAgent 分流）', () => {
   });
 
   it('M4 受控：onChange 更新受控 value（草稿由父级驱动）', () => {
-    useAgentStore.setState({ ...defaultState, activeMode: 'chat' });
+    useAgentStore.setState({ ...defaultState, activeMode: 'agent' });
     render(<ControlledComposer />);
     const ta = screen.getByPlaceholderText('输入你的问题...');
     fireEvent.change(ta, { target: { value: '草稿内容' } });
@@ -253,21 +242,21 @@ describe('AIPanelComposer（handleSendAgent 分流）', () => {
   });
 
   it('M4 发送成功 → 触发 onSend（父级负责清空草稿），不再本地清空', () => {
-    const sendMessage = vi.fn().mockResolvedValue(undefined);
-    vi.spyOn(useAgentStore.getState(), 'sendMessage').mockImplementation(sendMessage);
-    useAgentStore.setState({ ...defaultState, activeMode: 'chat' });
+    const sendAgentMessage = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(useAgentStore.getState(), 'sendAgentMessage').mockImplementation(sendAgentMessage);
+    useAgentStore.setState({ ...defaultState, activeMode: 'agent' });
     const onSend = vi.fn();
     render(<ControlledComposer onSend={onSend} />);
     const ta = screen.getByPlaceholderText('输入你的问题...');
     fireEvent.change(ta, { target: { value: '要发送的草稿' } });
     fireEvent.click(screen.getByText('发送'));
-    expect(sendMessage).toHaveBeenCalledWith('要发送的草稿');
+    expect(sendAgentMessage).toHaveBeenCalledWith('要发送的草稿');
     expect(onSend).toHaveBeenCalledTimes(1);
   });
 
   it('M4 空输入或流式中不触发 onSend', () => {
     const onSend = vi.fn();
-    useAgentStore.setState({ ...defaultState, activeMode: 'chat' });
+    useAgentStore.setState({ ...defaultState, activeMode: 'agent' });
     render(<ControlledComposer onSend={onSend} />);
     // 空输入点击发送：不发
     fireEvent.click(screen.getByText('发送'));

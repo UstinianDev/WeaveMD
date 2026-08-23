@@ -61,9 +61,7 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
   const user = useAuthStore((s) => s.user);
 
   const activeMode = useAgentStore((s) => s.activeMode);
-  const toggleMode = useAgentStore((s) => s.toggleMode);
   const isStreaming = useAgentStore((s) => s.isStreaming);
-  const sendMessage = useAgentStore((s) => s.sendMessage);
   const sendAgentMessage = useAgentStore((s) => s.sendAgentMessage);
   const stopStream = useAgentStore((s) => s.stopStream);
   const runManualCompress = useAgentStore((s) => s.runManualCompress);
@@ -152,12 +150,8 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
     );
   };
 
-  /** 变更 input 时检测光标处 token 是否以 / 或 @ 开头，从而开/关补全菜单（仅 agent 模式）。 */
+  /** 变更 input 时检测光标处 token 是否以 / 或 @ 开头，从而开/关补全菜单。 */
   const refreshCompletion = (value: string) => {
-    if (activeMode !== 'agent') {
-      setCompletionOpen(false);
-      return;
-    }
     // 输入完整 /compact 命令时关闭补全菜单（避免拦截 Enter）
     const trimmed = value.trim();
     if (trimmed === COMPACT_CMD || trimmed.startsWith(`${COMPACT_CMD} `)) {
@@ -302,18 +296,14 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
     const text = value.trim();
     if (!text || isStreaming) return;
     setCompletionOpen(false);
-    // R4: /compact 命令在两种模式下都可用
+    // R4: /compact 命令
     if (text === COMPACT_CMD || text.startsWith(`${COMPACT_CMD} `)) {
       handleCompactCommand(text);
       onSend?.();
       onCompose?.();
       return;
     }
-    if (activeMode === 'agent') {
-      void handleSendAgent(text);
-    } else {
-      void sendMessage(text);
-    }
+    void handleSendAgent(text);
     // M4：清空由父级 onSend 回调执行（setDraft('')）；不再组件本地清空，保证草稿归属唯一。
     onSend?.();
     onCompose?.();
@@ -322,8 +312,7 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
   return (
     <div className="border-t border-border px-2.5 pt-2 pb-2.5 space-y-1.5">
       <div className="relative">
-        {/* agent 模式：B1 `/` 与 `@` 自动补全菜单（渲染在 textarea 上方） */}
-        {activeMode === 'agent' && (
+        {/* B1 `/` 与 `@` 自动补全菜单（渲染在 textarea 上方） */}
           <CompletionMenu
             open={completionOpen}
             trigger={completionTrigger}
@@ -338,14 +327,13 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
             onSelect={handleCompletionSelect}
             onClose={() => setCompletionOpen(false)}
           />
-        )}
         <textarea
           value={value}
           onChange={(e) => handleInputChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
-              // agent 模式补全菜单打开时 Enter 由 CompletionMenu 的 capture 监听确认选中，此处不发送
-              if (activeMode === 'agent' && completionOpen) {
+              // 补全菜单打开时 Enter 由 CompletionMenu 的 capture 监听确认选中，此处不发送
+              if (completionOpen) {
                 e.preventDefault();
                 return;
               }
@@ -354,7 +342,7 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
             }
           }}
           placeholder={
-            activeMode === 'agent' && selectionContext
+            selectionContext
               ? t('ai.rewrite.selectionHint')
               : t('ai.placeholder')
           }
@@ -363,18 +351,8 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
           style={{ fontFamily: "'Consolas', 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}
         />
       </div>
-      {/* 底部控制条：左→右 模式下拉 + 模型下拉 …… 发送/停止 */}
+      {/* 底部控制条：左→右 模型下拉 …… 发送/停止 */}
       <div className="flex items-center gap-1.5">
-        <select
-          data-testid="ai-mode-select"
-          value={activeMode}
-          onChange={(e) => toggleMode(e.target.value as 'chat' | 'agent')}
-          aria-label={t('ai.modeSelectLabel')}
-          className="text-[13px] px-2 py-1 rounded-input bg-bg-secondary border border-border text-text-primary focus:border-[var(--accent)] outline-none cursor-pointer"
-        >
-          <option value="chat">{t('ai.tab.chat')}</option>
-          <option value="agent">{t('ai.tab.agent')}</option>
-        </select>
         <ModelDropdown />
         {/* R5: 上下文指示器（圆环形） */}
         <ContextRing
