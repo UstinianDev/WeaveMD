@@ -2,6 +2,7 @@
 // WeaveMD — ModelForm 测试（M3：自 SettingsModal ai Tab 迁入）
 // 覆盖：加载 config/consent；保存恒 backend:'remote'；④断开连接清 key；
 // 不渲染 ollama/embedding 控件；不落明文 key 到渲染进程（load 只读 hasApiKey 布尔）。
+// KB 检索参数已移除（迁入统一设置面板）。
 // ============================================
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -28,14 +29,6 @@ vi.mock('@render/i18n', () => ({
       'settings.save': '保存',
       'ai.security.weakKeyring': '密钥加密降级',
       'ai.settings.kb.title': '知识库检索（Agent）',
-      'ai.settings.kb.hint': '知识库提示',
-      'ai.settings.kb.topK': '召回条数 (topK)',
-      'ai.settings.kb.fuse': '融合权重 (fuse)',
-      'ai.settings.kb.threshold': '拒答阈值 (threshold)',
-      'ai.settings.kb.pinnedWeight': '置顶权重 (pinnedWeight)',
-      'ai.settings.kb.saving': '正在保存',
-      'ai.settings.kb.saved': '已保存',
-      'ai.settings.kb.saveFailed': '保存失败',
     };
     return {
       t: (key: string, fallback?: string) => dict[key] ?? fallback ?? `[${key}]`,
@@ -116,10 +109,10 @@ describe('ModelForm (AI 配置，迁自 SettingsModal ai Tab)', () => {
       expect(aiMock().getConfig).toHaveBeenCalledWith(MOCK_USER.id);
       expect(aiMock().getConsent).toHaveBeenCalledWith(MOCK_USER.id);
     });
-    // 保留：remote 地址 / 模型 / 知识库检索 / 提供商状态区
+    // 保留：remote 地址 / 模型 / 提供商状态区
     expect(screen.getByText('远程 API 地址')).toBeInTheDocument();
-    expect(screen.getByText('知识库检索（Agent）')).toBeInTheDocument();
-    // 已移除：Ollama 后端选择 / Ollama 地址 / Embedding 地址与模型
+    // 已移除：KB 检索参数 / Ollama 后端选择 / Ollama 地址 / Embedding 地址与模型
+    expect(screen.queryByText('知识库检索（Agent）')).not.toBeInTheDocument();
     expect(screen.queryByText('Ollama（本地）')).not.toBeInTheDocument();
     expect(screen.queryByText('Ollama 地址')).not.toBeInTheDocument();
     expect(screen.queryByText('Embedding 服务地址')).not.toBeInTheDocument();
@@ -151,8 +144,6 @@ describe('ModelForm (AI 配置，迁自 SettingsModal ai Tab)', () => {
 
     fireEvent.click(screen.getByLabelText('允许联网'));
 
-    const setKbSettings = vi.spyOn(useAgentStore.getState(), 'setKbSettings').mockResolvedValue(undefined);
-
     fireEvent.click(screen.getByText('保存'));
 
     const ai = aiMock();
@@ -177,8 +168,5 @@ describe('ModelForm (AI 配置，迁自 SettingsModal ai Tab)', () => {
     expect(consentArg.allowNetwork).toBe(true);
     expect(consentArg.allowSend).toBe(false);
     expect(typeof consentArg.consentUpdatedAt).toBe('string');
-
-    // KB 参数同步写回 agentStore.kbSettings（setKbSettings）
-    await waitFor(() => expect(setKbSettings).toHaveBeenCalled());
   });
 });

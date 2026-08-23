@@ -233,7 +233,7 @@ describe('agentStore 会话状态机', () => {
     expect(assistant?.content).toBe('Hello');
   });
 
-  it('sendAgentMessage 遇 error 事件不写入 assistant，退订流', async () => {
+  it('sendAgentMessage 遇 error 事件写入错误提示 assistant 消息并退订流', async () => {
     let streamCb: ((evt: AIStreamEvent) => void) | null = null;
 
     const unsubscribe = vi.fn();
@@ -268,9 +268,12 @@ describe('agentStore 会话状态机', () => {
     await sendPromise;
 
     const s = useAgentStore.getState();
-    expect(unsubscribe).toHaveBeenCalled();
     expect(s.isStreaming).toBe(false);
-    expect(s.messages.some((m) => m.role === 'assistant')).toBe(false);
+    // error 事件现在会写入一条错误提示 assistant 消息
+    const assistantMsgs = s.messages.filter((m) => m.role === 'assistant');
+    expect(assistantMsgs).toHaveLength(1);
+    expect(assistantMsgs[0]?.content).toContain('请求失败');
+    expect(assistantMsgs[0]?.content).toContain('boom');
   });
 
   it('stopStream 调用 chatAbort/agentAbort（归属校验 userId）并复位流状态', async () => {
@@ -415,6 +418,42 @@ describe('agentStore agent 模式', () => {
     expect(
       (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent
     ).not.toHaveBeenCalled();
+  });
+
+  it('sendAgentMessage API Key 未配置 -> 提示配置 key 且不调用 runAgent', async () => {
+    useAgentStore.setState({ config: remoteNoKeyConfig, consent: grantedConsent, activeMode: 'agent' });
+    await useAgentStore.getState().sendAgentMessage('hello');
+    const s = useAgentStore.getState();
+    const assistantMsgs = s.messages.filter((m) => m.role === 'assistant');
+    expect(assistantMsgs).toHaveLength(1);
+    expect(assistantMsgs[0]?.content).toContain('API Key');
+    expect(
+      (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent
+    ).not.toHaveBeenCalled();
+  });
+
+  it('sendAgentMessage catch 非 consent_required 异常 -> 写入错误提示 assistant 消息', async () => {
+    (
+      window.weaveMD.ai.onStream as unknown as { mockImplementation: (...a: unknown[]) => unknown }
+    ).mockImplementation(() => () => {});
+    (window.weaveMD.ai as unknown as { createConversation: ReturnType<typeof vi.fn> }).createConversation.mockResolvedValue({
+      success: true,
+      data: { id: 'agent-conv-err', userId: 'u1', mode: 'agent', summary: '', createdAt: '', updatedAt: '' },
+    });
+    (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent.mockRejectedValue(
+      new Error('Network timeout')
+    );
+
+    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent, activeMode: 'agent' });
+    await useAgentStore.getState().sendAgentMessage('查询');
+
+    const s = useAgentStore.getState();
+    expect(s.isStreaming).toBe(false);
+    expect(s.processStatus).toBe('idle');
+    const assistantMsgs = s.messages.filter((m) => m.role === 'assistant');
+    expect(assistantMsgs).toHaveLength(1);
+    expect(assistantMsgs[0]?.content).toContain('请求失败');
+    expect(assistantMsgs[0]?.content).toContain('Network timeout');
   });
 
   it('sendAgentMessage 收到 runAgent consent_required -> 弹同意页并丢弃流（不静默吞掉）', async () => {

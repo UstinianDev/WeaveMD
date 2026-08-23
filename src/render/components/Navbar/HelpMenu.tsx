@@ -17,11 +17,10 @@ interface UpdateEvent {
 }
 
 interface HelpMenuProps {
-  onOpenSettings: () => void;
   onOpenFeedback: () => void;
 }
 
-const HelpMenu: React.FC<HelpMenuProps> = ({ onOpenSettings, onOpenFeedback }) => {
+const HelpMenu: React.FC<HelpMenuProps> = ({ onOpenFeedback }) => {
   const { t } = useI18n();
   const [version, setVersion] = useState('...');
   const [updateState, setUpdateState] = useState<string>('idle');
@@ -90,10 +89,6 @@ const HelpMenu: React.FC<HelpMenuProps> = ({ onOpenSettings, onOpenFeedback }) =
   };
 
   const items: DropdownItemType[] = [
-    {
-      label: t('settings.title'),
-      onClick: onOpenSettings,
-    },
     {
       label: t('feedback.title'),
       onClick: onOpenFeedback,

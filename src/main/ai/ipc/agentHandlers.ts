@@ -10,9 +10,12 @@ import { normalizeKbSettings } from '@shared/ai';
 import { getAiConfig, getConversation } from '../../db/ai';
 import { runAgentFlow } from '../agentLoop';
 import { searchKB } from '../kbSearch';
-import { listSkillsForUi } from '../skillLoader';
+import { listSkillsForUi, loadUserSkillsFromDirs } from '../skillLoader';
 import { needsConsent } from '../consent';
 import { activeStreams, DEFAULT_AI_CONFIG, DEFAULT_CONSENT, toIAIConfig, toIAIConsent } from './shared';
+
+/** 内置 skills 名称列表（不暴露给 UI，仅 agent 内部使用）。 */
+const BUILTIN_SKILL_NAMES = new Set(['polish_rewrite', 'tech_organize', 'kb_qa_guide']);
 
 export function registerAgentHandlers(): void {
   // --- agent: run (invoke + stream via runAgentFlow) ---
@@ -100,10 +103,17 @@ export function registerAgentHandlers(): void {
         return { success: false, message: 'userId required' };
       }
       try {
-        const userDataSkillsDir = join(app.getPath('userData'), 'skills');
-        const skills = listSkillsForUi(userDataSkillsDir);
-        return { success: true, data: skills };
-      } catch (error) {
+        // 扫描多个目录下的用户自定义 skills（支持子目录+SKILL.md 和扁平.md 两种格式）
+        const homeDir = app.getPath('home');
+        const scanDirs = process.platform === 'win32'
+          ? ['C:\\AI tools', 'C:\\AI tools\\skills']
+          : [join(homeDir, 'AI tools'), join(homeDir, 'AI tools', 'skills')];
+        const userSkillsRaw = loadUserSkillsFromDirs(scanDirs);
+        const userSkills = userSkillsRaw
+          .filter((s) => !BUILTIN_SKILL_NAMES.has(s.name))
+          .map((s) => ({ name: s.name, description: s.description }));
+        return { success: true, data: userSkills };
+      } catch {
         return { success: false, message: 'Failed to list skills' };
       }
     }

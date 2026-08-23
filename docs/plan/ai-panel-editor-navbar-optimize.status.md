@@ -46,3 +46,6 @@
   - [x] Module 10: KB设置重构（Embedding+搜索配置）
 - [x] Phase 4: 多文件修订 + Embedding/搜索客户端 + 文件操作工具 ✓ (tsc 0 error)
 - [x] Phase 5: 全量门禁 ✓ (tsc 0 | vitest 1501/1501 | lint 0 error | vite build ok | playwright 单文件 ok)
+- [x] AI不回复bug修复 ✓ (agentStore 3处错误静默→显示给用户)
+- [x] Skills管理 ✓ (内置skills不可见 + 扫描C:\AI tools\)
+- [x] Settings重构 ✓ (统一设置面板 + KB检索参数删除)

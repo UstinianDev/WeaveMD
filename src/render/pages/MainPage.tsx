@@ -9,7 +9,7 @@ import EditorView from '@render/components/Editor/EditorView';
 import HistoryPanel from '@render/components/Editor/panels/HistoryPanel';
 import OutlinePanel from '@render/components/Editor/panels/OutlinePanel';
 import TopBar from '@render/components/Navbar/TopBar';
-import SettingsModal from '@render/components/Settings/SettingsModal';
+import UnifiedSettings from '@render/components/Settings/UnifiedSettings';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
 import { useEditorStore } from '@render/stores/editorStore';
@@ -31,6 +31,8 @@ const MainPage: React.FC = () => {
   const isHistoryPanelOpen = useUIStore((s) => s.isHistoryPanelOpen);
   const toggleHistoryPanel = useUIStore((s) => s.toggleHistoryPanel);
   const isAIPanelOpen = useUIStore((s) => s.isAIPanelOpen);
+  const isSettingsOpen = useUIStore((s) => s.isSettingsOpen);
+  const toggleSettings = useUIStore((s) => s.toggleSettings);
 
   const activeModal = useUIStore((s) => s.activeModal);
   const closeModal = useUIStore((s) => s.closeModal);
@@ -244,8 +246,8 @@ const MainPage: React.FC = () => {
       {/* History Panel (slide-out) */}
       <HistoryPanel isOpen={isHistoryPanelOpen} onClose={toggleHistoryPanel} />
 
-      {/* Settings Modal */}
-      <SettingsModal isOpen={activeModal === 'settings'} onClose={closeModal} />
+      {/* Unified Settings Panel */}
+      <UnifiedSettings open={isSettingsOpen} onClose={toggleSettings} />
 
       {/* Status Bar */}
       <StatusBar />

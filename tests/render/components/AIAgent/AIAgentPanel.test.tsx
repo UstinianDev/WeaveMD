@@ -2,7 +2,7 @@
 // WeaveMD — AIAgentPanel 三视图外壳测试（M3）
 // ============================================
 // 覆盖：init 触发；顶部栏（+ / ⚙ / ×）；默认 home 视图；+ 建会话进 session；
-// ⚙ 进 settings；settings 返回回原视图；拖拽把手 / clamp；关闭延迟 toggleAIPanel。
+// ⚙ 打开统一设置面板（toggleSettings）；拖拽把手 / clamp；关闭延迟 toggleAIPanel。
 // 模式下拉已移入 AIPanelComposer（见其测试），此处仅校验壳行为。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -72,16 +72,6 @@ vi.mock('@render/components/AIAgent/AIPanelSession', () => ({
     );
   },
 }));
-vi.mock('@render/components/AIAgent/AIPanelSettings', () => ({
-  default: ({ onBack }: { onBack?: () => void }) => (
-    <div data-testid="view-settings">
-      <button type="button" data-testid="settings-back" onClick={onBack}>
-        Back
-      </button>
-    </div>
-  ),
-}));
-
 vi.mock('@render/i18n', () => ({
   useI18n: () => {
     const dict: Record<string, string> = {
@@ -171,11 +161,11 @@ describe('AIAgentPanel（三视图外壳）', () => {
     expect(screen.queryByTestId('view-home')).toBeNull();
   });
 
-  it('点 ⚙ 设置 → 进 settings 视图（home 隐藏）', () => {
+  it('点 ⚙ 设置 → toggleSettings 打开统一设置面板', () => {
     render(<AIAgentPanel />);
+    expect(useUIStore.getState().isSettingsOpen).toBe(false);
     fireEvent.click(screen.getByTestId('open-settings-btn'));
-    expect(screen.getByTestId('view-settings')).toBeInTheDocument();
-    expect(screen.queryByTestId('view-home')).toBeNull();
+    expect(useUIStore.getState().isSettingsOpen).toBe(true);
   });
 
   it('宽度拖拽把手存在（cursor-col-resize）', () => {
@@ -213,18 +203,18 @@ describe('AIAgentPanel（三视图外壳）', () => {
 
   // —— M4：composer 草稿跨视图保留 / 清空时机 ——
 
-  it('M4: home 输入草稿 →切 settings→返回 → 草稿保留（视图切换不触发清空）', () => {
+  it('M4: home 输入草稿 →切 history→返回 → 草稿保留（视图切换不触发清空）', () => {
     render(<AIAgentPanel />);
     // home 输入
     fireEvent.change(screen.getByPlaceholderText('输入你的问题...'), {
       target: { value: '跨视图草稿' },
     });
     expect(lastHomeDraft).toBe('跨视图草稿');
-    // 切 settings（home 卸载）
-    fireEvent.click(screen.getByTestId('open-settings-btn'));
-    expect(screen.getByTestId('view-settings')).toBeInTheDocument();
-    // 返回 home（settings → home）
-    fireEvent.click(screen.getByTestId('settings-back'));
+    // 切 history（home 卸载）
+    fireEvent.click(screen.getByTestId('mock-view-all'));
+    // 返回 home（history → home，通过点返回按钮）
+    const backBtn = screen.getByText('←');
+    fireEvent.click(backBtn);
     expect(screen.getByTestId('view-home')).toBeInTheDocument();
     // 草稿保留：home composer 重新挂载后受控 value 仍为原草稿
     expect(lastHomeDraft).toBe('跨视图草稿');
@@ -233,17 +223,16 @@ describe('AIAgentPanel（三视图外壳）', () => {
     );
   });
 
-  it('M4: home↔settings↔home 共享同一草稿（切换视图不丢失）', () => {
+  it('M4: home↔history↔home 共享同一草稿（切换视图不丢失）', () => {
     render(<AIAgentPanel />);
     fireEvent.change(screen.getByPlaceholderText('输入你的问题...'), {
       target: { value: '共享草稿' },
     });
     expect(lastHomeDraft).toBe('共享草稿');
-    // 点 ⚙ 进 settings（home → settings，不触发清空）
-    fireEvent.click(screen.getByTestId('open-settings-btn'));
-    expect(screen.getByTestId('view-settings')).toBeInTheDocument();
-    // settings 返回 → 回 home，草稿仍在
-    fireEvent.click(screen.getByTestId('settings-back'));
+    // 点 view-all 进 history（home → history，不触发清空）
+    fireEvent.click(screen.getByTestId('mock-view-all'));
+    // history 返回 → 回 home，草稿仍在
+    fireEvent.click(screen.getByText('←'));
     expect(screen.getByTestId('view-home')).toBeInTheDocument();
     expect(lastHomeDraft).toBe('共享草稿');
     expect((screen.getByPlaceholderText('输入你的问题...') as HTMLTextAreaElement).value).toBe(

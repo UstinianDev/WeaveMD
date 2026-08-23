@@ -99,6 +99,7 @@ const skillLoaderMock = vi.hoisted(() => ({
     { name: 'polish_rewrite', description: '润色' },
     { name: 'tech_organize', description: '整理' },
   ]),
+  loadUserSkillsFromDirs: vi.fn(() => []),
 }));
 vi.mock('@main/ai/skillLoader', () => skillLoaderMock);
 
@@ -136,6 +137,7 @@ beforeEach(() => {
     { name: 'polish_rewrite', description: '润色' },
     { name: 'tech_organize', description: '整理' },
   ]);
+  skillLoaderMock.loadUserSkillsFromDirs.mockReset().mockReturnValue([]);
   // abort 归属校验：getConversation 默认返回 u1 名下的 c1（供 chatAbort/agentAbort 通过）
   dbMock.getConversation.mockReset().mockImplementation((conversationId: string, userId: string) =>
     conversationId === 'c1' && userId === 'u1'
@@ -810,28 +812,25 @@ describe('ai:ipc handlers', () => {
     expect(electronMock.handlers.get(IPC_CHANNELS.AGENT_SKILLS_LIST)).toBeDefined();
   });
 
-  it('AGENT_SKILLS_LIST returns [name, description] skill list via listSkillsForUi', async () => {
-    skillLoaderMock.listSkillsForUi.mockReturnValue([
-      { name: 'polish_rewrite', description: '润色文本' },
-      { name: 'tech_organize', description: '整理技术资料' },
+  it('AGENT_SKILLS_LIST returns user skills only (built-in filtered)', async () => {
+    skillLoaderMock.loadUserSkillsFromDirs.mockReturnValue([
+      { name: 'polish_rewrite', description: '润色文本', instructions: '...' },
+      { name: 'tech_organize', description: '整理技术资料', instructions: '...' },
+      { name: 'my_custom_skill', description: '自定义技能', instructions: '...' },
     ]);
     const result = (await getHandler(IPC_CHANNELS.AGENT_SKILLS_LIST)(
       makeEvent(),
       { userId: 'u1' }
     )) as { success: boolean; data: Array<{ name: string; description: string }> };
     expect(result.success).toBe(true);
+    // 内置 skills 被过滤，只返回用户自定义 skills
     expect(result.data).toEqual([
-      { name: 'polish_rewrite', description: '润色文本' },
-      { name: 'tech_organize', description: '整理技术资料' },
+      { name: 'my_custom_skill', description: '自定义技能' },
     ]);
-    // userData 路径解析：listSkillsForUi 传入 userData 下 skills 目录
-    const callArgs = skillLoaderMock.listSkillsForUi.mock.calls[0] as unknown[];
-    const dirArg = callArgs[0] as string | undefined;
-    expect(String(dirArg)).toContain('skills');
   });
 
-  it('AGENT_SKILLS_LIST returns success:false envelope when listSkillsForUi throws', async () => {
-    skillLoaderMock.listSkillsForUi.mockImplementation(() => {
+  it('AGENT_SKILLS_LIST returns success:false envelope when loadUserSkillsFromDirs throws', async () => {
+    skillLoaderMock.loadUserSkillsFromDirs.mockImplementation(() => {
       throw new Error('fs read failed');
     });
     const result = (await getHandler(IPC_CHANNELS.AGENT_SKILLS_LIST)(

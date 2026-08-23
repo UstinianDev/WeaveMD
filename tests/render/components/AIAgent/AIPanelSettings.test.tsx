@@ -1,11 +1,12 @@
 // ============================================
-// WeaveMD — AIPanelSettings 组件测试（M3：三 tab 切换 + ModelForm 保存调 setKbSettings）
+// WeaveMD — AIPanelSettings 组件测试（M3：三 tab 切换 + ModelForm 保存调 setConfig/setConsent）
+// KB 检索参数已从 ModelForm 移除。
 // ============================================
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import AIPanelSettings from '@render/components/AIAgent/AIPanelSettings';
-import { useAgentStore } from '@render/stores/agentStore';
+import { useAuthStore } from '@render/stores/authStore';
 
 vi.mock('@render/i18n', () => ({
   useI18n: () => {
@@ -68,39 +69,29 @@ describe('AIPanelSettings', () => {
     expect(backFn).toHaveBeenCalled();
   });
 
-  it('ModelForm 保存：写回 agentStore.kbSettings（setKbSettings 被调）', async () => {
-    const setKbSettings = vi.fn().mockResolvedValue(undefined);
-    vi.spyOn(useAgentStore.getState(), 'setKbSettings').mockImplementation(setKbSettings);
+  it('ModelForm 保存：调用 setConfig + setConsent', async () => {
+    // 设置用户（handleSave 需要 user 才会调用 setConfig）
+    useAuthStore.setState({
+      user: { id: 'u1', username: 'tester', createdAt: '', lastLogin: null },
+      token: 'tok',
+      isAuthenticated: true,
+      recentAccounts: [],
+    });
     // mock ai IPC：setConfig/setConsent 空成功，getConfig/getConsent 空
+    const setConfigFn = vi.fn().mockResolvedValue({ success: true, data: {} });
+    const setConsentFn = vi.fn().mockResolvedValue({ success: true, data: {} });
     (window.weaveMD as unknown as { ai: Record<string, unknown> }).ai.getConfig = vi
       .fn()
       .mockResolvedValue({ success: false });
     (window.weaveMD as unknown as { ai: Record<string, unknown> }).ai.getConsent = vi
       .fn()
       .mockResolvedValue({ success: false });
-    (window.weaveMD as unknown as { ai: Record<string, unknown> }).ai.setConfig = vi
-      .fn()
-      .mockResolvedValue({ success: true, data: {} });
-    (window.weaveMD as unknown as { ai: Record<string, unknown> }).ai.setConsent = vi
-      .fn()
-      .mockResolvedValue({ success: true, data: {} });
-
-    useAgentStore.setState({
-      kbSettings: {
-        topK: 5,
-        fuse: 0.5,
-        threshold: 0.6,
-        pinnedWeight: 1.5,
-      },
-      kbSettingsSaveState: 'idle',
-    });
+    (window.weaveMD as unknown as { ai: Record<string, unknown> }).ai.setConfig = setConfigFn;
+    (window.weaveMD as unknown as { ai: Record<string, unknown> }).ai.setConsent = setConsentFn;
 
     render(<AIPanelSettings onBack={backFn} />);
     fireEvent.click(screen.getByTestId('model-form-save'));
-    await waitFor(() => expect(setKbSettings).toHaveBeenCalled());
-    expect(setKbSettings.mock.calls[0][0]).toMatchObject({
-      topK: 5,
-      fuse: 0.5,
-    });
+    await waitFor(() => expect(setConfigFn).toHaveBeenCalled());
+    await waitFor(() => expect(setConsentFn).toHaveBeenCalled());
   });
 });

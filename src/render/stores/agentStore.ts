@@ -217,7 +217,21 @@ function createStreamManager(
         return;
       }
       if (evt.type === 'error') {
-        finishWithoutPersist();
+        // 将错误信息追加到 messages 中，让用户看到具体错误
+        const errorMsg: IAIMessage = {
+          id: makeId(),
+          conversationId: opts.conversationId,
+          role: 'assistant',
+          content: `⚠️ 请求失败：${evt.message || evt.code || '未知错误'}`,
+          refsJson: null,
+          createdAt: new Date().toISOString(),
+        };
+        set((s) => ({
+          isStreaming: false,
+          streamUnsubscribe: null,
+          streamBuffer: '',
+          messages: [...s.messages, errorMsg],
+        }));
       }
     });
   };
@@ -287,6 +301,21 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     }
     if (useKnowledgeBase && !consent?.allowSend) {
       set({ pendingConsent: true });
+      return;
+    }
+
+    // 前置校验：API Key 未配置时直接提示，避免走到主进程再失败
+    const config = get().config;
+    if (!config?.hasApiKey) {
+      const errorMsg: IAIMessage = {
+        id: makeId(),
+        conversationId: activeConversationId ?? 'error-temp',
+        role: 'assistant',
+        content: '⚠️ 请先在设置中配置 API Key 后再使用 AI 功能。',
+        refsJson: null,
+        createdAt: new Date().toISOString(),
+      };
+      set((s) => ({ messages: [...s.messages, errorMsg] }));
       return;
     }
 
@@ -408,8 +437,23 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         set({ pendingConsent: true, processStatus: 'idle' });
         return;
       }
-      mgr.finishWithoutPersist();
-      set({ processStatus: 'idle' });
+      // 显示错误给用户而不是静默吞掉
+      const errorContent = err instanceof Error ? err.message : String(err);
+      const errorMsg: IAIMessage = {
+        id: makeId(),
+        conversationId: conversationId ?? '',
+        role: 'assistant',
+        content: `⚠️ 请求失败：${errorContent}`,
+        refsJson: null,
+        createdAt: new Date().toISOString(),
+      };
+      set((s) => ({
+        isStreaming: false,
+        streamUnsubscribe: null,
+        streamBuffer: '',
+        processStatus: 'idle',
+        messages: [...s.messages, errorMsg],
+      }));
     }
   },
 

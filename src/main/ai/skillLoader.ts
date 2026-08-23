@@ -81,6 +81,21 @@ export function loadSkills(userDataSkillsDir?: string): CoreSkill[] {
   return [...CORE_SKILLS, ...userExt];
 }
 
+/** 扫描多个目录下的用户扩展技能，去重（按 name）。 */
+export function loadUserSkillsFromDirs(dirs: string[]): CoreSkill[] {
+  const seen = new Set<string>();
+  const skills: CoreSkill[] = [];
+  for (const dir of dirs) {
+    for (const skill of scanUserSkillsDir(dir)) {
+      if (!seen.has(skill.name)) {
+        seen.add(skill.name);
+        skills.push(skill);
+      }
+    }
+  }
+  return skills;
+}
+
 /**
  * 渲染侧技能清单（第 7 期 B1 补全菜单数据源）。
  * 返回 [{name, description}]——仅名称+描述，**不含 instructions/argsSchema**，
@@ -93,26 +108,40 @@ export function listSkillsForUi(userDataSkillsDir?: string): AgentSkillInfo[] {
 }
 
 /**
- * 扫描 userData/skills/<name>/SKILL.md。
+ * 扫描用户 skills 目录，支持两种结构：
+ * 1. `<dir>/<name>/SKILL.md` — 子目录 + SKILL.md（标准格式）
+ * 2. `<dir>/<name>.md` — 扁平 .md 文件（文件名即 skill 名）
  * front-matter 格式：开篇 `---` 块，`name:` / `description:` 键；正文作 instructions；
  * 可选 `args:` 块（JSON Schema）。
  */
 function scanUserSkillsDir(dir: string): CoreSkill[] {
-  let skillDirs: string[];
+  let entries: import('fs').Dirent[];
   try {
-    skillDirs = readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name);
+    entries = readdirSync(dir, { withFileTypes: true });
   } catch {
     // 目录不存在 / 不可读 -> 无用户扩展
     return [];
   }
 
   const skills: CoreSkill[] = [];
-  for (const name of skillDirs) {
-    const skill = parseSkillFile(name, join(dir, name, 'SKILL.md'));
-    if (skill) skills.push(skill);
+
+  // 模式 1：子目录 + SKILL.md
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      const skill = parseSkillFile(entry.name, join(dir, entry.name, 'SKILL.md'));
+      if (skill) skills.push(skill);
+    }
   }
+
+  // 模式 2：扁平 .md 文件（文件名去掉 .md 后缀即 skill 名）
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name.endsWith('.md') && entry.name !== 'SKILL.md') {
+      const skillName = entry.name.slice(0, -3); // 去掉 .md
+      const skill = parseSkillFile(skillName, join(dir, entry.name));
+      if (skill) skills.push(skill);
+    }
+  }
+
   return skills;
 }
 

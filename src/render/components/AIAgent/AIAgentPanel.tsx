@@ -15,10 +15,9 @@ import { useUIStore } from '@render/stores/uiStore';
 import { useRewriteStore } from '@render/stores/rewriteStore';
 import AIPanelHome, { formatRecentDate } from './AIPanelHome';
 import AIPanelSession from './AIPanelSession';
-import AIPanelSettings from './AIPanelSettings';
 import ConsentOverlay from './ConsentOverlay';
 
-type View = 'home' | 'session' | 'settings' | 'history';
+type View = 'home' | 'session' | 'history';
 
 const AIAgentPanel: React.FC = () => {
   const { t } = useI18n();
@@ -164,12 +163,8 @@ const AIAgentPanel: React.FC = () => {
           type="button"
           data-testid="open-settings-btn"
           title={t('ai.settings.title')}
-          onClick={() => setView('settings')}
-          className={`flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-input transition-colors ${
-            view === 'settings'
-              ? 'bg-[var(--accent)]/15 text-[var(--accent)]'
-              : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
-          }`}
+          onClick={() => useUIStore.getState().toggleSettings()}
+          className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-input text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
         >
           ⚙
         </button>
@@ -214,9 +209,6 @@ const AIAgentPanel: React.FC = () => {
               setDraft={setDraft}
               onCloseConversation={handleCloseConversation}
             />
-          )}
-          {view === 'settings' && (
-            <AIPanelSettings onBack={() => setView('home')} />
           )}
           {view === 'history' && (
             <div className="flex flex-1 flex-col min-h-0 overflow-hidden">

@@ -21,6 +21,7 @@ interface UIStore {
   isSourceCodeMode: boolean;
   isFindReplaceOpen: boolean;
   isAIPanelOpen: boolean;
+  isSettingsOpen: boolean;
   aiPanelWidth: number;
   editorDraftFlusher: (() => void | Promise<void>) | null;
   beforeToggleSourceMode: (() => void) | null;
@@ -31,6 +32,8 @@ interface UIStore {
   setHistoryPanelWidth: (width: number) => void;
   setAIPanelWidth: (width: number) => void;
   setAIPanelOpen: (open: boolean) => void;
+  setSettingsOpen: (open: boolean) => void;
+  toggleSettings: () => void;
   toggleSidebar: () => void;
   toggleOutlinePanel: () => void;
   toggleEditorCollapse: () => void;
@@ -66,6 +69,7 @@ export const useUIStore = create<UIStore>((set, get) => ({
   isSourceCodeMode: false,
   isFindReplaceOpen: false,
   isAIPanelOpen: false,
+  isSettingsOpen: false,
   aiPanelWidth: 480,
   editorDraftFlusher: null,
   beforeToggleSourceMode: null,
@@ -98,6 +102,12 @@ export const useUIStore = create<UIStore>((set, get) => ({
   setAIPanelOpen: (open) => {
     set({ isAIPanelOpen: open });
   },
+
+  setSettingsOpen: (open) => {
+    set({ isSettingsOpen: open });
+  },
+
+  toggleSettings: () => set((s) => ({ isSettingsOpen: !s.isSettingsOpen })),
 
   toggleSidebar: () => set((s) => ({ isSidebarOpen: !s.isSidebarOpen })),
 
