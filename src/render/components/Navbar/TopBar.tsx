@@ -2,9 +2,10 @@
 // WeaveMD — Top Navigation Bar
 // ============================================
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import IconButton from '@render/components/Common/IconButton';
 import { useI18n } from '@render/i18n';
+import type { IFile } from '@shared/types';
 import FeedbackModal from '@render/components/Feedback/FeedbackModal';
 import ExportMenu from './ExportMenu';
 import FileMenu from './FileMenu';
@@ -13,8 +14,13 @@ import HistoryMenu from './HistoryMenu';
 import MoreMenu from './MoreMenu';
 import ViewMenu from './ViewMenu';
 import WindowControls from './WindowControls';
+import CreatePanel from './CreatePanel';
 import { useNavbarActions } from '@render/hooks/useNavbarActions';
+import { createDiskFile } from '@render/services/fileOps';
 import { useRecentStore } from '@render/stores/recentStore';
+import { useFileTreeStore } from '@render/stores/fileTreeStore';
+import { useEditorStore } from '@render/stores/editorStore';
+import { useAuthStore } from '@render/stores/authStore';
 import { useUIStore } from '@render/stores/uiStore';
 
 type ShortcutAction = 'new-file' | 'open-file' | 'undo' | 'redo' | null;
@@ -69,8 +75,8 @@ const NavSeparator = () => (
 const TopBar: React.FC = () => {
   const { t } = useI18n();
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [createPanelType, setCreatePanelType] = useState<'file' | 'folder' | null>(null);
   const {
-    user,
     currentFile,
     undoStack,
     redoStack,
@@ -82,17 +88,90 @@ const TopBar: React.FC = () => {
     toggleAIPanel,
     handleUndo,
     handleRedo,
-    handleNewFile,
     handleOpenFile,
     handleDeleteFile,
     handleCloseFile,
-    handleNewFolder,
     handleOpenFolder,
     handleDeleteFolder,
     handleRecentOpen,
     handleFindReplace,
     handleExport,
   } = useNavbarActions();
+
+  const openFile = useEditorStore((s) => s.openFile);
+  const addFile = useFileTreeStore((s) => s.addFile);
+  const loadFolderContents = useFileTreeStore((s) => s.loadFolderContents);
+  const setActiveTab = useFileTreeStore((s) => s.setActiveTab);
+  const authUser = useAuthStore((s) => s.user);
+
+  // 新建文件/文件夹：打开 CreatePanel 而非直接创建
+  const handleNewFile = useCallback(() => {
+    setCreatePanelType('file');
+  }, []);
+
+  const handleNewFolder = useCallback(() => {
+    setCreatePanelType('folder');
+  }, []);
+
+  // CreatePanel 确认回调
+  const handleCreateConfirm = useCallback(
+    async (name: string, parentPath: string) => {
+      if (!authUser) return;
+      try {
+        if (createPanelType === 'file') {
+          // 构造完整路径：parentPath + name
+          const filePath = parentPath
+            ? `${parentPath.replace(/[/\\]$/, '')}/${name}`
+            : name;
+          const finalPath = filePath.endsWith('.md') ? filePath : `${filePath}.md`;
+
+          // 创建空文件到磁盘
+          await window.weaveMD.file.write(finalPath, '');
+
+          // 读回并打开
+          const readResult = (await window.weaveMD.file.readDisk(finalPath)) as {
+            success: boolean;
+            data?: { path: string; name: string; content: string };
+          };
+          if (readResult.success && readResult.data) {
+            const file: IFile = createDiskFile(authUser, readResult.data);
+            openFile(file);
+            useRecentStore.getState().touchRecent({
+              id: file.id,
+              path: readResult.data.path,
+              name: readResult.data.name,
+            });
+            addFile({
+              id: readResult.data.path,
+              name: readResult.data.name,
+              path: readResult.data.path,
+              content: '',
+            });
+          }
+        } else {
+          // 新建文件夹
+          const folderPath = parentPath
+            ? `${parentPath.replace(/[/\\]$/, '')}/${name}`
+            : name;
+
+          await window.weaveMD.folder.createFolder(folderPath, '');
+
+          const normalizedPath = folderPath.replace(/\\/g, '/');
+          loadFolderContents(normalizedPath);
+          setActiveTab('files');
+        }
+      } catch {
+        setErrorMessage(
+          createPanelType === 'file'
+            ? t('navbar.createFileFailed')
+            : t('navbar.createFolderFailed')
+        );
+      } finally {
+        setCreatePanelType(null);
+      }
+    },
+    [authUser, createPanelType, openFile, addFile, loadFolderContents, setActiveTab, setErrorMessage, t]
+  );
 
   // 编辑历史 = 最近打开（时间倒序），数据源切到 recentStore（persist）
   const recentFiles = useRecentStore((s) => s.recent);
@@ -110,7 +189,7 @@ const TopBar: React.FC = () => {
 
       event.preventDefault();
       if (action === 'new-file') {
-        void handleNewFile();
+        handleNewFile();
       } else if (action === 'open-file') {
         void handleOpenFile();
       } else if (action === 'undo') {
@@ -279,6 +358,15 @@ const TopBar: React.FC = () => {
 
       {/* 问题反馈弹层 */}
       <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+
+      {/* 新建文件/文件夹面板 */}
+      {createPanelType && (
+        <CreatePanel
+          type={createPanelType}
+          onClose={() => setCreatePanelType(null)}
+          onConfirm={(name, parentPath) => void handleCreateConfirm(name, parentPath)}
+        />
+      )}
     </header>
   );
 };

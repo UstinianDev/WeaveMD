@@ -655,6 +655,14 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
     listModels: async () =>
       createSuccessResult(['qwen3.5:0.8b', 'deepseek-chat']),
     onStream: () => () => {},
+    embedding: {
+      test: async () => ({ success: false }),
+      create: async () => ({ success: false }),
+    },
+    search: {
+      test: async () => ({ success: false }),
+      run: async () => ({ success: false }),
+    },
   },
   kb: {
     list: async () => ({ success: false }),

@@ -12,9 +12,9 @@ vi.mock('@main/ai/skillLoader', () => skillMock);
 import { defineCoreTools, executeTool, type SearchKbFn, type ToolCtx } from '@main/ai/toolRegistry';
 import type { CoreSkill } from '@main/ai/skillLoader';
 
-// 真正写盘/写库的工具名（铁律一禁用）。editBlocks 不再列于此——它只产改写建议不落盘，
-// 故应从「不含写工具」断言中移出，另行断言其「仅产 proposal」语义。
-const WRITE_NAMES = ['writeFile', 'createFile', 'deleteFile', 'updateFile', 'upsert'];
+// 真正写盘/写库的工具名（铁律一禁用）。editBlocks / createFile / createFolder 不在此列——
+// 它们只产 proposal 不落盘，另行断言其「仅产 proposal」语义。
+const WRITE_NAMES = ['writeFile', 'deleteFile', 'updateFile', 'upsert'];
 
 const STUB_SKILLS: CoreSkill[] = [
   {
@@ -29,9 +29,9 @@ function makeCtx(over: Partial<ToolCtx> = {}): ToolCtx {
 }
 
 describe('toolRegistry.defineCoreTools', () => {
-  it('defines exactly the 5 read-only tools (listFiles/readFile/searchKB/runSkill/editBlocks)', () => {
+  it('defines exactly the 7 tools (listFiles/readFile/searchKB/runSkill/editBlocks/createFile/createFolder)', () => {
     const names = defineCoreTools().map((t) => t.function.name);
-    expect(names).toEqual(['listFiles', 'readFile', 'searchKB', 'runSkill', 'editBlocks']);
+    expect(names).toEqual(['listFiles', 'readFile', 'searchKB', 'runSkill', 'editBlocks', 'createFile', 'createFolder']);
   });
 
   it('has valid OpenAI function schema for every tool', () => {
@@ -63,12 +63,15 @@ describe('toolRegistry.defineCoreTools', () => {
     expect(params.properties.block_ops?.items?.properties).toHaveProperty('new_content');
   });
 
-  it('contains NO write/落盘 tools (WRITE_NAMES 均不在；editBlocks 除外且仅产 proposal)', () => {
+  it('contains NO direct-write tools (WRITE_NAMES 均不在；proposal tools 除外)', () => {
     const names = defineCoreTools().map((t) => t.function.name);
     for (const w of WRITE_NAMES) {
       expect(names).not.toContain(w);
     }
+    // proposal 型写工具：仅产 proposal，不落盘
     expect(names).toContain('editBlocks');
+    expect(names).toContain('createFile');
+    expect(names).toContain('createFolder');
   });
 });
 
@@ -230,5 +233,78 @@ describe('toolRegistry.executeTool', () => {
     const res = await executeTool('unknownTool', '{}', makeCtx());
     expect(res.status).toBe('error');
     expect(res.errorDesc).toContain('未知工具');
+  });
+
+  it('createFile returns proposal JSON without touching disk', async () => {
+    const res = await executeTool(
+      'createFile',
+      '{"file_name":"note.md","content":"# Hello","parent_path":"/docs"}',
+      makeCtx()
+    );
+    expect(res.status).toBe('ok');
+    const parsed = JSON.parse(res.content);
+    expect(parsed.proposal).toBe(true);
+    expect(parsed.type).toBe('createFile');
+    expect(parsed.fileName).toBe('note.md');
+    expect(parsed.content).toBe('# Hello');
+    expect(parsed.parentPath).toBe('/docs');
+    // 未落盘断言：写阅读工具均未被调用
+    expect(filesMock.listFiles).not.toHaveBeenCalled();
+    expect(filesMock.getFile).not.toHaveBeenCalled();
+  });
+
+  it('createFile returns error for missing file_name', async () => {
+    const res = await executeTool('createFile', '{"content":"x"}', makeCtx());
+    expect(res.status).toBe('error');
+    expect(res.errorDesc).toContain('缺少 file_name');
+  });
+
+  it('createFile returns error for missing content', async () => {
+    const res = await executeTool('createFile', '{"file_name":"a.md"}', makeCtx());
+    expect(res.status).toBe('error');
+    expect(res.errorDesc).toContain('缺少 file_name');
+  });
+
+  it('createFile defaults parentPath to empty when omitted', async () => {
+    const res = await executeTool(
+      'createFile',
+      '{"file_name":"a.md","content":"hi"}',
+      makeCtx()
+    );
+    expect(res.status).toBe('ok');
+    const parsed = JSON.parse(res.content);
+    expect(parsed.parentPath).toBe('');
+  });
+
+  it('createFolder returns proposal JSON without touching disk', async () => {
+    const res = await executeTool(
+      'createFolder',
+      '{"folder_name":"notes","parent_path":"/docs"}',
+      makeCtx()
+    );
+    expect(res.status).toBe('ok');
+    const parsed = JSON.parse(res.content);
+    expect(parsed.proposal).toBe(true);
+    expect(parsed.type).toBe('createFolder');
+    expect(parsed.folderName).toBe('notes');
+    expect(parsed.parentPath).toBe('/docs');
+    expect(filesMock.listFiles).not.toHaveBeenCalled();
+  });
+
+  it('createFolder returns error for missing folder_name', async () => {
+    const res = await executeTool('createFolder', '{}', makeCtx());
+    expect(res.status).toBe('error');
+    expect(res.errorDesc).toContain('缺少 folder_name');
+  });
+
+  it('createFolder defaults parentPath to empty when omitted', async () => {
+    const res = await executeTool(
+      'createFolder',
+      '{"folder_name":"drafts"}',
+      makeCtx()
+    );
+    expect(res.status).toBe('ok');
+    const parsed = JSON.parse(res.content);
+    expect(parsed.parentPath).toBe('');
   });
 });

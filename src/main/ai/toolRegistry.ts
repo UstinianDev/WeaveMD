@@ -1,8 +1,9 @@
 // ============================================
-// WeaveMD — Agent tool registry (read-only)
+// WeaveMD — Agent tool registry (read-only + proposal-only write tools)
 // ============================================
 // 内置只读工具：listFiles / readFile / searchKB / runSkill + editBlocks（改写建议）。
-// 铁律一：无落盘工具（editBlocks 也只产 proposal，不写盘/不写库）——本轮 Agent 无直接落盘能力。
+// 提案型写工具：createFile / createFolder（仅返回 proposal JSON，用户确认后渲染侧落盘）。
+// 铁律一：无直接落盘工具——所有写路径必经预览确认。
 // 数据访问全部按 ctx.userId 隔离（SECURITY：即使工具参数含 user_id，也只以 ctx.userId 为准）。
 
 import type { IKbSearchResult, ToolDef } from '@shared/ai';
@@ -134,6 +135,37 @@ export function defineCoreTools(): ToolDef[] {
             },
           },
           required: ['block_ops'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'createFile',
+        description: '在工作区新建文件（仅生成提案，用户确认后才创建）。',
+        parameters: {
+          type: 'object',
+          properties: {
+            file_name: { type: 'string', description: '文件名（含扩展名，如 note.md）' },
+            content: { type: 'string', description: '文件初始内容（Markdown 格式）' },
+            parent_path: { type: 'string', description: '父目录路径（可选，默认根目录）' },
+          },
+          required: ['file_name', 'content'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'createFolder',
+        description: '在工作区新建文件夹（仅生成提案，用户确认后才创建）。',
+        parameters: {
+          type: 'object',
+          properties: {
+            folder_name: { type: 'string', description: '文件夹名称' },
+            parent_path: { type: 'string', description: '父目录路径（可选，默认根目录）' },
+          },
+          required: ['folder_name'],
         },
       },
     },
@@ -296,6 +328,52 @@ export async function executeTool(
           applied: false,
           proposed,
           documentSnapshotLength: ctx.currentDocument.length,
+        }),
+        status: 'ok',
+      };
+    }
+
+    case 'createFile': {
+      // 铁律一：仅产 proposal，不实际创建文件。渲染侧确认后调用 window.weaveMD.file.write 落盘。
+      const fileName = typeof argObj.file_name === 'string' ? argObj.file_name : '';
+      const content = typeof argObj.content === 'string' ? argObj.content : '';
+      if (!fileName || !content) {
+        return {
+          content: '',
+          status: 'error',
+          errorDesc: 'createFile: 缺少 file_name 或 content',
+        };
+      }
+      const parentPath = typeof argObj.parent_path === 'string' ? argObj.parent_path : '';
+      return {
+        content: JSON.stringify({
+          proposal: true,
+          type: 'createFile',
+          fileName,
+          content,
+          parentPath,
+        }),
+        status: 'ok',
+      };
+    }
+
+    case 'createFolder': {
+      // 铁律一：仅产 proposal，不实际创建文件夹。渲染侧确认后调用 window.weaveMD.folder.createFolder 落盘。
+      const folderName = typeof argObj.folder_name === 'string' ? argObj.folder_name : '';
+      if (!folderName) {
+        return {
+          content: '',
+          status: 'error',
+          errorDesc: 'createFolder: 缺少 folder_name',
+        };
+      }
+      const folderParentPath = typeof argObj.parent_path === 'string' ? argObj.parent_path : '';
+      return {
+        content: JSON.stringify({
+          proposal: true,
+          type: 'createFolder',
+          folderName,
+          parentPath: folderParentPath,
         }),
         status: 'ok',
       };

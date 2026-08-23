@@ -6,6 +6,7 @@
 
 import { create } from 'zustand';
 import type {
+  AIProcessStatus,
   ConversationMode,
   IAIConfig,
   IAIConsent,
@@ -39,6 +40,16 @@ function getKb(): KbApi {
 
 export type ConsentAction = 'agent';
 
+/** 文件操作提案（createFile/createFolder 工具返回的 proposal）。 */
+export interface FileOpProposal {
+  type: 'createFile' | 'createFolder';
+  fileName?: string;
+  folderName?: string;
+  content?: string;
+  parentPath?: string;
+  status: 'pending' | 'applied' | 'discarded';
+}
+
 interface AgentStore {
   /** 统一智能体模式（chat 模式已废弃）。 */
   activeMode: ConversationMode;
@@ -65,10 +76,21 @@ interface AgentStore {
   /** KB 参数持久化状态（idle 初始 / saving 写入中 / saved 已保存 / error 保存失败）。 */
   kbSettingsSaveState: 'idle' | 'saving' | 'saved' | 'error';
 
+  // —— AI 处理流程状态 ——
+  processStatus: AIProcessStatus;
+  setProcessStatus: (status: AIProcessStatus) => void;
+
   // —— Composer 控制条 ——
   /** 自动/手动应用改写开关（默认 true = 自动）。 */
   autoApplyRewrite: boolean;
   setAutoApplyRewrite: (value: boolean) => void;
+
+  // —— 文件操作提案 ——
+  fileOpProposals: FileOpProposal[];
+  addFileOpProposal: (proposal: Omit<FileOpProposal, 'status'>) => void;
+  applyFileOpProposal: (index: number) => Promise<void>;
+  discardFileOpProposal: (index: number) => void;
+  clearFileOpProposals: () => void;
 
   init: (userId: string) => Promise<void>;
   reset: () => void;
@@ -115,6 +137,9 @@ const RESET_FIELDS: Pick<
   | 'kbDocuments'
   | 'kbSettings'
   | 'kbSettingsSaveState'
+  | 'processStatus'
+  | 'autoApplyRewrite'
+  | 'fileOpProposals'
 > = {
   activeConversationId: null,
   userId: '',
@@ -134,6 +159,9 @@ const RESET_FIELDS: Pick<
   kbDocuments: [],
   kbSettings: DEFAULT_KB_SETTINGS,
   kbSettingsSaveState: 'idle',
+  processStatus: 'idle',
+  autoApplyRewrite: true,
+  fileOpProposals: [],
 };
 
 const makeId = () => `m-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -243,6 +271,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       streamBuffer: '',
       toolCalls: [],
       intentCard: null,
+      fileOpProposals: [],
     });
   },
 
@@ -286,6 +315,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       createdAt: new Date().toISOString(),
     };
     // 新一轮开始清空上轮轨迹/意图/提示
+    const startTime = Date.now();
     set((s) => ({
       messages: [...s.messages, userMsg],
       isStreaming: true,
@@ -293,14 +323,17 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       pendingConsent: false,
       toolCalls: [],
       intentCard: null,
+      processStatus: 'thinking',
     }));
 
     const appendAssistant = (): void => {
       const { streamBuffer } = get();
+      const responseTime = Date.now() - startTime;
       set((s) => ({
         isStreaming: false,
         streamUnsubscribe: null,
         streamBuffer: '',
+        processStatus: 'idle',
         messages: [
           ...s.messages,
           {
@@ -310,6 +343,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             content: streamBuffer,
             refsJson: null,
             createdAt: new Date().toISOString(),
+            responseTime,
           },
         ],
       }));
@@ -320,8 +354,25 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       onTool: (toolCall) => {
         set((s) => {
           const rest = s.toolCalls.filter((c) => c.toolCallId !== toolCall.toolCallId);
-          return { toolCalls: [...rest, toolCall] };
+          return { toolCalls: [...rest, toolCall], processStatus: 'tool_calling' };
         });
+        // 检测文件操作 proposal（createFile / createFolder 工具返回的 proposal JSON）
+        if (toolCall.name === 'createFile' || toolCall.name === 'createFolder') {
+          try {
+            const result = JSON.parse(toolCall.result ?? '{}') as Record<string, unknown>;
+            if (result.proposal) {
+              get().addFileOpProposal({
+                type: toolCall.name as 'createFile' | 'createFolder',
+                fileName: typeof result.fileName === 'string' ? result.fileName : undefined,
+                folderName: typeof result.folderName === 'string' ? result.folderName : undefined,
+                content: typeof result.content === 'string' ? result.content : undefined,
+                parentPath: typeof result.parentPath === 'string' ? result.parentPath : undefined,
+              });
+            }
+          } catch {
+            /* 非 JSON 结果忽略 */
+          }
+        }
       },
       finishAndPersist: appendAssistant,
     }, set, get);
@@ -354,12 +405,15 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     } catch (err) {
       if ((err as { code?: string })?.code === 'consent_required') {
         mgr.finishWithoutPersist();
-        set({ pendingConsent: true });
+        set({ pendingConsent: true, processStatus: 'idle' });
         return;
       }
       mgr.finishWithoutPersist();
+      set({ processStatus: 'idle' });
     }
   },
+
+  setProcessStatus: (status) => set({ processStatus: status }),
 
   stopStream() {
     const { activeConversationId, streamUnsubscribe, userId } = get();
@@ -373,6 +427,58 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   },
 
   setUseKnowledgeBase: (enabled) => set({ useKnowledgeBase: enabled }),
+
+  setAutoApplyRewrite: (value) => set({ autoApplyRewrite: value }),
+
+  // —— 文件操作提案 ——
+
+  addFileOpProposal: (proposal) =>
+    set((s) => ({
+      fileOpProposals: [...s.fileOpProposals, { ...proposal, status: 'pending' }],
+    })),
+
+  applyFileOpProposal: async (index) => {
+    const { fileOpProposals } = get();
+    const proposal = fileOpProposals[index];
+    if (!proposal || proposal.status !== 'pending') return;
+
+    try {
+      if (proposal.type === 'createFile' && proposal.fileName && proposal.content !== undefined) {
+        const filePath = proposal.parentPath
+          ? `${proposal.parentPath}/${proposal.fileName}`
+          : proposal.fileName;
+        await window.weaveMD.file.write(filePath, proposal.content);
+        await window.weaveMD.file.readDisk(filePath);
+      } else if (proposal.type === 'createFolder' && proposal.folderName) {
+        const parentPath = proposal.parentPath ?? '';
+        await window.weaveMD.folder.createFolder(parentPath, proposal.folderName);
+      }
+      // 刷新文件树（如果 loadFolderContents 可用）
+      const { useFileTreeStore } = await import('@render/stores/fileTreeStore');
+      const treeState = useFileTreeStore.getState();
+      const parentToRefresh = proposal.parentPath;
+      if (parentToRefresh && treeState.loadFolderContents) {
+        await treeState.loadFolderContents(parentToRefresh);
+      }
+
+      set((s) => ({
+        fileOpProposals: s.fileOpProposals.map((p, i) =>
+          i === index ? { ...p, status: 'applied' as const } : p
+        ),
+      }));
+    } catch (err) {
+      console.error('[agentStore] applyFileOpProposal failed:', err);
+    }
+  },
+
+  discardFileOpProposal: (index) =>
+    set((s) => ({
+      fileOpProposals: s.fileOpProposals.map((p, i) =>
+        i === index ? { ...p, status: 'discarded' as const } : p
+      ),
+    })),
+
+  clearFileOpProposals: () => set({ fileOpProposals: [] }),
 
   async setKbSettings(settings) {
     // 未登录（userId 空）仅更新内存态，不触发 IPC（防御）

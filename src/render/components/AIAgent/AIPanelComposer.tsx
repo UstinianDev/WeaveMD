@@ -7,7 +7,7 @@
 // 整篇写 / 纯 agent），不改写协议。铁律：AI 无直接落盘——改写/整篇写走预览确认，agent 工具只读。
 // 无 dangerouslySetInnerHTML、无 any。
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentSkillInfo } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
@@ -35,6 +35,10 @@ const MAX_CONTEXT_TOKENS = 128000;
  */
 const WRITE_WHOLE_DOC_RE =
   /从\s*0\s*到\s*1|从零|从头|整篇|全文|写一篇|写整篇|写一份|写个文档|write\s+(a\s+)?(full|entire|complete)|create\s+(a\s+)?document|write\s+a\s+doc/;
+
+/** 联网搜索引擎选项。 */
+const WEB_SEARCH_ENGINES = ['Firecrawl', 'Zhipu', 'Tavily', 'Exa'] as const;
+type WebSearchEngine = (typeof WEB_SEARCH_ENGINES)[number];
 
 interface AIPanelComposerProps {
   /**
@@ -67,9 +71,19 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
   const runManualCompress = useAgentStore((s) => s.runManualCompress);
   const messages = useAgentStore((s) => s.messages);
   const streamBuffer = useAgentStore((s) => s.streamBuffer);
+  const autoApplyRewrite = useAgentStore((s) => s.autoApplyRewrite);
+  const setAutoApplyRewrite = useAgentStore((s) => s.setAutoApplyRewrite);
 
   // 改写状态：选区改写模式（selectionContext 非空 → composer 输入改写指令）
   const selectionContext = useRewriteStore((s) => s.selectionContext);
+
+  // —— 控制条状态 ——
+  /** 联网搜索菜单开关。 */
+  const [searchMenuOpen, setSearchMenuOpen] = useState(false);
+  /** 已选中的搜索引擎（本地 state，不持久化）。 */
+  const [selectedEngine, setSelectedEngine] = useState<WebSearchEngine | null>(null);
+  /** 搜索菜单引用（点击外部关闭）。 */
+  const searchMenuRef = useRef<HTMLDivElement>(null);
 
   // R5: 上下文 token 估算
   const contextEstimate = useMemo(() => {
@@ -108,6 +122,18 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // —— 联网搜索菜单：点击外部关闭 ——
+  useEffect(() => {
+    if (!searchMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchMenuRef.current && !searchMenuRef.current.contains(e.target as Node)) {
+        setSearchMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [searchMenuOpen]);
 
   /** 构建补全菜单项（`/` = 技能；`@` = 引用目标（当前文档 / 知识库））。 */
   const buildCompletionItems = (trigger: '/' | '@', query: string): CompletionMenuItem[] => {
@@ -309,6 +335,40 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
     onCompose?.();
   };
 
+  // —— 文件/图片上传（暂存到本地，实际使用待后续接入） ——
+  const handleUploadFile = useCallback(async () => {
+    try {
+      const result = (await window.weaveMD?.dialog.openFile()) as unknown as {
+        success?: boolean;
+        data?: { name: string; content: string };
+      };
+      if (result?.success && result.data) {
+        // TODO: 暂存文件名和内容到 state，后续接入 agent 消息
+        void result.data;
+      }
+    } catch {
+      /* 取消或失败，静默 */
+    }
+  }, []);
+
+  const handleUploadImage = useCallback(async () => {
+    try {
+      const path = await window.weaveMD?.dialog.pickImage();
+      if (path) {
+        // TODO: 暂存图片路径到 state，后续接入 agent 消息
+        void path;
+      }
+    } catch {
+      /* 取消或失败，静默 */
+    }
+  }, []);
+
+  // —— 联网搜索引擎选择 ——
+  const handleToggleEngine = useCallback((engine: WebSearchEngine) => {
+    setSelectedEngine((prev) => (prev === engine ? null : engine));
+    setSearchMenuOpen(false);
+  }, []);
+
   return (
     <div className="border-t border-border px-2.5 pt-2 pb-2.5 space-y-1.5">
       <div className="relative">
@@ -351,37 +411,141 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
           style={{ fontFamily: "'Consolas', 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}
         />
       </div>
-      {/* 底部控制条：左→右 模型下拉 …… 发送/停止 */}
+      {/* 底部控制条：左→右 上传/开关/联网搜索 …… 模型/上下文/发送 */}
       <div className="flex items-center gap-1.5">
+        {/* 上传文件 */}
+        <button
+          type="button"
+          onClick={handleUploadFile}
+          title="上传文件"
+          className="flex items-center justify-center w-7 h-7 rounded text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
+        >
+          <span className="text-[16px] leading-none">📎</span>
+        </button>
+
+        {/* 上传图片 */}
+        <button
+          type="button"
+          onClick={handleUploadImage}
+          title="上传图片"
+          className="flex items-center justify-center w-7 h-7 rounded text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
+        >
+          <span className="text-[16px] leading-none">🖼</span>
+        </button>
+
+        {/* 自动/手动应用修改开关 */}
+        <div className="flex items-center gap-1 text-[12px]">
+          <button
+            type="button"
+            onClick={() => setAutoApplyRewrite(true)}
+            className={`px-1.5 py-0.5 rounded transition-colors ${
+              autoApplyRewrite
+                ? 'text-[var(--accent)] font-medium'
+                : 'text-text-muted hover:text-text-sub'
+            }`}
+          >
+            自动
+          </button>
+          <button
+            type="button"
+            onClick={() => setAutoApplyRewrite(false)}
+            className={`relative w-8 h-4 rounded-full transition-colors ${
+              autoApplyRewrite ? 'bg-[var(--accent)]' : 'bg-text-muted'
+            }`}
+            role="switch"
+            aria-checked={!autoApplyRewrite}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${
+                autoApplyRewrite ? 'translate-x-0' : 'translate-x-4'
+              }`}
+            />
+          </button>
+          <button
+            type="button"
+            onClick={() => setAutoApplyRewrite(false)}
+            className={`px-1.5 py-0.5 rounded transition-colors ${
+              !autoApplyRewrite
+                ? 'text-[var(--accent)] font-medium'
+                : 'text-text-muted hover:text-text-sub'
+            }`}
+          >
+            手动
+          </button>
+        </div>
+
+        {/* 联网搜索按钮 */}
+        <div className="relative" ref={searchMenuRef}>
+          <button
+            type="button"
+            onClick={() => setSearchMenuOpen((v) => !v)}
+            title="联网搜索"
+            className={`flex items-center justify-center w-7 h-7 rounded transition-colors ${
+              selectedEngine
+                ? 'text-[var(--accent)] bg-[var(--accent)]/10'
+                : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
+            }`}
+          >
+            <span className="text-[16px] leading-none">🌐</span>
+          </button>
+          {searchMenuOpen && (
+            <div className="absolute left-0 bottom-full mb-1 z-50 w-40 rounded-card border border-border bg-bg-secondary shadow-dropdown py-1">
+              <div className="px-3 pt-1 pb-1 text-[11px] text-text-muted">
+                搜索引擎
+              </div>
+              {WEB_SEARCH_ENGINES.map((engine) => (
+                <button
+                  key={engine}
+                  type="button"
+                  onClick={() => handleToggleEngine(engine)}
+                  className={`block w-full text-left px-3 py-1.5 text-[13px] transition-colors ${
+                    selectedEngine === engine
+                      ? 'bg-[var(--accent)]/15 text-text-primary font-medium'
+                      : 'text-text-sub hover:bg-bg-tertiary'
+                  }`}
+                >
+                  {engine}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* 模型下拉（移到右侧） */}
         <ModelDropdown />
-        {/* R5: 上下文指示器（圆环形） */}
+
+        {/* R5: 上下文指示器（圆环形，缩小到 20px） */}
         <ContextRing
           usedTokens={contextEstimate.usedTokens}
           maxTokens={MAX_CONTEXT_TOKENS}
           ratio={contextEstimate.ratio}
           tooltip={contextTooltip}
+          size={20}
         />
-        <div className="ml-auto flex items-center gap-1.5">
-          {isStreaming ? (
-            <button
-              type="button"
-              onClick={stopStream}
-              className="px-3 py-1 text-[15px] rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
-            >
-              {t('ai.stop')}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleSend}
-              disabled={!value.trim()}
-              data-testid="ai-composer-send"
-              className="px-3.5 py-1 text-[15px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
-            >
-              {t('ai.send')}
-            </button>
-          )}
-        </div>
+
+        {/* 发送/停止按钮 */}
+        {isStreaming ? (
+          <button
+            type="button"
+            onClick={stopStream}
+            className="px-3 py-1 text-[15px] rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
+          >
+            {t('ai.stop')}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleSend}
+            disabled={!value.trim()}
+            data-testid="ai-composer-send"
+            className="px-3.5 py-1 text-[15px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+          >
+            {t('ai.send')}
+          </button>
+        )}
       </div>
     </div>
   );

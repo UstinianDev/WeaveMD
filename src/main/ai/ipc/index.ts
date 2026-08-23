@@ -16,6 +16,8 @@ import { registerKbHandlers } from './kbHandlers';
 import { registerAgentHandlers } from './agentHandlers';
 import { registerRewriteHandlers } from './rewriteHandlers';
 import { registerModelHandlers } from './modelHandlers';
+import { registerEmbeddingHandlers } from './embeddingHandlers';
+import { registerSearchHandlers } from './searchHandlers';
 
 export function registerAiIpcHandlers(): void {
   registerConfigConsentHandlers();
@@ -24,4 +26,6 @@ export function registerAiIpcHandlers(): void {
   registerAgentHandlers();
   registerRewriteHandlers();
   registerModelHandlers();
+  registerEmbeddingHandlers();
+  registerSearchHandlers();
 }

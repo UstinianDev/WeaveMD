@@ -17,6 +17,7 @@ import AIMessageBubble from './AIMessageBubble';
 import IntentCard from './IntentCard';
 import ToolCallTrace from './ToolCallTrace';
 import RewritePreviewCard from './RewritePreviewCard';
+import FileOpPreviewCard from './FileOpPreviewCard';
 
 const AgentTab: React.FC = () => {
   const { t } = useI18n();
@@ -27,7 +28,11 @@ const AgentTab: React.FC = () => {
   const streamBuffer = useAgentStore((s) => s.streamBuffer);
   const toolCalls = useAgentStore((s) => s.toolCalls);
   const intentCard = useAgentStore((s) => s.intentCard);
+  const processStatus = useAgentStore((s) => s.processStatus);
   const sendAgentMessage = useAgentStore((s) => s.sendAgentMessage);
+  const fileOpProposals = useAgentStore((s) => s.fileOpProposals);
+  const applyFileOpProposal = useAgentStore((s) => s.applyFileOpProposal);
+  const discardFileOpProposal = useAgentStore((s) => s.discardFileOpProposal);
 
   const previewDocumentFromReply = useRewriteStore((s) => s.previewDocumentFromReply);
   const currentFile = useEditorStore((s) => s.currentFile);
@@ -41,6 +46,18 @@ const AgentTab: React.FC = () => {
   }, [messages.length, toolCalls.length, streamBuffer, isStreaming]);
 
   const isAgentMode = activeMode === 'agent';
+
+  /** AI 处理流程状态文案（i18n 键缺失时 fallback 硬编码中文）。 */
+  const processStatusText: Record<string, string> = {
+    thinking: t('ai.status.thinking', '正在思考...'),
+    tool_calling: t('ai.status.toolCalling', '正在调用工具...'),
+    generating_cards: t('ai.status.generatingCards', '正在生成提问...'),
+    waiting_input: t('ai.status.waitingInput', '等待回答...'),
+    reading_file: t('ai.status.readingFile', '正在读取文件...'),
+    user_answered: t('ai.status.userAnswered', '已回答'),
+    generating_rewrite: t('ai.status.generatingRewrite', '正在生成修订...'),
+    batch_processed: t('ai.status.batchProcessed', '修订批次已处理'),
+  };
 
   // 意图卡片点击：按选中意图的提示模板重发（仅 agent 模式存在）
   const handlePickIntent = (intent: IntentName) => {
@@ -56,12 +73,33 @@ const AgentTab: React.FC = () => {
         </div>
       )}
 
-      {messages.map((m) => (
+      {messages.map((m, idx) => (
         <div key={m.id}>
           <AIMessageBubble
             role={m.role}
             content={m.content}
             refsJson={isAgentMode ? m.refsJson : null}
+            responseTime={m.responseTime}
+            onCopy={() => {
+              void navigator.clipboard.writeText(m.content);
+            }}
+            onEdit={
+              m.role === 'user'
+                ? () => {
+                    // 将消息内容放入 composer 编辑模式（由 AIPanelComposer 消费 draft）
+                    useAgentStore.getState().setProcessStatus('idle');
+                  }
+                : undefined
+            }
+            onRetry={
+              m.role === 'assistant' && idx >= 2
+                ? () => {
+                    // 找到前一条 user 消息重新发送
+                    const prevUser = [...messages.slice(0, idx)].reverse().find((p) => p.role === 'user');
+                    if (prevUser) void sendAgentMessage(prevUser.content);
+                  }
+                : undefined
+            }
           />
           {/* agent 模式：A1c 回复可「预览写入文档」——文档已打开且回复非空才显示 */}
           {isAgentMode &&
@@ -82,6 +120,15 @@ const AgentTab: React.FC = () => {
       {/* agent 模式：改写预览卡片（选区/@ 改写提案确认，红删绿增 + 确认/取消）——在消息列表之后显示 */}
       {isAgentMode && <RewritePreviewCard />}
 
+      {/* agent 模式：文件操作预览卡片（createFile / createFolder 提案确认） */}
+      {isAgentMode && fileOpProposals.length > 0 && (
+        <FileOpPreviewCard
+          proposals={fileOpProposals}
+          onApply={applyFileOpProposal}
+          onDiscard={discardFileOpProposal}
+        />
+      )}
+
       {/* agent 模式：工具轨迹（当前轮累积，与消息列表共存——空消息也可显示轨迹） */}
       {isAgentMode &&
         toolCalls.length > 0 && (
@@ -94,7 +141,16 @@ const AgentTab: React.FC = () => {
 
       {/* 流式增量打字指示 */}
       {isStreaming && (
-        <AIMessageBubble role="assistant" content={streamBuffer} isStreaming />
+        <>
+          {/* AI 处理流程状态指示器 */}
+          {processStatus !== 'idle' && (
+            <div className="flex items-center gap-2 px-4 py-1.5 text-[13px] text-text-muted">
+              <span className="inline-block w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" />
+              {processStatusText[processStatus] ?? processStatus}
+            </div>
+          )}
+          <AIMessageBubble role="assistant" content={streamBuffer} isStreaming />
+        </>
       )}
 
       {/* agent 模式：意图候选提问卡片 */}

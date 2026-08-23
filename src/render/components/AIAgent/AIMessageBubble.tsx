@@ -6,7 +6,7 @@
 // （aiMarkdown HAST→React 安全渲染），tool 用 <ToolCallTrace/>，user 保持纯文本。
 // assistant refsJson（IKbSearchResult 数组）渲染「[来源: 文件名 · 块]」链接，点击 openFile。
 
-import React from 'react';
+import React, { useState } from 'react';
 import type { AIMessageRole, IAgentToolCall } from '@shared/ai';
 import type { IFile } from '@shared/types';
 import { useI18n } from '@render/i18n';
@@ -23,6 +23,14 @@ interface AIMessageBubbleProps {
   toolCalls?: IAgentToolCall[];
   /** assistant 的出处 JSON 字符串（IKbSearchResult[]），可为 null。 */
   refsJson?: string | null;
+  /** 消息响应时间（毫秒），从发送到首 token 的时间 */
+  responseTime?: number;
+  /** 复制消息内容回调 */
+  onCopy?: () => void;
+  /** 编辑消息回调（仅 user 消息） */
+  onEdit?: () => void;
+  /** 重试回调（仅 assistant 消息） */
+  onRetry?: () => void;
 }
 
 interface ParsedSource {
@@ -95,24 +103,66 @@ const ROLE_LABEL: Record<AIMessageRole, string> = {
   tool: 'Tool',
 };
 
+/** 格式化响应时间：≥1s 显示秒，<1s 显示毫秒。 */
+function formatResponseTime(ms: number): string {
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${ms}ms`;
+}
+
 const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
   role,
   content,
   isStreaming = false,
   toolCalls = [],
   refsJson = null,
+  responseTime,
+  onCopy,
+  onEdit,
+  onRetry,
 }) => {
   const { t } = useI18n();
+  const [hovered, setHovered] = useState(false);
 
   if (role === 'user') {
     return (
-      <div className="flex justify-end px-3 py-1">
+      <div
+        className="group flex flex-col items-end px-3 py-1"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
         <div
           className="max-w-[85%] rounded-2xl rounded-tr-md px-3.5 py-2 text-[15px] leading-relaxed bg-[var(--accent)] text-white shadow-sm"
           style={{ fontFamily: "'Consolas', 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}
         >
           <div className="whitespace-pre-wrap break-words">{content}</div>
         </div>
+        {/* 操作栏：hover 时显示 */}
+        <div className={`flex items-center gap-1.5 mt-1 transition-opacity ${hovered ? 'opacity-100' : 'opacity-0'}`}>
+          {onCopy && (
+            <button
+              type="button"
+              onClick={onCopy}
+              className="text-[12px] text-text-muted hover:text-text-primary transition-colors"
+            >
+              {t('ai.msg.copy')}
+            </button>
+          )}
+          {onEdit && (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="text-[12px] text-text-muted hover:text-text-primary transition-colors"
+            >
+              {t('ai.msg.edit')}
+            </button>
+          )}
+        </div>
+        {/* 响应时间：左下角 */}
+        {responseTime !== undefined && responseTime > 0 && (
+          <div className="self-start text-[11px] text-text-sub mt-0.5">
+            {formatResponseTime(responseTime)}
+          </div>
+        )}
       </div>
     );
   }
@@ -138,7 +188,11 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
   };
 
   return (
-    <div className="flex px-3 py-1">
+    <div
+      className="group flex flex-col px-3 py-1"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       <div className="max-w-[92%] space-y-1">
         <div className="text-[12px] font-medium text-text-muted">{ROLE_LABEL[role]}</div>
 
@@ -202,6 +256,35 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
           </div>
         )}
       </div>
+      {/* 操作栏：assistant 消息 hover 时显示（左对齐） */}
+      {!isTool && !isStreaming && (
+        <div className={`flex items-center gap-1.5 mt-1 transition-opacity ${hovered ? 'opacity-100' : 'opacity-0'}`}>
+          {onCopy && (
+            <button
+              type="button"
+              onClick={onCopy}
+              className="text-[12px] text-text-muted hover:text-text-primary transition-colors"
+            >
+              {t('ai.msg.copy')}
+            </button>
+          )}
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="text-[12px] text-text-muted hover:text-text-primary transition-colors"
+            >
+              {t('ai.msg.retry')}
+            </button>
+          )}
+        </div>
+      )}
+      {/* 响应时间：assistant 消息右下角 */}
+      {!isTool && responseTime !== undefined && responseTime > 0 && (
+        <div className="self-end text-[11px] text-text-sub mt-0.5">
+          {formatResponseTime(responseTime)}
+        </div>
+      )}
     </div>
   );
 };

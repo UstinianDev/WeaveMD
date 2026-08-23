@@ -38,11 +38,11 @@
 - [x] 阶段2: 技术调研+规划 ✓（Embedding/搜索引擎API调研 + 14模块实施计划）
 - [x] Phase 1: 浮动工具栏删AI改写 + 侧栏固定20% ✓（tsc 0 error）
 - [x] Phase 2: 删除Chat模式 + 导航栏重构 ✓（tsc 0 error，含测试文件修复）
-- [ ] Phase 3: 新建面板 + 消息操作栏 + 状态展示 + Composer重构 + KB设置
-  - [ ] Module 4: CreatePanel.tsx（新建文件/文件夹居中面板）
-  - [ ] Module 6.3-6.4: 消息操作栏（复制/编辑/重试+响应时间）
-  - [ ] Module 7: AI处理流程状态展示
-  - [ ] Module 8: Composer重构（📎🖼自动手动应用联网搜索）
-  - [ ] Module 10: KB设置重构（Embedding+搜索配置）
-- [ ] Phase 4: 多文件修订 + Embedding/搜索客户端 + 文件操作工具
-- [ ] Phase 5: 全量门禁
+- [x] Phase 3: 新建面板 + 消息操作栏 + 状态展示 + Composer重构 + KB设置 ✓ (tsc 0 error)
+  - [x] Module 4: CreatePanel.tsx（新建文件/文件夹居中面板）
+  - [x] Module 6.3-6.4: 消息操作栏（复制/编辑/重试+响应时间）
+  - [x] Module 7: AI处理流程状态展示
+  - [x] Module 8: Composer重构（📎🖼自动手动应用联网搜索）
+  - [x] Module 10: KB设置重构（Embedding+搜索配置）
+- [x] Phase 4: 多文件修订 + Embedding/搜索客户端 + 文件操作工具 ✓ (tsc 0 error)
+- [x] Phase 5: 全量门禁 ✓ (tsc 0 | vitest 1501/1501 | lint 0 error | vite build ok | playwright 单文件 ok)

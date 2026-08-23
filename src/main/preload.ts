@@ -27,6 +27,7 @@ import type {
   KbStatusResponse,
   RewriteReply,
   RewriteRequestPayload,
+  SearchProvider,
 } from '@shared/ai';
 import type { IpcResponse } from '@shared/types';
 import type {
@@ -137,6 +138,25 @@ export interface WeaveMDApi {
     listSkills: (userId: string) => Promise<IpcResponse<AgentSkillInfo[]>>;
     listModels: (userId: string) => Promise<IpcResponse<string[]>>;
     onStream: (cb: (evt: AIStreamEvent | IAgentStreamToolEvent) => void) => () => void;
+    embedding: {
+      test: (payload: { baseUrl: string; model: string; apiKey: string }) => Promise<IpcResponse<{ message: string }>>;
+      create: (payload: {
+        baseUrl: string;
+        model: string;
+        apiKey: string;
+        input: string | string[];
+        multimodal?: boolean;
+      }) => Promise<IpcResponse<{ embeddings: number[][]; model: string; usage: { promptTokens: number } }>>;
+    };
+    search: {
+      test: (payload: { provider: string; apiKey: string }) => Promise<IpcResponse<{ message: string }>>;
+      run: (payload: {
+        provider: string;
+        apiKey: string;
+        query: string;
+        maxResults?: number;
+      }) => Promise<IpcResponse<{ results: Array<{ title: string; url: string; snippet: string }>; provider: SearchProvider }>>;
+    };
   };
   kb: {
     list: (userId: string) => Promise<IpcResponse<IKbDocumentStatus[]>>;
@@ -324,6 +344,18 @@ const api: WeaveMDApi = {
       return () => {
         for (const off of listeners) off();
       };
+    },
+    embedding: {
+      test: (payload) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_EMBEDDING_TEST, payload),
+      create: (payload) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_EMBEDDING_CREATE, payload),
+    },
+    search: {
+      test: (payload) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_SEARCH_TEST, payload),
+      run: (payload) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_SEARCH_RUN, payload),
     },
   },
   kb: {

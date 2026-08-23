@@ -17,6 +17,8 @@ interface ContextRingProps {
   ratio: number;
   /** 工具提示文本 */
   tooltip: string;
+  /** 圆环尺寸（px），默认 24 */
+  size?: number;
 }
 
 /** 根据比例返回环形颜色（CSS 变量） */
@@ -31,10 +33,10 @@ const ContextRing: React.FC<ContextRingProps> = ({
   maxTokens,
   ratio,
   tooltip,
+  size = 24,
 }) => {
   // 圆环参数
-  const size = 24;
-  const strokeWidth = 3;
+  const strokeWidth = size <= 20 ? 2.5 : 3;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   // 从零点（12点钟）顺时针：stroke-dashoffset 从 circumference（0%）到 0（100%）

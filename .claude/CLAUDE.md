@@ -160,6 +160,7 @@
 - AI 面板体验优化（2026-08-21）：① 主界面最近会话删除按钮（🗑 + confirm）+ ② 历史会话列表视图（View All → history）+ ③ 会话标题栏布局（标题+🗑+×）+ ④ /compact 命令压缩上下文（含 CompletionMenu 补全，chat/agent 双模式）+ ⑤ 底栏上下文指示器（圆环形进度条 + token 估算，悬停显示占比）+ ⑥ 选区改写消息入会话（user 消息 + 预览卡片作 AI 回复）+ ⑦ 改写预览仅 diff（可折叠 15px + AI 改动说明，移除整段输出）+ ⑧ 编辑器+目录区字体统一（Consolas+KaiTi）
 - AI 面板体验修复（2026-08-22）：⑨ 选区改写预览卡片位置修正（移至消息列表之后，跟随改写请求而非固定最上方）+ ⑩ AI 回答自动换行（whitespace-pre-wrap）
 - AI 面板样式优化（2026-08-22）：⑪ AI 回答行高调整（leading-relaxed→leading-normal）+ ⑫ AI 表格样式补全 + ⑬ 编辑器+目录区+代码块字体统一（Consolas + 阿里巴巴普惠体）+ ⑭ 间距全面压缩（margin/padding/space-y 减半）+ ⑮ 移除 whitespace-pre-wrap（修复双重换行：Markdown 段落 margin + 源文本换行符）+ ⑯ AI 面板 user 消息和 composer 输入框字体统一（Consolas + 阿里巴巴普惠体）
+- AI面板+编辑主区+导航栏优化（2026-08-23，Phase 1-5 全部交付）：① 浮动工具栏删 AI 改写 + ② 侧栏固定 20% + ③ 删除 Chat 模式 + ④ 导航栏重构（收起编辑器/AI 按钮移到左侧）+ ⑤ 编辑区收起功能 + ⑥ CreatePanel 新建文件/文件夹居中面板 + ⑦ 消息操作栏（hover 复制/编辑/重试 + 响应时间）+ ⑧ AI 处理流程状态展示（AIProcessStatus 8 种状态 + 脉冲指示器）+ ⑨ Composer 重构（📎🖼自动手动 toggle🌐联网搜索 + ContextRing 缩小）+ ⑩ KB 设置重构（EmbeddingSettings + SearchSettings + AIPanelSettings 5 tabs）+ ⑪ 多文件修订预览（RewriteDetailModal 居中弹窗 + 汇总卡片）+ ⑫ Embedding 客户端（embeddingClient.ts + embeddingHandlers.ts）+ ⑬ 搜索客户端（searchClient.ts 4 引擎 + searchHandlers.ts）+ ⑭ AI 文件操作工具（createFile/createFolder proposal + FileOpPreviewCard）+ ⑮ 测试同步修复
   门禁全绿（第 6 期：typecheck 0 | vitest 90/1261 | lint 0 | Playwright 14/14 | 真库迁移 smoke 0；第 7 期：typecheck 0 | vitest 93/1338 | lint 0 | Playwright 24/24）
 
 ## 已知限制（详见 docs/specs/editor-v2-progress.md §13.x）

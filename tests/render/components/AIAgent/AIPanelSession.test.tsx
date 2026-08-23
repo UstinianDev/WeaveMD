@@ -88,7 +88,7 @@ describe('AIPanelSession', () => {
     expect(screen.getByTestId('session-title').textContent).toContain('智能体');
   });
 
-  it('agent 模式：显示消息流 + composer + KB 控件；切换 KB 设置抽屉显示 KnowledgeBaseSettings', () => {
+  it('agent 模式：显示消息流 + composer；KB 开关已移除（Module 10）', () => {
     useAgentStore.setState({
       conversations: [conv('c1', '标题')],
       activeConversationId: 'c1',
@@ -98,13 +98,12 @@ describe('AIPanelSession', () => {
     render(<AIPanelSession draft="" setDraft={() => undefined} onCloseConversation={closeFn} />);
     expect(screen.getByTestId('mock-message-flow')).toBeInTheDocument();
     expect(screen.getByTestId('mock-composer')).toBeInTheDocument();
-    // 知识库设置抽屉初始隐藏
+    // Module 10: KB 开关已移除，不再显示 KnowledgeBaseSettings
     expect(screen.queryByTestId('mock-kbsettings')).toBeNull();
-    fireEvent.click(screen.getByText('知识库', { exact: true }));
-    expect(screen.getByTestId('mock-kbsettings')).toBeInTheDocument();
+    expect(screen.queryByText('知识库', { exact: true })).toBeNull();
   });
 
-  it('chat 模式：不显示 KB 控件（KB 开关/知识库按钮），仅消息流 + composer', () => {
+  it('agent 模式：KB 开关已移除，仅显示消息流 + composer', () => {
     useAgentStore.setState({
       conversations: [conv('c1', '标题')],
       activeConversationId: 'c1',

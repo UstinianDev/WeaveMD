@@ -74,7 +74,21 @@ export interface IAIMessage {
   content: string;
   refsJson: string | null;
   createdAt: string;
+  /** 响应时间（毫秒），从发送到首 token 的时间 */
+  responseTime?: number;
 }
+
+/** AI 处理流程状态 */
+export type AIProcessStatus =
+  | 'idle'
+  | 'thinking'
+  | 'tool_calling'
+  | 'generating_cards'
+  | 'waiting_input'
+  | 'reading_file'
+  | 'user_answered'
+  | 'generating_rewrite'
+  | 'batch_processed';
 
 /** AI 错误码。http_* 具体值如 'http_500'。 */
 export type AIErrorCode =
@@ -364,4 +378,32 @@ export interface RewriteProposal {
 export interface AgentSkillInfo {
   name: string;
   description: string;
+}
+
+// ============================================
+// Module 10 — Embedding / Search 配置共享类型
+// ============================================
+
+/** Embedding 模型配置（设置面板 embedding tab）。 */
+export interface IEmbeddingConfig {
+  provider: string;
+  baseUrl: string;
+  model: string;
+  /** 是否已配置 API key（仅布尔标记，绝不含 key 明文）。 */
+  hasApiKey: boolean;
+  /** 是否启用多模态向量。 */
+  multimodal: boolean;
+}
+
+/** 搜索服务商枚举。 */
+export type SearchProvider = 'firecrawl' | 'zhipu' | 'tavily' | 'exa';
+
+/** 搜索引擎配置（设置面板 search tab）。 */
+export interface ISearchConfig {
+  /** 总开关：是否启用联网搜索。 */
+  enabled: boolean;
+  /** 当前选中的搜索服务商。 */
+  provider: SearchProvider;
+  /** 各服务商 API Key 是否已配置（仅布尔标记，绝不含 key 明文）。 */
+  hasApiKeys: Record<SearchProvider, boolean>;
 }

@@ -8,10 +8,12 @@
 import React, { useState } from 'react';
 import { useI18n } from '@render/i18n';
 import ModelForm from './settings/ModelForm';
+import EmbeddingSettings from './settings/EmbeddingSettings';
+import SearchSettings from './settings/SearchSettings';
 import SkillsPanel from './settings/SkillsPanel';
 import McpPanel from './settings/McpPanel';
 
-export type SettingsTab = 'model' | 'skills' | 'mcp';
+export type SettingsTab = 'model' | 'embedding' | 'search' | 'skills' | 'mcp';
 
 interface AIPanelSettingsProps {
   /** 返回上一视图（home/session）。 */
@@ -20,6 +22,8 @@ interface AIPanelSettingsProps {
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: 'model', label: 'ai.settings.tab.model' },
+  { key: 'embedding', label: 'ai.settings.tab.embedding' },
+  { key: 'search', label: 'ai.settings.tab.search' },
   { key: 'skills', label: 'ai.settings.tab.skills' },
   { key: 'mcp', label: 'ai.settings.tab.mcp' },
 ];
@@ -67,6 +71,8 @@ const AIPanelSettings: React.FC<AIPanelSettingsProps> = ({ onBack }) => {
         {/* 右内容区（R9 模型 / R10 skills / R11 MCP） */}
         <div className="flex-1 min-w-0 overflow-y-auto px-3 py-3">
           {tab === 'model' && <ModelForm />}
+          {tab === 'embedding' && <EmbeddingSettings />}
+          {tab === 'search' && <SearchSettings />}
           {tab === 'skills' && <SkillsPanel />}
           {tab === 'mcp' && <McpPanel />}
         </div>

@@ -121,6 +121,14 @@ export const IPC_CHANNELS = {
   // AI — model list (ai-panel-redesign M1, 需求 R17) invoke
   AI_LIST_MODELS: 'ai:list-models',
 
+  // AI — Embedding（Module 11）
+  AI_EMBEDDING_TEST: 'ai:embedding:test',
+  AI_EMBEDDING_CREATE: 'ai:embedding:create',
+
+  // AI — Search（Module 12）
+  AI_SEARCH_TEST: 'ai:search:test',
+  AI_SEARCH_RUN: 'ai:search:run',
+
   // AI — stream push (main -> render, webContents.send)
   AI_STREAM_CHUNK: 'ai:stream:chunk',
   AI_STREAM_DONE: 'ai:stream:done',

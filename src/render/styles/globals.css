@@ -2485,6 +2485,19 @@ span.comment-marker {
 }
 
 /* ============================================ */
+/* Rewrite Detail Modal（Module 9：多文件修订详情面板） */
+/* ============================================ */
+
+.rewrite-detail-modal {
+  width: 800px;
+  height: 600px;
+  max-width: 90vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ============================================ */
 /* R1：图片选中框 + 四角缩放手柄（globals.css 追加段，勿改既有规则） */
 /* ============================================ */
 

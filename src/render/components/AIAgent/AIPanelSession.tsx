@@ -7,11 +7,10 @@
 // 底部共享 AIPanelComposer。
 // 无 dangerouslySetInnerHTML、无 any。
 
-import React, { useState } from 'react';
+import React from 'react';
 import { useI18n } from '@render/i18n';
 import { useAgentStore } from '@render/stores/agentStore';
 import AgentTab from './AgentTab';
-import KnowledgeBaseSettings from './KnowledgeBaseSettings';
 import AIPanelComposer from './AIPanelComposer';
 
 interface AIPanelSessionProps {
@@ -28,10 +27,6 @@ const AIPanelSession: React.FC<AIPanelSessionProps> = ({ draft, setDraft, onClos
   const activeMode = useAgentStore((s) => s.activeMode);
   const conversations = useAgentStore((s) => s.conversations);
   const activeConversationId = useAgentStore((s) => s.activeConversationId);
-  const useKnowledgeBase = useAgentStore((s) => s.useKnowledgeBase);
-  const setUseKnowledgeBase = useAgentStore((s) => s.setUseKnowledgeBase);
-
-  const [showKbSettings, setShowKbSettings] = useState(false);
 
   const isAgentMode = activeMode === 'agent';
   const title =
@@ -58,32 +53,6 @@ const AIPanelSession: React.FC<AIPanelSessionProps> = ({ draft, setDraft, onClos
           ✕
         </button>
       </div>
-
-      {/* agent 模式：知识库导入（R15）+ 归属控件；chat 模式不显示 */}
-      {isAgentMode && (
-        <div className="px-3 pt-2 pb-1 border-b border-border space-y-1.5">
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-1.5 text-[13px] text-text-sub cursor-pointer">
-              <input
-                type="checkbox"
-                checked={useKnowledgeBase}
-                onChange={(e) => setUseKnowledgeBase(e.target.checked)}
-                className="accent-[var(--accent)]"
-              />
-              {t('ai.agent.useKnowledgeBase')}
-            </label>
-            <button
-              type="button"
-              onClick={() => setShowKbSettings((prev) => !prev)}
-              className="ml-auto text-[13px] px-2 py-1 rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
-            >
-              {t('ai.agent.kbSettings')}
-            </button>
-          </div>
-          {/* agent 模式显示知识库设置（R15，原样复用） */}
-          {showKbSettings && <KnowledgeBaseSettings />}
-        </div>
-      )}
 
       {/* 消息流（精瘦 body，含 RewritePreviewCard / ToolCallTrace / IntentCard / AIMessageBubble / 流式） */}
       <AgentTab />

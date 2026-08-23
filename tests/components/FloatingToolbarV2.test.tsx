@@ -665,6 +665,7 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
         t === '橡皮擦' ||
         t === 'AI 改写'
     );
+    // Phase 1: AI 改写按钮已删除
     expect(fmtButtons).toEqual([
       '加粗',
       '斜体',
@@ -675,12 +676,11 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
       '链接',
       '图片',
       '数学公式',
-      'AI 改写',
       '橡皮擦',
     ]);
 
     const dividers = toolbar?.querySelectorAll('.ft-divider');
-    expect(dividers?.length).toBe(4);
+    expect(dividers?.length).toBe(3);
   });
 
   it('TB2: 下划线 / 数学按钮点击 → onFormat(blockId, underline|math, s, e)', async () => {
@@ -921,7 +921,7 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
     expect(container.querySelector('.floating-toolbar-v2')).toBeNull();
   });
 
-  it('TB8: A2 混合语法类型跨块选区 → 显示工具栏，仅「AI 改写」+ 无行内格式按钮/块类型下拉', async () => {
+  it('TB8: A2 混合语法类型跨块选区 → Phase 1 已删除 AI 改写，混合选区工具栏容器存在但无按钮', async () => {
     let tree = createDocumentTree();
     const h1 = makeHeading(tree, 1, 'a');
     tree = appendChild(tree, tree.root.id, h1);
@@ -969,15 +969,12 @@ describe('FloatingToolbar — FT2 按钮分组与新功能（TB1~TB8）', () => 
       />
     );
     await fireSelectionChange();
-    // 混合类型 → 工具栏不再隐藏（A2）
+    // Phase 1: AI 改写已删除，混合选区无可用按钮 → 工具栏容器存在但无按钮
     const toolbar = container.querySelector('.floating-toolbar-v2');
     expect(toolbar).not.toBeNull();
-    // 仅「AI 改写」保留；行内格式按钮（加粗/链接等）与块类型下拉隐藏
-    expect(toolbar?.querySelector('button[title="AI 改写"]')).not.toBeNull();
     expect(toolbar?.querySelector('button[title="加粗"]')).toBeNull();
     expect(toolbar?.querySelector('button[title="链接"]')).toBeNull();
     expect(toolbar?.querySelector('.block-type-trigger')).toBeNull();
-    // 混合标记已置位
     expect(container.querySelector('.floating-toolbar-v2[data-mixed="true"]')).not.toBeNull();
     vi.restoreAllMocks();
   });

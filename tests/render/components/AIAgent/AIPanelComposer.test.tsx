@@ -185,7 +185,7 @@ describe('AIPanelComposer（handleSendAgent 分流）', () => {
     expect(sendAgentMessage).toHaveBeenCalledWith('普通对话');
   });
 
-  it('chat 模式：无 `/` `@` 自动补全菜单（输入 / 不弹技能菜单）', async () => {
+  it('agent 模式输入 `/` → 弹出技能补全菜单（chat 模式已移除）', async () => {
     (window.weaveMD as unknown as { ai: Record<string, unknown> }).ai.listSkills = vi
       .fn()
       .mockResolvedValue({
@@ -196,7 +196,9 @@ describe('AIPanelComposer（handleSendAgent 分流）', () => {
     render(<ControlledComposer />);
     const ta = screen.getByPlaceholderText('输入你的问题...');
     fireEvent.change(ta, { target: { value: '/' } });
-    expect(screen.queryByTestId('completion-menu')).toBeNull();
+    // agent 模式下 "/" 应弹出补全菜单
+    expect(await screen.findByText('运行技能')).toBeInTheDocument();
+    expect(screen.getByText('polish_rewrite')).toBeInTheDocument();
   });
 
   it('agent 模式输入 `/` → 弹出技能补全菜单', async () => {

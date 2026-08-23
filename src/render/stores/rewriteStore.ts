@@ -32,11 +32,21 @@ interface SelectionContext {
   sel: SelectionRef;
 }
 
+/** 多文件修订提案中的单个文件条目。 */
+export interface RewriteFileProposal {
+  fileName: string;
+  originalMd: string;
+  rewrittenMd: string;
+  status: 'pending' | 'applied' | 'discarded';
+}
+
 interface RewriteStore {
   /** 已选文本上下文（startSelectionRewrite 记录），供 runSelectionRewrite 消费。 */
   selectionContext: SelectionContext | null;
   /** 待确认的改写提案（确认前绝不写盘）。 */
   pendingRewrite: RewriteProposal | null;
+  /** 多文件修订提案（Module 9）。与 pendingRewrite 互斥。 */
+  pendingMultiRewrite: RewriteFileProposal[] | null;
   /** 改写请求进行中。 */
   rewriting: boolean;
   /** 改写失败（网络/consent_required/locateFailed 等）。 */
@@ -58,6 +68,14 @@ interface RewriteStore {
   previewDocumentFromReply: (replyText: string) => void;
   /** 确认应用：唯一写入点。校验 content===originalMd，一致则写入并入 undo 栈。 */
   applyRewrite: () => void;
+  /** 应用指定文件的改写（多文件模式）。 */
+  applyFileRewrite: (fileName: string) => void;
+  /** 废弃指定文件的改写（多文件模式）。 */
+  discardFileRewrite: (fileName: string) => void;
+  /** 应用全部文件的改写（多文件模式）。 */
+  applyAllRewrites: () => void;
+  /** 废弃全部文件的改写（多文件模式）。 */
+  discardAllRewrites: () => void;
   /** 取消/复位：重置全部改写状态。 */
   clearRewrite: () => void;
   /** 用户手动关闭改写结果卡片（确认/取消后）。 */
@@ -69,6 +87,7 @@ interface RewriteStore {
 const INITIAL = {
   selectionContext: null as SelectionContext | null,
   pendingRewrite: null as RewriteProposal | null,
+  pendingMultiRewrite: null as RewriteFileProposal[] | null,
   rewriting: false,
   rewriteError: null as string | null,
   staleRejected: false,
@@ -251,14 +270,66 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
     set({ rewriteResult: 'applied' });
   },
 
+  applyFileRewrite(fileName) {
+    const { pendingMultiRewrite } = get();
+    if (!pendingMultiRewrite) return;
+    const next = pendingMultiRewrite.map((f) =>
+      f.fileName === fileName && f.status === 'pending' ? { ...f, status: 'applied' as const } : f
+    );
+    // 实际写入：当前文件的改写应用到编辑器
+    const file = pendingMultiRewrite.find((f) => f.fileName === fileName);
+    if (file && file.status === 'pending') {
+      const currentContent = useEditorStore.getState().content;
+      if (currentContent === file.originalMd) {
+        useEditorStore.getState().updateContent(file.rewrittenMd);
+      }
+    }
+    set({ pendingMultiRewrite: next });
+  },
+
+  discardFileRewrite(fileName) {
+    const { pendingMultiRewrite } = get();
+    if (!pendingMultiRewrite) return;
+    const next = pendingMultiRewrite.map((f) =>
+      f.fileName === fileName && f.status === 'pending' ? { ...f, status: 'discarded' as const } : f
+    );
+    set({ pendingMultiRewrite: next });
+  },
+
+  applyAllRewrites() {
+    const { pendingMultiRewrite } = get();
+    if (!pendingMultiRewrite) return;
+    const next = pendingMultiRewrite.map((f) =>
+      f.status === 'pending' ? { ...f, status: 'applied' as const } : f
+    );
+    // 应用第一个 pending 文件到编辑器（单文件模式兼容）
+    const firstPending = pendingMultiRewrite.find((f) => f.status === 'pending');
+    if (firstPending) {
+      const currentContent = useEditorStore.getState().content;
+      if (currentContent === firstPending.originalMd) {
+        useEditorStore.getState().updateContent(firstPending.rewrittenMd);
+      }
+    }
+    set({ pendingMultiRewrite: next });
+  },
+
+  discardAllRewrites() {
+    const { pendingMultiRewrite } = get();
+    if (!pendingMultiRewrite) return;
+    const next = pendingMultiRewrite.map((f) =>
+      f.status === 'pending' ? { ...f, status: 'discarded' as const } : f
+    );
+    set({ pendingMultiRewrite: next });
+  },
+
   clearRewrite() {
     // 保留 pendingRewrite 供卡片展示取消反馈，清除 selectionContext 让编辑器高亮消失
-    set({ rewriteResult: 'cancelled', rewriting: false, rewriteError: null, staleRejected: false, selectionContext: null });
+    set({ rewriteResult: 'cancelled', rewriting: false, rewriteError: null, staleRejected: false, selectionContext: null, pendingMultiRewrite: null });
   },
 
   /** 用户手动关闭改写结果卡片（确认/取消后）。 */
   dismissRewriteResult() {
-    set({ rewriteResult: null, pendingRewrite: null, selectionContext: null });
+    set({ rewriteResult: null, pendingRewrite: null, pendingMultiRewrite: null, selectionContext: null });
   },
 
   dismissRewriteBanner() {

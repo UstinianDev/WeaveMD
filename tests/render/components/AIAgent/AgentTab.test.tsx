@@ -22,6 +22,11 @@ vi.mock('@render/i18n', () => ({
       'ai.intent.create': '创作',
       'ai.intent.create.prompt': '请帮我创作一篇文章',
       'ai.tab.agent': '代理',
+      'ai.msg.copy': '复制',
+      'ai.msg.edit': '编辑',
+      'ai.msg.retry': '重试',
+      'ai.status.thinking': '正在思考...',
+      'ai.status.toolCalling': '正在调用工具...',
     };
     return {
       t: (key: string, fallback?: string) => dict[key] ?? fallback ?? `[${key}]`,
@@ -83,6 +88,8 @@ describe('AgentTab (消息流展示区)', () => {
     intentCard: null,
     useKnowledgeBase: false,
     activeMode: 'agent' as const,
+    processStatus: 'idle' as const,
+    setProcessStatus: vi.fn(),
   };
 
   it('渲染消息列表（assistant 富文本）', () => {

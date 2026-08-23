@@ -1,19 +1,22 @@
 // ============================================
-// WeaveMD — 改写预览卡片（第 5 期批次 4）
+// WeaveMD — 改写预览卡片（第 5 期批次 4 + Module 9 多文件修订）
 // ============================================
 // 读 rewriteStore.pendingRewrite，展示行级红删绿增 diff（diffLines）+ 改写后整段
 // renderAIMarkdownSafe 安全富文本；确认 → applyRewrite（唯一写入点，入 undo 栈），
 // 取消 → clearRewrite。各状态提示：rewriting / staleRejected / no-change / locate-failed / failure。
+// Module 9：多文件修订汇总卡片 + RewriteDetailModal 详情面板。
 // 无 dangerouslySetInnerHTML（复用 aiMarkdown 白名单渲染）。
 
 import React, { useState } from 'react';
 import { useI18n } from '@render/i18n';
 import { useRewriteStore } from '@render/stores/rewriteStore';
 import { diffLines } from '@render/filters/rewriteDiff';
+import RewriteDetailModal from './RewriteDetailModal';
 
 const RewritePreviewCard: React.FC = () => {
   const { t } = useI18n();
   const pendingRewrite = useRewriteStore((s) => s.pendingRewrite);
+  const pendingMultiRewrite = useRewriteStore((s) => s.pendingMultiRewrite);
   const rewriting = useRewriteStore((s) => s.rewriting);
   const rewriteError = useRewriteStore((s) => s.rewriteError);
   const staleRejected = useRewriteStore((s) => s.staleRejected);
@@ -22,9 +25,15 @@ const RewritePreviewCard: React.FC = () => {
   const clearRewrite = useRewriteStore((s) => s.clearRewrite);
   const dismissRewriteBanner = useRewriteStore((s) => s.dismissRewriteBanner);
   const dismissRewriteResult = useRewriteStore((s) => s.dismissRewriteResult);
+  const applyFileRewrite = useRewriteStore((s) => s.applyFileRewrite);
+  const discardFileRewrite = useRewriteStore((s) => s.discardFileRewrite);
+  const applyAllRewrites = useRewriteStore((s) => s.applyAllRewrites);
+  const discardAllRewrites = useRewriteStore((s) => s.discardAllRewrites);
 
   // R7: diff 折叠状态（默认展开）
   const [diffExpanded, setDiffExpanded] = useState(true);
+  // Module 9: 详情面板开关
+  const [showDetailModal, setShowDetailModal] = useState(false);
 
   // 改写进行中
   if (rewriting) {
@@ -53,7 +62,7 @@ const RewritePreviewCard: React.FC = () => {
   );
 
   // 无提案时：错误 / 无变化 / 无法定位提示（短暂状态条）
-  if (!pendingRewrite) {
+  if (!pendingRewrite && !pendingMultiRewrite) {
     if (staleRejected) {
       return banner(
         t('ai.rewrite.staleRejected'),
@@ -85,7 +94,108 @@ const RewritePreviewCard: React.FC = () => {
     return null;
   }
 
-  // 有提案：预览卡片（stale 时也在卡内显示拒绝提示）
+  // ── Module 9：多文件修订汇总卡片 ──
+  if (pendingMultiRewrite && pendingMultiRewrite.length > 1) {
+    const totalCount = pendingMultiRewrite.length;
+    const appliedCount = pendingMultiRewrite.filter((f) => f.status === 'applied').length;
+    const discardedCount = pendingMultiRewrite.filter((f) => f.status === 'discarded').length;
+    const pendingCount = totalCount - appliedCount - discardedCount;
+
+    const isResultState = rewriteResult !== null;
+
+    return (
+      <>
+        <div className="mx-3 my-1 rounded-card border border-border bg-bg-tertiary/60 overflow-hidden shadow-sm">
+          {/* 结果态反馈横幅 */}
+          {rewriteResult === 'applied' && (
+            <div className="px-3 py-2 text-[13px] text-green-600 bg-green-500/10 border-b border-green-500/20 flex items-center gap-2">
+              ✓ {t('ai.rewrite.applied')}
+            </div>
+          )}
+          {rewriteResult === 'cancelled' && (
+            <div className="px-3 py-2 text-[13px] text-text-muted bg-bg-primary/40 border-b border-border flex items-center gap-2">
+              {t('ai.rewrite.cancelled')}
+            </div>
+          )}
+
+          {/* header：汇总信息 + 操作按钮 */}
+          <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+            <span className="text-[13px] font-medium text-text-primary">
+              {t('ai.rewrite.multiSummary', '{count} 个文件修订').replace('{count}', String(totalCount))}
+              {appliedCount > 0 && (
+                <span className="ml-2 text-green-600">
+                  {t('ai.rewrite.multiApplied', '已应用 {n}').replace('{n}', String(appliedCount))}
+                </span>
+              )}
+              {discardedCount > 0 && (
+                <span className="ml-2 text-gray-500">
+                  {t('ai.rewrite.multiDiscarded', '已废弃 {n}').replace('{n}', String(discardedCount))}
+                </span>
+              )}
+              {pendingCount > 0 && (
+                <span className="ml-2 text-text-muted">
+                  {t('ai.rewrite.multiPending', '待处理 {n}').replace('{n}', String(pendingCount))}
+                </span>
+              )}
+            </span>
+            <div className="flex items-center gap-1.5">
+              {isResultState ? (
+                <button
+                  type="button"
+                  onClick={() => dismissRewriteResult()}
+                  className="text-[13px] px-2.5 py-1 rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
+                >
+                  {t('ai.rewrite.dismiss', '关闭')}
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowDetailModal(true)}
+                    className="text-[13px] px-2 py-1 rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary transition-colors"
+                  >
+                    {t('ai.rewrite.viewDetails', '查看详情')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => discardAllRewrites()}
+                    disabled={pendingCount === 0}
+                    className="text-[13px] px-2 py-1 rounded-input bg-bg-tertiary text-text-sub hover:bg-bg-quaternary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {t('ai.rewrite.discardAll', '全部废弃')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyAllRewrites()}
+                    disabled={pendingCount === 0}
+                    className="text-[13px] px-2.5 py-1 rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+                  >
+                    {t('ai.rewrite.applyAll', '全部应用')}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* 详情面板 */}
+        {showDetailModal && (
+          <RewriteDetailModal
+            files={pendingMultiRewrite}
+            onClose={() => setShowDetailModal(false)}
+            onApply={(fn) => applyFileRewrite(fn)}
+            onDiscard={(fn) => discardFileRewrite(fn)}
+            onApplyAll={() => applyAllRewrites()}
+            onDiscardAll={() => discardAllRewrites()}
+          />
+        )}
+      </>
+    );
+  }
+
+  // ── 单文件改写预览（向下兼容） ──
+  if (!pendingRewrite) return null;
+
   const { originalMd, rewrittenMd } = pendingRewrite;
   const lines = diffLines(originalMd, rewrittenMd);
 

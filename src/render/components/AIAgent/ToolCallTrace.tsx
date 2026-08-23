@@ -11,6 +11,8 @@ import { useI18n } from '@render/i18n';
 
 interface ToolCallTraceProps {
   call: IAgentToolCall;
+  /** 工具调用耗时（毫秒），可选 */
+  duration?: number;
 }
 
 const ARGS_PREVIEW_LIMIT = 120;
@@ -34,7 +36,13 @@ function summarizeArgs(args: string): string {
   }
 }
 
-const ToolCallTrace: React.FC<ToolCallTraceProps> = ({ call }) => {
+/** 格式化工具耗时：≥1s 显示秒，<1s 显示毫秒。 */
+function formatDuration(ms: number): string {
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${ms}ms`;
+}
+
+const ToolCallTrace: React.FC<ToolCallTraceProps> = ({ call, duration }) => {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
 
@@ -53,6 +61,11 @@ const ToolCallTrace: React.FC<ToolCallTraceProps> = ({ call }) => {
         <div className="flex items-center gap-2 min-w-0">
           <span className="font-mono text-[13px] font-medium text-text-primary truncate">
             {call.name}
+            {duration !== undefined && duration > 0 && (
+              <span className="ml-1.5 font-normal text-text-sub">
+                · {formatDuration(duration)}
+              </span>
+            )}
           </span>
           <span
             className={`flex-shrink-0 text-[12px] px-1.5 py-0.5 rounded-full border ${
