@@ -6,7 +6,6 @@
 // 后端恒 remote：GET {remoteBaseUrl}/models（Bearer key）→ data[].id。
 // SECURITY：remote 后端用 decryptApiKey 解出明文 key 仅存在于主进程内存，绝不落渲染进程响应。
 
-import type { AiConfigRow } from '../db/ai';
 import { decryptApiKey } from './secureConfig';
 
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -30,15 +29,21 @@ export function normalizeModels(json: unknown): string[] {
  * remote → GET {remoteBaseUrl}/models（Bearer key）→ data[].id。
  * 无 key 直接空（不发网）。失败/非 200/半包 → []（静默，不抛不阻断）。config 行缺失返回 []。
  * 返回值仅模型名字符串，绝不含 API key。
+ *
+ * 参数接受部分 AiConfigRow（仅需 remoteBaseUrl + apiKeyEnc），兼容 active_model_config 路径。
  */
-export async function listModelsForUser(configOrNull: AiConfigRow | null): Promise<string[]> {
+export async function listModelsForUser(
+  configOrNull: { remoteBaseUrl: string; apiKeyEnc: string | null } | null
+): Promise<string[]> {
   if (!configOrNull) return [];
 
   // remote：需 key；无 key 直接空（不发网）。key 明文只在主进程内存。
   if (!configOrNull.apiKeyEnc) return [];
   const apiKey = decryptApiKey(configOrNull.apiKeyEnc);
   if (!apiKey) return [];
-  const json = await safeGetJson(`${configOrNull.remoteBaseUrl}/models`, {
+  // 规范化 baseUrl：去除尾部 /v1 和 /，避免双重 /v1/v1/
+  const normalizedBase = configOrNull.remoteBaseUrl.replace(/\/+$/, '').replace(/\/v1$/, '');
+  const json = await safeGetJson(`${normalizedBase}/v1/models`, {
     Authorization: `Bearer ${apiKey}`,
   });
   return normalizeModels(json);

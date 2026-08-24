@@ -18,6 +18,9 @@ import type {
   IAIConfig,
   IAIConsent,
   IAIConversation,
+  IAIModelConfig,
+  IEmbeddingConfig,
+  ISearchConfig,
   IKbDocumentStatus,
   IKbImportResult,
   IKbSettings,
@@ -25,6 +28,7 @@ import type {
   KbDeleteResult,
   KbImportDirRequest,
   KbStatusResponse,
+  ModelProtocol,
   RewriteReply,
   RewriteRequestPayload,
   SearchProvider,
@@ -139,7 +143,7 @@ export interface WeaveMDApi {
     listModels: (userId: string) => Promise<IpcResponse<string[]>>;
     onStream: (cb: (evt: AIStreamEvent | IAgentStreamToolEvent) => void) => () => void;
     embedding: {
-      test: (payload: { baseUrl: string; model: string; apiKey: string }) => Promise<IpcResponse<{ message: string }>>;
+      test: (payload: { baseUrl: string; model: string; apiKey: string; userId?: string }) => Promise<IpcResponse<{ message: string }>>;
       create: (payload: {
         baseUrl: string;
         model: string;
@@ -149,13 +153,55 @@ export interface WeaveMDApi {
       }) => Promise<IpcResponse<{ embeddings: number[][]; model: string; usage: { promptTokens: number } }>>;
     };
     search: {
-      test: (payload: { provider: string; apiKey: string }) => Promise<IpcResponse<{ message: string }>>;
+      test: (payload: { provider: string; apiKey: string; userId?: string }) => Promise<IpcResponse<{ message: string }>>;
       run: (payload: {
         provider: string;
         apiKey: string;
         query: string;
         maxResults?: number;
       }) => Promise<IpcResponse<{ results: Array<{ title: string; url: string; snippet: string }>; provider: SearchProvider }>>;
+    };
+    modelConfigs: {
+      list: (userId: string) => Promise<IpcResponse<IAIModelConfig[]>>;
+      create: (userId: string, config: {
+        name?: string;
+        protocol: ModelProtocol;
+        provider: string;
+        baseUrl: string;
+        model: string;
+        apiKey?: string;
+        hint?: string;
+      }) => Promise<IpcResponse<IAIModelConfig>>;
+      update: (id: string, config: {
+        name?: string;
+        protocol?: ModelProtocol;
+        provider?: string;
+        baseUrl?: string;
+        model?: string;
+        apiKey?: string;
+        hint?: string;
+      }) => Promise<IpcResponse<IAIModelConfig>>;
+      delete: (id: string) => Promise<IpcResponse<{ deleted: boolean }>>;
+      activate: (userId: string, configId: string) => Promise<IpcResponse<IAIConfig>>;
+    };
+    embeddingConfig: {
+      get: (userId: string) => Promise<IpcResponse<IEmbeddingConfig>>;
+      set: (userId: string, config: {
+        baseUrl?: string;
+        model?: string;
+        apiKey?: string;
+        multimodal?: boolean;
+      }) => Promise<IpcResponse<IEmbeddingConfig>>;
+    };
+    searchConfig: {
+      get: (userId: string) => Promise<IpcResponse<ISearchConfig>>;
+      set: (userId: string, config: {
+        enabled?: boolean;
+        provider?: SearchProvider;
+        callMode?: string;
+        maxResults?: number;
+        apiKeys?: Partial<Record<SearchProvider, string>>;
+      }) => Promise<IpcResponse<ISearchConfig>>;
     };
   };
   kb: {
@@ -356,6 +402,30 @@ const api: WeaveMDApi = {
         ipcRenderer.invoke(IPC_CHANNELS.AI_SEARCH_TEST, payload),
       run: (payload) =>
         ipcRenderer.invoke(IPC_CHANNELS.AI_SEARCH_RUN, payload),
+    },
+    modelConfigs: {
+      list: (userId) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_MODEL_CONFIGS_LIST, userId),
+      create: (userId, config) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_MODEL_CONFIGS_CREATE, { userId, config }),
+      update: (id, config) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_MODEL_CONFIGS_UPDATE, { id, config }),
+      delete: (id) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_MODEL_CONFIGS_DELETE, id),
+      activate: (userId, configId) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_MODEL_CONFIGS_ACTIVATE, { userId, configId }),
+    },
+    embeddingConfig: {
+      get: (userId) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_EMBEDDING_GET_CONFIG, userId),
+      set: (userId, config) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_EMBEDDING_SET_CONFIG, { userId, config }),
+    },
+    searchConfig: {
+      get: (userId) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_SEARCH_GET_CONFIG, userId),
+      set: (userId, config) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_SEARCH_SET_CONFIG, { userId, config }),
     },
   },
   kb: {

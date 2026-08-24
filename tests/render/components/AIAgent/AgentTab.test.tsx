@@ -27,6 +27,16 @@ vi.mock('@render/i18n', () => ({
       'ai.msg.retry': '重试',
       'ai.status.thinking': '正在思考...',
       'ai.status.toolCalling': '正在调用工具...',
+      'ai.step.round': '第 {n} 轮',
+      'ai.step.toolCount': '个工具',
+      'ai.step.viewThinking': '查看本轮思考文本',
+      'ai.tool.name.searchKB': '知识库检索',
+      'ai.tool.name.editBlocks': '编辑文档',
+      'ai.tool.name.listFiles': '列出文件',
+      'ai.tool.name.readFile': '读取文件',
+      'ai.tool.name.runSkill': '运行技能',
+      'ai.tool.collapse': '收起',
+      'ai.tool.expand': '展开',
     };
     return {
       t: (key: string, fallback?: string) => dict[key] ?? fallback ?? `[${key}]`,
@@ -104,7 +114,8 @@ describe('AgentTab (消息流展示区)', () => {
   it('渲染工具轨迹 toolCalls', () => {
     useAgentStore.setState({ ...defaultState, toolCalls: [toolCall] });
     render(<AgentTab />);
-    expect(screen.getByText('searchKB')).toBeInTheDocument();
+    // AgentStepTimeline 按轮次分组展示，工具名显示为本地化标签
+    expect(screen.getByText('知识库检索')).toBeInTheDocument();
   });
 
   it('渲染意图候选卡片并点击重发', () => {

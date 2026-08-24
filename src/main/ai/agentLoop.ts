@@ -309,6 +309,9 @@ export async function runAgentFlow(
           function: { name: tc.name, arguments: tc.arguments },
         })),
       });
+      // 提取 thinking 文本（<thinking>...</thinking> 标签内容）
+      const thinkingMatch = assistantContent.match(/<thinking>([\s\S]*?)<\/thinking>/i);
+      const thinkingText = thinkingMatch ? thinkingMatch[1].trim() : undefined;
       for (const tc of accumulatedToolCalls) {
         const toolCallId = `call_${round}_${tc.index}`;
         let result;
@@ -329,6 +332,8 @@ export async function runAgentFlow(
           ...(result.status === 'ok'
             ? { result: result.content }
             : { errorDesc: result.errorDesc }),
+          ...(thinkingText ? { thinking: thinkingText } : {}),
+          loopIndex: round,
         };
         send(IPC_CHANNELS.AI_STREAM_TOOL, { conversationId: convId, ...toolEvent });
 

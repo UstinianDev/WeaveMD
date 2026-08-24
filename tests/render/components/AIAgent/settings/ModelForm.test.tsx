@@ -1,12 +1,11 @@
 // ============================================
-// WeaveMD — ModelForm 测试（M3：自 SettingsModal ai Tab 迁入）
-// 覆盖：加载 config/consent；保存恒 backend:'remote'；④断开连接清 key；
-// 不渲染 ollama/embedding 控件；不落明文 key 到渲染进程（load 只读 hasApiKey 布尔）。
-// KB 检索参数已移除（迁入统一设置面板）。
+// WeaveMD — ModelForm 测试（Phase 5：双视图模型配置）
+// 覆盖：视图 A 配置列表渲染/激活/删除；视图 B 新建配置表单提交。
+// 无 dangerouslySetInnerHTML、无 any。
 // ============================================
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { IAIConsent } from '@shared/ai';
+import type { IAIModelConfig } from '@shared/ai';
 import ModelForm from '@render/components/AIAgent/settings/ModelForm';
 import { useAuthStore } from '@render/stores/authStore';
 import { useAgentStore } from '@render/stores/agentStore';
@@ -14,21 +13,20 @@ import { useAgentStore } from '@render/stores/agentStore';
 vi.mock('@render/i18n', () => ({
   useI18n: () => {
     const dict: Record<string, string> = {
-      'ai.settings.backend': '后端',
-      'ai.settings.backend.remote': '远程 API',
-      'ai.settings.remoteBaseUrl': '远程 API 地址',
-      'ai.settings.model': '模型 ID',
-      'ai.settings.apiKey': 'API 密钥',
-      'ai.settings.apiKeySet': '已设置（隐藏）',
-      'ai.settings.allowNetwork': '允许联网',
-      'ai.settings.allowSend': '允许将笔记发送给 AI',
-      'ai.settings.provider.connected': '已连接：远程 API',
-      'ai.settings.provider.disconnected': '未配置 API key，AI 不可用',
-      'ai.settings.disconnect': '断开连接',
-      'ai.settings.reconnect': '重新连接',
-      'settings.save': '保存',
-      'ai.security.weakKeyring': '密钥加密降级',
-      'ai.settings.kb.title': '知识库检索（Agent）',
+      'ai.settings.modelConfigs.title': 'AI 模型配置',
+      'ai.settings.modelConfigs.new': '+ 新建配置',
+      'ai.settings.modelConfigs.empty': '暂无配置，点击上方按钮新建',
+      'ai.settings.modelConfigs.protocol': '兼容协议',
+      'ai.settings.modelConfigs.provider': '提供商',
+      'ai.settings.modelConfigs.baseUrl': 'Base URL',
+      'ai.settings.modelConfigs.model': '模型名称',
+      'ai.settings.modelConfigs.apiKey': 'API Key',
+      'ai.settings.modelConfigs.hint': '提供商会根据 Base URL 和模型名自动识别',
+      'ai.settings.modelConfigs.add': '添加配置',
+      'ai.settings.modelConfigs.cancel': '取消',
+      'ai.settings.modelConfigs.activate': '激活',
+      'ai.settings.modelConfigs.active': '当前',
+      'ai.settings.modelConfigs.delete': '删除',
     };
     return {
       t: (key: string, fallback?: string) => dict[key] ?? fallback ?? `[${key}]`,
@@ -39,29 +37,30 @@ vi.mock('@render/i18n', () => ({
 
 const MOCK_USER = { id: 'u1', username: 'tester', createdAt: '', lastLogin: null };
 
-/** setup.ts 的 window.weaveMD.ai 以 vi.fn 实现；类型层面 cast 为可 mock 形态。 */
-type MockFn = ReturnType<typeof vi.fn>;
-const aiMock = () => window.weaveMD.ai as unknown as Record<keyof typeof window.weaveMD.ai, MockFn>;
+const MOCK_CONFIGS: IAIModelConfig[] = [
+  {
+    id: 'cfg-1',
+    name: 'OpenAI - gpt-4o',
+    protocol: 'openai',
+    provider: 'OpenAI',
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'gpt-4o',
+    hasApiKey: true,
+    hint: '',
+  },
+  {
+    id: 'cfg-2',
+    name: 'Anthropic - claude-sonnet-4-20250514',
+    protocol: 'anthropic',
+    provider: 'Anthropic',
+    baseUrl: 'https://api.anthropic.com',
+    model: 'claude-sonnet-4-20250514',
+    hasApiKey: false,
+    hint: '',
+  },
+];
 
-/** M2 收敛后的 IAIConfig：仅 remote 后端，无 ollamaBaseUrl。 */
-function loadAiMock(overrides: { hasApiKey?: boolean; remoteBaseUrl?: string } = {}) {
-  const ai = aiMock();
-  ai.getConfig.mockResolvedValue({
-    success: true,
-    data: {
-      backend: 'remote',
-      remoteBaseUrl: overrides.remoteBaseUrl ?? 'https://api.deepseek.com',
-      model: 'deepseek-chat',
-      hasApiKey: overrides.hasApiKey ?? true,
-    },
-  });
-  ai.getConsent.mockResolvedValue({
-    success: true,
-    data: { allowNetwork: false, allowSend: false, consentUpdatedAt: null } satisfies IAIConsent,
-  });
-}
-
-describe('ModelForm (AI 配置，迁自 SettingsModal ai Tab)', () => {
+describe('ModelForm (Phase 5: 双视图模型配置)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAuthStore.setState({
@@ -73,100 +72,110 @@ describe('ModelForm (AI 配置，迁自 SettingsModal ai Tab)', () => {
     useAgentStore.setState({
       config: {
         backend: 'remote',
-        remoteBaseUrl: 'https://api.deepseek.com',
-        model: 'deepseek-chat',
+        remoteBaseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
         hasApiKey: true,
+        activeModelConfigId: 'cfg-1',
       },
-      kbSettings: {
-        topK: 5,
-        fuse: 0.5,
-        threshold: 0.6,
-        pinnedWeight: 1.5,
-      },
-      kbSettingsSaveState: 'idle',
+      modelConfigs: MOCK_CONFIGS,
+      activeModelConfigId: 'cfg-1',
     });
-    const ai = aiMock();
-    ai.setConfig.mockResolvedValue({
+    // mock modelConfigs IPC
+    const ai = window.weaveMD.ai as unknown as Record<string, unknown>;
+    (ai.modelConfigs as Record<string, ReturnType<typeof vi.fn>>).list = vi
+      .fn()
+      .mockResolvedValue({ success: true, data: MOCK_CONFIGS });
+    (ai.modelConfigs as Record<string, ReturnType<typeof vi.fn>>).activate = vi
+      .fn()
+      .mockResolvedValue({
+        success: true,
+        data: { backend: 'remote', remoteBaseUrl: '', model: 'gpt-4o', hasApiKey: true },
+      });
+    (ai.modelConfigs as Record<string, ReturnType<typeof vi.fn>>).delete = vi
+      .fn()
+      .mockResolvedValue({ success: true, data: { deleted: true } });
+    (ai.modelConfigs as Record<string, ReturnType<typeof vi.fn>>).create = vi
+      .fn()
+      .mockResolvedValue({ success: true, data: MOCK_CONFIGS[0] });
+    ai.getConfig = vi.fn().mockResolvedValue({
       success: true,
-      data: {
-        backend: 'remote',
-        remoteBaseUrl: 'https://api.deepseek.com',
-        model: 'deepseek-chat',
-        hasApiKey: false,
-      },
+      data: { backend: 'remote', remoteBaseUrl: '', model: 'gpt-4o', hasApiKey: true },
     });
-    ai.setConsent.mockResolvedValue({ success: true, data: {} });
   });
 
   afterEach(() => {
     cleanup();
   });
 
-  it('加载 config 与 consent 并渲染表单字段（无 Ollama/Embedding 控件）', async () => {
-    loadAiMock();
+  it('视图 A：渲染配置列表，当前激活项高亮显示「当前」', () => {
     render(<ModelForm />);
-    await waitFor(() => {
-      expect(aiMock().getConfig).toHaveBeenCalledWith(MOCK_USER.id);
-      expect(aiMock().getConsent).toHaveBeenCalledWith(MOCK_USER.id);
-    });
-    // 保留：remote 地址 / 模型 / 提供商状态区
-    expect(screen.getByText('远程 API 地址')).toBeInTheDocument();
-    // 已移除：KB 检索参数 / Ollama 后端选择 / Ollama 地址 / Embedding 地址与模型
-    expect(screen.queryByText('知识库检索（Agent）')).not.toBeInTheDocument();
-    expect(screen.queryByText('Ollama（本地）')).not.toBeInTheDocument();
-    expect(screen.queryByText('Ollama 地址')).not.toBeInTheDocument();
-    expect(screen.queryByText('Embedding 服务地址')).not.toBeInTheDocument();
-    expect(screen.queryByText('Embedding 模型 ID')).not.toBeInTheDocument();
+    expect(screen.getByText('AI 模型配置')).toBeInTheDocument();
+    expect(screen.getByText('+ 新建配置')).toBeInTheDocument();
+    // 激活项显示「当前」
+    expect(screen.getByText('当前')).toBeInTheDocument();
+    // 两项均渲染
+    expect(screen.getByText(/gpt-4o/)).toBeInTheDocument();
+    expect(screen.getByText(/claude-sonnet-4-20250514/)).toBeInTheDocument();
   });
 
-  it('④ 断开连接：mock hasApiKey=true → 点「断开连接」→ setConfig({apiKey:""}) → 状态行变「未配置」', async () => {
-    loadAiMock({ hasApiKey: true });
+  it('视图 A：点击激活按钮 → 调用 modelConfigs.activate', async () => {
     render(<ModelForm />);
-    await waitFor(() => expect(aiMock().getConfig).toHaveBeenCalled());
-    // 连接态（hasApiKey=true）：显示「已连接」+ 断开按钮（文案含 host，用 substring 匹配）
-    expect(screen.getByText(/已连接：远程 API/)).toBeInTheDocument();
-    const disconnBtn = screen.getByTestId('provider-disconnect');
-    fireEvent.click(disconnBtn);
-
+    const activateBtn = screen.getByTestId('model-config-activate-cfg-2');
+    fireEvent.click(activateBtn);
     await waitFor(() => {
-      expect(aiMock().setConfig).toHaveBeenCalledWith(MOCK_USER.id, { apiKey: '' });
-      expect(screen.getByText('未配置 API key，AI 不可用')).toBeInTheDocument();
+      expect(
+        (window.weaveMD.ai.modelConfigs.activate as ReturnType<typeof vi.fn>)
+      ).toHaveBeenCalledWith('u1', 'cfg-2');
     });
-    // 断开后不再有断开按钮与连接状态
-    expect(screen.queryByTestId('provider-disconnect')).not.toBeInTheDocument();
-    expect(screen.queryByText(/已连接：远程 API/)).not.toBeInTheDocument();
   });
 
-  it('保存：恒调用 setConfig 传 backend:"remote" + setConsent（apiKey 未填不传，避免误清已存 key）', async () => {
-    loadAiMock();
+  it('视图 A：点击删除按钮 → 调用 modelConfigs.delete', async () => {
     render(<ModelForm />);
-    await waitFor(() => expect(aiMock().getConfig).toHaveBeenCalled());
-
-    fireEvent.click(screen.getByLabelText('允许联网'));
-
-    fireEvent.click(screen.getByText('保存'));
-
-    const ai = aiMock();
+    const deleteBtn = screen.getByTestId('model-config-delete-cfg-2');
+    fireEvent.click(deleteBtn);
     await waitFor(() => {
-      expect(ai.setConfig).toHaveBeenCalled();
-      expect(ai.setConsent).toHaveBeenCalled();
+      expect(
+        (window.weaveMD.ai.modelConfigs.delete as ReturnType<typeof vi.fn>)
+      ).toHaveBeenCalledWith('cfg-2');
     });
+  });
 
-    const cfgArg = ai.setConfig.mock.calls[0][1] as {
-      backend?: string;
-      apiKey?: string;
-    };
-    expect(cfgArg.backend).toBe('remote');
-    // apiKey 未填时不主动传 key（保存不清已存 key，断开由显式按钮触发）
-    expect(cfgArg.apiKey).toBeUndefined();
+  it('视图 A：空态提示', () => {
+    useAgentStore.setState({ modelConfigs: [], activeModelConfigId: null });
+    render(<ModelForm />);
+    expect(screen.getByText('暂无配置，点击上方按钮新建')).toBeInTheDocument();
+  });
 
-    const consentArg = ai.setConsent.mock.calls[0][1] as {
-      allowNetwork: boolean;
-      allowSend: boolean;
-      consentUpdatedAt: string;
-    };
-    expect(consentArg.allowNetwork).toBe(true);
-    expect(consentArg.allowSend).toBe(false);
-    expect(typeof consentArg.consentUpdatedAt).toBe('string');
+  it('视图 B：点击新建 → 显示表单 → 填写并提交', async () => {
+    render(<ModelForm />);
+    fireEvent.click(screen.getByTestId('model-config-new'));
+
+    // 表单字段可见
+    expect(screen.getByText('兼容协议')).toBeInTheDocument();
+    expect(screen.getByText('提供商')).toBeInTheDocument();
+    expect(screen.getByText('Base URL')).toBeInTheDocument();
+    expect(screen.getByText('模型名称')).toBeInTheDocument();
+    expect(screen.getByText('API Key')).toBeInTheDocument();
+
+    // 填写模型名
+    const modelInput = screen.getByPlaceholderText('e.g. gpt-4o / claude-sonnet-4-20250514');
+    fireEvent.change(modelInput, { target: { value: 'gpt-4o-mini' } });
+
+    // 提交
+    fireEvent.click(screen.getByTestId('model-config-add'));
+    await waitFor(() => {
+      expect(
+        (window.weaveMD.ai.modelConfigs.create as ReturnType<typeof vi.fn>)
+      ).toHaveBeenCalled();
+    });
+  });
+
+  it('视图 B：取消返回列表', () => {
+    render(<ModelForm />);
+    fireEvent.click(screen.getByTestId('model-config-new'));
+    expect(screen.getByText('兼容协议')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('model-config-cancel'));
+    expect(screen.getByText('+ 新建配置')).toBeInTheDocument();
   });
 });

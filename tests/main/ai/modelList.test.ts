@@ -101,7 +101,7 @@ describe('modelList.listModelsForUser', () => {
     );
     expect(models).toEqual(['deepseek-chat', 'deepseek-reasoner']);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe('https://remote.example.com/models');
+    expect(url).toBe('https://remote.example.com/v1/models');
     const headers = (init as RequestInit).headers as Record<string, string>;
     expect(headers.Authorization).toBe('Bearer secret-key');
   });

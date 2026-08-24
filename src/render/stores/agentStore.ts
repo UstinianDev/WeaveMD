@@ -11,11 +11,14 @@ import type {
   IAIConfig,
   IAIConsent,
   IAIConversation,
+  IAIModelConfig,
   IAIMessage,
   IAgentToolCall,
+  IEmbeddingConfig,
   IIntent,
   IKbDocumentStatus,
   IKbSettings,
+  ISearchConfig,
   KbStatusResponse,
 } from '@shared/ai';
 import { DEFAULT_KB_SETTINGS, needsConsent } from '@shared/ai';
@@ -76,6 +79,16 @@ interface AgentStore {
   /** KB 参数持久化状态（idle 初始 / saving 写入中 / saved 已保存 / error 保存失败）。 */
   kbSettingsSaveState: 'idle' | 'saving' | 'saved' | 'error';
 
+  // —— AI 设置重构 Phase 4：多模型配置 + Embedding + 搜索 ——
+  /** 多模型配置列表（ai_model_configs 表行映射）。 */
+  modelConfigs: IAIModelConfig[];
+  /** 当前激活的模型配置 ID（对应 IAIConfig.activeModelConfigId）。 */
+  activeModelConfigId: string | null;
+  /** Embedding 模型配置（独立于 AI 模型配置，仅用于知识库索引与检索）。 */
+  embeddingConfig: IEmbeddingConfig | null;
+  /** 搜索引擎配置（设置面板 search tab）。 */
+  searchConfig: ISearchConfig | null;
+
   // —— AI 处理流程状态 ——
   processStatus: AIProcessStatus;
   setProcessStatus: (status: AIProcessStatus) => void;
@@ -114,6 +127,14 @@ interface AgentStore {
   triggerKbImportDir: (folderPath: string) => Promise<void>;
   triggerKbDelete: (fileId: string) => Promise<void>;
   runManualCompress: () => Promise<void>;
+
+  // —— AI 设置重构 Phase 4：刷新配置 action ——
+  /** 刷新模型配置列表。 */
+  refreshModelConfigs: () => Promise<void>;
+  /** 刷新 Embedding 配置。 */
+  refreshEmbeddingConfig: () => Promise<void>;
+  /** 刷新搜索配置。 */
+  refreshSearchConfig: () => Promise<void>;
 }
 
 /** 需要重置的代理字段快照（不含无法序列化/派生字段）。 */
@@ -137,6 +158,10 @@ const RESET_FIELDS: Pick<
   | 'kbDocuments'
   | 'kbSettings'
   | 'kbSettingsSaveState'
+  | 'modelConfigs'
+  | 'activeModelConfigId'
+  | 'embeddingConfig'
+  | 'searchConfig'
   | 'processStatus'
   | 'autoApplyRewrite'
   | 'fileOpProposals'
@@ -159,6 +184,10 @@ const RESET_FIELDS: Pick<
   kbDocuments: [],
   kbSettings: DEFAULT_KB_SETTINGS,
   kbSettingsSaveState: 'idle',
+  modelConfigs: [],
+  activeModelConfigId: null,
+  embeddingConfig: null,
+  searchConfig: null,
   processStatus: 'idle',
   autoApplyRewrite: true,
   fileOpProposals: [],
@@ -209,6 +238,8 @@ function createStreamManager(
           status: evt.status,
           ...(evt.result !== undefined ? { result: evt.result } : {}),
           ...(evt.errorDesc !== undefined ? { errorDesc: evt.errorDesc } : {}),
+          ...(evt.thinking !== undefined ? { thinking: evt.thinking } : {}),
+          ...(evt.loopIndex !== undefined ? { loopIndex: evt.loopIndex } : {}),
         });
         return;
       }
@@ -249,12 +280,24 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   async init(userId: string) {
     const ai = getAi();
-    const [configRes, consentRes, convRes, kbSettingsRes] = await Promise.all([
-      ai.getConfig(userId),
-      ai.getConsent(userId),
-      ai.listConversations(userId, 'agent'),
-      getKb().getSettings(userId),
-    ]);
+    const [configRes, consentRes, convRes, kbSettingsRes, modelConfigsRes, embeddingConfigRes, searchConfigRes] =
+      await Promise.all([
+        ai.getConfig(userId),
+        ai.getConsent(userId),
+        ai.listConversations(userId, 'agent'),
+        getKb().getSettings(userId),
+        // Phase 4 新增：并行加载多模型配置 / Embedding / 搜索配置
+        // 使用可选链安全访问，IPC 未接线时返回 undefined（不阻塞 init）
+        (ai as unknown as Record<string, unknown>).modelConfigs
+          ? (ai as unknown as { modelConfigs: { list: (uid: string) => Promise<{ success: boolean; data?: IAIModelConfig[] }> } }).modelConfigs.list(userId)
+          : Promise.resolve(undefined),
+        (ai as unknown as Record<string, unknown>).embeddingConfig
+          ? (ai as unknown as { embeddingConfig: { get: (uid: string) => Promise<{ success: boolean; data?: IEmbeddingConfig | null }> } }).embeddingConfig.get(userId)
+          : Promise.resolve(undefined),
+        (ai as unknown as Record<string, unknown>).searchConfig
+          ? (ai as unknown as { searchConfig: { get: (uid: string) => Promise<{ success: boolean; data?: ISearchConfig | null }> } }).searchConfig.get(userId)
+          : Promise.resolve(undefined),
+      ]);
 
     const config = configRes.success ? (configRes.data ?? null) : null;
     const consent = consentRes.success ? (consentRes.data ?? null) : null;
@@ -263,6 +306,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     const kbSettings =
       kbSettingsRes.success && kbSettingsRes.data ? kbSettingsRes.data : DEFAULT_KB_SETTINGS;
 
+    // activeModelConfigId 从 config 中读取（IAIConfig 扩展字段）
+    const activeModelConfigId =
+      config && 'activeModelConfigId' in config
+        ? (config as unknown as { activeModelConfigId?: string | null }).activeModelConfigId ?? null
+        : null;
+
     set({
       userId,
       config,
@@ -270,7 +319,19 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       conversations,
       activeMode: 'agent',
       kbSettings,
+      activeModelConfigId,
     });
+
+    // Phase 4 新配置写入（各自独立，任一失败不阻塞其余）
+    if (modelConfigsRes?.success && modelConfigsRes.data) {
+      set({ modelConfigs: modelConfigsRes.data });
+    }
+    if (embeddingConfigRes?.success && embeddingConfigRes.data) {
+      set({ embeddingConfig: embeddingConfigRes.data });
+    }
+    if (searchConfigRes?.success && searchConfigRes.data) {
+      set({ searchConfig: searchConfigRes.data });
+    }
   },
 
   reset: () => {
@@ -383,7 +444,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       onTool: (toolCall) => {
         set((s) => {
           const rest = s.toolCalls.filter((c) => c.toolCallId !== toolCall.toolCallId);
-          return { toolCalls: [...rest, toolCall], processStatus: 'tool_calling' };
+          return {
+            toolCalls: [...rest, toolCall],
+            processStatus: 'tool_calling',
+          };
         });
         // 检测文件操作 proposal（createFile / createFolder 工具返回的 proposal JSON）
         if (toolCall.name === 'createFile' || toolCall.name === 'createFolder') {
@@ -650,6 +714,50 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       .slice(0, 2000);
     if (!recent.trim()) return;
     await getAi().updateConversationSummary(activeConversationId, userId, recent);
+  },
+
+  // —— AI 设置重构 Phase 4：刷新配置 action ——
+
+  async refreshModelConfigs() {
+    const userId = useAuthStore.getState().user?.id;
+    if (!userId) return;
+    try {
+      const ai = getAi();
+      const modelConfigsApi = (ai as unknown as Record<string, unknown>).modelConfigs;
+      if (!modelConfigsApi) return;
+      const res = await (modelConfigsApi as { list: (uid: string) => Promise<{ success: boolean; data?: IAIModelConfig[] }> }).list(userId);
+      if (res?.success && res.data) {
+        set({ modelConfigs: res.data });
+      }
+    } catch { /* 静默 */ }
+  },
+
+  async refreshEmbeddingConfig() {
+    const userId = useAuthStore.getState().user?.id;
+    if (!userId) return;
+    try {
+      const ai = getAi();
+      const embeddingApi = (ai as unknown as Record<string, unknown>).embeddingConfig;
+      if (!embeddingApi) return;
+      const res = await (embeddingApi as { get: (uid: string) => Promise<{ success: boolean; data?: IEmbeddingConfig | null }> }).get(userId);
+      if (res?.success && res.data) {
+        set({ embeddingConfig: res.data });
+      }
+    } catch { /* 静默 */ }
+  },
+
+  async refreshSearchConfig() {
+    const userId = useAuthStore.getState().user?.id;
+    if (!userId) return;
+    try {
+      const ai = getAi();
+      const searchApi = (ai as unknown as Record<string, unknown>).searchConfig;
+      if (!searchApi) return;
+      const res = await (searchApi as { get: (uid: string) => Promise<{ success: boolean; data?: ISearchConfig | null }> }).get(userId);
+      if (res?.success && res.data) {
+        set({ searchConfig: res.data });
+      }
+    } catch { /* 静默 */ }
   },
 }));
 

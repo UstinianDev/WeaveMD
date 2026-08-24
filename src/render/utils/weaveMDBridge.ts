@@ -663,6 +663,21 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
       test: async () => ({ success: false }),
       run: async () => ({ success: false }),
     },
+    modelConfigs: {
+      list: async () => createSuccessResult([]),
+      create: async () => ({ success: false }),
+      update: async () => ({ success: false }),
+      delete: async () => ({ success: false }),
+      activate: async () => ({ success: false }),
+    },
+    embeddingConfig: {
+      get: async () => ({ success: false }),
+      set: async () => ({ success: false }),
+    },
+    searchConfig: {
+      get: async () => ({ success: false }),
+      set: async () => ({ success: false }),
+    },
   },
   kb: {
     list: async () => ({ success: false }),

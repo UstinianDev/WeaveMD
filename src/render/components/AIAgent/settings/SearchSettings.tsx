@@ -1,12 +1,15 @@
 // ============================================
-// WeaveMD — 设置·搜索配置面板（Module 10）
+// WeaveMD — 设置·搜索配置面板（Phase 5 重写）
 // ============================================
-// 总开关 + 服务商 SegmentedTabs + 各服务商独立 API Key + 测试连接。
-// 参考 ModelForm 样式风格。无 dangerouslySetInnerHTML、无 any。
+// 总开关 + 服务商 SegmentedTabs + API Key + 调用模式 + 结果数滑动条 + 测试连接。
+// 数据流：searchConfig.get / .set IPC + search.test IPC。
+// 无 dangerouslySetInnerHTML、无 any。
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { SearchProvider } from '@shared/ai';
 import { useI18n } from '@render/i18n';
+import { useAuthStore } from '@render/stores/authStore';
+import { useAgentStore } from '@render/stores/agentStore';
 
 const PROVIDERS: { key: SearchProvider; label: string }[] = [
   { key: 'firecrawl', label: 'Firecrawl' },
@@ -17,9 +20,12 @@ const PROVIDERS: { key: SearchProvider; label: string }[] = [
 
 const SearchSettings: React.FC = () => {
   const { t } = useI18n();
+  const user = useAuthStore((s) => s.user);
 
   const [enabled, setEnabled] = useState(false);
   const [provider, setProvider] = useState<SearchProvider>('firecrawl');
+  const [callMode, setCallMode] = useState('scrape_and_search');
+  const [maxResults, setMaxResults] = useState(10);
   const [apiKeys, setApiKeys] = useState<Record<SearchProvider, string>>({
     firecrawl: '',
     zhipu: '',
@@ -37,23 +43,47 @@ const SearchSettings: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  // 加载已保存配置
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const load = async (): Promise<void> => {
+      try {
+        const res = await window.weaveMD.ai.searchConfig.get(user.id);
+        if (cancelled) return;
+        if (res.success && res.data) {
+          setEnabled(res.data.enabled);
+          setProvider(res.data.provider);
+          setCallMode(res.data.callMode);
+          setMaxResults(res.data.maxResults);
+          setHasApiKeys(res.data.hasApiKeys);
+        }
+      } catch {
+        /* 静默 */
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
   const handleApiKeyChange = (prov: SearchProvider, value: string): void => {
     setApiKeys((prev) => ({ ...prev, [prov]: value }));
   };
 
   const handleTest = async (): Promise<void> => {
+    if (!user) return;
     setTesting(true);
     setTestResult(null);
     try {
-      // 暂用 setConfig 模拟测试连接
-      const ai = window.weaveMD?.ai;
-      if (ai) {
-        // 模拟测试
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        setTestResult('ok');
-      } else {
-        setTestResult('fail');
-      }
+      const res = await window.weaveMD.ai.search.test({
+        provider,
+        apiKey: apiKeys[provider].trim(),
+        userId: user.id,
+      });
+      setTestResult(res.success ? 'ok' : 'fail');
     } catch {
       setTestResult('fail');
     } finally {
@@ -62,20 +92,32 @@ const SearchSettings: React.FC = () => {
   };
 
   const handleSave = async (): Promise<void> => {
+    if (!user) return;
     setSaving(true);
     setSaved(false);
     try {
-      // 更新 hasApiKeys 记录
-      const next: Record<SearchProvider, boolean> = { ...hasApiKeys };
+      // 收集所有非空 API Key
+      const keys: Partial<Record<SearchProvider, string>> = {};
       for (const p of PROVIDERS) {
         if (apiKeys[p.key].trim()) {
-          next[p.key] = true;
+          keys[p.key] = apiKeys[p.key].trim();
         }
       }
-      setHasApiKeys(next);
+      const res = await window.weaveMD.ai.searchConfig.set(user.id, {
+        enabled,
+        provider,
+        callMode,
+        maxResults,
+        apiKeys: keys,
+      });
+      if (res.success && res.data) {
+        setHasApiKeys(res.data.hasApiKeys);
+      }
+      // 刷新 store
+      await useAgentStore.getState().refreshSearchConfig();
       setSaved(true);
     } catch {
-      // 静默
+      /* 静默 */
     } finally {
       setSaving(false);
     }
@@ -92,15 +134,15 @@ const SearchSettings: React.FC = () => {
             onChange={(e) => setEnabled(e.target.checked)}
             className="accent-[#7C3AED]"
           />
-          <span className="text-[15px] text-[var(--text-primary)] font-medium">
+          <span className="text-[14px] text-[var(--text-primary)] font-medium">
             {t('ai.settings.search.enabled', '启用联网搜索')}
           </span>
         </label>
       </div>
 
-      {/* SegmentedTabs 选择服务商 */}
+      {/* 搜索服务商 SegmentedTabs */}
       <div>
-        <label className="text-[15px] text-[var(--text-primary)] font-medium mb-1.5 block">
+        <label className="text-[14px] text-[var(--text-primary)] font-medium mb-1.5 block">
           {t('ai.settings.search.provider', '搜索服务商')}
         </label>
         <div className="flex gap-1 p-1 rounded-input bg-[var(--bg-tertiary)]">
@@ -112,8 +154,8 @@ const SearchSettings: React.FC = () => {
               onClick={() => setProvider(p.key)}
               className={`flex-1 px-2 py-1.5 text-[13px] rounded-input transition-colors ${
                 provider === p.key
-                  ? 'bg-[var(--bg-primary)] text-text-primary shadow-sm border border-[var(--border-color)]'
-                  : 'text-text-sub hover:text-text-primary'
+                  ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-sm border border-[var(--border-color)]'
+                  : 'text-[var(--text-sub)] hover:text-[var(--text-primary)]'
               }`}
             >
               {p.label}
@@ -125,11 +167,11 @@ const SearchSettings: React.FC = () => {
       {/* 当前服务商 API Key */}
       <div>
         <div className="flex items-center justify-between mb-1.5">
-          <label className="text-[15px] text-[var(--text-primary)] font-medium">
+          <label className="text-[14px] text-[var(--text-primary)] font-medium">
             {t('ai.settings.search.apiKey', 'API Key')} — {PROVIDERS.find((p) => p.key === provider)?.label}
           </label>
           {hasApiKeys[provider] && (
-            <span className="text-[13px] text-[var(--text-muted)]">{t('ai.settings.apiKeySet')}</span>
+            <span className="text-[12px] text-[var(--text-muted)]">{t('ai.settings.apiKeySet')}</span>
           )}
         </div>
         <input
@@ -138,11 +180,42 @@ const SearchSettings: React.FC = () => {
           onChange={(e) => handleApiKeyChange(provider, e.target.value)}
           placeholder="sk-..."
           autoComplete="off"
-          className="w-full border rounded-input px-3 py-2 text-[15px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+          className="w-full border rounded-input px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
         />
       </div>
 
-      {/* Test result */}
+      {/* 调用模式 */}
+      <div>
+        <label className="text-[14px] text-[var(--text-primary)] font-medium mb-1.5 block">
+          调用模式
+        </label>
+        <div className="px-3 py-2 rounded-input border border-[var(--border-color)] bg-[var(--input-bg)]">
+          <span className="text-[14px] text-[var(--text-primary)]">{callMode}</span>
+          <p className="text-[12px] text-[var(--text-muted)] mt-0.5">
+            scrape & search — 使用 Firecrawl 默认抓取和搜索组合
+          </p>
+        </div>
+      </div>
+
+      {/* 每次返回结果数 */}
+      <div>
+        <label className="text-[14px] text-[var(--text-primary)] font-medium mb-1.5 block">
+          每次返回结果数
+        </label>
+        <div className="flex items-center gap-3">
+          <input
+            type="range"
+            min={1}
+            max={50}
+            value={maxResults}
+            onChange={(e) => setMaxResults(Number(e.target.value))}
+            className="flex-1 accent-[#7C3AED]"
+          />
+          <span className="text-[14px] text-[var(--text-primary)] w-8 text-right">{maxResults}</span>
+        </div>
+      </div>
+
+      {/* 测试结果 */}
       {testResult && (
         <p className={`text-[13px] ${testResult === 'ok' ? 'text-green-500' : 'text-red-400'}`}>
           {testResult === 'ok'
@@ -151,18 +224,18 @@ const SearchSettings: React.FC = () => {
         </p>
       )}
 
-      {/* Save status */}
+      {/* 保存状态 */}
       {saving && <p className="text-[13px] text-[var(--text-muted)]">Saving...</p>}
       {saved && <p className="text-[13px] text-green-500">{t('settings.save')}</p>}
 
-      {/* Action buttons */}
+      {/* 操作按钮 */}
       <div className="flex items-center justify-end gap-2">
         <button
           type="button"
           data-testid="search-test"
           onClick={() => void handleTest()}
           disabled={testing}
-          className="px-3.5 py-1 text-[15px] rounded-input border border-[var(--border-color)] text-[var(--text-primary)] hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-40 transition-colors"
+          className="px-3.5 py-1 text-[14px] rounded-input border border-[var(--border-color)] text-[var(--text-primary)] hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-40 transition-colors"
         >
           {testing
             ? t('ai.settings.search.testing', '测试中...')
@@ -173,7 +246,7 @@ const SearchSettings: React.FC = () => {
           data-testid="search-save"
           onClick={() => void handleSave()}
           disabled={saving}
-          className="px-3.5 py-1 text-[15px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 transition-opacity"
+          className="px-3.5 py-1 text-[14px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 transition-opacity"
         >
           {t('settings.save')}
         </button>

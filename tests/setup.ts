@@ -74,6 +74,29 @@ const mockWeaveMD = {
     listSkills: vi.fn(),
     listModels: vi.fn(),
     onStream: vi.fn(() => () => {}),
+    embedding: {
+      test: vi.fn(),
+      create: vi.fn(),
+    },
+    search: {
+      test: vi.fn(),
+      run: vi.fn(),
+    },
+    modelConfigs: {
+      list: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+      activate: vi.fn(),
+    },
+    embeddingConfig: {
+      get: vi.fn(),
+      set: vi.fn(),
+    },
+    searchConfig: {
+      get: vi.fn(),
+      set: vi.fn(),
+    },
   },
   kb: {
     list: vi.fn(),

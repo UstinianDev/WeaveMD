@@ -18,6 +18,9 @@ import { registerRewriteHandlers } from './rewriteHandlers';
 import { registerModelHandlers } from './modelHandlers';
 import { registerEmbeddingHandlers } from './embeddingHandlers';
 import { registerSearchHandlers } from './searchHandlers';
+import { registerModelConfigHandlers } from './modelConfigHandlers';
+import { registerEmbeddingConfigHandlers } from './embeddingConfigHandlers';
+import { registerSearchConfigHandlers } from './searchConfigHandlers';
 
 export function registerAiIpcHandlers(): void {
   registerConfigConsentHandlers();
@@ -26,6 +29,9 @@ export function registerAiIpcHandlers(): void {
   registerAgentHandlers();
   registerRewriteHandlers();
   registerModelHandlers();
-  registerEmbeddingHandlers();
-  registerSearchHandlers();
+  registerEmbeddingHandlers();      // 旧的保留（AI_EMBEDDING_TEST/CREATE 仍可用）
+  registerSearchHandlers();          // 旧的保留（AI_SEARCH_TEST/RUN 仍可用）
+  registerModelConfigHandlers();     // 新增：多模型配置 CRUD + 激活
+  registerEmbeddingConfigHandlers(); // 新增：Embedding 配置 CRUD
+  registerSearchConfigHandlers();    // 新增：搜索配置 CRUD
 }

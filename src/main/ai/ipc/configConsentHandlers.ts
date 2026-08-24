@@ -6,6 +6,7 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@shared/constants';
 import type { ChatBackend, IAIConfig, IAIConsent } from '@shared/ai';
 import { getAiConfig, upsertAiConfig } from '../../db/ai';
+import { getDatabase } from '../../db/index';
 import { encryptApiKey } from '../secureConfig';
 import { DEFAULT_AI_CONFIG, DEFAULT_CONSENT, toIAIConfig, toIAIConsent } from './shared';
 
@@ -31,6 +32,7 @@ export function registerConfigConsentHandlers(): void {
           remoteBaseUrl?: string;
           model?: string;
           apiKey?: string;
+          activeModelConfigId?: string;
         };
       }
     ) => {
@@ -48,6 +50,13 @@ export function registerConfigConsentHandlers(): void {
           model: payload.config.model,
           apiKeyEnc,
         });
+        // 设置 active_model_config_id（如果传了）
+        if (payload.config.activeModelConfigId !== undefined) {
+          const db = getDatabase();
+          db.prepare(
+            'UPDATE ai_config SET active_model_config_id = ? WHERE user_id = ?'
+          ).run(payload.config.activeModelConfigId, payload.userId);
+        }
         return { success: true, data: toIAIConfig(row) };
       } catch (error) {
         return { success: false, message: 'Failed to save AI config' };

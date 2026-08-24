@@ -159,15 +159,6 @@ const AIAgentPanel: React.FC = () => {
         >
           +
         </button>
-        <button
-          type="button"
-          data-testid="open-settings-btn"
-          title={t('ai.settings.title')}
-          onClick={() => useUIStore.getState().toggleSettings()}
-          className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-input text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
-        >
-          ⚙
-        </button>
         {rightExtra}
         <button
           type="button"

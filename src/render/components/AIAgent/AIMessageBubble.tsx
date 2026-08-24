@@ -6,12 +6,13 @@
 // （aiMarkdown HAST→React 安全渲染），tool 用 <ToolCallTrace/>，user 保持纯文本。
 // assistant refsJson（IKbSearchResult 数组）渲染「[来源: 文件名 · 块]」链接，点击 openFile。
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import type { AIMessageRole, IAgentToolCall } from '@shared/ai';
 import type { IFile } from '@shared/types';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
 import { useEditorStore } from '@render/stores/editorStore';
+import { formatMessageTimestamp } from '@render/utils/messageTimestamp';
 import MarkdownMessage from './MarkdownMessage';
 import ToolCallTrace from './ToolCallTrace';
 
@@ -25,6 +26,8 @@ interface AIMessageBubbleProps {
   refsJson?: string | null;
   /** 消息响应时间（毫秒），从发送到首 token 的时间 */
   responseTime?: number;
+  /** 消息创建时间（ISO 8601 字符串）。 */
+  createdAt?: string;
   /** 复制消息内容回调 */
   onCopy?: () => void;
   /** 编辑消息回调（仅 user 消息） */
@@ -109,6 +112,72 @@ function formatResponseTime(ms: number): string {
   return `${ms}ms`;
 }
 
+// ── SVG 图标组件 ──
+
+/** 复制图标（矩形+路径叠加）。 */
+const CopyIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+  </svg>
+);
+
+/** 对勾图标（复制成功反馈）。 */
+const CheckIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+
+/** 编辑图标（笔形）。 */
+const EditIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+  </svg>
+);
+
+/** 重试图标（圆形箭头）。 */
+const RetryIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="23 4 23 10 17 10" />
+    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+  </svg>
+);
+
+/** 图标操作按钮（带 tooltip）。 */
+const IconButton: React.FC<{
+  label: string;
+  onClick: () => void;
+  children: React.ReactNode;
+  active?: boolean;
+}> = ({ label, onClick, children, active = false }) => {
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={onClick}
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+        className={`w-6 h-6 rounded-md flex items-center justify-center transition-colors ${
+          active
+            ? 'bg-[var(--accent)]/15 text-[var(--accent)]'
+            : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
+        }`}
+      >
+        {children}
+      </button>
+      {showTooltip && (
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 text-[11px] text-white bg-gray-800 rounded-md whitespace-nowrap pointer-events-none z-50">
+          {label}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
   role,
   content,
@@ -116,12 +185,21 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
   toolCalls = [],
   refsJson = null,
   responseTime,
+  createdAt,
   onCopy,
   onEdit,
   onRetry,
 }) => {
   const { t } = useI18n();
   const [hovered, setHovered] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    if (!onCopy) return;
+    onCopy();
+    setCopied(true);
+    setTimeout(() => setCopied(false), 3000);
+  }, [onCopy]);
 
   if (role === 'user') {
     return (
@@ -136,25 +214,23 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
         >
           <div className="whitespace-pre-wrap break-words">{content}</div>
         </div>
-        {/* 操作栏：hover 时显示 */}
+        {/* 操作栏 + 时间戳：hover 时显示 */}
         <div className={`flex items-center gap-1.5 mt-1 transition-opacity ${hovered ? 'opacity-100' : 'opacity-0'}`}>
           {onCopy && (
-            <button
-              type="button"
-              onClick={onCopy}
-              className="text-[12px] text-text-muted hover:text-text-primary transition-colors"
-            >
-              {t('ai.msg.copy')}
-            </button>
+            <IconButton label={copied ? '✓' : t('ai.msg.copy')} onClick={handleCopy} active={copied}>
+              {copied ? <CheckIcon /> : <CopyIcon />}
+            </IconButton>
           )}
           {onEdit && (
-            <button
-              type="button"
-              onClick={onEdit}
-              className="text-[12px] text-text-muted hover:text-text-primary transition-colors"
-            >
-              {t('ai.msg.edit')}
-            </button>
+            <IconButton label={t('ai.msg.edit')} onClick={onEdit}>
+              <EditIcon />
+            </IconButton>
+          )}
+          {/* 时间戳 */}
+          {createdAt && (
+            <span className="text-[11px] text-text-sub ml-1">
+              {formatMessageTimestamp(createdAt)}
+            </span>
           )}
         </div>
         {/* 响应时间：左下角 */}
@@ -260,22 +336,20 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
       {!isTool && !isStreaming && (
         <div className={`flex items-center gap-1.5 mt-1 transition-opacity ${hovered ? 'opacity-100' : 'opacity-0'}`}>
           {onCopy && (
-            <button
-              type="button"
-              onClick={onCopy}
-              className="text-[12px] text-text-muted hover:text-text-primary transition-colors"
-            >
-              {t('ai.msg.copy')}
-            </button>
+            <IconButton label={copied ? '✓' : t('ai.msg.copy')} onClick={handleCopy} active={copied}>
+              {copied ? <CheckIcon /> : <CopyIcon />}
+            </IconButton>
           )}
           {onRetry && (
-            <button
-              type="button"
-              onClick={onRetry}
-              className="text-[12px] text-text-muted hover:text-text-primary transition-colors"
-            >
-              {t('ai.msg.retry')}
-            </button>
+            <IconButton label={t('ai.msg.retry')} onClick={onRetry}>
+              <RetryIcon />
+            </IconButton>
+          )}
+          {/* 时间戳 */}
+          {createdAt && (
+            <span className="text-[11px] text-text-sub ml-1">
+              {formatMessageTimestamp(createdAt)}
+            </span>
           )}
         </div>
       )}

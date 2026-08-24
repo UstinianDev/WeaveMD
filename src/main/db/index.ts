@@ -198,6 +198,12 @@ function runMigrations(database: Database.Database): void {
 
   // app_meta 表（激活状态 / 跳过版本等 app 级元数据），幂等
   database.exec(APP_META_SCHEMA);
+
+  // ai-settings-redesign：多模型配置表 + Embedding 配置表 + 搜索配置表
+  addModelConfigsTable(database);
+  addEmbeddingConfigTable(database);
+  addSearchConfigTable(database);
+  addActiveModelConfigId(database);
 }
 
 /**
@@ -226,4 +232,110 @@ export function closeDatabase(): void {
     db.close();
     db = null;
   }
+}
+
+/** 检查表是否有某列（PRAGMA table_info 幂等探测）。 */
+function hasColumn(database: Database.Database, table: string, column: string): boolean {
+  const row = database
+    .prepare(`SELECT 1 AS c FROM pragma_table_info('${table}') WHERE name = ?`)
+    .get(column);
+  return !!row;
+}
+
+/** 给表幂等补一列（ALTER TABLE ADD COLUMN）。 */
+function addColumnIfMissing(database: Database.Database, table: string, column: string, ddl: string): void {
+  if (!hasColumn(database, table, column)) {
+    database.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  }
+}
+
+/** ai_model_configs 表：用户可创建多个模型配置，一个激活。 */
+function addModelConfigsTable(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS ai_model_configs (
+      id              TEXT PRIMARY KEY,
+      user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name            TEXT NOT NULL DEFAULT '',
+      protocol        TEXT NOT NULL DEFAULT 'openai',
+      provider        TEXT NOT NULL DEFAULT '',
+      base_url        TEXT NOT NULL DEFAULT 'https://api.openai.com/v1',
+      model           TEXT NOT NULL DEFAULT '',
+      api_key_enc     TEXT DEFAULT NULL,
+      hint            TEXT DEFAULT '',
+      created_at      TEXT DEFAULT (datetime('now')),
+      updated_at      TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_model_configs_user ON ai_model_configs(user_id);
+  `);
+  // 幂等补列（旧表可能缺少新增列）
+  addColumnIfMissing(database, 'ai_model_configs', 'name', "name TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(database, 'ai_model_configs', 'protocol', "protocol TEXT NOT NULL DEFAULT 'openai'");
+  addColumnIfMissing(database, 'ai_model_configs', 'provider', "provider TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(database, 'ai_model_configs', 'base_url', "base_url TEXT NOT NULL DEFAULT 'https://api.openai.com/v1'");
+  addColumnIfMissing(database, 'ai_model_configs', 'model', "model TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(database, 'ai_model_configs', 'api_key_enc', 'api_key_enc TEXT DEFAULT NULL');
+  addColumnIfMissing(database, 'ai_model_configs', 'hint', "hint TEXT DEFAULT ''");
+  addColumnIfMissing(database, 'ai_model_configs', 'created_at', "created_at TEXT DEFAULT (datetime('now'))");
+  addColumnIfMissing(database, 'ai_model_configs', 'updated_at', "updated_at TEXT DEFAULT (datetime('now'))");
+}
+
+/** ai_embedding_config 表：每用户一条独立 Embedding 配置。 */
+function addEmbeddingConfigTable(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS ai_embedding_config (
+      id              TEXT PRIMARY KEY,
+      user_id         TEXT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      base_url        TEXT NOT NULL DEFAULT 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      model           TEXT NOT NULL DEFAULT 'text-embedding-v3',
+      api_key_enc     TEXT DEFAULT NULL,
+      multimodal      INTEGER DEFAULT 0,
+      created_at      TEXT DEFAULT (datetime('now')),
+      updated_at      TEXT DEFAULT (datetime('now'))
+    );
+  `);
+  addColumnIfMissing(database, 'ai_embedding_config', 'base_url', "base_url TEXT NOT NULL DEFAULT 'https://dashscope.aliyuncs.com/compatible-mode/v1'");
+  addColumnIfMissing(database, 'ai_embedding_config', 'model', "model TEXT NOT NULL DEFAULT 'text-embedding-v3'");
+  addColumnIfMissing(database, 'ai_embedding_config', 'api_key_enc', 'api_key_enc TEXT DEFAULT NULL');
+  addColumnIfMissing(database, 'ai_embedding_config', 'multimodal', 'multimodal INTEGER DEFAULT 0');
+  addColumnIfMissing(database, 'ai_embedding_config', 'created_at', "created_at TEXT DEFAULT (datetime('now'))");
+  addColumnIfMissing(database, 'ai_embedding_config', 'updated_at', "updated_at TEXT DEFAULT (datetime('now'))");
+}
+
+/** ai_search_config 表：每用户一条搜索配置。 */
+function addSearchConfigTable(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS ai_search_config (
+      id              TEXT PRIMARY KEY,
+      user_id         TEXT UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      enabled         INTEGER DEFAULT 0,
+      provider        TEXT NOT NULL DEFAULT 'firecrawl',
+      call_mode       TEXT NOT NULL DEFAULT 'scrape_and_search',
+      max_results     INTEGER DEFAULT 10,
+      firecrawl_key_enc  TEXT DEFAULT NULL,
+      zhipu_key_enc      TEXT DEFAULT NULL,
+      tavily_key_enc     TEXT DEFAULT NULL,
+      exa_key_enc        TEXT DEFAULT NULL,
+      created_at      TEXT DEFAULT (datetime('now')),
+      updated_at      TEXT DEFAULT (datetime('now'))
+    );
+  `);
+  addColumnIfMissing(database, 'ai_search_config', 'enabled', 'enabled INTEGER DEFAULT 0');
+  addColumnIfMissing(database, 'ai_search_config', 'provider', "provider TEXT NOT NULL DEFAULT 'firecrawl'");
+  addColumnIfMissing(database, 'ai_search_config', 'call_mode', "call_mode TEXT NOT NULL DEFAULT 'scrape_and_search'");
+  addColumnIfMissing(database, 'ai_search_config', 'max_results', 'max_results INTEGER DEFAULT 10');
+  addColumnIfMissing(database, 'ai_search_config', 'firecrawl_key_enc', 'firecrawl_key_enc TEXT DEFAULT NULL');
+  addColumnIfMissing(database, 'ai_search_config', 'zhipu_key_enc', 'zhipu_key_enc TEXT DEFAULT NULL');
+  addColumnIfMissing(database, 'ai_search_config', 'tavily_key_enc', 'tavily_key_enc TEXT DEFAULT NULL');
+  addColumnIfMissing(database, 'ai_search_config', 'exa_key_enc', 'exa_key_enc TEXT DEFAULT NULL');
+  addColumnIfMissing(database, 'ai_search_config', 'created_at', "created_at TEXT DEFAULT (datetime('now'))");
+  addColumnIfMissing(database, 'ai_search_config', 'updated_at', "updated_at TEXT DEFAULT (datetime('now'))");
+}
+
+/** ai_config 新增 active_model_config_id 列（指向当前激活的模型配置）。 */
+function addActiveModelConfigId(database: Database.Database): void {
+  const existing = database
+    .prepare("SELECT 1 AS c FROM pragma_table_info('ai_config') WHERE name = 'active_model_config_id'")
+    .get();
+  if (existing) return;
+  database.exec("ALTER TABLE ai_config ADD COLUMN active_model_config_id TEXT DEFAULT NULL");
 }

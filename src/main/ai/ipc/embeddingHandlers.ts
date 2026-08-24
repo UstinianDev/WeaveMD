@@ -5,6 +5,8 @@
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@shared/constants';
 import { createEmbedding } from '../embeddingClient';
+import { getEmbeddingConfig } from '../../db/embeddingConfig';
+import { decryptApiKey } from '../secureConfig';
 
 export function registerEmbeddingHandlers(): void {
   // --- 测试 Embedding 连接 ---
@@ -12,16 +14,39 @@ export function registerEmbeddingHandlers(): void {
     IPC_CHANNELS.AI_EMBEDDING_TEST,
     async (
       _event,
-      payload: { baseUrl: string; model: string; apiKey: string }
+      payload: { baseUrl: string; model: string; apiKey: string; userId?: string }
     ) => {
       try {
-        if (!payload?.baseUrl || !payload?.model || !payload?.apiKey) {
-          return { success: false, message: 'baseUrl, model, apiKey are required' };
+        if (!payload?.baseUrl || !payload?.model) {
+          return { success: false, message: 'baseUrl and model are required' };
+        }
+        // 如果没传 apiKey 但传了 userId，从数据库取已保存的 key
+        let apiKey = payload.apiKey;
+        if (!apiKey && payload.userId) {
+          const saved = getEmbeddingConfig(payload.userId);
+          console.log('[embeddingHandlers] test: saved config:', saved ? {
+            baseUrl: saved.baseUrl,
+            model: saved.model,
+            hasApiKeyEnc: !!saved.apiKeyEnc,
+            apiKeyEncPrefix: saved.apiKeyEnc ? saved.apiKeyEnc.slice(0, 20) : null,
+          } : null);
+          if (saved?.apiKeyEnc) {
+            try {
+              apiKey = decryptApiKey(saved.apiKeyEnc);
+              console.log('[embeddingHandlers] test: decrypted key length:', apiKey.length);
+            } catch (decErr) {
+              console.error('[embeddingHandlers] test: decrypt failed:', decErr);
+            }
+          }
+        }
+        if (!apiKey) {
+          console.error('[embeddingHandlers] test: no apiKey. payload.apiKey=', JSON.stringify(payload.apiKey), 'userId=', payload.userId);
+          return { success: false, message: 'API Key is required' };
         }
         const res = await createEmbedding({
           baseUrl: payload.baseUrl,
           model: payload.model,
-          apiKey: payload.apiKey,
+          apiKey,
           input: 'test',
         });
         return {

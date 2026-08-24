@@ -153,9 +153,12 @@ export async function* streamChatCompletion(
     return makeError('aborted', 'Request aborted');
   }
 
+  // 规范化 baseUrl：去除尾部 /v1 和 /，避免双重 /v1/v1/
+  const normalizedBase = opts.baseUrl.replace(/\/+$/, '').replace(/\/v1$/, '');
+
   let response: Response;
   try {
-    response = await fetch(`${opts.baseUrl}/v1/chat/completions`, {
+    response = await fetch(`${normalizedBase}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

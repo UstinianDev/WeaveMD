@@ -106,8 +106,24 @@ export function registerAgentHandlers(): void {
         // 扫描多个目录下的用户自定义 skills（支持子目录+SKILL.md 和扁平.md 两种格式）
         const homeDir = app.getPath('home');
         const scanDirs = process.platform === 'win32'
-          ? ['C:\\AI tools', 'C:\\AI tools\\skills']
-          : [join(homeDir, 'AI tools'), join(homeDir, 'AI tools', 'skills')];
+          ? [
+              'C:\\AI tools',
+              'C:\\AI tools\\skills',
+              'C:\\skills',
+              'C:\\Users\\lenovo\\skills',
+              'C:\\Users\\lenovo\\AI tools',
+              'C:\\Users\\lenovo\\AI tools\\skills',
+              'C:\\Users\\lenovo\\.claude\\skills',
+              join(homeDir, 'skills'),
+              join(homeDir, 'AI tools'),
+              join(homeDir, '.claude', 'skills'),
+            ]
+          : [
+              join(homeDir, 'AI tools'),
+              join(homeDir, 'AI tools', 'skills'),
+              join(homeDir, 'skills'),
+              join(homeDir, '.claude', 'skills'),
+            ];
         const userSkillsRaw = loadUserSkillsFromDirs(scanDirs);
         const userSkills = userSkillsRaw
           .filter((s) => !BUILTIN_SKILL_NAMES.has(s.name))

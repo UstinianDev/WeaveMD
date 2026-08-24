@@ -12,6 +12,8 @@ export interface IAIConfig {
   model: string;
   /** 是否已配置 API key（仅布尔标记，绝不含 key 明文） */
   hasApiKey: boolean;
+  /** 当前激活的模型配置 ID（多模型配置支持）。 */
+  activeModelConfigId?: string;
 }
 
 export interface IAIConsent {
@@ -204,6 +206,10 @@ export interface IAgentToolCall {
   status: 'ok' | 'error';
   result?: string;
   errorDesc?: string;
+  /** LLM 推理文本（thinking 标签内容，供折叠展示）。 */
+  thinking?: string;
+  /** Agent 循环轮次索引（从 0 开始，供分组展示）。 */
+  loopIndex?: number;
 }
 
 /** AGENT_RUN invoke 流结束后 resolve 的汇总结果。 */
@@ -267,6 +273,10 @@ export interface IAgentStreamToolEvent {
   status: 'ok' | 'error';
   result?: string;
   errorDesc?: string;
+  /** LLM 推理文本（thinking 标签内容）。 */
+  thinking?: string;
+  /** Agent 循环轮次索引。 */
+  loopIndex?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -384,14 +394,11 @@ export interface AgentSkillInfo {
 // Module 10 — Embedding / Search 配置共享类型
 // ============================================
 
-/** Embedding 模型配置（设置面板 embedding tab）。 */
+/** Embedding 模型配置（独立于 AI 模型配置，仅用于知识库索引与检索）。 */
 export interface IEmbeddingConfig {
-  provider: string;
   baseUrl: string;
   model: string;
-  /** 是否已配置 API key（仅布尔标记，绝不含 key 明文）。 */
   hasApiKey: boolean;
-  /** 是否启用多模态向量。 */
   multimodal: boolean;
 }
 
@@ -404,6 +411,41 @@ export interface ISearchConfig {
   enabled: boolean;
   /** 当前选中的搜索服务商。 */
   provider: SearchProvider;
+  /** 调用模式。 */
+  callMode: string;
+  /** 最大结果数。 */
+  maxResults: number;
   /** 各服务商 API Key 是否已配置（仅布尔标记，绝不含 key 明文）。 */
   hasApiKeys: Record<SearchProvider, boolean>;
+}
+
+// ============================================
+// AI Settings Redesign — 多模型配置 + 独立 Embedding/Search
+// ============================================
+
+/** 模型兼容协议。 */
+export type ModelProtocol = 'openai' | 'anthropic';
+
+/** 单个 AI 模型配置条目（ai_model_configs 表行映射）。 */
+export interface IAIModelConfig {
+  id: string;
+  name: string;
+  protocol: ModelProtocol;
+  provider: string;
+  baseUrl: string;
+  model: string;
+  /** 是否已配置 API key（仅布尔标记，绝不含 key 明文）。 */
+  hasApiKey: boolean;
+  hint: string;
+}
+
+/** 新建/更新模型配置的载荷（apiKey 可选，缺省不更新）。 */
+export interface AIModelConfigPayload {
+  name?: string;
+  protocol: ModelProtocol;
+  provider: string;
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+  hint?: string;
 }

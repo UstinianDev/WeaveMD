@@ -129,6 +129,21 @@ export const IPC_CHANNELS = {
   AI_SEARCH_TEST: 'ai:search:test',
   AI_SEARCH_RUN: 'ai:search:run',
 
+  // AI — 多模型配置（ai-settings-redesign）
+  AI_MODEL_CONFIGS_LIST: 'ai:model-configs:list',
+  AI_MODEL_CONFIGS_CREATE: 'ai:model-configs:create',
+  AI_MODEL_CONFIGS_UPDATE: 'ai:model-configs:update',
+  AI_MODEL_CONFIGS_DELETE: 'ai:model-configs:delete',
+  AI_MODEL_CONFIGS_ACTIVATE: 'ai:model-configs:activate',
+
+  // AI — Embedding 配置 CRUD（ai-settings-redesign，独立于 AI 模型配置）
+  AI_EMBEDDING_GET_CONFIG: 'ai:embedding:get-config',
+  AI_EMBEDDING_SET_CONFIG: 'ai:embedding:set-config',
+
+  // AI — 搜索配置 CRUD（ai-settings-redesign）
+  AI_SEARCH_GET_CONFIG: 'ai:search:get-config',
+  AI_SEARCH_SET_CONFIG: 'ai:search:set-config',
+
   // AI — stream push (main -> render, webContents.send)
   AI_STREAM_CHUNK: 'ai:stream:chunk',
   AI_STREAM_DONE: 'ai:stream:done',

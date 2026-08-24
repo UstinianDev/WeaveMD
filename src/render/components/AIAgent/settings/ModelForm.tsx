@@ -1,253 +1,351 @@
 // ============================================
-// WeaveMD — 设置·模型表单（从 SettingsModal ai Tab 整体迁入，M3）
+// WeaveMD — 设置·模型配置（Phase 5 重写：双视图）
 // ============================================
-// remote 地址 / 模型 ID / API 密钥(hasApiKey) / ④当前提供商状态与断开连接 /
-// 同意开关(allowNetwork+allowSend)。
-// 唯一后端为 remote。保存行为与现状一致：setConfig（key 内部 safeStorage 加密，不落渲染）+
-// setConsent。打开/保持时经 ai.getConfig/getConsent 拉取当前配置。
-// 断开连接（④）：清 key 即断开，setConfig({apiKey:''}) → hasApiKey=false → 状态行显示「未配置」。
+// 视图 A：配置列表（激活/删除）+ 视图 B：新建配置表单。
+// 数据流：modelConfigs.list / .create / .delete / .activate IPC。
 // 无 dangerouslySetInnerHTML、无 any。
 
 import React, { useEffect, useState } from 'react';
+import type { ModelProtocol } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
 import { useAgentStore } from '@render/stores/agentStore';
 
+// —— 协议/提供商选项 ——
+const PROTOCOL_OPTIONS: { value: ModelProtocol; label: string }[] = [
+  { value: 'openai', label: 'OpenAI API' },
+  { value: 'anthropic', label: 'Anthropic' },
+];
+
+const PROVIDER_OPTIONS: { value: string; protocol: ModelProtocol; label: string }[] = [
+  { value: 'OpenAI', protocol: 'openai', label: 'OpenAI' },
+  { value: 'Anthropic', protocol: 'anthropic', label: 'Anthropic' },
+  { value: 'Custom', protocol: 'openai', label: 'Custom' },
+];
+
+const PROTOCOL_BASE_URL_PLACEHOLDER: Record<ModelProtocol, string> = {
+  openai: 'https://api.openai.com/v1',
+  anthropic: 'https://api.anthropic.com',
+};
+
+type ViewMode = 'list' | 'create';
+
 const ModelForm: React.FC = () => {
   const { t } = useI18n();
   const user = useAuthStore((s) => s.user);
-  const storeConfig = useAgentStore((s) => s.config);
+  const modelConfigs = useAgentStore((s) => s.modelConfigs);
+  const activeModelConfigId = useAgentStore((s) => s.activeModelConfigId);
 
-  // —— AI 配置表单（内存态草稿，Save 时写回落盘） ——
-  const [aiRemoteBaseUrl, setAiRemoteBaseUrl] = useState('https://api.deepseek.com');
-  const [aiModel, setAiModel] = useState('');
-  const [aiApiKey, setAiApiKey] = useState('');
-  const [aiHasApiKey, setAiHasApiKey] = useState(false);
-  const [aiAllowNetwork, setAiAllowNetwork] = useState(false);
-  const [aiAllowSend, setAiAllowSend] = useState(false);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [view, setView] = useState<ViewMode>('list');
 
-  // 进入时加载配置与同意记录（不落明文 key）
+  // —— 新建表单草稿 ——
+  const [formProtocol, setFormProtocol] = useState<ModelProtocol>('openai');
+  const [formProvider, setFormProvider] = useState('OpenAI');
+  const [formBaseUrl, setFormBaseUrl] = useState('');
+  const [formModel, setFormModel] = useState('');
+  const [formApiKey, setFormApiKey] = useState('');
+  const [formHint, setFormHint] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // 加载模型配置列表
   useEffect(() => {
     if (!user) return;
-    const ai = window.weaveMD?.ai;
-    if (!ai) return;
-    let cancelled = false;
-    Promise.all([ai.getConfig(user.id), ai.getConsent(user.id)])
-      .then(([cfgRes, consentRes]) => {
-        if (cancelled) return;
-        if (cfgRes.success && cfgRes.data) {
-          setAiRemoteBaseUrl(cfgRes.data.remoteBaseUrl);
-          setAiModel(cfgRes.data.model);
-          setAiHasApiKey(cfgRes.data.hasApiKey);
-        }
-        if (consentRes.success && consentRes.data) {
-          setAiAllowNetwork(consentRes.data.allowNetwork);
-          setAiAllowSend(consentRes.data.allowSend);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
+    void useAgentStore.getState().refreshModelConfigs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
-  const handleSave = async () => {
-    setSaved(false);
+  // —— 激活配置 ——
+  const handleActivate = async (configId: string): Promise<void> => {
+    if (!user) return;
+    try {
+      const res = await window.weaveMD.ai.modelConfigs.activate(user.id, configId);
+      if (res.success && res.data) {
+        useAgentStore.setState({
+          config: res.data,
+          activeModelConfigId: configId,
+        });
+      }
+    } catch {
+      /* 静默 */
+    }
+  };
 
-    // AI 配置：仅当有值才传 apiKey（setConfig 内部 safeStorage 加密，key 不落渲染）
-    if (user) {
-      setAiLoading(true);
-      try {
-        const ai = window.weaveMD?.ai;
-        if (ai) {
-          const cfg: {
-            backend: 'remote';
-            remoteBaseUrl: string;
-            model: string;
-            apiKey?: string;
-          } = {
-            backend: 'remote',
-            remoteBaseUrl: aiRemoteBaseUrl,
-            model: aiModel,
-          };
-          if (aiApiKey.trim()) cfg.apiKey = aiApiKey.trim();
-          const res = await ai.setConfig(user.id, cfg);
-          // ④ 同步最新 provider 状态（含重填 key 后的连接恢复），避免 store/local 状态陈旧
-          if (res.success && res.data) {
-            setAiHasApiKey(res.data.hasApiKey);
-            useAgentStore.setState({ config: res.data });
-          }
-          await ai.setConsent(user.id, {
-            allowNetwork: aiAllowNetwork,
-            allowSend: aiAllowSend,
-            consentUpdatedAt: new Date().toISOString(),
+  // —— 删除配置 ——
+  const handleDelete = async (configId: string): Promise<void> => {
+    try {
+      const res = await window.weaveMD.ai.modelConfigs.delete(configId);
+      if (res.success) {
+        // 如果删的是当前激活项，清空激活
+        if (activeModelConfigId === configId) {
+          useAgentStore.setState({ activeModelConfigId: null });
+        }
+        await useAgentStore.getState().refreshModelConfigs();
+      }
+    } catch {
+      /* 静默 */
+    }
+  };
+
+  // —— 提供商选择 → 自动推断协议 ——
+  const handleProviderChange = (value: string): void => {
+    setFormProvider(value);
+    const match = PROVIDER_OPTIONS.find((p) => p.value === value);
+    if (match) {
+      setFormProtocol(match.protocol);
+    }
+  };
+
+  // —— 新建配置 ——
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const handleCreate = async (): Promise<void> => {
+    if (!user) return;
+    if (!formModel.trim()) return;
+    setSaving(true);
+    setFormError(null);
+    try {
+      const res = await window.weaveMD.ai.modelConfigs.create(user.id, {
+        protocol: formProtocol,
+        provider: formProvider,
+        baseUrl: formBaseUrl.trim() || PROTOCOL_BASE_URL_PLACEHOLDER[formProtocol],
+        model: formModel.trim(),
+        apiKey: formApiKey.trim() || undefined,
+        hint: formHint.trim() || undefined,
+      });
+      if (res.success && res.data) {
+        // 自动激活新配置
+        await window.weaveMD.ai.modelConfigs.activate(user.id, res.data.id);
+        // 刷新列表
+        await useAgentStore.getState().refreshModelConfigs();
+        // 同步 config store
+        const cfgRes = await window.weaveMD.ai.getConfig(user.id);
+        if (cfgRes.success && cfgRes.data) {
+          useAgentStore.setState({
+            config: cfgRes.data,
+            activeModelConfigId: res.data.id,
           });
         }
-      } catch {
-        // 保存失败静默（主进程侧错误），不阻断关闭
-      } finally {
-        setAiLoading(false);
-        setSaved(true);
+        // 重置表单并返回列表
+        resetForm();
+        setView('list');
+      } else {
+        console.error('[ModelForm] create failed:', res.message);
+        setFormError(res.message || '添加失败，请重试');
       }
+    } catch (err) {
+      console.error('[ModelForm] create error:', err);
+      setFormError('网络或内部错误，请重试');
+    } finally {
+      setSaving(false);
     }
   };
 
-  // ④ 断开连接：清 key 即断开（setConfig({apiKey:''}) → hasApiKey=false），并同步 store 状态
-  const handleDisconnect = async () => {
-    if (!user) return;
-    const ai = window.weaveMD?.ai;
-    if (!ai) return;
-    try {
-      const res = await ai.setConfig(user.id, { apiKey: '' });
-      if (res.success && res.data) {
-        setAiHasApiKey(false);
-        setAiApiKey('');
-        useAgentStore.setState({ config: res.data });
-      }
-    } catch {
-      // 断开失败静默（主进程侧错误），不阻断 UI
-    }
+  const resetForm = (): void => {
+    setFormProtocol('openai');
+    setFormProvider('OpenAI');
+    setFormBaseUrl('');
+    setFormModel('');
+    setFormApiKey('');
+    setFormHint('');
   };
 
-  // ④ 提供商状态数据源：优先读 agentStore.config（store init 拉取），本地 aiHasApiKey 兜底（表单独立加载）
-  // —— 避免脏读：断开后本地同步置 false，store.config 由 handleDisconnect 回写，两者一致
-  const effectiveHasApiKey = storeConfig?.hasApiKey ?? aiHasApiKey;
-  const effectiveRemoteBaseUrl = storeConfig?.remoteBaseUrl || aiRemoteBaseUrl;
-  const providerConnected = effectiveHasApiKey;
-  const remoteHost = (() => {
-    try {
-      return new URL(effectiveRemoteBaseUrl).host || '';
-    } catch {
-      return '';
-    }
-  })();
+  const handleCancel = (): void => {
+    resetForm();
+    setView('list');
+  };
 
-  return (
-    <div className="space-y-5">
-      {/* Remote base URL */}
-      <div>
-        <label className="text-[15px] text-[var(--text-primary)] font-medium mb-1.5 block">
-          {t('ai.settings.remoteBaseUrl')}
-        </label>
-        <input
-          type="text"
-          value={aiRemoteBaseUrl}
-          onChange={(e) => setAiRemoteBaseUrl(e.target.value)}
-          className="w-full border rounded-input px-3 py-2 text-[15px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
-        />
-      </div>
-
-      {/* Model id */}
-      <div>
-        <label className="text-[15px] text-[var(--text-primary)] font-medium mb-1.5 block">
-          {t('ai.settings.model')}
-        </label>
-        <input
-          type="text"
-          value={aiModel}
-          onChange={(e) => setAiModel(e.target.value)}
-          placeholder="e.g. qwen3.5 / deepseek-chat"
-          className="w-full border rounded-input px-3 py-2 text-[15px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
-        />
-      </div>
-
-      {/* API key */}
-      <div>
-        <div className="flex items-center justify-between mb-1.5">
-          <label className="text-[15px] text-[var(--text-primary)] font-medium">
-            {t('ai.settings.apiKey')}
-          </label>
-          {aiHasApiKey && (
-            <span className="text-[13px] text-[var(--text-muted)]">{t('ai.settings.apiKeySet')}</span>
-          )}
+  // —— 视图 A：配置列表 ——
+  if (view === 'list') {
+    return (
+      <div className="space-y-4">
+        {/* 标题栏 */}
+        <div className="flex items-center justify-between">
+          <h3 className="text-[15px] font-semibold text-[var(--text-primary)]">
+            {t('ai.settings.modelConfigs.title', 'AI 模型配置')}
+          </h3>
+          <button
+            type="button"
+            data-testid="model-config-new"
+            onClick={() => setView('create')}
+            className="px-3 py-1 text-[13px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 transition-opacity"
+          >
+            {t('ai.settings.modelConfigs.new', '+ 新建配置')}
+          </button>
         </div>
-        <input
-          type="password"
-          value={aiApiKey}
-          onChange={(e) => setAiApiKey(e.target.value)}
-          placeholder="sk-..."
-          autoComplete="off"
-          className="w-full border rounded-input px-3 py-2 text-[15px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
-        />
-        <p className="text-[13px] text-[var(--text-muted)] mt-1">{t('ai.security.weakKeyring')}</p>
-      </div>
 
-      {/* ④ 当前提供商状态与断开连接：清 key 即断开 → hasApiKey=false → 显示「未配置」 */}
-      <div>
-        <label className="text-[15px] text-[var(--text-primary)] font-medium mb-1.5 block">
-          {t('ai.settings.backend')}
-        </label>
-        {providerConnected ? (
-          <div className="flex items-center justify-between gap-2 rounded-input border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2">
-            <span className="text-[15px] text-green-500">
-              {remoteHost
-                ? `${t('ai.settings.provider.connected')} · ${remoteHost}`
-                : t('ai.settings.provider.connected')}
-            </span>
-            <button
-              type="button"
-              data-testid="provider-disconnect"
-              onClick={() => void handleDisconnect()}
-              className="text-[13px] px-2 py-1 rounded-input border border-[var(--border-color)] text-[var(--text-primary)] hover:border-red-400 hover:text-red-400 transition-colors"
-            >
-              {t('ai.settings.disconnect')}
-            </button>
-          </div>
+        {/* 配置列表 */}
+        {modelConfigs.length === 0 ? (
+          <p className="text-[14px] text-[var(--text-muted)] py-6 text-center">
+            {t('ai.settings.modelConfigs.empty', '暂无配置，点击上方按钮新建')}
+          </p>
         ) : (
-          <div className="flex items-center gap-3">
-            <span className="text-[15px] text-[var(--text-muted)]">
-              {t('ai.settings.provider.disconnected')}
-            </span>
-            <span className="text-[13px] text-[var(--text-muted)]">{t('ai.settings.reconnect')}</span>
+          <div className="space-y-2">
+            {modelConfigs.map((cfg) => {
+              const isActive = cfg.id === activeModelConfigId;
+              return (
+                <div
+                  key={cfg.id}
+                  data-testid={`model-config-item-${cfg.id}`}
+                  className={`flex items-center gap-3 rounded-input border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5 transition-colors ${
+                    isActive ? 'border-l-2 border-l-[var(--accent)]' : ''
+                  }`}
+                >
+                  {/* 协议标签 */}
+                  <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
+                    {cfg.protocol === 'openai' ? 'OpenAI' : 'Anthropic'}
+                  </span>
+
+                  {/* 模型名 + baseUrl */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[14px] font-medium text-[var(--text-primary)] truncate">
+                      {cfg.name || (cfg.provider ? `${cfg.provider} - ${cfg.model}` : cfg.model)}
+                    </p>
+                    <p className="text-[12px] text-[var(--text-muted)] truncate">{cfg.baseUrl}</p>
+                  </div>
+
+                  {/* 状态/操作按钮 */}
+                  {isActive ? (
+                    <span className="shrink-0 text-[12px] font-medium text-[var(--accent)]">
+                      {t('ai.settings.modelConfigs.active', '当前')}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      data-testid={`model-config-activate-${cfg.id}`}
+                      onClick={() => void handleActivate(cfg.id)}
+                      className="shrink-0 text-[12px] px-2 py-1 rounded-input border border-[var(--border-color)] text-[var(--text-primary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+                    >
+                      {t('ai.settings.modelConfigs.activate', '激活')}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    data-testid={`model-config-delete-${cfg.id}`}
+                    onClick={() => void handleDelete(cfg.id)}
+                    className="shrink-0 text-[12px] px-2 py-1 rounded-input border border-[var(--border-color)] text-[var(--text-muted)] hover:border-red-400 hover:text-red-400 transition-colors"
+                  >
+                    {t('ai.settings.modelConfigs.delete', '删除')}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
+    );
+  }
 
-      {/* 同意开关 */}
+  // —— 视图 B：新建配置表单 ——
+  return (
+    <div className="space-y-4">
+      {/* 标题 */}
+      <h3 className="text-[15px] font-semibold text-[var(--text-primary)]">
+        {t('ai.settings.modelConfigs.title', 'AI 模型配置')}
+      </h3>
+
+      {/* 兼容协议 */}
       <div>
-        <label className="text-[15px] text-[var(--text-primary)] font-medium mb-2 block">
-          {t('ai.settings.allowNetwork')}
+        <label className="text-[14px] text-[var(--text-primary)] font-medium mb-1 block">
+          {t('ai.settings.modelConfigs.protocol', '兼容协议')}
         </label>
-        <div className="space-y-2">
-          <label className="flex items-center gap-3 px-3 py-2 rounded-input hover:bg-[var(--bg-tertiary)] cursor-pointer transition-colors">
-            <input
-              type="checkbox"
-              checked={aiAllowNetwork}
-              onChange={(e) => setAiAllowNetwork(e.target.checked)}
-              className="accent-[#7C3AED]"
-            />
-            <span className="text-[15px] text-[var(--text-sub)]">{t('ai.settings.allowNetwork')}</span>
-          </label>
-          <label className="flex items-center gap-3 px-3 py-2 rounded-input hover:bg-[var(--bg-tertiary)] cursor-pointer transition-colors">
-            <input
-              type="checkbox"
-              checked={aiAllowSend}
-              onChange={(e) => setAiAllowSend(e.target.checked)}
-              className="accent-[#7C3AED]"
-            />
-            <span className="text-[15px] text-[var(--text-sub)]">{t('ai.settings.allowSend')}</span>
-          </label>
-        </div>
+        <select
+          value={formProtocol}
+          onChange={(e) => setFormProtocol(e.target.value as ModelProtocol)}
+          className="w-full border rounded-input px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+        >
+          {PROTOCOL_OPTIONS.map((p) => (
+            <option key={p.value} value={p.value}>{p.label}</option>
+          ))}
+        </select>
       </div>
 
-      {/* 保存状态提示 */}
-      <div className="flex items-center gap-3">
-        {aiLoading && <p className="text-[13px] text-[var(--text-muted)]">Saving...</p>}
-        {saved && <p className="text-[13px] text-green-500">{t('settings.save')}</p>}
+      {/* 提供商 */}
+      <div>
+        <label className="text-[14px] text-[var(--text-primary)] font-medium mb-1 block">
+          {t('ai.settings.modelConfigs.provider', '提供商')}
+        </label>
+        <select
+          value={formProvider}
+          onChange={(e) => handleProviderChange(e.target.value)}
+          className="w-full border rounded-input px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+        >
+          {PROVIDER_OPTIONS.map((p) => (
+            <option key={p.value} value={p.value}>{p.label}</option>
+          ))}
+        </select>
       </div>
 
-      <div className="flex justify-end">
+      {/* Base URL */}
+      <div>
+        <label className="text-[14px] text-[var(--text-primary)] font-medium mb-1 block">
+          {t('ai.settings.modelConfigs.baseUrl', 'Base URL')}
+        </label>
+        <input
+          type="text"
+          value={formBaseUrl}
+          onChange={(e) => setFormBaseUrl(e.target.value)}
+          placeholder={PROTOCOL_BASE_URL_PLACEHOLDER[formProtocol]}
+          className="w-full border rounded-input px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+        />
+      </div>
+
+      {/* 模型名称 */}
+      <div>
+        <label className="text-[14px] text-[var(--text-primary)] font-medium mb-1 block">
+          {t('ai.settings.modelConfigs.model', '模型名称')}
+        </label>
+        <input
+          type="text"
+          value={formModel}
+          onChange={(e) => setFormModel(e.target.value)}
+          placeholder="e.g. gpt-4o / claude-sonnet-4-20250514"
+          className="w-full border rounded-input px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+        />
+      </div>
+
+      {/* API Key */}
+      <div>
+        <label className="text-[14px] text-[var(--text-primary)] font-medium mb-1 block">
+          {t('ai.settings.modelConfigs.apiKey', 'API Key')}
+        </label>
+        <input
+          type="password"
+          value={formApiKey}
+          onChange={(e) => setFormApiKey(e.target.value)}
+          placeholder="sk-..."
+          autoComplete="off"
+          className="w-full border rounded-input px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+        />
+      </div>
+
+      {/* 提示 */}
+      <p className="text-[12px] text-[var(--text-muted)]">
+        {t('ai.settings.modelConfigs.hint', '提供商会根据 Base URL 和模型名自动识别，保存后即可在 AI Agent 中选用')}
+      </p>
+
+      {/* 错误信息 */}
+      {formError && (
+        <p className="text-[13px] text-red-400">{formError}</p>
+      )}
+
+      {/* 按钮 */}
+      <div className="flex items-center justify-end gap-2 pt-1">
         <button
           type="button"
-          data-testid="model-form-save"
-          onClick={() => void handleSave()}
-          disabled={aiLoading}
-          className="px-3.5 py-1 text-[15px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 transition-opacity"
+          data-testid="model-config-cancel"
+          onClick={handleCancel}
+          className="px-3.5 py-1.5 text-[14px] rounded-input border border-[var(--border-color)] text-[var(--text-primary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
         >
-          {t('settings.save')}
+          {t('ai.settings.modelConfigs.cancel', '取消')}
+        </button>
+        <button
+          type="button"
+          data-testid="model-config-add"
+          onClick={() => void handleCreate()}
+          disabled={saving || !formModel.trim()}
+          className="px-3.5 py-1.5 text-[14px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 transition-opacity"
+        >
+          {saving ? '...' : t('ai.settings.modelConfigs.add', '添加配置')}
         </button>
       </div>
     </div>

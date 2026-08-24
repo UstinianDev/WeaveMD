@@ -14,8 +14,8 @@ import { useAgentStore } from '@render/stores/agentStore';
 import { useEditorStore } from '@render/stores/editorStore';
 import { useRewriteStore } from '@render/stores/rewriteStore';
 import AIMessageBubble from './AIMessageBubble';
+import AgentStepTimeline from './AgentStepTimeline';
 import IntentCard from './IntentCard';
-import ToolCallTrace from './ToolCallTrace';
 import RewritePreviewCard from './RewritePreviewCard';
 import FileOpPreviewCard from './FileOpPreviewCard';
 
@@ -80,6 +80,7 @@ const AgentTab: React.FC = () => {
             content={m.content}
             refsJson={isAgentMode ? m.refsJson : null}
             responseTime={m.responseTime}
+            createdAt={m.createdAt}
             onCopy={() => {
               void navigator.clipboard.writeText(m.content);
             }}
@@ -129,15 +130,12 @@ const AgentTab: React.FC = () => {
         />
       )}
 
-      {/* agent 模式：工具轨迹（当前轮累积，与消息列表共存——空消息也可显示轨迹） */}
-      {isAgentMode &&
-        toolCalls.length > 0 && (
-          <div className="space-y-1.5">
-            {toolCalls.map((call) => (
-              <ToolCallTrace key={call.toolCallId} call={call} />
-            ))}
-          </div>
-        )}
+      {/* agent 模式：工具轨迹分步时间线（按轮次分组，thinking 折叠） */}
+      {isAgentMode && toolCalls.length > 0 && (
+        <div className="px-1">
+          <AgentStepTimeline toolCalls={toolCalls} isStreaming={isStreaming} />
+        </div>
+      )}
 
       {/* 流式增量打字指示 */}
       {isStreaming && (

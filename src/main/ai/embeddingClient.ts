@@ -52,7 +52,9 @@ export async function createEmbedding(req: EmbeddingRequest): Promise<EmbeddingR
     throw makeError('config_incomplete', 'Embedding API key is required');
   }
 
-  const url = `${req.baseUrl.replace(/\/+$/, '')}/embeddings`;
+  // 规范化 baseUrl：去除尾部 /v1 和 /，统一补 /v1
+  const normalizedBase = req.baseUrl.replace(/\/+$/, '').replace(/\/v1$/, '');
+  const url = `${normalizedBase}/v1/embeddings`;
 
   let response: Response;
   try {

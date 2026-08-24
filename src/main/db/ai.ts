@@ -40,6 +40,8 @@ export interface AiConfigRow {
   kbFuse: number;
   kbThreshold: number;
   kbPinnedWeight: number;
+  // ---- ai-settings-redesign：多模型配置激活 ID ----
+  activeModelConfigId: string | null;
 }
 
 interface AiConfigDbRow {
@@ -59,6 +61,7 @@ interface AiConfigDbRow {
   kb_fuse: number | null;
   kb_threshold: number | null;
   kb_pinned_weight: number | null;
+  active_model_config_id: string | null;
   // 遗留列（kb_embedding_host / kb_embedding_model）不再读取/写入，保留 NULL
 }
 
@@ -88,6 +91,7 @@ function mapConfigRow(row: AiConfigDbRow): AiConfigRow {
     kbFuse: kb.fuse,
     kbThreshold: kb.threshold,
     kbPinnedWeight: kb.pinnedWeight,
+    activeModelConfigId: row.active_model_config_id ?? null,
   };
 }
 

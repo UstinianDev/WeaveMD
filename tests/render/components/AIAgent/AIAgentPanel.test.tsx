@@ -140,11 +140,10 @@ describe('AIAgentPanel（三视图外壳）', () => {
     expect(initSpy).toHaveBeenCalledWith(MOCK_USER.id);
   });
 
-  it('顶部栏品牌「WeaveMD」+ 新建(+) + 设置(⚙) + 关闭(✕) 存在', () => {
+  it('顶部栏品牌「WeaveMD」+ 新建(+) + 关闭(✕) 存在', () => {
     render(<AIAgentPanel />);
     expect(screen.getByText('WeaveMD')).toBeInTheDocument();
     expect(screen.getByTestId('new-chat-btn')).toBeInTheDocument();
-    expect(screen.getByTestId('open-settings-btn')).toBeInTheDocument();
     expect(screen.getByTestId('close-panel-btn')).toBeInTheDocument();
   });
 
@@ -159,13 +158,6 @@ describe('AIAgentPanel（三视图外壳）', () => {
     fireEvent.click(screen.getByTestId('new-chat-btn'));
     expect(screen.getByTestId('view-session')).toBeInTheDocument();
     expect(screen.queryByTestId('view-home')).toBeNull();
-  });
-
-  it('点 ⚙ 设置 → toggleSettings 打开统一设置面板', () => {
-    render(<AIAgentPanel />);
-    expect(useUIStore.getState().isSettingsOpen).toBe(false);
-    fireEvent.click(screen.getByTestId('open-settings-btn'));
-    expect(useUIStore.getState().isSettingsOpen).toBe(true);
   });
 
   it('宽度拖拽把手存在（cursor-col-resize）', () => {

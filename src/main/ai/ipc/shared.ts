@@ -11,6 +11,7 @@ export function toIAIConfig(config: {
   remoteBaseUrl: string;
   model: string;
   apiKeyEnc: string | null;
+  activeModelConfigId?: string | null;
 }): IAIConfig {
   return {
     // 后端恒 remote（ollama 已去除，收敛标识）
@@ -18,6 +19,7 @@ export function toIAIConfig(config: {
     remoteBaseUrl: config.remoteBaseUrl,
     model: config.model,
     hasApiKey: !!config.apiKeyEnc,
+    ...(config.activeModelConfigId ? { activeModelConfigId: config.activeModelConfigId } : {}),
   };
 }
 
