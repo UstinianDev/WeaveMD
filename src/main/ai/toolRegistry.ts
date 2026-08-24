@@ -3,12 +3,29 @@
 // ============================================
 // 内置只读工具：listFiles / readFile / searchKB / runSkill + editBlocks（改写建议）。
 // 提案型写工具：createFile / createFolder（仅返回 proposal JSON，用户确认后渲染侧落盘）。
+// 分析工具：web_search / analyze_folder / check_links / get_task_activity。
 // 铁律一：无直接落盘工具——所有写路径必经预览确认。
 // 数据访问全部按 ctx.userId 隔离（SECURITY：即使工具参数含 user_id，也只以 ctx.userId 为准）。
 
 import type { IKbSearchResult, ToolDef } from '@shared/ai';
 import { getFile, listFiles } from '../db/files';
 import { runSkill, type CoreSkill, type SkillRunnerCtx } from './skillLoader';
+import {
+  askQuestionCardSchema,
+  executeAskQuestionCard,
+  type AskQuestionCardResult,
+} from './tools/askQuestionCard';
+import {
+  previewPatchFilesSchema,
+  executePreviewPatchFiles,
+} from './tools/previewPatchFiles';
+import { webSearchSchema, executeWebSearch } from './tools/webSearch';
+import { analyzeFolderSchema, executeAnalyzeFolder } from './tools/analyzeFolder';
+import { checkLinksSchema, executeCheckLinks } from './tools/checkLinks';
+import {
+  getTaskActivitySchema,
+  executeGetTaskActivity,
+} from './tools/getTaskActivity';
 
 export type ToolStatus = 'ok' | 'error';
 
@@ -51,6 +68,10 @@ export interface ToolCtx {
    * 供 editBlocks 产生改写建议；缺失时 editBlocks 拒绝执行。
    */
   currentDocument?: string;
+  /** better-sqlite3 数据库实例（供 get_task_activity 等需要 DB 访问的工具使用）。 */
+  db?: import('better-sqlite3').Database;
+  /** 当前会话 ID（供 get_task_activity 等工具默认使用）。 */
+  currentConversationId?: string;
 }
 
 /** 定义只读核心工具（OpenAI function JSON Schema）。含 editBlocks（仅产改写建议，不落盘）。 */
@@ -169,6 +190,12 @@ export function defineCoreTools(): ToolDef[] {
         },
       },
     },
+    askQuestionCardSchema,
+    previewPatchFilesSchema,
+    webSearchSchema,
+    analyzeFolderSchema,
+    checkLinksSchema,
+    getTaskActivitySchema,
   ];
 }
 
@@ -376,6 +403,142 @@ export async function executeTool(
           parentPath: folderParentPath,
         }),
         status: 'ok',
+      };
+    }
+
+    case 'preview_patch_files': {
+      const rawPatches = argObj.patches;
+      if (!Array.isArray(rawPatches)) {
+        return {
+          content: '',
+          status: 'error',
+          errorDesc: 'preview_patch_files: 缺少 patches 数组',
+        };
+      }
+      // 运行时类型收窄：逐项提取所需字段
+      const patches: import('@shared/ai').IPatchFile[] = [];
+      for (const item of rawPatches) {
+        if (!item || typeof item !== 'object') {
+          return {
+            content: '',
+            status: 'error',
+            errorDesc: 'preview_patch_files: patches 元素必须为对象',
+          };
+        }
+        const rec = item as Record<string, unknown>;
+        const filePath = typeof rec.filePath === 'string' ? rec.filePath : '';
+        const oldContent = typeof rec.oldContent === 'string' ? rec.oldContent : '';
+        const newContent = typeof rec.newContent === 'string' ? rec.newContent : '';
+        if (!filePath) {
+          return {
+            content: '',
+            status: 'error',
+            errorDesc: 'preview_patch_files: 每项须含非空 filePath',
+          };
+        }
+        patches.push({ filePath, oldContent, newContent });
+      }
+      const result = executePreviewPatchFiles({ patches });
+      return {
+        content: JSON.stringify(result),
+        status: result.success ? 'ok' : 'error',
+        errorDesc: result.error,
+      };
+    }
+
+    case 'web_search': {
+      const searchResult = await executeWebSearch(argObj, ctx.userId);
+      if (!searchResult.success) {
+        return {
+          content: '',
+          status: 'error',
+          errorDesc: searchResult.error || 'Web search failed',
+        };
+      }
+      return {
+        content: JSON.stringify({
+          provider: searchResult.provider,
+          results: searchResult.results,
+          count: searchResult.results.length,
+        }),
+        status: 'ok',
+      };
+    }
+
+    case 'analyze_folder': {
+      const result = executeAnalyzeFolder(ctx.userId, argObj);
+      return {
+        content: result.success ? JSON.stringify(result.analysis) : '',
+        status: result.success ? 'ok' : 'error',
+        errorDesc: result.error,
+      };
+    }
+
+    case 'check_links': {
+      const result = executeCheckLinks(ctx.userId, argObj);
+      return {
+        content: result.success ? JSON.stringify(result) : '',
+        status: result.success ? 'ok' : 'error',
+        errorDesc: result.error,
+      };
+    }
+
+    case 'ask_question_card': {
+      const raw = argObj.questions;
+      if (!Array.isArray(raw)) {
+        return {
+          content: '',
+          status: 'error',
+          errorDesc: 'ask_question_card: 缺少 questions 数组',
+        };
+      }
+      // 运行时类型收窄：逐项提取所需字段
+      const questions = raw.map((item) => {
+        const rec = item as Record<string, unknown>;
+        return {
+          id: typeof rec.id === 'string' ? rec.id : '',
+          text: typeof rec.text === 'string' ? rec.text : '',
+          type: typeof rec.type === 'string' ? rec.type : 'text',
+          options: Array.isArray(rec.options)
+            ? (rec.options as unknown[]).filter((o): o is string => typeof o === 'string')
+            : undefined,
+          dependsOn: typeof rec.dependsOn === 'string' ? rec.dependsOn : undefined,
+          condition: typeof rec.condition === 'string' ? rec.condition : undefined,
+        };
+      });
+      const result: AskQuestionCardResult = executeAskQuestionCard({
+        questions: questions as Parameters<typeof executeAskQuestionCard>[0]['questions'],
+      });
+      return {
+        content: JSON.stringify(result),
+        status: result.success ? 'ok' : 'error',
+        errorDesc: result.error,
+      };
+    }
+
+    case 'get_task_activity': {
+      if (!ctx.db) {
+        return {
+          content: '',
+          status: 'error',
+          errorDesc: 'get_task_activity: 数据库未就绪',
+        };
+      }
+      const conversationId =
+        typeof argObj.conversationId === 'string'
+          ? argObj.conversationId
+          : undefined;
+      const limit = typeof argObj.limit === 'number' ? argObj.limit : undefined;
+      const result = executeGetTaskActivity(
+        ctx.db,
+        { conversationId, limit },
+        ctx.userId,
+        ctx.currentConversationId
+      );
+      return {
+        content: result.success ? JSON.stringify(result.tasks) : '',
+        status: result.success ? 'ok' : 'error',
+        errorDesc: result.error,
       };
     }
 

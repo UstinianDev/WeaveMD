@@ -449,3 +449,144 @@ export interface AIModelConfigPayload {
   apiKey?: string;
   hint?: string;
 }
+
+// ============================================
+// Agent 会话/任务/检查点/事件/快照 共享类型
+// ============================================
+
+/** Agent 会话状态（10+ 状态生命周期）。 */
+export type AgentSessionStatus =
+  | 'created'
+  | 'queued'
+  | 'running'
+  | 'waiting_interaction'           // 等待用户回答问题
+  | 'waiting_operation_confirmation' // 等待用户确认文件操作
+  | 'waiting_limit'                 // 接近最大轮次限制
+  | 'waiting_retry'                 // 可恢复的 LLM 错误
+  | 'waiting_model_recovery'        // 模型不可用
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'superseded';
+
+/** Agent 任务状态。 */
+export type AgentTaskStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'superseded';
+
+/** Agent 会话（agent_sessions 表行映射）。 */
+export interface AgentSession {
+  id: string;
+  conversationId: string;
+  taskId: string | null;
+  userId: string;
+  status: AgentSessionStatus;
+  roundsUsed: number;
+  maxRounds: number;
+  intentJson: string | null;
+  checkpointJson: string | null;
+  snapshotJson: string | null;
+  leaseOwner: string | null;
+  leaseExpiresAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Agent 任务（agent_tasks 表行映射）。 */
+export interface AgentTask {
+  id: string;
+  conversationId: string;
+  userId: string;
+  message: string;
+  status: AgentTaskStatus;
+  priority: number;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  payloadJson: string;
+}
+
+/** Agent 检查点（用于断点续跑/状态恢复）。 */
+export interface AgentCheckpoint {
+  sessionId: string;
+  roundIndex: number;
+  llmMessages: AgentLlmMessage[];
+  toolCallsHistory: IAgentToolCall[];
+  roundsUsed: number;
+  reasoningTokenCount: number | null;
+  intent: IIntent | null;
+}
+
+/** Agent 运行事件（agent_events 表行映射，SSE 推送载荷）。 */
+export interface AgentRunEvent {
+  id: string;
+  sessionId: string;
+  conversationId: string;
+  seq: number;
+  eventType: 'chunk' | 'tool' | 'done' | 'error' | 'checkpoint' | 'state_change';
+  payloadJson: string;
+  createdAt: string;
+}
+
+/** Agent 文件快照（快照还原：操作前文件内容备份）。 */
+export interface AgentFileSnapshot {
+  id: string;
+  sessionId: string;
+  userId: string;
+  fileId: string;
+  fileName: string;
+  content: string;
+  createdAt: string;
+}
+
+// ============================================
+// ClarifyQuestion / PatchPreview 结构化工具类型
+// ============================================
+
+/** 结构化提问卡片（ask_question_card 工具返回）。 */
+export interface IClarifyQuestion {
+  id: string;
+  text: string;
+  type: 'text' | 'choice' | 'confirm';
+  options?: string[];
+  dependsOn?: string;
+  condition?: string;
+}
+
+/** 结构化提问会话状态。 */
+export interface IClarifySession {
+  questions: IClarifyQuestion[];
+  answers: Record<string, string>;
+  phase: 'asking' | 'answered' | 'expired';
+}
+
+/** 补丁预览单文件。 */
+export interface IPatchFile {
+  filePath: string;
+  oldContent: string;
+  newContent: string;
+}
+
+/** 补丁预览（preview_patch_files 工具返回）。 */
+export interface IPatchPreview {
+  files: IPatchFile[];
+  status: 'pending' | 'applied' | 'discarded' | 'rolled_back';
+}
+
+// ============================================
+// Agent LLM 消息（检查点序列化用）
+// ============================================
+
+/** LLM 消息（OpenAI 兼容格式，检查点保存/恢复用）。 */
+export interface AgentLlmMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string;
+  tool_call_id?: string;
+  name?: string;
+}

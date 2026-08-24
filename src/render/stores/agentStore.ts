@@ -244,10 +244,16 @@ function createStreamManager(
         return;
       }
       if (evt.type === 'done') {
+        // 清理流监听器，防止残留
+        unsub?.();
+        unsub = null;
         opts.finishAndPersist();
         return;
       }
       if (evt.type === 'error') {
+        // 清理流监听器
+        unsub?.();
+        unsub = null;
         // 将错误信息追加到 messages 中，让用户看到具体错误
         const errorMsg: IAIMessage = {
           id: makeId(),
@@ -261,6 +267,7 @@ function createStreamManager(
           isStreaming: false,
           streamUnsubscribe: null,
           streamBuffer: '',
+          processStatus: 'idle',
           messages: [...s.messages, errorMsg],
         }));
       }
@@ -466,6 +473,47 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             /* 非 JSON 结果忽略 */
           }
         }
+        // 检测 editBlocks proposal → 触发 RewritePreviewCard（动态导入避免循环依赖）
+        if (toolCall.name === 'editBlocks' && toolCall.status === 'ok') {
+          try {
+            const result = JSON.parse(toolCall.result ?? '{}') as Record<string, unknown>;
+            const proposed = Array.isArray(result.proposed) ? result.proposed : [];
+            if (proposed.length > 0) {
+              const currentDoc = useEditorStore.getState().content;
+              // 动态导入避免循环依赖（rewriteStore 已导入 agentStore）
+              void import('./rewriteStore').then(({ useRewriteStore }) => {
+                const proposals: Array<{
+                  fileName: string;
+                  originalMd: string;
+                  rewrittenMd: string;
+                  status: 'pending';
+                }> = [];
+                for (const op of proposed) {
+                  if (!op || typeof op !== 'object') continue;
+                  const rec = op as Record<string, unknown>;
+                  const blockId = typeof rec.block_id === 'string' ? rec.block_id : '';
+                  const newContent = typeof rec.new_content === 'string' ? rec.new_content : '';
+                  if (!blockId || !newContent) continue;
+                  proposals.push({
+                    fileName: blockId,
+                    originalMd: currentDoc,
+                    rewrittenMd: newContent,
+                    status: 'pending' as const,
+                  });
+                }
+                if (proposals.length > 0) {
+                  useRewriteStore.setState({
+                    pendingMultiRewrite: proposals,
+                    rewriting: false,
+                    rewriteError: null,
+                  });
+                }
+              });
+            }
+          } catch {
+            /* 非 JSON 结果忽略 */
+          }
+        }
       },
       finishAndPersist: appendAssistant,
     }, set, get);
@@ -488,16 +536,50 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       if (!res.success && failedCode === 'consent_required') {
         // 服务端同意闸未过（联网闸兜底）：弹同意页而非静默丢弃，同意后用户重发。
         mgr.finishWithoutPersist();
-        set({ pendingConsent: true });
+        set({ pendingConsent: true, isStreaming: false, processStatus: 'idle' });
         return;
       }
-      if (res.success && res.data) {
-        const { intent } = res.data;
-        set(intent ? { intentCard: intent } : { intentCard: null });
+      if (!res.success) {
+        // 清理流监听器（流式 error 事件可能已先清理，此处兜底）
+        mgr.finishWithoutPersist();
+        // 其他失败（网络/超时/配置等）：流式 error 事件可能已先到达，
+        // 但如果还没到（竞态），此处补充错误消息
+        const errMsg = (res as unknown as { message?: string }).message ?? failedCode ?? '未知错误';
+        // 检查是否已有 error 消息（流式事件可能已添加）
+        const { messages: currentMessages } = get();
+        const hasErrorMsg = currentMessages.some(
+          (m) => m.role === 'assistant' && m.content.startsWith('⚠️')
+        );
+        if (!hasErrorMsg) {
+          const errorMsg: IAIMessage = {
+            id: makeId(),
+            conversationId: conversationId ?? '',
+            role: 'assistant',
+            content: `⚠️ 请求失败：${errMsg}`,
+            refsJson: null,
+            createdAt: new Date().toISOString(),
+          };
+          set((s) => ({
+            isStreaming: false,
+            streamUnsubscribe: null,
+            streamBuffer: '',
+            processStatus: 'idle',
+            messages: [...s.messages, errorMsg],
+          }));
+        }
+        return;
+      }
+      // 异步入队成功：返回 { taskId, status: 'queued' }
+      // 实际结果通过 SSE 推送（AI_STREAM_CHUNK/DONE/ERROR），无需在此处理
+      const queueData = (res as unknown as { data?: { taskId?: string; status?: string } }).data;
+      if (queueData?.taskId) {
+        // 入队成功，等待 SSE 事件驱动后续流程
+        set({ processStatus: 'thinking' });
       }
     } catch (err) {
+      // 清理流监听器
+      mgr.finishWithoutPersist();
       if ((err as { code?: string })?.code === 'consent_required') {
-        mgr.finishWithoutPersist();
         set({ pendingConsent: true, processStatus: 'idle' });
         return;
       }

@@ -5,7 +5,7 @@
 // 列表项：provider - model 格式。选中 → modelConfigs.activate IPC。
 // 降级：modelConfigs 为空时显示手动输入。无 dangerouslySetInnerHTML、无 any。
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
 import { useAgentStore } from '@render/stores/agentStore';
@@ -22,6 +22,29 @@ const ModelDropdown: React.FC = () => {
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [open, setOpen] = useState(false);
   const [manualValue, setManualValue] = useState(config?.model ?? '');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // 搜索防抖 300ms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // 过滤后的模型列表
+  const filteredModelConfigs = useMemo(() => {
+    if (!debouncedQuery) return modelConfigs;
+    const query = debouncedQuery.toLowerCase();
+    return modelConfigs.filter(
+      (mc) =>
+        mc.name.toLowerCase().includes(query) ||
+        mc.provider.toLowerCase().includes(query) ||
+        mc.model.toLowerCase().includes(query),
+    );
+  }, [modelConfigs, debouncedQuery]);
 
   // 挂载时拉取模型配置列表
   useEffect(() => {
@@ -78,6 +101,24 @@ const ModelDropdown: React.FC = () => {
     }
   };
 
+  // 下拉关闭时清空搜索
+  useEffect(() => {
+    if (!open) {
+      setSearchQuery('');
+      setDebouncedQuery('');
+    }
+  }, [open]);
+
+  // 下拉打开时聚焦搜索框
+  useEffect(() => {
+    if (open && loadState === 'ok' && modelConfigs.length > 0) {
+      // 延迟一帧确保 DOM 已渲染
+      requestAnimationFrame(() => {
+        searchInputRef.current?.focus();
+      });
+    }
+  }, [open, loadState, modelConfigs.length]);
+
   // 按钮标签：有激活配置显示 provider - model；否则显示手动值/当前配置
   const buttonLabel = activeConfig
     ? `${activeConfig.provider} - ${activeConfig.model}`
@@ -102,13 +143,36 @@ const ModelDropdown: React.FC = () => {
           data-testid="model-dropdown-panel"
           className="absolute right-0 bottom-full mb-1 z-50 w-64 rounded-input border border-[var(--border-color)] bg-[var(--bg-secondary)] shadow-lg py-1 max-h-64 overflow-y-auto"
         >
-          {/* 配置列表 */}
+          {/* 搜索框 */}
           {loadState === 'ok' && modelConfigs.length > 0 && (
+            <div className="px-2 py-1.5 border-b border-[var(--border-color)]">
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    if (searchQuery) {
+                      setSearchQuery('');
+                    } else {
+                      setOpen(false);
+                    }
+                  }
+                }}
+                placeholder="搜索模型..."
+                className="w-full px-2 py-1 text-[12px] bg-[var(--bg-primary)] text-[var(--text-primary)] rounded border border-[var(--border-color)] focus:border-[var(--accent)] outline-none placeholder:text-[var(--text-muted)]"
+              />
+            </div>
+          )}
+
+          {/* 配置列表 */}
+          {loadState === 'ok' && filteredModelConfigs.length > 0 && (
             <>
               <div className="px-3 pt-1.5 pb-1 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">
                 {t('ai.modelDropdown.label')}
               </div>
-              {modelConfigs.map((mc) => {
+              {filteredModelConfigs.map((mc) => {
                 const isActive = mc.id === activeModelConfigId;
                 return (
                   <button
@@ -129,6 +193,13 @@ const ModelDropdown: React.FC = () => {
               })}
               <div className="mx-2 my-1 border-t border-[var(--border-color)]" />
             </>
+          )}
+
+          {/* 搜索无结果 */}
+          {loadState === 'ok' && modelConfigs.length > 0 && debouncedQuery && filteredModelConfigs.length === 0 && (
+            <div className="px-3 py-2 text-[12px] text-[var(--text-muted)]">
+              未找到匹配的模型
+            </div>
           )}
 
           {/* 无配置提示 */}

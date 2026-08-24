@@ -7,7 +7,8 @@ import { createMainWindow } from './window';
 import { registerAllIpcHandlers } from './ipc-handlers';
 import { initAutoUpdater } from './update';
 import { MEDIA_SCHEME_PRIVILEGES, registerMediaProtocol } from './media-protocol';
-import { initDatabase, closeDatabase } from './db/index';
+import { initDatabase, closeDatabase, getDatabase } from './db/index';
+import { initAgentQueue, cleanupAgentQueue } from './ai/ipc';
 
 // Register media:// as a privileged scheme so http dev pages can fetch/stream
 // local images. Must be called before app ready (top-level), see Electron docs:
@@ -50,10 +51,15 @@ app.whenReady().then(() => {
   registerAllIpcHandlers();
 
   // Create main window
-  createMainWindow();
+  const mainWindow = createMainWindow();
+
+  // Initialize agent task queue (after window creation, needs BrowserWindow ref)
+  const db = getDatabase();
+  initAgentQueue(db, mainWindow);
 });
 
 app.on('window-all-closed', () => {
+  cleanupAgentQueue();
   closeDatabase();
   if (process.platform !== 'darwin') {
     app.quit();
@@ -67,5 +73,6 @@ app.on('activate', () => {
 });
 
 app.on('before-quit', () => {
+  cleanupAgentQueue();
   closeDatabase();
 });

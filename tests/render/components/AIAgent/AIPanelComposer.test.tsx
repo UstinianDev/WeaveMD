@@ -51,7 +51,7 @@ vi.mock('@render/i18n', () => ({
 }));
 
 const defaultState = {
-  activeMode: 'agent' as 'agent',
+  activeMode: 'agent' as const,
   messages: [],
   isStreaming: false,
   streamBuffer: '',

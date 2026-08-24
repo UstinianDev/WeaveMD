@@ -204,6 +204,9 @@ function runMigrations(database: Database.Database): void {
   addEmbeddingConfigTable(database);
   addSearchConfigTable(database);
   addActiveModelConfigId(database);
+
+  // Agent 任务队列 / 会话 / 运行事件 / 文件快照
+  addAgentTables(database);
 }
 
 /**
@@ -338,4 +341,70 @@ function addActiveModelConfigId(database: Database.Database): void {
     .get();
   if (existing) return;
   database.exec("ALTER TABLE ai_config ADD COLUMN active_model_config_id TEXT DEFAULT NULL");
+}
+
+/** Agent 任务队列 / 会话 / 运行事件 / 文件快照四张表，幂等。 */
+function addAgentTables(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS agent_task_queue (
+      id              TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
+      user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      message         TEXT NOT NULL,
+      status          TEXT NOT NULL DEFAULT 'pending',
+      priority        INTEGER DEFAULT 0,
+      created_at      TEXT DEFAULT (datetime('now')),
+      started_at      TEXT,
+      completed_at    TEXT,
+      error_code      TEXT,
+      error_message   TEXT,
+      payload_json    TEXT DEFAULT '{}'
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_task_queue_status ON agent_task_queue(status);
+    CREATE INDEX IF NOT EXISTS idx_agent_task_queue_conv ON agent_task_queue(conversation_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_task_queue_user ON agent_task_queue(user_id);
+
+    CREATE TABLE IF NOT EXISTS agent_sessions (
+      id              TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
+      task_id         TEXT REFERENCES agent_task_queue(id) ON DELETE SET NULL,
+      user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status          TEXT NOT NULL DEFAULT 'created',
+      rounds_used     INTEGER DEFAULT 0,
+      max_rounds      INTEGER DEFAULT 20,
+      intent_json     TEXT,
+      checkpoint_json TEXT,
+      snapshot_json   TEXT,
+      lease_owner     TEXT,
+      lease_expires_at TEXT,
+      created_at      TEXT DEFAULT (datetime('now')),
+      updated_at      TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_sessions_conv ON agent_sessions(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_sessions_task ON agent_sessions(task_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_sessions_status ON agent_sessions(status);
+
+    CREATE TABLE IF NOT EXISTS agent_run_events (
+      id              TEXT PRIMARY KEY,
+      session_id      TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      conversation_id TEXT NOT NULL,
+      seq             INTEGER NOT NULL,
+      event_type      TEXT NOT NULL,
+      payload_json    TEXT NOT NULL,
+      created_at      TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_run_events_session ON agent_run_events(session_id, seq);
+    CREATE INDEX IF NOT EXISTS idx_agent_run_events_conv ON agent_run_events(conversation_id, seq);
+
+    CREATE TABLE IF NOT EXISTS agent_file_snapshots (
+      id              TEXT PRIMARY KEY,
+      session_id      TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      user_id         TEXT NOT NULL,
+      file_id         TEXT NOT NULL,
+      file_name       TEXT NOT NULL,
+      content         TEXT NOT NULL,
+      created_at      TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_file_snapshots_session ON agent_file_snapshots(session_id);
+  `);
 }

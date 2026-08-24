@@ -115,6 +115,9 @@ export const IPC_CHANNELS = {
   AGENT_ABORT: 'agent:abort',
   // AI — Agent（第7期 B1）技能清单（只读，渲染补全菜单用）
   AGENT_SKILLS_LIST: 'agent:skills:list',
+  // AI — Agent task queue（异步入队）
+  AGENT_TASK_STATUS: 'agent:task:status',
+  AGENT_TASK_CANCEL: 'agent:task:cancel',
 
   // AI — block rewrite (第5期) invoke
   AI_REWRITE_PREVIEW: 'ai:rewrite:preview',
@@ -143,6 +146,15 @@ export const IPC_CHANNELS = {
   // AI — 搜索配置 CRUD（ai-settings-redesign）
   AI_SEARCH_GET_CONFIG: 'ai:search:get-config',
   AI_SEARCH_SET_CONFIG: 'ai:search:set-config',
+
+  // AI — conversation export (第 8 期)
+  AI_CONVERSATION_EXPORT: 'ai:conversation:export',
+
+  // AI — conversation search
+  AI_CONVERSATION_SEARCH: 'ai:conversation:search',
+
+  // AI — message edit（编辑用户消息并删除后续消息）
+  AI_MESSAGE_EDIT: 'ai:message:edit',
 
   // AI — stream push (main -> render, webContents.send)
   AI_STREAM_CHUNK: 'ai:stream:chunk',

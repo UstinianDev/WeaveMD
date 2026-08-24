@@ -13,7 +13,7 @@
 import { registerConfigConsentHandlers } from './configConsentHandlers';
 import { registerChatHandlers } from './chatHandlers';
 import { registerKbHandlers } from './kbHandlers';
-import { registerAgentHandlers } from './agentHandlers';
+import { registerAgentHandlers, initAgentQueue, cleanupAgentQueue } from './agentHandlers';
 import { registerRewriteHandlers } from './rewriteHandlers';
 import { registerModelHandlers } from './modelHandlers';
 import { registerEmbeddingHandlers } from './embeddingHandlers';
@@ -21,6 +21,8 @@ import { registerSearchHandlers } from './searchHandlers';
 import { registerModelConfigHandlers } from './modelConfigHandlers';
 import { registerEmbeddingConfigHandlers } from './embeddingConfigHandlers';
 import { registerSearchConfigHandlers } from './searchConfigHandlers';
+
+export { initAgentQueue, cleanupAgentQueue } from './agentHandlers';
 
 export function registerAiIpcHandlers(): void {
   registerConfigConsentHandlers();

@@ -131,6 +131,20 @@ export interface WeaveMDApi {
       conversationId: string,
       userId: string
     ) => Promise<IpcResponse<{ deleted: boolean }>>;
+    searchConversations: (
+      userId: string,
+      query: string
+    ) => Promise<IpcResponse<IAIConversation[]>>;
+    exportConversation: (
+      conversationId: string,
+      userId: string
+    ) => Promise<IpcResponse<{ success: boolean; markdown?: string; error?: string }>>;
+    editMessage: (
+      userId: string,
+      conversationId: string,
+      messageId: string,
+      newContent: string
+    ) => Promise<IpcResponse<{ deletedMessages: number; cancelledTasks: number }>>;
     updateConversationSummary: (
       conversationId: string,
       userId: string,
@@ -319,6 +333,12 @@ const api: WeaveMDApi = {
       ipcRenderer.invoke(IPC_CHANNELS.AI_CONVERSATION_CREATE, userId, mode),
     deleteConversation: (conversationId, userId) =>
       ipcRenderer.invoke(IPC_CHANNELS.AI_CONVERSATION_DELETE, conversationId, userId),
+    searchConversations: (userId, query) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_CONVERSATION_SEARCH, userId, query),
+    exportConversation: (conversationId, userId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_CONVERSATION_EXPORT, conversationId, userId),
+    editMessage: (userId, conversationId, messageId, newContent) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_MESSAGE_EDIT, userId, conversationId, messageId, newContent),
     updateConversationSummary: (conversationId, userId, summary) =>
       ipcRenderer.invoke(IPC_CHANNELS.AI_SUMMARY_UPDATE, conversationId, userId, summary),
     runAgent: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_RUN, payload),
@@ -376,6 +396,8 @@ const api: WeaveMDApi = {
           status: 'ok' | 'error';
           result?: string;
           errorDesc?: string;
+          thinking?: string;
+          loopIndex?: number;
         }) => ({
           type: 'tool',
           conversationId: p.conversationId,
@@ -385,6 +407,8 @@ const api: WeaveMDApi = {
           status: p.status,
           ...(p.result !== undefined ? { result: p.result } : {}),
           ...(p.errorDesc !== undefined ? { errorDesc: p.errorDesc } : {}),
+          ...(p.thinking !== undefined ? { thinking: p.thinking } : {}),
+          ...(p.loopIndex !== undefined ? { loopIndex: p.loopIndex } : {}),
         })
       );
       return () => {

@@ -29,6 +29,8 @@ export interface AgentLoopDeps {
   searchKb?: SearchKbFn;
   /** 用户 consent 快照（缺省视为未授权，安全默认）。 */
   consent?: IAIConsent;
+  /** better-sqlite3 数据库实例（供 get_task_activity 等需要 DB 访问的工具使用）。 */
+  db?: import('better-sqlite3').Database;
 }
 
 interface AgentReqPayload {
@@ -122,6 +124,9 @@ function toolsForIntent(
   if (intent.intent === 'rewrite' && !!currentDocument) {
     return all.filter((t) => t.function.name === 'editBlocks');
   }
+  if (intent.intent === 'web') {
+    return all.filter((t) => t.function.name === 'web_search');
+  }
   if (intent.intent === 'tech' || intent.intent === 'create') {
     return all.filter((t) =>
       ['listFiles', 'readFile', 'runSkill'].includes(t.function.name)
@@ -198,6 +203,10 @@ export async function runAgentFlow(
     skills,
     // 只读文档上下文（editBlocks 改写建议用；不落盘，铁律一）
     currentDocument: payload.currentDocument,
+    // DB 实例（供 get_task_activity 等工具使用）
+    db: deps.db,
+    // 当前会话 ID（供 get_task_activity 默认使用）
+    currentConversationId: payload.conversationId,
   };
 
   // KB 检索外发授权：allowSend 已授权才提供 searchKB 工具（未授权则笔记不外发，降级普通作答）。

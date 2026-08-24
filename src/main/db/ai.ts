@@ -327,3 +327,66 @@ export function getMessagesByConversation(
 export function assertConversationOwned(conversationId: string, userId: string): boolean {
   return getConversation(conversationId, userId) !== null;
 }
+
+// ---------------------------------------------------------------------------
+// 消息编辑 / 删除后续
+// ---------------------------------------------------------------------------
+
+/** 删除指定消息之后的所有消息（按 created_at 排序）。返回被删除行数。 */
+export function deleteMessagesAfter(
+  conversationId: string,
+  messageId: string
+): number {
+  const db = getDatabase();
+  const target = db
+    .prepare('SELECT created_at FROM ai_messages WHERE id = ? AND conversation_id = ?')
+    .get(messageId, conversationId) as { created_at: string } | undefined;
+  if (!target) return 0;
+
+  const info = db
+    .prepare('DELETE FROM ai_messages WHERE conversation_id = ? AND created_at > ?')
+    .run(conversationId, target.created_at);
+  return info.changes;
+}
+
+/** 更新消息内容。返回是否成功（消息存在）。 */
+export function updateMessageContent(
+  messageId: string,
+  content: string
+): boolean {
+  const db = getDatabase();
+  const info = db
+    .prepare('UPDATE ai_messages SET content = ? WHERE id = ?')
+    .run(content, messageId);
+  return info.changes > 0;
+}
+
+// ---------------------------------------------------------------------------
+// 搜索对话（按标题 + 消息内容）
+// ---------------------------------------------------------------------------
+
+export function searchConversations(
+  userId: string,
+  query: string,
+  limit: number = 20
+): IAIConversation[] {
+  const db = getDatabase();
+  const searchTerm = `%${query}%`;
+
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT c.*
+       FROM ai_conversations c
+       LEFT JOIN ai_messages m ON c.id = m.conversation_id
+       WHERE c.user_id = ?
+         AND (
+           c.summary LIKE ?
+           OR m.content LIKE ?
+         )
+       ORDER BY c.updated_at DESC
+       LIMIT ?`
+    )
+    .all(userId, searchTerm, searchTerm, limit) as AiConversationDbRow[];
+
+  return rows.map(mapConversationRow);
+}

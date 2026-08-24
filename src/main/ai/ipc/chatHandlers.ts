@@ -15,16 +15,22 @@ import {
   assertConversationOwned,
   createConversation,
   deleteConversation,
+  deleteMessagesAfter,
   getAiConfig,
   getConversation,
   getMessagesByConversation,
   listConversationsByUser,
+  searchConversations,
   updateConversationSummary,
+  updateMessageContent,
 } from '../../db/ai';
+import { cancelPendingByConversation } from '../../db/agentTaskDao';
+import { getDatabase } from '../../db/index';
 import { decryptApiKey } from '../secureConfig';
 import { needsConsent } from '../consent';
 import { streamChatCompletion } from '../llmClient';
 import { activeStreams, DEFAULT_AI_CONFIG, DEFAULT_CONSENT, sendStream, toIAIConfig, toIAIConsent } from './shared';
+import { exportConversationToMarkdown } from '../conversationExport';
 
 interface ChatReqPayload {
   userId: string;
@@ -85,6 +91,21 @@ export function registerChatHandlers(): void {
   );
 
   ipcMain.handle(
+    IPC_CHANNELS.AI_CONVERSATION_SEARCH,
+    (_event, userId: string, query: string) => {
+      try {
+        if (!query || typeof query !== 'string' || !query.trim()) {
+          return { success: true, data: [] };
+        }
+        const conversations = searchConversations(userId, query.trim());
+        return { success: true, data: conversations };
+      } catch (error) {
+        return { success: false, message: 'Failed to search conversations' };
+      }
+    }
+  );
+
+  ipcMain.handle(
     IPC_CHANNELS.AI_SUMMARY_UPDATE,
     (_event, conversationId: string, userId: string, summary: string) => {
       try {
@@ -93,6 +114,72 @@ export function registerChatHandlers(): void {
         return { success: true, data: conversation };
       } catch (error) {
         return { success: false, message: 'Failed to update summary' };
+      }
+    }
+  );
+
+  // --- edit message (编辑用户消息并删除后续消息) ---
+  ipcMain.handle(
+    IPC_CHANNELS.AI_MESSAGE_EDIT,
+    (_event, userId: string, conversationId: string, messageId: string, newContent: string) => {
+      try {
+        // 验证会话归属
+        if (!assertConversationOwned(conversationId, userId)) {
+          return { success: false, message: 'Conversation not found' };
+        }
+
+        // 验证消息归属与角色
+        const db = getDatabase();
+        const message = db
+          .prepare(
+            `SELECT m.role, m.conversation_id
+             FROM ai_messages m
+             WHERE m.id = ? AND m.conversation_id = ?`
+          )
+          .get(messageId, conversationId) as { role: string; conversation_id: string } | undefined;
+
+        if (!message) {
+          return { success: false, message: 'Message not found' };
+        }
+
+        if (message.role !== 'user') {
+          return { success: false, message: 'Can only edit user messages' };
+        }
+
+        // 更新消息内容
+        updateMessageContent(messageId, newContent);
+
+        // 删除后续消息
+        const deletedMessages = deleteMessagesAfter(conversationId, messageId);
+
+        // 取消待处理/运行中的任务
+        const cancelledTasks = cancelPendingByConversation(db, conversationId);
+
+        return {
+          success: true,
+          data: { deletedMessages, cancelledTasks },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          message: `Edit message failed: ${error instanceof Error ? error.message : String(error)}`,
+        };
+      }
+    }
+  );
+
+  // --- export conversation to markdown ---
+  ipcMain.handle(
+    IPC_CHANNELS.AI_CONVERSATION_EXPORT,
+    (_event, conversationId: string, userId: string) => {
+      try {
+        const db = getDatabase();
+        return exportConversationToMarkdown(db, conversationId, userId);
+      } catch (error) {
+        return {
+          success: false,
+          error: `Export failed: ${error instanceof Error ? error.message : String(error)}`,
+        };
       }
     }
   );

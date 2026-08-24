@@ -29,9 +29,9 @@ function makeCtx(over: Partial<ToolCtx> = {}): ToolCtx {
 }
 
 describe('toolRegistry.defineCoreTools', () => {
-  it('defines exactly the 7 tools (listFiles/readFile/searchKB/runSkill/editBlocks/createFile/createFolder)', () => {
+  it('defines exactly the 13 tools (listFiles/readFile/searchKB/runSkill/editBlocks/createFile/createFolder/ask_question_card/preview_patch_files/web_search/analyze_folder/check_links/get_task_activity)', () => {
     const names = defineCoreTools().map((t) => t.function.name);
-    expect(names).toEqual(['listFiles', 'readFile', 'searchKB', 'runSkill', 'editBlocks', 'createFile', 'createFolder']);
+    expect(names).toEqual(['listFiles', 'readFile', 'searchKB', 'runSkill', 'editBlocks', 'createFile', 'createFolder', 'ask_question_card', 'preview_patch_files', 'web_search', 'analyze_folder', 'check_links', 'get_task_activity']);
   });
 
   it('has valid OpenAI function schema for every tool', () => {
@@ -306,5 +306,103 @@ describe('toolRegistry.executeTool', () => {
     expect(res.status).toBe('ok');
     const parsed = JSON.parse(res.content);
     expect(parsed.parentPath).toBe('');
+  });
+
+  // ---- ask_question_card ----
+
+  it('ask_question_card returns session with phase=asking for valid questions', async () => {
+    const args = JSON.stringify({
+      questions: [
+        { id: 'q1', text: 'What is your goal?', type: 'text' },
+        {
+          id: 'q2',
+          text: 'Which style?',
+          type: 'choice',
+          options: ['formal', 'casual'],
+        },
+        { id: 'q3', text: 'Proceed?', type: 'confirm' },
+      ],
+    });
+    const res = await executeTool('ask_question_card', args, makeCtx());
+    expect(res.status).toBe('ok');
+    const parsed = JSON.parse(res.content);
+    expect(parsed.success).toBe(true);
+    expect(parsed.session.phase).toBe('asking');
+    expect(parsed.session.questions).toHaveLength(3);
+    expect(parsed.session.answers).toEqual({});
+  });
+
+  it('ask_question_card returns error for empty questions array', async () => {
+    const res = await executeTool(
+      'ask_question_card',
+      '{"questions":[]}',
+      makeCtx()
+    );
+    expect(res.status).toBe('error');
+    expect(res.errorDesc).toContain('1-5');
+  });
+
+  it('ask_question_card returns error for more than 5 questions', async () => {
+    const questions = Array.from({ length: 6 }, (_, i) => ({
+      id: `q${i}`,
+      text: `Question ${i}`,
+      type: 'text',
+    }));
+    const res = await executeTool(
+      'ask_question_card',
+      JSON.stringify({ questions }),
+      makeCtx()
+    );
+    expect(res.status).toBe('error');
+    expect(res.errorDesc).toContain('1-5');
+  });
+
+  it('ask_question_card returns error for missing questions array', async () => {
+    const res = await executeTool('ask_question_card', '{}', makeCtx());
+    expect(res.status).toBe('error');
+    expect(res.errorDesc).toContain('缺少 questions');
+  });
+
+  it('ask_question_card returns error when choice question has no options', async () => {
+    const args = JSON.stringify({
+      questions: [{ id: 'q1', text: 'Pick one', type: 'choice' }],
+    });
+    const res = await executeTool('ask_question_card', args, makeCtx());
+    expect(res.status).toBe('error');
+    expect(res.errorDesc).toContain('must have options');
+  });
+
+  it('ask_question_card supports conditional dependency questions', async () => {
+    const args = JSON.stringify({
+      questions: [
+        {
+          id: 'has_key',
+          text: 'Do you have an API key?',
+          type: 'confirm',
+        },
+        {
+          id: 'key_value',
+          text: 'Paste your API key',
+          type: 'text',
+          dependsOn: 'has_key',
+          condition: 'yes',
+        },
+      ],
+    });
+    const res = await executeTool('ask_question_card', args, makeCtx());
+    expect(res.status).toBe('ok');
+    const parsed = JSON.parse(res.content);
+    expect(parsed.session.questions).toHaveLength(2);
+    expect(parsed.session.questions[1].dependsOn).toBe('has_key');
+    expect(parsed.session.questions[1].condition).toBe('yes');
+  });
+
+  it('ask_question_card does not touch disk or call other tools', async () => {
+    const args = JSON.stringify({
+      questions: [{ id: 'q1', text: 'Hello?', type: 'text' }],
+    });
+    await executeTool('ask_question_card', args, makeCtx());
+    expect(filesMock.listFiles).not.toHaveBeenCalled();
+    expect(filesMock.getFile).not.toHaveBeenCalled();
   });
 });
