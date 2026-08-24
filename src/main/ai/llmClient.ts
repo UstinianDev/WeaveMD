@@ -14,7 +14,7 @@ export interface StreamChatCompletionOptions {
   baseUrl: string;
   model: string;
   apiKey?: string;
-  messages: Array<{ role: string; content: string }>;
+  messages: Array<{ role: string; content: string; tool_call_id?: string }>;
   /** OpenAI 兼容工具定义。可选，缺省不发。 */
   tools?: ToolDef[];
   /** thinking 模式必须 'auto'。仅在同时传 tools 时生效。 */

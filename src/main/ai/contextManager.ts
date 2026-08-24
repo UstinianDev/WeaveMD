@@ -9,6 +9,7 @@ import { streamChatCompletion } from './llmClient';
 export interface LlmMessage {
   role: string;
   content: string;
+  tool_call_id?: string;
 }
 
 /** token 估算：无 tokenizer，取 ceil(len/4)。中文 ~1 字/词，英文 ~4 字/token，偏保守。 */

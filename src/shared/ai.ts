@@ -75,6 +75,7 @@ export interface IAIMessage {
   role: AIMessageRole;
   content: string;
   refsJson: string | null;
+  toolCallId?: string | null;
   createdAt: string;
   /** 响应时间（毫秒），从发送到首 token 的时间 */
   responseTime?: number;

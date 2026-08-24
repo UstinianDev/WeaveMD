@@ -222,7 +222,11 @@ export async function runAgentFlow(
 
   const history: LlmMessage[] = getMessagesByConversation(convId, userId)
     .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
-    .map((m): LlmMessage => ({ role: m.role, content: m.content }));
+    .map((m): LlmMessage => ({
+      role: m.role,
+      content: m.content,
+      ...(m.toolCallId ? { tool_call_id: m.toolCallId } : {}),
+    }));
 
   // 历史（含本轮 user 已落库）+ 当前；有 summary 则压缩/置顶
   let llmMessages: AgentLlmMessage[] = summary
@@ -353,6 +357,7 @@ export async function runAgentFlow(
           content: result.errorDesc
             ? `[工具 ${tc.name} 失败] ${result.errorDesc}`
             : result.content,
+          toolCallId: toolCallId,
         });
         toolTurn.push({
           role: 'tool',

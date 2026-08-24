@@ -1,6 +1,6 @@
 # AI 代理面板 (Agent) 功能总结
 
-> 模块编号：11 | 优先级：P1 | 最后更新：2026-08-21 | 状态：**第 1/2/3+4/5/6 期均已交付；第 7 期体验重构全部交付（2026-08-15）；后端收敛 remote-only（2026-08-16）；AI 模块重构（2026-08-21：consent 统一/IPC 拆分/SSE 去重/stream 提取/死代码清理）；真 MCP / GitHub 继续延**
+> 模块编号：11 | 优先级：P1 | 最后更新：2026-08-24 | 状态：**第 1~7 期均已交付；后端收敛 remote-only；Notus Agent 克隆完成（21 项功能）；真 MCP / GitHub 继续延**
 > 需求编号：AGT-01~19 / KB-01~05（docs/REQUIREMENTS.md 3.7 / 3.8）
 > 交付记录：第1期基建 + 第2期 Chat 闭环（2026-08-14）、第3期知识库 + 第4期 Agent 能力
 > （2026-08-15）；远程 DeepSeek 后端已真连验证通过；
@@ -175,3 +175,103 @@ kb_chunks(id, document_id, seq, content, vector BLOB, source_ref /*文件+块定
 | `RewritePreviewCard.tsx` | diff 可折叠 + AI 改动说明 + 移除整段输出 |
 | `globals.css` | `.editor-scroll-container` + `.outline-scroll` 字体 |
 | `i18n/{en,zh-CN,zh-TW}.json` | 新增 12 个翻译键 |
+
+## 10. Notus Agent 克隆（2026-08-24）
+
+> 深度模仿 Notus 项目的 AI Agent 功能，采用完全替换策略，21 项功能全部实现。
+
+### 核心架构变更
+
+**任务队列系统**：
+- `agent_task_queue` 表：SQLite FIFO 队列，同会话串行
+- `agentTaskQueue.ts`：入队、出队、supersede 机制
+- `agentTaskWorker.ts`：1s 轮询 Worker，后台执行任务
+
+**Session 状态机**：
+- `agent_sessions` 表：11 种状态（created/queued/running/waiting_interaction/waiting_operation_confirmation/waiting_limit/waiting_retry/waiting_model_recovery/completed/failed/cancelled/superseded）
+- `agentSession.ts`：状态转换验证、DB 持久化
+
+**Checkpoint/Resume 系统**：
+- `checkpoint_json` 字段：LLM 调用前/工具执行后保存检查点
+- `agentCheckpoint.ts`：序列化/反序列化、断线恢复
+
+**SSE 事件持久化**：
+- `agent_run_events` 表：所有事件持久化，支持增量回放
+- `agentEventStore.ts`：persistAndSend + replayFromSeq
+
+**文件快照+回滚**：
+- `agent_file_snapshots` 表：会话创建时快照所有 .md 文件
+- `agentSnapshot.ts`：createSnapshot + rollbackToSnapshot
+
+**死循环检测**：
+- `agentLoopGuard.ts`：3x 相同结果 / 2x 连续失败自动终止
+
+### 新增工具（6 个，共 13 个）
+
+| 工具 | 功能 | 类型 |
+|------|------|------|
+| `ask_question_card` | 结构化提问卡片 | 交互 |
+| `preview_patch_files` | 多文件补丁预览 | 预览 |
+| `web_search` | 联网搜索（集成 searchClient） | 搜索 |
+| `analyze_folder` | 目录结构分析 | 分析 |
+| `check_links` | 内部链接检查 | 检查 |
+| `get_task_activity` | 任务活动查询 | 查询 |
+
+### 新增 UI 组件
+
+| 组件 | 功能 |
+|------|------|
+| `ClarifyDrawer` | 结构化提问卡片（多题问答、条件依赖） |
+| `PatchPreviewDialog` | 多文件补丁预览（左列表+右 diff） |
+| `MentionPreview` | @ 引用预览弹窗（文件/目录/Skill） |
+
+### 新增 IPC 通道
+
+| 通道 | 方向 | 功能 |
+|------|------|------|
+| `AGENT_TASK_STATUS` | render → main | 查询任务状态 |
+| `AGENT_TASK_CANCEL` | render → main | 取消任务 |
+| `AI_CONVERSATION_EXPORT` | render → main | 导出对话为 Markdown |
+| `AI_CONVERSATION_SEARCH` | render → main | 搜索对话 |
+| `AI_MESSAGE_EDIT` | render → main | 编辑消息+级联删除 |
+
+### 文件清单
+
+**新增文件**：
+```
+src/main/ai/agentSession.ts
+src/main/ai/agentTaskQueue.ts
+src/main/ai/agentTaskWorker.ts
+src/main/ai/agentCheckpoint.ts
+src/main/ai/agentEventStore.ts
+src/main/ai/agentSnapshot.ts
+src/main/ai/agentLoopGuard.ts
+src/main/ai/conversationExport.ts
+src/main/ai/tools/askQuestionCard.ts
+src/main/ai/tools/previewPatchFiles.ts
+src/main/ai/tools/webSearch.ts
+src/main/ai/tools/analyzeFolder.ts
+src/main/ai/tools/checkLinks.ts
+src/main/ai/tools/getTaskActivity.ts
+src/main/db/agentTaskDao.ts
+src/main/db/agentSessionDao.ts
+src/main/db/agentEventDao.ts
+src/main/db/agentSnapshotDao.ts
+src/render/components/AIAgent/MentionPreview.tsx
+```
+
+**修改文件**：
+```
+src/shared/ai.ts — 新增 11 个类型
+src/shared/constants.ts — 新增 4 个 IPC channel
+src/main/db/index.ts — 新增 4 张表 DDL
+src/main/db/ai.ts — 新增 3 个查询函数
+src/main/ai/agentLoop.ts — 扩展依赖接口
+src/main/ai/toolRegistry.ts — 注册 6 个新工具
+src/main/ai/ipc/agentHandlers.ts — 改造 AGENT_RUN + 新增 handler
+src/main/ai/ipc/chatHandlers.ts — 新增 3 个 handler
+src/main/index.ts — 初始化队列和 Worker
+src/main/preload.ts — 新增 3 个桥接方法
+src/render/stores/agentStore.ts — 适配异步入队
+src/render/components/AIAgent/ModelDropdown.tsx — 添加搜索
+```

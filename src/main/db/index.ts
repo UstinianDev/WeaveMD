@@ -158,6 +158,7 @@ function runMigrations(database: Database.Database): void {
       role            TEXT NOT NULL,                  -- user|assistant|tool
       content         TEXT DEFAULT '',
       refs_json       TEXT DEFAULT NULL,
+      tool_call_id    TEXT DEFAULT NULL,              -- tool 消息关联的 tool_call_id
       created_at      TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_ai_msg_conv_created ON ai_messages(conversation_id, created_at);
@@ -204,6 +205,9 @@ function runMigrations(database: Database.Database): void {
   addEmbeddingConfigTable(database);
   addSearchConfigTable(database);
   addActiveModelConfigId(database);
+
+  // ai_messages 表幂等补 tool_call_id 列（修复 Agent 工具调用后第二条消息 400 错误）
+  addColumnIfMissing(database, 'ai_messages', 'tool_call_id', 'tool_call_id TEXT DEFAULT NULL');
 
   // Agent 任务队列 / 会话 / 运行事件 / 文件快照
   addAgentTables(database);

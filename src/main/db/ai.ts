@@ -271,6 +271,7 @@ interface AiMessageDbRow {
   role: string;
   content: string;
   refs_json: string | null;
+  tool_call_id: string | null;
   created_at: string;
 }
 
@@ -282,6 +283,7 @@ function mapMessageRow(row: AiMessageDbRow): IAIMessage {
     role: row.role as IAIMessage['role'],
     content: row.content || '',
     refsJson: row.refs_json,
+    toolCallId: row.tool_call_id,
     createdAt: row.created_at,
   };
 }
@@ -292,12 +294,13 @@ export function appendMessage(msg: {
   role: IAIMessage['role'];
   content: string;
   refsJson?: string | null;
+  toolCallId?: string | null;
 }): IAIMessage {
   const db = getDatabase();
   const id = randomUUID();
   db.prepare(
-    'INSERT INTO ai_messages (id, conversation_id, user_id, role, content, refs_json) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, msg.conversationId, msg.userId, msg.role, msg.content, msg.refsJson ?? null);
+    'INSERT INTO ai_messages (id, conversation_id, user_id, role, content, refs_json, tool_call_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, msg.conversationId, msg.userId, msg.role, msg.content, msg.refsJson ?? null, msg.toolCallId ?? null);
   db.prepare(
     "UPDATE ai_conversations SET updated_at = datetime('now') WHERE id = ? AND user_id = ?"
   ).run(msg.conversationId, msg.userId);

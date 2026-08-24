@@ -2,6 +2,31 @@
 
 ## 已完成
 
+### Notus Agent 克隆（2026-08-24，Phase 1-5 全部交付）
+
+深度模仿 Notus 项目的 AI Agent 功能，21 项功能全部实现：
+
+- ✅ P0-1: Agent Session 状态机扩展（11 种状态）
+- ✅ P0-2: Checkpoint/Resume 系统（断线可恢复）
+- ✅ P0-3: 结构化提问卡片（ClarifyDrawer）
+- ✅ P0-4: 持久化任务队列（SQLite FIFO，同会话串行）
+- ✅ P0-5: preview_patch_files 工具（多文件补丁预览）
+- ✅ P0-6: 文件快照+回滚
+- ✅ P1-1: SSE 事件持久化+回放
+- ✅ P1-2: 任务取代机制（新消息优先）
+- ✅ P1-3: 死循环检测（3x 相同结果 / 2x 连续失败）
+- ✅ P1-4: 联网搜索注入 Agent 循环（集成 searchClient）
+- ✅ P1-5: analyze_folder 工具（目录分析）
+- ✅ P1-6: Mention 预览弹窗（@ 引用预览）
+- ✅ P1-7: 对话导出（Markdown）
+- ✅ P1-8: 对话搜索（按标题/内容）
+- ✅ P2-1: 对话历史重写（编辑消息后级联删除）
+- ✅ P2-2: check_links 工具（内部链接检查）
+- ✅ P2-3: get_task_activity 工具（任务活动查询）
+- ✅ P2-4: 模型选择器搜索（搜索过滤）
+
+**门禁**：tsc 0 新增 | vitest 1497/1497 | lint 0 新增 | vite build ok
+
 ### 编辑主区 v2（2026-08-06 ~ 2026-08-19）
 
 - ✅ 块树内核重做（marktext/muya 架构，v2 唯一路径，v1 已退役）
