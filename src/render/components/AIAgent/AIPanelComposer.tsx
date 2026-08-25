@@ -31,6 +31,15 @@ const SLASH_SKILL_RE = /^\/[a-z_]+\s+/;
 /** 上下文 token 估算上限（128k）。 */
 const MAX_CONTEXT_TOKENS = 128000;
 
+/** 附件类型（文件/图片）。 */
+interface Attachment {
+  id: string;
+  type: 'file' | 'image';
+  name: string;
+  content?: string;
+  path?: string;
+}
+
 /** 联网搜索引擎选项。 */
 const WEB_SEARCH_ENGINES = ['Firecrawl', 'Zhipu', 'Tavily', 'Exa'] as const;
 type WebSearchEngine = (typeof WEB_SEARCH_ENGINES)[number];
@@ -118,6 +127,9 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
   const [completionActive, setCompletionActive] = useState(0);
   /** 触发补全时，前缀字符在 input 中的下标（选中后从此处替换 insertText）。 */
   const [completionInsertAt, setCompletionInsertAt] = useState(0);
+
+  // —— 附件状态（文件/图片上传） ——
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
 
   // —— 阶段 2：@ Mention 三维补全（文件/目录/技能） ——
   const [mentionOpen, setMentionOpen] = useState(false);
@@ -301,13 +313,29 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
     const text = value.trim();
     if (!text || isStreaming) return;
     setCompletionOpen(false);
-    void handleSendAgent(text);
+
+    // 拼接附件信息到消息内容
+    let fullText = text;
+    if (attachments.length > 0) {
+      const parts: string[] = [text];
+      for (const att of attachments) {
+        if (att.type === 'file' && att.content) {
+          parts.push(`[文件: ${att.name}]\n\`\`\`\n${att.content}\n\`\`\``);
+        } else if (att.type === 'image') {
+          parts.push(`[图片: ${att.name}]`);
+        }
+      }
+      fullText = parts.join('\n\n');
+      setAttachments([]);
+    }
+
+    void handleSendAgent(fullText);
     // M4：清空由父级 onSend 回调执行（setDraft('')）；不再组件本地清空，保证草稿归属唯一。
     onSend?.();
     onCompose?.();
   };
 
-  // —— 文件/图片上传（暂存到本地，实际使用待后续接入） ——
+  // —— 文件/图片上传 ——
   const handleUploadFile = useCallback(async () => {
     try {
       const result = (await window.weaveMD?.dialog.openFile()) as unknown as {
@@ -315,8 +343,11 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
         data?: { name: string; content: string };
       };
       if (result?.success && result.data) {
-        // TODO: 暂存文件名和内容到 state，后续接入 agent 消息
-        void result.data;
+        const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        setAttachments((prev) => [
+          ...prev,
+          { id, type: 'file', name: result.data!.name, content: result.data!.content },
+        ]);
       }
     } catch {
       /* 取消或失败，静默 */
@@ -327,12 +358,18 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
     try {
       const path = await window.weaveMD?.dialog.pickImage();
       if (path) {
-        // TODO: 暂存图片路径到 state，后续接入 agent 消息
-        void path;
+        const name = path.split(/[/\\]/).pop() ?? path;
+        const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        setAttachments((prev) => [...prev, { id, type: 'image', name, path }]);
       }
     } catch {
       /* 取消或失败，静默 */
     }
+  }, []);
+
+  /** 删除附件。 */
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
   }, []);
 
   // —— 联网搜索引擎选择 ——
@@ -374,6 +411,27 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
             onSelect={handleMentionSelect}
             onClose={() => setMentionOpen(false)}
           />
+        {/* 附件预览条 */}
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-1.5">
+            {attachments.map((att) => (
+              <div
+                key={att.id}
+                className="flex items-center gap-1 px-2 py-1 rounded bg-bg-tertiary border border-border text-[12px] text-text-sub"
+              >
+                <span>{att.type === 'file' ? '📄' : '🖼'}</span>
+                <span className="max-w-[120px] truncate">{att.name}</span>
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(att.id)}
+                  className="ml-0.5 text-text-muted hover:text-red-400 transition-colors"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <textarea
           value={value}
           onChange={(e) => handleInputChange(e.target.value)}

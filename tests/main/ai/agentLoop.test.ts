@@ -377,9 +377,10 @@ describe('runAgentFlow', () => {
       controller,
       { consent: { allowNetwork: true, allowSend: false, consentUpdatedAt: null } }
     );
-    // 未传 tools（纯生成，不触发 searchKB/executeTool）
+    // 工具列表不含 searchKB（allowSend 未授权，外发工具被降级）
     const callOpts = llmMock.streamChatCompletion.mock.calls[0][0] as { tools?: Array<{ function: { name: string } }> };
-    expect(callOpts.tools).toBeUndefined();
+    const toolNames = callOpts.tools?.map((t) => t.function.name) ?? [];
+    expect(toolNames).not.toContain('searchKB');
     expect(toolMock.executeTool).not.toHaveBeenCalled();
     // 正常收敛，不抛错
     const assistantCalls = dbMock.appendMessage.mock.calls.filter(

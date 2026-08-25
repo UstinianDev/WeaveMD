@@ -54,6 +54,8 @@ export class AgentTaskWorker {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private isRunning = false;
   private activeTasks: Map<string, AbortController> = new Map();
+  /** conversationId -> taskId 映射，用于按会话取消任务。 */
+  private conversationTaskMap: Map<string, string> = new Map();
   private mainWindow: BrowserWindow | null = null;
 
   /** R3: 暂停等待用户交互的 Promise 控制器（sessionId -> resolve/reject + session）。 */
@@ -132,6 +134,14 @@ export class AgentTaskWorker {
     }
   }
 
+  /** 按 conversationId 取消活跃任务（供 AGENT_ABORT IPC 使用）。 */
+  cancelByConversationId(conversationId: string): boolean {
+    const taskId = this.conversationTaskMap.get(conversationId);
+    if (!taskId) return false;
+    this.cancelTask(taskId);
+    return true;
+  }
+
   /** 获取当前活跃任务数。 */
   getActiveTaskCount(): number {
     return this.activeTasks.size;
@@ -187,6 +197,7 @@ export class AgentTaskWorker {
   private async processTask(task: AgentTask): Promise<void> {
     const abortController = new AbortController();
     this.activeTasks.set(task.id, abortController);
+    this.conversationTaskMap.set(task.conversationId, task.id);
 
     let session: AgentSessionStateMachine | null = null;
     const mainWindow = this.mainWindow;
@@ -237,6 +248,19 @@ export class AgentTaskWorker {
         } as unknown as Electron.WebContents),
       } as Electron.IpcMainInvokeEvent;
 
+      // 6.5. 解析 payloadJson 中的额外字段（currentDocument / useKnowledgeBase 等）
+      let currentDocument: string | undefined;
+      let useKnowledgeBase: boolean | undefined;
+      try {
+        if (task.payloadJson) {
+          const extra = JSON.parse(task.payloadJson) as Record<string, unknown>;
+          if (typeof extra.currentDocument === 'string') currentDocument = extra.currentDocument;
+          if (typeof extra.useKnowledgeBase === 'boolean') useKnowledgeBase = extra.useKnowledgeBase;
+        }
+      } catch {
+        /* payloadJson 解析失败不阻断主流程 */
+      }
+
       // 7. 执行 Agent 流程（传入 sessionId + mainWindow 以启用持久化事件推送）
       const result: AgentRunResult = await runAgentFlow(
         syntheticEvent,
@@ -244,6 +268,8 @@ export class AgentTaskWorker {
           userId: task.userId,
           conversationId: task.conversationId,
           message: task.message,
+          currentDocument,
+          useKnowledgeBase,
         },
         config,
         row?.apiKeyEnc ?? null,
@@ -356,6 +382,7 @@ export class AgentTaskWorker {
         }
       }
       this.activeTasks.delete(task.id);
+      this.conversationTaskMap.delete(task.conversationId);
       // 触发下一次轮询（可能有等待中的任务）
       void this.poll();
     }

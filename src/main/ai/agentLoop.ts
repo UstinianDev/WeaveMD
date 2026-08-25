@@ -148,7 +148,7 @@ function makeAgentResult(partial: {
  * 按意图决定可用工具子集（全部只读；editBlocks 仅产改写建议，不落盘）。
  * - ask_question_card 仅在有交互暂停/恢复回调时提供（避免无回调时 LLM 调用导致卡死）。
  * - searchKB 仅在「kbQa 意图 + 启用知识库 + 已授权 KB 外发（allowSend）」时提供。
- * - editBlocks 在 rewrite/create/tech 意图 + 有 currentDocument 时提供。
+ * - editBlocks 在 rewrite/create/tech 意图 + 有 currentDocument 时提供（create/tech 用于创作写入）。
  * - listFiles/readFile/runSkill 在 create/tech 意图时提供，rewrite 意图也提供（需看文件才能改）。
  * allowSend / consent 未授权则不提供对应外发工具（降级作答，不抛错）。
  */
@@ -167,6 +167,13 @@ function toolsForIntent(
     names.add('ask_question_card');
   }
 
+  // 所有意图都可用的基础只读工具（文件访问 + 目录浏览 + 本地文件系统）
+  names.add('listFiles');
+  names.add('readFile');
+  names.add('readLocalFile');
+  names.add('listLocalDirectory');
+  names.add('analyze_folder');
+
   switch (intent.intent) {
     case 'kbQa':
       if (useKnowledgeBase && kbEgressAuthorized) {
@@ -174,8 +181,6 @@ function toolsForIntent(
       }
       break;
     case 'rewrite':
-      names.add('listFiles');
-      names.add('readFile');
       names.add('runSkill');
       names.add('renameFile');
       names.add('moveFile');
@@ -186,12 +191,13 @@ function toolsForIntent(
       break;
     case 'create':
     case 'tech':
-      names.add('listFiles');
-      names.add('readFile');
       names.add('runSkill');
       names.add('renameFile');
       names.add('moveFile');
       names.add('deleteFile');
+      if (currentDocument) {
+        names.add('editBlocks');
+      }
       break;
     case 'web':
       names.add('web_search');

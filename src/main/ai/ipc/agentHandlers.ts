@@ -130,7 +130,12 @@ export function registerAgentHandlers(): void {
       if (taskQueue) {
         taskQueue.cancelPending(conversationId);
       }
-      return { success: true, data: { aborted: !!controller } };
+      // 桥接：通过 taskWorker 取消运行中的 Agent 任务
+      let taskAborted = false;
+      if (taskWorker) {
+        taskAborted = taskWorker.cancelByConversationId(conversationId);
+      }
+      return { success: true, data: { aborted: !!controller || taskAborted } };
     }
   );
 

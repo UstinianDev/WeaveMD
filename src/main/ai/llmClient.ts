@@ -86,9 +86,11 @@ export function processSseLines(
         if (tc.function?.arguments) cur.arguments += tc.function.arguments;
         toolAcc.set(index, cur);
       }
-      if (choice?.finish_reason === 'tool_calls') {
-        finishedToolCalls = flushToolCalls(toolAcc);
-      }
+    }
+    // finish_reason 独立于 toolCallsDelta 判断：某些 API 在最后单独发送
+    // finish_reason:'tool_calls' 而 delta.tool_calls 为 null，此时仍需 flush。
+    if (choice?.finish_reason === 'tool_calls' && toolAcc.size > 0) {
+      finishedToolCalls = flushToolCalls(toolAcc);
     }
 
     if (finishedToolCalls.length) {

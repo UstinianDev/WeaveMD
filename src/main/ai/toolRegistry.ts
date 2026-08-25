@@ -29,6 +29,8 @@ import { handleCheckLinks } from './tools/checkLinksHandler';
 import { handleGetTaskActivity } from './tools/getTaskActivityHandler';
 import { handleRenameFile, handleMoveFile, handleDeleteFile } from './tools/fileOperationsHandler';
 import { handleResearchSearch } from './tools/researchSearchHandler';
+import { handleReadLocalFile } from './tools/readLocalFile';
+import { handleListLocalDirectory } from './tools/listLocalDirectory';
 
 // Schema 导入（defineCoreTools 需要）
 import { askQuestionCardSchema } from './tools/askQuestionCard';
@@ -61,6 +63,8 @@ const handlerMap = new Map<string, ToolHandler>([
   ['moveFile', handleMoveFile],
   ['deleteFile', handleDeleteFile],
   ['research_search', handleResearchSearch],
+  ['readLocalFile', handleReadLocalFile],
+  ['listLocalDirectory', handleListLocalDirectory],
 ]);
 
 // ---------------------------------------------------------------------------
@@ -204,6 +208,36 @@ export function defineCoreTools(): ToolDef[] {
             maxSubQueries: { type: 'number', description: '最大子查询数（默认 3）' },
           },
           required: ['query'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'readLocalFile',
+        description:
+          '读取本地文件系统中的文件内容（只读，限 1MB 以内）。用于读取用户电脑上的任意文件。',
+        parameters: {
+          type: 'object',
+          properties: {
+            file_path: { type: 'string', description: '文件的绝对路径（如 C:/Users/xxx/Desktop/note.md）' },
+          },
+          required: ['file_path'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'listLocalDirectory',
+        description:
+          '列出本地文件系统目录的内容（文件和子目录）。用于浏览用户电脑上的任意目录。',
+        parameters: {
+          type: 'object',
+          properties: {
+            directory_path: { type: 'string', description: '目录的绝对路径（如 C:/Users/xxx/Desktop）' },
+          },
+          required: ['directory_path'],
         },
       },
     },
