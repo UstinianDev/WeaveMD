@@ -1,6 +1,6 @@
 # AI 代理面板 (Agent) 功能总结
 
-> 模块编号：11 | 优先级：P1 | 最后更新：2026-08-24 | 状态：**第 1~7 期均已交付；后端收敛 remote-only；Notus Agent 克隆完成（21 项功能）；真 MCP / GitHub 继续延**
+> 模块编号：11 | 优先级：P1 | 最后更新：2026-08-25 | 状态：**第 1~7 期均已交付；后端收敛 remote-only；Notus Agent 克隆完成（21 项功能）；写控制与任务安全模块 R1~R7 全部完成；真 MCP / GitHub 继续延**
 > 需求编号：AGT-01~19 / KB-01~05（docs/REQUIREMENTS.md 3.7 / 3.8）
 > 交付记录：第1期基建 + 第2期 Chat 闭环（2026-08-14）、第3期知识库 + 第4期 Agent 能力
 > （2026-08-15）；远程 DeepSeek 后端已真连验证通过；
@@ -274,4 +274,69 @@ src/main/index.ts — 初始化队列和 Worker
 src/main/preload.ts — 新增 3 个桥接方法
 src/render/stores/agentStore.ts — 适配异步入队
 src/render/components/AIAgent/ModelDropdown.tsx — 添加搜索
+```
+
+## 11. 写控制与任务安全模块（2026-08-24 ~ 2026-08-25）
+
+> 参考 Notus 项目 Write Control & Task Safety，R1~R7 全部交付。
+> 需求文档：[write-control-task-safety.req.md](../requirements/write-control-task-safety.req.md)
+> 实施计划：[write-control-task-safety.plan.md](../plan/write-control-task-safety.plan.md)
+> 任务状态：[write-control-task-safety.status.md](../plan/write-control-task-safety.status.md)
+
+### R1 写模式切换
+
+`autoApplyRewrite: boolean` 泛化为 `writeMode: WriteMode ('auto' | 'manual')`，覆盖 editBlocks / createFile / createFolder。设置持久化到 `ai_config.write_mode` 列（幂等迁移）。`auto` 模式下单文件 editBlocks 自动应用 + createFile/createFolder 自动创建；`manual` 模式全部弹确认卡片。AIPanelComposer 底部控制条提供 auto/manual 切换。
+
+### R2 写预览版本对比（staleness detection）
+
+editBlocks proposal 生成时计算 MD5 contentHash，用户确认应用时二次校验。哈希不一致 → 拒绝静默覆盖，显示「文件已变更」警告卡片 + 新旧 diff。
+
+### R3 Agent 交互暂停/恢复
+
+`ask_question_card` 工具执行成功后，agentLoop 暂停等待用户答案（`AgentLoopDeps.onInteractionRequired` + `waitForInteraction` 回调）。`AgentTaskWorker` 用 `Map<sessionId, {resolve,reject}>` 管理暂停/恢复。IPC 三通道：`AGENT_INTERACTION_QUESTION`（主→渲染推送问题）、`AGENT_RESUME_INTERACTION`（渲染→主提交答案）、`AGENT_RETRY_TASK`（重试失败任务）。向后兼容：回调缺失时行为不变。
+
+### R4 待处理状态 UI
+
+`QuestionCard.tsx` 新组件支持 text/choice/confirm 三种问题类型 + 条件依赖。AgentTab 在 `pendingInteraction` 非空时渲染。AIPanelSession 标题栏显示 waiting 状态视觉标识（橙色圆点 + 文案）。`cancelTask()` 同时 reject 挂起交互避免永久阻塞。
+
+### R5 事件持久化先于推送（第一期）
+
+`agentLoop.ts` 和 `agentTaskWorker.ts` 全部事件走 `persistAndSend()`（先写 SQLite 再推 IPC）。渲染侧 `visibilitychange` 事件触发 `replayFromSeq(lastSeq)` 补发丢失事件。
+
+### R6 IndexedDB 草稿恢复
+
+`src/render/services/draftStore.ts` 新建：原生 IndexedDB API，DB `weavemd-drafts`，ObjectStore `drafts`（keyPath: `conversationId`）。`createDebouncedSaver(300)` 返回闭包用 `useRef` 保持稳定。AIAgentPanel 集成：防抖保存 effect + 恢复 effect + 所有关闭/切换/发送/删除操作清理。
+
+### R7 已实现模块集成（第一期）
+
+- R7a：`DeadLoopDetector` 替代硬编码 `MAX_ROUNDS=6`（默认 12）
+- R7b：每轮结束 `saveCheckpoint()`，断点续跑
+- R7c：`createSnapshot()` 备份完整文件内容
+- R7d：渲染侧「回滚到快照」操作入口（AIPanelSession 标题栏按钮）
+
+### 变更文件总览
+
+**新增文件**：
+```
+src/render/services/draftStore.ts          — R6 IndexedDB 草稿存储
+src/render/components/AIAgent/QuestionCard.tsx — R4 提问卡片组件
+```
+
+**修改文件**：
+```
+src/shared/ai.ts                           — WriteMode 类型 + AgentInteractionPayload
+src/shared/constants.ts                    — AI_GET/SET_WRITE_MODE + AGENT_INTERACTION/RESUME/RETRY
+src/main/db/index.ts                       — ai_config.write_mode 幂等迁移
+src/main/db/ai.ts                          — AiConfigRow/DbRow/Update 新增 writeMode
+src/main/ai/agentLoop.ts                   — AgentLoopDeps 扩展 + ask_question_card 暂停检测
+src/main/ai/agentTaskWorker.ts             — pendingInteractions Map + resumeInteraction
+src/main/ai/ipc/agentHandlers.ts           — AGENT_RESUME_INTERACTION + AGENT_RETRY_TASK handler
+src/main/ai/ipc/configConsentHandlers.ts   — getWriteMode / setWriteMode handler
+src/main/preload.ts                        — resumeInteraction / retryTask / getWriteMode / setWriteMode
+src/render/stores/agentStore.ts            — writeMode + pendingInteraction + resumeInteraction/retryTask
+src/render/components/AIAgent/AgentTab.tsx — 渲染 QuestionCard
+src/render/components/AIAgent/AIPanelSession.tsx — waiting 标识 + onSend 透传
+src/render/components/AIAgent/AIPanelHome.tsx    — onSend 透传
+src/render/components/AIAgent/AIPanelComposer.tsx — writeMode 切换 UI
+src/render/utils/weaveMDBridge.ts          — 浏览器 mock bridge 补齐
 ```

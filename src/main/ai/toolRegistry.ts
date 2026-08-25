@@ -7,72 +7,65 @@
 // 铁律一：无直接落盘工具——所有写路径必经预览确认。
 // 数据访问全部按 ctx.userId 隔离（SECURITY：即使工具参数含 user_id，也只以 ctx.userId 为准）。
 
-import type { IKbSearchResult, ToolDef } from '@shared/ai';
-import { getFile, listFiles } from '../db/files';
-import { runSkill, type CoreSkill, type SkillRunnerCtx } from './skillLoader';
-import {
-  askQuestionCardSchema,
-  executeAskQuestionCard,
-  type AskQuestionCardResult,
-} from './tools/askQuestionCard';
-import {
-  previewPatchFilesSchema,
-  executePreviewPatchFiles,
-} from './tools/previewPatchFiles';
-import { webSearchSchema, executeWebSearch } from './tools/webSearch';
-import { analyzeFolderSchema, executeAnalyzeFolder } from './tools/analyzeFolder';
-import { checkLinksSchema, executeCheckLinks } from './tools/checkLinks';
-import {
-  getTaskActivitySchema,
-  executeGetTaskActivity,
-} from './tools/getTaskActivity';
+import type { ToolDef } from '@shared/ai';
+import type { ToolCtx, ToolHandler, ToolResult } from './toolTypes';
 
-export type ToolStatus = 'ok' | 'error';
+// Re-export 类型保持向后兼容（agentLoop 等模块从 toolRegistry 导入）
+export type { ToolCtx, ToolHandler, ToolResult, SearchKbFn, ToolStatus } from './toolTypes';
 
-export interface ToolResult {
-  content: string;
-  status: ToolStatus;
-  errorDesc?: string;
-}
+// 各工具处理器
+import { handleListFiles } from './tools/listFiles';
+import { handleReadFile } from './tools/readFile';
+import { handleSearchKB } from './tools/searchKBHandler';
+import { handleRunSkill } from './tools/runSkillHandler';
+import { handleEditBlocks } from './tools/editBlocksHandler';
+import { handleCreateFile } from './tools/createFileHandler';
+import { handleCreateFolder } from './tools/createFolderHandler';
+import { handleAskQuestionCard } from './tools/askQuestionCardHandler';
+import { handlePreviewPatchFiles } from './tools/previewPatchFilesHandler';
+import { handleWebSearch } from './tools/webSearchHandler';
+import { handleAnalyzeFolder } from './tools/analyzeFolderHandler';
+import { handleCheckLinks } from './tools/checkLinksHandler';
+import { handleGetTaskActivity } from './tools/getTaskActivityHandler';
+import { handleRenameFile, handleMoveFile, handleDeleteFile } from './tools/fileOperationsHandler';
+import { handleResearchSearch } from './tools/researchSearchHandler';
 
-/**
- * KB 检索本地接口（契约，勿 import 并行智能体正在实现的 kbSearch.ts）。
- * 由 agentLoop 注入实际实现，test 注入 mock。
- */
-export type SearchKbFn = (
-  userId: string,
-  query: string,
-  opts?: {
-    topK?: number;
-    fuse?: number;
-    pinnedWeight?: number;
-    threshold?: number;
-  }
-) => Promise<{
-  refused: boolean;
-  threshold: number;
-  best: IKbSearchResult | null;
-  results: IKbSearchResult[];
-}>;
+// Schema 导入（defineCoreTools 需要）
+import { askQuestionCardSchema } from './tools/askQuestionCard';
+import { previewPatchFilesSchema } from './tools/previewPatchFiles';
+import { webSearchSchema } from './tools/webSearch';
+import { analyzeFolderSchema } from './tools/analyzeFolder';
+import { checkLinksSchema } from './tools/checkLinks';
+import { getTaskActivitySchema } from './tools/getTaskActivity';
+import { renameFileSchema, moveFileSchema, deleteFileSchema } from './tools/fileOperations';
 
-export interface ToolCtx {
-  userId: string;
-  /** KB 检索实现注入点（未注入则 searchKB 返回「知识库未就绪」）。 */
-  searchKb?: SearchKbFn;
-  /** runSkill 执行所需 LLM 上下文（复用 skillLoader.SkillRunnerCtx）。 */
-  skill?: SkillRunnerCtx;
-  /** 已加载技能列表（由调用方注入；缺省为空）。 */
-  skills?: CoreSkill[];
-  /**
-   * 当前文档 markdown 快照（渲染侧 editorStore.content 注入，只读上下文）。
-   * 供 editBlocks 产生改写建议；缺失时 editBlocks 拒绝执行。
-   */
-  currentDocument?: string;
-  /** better-sqlite3 数据库实例（供 get_task_activity 等需要 DB 访问的工具使用）。 */
-  db?: import('better-sqlite3').Database;
-  /** 当前会话 ID（供 get_task_activity 等工具默认使用）。 */
-  currentConversationId?: string;
-}
+// ---------------------------------------------------------------------------
+// 工具处理器注册表（策略模式，替代 switch-case）
+// ---------------------------------------------------------------------------
+
+const handlerMap = new Map<string, ToolHandler>([
+  ['listFiles', handleListFiles],
+  ['readFile', handleReadFile],
+  ['searchKB', handleSearchKB],
+  ['runSkill', handleRunSkill],
+  ['editBlocks', handleEditBlocks],
+  ['createFile', handleCreateFile],
+  ['createFolder', handleCreateFolder],
+  ['ask_question_card', handleAskQuestionCard],
+  ['preview_patch_files', handlePreviewPatchFiles],
+  ['web_search', handleWebSearch],
+  ['analyze_folder', handleAnalyzeFolder],
+  ['check_links', handleCheckLinks],
+  ['get_task_activity', handleGetTaskActivity],
+  ['renameFile', handleRenameFile],
+  ['moveFile', handleMoveFile],
+  ['deleteFile', handleDeleteFile],
+  ['research_search', handleResearchSearch],
+]);
+
+// ---------------------------------------------------------------------------
+// 工具 Schema 定义（OpenAI function JSON Schema，不变）
+// ---------------------------------------------------------------------------
 
 /** 定义只读核心工具（OpenAI function JSON Schema）。含 editBlocks（仅产改写建议，不落盘）。 */
 export function defineCoreTools(): ToolDef[] {
@@ -196,8 +189,30 @@ export function defineCoreTools(): ToolDef[] {
     analyzeFolderSchema,
     checkLinksSchema,
     getTaskActivitySchema,
+    renameFileSchema,
+    moveFileSchema,
+    deleteFileSchema,
+    {
+      type: 'function',
+      function: {
+        name: 'research_search',
+        description: '研究模式搜索：将查询拆分为多个子查询并执行多轮搜索，返回综合研究结果。',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: '研究查询主题' },
+            maxSubQueries: { type: 'number', description: '最大子查询数（默认 3）' },
+          },
+          required: ['query'],
+        },
+      },
+    },
   ];
 }
+
+// ---------------------------------------------------------------------------
+// 工具执行（查表调度）
+// ---------------------------------------------------------------------------
 
 /** 解析工具参数 JSON 字符串；失败返回结构错误（不抛断循环）。 */
 function parseArgs(args: string): Record<string, unknown> {
@@ -222,331 +237,20 @@ export async function executeTool(
   args: string,
   ctx: ToolCtx
 ): Promise<ToolResult> {
+  const handler = handlerMap.get(name);
+  if (!handler) {
+    return { content: '', status: 'error', errorDesc: `未知工具: ${name}` };
+  }
+
   const argObj = parseArgs(args);
 
-  switch (name) {
-    case 'listFiles': {
-      const files = listFiles(ctx.userId);
-      const list = files.map((f) => ({
-        name: f.name,
-        fileId: f.id,
-        modifiedAt: f.modifiedAt,
-      }));
-      return { content: JSON.stringify(list), status: 'ok' };
-    }
-
-    case 'readFile': {
-      const fileId = typeof argObj.file_id === 'string' ? argObj.file_id : '';
-      if (!fileId) {
-        return {
-          content: '',
-          status: 'error',
-          errorDesc: 'readFile: 缺少 file_id',
-        };
-      }
-      const file = getFile(fileId, ctx.userId);
-      if (!file) {
-        return {
-          content: '',
-          status: 'error',
-          errorDesc: 'readFile: 文件不存在或不可访问',
-        };
-      }
-      return {
-        content: JSON.stringify({
-          name: file.name,
-          content: file.content,
-          modifiedAt: file.modifiedAt,
-        }),
-        status: 'ok',
-      };
-    }
-
-    case 'searchKB': {
-      if (!ctx.searchKb) {
-        return {
-          content: '',
-          status: 'error',
-          errorDesc: 'searchKB: 知识库未就绪',
-        };
-      }
-      const query = typeof argObj.query === 'string' ? argObj.query : '';
-      if (!query) {
-        return { content: '', status: 'error', errorDesc: 'searchKB: 缺少 query' };
-      }
-      const topK = typeof argObj.topK === 'number' ? argObj.topK : undefined;
-      const res = await ctx.searchKb(ctx.userId, query, { topK });
-      if (res.refused) {
-        return {
-          content: JSON.stringify({
-            refused: true,
-            threshold: res.threshold,
-            best: res.best,
-            message: '未找到足够相关的来源',
-          }),
-          status: 'ok',
-        };
-      }
-      return { content: JSON.stringify(res.results), status: 'ok' };
-    }
-
-    case 'runSkill': {
-      const skillName = typeof argObj.skill === 'string' ? argObj.skill : '';
-      const input = typeof argObj.input === 'string' ? argObj.input : '';
-      if (!skillName || !input) {
-        return { content: '', status: 'error', errorDesc: 'runSkill: 缺少 skill 或 input' };
-      }
-      if (!ctx.skill) {
-        return { content: '', status: 'error', errorDesc: 'runSkill: LLM 执行上下文未就绪' };
-      }
-      const skill = (ctx.skills ?? []).find((s) => s.name === skillName);
-      if (!skill) {
-        return { content: '', status: 'error', errorDesc: `runSkill: 未找到技能 ${skillName}` };
-      }
-      const result = await runSkill(skill, input, ctx.skill);
-      if (result.status === 'error') {
-        return { content: '', status: 'error', errorDesc: result.errorDesc };
-      }
-      return { content: result.content, status: 'ok' };
-    }
-
-    case 'editBlocks': {
-      // 铁律一：只产改写建议（proposal），无任何写盘/写库触发点。
-      // 限制说明：主进程无块树内核（第 5 期 C2 架构），渲染侧 blockId 无法在主进程重建，
-      // 故不做 block_id 存在性校验——仅结构校验（数组 + 每项非空字符串），合法则返回 proposal。
-      if (!ctx.currentDocument) {
-        return {
-          content: '',
-          status: 'error',
-          errorDesc: 'editBlocks: 当前文档上下文未就绪',
-        };
-      }
-      const ops = Array.isArray(argObj.block_ops) ? argObj.block_ops : null;
-      if (!ops) {
-        return {
-          content: '',
-          status: 'error',
-          errorDesc: 'editBlocks: 缺少 block_ops',
-        };
-      }
-      const proposed: Array<{ block_id: string; new_content: string }> = [];
-      for (const op of ops) {
-        if (!op || typeof op !== 'object') {
-          return {
-            content: '',
-            status: 'error',
-            errorDesc: 'editBlocks: block_ops 元素必须为对象',
-          };
-        }
-        const rec = op as Record<string, unknown>;
-        const blockId = typeof rec.block_id === 'string' ? rec.block_id : '';
-        const newContent = typeof rec.new_content === 'string' ? rec.new_content : '';
-        if (!blockId || !newContent) {
-          return {
-            content: '',
-            status: 'error',
-            errorDesc: 'editBlocks: 每项须含非空 block_id 与 new_content',
-          };
-        }
-        proposed.push({ block_id: blockId, new_content: newContent });
-      }
-      return {
-        content: JSON.stringify({
-          applied: false,
-          proposed,
-          documentSnapshotLength: ctx.currentDocument.length,
-        }),
-        status: 'ok',
-      };
-    }
-
-    case 'createFile': {
-      // 铁律一：仅产 proposal，不实际创建文件。渲染侧确认后调用 window.weaveMD.file.write 落盘。
-      const fileName = typeof argObj.file_name === 'string' ? argObj.file_name : '';
-      const content = typeof argObj.content === 'string' ? argObj.content : '';
-      if (!fileName || !content) {
-        return {
-          content: '',
-          status: 'error',
-          errorDesc: 'createFile: 缺少 file_name 或 content',
-        };
-      }
-      const parentPath = typeof argObj.parent_path === 'string' ? argObj.parent_path : '';
-      return {
-        content: JSON.stringify({
-          proposal: true,
-          type: 'createFile',
-          fileName,
-          content,
-          parentPath,
-        }),
-        status: 'ok',
-      };
-    }
-
-    case 'createFolder': {
-      // 铁律一：仅产 proposal，不实际创建文件夹。渲染侧确认后调用 window.weaveMD.folder.createFolder 落盘。
-      const folderName = typeof argObj.folder_name === 'string' ? argObj.folder_name : '';
-      if (!folderName) {
-        return {
-          content: '',
-          status: 'error',
-          errorDesc: 'createFolder: 缺少 folder_name',
-        };
-      }
-      const folderParentPath = typeof argObj.parent_path === 'string' ? argObj.parent_path : '';
-      return {
-        content: JSON.stringify({
-          proposal: true,
-          type: 'createFolder',
-          folderName,
-          parentPath: folderParentPath,
-        }),
-        status: 'ok',
-      };
-    }
-
-    case 'preview_patch_files': {
-      const rawPatches = argObj.patches;
-      if (!Array.isArray(rawPatches)) {
-        return {
-          content: '',
-          status: 'error',
-          errorDesc: 'preview_patch_files: 缺少 patches 数组',
-        };
-      }
-      // 运行时类型收窄：逐项提取所需字段
-      const patches: import('@shared/ai').IPatchFile[] = [];
-      for (const item of rawPatches) {
-        if (!item || typeof item !== 'object') {
-          return {
-            content: '',
-            status: 'error',
-            errorDesc: 'preview_patch_files: patches 元素必须为对象',
-          };
-        }
-        const rec = item as Record<string, unknown>;
-        const filePath = typeof rec.filePath === 'string' ? rec.filePath : '';
-        const oldContent = typeof rec.oldContent === 'string' ? rec.oldContent : '';
-        const newContent = typeof rec.newContent === 'string' ? rec.newContent : '';
-        if (!filePath) {
-          return {
-            content: '',
-            status: 'error',
-            errorDesc: 'preview_patch_files: 每项须含非空 filePath',
-          };
-        }
-        patches.push({ filePath, oldContent, newContent });
-      }
-      const result = executePreviewPatchFiles({ patches });
-      return {
-        content: JSON.stringify(result),
-        status: result.success ? 'ok' : 'error',
-        errorDesc: result.error,
-      };
-    }
-
-    case 'web_search': {
-      const searchResult = await executeWebSearch(argObj, ctx.userId);
-      if (!searchResult.success) {
-        return {
-          content: '',
-          status: 'error',
-          errorDesc: searchResult.error || 'Web search failed',
-        };
-      }
-      return {
-        content: JSON.stringify({
-          provider: searchResult.provider,
-          results: searchResult.results,
-          count: searchResult.results.length,
-        }),
-        status: 'ok',
-      };
-    }
-
-    case 'analyze_folder': {
-      const result = executeAnalyzeFolder(ctx.userId, argObj);
-      return {
-        content: result.success ? JSON.stringify(result.analysis) : '',
-        status: result.success ? 'ok' : 'error',
-        errorDesc: result.error,
-      };
-    }
-
-    case 'check_links': {
-      const result = executeCheckLinks(ctx.userId, argObj);
-      return {
-        content: result.success ? JSON.stringify(result) : '',
-        status: result.success ? 'ok' : 'error',
-        errorDesc: result.error,
-      };
-    }
-
-    case 'ask_question_card': {
-      const raw = argObj.questions;
-      if (!Array.isArray(raw)) {
-        return {
-          content: '',
-          status: 'error',
-          errorDesc: 'ask_question_card: 缺少 questions 数组',
-        };
-      }
-      // 运行时类型收窄：逐项提取所需字段
-      const questions = raw.map((item) => {
-        const rec = item as Record<string, unknown>;
-        return {
-          id: typeof rec.id === 'string' ? rec.id : '',
-          text: typeof rec.text === 'string' ? rec.text : '',
-          type: typeof rec.type === 'string' ? rec.type : 'text',
-          options: Array.isArray(rec.options)
-            ? (rec.options as unknown[]).filter((o): o is string => typeof o === 'string')
-            : undefined,
-          dependsOn: typeof rec.dependsOn === 'string' ? rec.dependsOn : undefined,
-          condition: typeof rec.condition === 'string' ? rec.condition : undefined,
-        };
-      });
-      const result: AskQuestionCardResult = executeAskQuestionCard({
-        questions: questions as Parameters<typeof executeAskQuestionCard>[0]['questions'],
-      });
-      return {
-        content: JSON.stringify(result),
-        status: result.success ? 'ok' : 'error',
-        errorDesc: result.error,
-      };
-    }
-
-    case 'get_task_activity': {
-      if (!ctx.db) {
-        return {
-          content: '',
-          status: 'error',
-          errorDesc: 'get_task_activity: 数据库未就绪',
-        };
-      }
-      const conversationId =
-        typeof argObj.conversationId === 'string'
-          ? argObj.conversationId
-          : undefined;
-      const limit = typeof argObj.limit === 'number' ? argObj.limit : undefined;
-      const result = executeGetTaskActivity(
-        ctx.db,
-        { conversationId, limit },
-        ctx.userId,
-        ctx.currentConversationId
-      );
-      return {
-        content: result.success ? JSON.stringify(result.tasks) : '',
-        status: result.success ? 'ok' : 'error',
-        errorDesc: result.error,
-      };
-    }
-
-    default:
-      return {
-        content: '',
-        status: 'error',
-        errorDesc: `未知工具: ${name}`,
-      };
+  try {
+    return await handler(argObj, ctx);
+  } catch (err) {
+    return {
+      content: '',
+      status: 'error',
+      errorDesc: err instanceof Error ? err.message : String(err),
+    };
   }
 }

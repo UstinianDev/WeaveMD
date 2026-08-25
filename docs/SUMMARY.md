@@ -1,6 +1,6 @@
 # WeaveMD 项目总结
 
-> 版本：v3.14 | 最后更新：2026-08-24
+> 版本：v3.16 | 最后更新：2026-08-25
 
 ## 1. 项目概览
 
@@ -54,6 +54,12 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 - [AI 模块重构·计划](./plan/ai-module-refactor.plan.md) — 实施计划与变更清单
 - [AI 模块重构·报告](./refactor/ai-module-refactor.refactor.md) — 前后对比与验证证据
 
+### 写控制与任务安全模块（2026-08-24 ~ 2026-08-25）
+
+- [需求文档](./requirements/write-control-task-safety.req.md) — 7 项需求（R1~R7）
+- [实施计划](./plan/write-control-task-safety.plan.md) — 变更清单与风险评估
+- [任务状态](./plan/write-control-task-safety.status.md) — 全部完成（tsc 0 | vitest 1500/1500 | lint 0 error）
+
 ### AI 面板体验优化（2026-08-21）
 
 - [需求文档](./requirements/ai-panel-adjustments.req.md) — 8 项 UI 调整需求
@@ -81,9 +87,26 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 - 联网搜索工具（集成 searchClient）
 - 6 个新 Agent 工具（共 13 个）
 
+### 写控制与任务安全模块（2026-08-24 ~ 2026-08-25）
+
+参考 Notus 项目 Write Control & Task Safety，R1~R7 全部交付：
+
+- [需求文档](./requirements/write-control-task-safety.req.md) — 7 项需求（R1~R7）
+- [实施计划](./plan/write-control-task-safety.plan.md) — 变更清单与风险评估
+- [任务状态](./plan/write-control-task-safety.status.md) — 全部完成（tsc 0 | vitest 1500/1500 | lint 0 error）
+
+**核心交付物**：
+- R1 写模式切换（auto/manual 泛化，持久化 ai_config）
+- R2 写预览版本对比（MD5 staleness detection）
+- R3 Agent 交互暂停/恢复（ask_question_card → waiting_interaction → 恢复）
+- R4 待处理状态 UI（QuestionCard + waiting 标识 + 重试入口）
+- R5 任务事件持久化（persistAndSend + replayFromSeq）
+- R6 IndexedDB 草稿恢复（防抖保存 + 按 conversationId 索引）
+- R7 已实现模块集成（DeadLoopDetector + checkpoint + snapshot + 回滚 UI）
+
 ## 4. 验证与测试
 
-- **Vitest**：1497 例（内核/控制器/组件/Store/IPC/Agent，含往返不变式、退出规则矩阵、格式化、拖选、图片、表格、AI 面板、任务队列）
+- **Vitest**：1500 例（内核/控制器/组件/Store/IPC/Agent，含往返不变式、退出规则矩阵、格式化、拖选、图片、表格、AI 面板、任务队列、写控制模块）
 - **Playwright E2E**：76+ 例（输入/IME/富文本渲染/语法外观/浮动工具栏/跨块拖选/图片/表格）
 - **质量门禁**：`tsc --noEmit` + `vitest run` + ESLint(0 error) + `vite build` + `npx playwright test` + 覆盖率 ≥80%
 

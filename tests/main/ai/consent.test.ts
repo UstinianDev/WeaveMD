@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { needsConsent, needsKbSendConsent } from '@main/ai/consent';
-import { needsConsent as sharedNeedsConsent } from '@shared/ai';
+import { needsConsent } from '@shared/ai';
 import type { IAIConfig, IAIConsent } from '@shared/ai';
 
 function makeConfig(): IAIConfig {
@@ -16,11 +15,12 @@ function makeConsent(allowNetwork: boolean, allowSend: boolean): IAIConsent {
   return { allowNetwork, allowSend, consentUpdatedAt: null };
 }
 
-describe('needsConsent（统一版，从 @shared/ai 导入）', () => {
-  it('主进程 re-export 与 shared 源一致', () => {
-    expect(needsConsent).toBe(sharedNeedsConsent);
-  });
+/** 内联版 needsKbSendConsent（原 consent.ts 已删除，逻辑内联到 agentLoop.ts）。 */
+function needsKbSendConsent(_config: unknown, consent: IAIConsent): boolean {
+  return !consent.allowSend;
+}
 
+describe('needsConsent（统一版，从 @shared/ai 导入）', () => {
   it('returns true when network not consented', () => {
     expect(needsConsent(makeConsent(false, false))).toBe(true);
     expect(needsConsent(makeConsent(false, true))).toBe(true);

@@ -9,6 +9,7 @@
 // 只累加非空 delta.content。
 
 import type { ToolDef } from '@shared/ai';
+import { createStreamController, makeError, normalizeBaseUrl } from './streamScaffold';
 
 export interface StreamChatCompletionOptions {
   baseUrl: string;
@@ -33,16 +34,8 @@ export interface StreamChunk {
   toolCalls?: Array<{ index: number; name: string; arguments: string }>;
 }
 
-const DEFAULT_TIMEOUT = 60_000;
-
-function makeError(code: string, message: string): Error & { code: string } {
-  const err = new Error(message) as Error & { code: string };
-  err.code = code;
-  return err;
-}
-
 // ---------------------------------------------------------------------------
-// SSE 解析（共享逻辑，消除主循环/残余 buffer 重复）
+// SSE 解析（OpenAI 协议特定）
 // ---------------------------------------------------------------------------
 
 /** SSE JSON 数据行的 OpenAI 兼容结构。 */
@@ -63,7 +56,7 @@ interface SseJsonShape {
  * 解析一组 SSE 文本行，累积工具调用增量，返回待 yield 的 StreamChunk 数组。
  * 纯函数，供主循环和残余 buffer flush 共用。
  */
-function processSseLines(
+export function processSseLines(
   lines: string[],
   toolAcc: Map<number, { name: string; arguments: string }>
 ): StreamChunk[] {
@@ -107,6 +100,21 @@ function processSseLines(
   return chunks;
 }
 
+/** 将累积的工具调用缓冲转为完成态数组并清空。 */
+function flushToolCalls(
+  toolAcc: Map<number, { name: string; arguments: string }>
+): Array<{ index: number; name: string; arguments: string }> {
+  const result = Array.from(toolAcc.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([index, tc]) => ({
+      index,
+      name: tc.name,
+      arguments: tc.arguments,
+    }));
+  toolAcc.clear();
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // 主入口
 // ---------------------------------------------------------------------------
@@ -122,43 +130,11 @@ export async function* streamChatCompletion(
     throw makeError('config_incomplete', 'Remote backend requires an API key');
   }
 
-  const controller = new AbortController();
-  const external = opts.signal;
-  if (external?.aborted) {
-    throw makeError('aborted', 'Request aborted');
-  }
-  const doAbort = (reason: string): void => {
-    try {
-      controller.abort(reason);
-    } catch {
-      controller.abort();
-    }
-  };
-  const onExternalAbort = (): void => doAbort('external');
-  if (external) {
-    external.addEventListener('abort', onExternalAbort);
-  }
-  const timeout = setTimeout(() => doAbort('timeout'), opts.timeoutMs ?? DEFAULT_TIMEOUT);
-
-  const finalize = (): void => {
-    clearTimeout(timeout);
-    if (external) {
-      external.removeEventListener('abort', onExternalAbort);
-    }
-  };
-
-  function abortError(): Error & { code: string } {
-    const reason = (controller.signal as unknown as { reason?: string }).reason;
-    if (reason === 'timeout') return makeError('timeout', 'Request timed out');
-    return makeError('aborted', 'Request aborted');
-  }
-
-  // 规范化 baseUrl：去除尾部 /v1 和 /，避免双重 /v1/v1/
-  const normalizedBase = opts.baseUrl.replace(/\/+$/, '').replace(/\/v1$/, '');
+  const sc = createStreamController(opts.signal, opts.timeoutMs);
 
   let response: Response;
   try {
-    response = await fetch(`${normalizedBase}/v1/chat/completions`, {
+    response = await fetch(`${normalizeBaseUrl(opts.baseUrl)}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -172,12 +148,12 @@ export async function* streamChatCompletion(
           ? { tools: opts.tools, tool_choice: 'auto' as const }
           : {}),
       }),
-      signal: controller.signal,
+      signal: sc.controller.signal,
     });
   } catch (err) {
-    finalize();
-    if (external?.aborted) throw makeError('aborted', 'Request aborted');
-    if (controller.signal.aborted) throw abortError();
+    sc.finalize();
+    if (opts.signal?.aborted) throw makeError('aborted', 'Request aborted');
+    if (sc.controller.signal.aborted) throw sc.abortError();
     throw makeError('network', `Network error: ${err instanceof Error ? err.message : err}`);
   }
 
@@ -187,13 +163,13 @@ export async function* streamChatCompletion(
 
   if (!response.ok) {
     await response.body?.cancel().catch(() => undefined);
-    finalize();
+    sc.finalize();
     throw makeError(`http_${response.status}`, `HTTP ${response.status} ${response.statusText}`.trim());
   }
 
   const body = response.body;
   if (!body) {
-    finalize();
+    sc.finalize();
     throw makeError('parse', 'Empty response body');
   }
 
@@ -217,9 +193,9 @@ export async function* streamChatCompletion(
         for (const chunk of processSseLines(part.split('\n'), toolAcc)) {
           yield chunk;
         }
-        if (external?.aborted || controller.signal.aborted) {
+        if (opts.signal?.aborted || sc.controller.signal.aborted) {
           await reader.cancel().catch(() => undefined);
-          throw abortError();
+          throw sc.abortError();
         }
       }
     }
@@ -229,9 +205,9 @@ export async function* streamChatCompletion(
     }
   } catch (err) {
     await reader.cancel().catch(() => undefined);
-    finalize();
-    if (external?.aborted) throw makeError('aborted', 'Request aborted');
-    if (controller.signal.aborted) throw abortError();
+    sc.finalize();
+    if (opts.signal?.aborted) throw makeError('aborted', 'Request aborted');
+    if (sc.controller.signal.aborted) throw sc.abortError();
     throw makeError('network', `Stream error: ${err instanceof Error ? err.message : err}`);
   }
 
@@ -245,20 +221,5 @@ export async function* streamChatCompletion(
     }
   }
 
-  finalize();
-}
-
-/** 将累积的工具调用缓冲转为完成态数组并清空。 */
-function flushToolCalls(
-  toolAcc: Map<number, { name: string; arguments: string }>
-): Array<{ index: number; name: string; arguments: string }> {
-  const result = Array.from(toolAcc.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([index, tc]) => ({
-      index,
-      name: tc.name,
-      arguments: tc.arguments,
-    }));
-  toolAcc.clear();
-  return result;
+  sc.finalize();
 }

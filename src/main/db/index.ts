@@ -25,6 +25,15 @@ export function initDatabase(): Database.Database {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
 
+  // 加载 sqlite-vec 向量搜索扩展
+  try {
+    const vec = require('sqlite-vec');
+    vec.load(db);
+  } catch {
+    // sqlite-vec 加载失败时降级到纯 FTS5（非致命）
+    console.warn('[db] sqlite-vec load failed, falling back to FTS5-only');
+  }
+
   runMigrations(db);
 
   return db;
@@ -209,8 +218,17 @@ function runMigrations(database: Database.Database): void {
   // ai_messages 表幂等补 tool_call_id 列（修复 Agent 工具调用后第二条消息 400 错误）
   addColumnIfMissing(database, 'ai_messages', 'tool_call_id', 'tool_call_id TEXT DEFAULT NULL');
 
+  // 写模式（auto/manual）：ai_config 幂等补 write_mode 列，默认 'manual'
+  addColumnIfMissing(database, 'ai_config', 'write_mode', "write_mode TEXT NOT NULL DEFAULT 'manual'");
+
   // Agent 任务队列 / 会话 / 运行事件 / 文件快照
   addAgentTables(database);
+
+  // 阶段 1：向量搜索 + 文档解析基建
+  addKbVectorColumns(database);
+  addFileRevisionsTable(database);
+  addKnowledgeCacheTable(database);
+  addParsedAttachmentsTable(database);
 }
 
 /**
@@ -410,5 +428,59 @@ function addAgentTables(database: Database.Database): void {
       created_at      TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_agent_file_snapshots_session ON agent_file_snapshots(session_id);
+  `);
+}
+
+/** kb_documents 幂等补 file_path 列（供标题/路径匹配检索）。 */
+function addKbVectorColumns(database: Database.Database): void {
+  addColumnIfMissing(database, 'kb_documents', 'file_path', 'file_path TEXT DEFAULT NULL');
+  addColumnIfMissing(database, 'kb_chunks', 'embedding_model', 'embedding_model TEXT DEFAULT NULL');
+}
+
+/** file_revisions 表：Agent 文件操作修订历史。 */
+function addFileRevisionsTable(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS file_revisions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      file_id TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      content TEXT NOT NULL,
+      session_id TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_file_revisions_user_file ON file_revisions(user_id, file_id);
+  `);
+}
+
+/** knowledge_cache 表：研究结果缓存。 */
+function addKnowledgeCacheTable(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS knowledge_cache (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      query_hash TEXT NOT NULL,
+      results_json TEXT NOT NULL,
+      hit_count INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      expires_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_knowledge_cache_user_hash ON knowledge_cache(user_id, query_hash);
+  `);
+}
+
+/** parsed_attachments 表：对话附件解析缓存。 */
+function addParsedAttachmentsTable(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS parsed_attachments (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      conversation_id TEXT,
+      file_name TEXT NOT NULL,
+      file_type TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_parsed_attachments_user ON parsed_attachments(user_id);
   `);
 }

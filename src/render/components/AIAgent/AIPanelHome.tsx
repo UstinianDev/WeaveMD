@@ -6,7 +6,7 @@
 // 底部共享 AIPanelComposer（发送即自动建会话并入 session 视图）。
 // 无 dangerouslySetInnerHTML、无 any。
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import type { IAIConversation } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 import { useAgentStore } from '@render/stores/agentStore';
@@ -17,6 +17,8 @@ interface AIPanelHomeProps {
   draft: string;
   /** 受控草稿变更回调。 */
   setDraft: (value: string) => void;
+  /** 发送成功后清空草稿 + 清除 IndexedDB 记录（R6）。 */
+  onSend?: () => void;
   /** 点击最近会话 → loadConversation + 进 session 视图。 */
   onOpenConversation: (id: string) => void;
   /** RECENT「View All」→ 全部会话列表视图（此处暂进 home 全列，范围外分页）——需求 R4 仅列出即可。 */
@@ -47,6 +49,7 @@ export function formatRecentDate(iso: string | undefined, t: (key: string, fb?: 
 const AIPanelHome: React.FC<AIPanelHomeProps> = ({
   draft,
   setDraft,
+  onSend,
   onOpenConversation,
   onViewAll,
   onCreateSession,
@@ -56,7 +59,19 @@ const AIPanelHome: React.FC<AIPanelHomeProps> = ({
   const conversations = useAgentStore((s) => s.conversations);
   const deleteConversation = useAgentStore((s) => s.deleteConversation);
 
-  const recent = useMemo(() => recentConversations(conversations), [conversations]);
+  // 阶段 2：对话搜索
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // 按搜索词过滤会话（匹配 summary）
+  const filteredConversations = useMemo(() => {
+    if (!searchQuery.trim()) return conversations;
+    const q = searchQuery.toLowerCase();
+    return conversations.filter((c) =>
+      (c.summary ?? '').toLowerCase().includes(q)
+    );
+  }, [conversations, searchQuery]);
+
+  const recent = useMemo(() => recentConversations(filteredConversations), [filteredConversations]);
 
   // R1: 删除会话（确认后删除）
   const handleDelete = useCallback(
@@ -78,6 +93,26 @@ const AIPanelHome: React.FC<AIPanelHomeProps> = ({
             📔
           </span>
           <p className="text-base font-medium text-text-primary">{t('ai.home.cta')}</p>
+        </div>
+
+        {/* 阶段 2：对话搜索框 */}
+        <div className="relative">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={t('ai.home.searchPlaceholder', '搜索会话...')}
+            className="w-full bg-bg-primary border border-border rounded-input px-3 py-1.5 text-[13px] text-text-primary placeholder-text-muted outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/30 transition-colors"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors"
+            >
+              ✕
+            </button>
+          )}
         </div>
 
         {/* RECENT 区块（R4/R5） */}
@@ -136,11 +171,11 @@ const AIPanelHome: React.FC<AIPanelHomeProps> = ({
         </div>
       </div>
 
-      {/* 底部共享 composer：发送即清空草稿 + 建会话并入 session（onCreateSession） */}
+      {/* 底部共享 composer：发送即清空草稿（R6: + 清除 IndexedDB）+ 建会话并入 session（onCreateSession） */}
       <AIPanelComposer
         value={draft}
         onChange={setDraft}
-        onSend={() => setDraft('')}
+        onSend={onSend}
         onCompose={onCreateSession}
       />
     </div>

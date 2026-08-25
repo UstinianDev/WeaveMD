@@ -4,7 +4,7 @@
 
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@shared/constants';
-import type { ChatBackend, IAIConfig, IAIConsent } from '@shared/ai';
+import type { ChatBackend, IAIConfig, IAIConsent, WriteMode } from '@shared/ai';
 import { getAiConfig, upsertAiConfig } from '../../db/ai';
 import { getDatabase } from '../../db/index';
 import { encryptApiKey } from '../secureConfig';
@@ -92,6 +92,36 @@ export function registerConfigConsentHandlers(): void {
         return { success: true, data: toIAIConsent(row) };
       } catch (error) {
         return { success: false, message: 'Failed to save AI consent' };
+      }
+    }
+  );
+
+  // --- 写模式 get / set ---
+
+  ipcMain.handle(IPC_CHANNELS.AI_GET_WRITE_MODE, (_event, userId: string) => {
+    try {
+      const row = getAiConfig(userId);
+      const mode: WriteMode = row?.writeMode ?? 'manual';
+      return { success: true, data: mode };
+    } catch {
+      return { success: false, message: 'Failed to get write mode' };
+    }
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.AI_SET_WRITE_MODE,
+    (_event, payload: { userId: string; mode: WriteMode }) => {
+      try {
+        if (!payload || !payload.userId || !payload.mode) {
+          return { success: false, message: 'userId and mode required' };
+        }
+        if (payload.mode !== 'auto' && payload.mode !== 'manual') {
+          return { success: false, message: 'mode must be auto or manual' };
+        }
+        upsertAiConfig(payload.userId, { writeMode: payload.mode });
+        return { success: true, data: payload.mode };
+      } catch {
+        return { success: false, message: 'Failed to save write mode' };
       }
     }
   );

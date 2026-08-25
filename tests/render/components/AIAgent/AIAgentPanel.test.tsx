@@ -6,13 +6,34 @@
 // 模式下拉已移入 AIPanelComposer（见其测试），此处仅校验壳行为。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import AIAgentPanel from '@render/components/AIAgent/AIAgentPanel';
 import AIPanelComposer from '@render/components/AIAgent/AIPanelComposer';
 import { useAgentStore } from '@render/stores/agentStore';
 import { useUIStore } from '@render/stores/uiStore';
 import { useAuthStore } from '@render/stores/authStore';
+
+// R6: Mock IndexedDB draft store to avoid real IDB access in tests
+vi.mock('@render/services/draftStore', () => {
+  const store = new Map<string, { text: string; mentions: string[] }>();
+  return {
+    saveDraft: vi.fn(async (id: string, text: string, mentions: string[] = []) => {
+      store.set(id, { text, mentions });
+    }),
+    loadDraft: vi.fn(async (id: string) => store.get(id) ?? null),
+    deleteDraft: vi.fn(async (id: string) => { store.delete(id); }),
+    createDebouncedSaver: vi.fn(() => {
+      // Immediate (non-debounced) version for tests
+      return (id: string, text: string, mentions: string[] = []) => {
+        if (text.trim() || mentions.length > 0) {
+          store.set(id, { text, mentions });
+        }
+      };
+    }),
+    __draftStore: store,
+  };
+});
 
 /** 记录 AIPanelHome / AIPanelSession 收到的最新的受控 draft 值（用于断言跨视图保留/清空）。 */
 let lastHomeDraft = '';
@@ -21,9 +42,10 @@ let lastSessionDraft = '';
 // 三视图子组件 mock：home/session 透传真实 AIPanelComposer（受控），记录 draft 变化；
 // settings 保持简单占位（focus 在 home↔settings 停留时 draft 保留）。
 vi.mock('@render/components/AIAgent/AIPanelHome', () => ({
-  default: ({ draft, setDraft, onCreateSession, onOpenConversation, onViewAll }: {
+  default: ({ draft, setDraft, onSend, onCreateSession, onOpenConversation, onViewAll }: {
     draft: string;
     setDraft: (v: string) => void;
+    onSend?: () => void;
     onCreateSession?: () => void;
     onOpenConversation?: (id: string) => void;
     onViewAll?: () => void;
@@ -45,16 +67,17 @@ vi.mock('@render/components/AIAgent/AIPanelHome', () => ({
           value={draft}
           onChange={(v: string) => setDraft(v)}
           onCompose={onCreateSession}
-          onSend={() => setDraft('')}
+          onSend={onSend}
         />
       </div>
     );
   },
 }));
 vi.mock('@render/components/AIAgent/AIPanelSession', () => ({
-  default: ({ draft, setDraft, onCloseConversation }: {
+  default: ({ draft, setDraft, onSend, onCloseConversation }: {
     draft: string;
     setDraft: (v: string) => void;
+    onSend?: () => void;
     onCloseConversation?: () => void;
   }) => {
     lastSessionDraft = draft;
@@ -66,7 +89,7 @@ vi.mock('@render/components/AIAgent/AIPanelSession', () => ({
         <AIPanelComposer
           value={draft}
           onChange={(v: string) => setDraft(v)}
-          onSend={() => setDraft('')}
+          onSend={onSend}
         />
       </div>
     );
@@ -242,7 +265,7 @@ describe('AIAgentPanel（三视图外壳）', () => {
     expect(lastSessionDraft).toBe('');
   });
 
-  it('M4: 打开最近会话（loadConversation）后清空草稿', () => {
+  it('M4: 打开最近会话（loadConversation）后草稿从 IndexedDB 恢复', async () => {
     const loadConversation = vi.fn().mockResolvedValue(undefined);
     vi.spyOn(useAgentStore.getState(), 'loadConversation').mockImplementation(loadConversation);
     render(<AIAgentPanel />);
@@ -250,24 +273,43 @@ describe('AIAgentPanel（三视图外壳）', () => {
       target: { value: '会话前草稿' },
     });
     expect(lastHomeDraft).toBe('会话前草稿');
-    // 点 RECENT 项 → handleOpenConversation → loadConversation + 进 session + 草稿清空
-    fireEvent.click(screen.getByTestId('mock-recent-item'));
+    // 点 RECENT 项 → handleOpenConversation → loadConversation + 进 session
+    // R6: activeConversationId 变化 → effect 从 IndexedDB 加载草稿（新会话默认空）
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mock-recent-item'));
+      // Simulate loadConversation setting activeConversationId
+      useAgentStore.setState({ activeConversationId: 'c1' });
+    });
     expect(loadConversation).toHaveBeenCalledWith('c1', 'agent');
     expect(screen.getByTestId('view-session')).toBeInTheDocument();
-    expect(lastSessionDraft).toBe('');
+    await waitFor(() => {
+      expect(lastSessionDraft).toBe('');
+    });
   });
 
-  it('M4: 关闭会话（close-conversation）后回 home 且草稿清空', () => {
+  it('M4: 关闭会话（close-conversation）后回 home 且草稿清空', async () => {
     render(<AIAgentPanel />);
-    fireEvent.click(screen.getByTestId('new-chat-btn')); // 进 session
-    fireEvent.change(screen.getByPlaceholderText('输入你的问题...'), {
-      target: { value: '会话内草稿' },
+    // Enter session view via new-chat-btn (sets view='session' + activeConversationId=null)
+    fireEvent.click(screen.getByTestId('new-chat-btn'));
+    expect(screen.getByTestId('view-session')).toBeInTheDocument();
+    // Set active conversation so the effect has something to save
+    await act(async () => {
+      useAgentStore.setState({ activeConversationId: 'test-conv' });
     });
-    expect(lastSessionDraft).toBe('会话内草稿');
-    // 关闭会话 → 回 home + 清空
-    fireEvent.click(screen.getByTestId('mock-close-conv'));
+    // Type a draft
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText('输入你的问题...'), {
+        target: { value: '会话内草稿' },
+      });
+    });
+    // 关闭会话 → onCloseConversation → newChat + 回 home (effect 清空草稿)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('mock-close-conv'));
+    });
     expect(screen.getByTestId('view-home')).toBeInTheDocument();
-    expect(lastHomeDraft).toBe('');
+    await waitFor(() => {
+      expect(lastHomeDraft).toBe('');
+    });
   });
 
   it('M4: session 发送成功（onSend）→ 草稿清空', () => {

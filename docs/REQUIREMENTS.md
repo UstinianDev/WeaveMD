@@ -1,6 +1,6 @@
 # WeaveMD 需求文档
 
-> 版本：v2.12 | 最后更新：2026-08-21
+> 版本：v2.14 | 最后更新：2026-08-25
 
 ---
 
@@ -129,6 +129,21 @@
 | KB-04 | 全部文档匹配 | P1     | 知识库 = 账号内全部笔记 + 导入文档统一检索；换说法（语义）也能命中                            |
 | KB-05 | 数据授权     | P1     | 笔记外发用于知识库检索需用户知情同意（与 AGT-19 共用同意机制）                               |
 
+### 3.9 写控制与任务安全 (P1)
+
+> 参考：Notus 项目 Write Control & Task Safety 模块
+> 需求文档：[write-control-task-safety.req.md](./requirements/write-control-task-safety.req.md)
+
+| 编号 | 需求 | 优先级 | 说明 |
+|------|------|--------|------|
+| WC-01 | 写操作模式切换 | P1 | auto/manual 泛化到 editBlocks/createFile/createFolder，设置持久化到 ai_config |
+| WC-02 | 写预览版本对比 | P1 | proposal 携带 MD5 contentHash，确认时二次校验，哈希不一致拒绝静默覆盖 |
+| WC-03 | Agent 提问内联卡片 | P1 | ask_question_card → waiting_interaction → 用户回答恢复续轮（完整链路） |
+| WC-04 | 待处理状态保留 | P1 | waiting_* 状态会话在对话历史中持久显示，含恢复/重试入口 |
+| WC-05 | 事件持久化先于推送 | P1 | agentLoop/agentTaskWorker 全部事件走 persistAndSend，刷新后可恢复 |
+| WC-06 | IndexedDB 草稿恢复 | P1 | composer 输入 300ms 防抖保存到 IndexedDB，刷新后自动恢复，按 conversationId 索引 |
+| WC-07 | 已实现模块集成 | P1 | DeadLoopDetector 替代硬编码轮次限制 + 每轮 checkpoint + 完整文件快照 + 回滚 UI |
+
 ## 4. 非功能需求
 
 | 类别 | 需求                                                 |
@@ -136,12 +151,12 @@
 | 性能 | 大文档（10000+ 行）编辑不卡顿；格式化操作延迟 < 50ms |
 | 安全 | 本地认证无网络暴露；IPC 通信仅限白名单通道           |
 | 兼容 | Windows / macOS / Linux 三平台                       |
-| 离线 | 全功能离线可用，无网络依赖；AI 功能为可选联网（默认本地 Ollama，离线降级仅关键词召回） |
+| 离线 | 全功能离线可用，无网络依赖；AI 功能为可选联网（远程 OpenAI 兼容 API，需填 key；离线降级仅关键词召回） |
 | 数据 | SQLite 本地存储 + 磁盘文件系统直读直写               |
 
 ## 5. 约束
 
-- 不使用云服务或远程 API（**例外**：AI 代理面板为可选联网功能，默认本地 Ollama，远程 API / MCP / 笔记外发需用户授权与知情同意，见 AGT-19 / KB-05）
+- 不使用云服务或远程 API（**例外**：AI 代理面板为可选联网功能，远程 OpenAI 兼容 API 需用户填 key + 授权，MCP / 笔记外发需知情同意，见 AGT-19 / KB-05）
 - 不收集用户数据（AI 功能外发数据仅在用户明确授权且最小化范围内）
 - 不使用第三方登录
 - 数据以 Markdown 纯文本为核心格式

@@ -16,6 +16,18 @@
 
 import { create } from 'zustand';
 import type { RewriteProposal, SelectionRef } from '@shared/ai';
+
+/**
+ * 浏览器兼容的简单字符串哈希（djb2 变体，32-bit → hex）。
+ * 用于 rewriteStore 的 contentHash 比对，非密码学用途。
+ */
+function simpleHash(str: string): string {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash + str.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
 import { exportSelectionMarkdown } from '@render/editor/rewrite/selectionExport';
 import {
   buildNumberedBlockList,
@@ -38,6 +50,8 @@ export interface RewriteFileProposal {
   originalMd: string;
   rewrittenMd: string;
   status: 'pending' | 'applied' | 'discarded';
+  /** 内容哈希（MD5），用于 stale 校验——确认时比对快照是否一致。 */
+  contentHash?: string;
 }
 
 interface RewriteStore {
@@ -265,6 +279,15 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
       return;
     }
 
+    // contentHash 二次校验：若 proposal 携带 contentHash，用 MD5 比对（双保险）
+    if (pendingRewrite.contentHash) {
+      const currentHash = simpleHash(currentContent);
+      if (currentHash !== pendingRewrite.contentHash) {
+        set({ staleRejected: true });
+        return;
+      }
+    }
+
     useEditorStore.getState().updateContent(pendingRewrite.rewrittenMd);
     // 保留 pendingRewrite 供卡片展示 AI 改动说明 + diff，用户手动关闭
     set({ rewriteResult: 'applied' });
@@ -273,17 +296,27 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
   applyFileRewrite(fileName) {
     const { pendingMultiRewrite } = get();
     if (!pendingMultiRewrite) return;
-    const next = pendingMultiRewrite.map((f) =>
-      f.fileName === fileName && f.status === 'pending' ? { ...f, status: 'applied' as const } : f
-    );
-    // 实际写入：当前文件的改写应用到编辑器
     const file = pendingMultiRewrite.find((f) => f.fileName === fileName);
-    if (file && file.status === 'pending') {
-      const currentContent = useEditorStore.getState().content;
-      if (currentContent === file.originalMd) {
-        useEditorStore.getState().updateContent(file.rewrittenMd);
+    if (!file || file.status !== 'pending') return;
+
+    const currentContent = useEditorStore.getState().content;
+    // stale 校验：全文比对 + contentHash 双重检查
+    if (currentContent !== file.originalMd) {
+      set({ staleRejected: true });
+      return;
+    }
+    if (file.contentHash) {
+      const currentHash = simpleHash(currentContent);
+      if (currentHash !== file.contentHash) {
+        set({ staleRejected: true });
+        return;
       }
     }
+
+    useEditorStore.getState().updateContent(file.rewrittenMd);
+    const next = pendingMultiRewrite.map((f) =>
+      f.fileName === fileName ? { ...f, status: 'applied' as const } : f
+    );
     set({ pendingMultiRewrite: next });
   },
 
@@ -299,17 +332,27 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
   applyAllRewrites() {
     const { pendingMultiRewrite } = get();
     if (!pendingMultiRewrite) return;
+    const firstPending = pendingMultiRewrite.find((f) => f.status === 'pending');
+    if (!firstPending) return;
+
+    const currentContent = useEditorStore.getState().content;
+    // stale 校验：全文比对 + contentHash 双重检查
+    if (currentContent !== firstPending.originalMd) {
+      set({ staleRejected: true });
+      return;
+    }
+    if (firstPending.contentHash) {
+      const currentHash = simpleHash(currentContent);
+      if (currentHash !== firstPending.contentHash) {
+        set({ staleRejected: true });
+        return;
+      }
+    }
+
+    useEditorStore.getState().updateContent(firstPending.rewrittenMd);
     const next = pendingMultiRewrite.map((f) =>
       f.status === 'pending' ? { ...f, status: 'applied' as const } : f
     );
-    // 应用第一个 pending 文件到编辑器（单文件模式兼容）
-    const firstPending = pendingMultiRewrite.find((f) => f.status === 'pending');
-    if (firstPending) {
-      const currentContent = useEditorStore.getState().content;
-      if (currentContent === firstPending.originalMd) {
-        useEditorStore.getState().updateContent(firstPending.rewrittenMd);
-      }
-    }
     set({ pendingMultiRewrite: next });
   },
 

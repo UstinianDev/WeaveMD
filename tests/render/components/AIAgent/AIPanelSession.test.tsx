@@ -123,13 +123,13 @@ describe('AIPanelSession', () => {
       activeMode: 'agent',
       useKnowledgeBase: false,
     });
-    const setDraft = vi.fn();
+    const onSend = vi.fn();
     render(
-      <AIPanelSession draft="会话草稿" setDraft={setDraft} onCloseConversation={closeFn} />
+      <AIPanelSession draft="会话草稿" setDraft={() => undefined} onSend={onSend} onCloseConversation={closeFn} />
     );
     expect(composerValue).toBe('会话草稿');
-    // 发送成功 onSend → setDraft('')
+    // 发送成功 onSend → parent handles clearing draft + IndexedDB
     composerOnSend?.();
-    expect(setDraft).toHaveBeenCalledWith('');
+    expect(onSend).toHaveBeenCalled();
   });
 });

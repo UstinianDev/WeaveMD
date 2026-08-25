@@ -119,6 +119,11 @@ export const IPC_CHANNELS = {
   AGENT_TASK_STATUS: 'agent:task:status',
   AGENT_TASK_CANCEL: 'agent:task:cancel',
 
+  // AI — Agent interaction（暂停/恢复：ask_question_card 用户回答）
+  AGENT_INTERACTION_QUESTION: 'agent:interaction:question',
+  AGENT_RESUME_INTERACTION: 'agent:resume:interaction',
+  AGENT_RETRY_TASK: 'agent:retry:task',
+
   // AI — block rewrite (第5期) invoke
   AI_REWRITE_PREVIEW: 'ai:rewrite:preview',
   // AI — model list (ai-panel-redesign M1, 需求 R17) invoke
@@ -147,11 +152,31 @@ export const IPC_CHANNELS = {
   AI_SEARCH_GET_CONFIG: 'ai:search:get-config',
   AI_SEARCH_SET_CONFIG: 'ai:search:set-config',
 
+  // AI — 文档解析（阶段 1）
+  KB_PARSE_DOCUMENT: 'kb:parse-document',
+
+  // AI — Agent 文件操作（阶段 2）
+  AGENT_FILE_RENAME: 'agent:file:rename',
+  AGENT_FILE_MOVE: 'agent:file:move',
+  AGENT_FILE_DELETE: 'agent:file:delete',
+
+  // AI — Agent 全局文件（阶段 2）
+  AGENT_GLOBAL_FILES_GET: 'agent:global-files:get',
+  AGENT_GLOBAL_FILES_SET: 'agent:global-files:set',
+
+  // AI — Agent 附件/图片（阶段 2）
+  AGENT_UPLOAD_ATTACHMENT: 'agent:upload:attachment',
+  AGENT_UPLOAD_IMAGE: 'agent:upload:image',
+
   // AI — conversation export (第 8 期)
   AI_CONVERSATION_EXPORT: 'ai:conversation:export',
 
   // AI — conversation search
   AI_CONVERSATION_SEARCH: 'ai:conversation:search',
+
+  // AI — write mode（写模式 auto/manual）
+  AI_GET_WRITE_MODE: 'ai:get:writeMode',
+  AI_SET_WRITE_MODE: 'ai:set:writeMode',
 
   // AI — message edit（编辑用户消息并删除后续消息）
   AI_MESSAGE_EDIT: 'ai:message:edit',
@@ -161,6 +186,10 @@ export const IPC_CHANNELS = {
   AI_STREAM_DONE: 'ai:stream:done',
   AI_STREAM_ERROR: 'ai:stream:error',
   AI_STREAM_TOOL: 'ai:stream:tool',
+
+  // AI — Agent replay / rollback（写控制模块）
+  AGENT_REPLAY_EVENTS: 'agent:replay:events',
+  AGENT_ROLLBACK_SNAPSHOT: 'agent:rollback:snapshot',
 
   // Mail — 问题反馈邮件（第⑤项）
   MAIL_GET: 'mail:get',

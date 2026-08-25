@@ -3,7 +3,7 @@
 // ============================================
 // splitNote 纯函数分块；indexFile/indexImportedText/reindexAfterSave/removeByFile 落 kb.ts DAO。
 // 写 kb_documents / kb_chunks 属知识库索引存储（两铁律允许），绝不写 files 表/用户笔记。
-// 纯 FTS5 关键词索引（向量已去除）。
+// FTS5 关键词索引 + 可选向量嵌入（embeddingClient 生成 → kb_chunks.vector BLOB）。
 
 import {
   deleteChunksByDoc,
@@ -13,6 +13,8 @@ import {
   setKbDocStatus,
   upsertKbDocument,
 } from '../db/kb';
+import { getDatabase } from '../db/index';
+import { createEmbedding } from './embeddingClient';
 import type { IKbImportResult } from '@shared/ai';
 
 // ---------------------------------------------------------------------------
@@ -108,28 +110,73 @@ export interface IndexFileInput {
 }
 
 export interface KbIndexOpts {
-  // 纯 FTS5：无向量/嵌入选项
+  /** Embedding 配置（可选，不传则跳过向量生成）。 */
+  embedding?: {
+    baseUrl: string;
+    model: string;
+    apiKey: string;
+  };
 }
 
-/** 分块并依次落库（纯 FTS 文本）。返回落库 chunk 数。 */
+const EMBED_BATCH_SIZE = 20;
+
+/** 分块并依次落库（FTS 文本 + 可选向量嵌入）。返回落库 chunk 数。 */
 async function writeChunks(
   documentId: string,
   content: string,
-  fileName: string
+  fileName: string,
+  embeddingConfig?: { baseUrl: string; model: string; apiKey: string }
 ): Promise<number> {
   const chunks = splitNote(content);
   if (chunks.length === 0) return 0;
 
+  // 第一步：文本分块入库（收集 id 供向量写入）
+  const insertedChunks: { id: string; text: string }[] = [];
   for (const chunk of chunks) {
     const sourceRef = buildSourceRef(fileName, chunk.approxOffset);
-    insertChunk({
+    const row = insertChunk({
       documentId,
       seq: chunk.seq,
       content: chunk.text,
       sourceRef,
     });
+    insertedChunks.push({ id: row.id, text: chunk.text });
   }
-  return chunks.length;
+
+  // 第二步：批量生成向量（如果配置了 embedding）
+  if (embeddingConfig && insertedChunks.length > 0) {
+    try {
+      const db = getDatabase();
+      for (let i = 0; i < insertedChunks.length; i += EMBED_BATCH_SIZE) {
+        const batch = insertedChunks.slice(i, i + EMBED_BATCH_SIZE);
+        const texts = batch.map((c) => c.text);
+
+        const response = await createEmbedding({
+          baseUrl: embeddingConfig.baseUrl,
+          model: embeddingConfig.model,
+          apiKey: embeddingConfig.apiKey,
+          input: texts,
+        });
+
+        const updateStmt = db.prepare(
+          'UPDATE kb_chunks SET vector = ?, embedding_model = ? WHERE id = ?'
+        );
+        for (let j = 0; j < batch.length; j++) {
+          const chunkId = batch[j].id;
+          const embedding = response.embeddings[j];
+          if (embedding && Array.isArray(embedding)) {
+            const vecBuffer = Buffer.from(new Float32Array(embedding).buffer);
+            updateStmt.run(vecBuffer, embeddingConfig.model, chunkId);
+          }
+        }
+      }
+    } catch (err) {
+      // 向量生成失败不阻断索引流程，降级到纯 FTS5
+      console.warn(`[kbIndexer] Embedding generation failed for doc ${documentId}:`, err);
+    }
+  }
+
+  return insertedChunks.length;
 }
 
 /** 构造 source_ref（JSON 字符串）：{ fileName(fileId), line? }。line 由 approxOffset 近似换算。 */
@@ -148,7 +195,7 @@ export function buildSourceRef(fileName: string, approxOffset: number, fileId?: 
 export async function indexFile(
   userId: string,
   file: IndexFileInput,
-  _opts: KbIndexOpts
+  opts: KbIndexOpts
 ): Promise<IKbImportResult> {
   let docId = '';
   let title = file.name;
@@ -163,7 +210,7 @@ export async function indexFile(
     docId = doc.id;
     title = doc.title;
     deleteChunksByDoc(docId);
-    const chunkCount = await writeChunks(docId, file.content, file.name);
+    const chunkCount = await writeChunks(docId, file.content, file.name, opts.embedding);
     setKbDocStatus(userId, docId, 'done');
     const fresh = getKbDocumentByFile(userId, file.id);
     return {
@@ -197,7 +244,7 @@ export async function indexImportedText(
   userId: string,
   title: string,
   text: string,
-  _opts: KbIndexOpts
+  opts: KbIndexOpts
 ): Promise<IKbImportResult> {
   let docId = '';
 
@@ -210,7 +257,7 @@ export async function indexImportedText(
     });
     docId = doc.id;
     deleteChunksByDoc(docId);
-    const chunkCount = await writeChunks(docId, text, title);
+    const chunkCount = await writeChunks(docId, text, title, opts.embedding);
     setKbDocStatus(userId, docId, 'done');
     return { docId, title, chunks: chunkCount, status: 'done' };
   } catch {

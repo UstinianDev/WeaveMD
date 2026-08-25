@@ -144,7 +144,7 @@ const FileTreePanel: React.FC = () => {
               {isFolder ? (node.expanded ? '📂' : '📁') : '📄'}
             </span>
 
-            <span className="flex-1 text-base text-text-primary truncate select-none">
+            <span className="flex-1 text-base text-text-primary truncate select-none font-semibold" style={{ fontFamily: 'Consolas, KaiTi, 楷体, STKaiti, system-ui' }}>
               {node.name}
             </span>
 
@@ -188,7 +188,7 @@ const FileTreePanel: React.FC = () => {
         >
           <span className="w-4" />
           <span className="text-base select-none">📄</span>
-          <span className="flex-1 text-base text-text-primary truncate select-none">
+          <span className="flex-1 text-base text-text-primary truncate select-none font-semibold" style={{ fontFamily: 'Consolas, KaiTi, 楷体, STKaiti, system-ui' }}>
             {file.name}
           </span>
           <button

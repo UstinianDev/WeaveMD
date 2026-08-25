@@ -655,8 +655,14 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
         { name: 'tech_organize', description: '整理技术资料' },
         { name: 'kb_qa_guide', description: '基于知识库引导式问答' },
       ]),
+    replayEvents: async () => createSuccessResult([]),
+    rollbackSnapshot: async () => ({ success: false }),
     listModels: async () =>
       createSuccessResult(['qwen3.5:0.8b', 'deepseek-chat']),
+    getWriteMode: async () => createSuccessResult('manual' as const),
+    setWriteMode: async () => createSuccessResult('manual' as const),
+    resumeInteraction: async () => ({ success: false }),
+    retryTask: async () => ({ success: false }),
     onStream: () => () => {},
     embedding: {
       test: async () => ({ success: false }),
@@ -681,6 +687,10 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
       get: async () => ({ success: false }),
       set: async () => ({ success: false }),
     },
+    globalFiles: {
+      get: async () => ({ success: false }),
+      set: async () => ({ success: false }),
+    },
   },
   kb: {
     list: async () => ({ success: false }),
@@ -691,6 +701,7 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
     status: async () => ({ success: false }),
     getSettings: async () => ({ success: false }),
     setSettings: async () => ({ success: false }),
+    parseDocument: async () => ({ success: false }),
   },
   mail: {
     get: async (userId) => {

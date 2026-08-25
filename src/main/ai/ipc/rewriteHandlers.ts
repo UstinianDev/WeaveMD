@@ -6,7 +6,7 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@shared/constants';
 import type { AIErrorCode, RewriteRequestPayload } from '@shared/ai';
 import { getAiConfig } from '../../db/ai';
-import { needsConsent } from '../consent';
+import { needsConsent } from '@shared/ai';
 import { runRewrite } from '../rewrite';
 import { DEFAULT_AI_CONFIG, DEFAULT_CONSENT, toIAIConfig, toIAIConsent } from './shared';
 

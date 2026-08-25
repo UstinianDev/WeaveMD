@@ -12,9 +12,9 @@ vi.mock('@main/ai/skillLoader', () => skillMock);
 import { defineCoreTools, executeTool, type SearchKbFn, type ToolCtx } from '@main/ai/toolRegistry';
 import type { CoreSkill } from '@main/ai/skillLoader';
 
-// 真正写盘/写库的工具名（铁律一禁用）。editBlocks / createFile / createFolder 不在此列——
+// 真正写盘/写库的工具名（铁律一禁用）。editBlocks / createFile / createFolder / renameFile / moveFile / deleteFile 不在此列——
 // 它们只产 proposal 不落盘，另行断言其「仅产 proposal」语义。
-const WRITE_NAMES = ['writeFile', 'deleteFile', 'updateFile', 'upsert'];
+const WRITE_NAMES = ['writeFile', 'updateFile', 'upsert'];
 
 const STUB_SKILLS: CoreSkill[] = [
   {
@@ -29,9 +29,9 @@ function makeCtx(over: Partial<ToolCtx> = {}): ToolCtx {
 }
 
 describe('toolRegistry.defineCoreTools', () => {
-  it('defines exactly the 13 tools (listFiles/readFile/searchKB/runSkill/editBlocks/createFile/createFolder/ask_question_card/preview_patch_files/web_search/analyze_folder/check_links/get_task_activity)', () => {
+  it('defines exactly the 17 tools (listFiles/readFile/searchKB/runSkill/editBlocks/createFile/createFolder/ask_question_card/preview_patch_files/web_search/analyze_folder/check_links/get_task_activity/renameFile/moveFile/deleteFile/research_search)', () => {
     const names = defineCoreTools().map((t) => t.function.name);
-    expect(names).toEqual(['listFiles', 'readFile', 'searchKB', 'runSkill', 'editBlocks', 'createFile', 'createFolder', 'ask_question_card', 'preview_patch_files', 'web_search', 'analyze_folder', 'check_links', 'get_task_activity']);
+    expect(names).toEqual(['listFiles', 'readFile', 'searchKB', 'runSkill', 'editBlocks', 'createFile', 'createFolder', 'ask_question_card', 'preview_patch_files', 'web_search', 'analyze_folder', 'check_links', 'get_task_activity', 'renameFile', 'moveFile', 'deleteFile', 'research_search']);
   });
 
   it('has valid OpenAI function schema for every tool', () => {
@@ -72,6 +72,9 @@ describe('toolRegistry.defineCoreTools', () => {
     expect(names).toContain('editBlocks');
     expect(names).toContain('createFile');
     expect(names).toContain('createFolder');
+    expect(names).toContain('renameFile');
+    expect(names).toContain('moveFile');
+    expect(names).toContain('deleteFile');
   });
 });
 

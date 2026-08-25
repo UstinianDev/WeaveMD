@@ -8,18 +8,24 @@ import type { ExportRequest, ExportResult } from './export/types';
 import type {
   AIErrorCode,
   AIStreamEvent,
+  AgentInteractionPayload,
+  AgentRollbackResult,
+  AgentRunEvent,
   AgentRunPayload,
   AgentRunResult,
   AiChatResult,
   AiConfigUpdate,
   AiConversationDetail,
   ConversationMode,
+  IAgentStreamInteractionEvent,
   IAgentStreamToolEvent,
   IAIConfig,
   IAIConsent,
   IAIConversation,
   IAIModelConfig,
+  IDocumentParseResult,
   IEmbeddingConfig,
+  IGlobalAgentFiles,
   ISearchConfig,
   IKbDocumentStatus,
   IKbImportResult,
@@ -32,6 +38,7 @@ import type {
   RewriteReply,
   RewriteRequestPayload,
   SearchProvider,
+  WriteMode,
 } from '@shared/ai';
 import type { IpcResponse } from '@shared/types';
 import type {
@@ -154,8 +161,16 @@ export interface WeaveMDApi {
     agentAbort: (conversationId: string, userId: string) => Promise<IpcResponse<{ aborted: boolean }>>;
     rewritePreview: (payload: RewriteRequestPayload) => Promise<IpcResponse<RewriteReply>>;
     listSkills: (userId: string) => Promise<IpcResponse<AgentSkillInfo[]>>;
+    replayEvents: (sessionId: string, lastSeq: number) => Promise<IpcResponse<AgentRunEvent[]>>;
+    rollbackSnapshot: (sessionId: string, userId: string) => Promise<IpcResponse<AgentRollbackResult>>;
     listModels: (userId: string) => Promise<IpcResponse<string[]>>;
-    onStream: (cb: (evt: AIStreamEvent | IAgentStreamToolEvent) => void) => () => void;
+    getWriteMode: (userId: string) => Promise<IpcResponse<WriteMode>>;
+    setWriteMode: (userId: string, mode: WriteMode) => Promise<IpcResponse<WriteMode>>;
+    /** R3: 用户提交 ask_question_card 答案后恢复暂停的任务。 */
+    resumeInteraction: (sessionId: string, answers: Record<string, string>) => Promise<IpcResponse<{ resumed: boolean }>>;
+    /** R4: 重试失败的任务。 */
+    retryTask: (taskId: string) => Promise<IpcResponse<{ taskId: string; status: string }>>;
+    onStream: (cb: (evt: AIStreamEvent | IAgentStreamToolEvent | IAgentStreamInteractionEvent) => void) => () => void;
     embedding: {
       test: (payload: { baseUrl: string; model: string; apiKey: string; userId?: string }) => Promise<IpcResponse<{ message: string }>>;
       create: (payload: {
@@ -217,6 +232,10 @@ export interface WeaveMDApi {
         apiKeys?: Partial<Record<SearchProvider, string>>;
       }) => Promise<IpcResponse<ISearchConfig>>;
     };
+    globalFiles: {
+      get: () => Promise<IpcResponse<IGlobalAgentFiles>>;
+      set: (updates: { soul?: string; memory?: string; style?: string }) => Promise<IpcResponse<IGlobalAgentFiles>>;
+    };
   };
   kb: {
     list: (userId: string) => Promise<IpcResponse<IKbDocumentStatus[]>>;
@@ -234,6 +253,7 @@ export interface WeaveMDApi {
       userId: string;
       settings: IKbSettings;
     }) => Promise<IpcResponse<IKbSettings>>;
+    parseDocument: (filePath: string, fileName: string, mimeType?: string) => Promise<IpcResponse<IDocumentParseResult>>;
   };
   mail: {
     get: (userId: string) => Promise<IpcResponse<MailAuthStatus>>;
@@ -348,12 +368,22 @@ const api: WeaveMDApi = {
       ipcRenderer.invoke(IPC_CHANNELS.AI_REWRITE_PREVIEW, payload),
     listSkills: (userId) =>
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_SKILLS_LIST, { userId }),
+    replayEvents: (sessionId, lastSeq) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_REPLAY_EVENTS, sessionId, lastSeq),
+    rollbackSnapshot: (sessionId, userId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_ROLLBACK_SNAPSHOT, sessionId, userId),
     listModels: (userId) => ipcRenderer.invoke(IPC_CHANNELS.AI_LIST_MODELS, userId),
+    getWriteMode: (userId) => ipcRenderer.invoke(IPC_CHANNELS.AI_GET_WRITE_MODE, userId),
+    setWriteMode: (userId, mode) => ipcRenderer.invoke(IPC_CHANNELS.AI_SET_WRITE_MODE, { userId, mode }),
+    resumeInteraction: (sessionId, answers) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_RESUME_INTERACTION, { sessionId, answers }),
+    retryTask: (taskId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AGENT_RETRY_TASK, taskId),
     onStream: (cb) => {
       const listeners: Array<() => void> = [];
       const subscribe = <T>(
         channel: string,
-        map: (payload: T) => AIStreamEvent | IAgentStreamToolEvent
+        map: (payload: T) => AIStreamEvent | IAgentStreamToolEvent | IAgentStreamInteractionEvent
       ): void => {
         const handler = (_event: Electron.IpcRendererEvent, payload: T): void => {
           cb(map(payload));
@@ -411,6 +441,16 @@ const api: WeaveMDApi = {
           ...(p.loopIndex !== undefined ? { loopIndex: p.loopIndex } : {}),
         })
       );
+      // R3: 交互提问事件（ask_question_card 暂停时推送）
+      subscribe(
+        IPC_CHANNELS.AGENT_INTERACTION_QUESTION,
+        (p: AgentInteractionPayload) => ({
+          type: 'interaction',
+          conversationId: p.conversationId,
+          sessionId: p.sessionId,
+          questions: p.questions,
+        })
+      );
       return () => {
         for (const off of listeners) off();
       };
@@ -451,6 +491,12 @@ const api: WeaveMDApi = {
       set: (userId, config) =>
         ipcRenderer.invoke(IPC_CHANNELS.AI_SEARCH_SET_CONFIG, { userId, config }),
     },
+    globalFiles: {
+      get: () =>
+        ipcRenderer.invoke(IPC_CHANNELS.AGENT_GLOBAL_FILES_GET),
+      set: (updates) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AGENT_GLOBAL_FILES_SET, updates),
+    },
   },
   kb: {
     list: (userId) => ipcRenderer.invoke(IPC_CHANNELS.KB_LIST, { userId }),
@@ -461,6 +507,8 @@ const api: WeaveMDApi = {
     status: (userId) => ipcRenderer.invoke(IPC_CHANNELS.KB_STATUS, { userId }),
     getSettings: (userId) => ipcRenderer.invoke(IPC_CHANNELS.KB_GET_SETTINGS, { userId }),
     setSettings: (input) => ipcRenderer.invoke(IPC_CHANNELS.KB_SET_SETTINGS, input),
+    parseDocument: (filePath, fileName, mimeType) =>
+      ipcRenderer.invoke(IPC_CHANNELS.KB_PARSE_DOCUMENT, filePath, fileName, mimeType),
   },
   mail: {
     get: (userId) => ipcRenderer.invoke(IPC_CHANNELS.MAIL_GET, userId),

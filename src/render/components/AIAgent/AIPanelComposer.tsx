@@ -8,7 +8,7 @@
 // 无 dangerouslySetInnerHTML、无 any。
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AgentSkillInfo } from '@shared/ai';
+import type { AgentSkillInfo, IMentionItem } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
 import { useAgentStore } from '@render/stores/agentStore';
@@ -17,24 +17,19 @@ import { useRewriteStore } from '@render/stores/rewriteStore';
 import CompletionMenu, { type CompletionMenuItem } from './CompletionMenu';
 import ContextRing from './ContextRing';
 import ModelDropdown from './ModelDropdown';
+import MentionList from './MentionList';
+import {
+  DOC_SCOPE_PREFIX,
+  KB_SCOPE_PREFIX,
+  COMPACT_CMD,
+  SEND_ROUTES,
+  type SendContext,
+} from './sendRoutes';
 
-/** 引用前缀常量（B1 注入协议，与 handleSend 分流/意图消费对齐）。 */
-const DOC_SCOPE_PREFIX = '@文档';
-const KB_SCOPE_PREFIX = '@知识库';
 /** `/技能名 ` 前缀剥除（runSkill 技能指令）。 */
 const SLASH_SKILL_RE = /^\/[a-z_]+\s+/;
-/** /compact 命令前缀。 */
-const COMPACT_CMD = '/compact';
 /** 上下文 token 估算上限（128k）。 */
 const MAX_CONTEXT_TOKENS = 128000;
-
-/**
- * A1c：整篇从 0 到 1 写文档的检测启发式。
- * 命中（含中英文「从头写整篇」意图）→ 走 runFullDocumentRewrite（document scope 整篇生成），
- * 未打开文档则给出引导（no-document），不产生空写。与 @ / 选区协议错开。
- */
-const WRITE_WHOLE_DOC_RE =
-  /从\s*0\s*到\s*1|从零|从头|整篇|全文|写一篇|写整篇|写一份|写个文档|write\s+(a\s+)?(full|entire|complete)|create\s+(a\s+)?document|write\s+a\s+doc/;
 
 /** 联网搜索引擎选项。 */
 const WEB_SEARCH_ENGINES = ['Firecrawl', 'Zhipu', 'Tavily', 'Exa'] as const;
@@ -71,17 +66,32 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
   const runManualCompress = useAgentStore((s) => s.runManualCompress);
   const messages = useAgentStore((s) => s.messages);
   const streamBuffer = useAgentStore((s) => s.streamBuffer);
-  const autoApplyRewrite = useAgentStore((s) => s.autoApplyRewrite);
-  const setAutoApplyRewrite = useAgentStore((s) => s.setAutoApplyRewrite);
+  const writeMode = useAgentStore((s) => s.writeMode);
+  const setWriteMode = useAgentStore((s) => s.setWriteMode);
 
   // 改写状态：选区改写模式（selectionContext 非空 → composer 输入改写指令）
   const selectionContext = useRewriteStore((s) => s.selectionContext);
 
+  // 阶段 3：搜索配置（从 store 读取实际配置）
+  const searchConfig = useAgentStore((s) => s.searchConfig);
+
   // —— 控制条状态 ——
   /** 联网搜索菜单开关。 */
   const [searchMenuOpen, setSearchMenuOpen] = useState(false);
-  /** 已选中的搜索引擎（本地 state，不持久化）。 */
-  const [selectedEngine, setSelectedEngine] = useState<WebSearchEngine | null>(null);
+  /** 已选中的搜索引擎（从配置初始化）。 */
+  const [selectedEngine, setSelectedEngine] = useState<WebSearchEngine | null>(() => {
+    // 从配置初始化，配置存在且已启用时显示当前提供商
+    if (searchConfig?.enabled && searchConfig.provider) {
+      const providerMap: Record<string, WebSearchEngine> = {
+        firecrawl: 'Firecrawl',
+        zhipu: 'Zhipu',
+        tavily: 'Tavily',
+        exa: 'Exa',
+      };
+      return providerMap[searchConfig.provider] ?? null;
+    }
+    return null;
+  });
   /** 搜索菜单引用（点击外部关闭）。 */
   const searchMenuRef = useRef<HTMLDivElement>(null);
 
@@ -109,6 +119,10 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
   /** 触发补全时，前缀字符在 input 中的下标（选中后从此处替换 insertText）。 */
   const [completionInsertAt, setCompletionInsertAt] = useState(0);
 
+  // —— 阶段 2：@ Mention 三维补全（文件/目录/技能） ——
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState('');
+
   // 挂载时加载技能清单（B1 `/` 数据源；失败静默，仅技能补全不可用）。
   useEffect(() => {
     const load = async (): Promise<void> => {
@@ -120,6 +134,8 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
       }
     };
     void load();
+    // 阶段 3：刷新搜索配置（确保使用最新提供商）
+    void useAgentStore.getState().refreshSearchConfig();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -182,20 +198,33 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
     const trimmed = value.trim();
     if (trimmed === COMPACT_CMD || trimmed.startsWith(`${COMPACT_CMD} `)) {
       setCompletionOpen(false);
+      setMentionOpen(false);
       return;
     }
     const match = /(^|\s)([/@])([^\s/@]*)$/.exec(value);
     if (!match) {
       setCompletionOpen(false);
+      setMentionOpen(false);
       return;
     }
     const trigger = match[2] as '/' | '@';
     const query = match[3] ?? '';
+
+    // @ 触发时使用 MentionList（文件/目录/技能三维补全）
+    if (trigger === '@') {
+      setMentionOpen(true);
+      setMentionQuery(query);
+      setCompletionOpen(false);
+      return;
+    }
+
+    // / 触发时使用 CompletionMenu（技能补全）
     const items = buildCompletionItems(trigger, query);
     if (items.length === 0) {
       setCompletionOpen(false);
       return;
     }
+    setMentionOpen(false);
     setCompletionTrigger(trigger);
     setCompletionItems(items);
     setCompletionActive(0);
@@ -214,6 +243,18 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
     setCompletionOpen(false);
   };
 
+  /** @ mention 选中处理：将选中项插入到输入框。 */
+  const handleMentionSelect = (item: IMentionItem) => {
+    // 计算 @ 符号的位置
+    const atIndex = value.lastIndexOf('@');
+    if (atIndex === -1) return;
+    // 替换 @query 为选中的 mention
+    const prefix = value.slice(0, atIndex);
+    const insertText = item.type === 'skill' ? `/${item.name} ` : `@${item.name} `;
+    onChange(prefix + insertText);
+    setMentionOpen(false);
+  };
+
   const handleCompletionMove = (dir: 1 | -1) => {
     setCompletionActive((prev) => {
       if (completionItems.length === 0) return prev;
@@ -227,108 +268,39 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skills]);
 
-  /** R4: /compact 命令处理。 */
-  const handleCompactCommand = (text: string): void => {
-    const description = text.slice(COMPACT_CMD.length).trim();
-    void runManualCompress();
-    if (description) {
-      // 有描述时，压缩后将描述作为 agent 消息发送
-      setTimeout(() => { void sendAgentMessage(description); }, 100);
+  /** agent 模式发送分流（路由表驱动，逻辑与原 7 路 if-branch 完全一致）。 */
+  const handleSendAgent = (text: string): void => {
+    const store = useAgentStore.getState();
+    const ctx: SendContext = {
+      userId: user?.id,
+      selectionContext,
+      activeConversationId: store.activeConversationId,
+      messages: store.messages,
+      sendAgentMessage: (msg) => { void sendAgentMessage(msg); },
+      runManualCompress: () => { void runManualCompress(); },
+      startDocumentRewrite: (content, instruction) => {
+        useRewriteStore.getState().startDocumentRewrite(content, instruction);
+      },
+      runFullDocumentRewrite: (t) => { void useRewriteStore.getState().runFullDocumentRewrite(t); },
+      runSelectionRewrite: (instruction) => { void useRewriteStore.getState().runSelectionRewrite(instruction); },
+      editorContent: useEditorStore.getState().content,
+      createConversation: async (userId) => {
+        const ai = window.weaveMD?.ai;
+        const res = await ai?.createConversation(userId, 'agent');
+        return (res?.success && res.data) ? res.data.id : null;
+      },
+      setAgentState: (patch) => { useAgentStore.setState(patch); },
+    };
+    for (const route of SEND_ROUTES) {
+      const handled = route(text, ctx);
+      if (handled) return;
     }
-  };
-
-  /** agent 模式发送分流（改写 / 技能 / 引用 / 整篇写 / 纯 agent 对话）。逐字保留自 AgentTab。 */
-  const handleSendAgent = async (text: string): Promise<void> => {
-    // 分流（第 7 期 B1：/ 与 @ 前缀优先于 WRITE_WHOLE_DOC_RE 启发式判断）：
-    // 0) /compact 命令 → 压缩上下文
-    // 1) 有选区上下文（编辑器「AI 改写」触发）→ 选区改写
-    // 2) `/技能名 ` → 剥前缀后指令走 agent 对话（runSkill / tech 意图由 intentRouter + runSkill 工具消费）
-    // 3) `@文档 `（B1 注入）→ document scope 块级改写
-    // 4) `@知识库 `（B1 注入）→ kbQa 意图（sendAgentMessage，intentRouter 识别「知识库」关键词）
-    // 5) `@ + 描述`（手写协议）→ document scope 块级改写
-    // 6) 整篇写诉求（A1c）→ runFullDocumentRewrite
-    // 7) 否则 → 既有 agent 对话
-    if (text === COMPACT_CMD || text.startsWith(`${COMPACT_CMD} `)) {
-      handleCompactCommand(text);
-      return;
-    }
-    if (selectionContext) {
-      // R6: 将用户改写指令作为消息显示在会话中
-      const store = useAgentStore.getState();
-      let convId = store.activeConversationId;
-      // 确保会话存在（与 sendMessage/sendAgentMessage 对齐）
-      if (!convId && user) {
-        try {
-          const ai = window.weaveMD?.ai;
-          const createRes = await ai?.createConversation(user.id, 'agent');
-          if (createRes?.success && createRes.data) {
-            convId = createRes.data.id;
-            useAgentStore.setState({ activeConversationId: convId, activeMode: 'agent' });
-          }
-        } catch {
-          /* 会话创建失败不阻断改写，消息仅内存显示 */
-        }
-      }
-      const userMsg = {
-        id: `msg-${Date.now()}-user`,
-        conversationId: convId ?? 'rewrite-temp',
-        role: 'user' as const,
-        content: text,
-        refsJson: null,
-        createdAt: new Date().toISOString(),
-      };
-      useAgentStore.setState({ messages: [...store.messages, userMsg] });
-      void useRewriteStore.getState().runSelectionRewrite(text);
-      return;
-    }
-    if (SLASH_SKILL_RE.test(text)) {
-      const instruction = text.replace(SLASH_SKILL_RE, '').trim();
-      if (instruction) void sendAgentMessage(instruction);
-      return;
-    }
-    if (text.startsWith(DOC_SCOPE_PREFIX)) {
-      const instruction = text.replace(DOC_SCOPE_PREFIX, '').trim();
-      if (instruction) {
-        useRewriteStore.getState().startDocumentRewrite(
-          useEditorStore.getState().content,
-          instruction
-        );
-        return;
-      }
-    }
-    if (text.startsWith(KB_SCOPE_PREFIX)) {
-      const instruction = text.replace(KB_SCOPE_PREFIX, '').trim();
-      if (instruction) void sendAgentMessage(instruction);
-      return;
-    }
-    if (text.startsWith('@')) {
-      const instruction = text.slice(1).trim();
-      if (instruction) {
-        useRewriteStore.getState().startDocumentRewrite(
-          useEditorStore.getState().content,
-          instruction
-        );
-        return;
-      }
-    }
-    if (WRITE_WHOLE_DOC_RE.test(text)) {
-      void useRewriteStore.getState().runFullDocumentRewrite(text);
-      return;
-    }
-    void sendAgentMessage(text);
   };
 
   const handleSend = () => {
     const text = value.trim();
     if (!text || isStreaming) return;
     setCompletionOpen(false);
-    // R4: /compact 命令
-    if (text === COMPACT_CMD || text.startsWith(`${COMPACT_CMD} `)) {
-      handleCompactCommand(text);
-      onSend?.();
-      onCompose?.();
-      return;
-    }
     void handleSendAgent(text);
     // M4：清空由父级 onSend 回调执行（setDraft('')）；不再组件本地清空，保证草稿归属唯一。
     onSend?.();
@@ -367,25 +339,40 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
   const handleToggleEngine = useCallback((engine: WebSearchEngine) => {
     setSelectedEngine((prev) => (prev === engine ? null : engine));
     setSearchMenuOpen(false);
-  }, []);
+    // 阶段 3：切换提供商时同步到搜索配置
+    const providerMap: Record<WebSearchEngine, string> = {
+      Firecrawl: 'firecrawl',
+      Zhipu: 'zhipu',
+      Tavily: 'tavily',
+      Exa: 'exa',
+    };
+    const provider = providerMap[engine];
+    if (provider && user?.id) {
+      void window.weaveMD?.ai.searchConfig.set(user.id, { provider: provider as 'firecrawl' | 'zhipu' | 'tavily' | 'exa' });
+      void useAgentStore.getState().refreshSearchConfig();
+    }
+  }, [user?.id]);
 
   return (
     <div className="border-t border-border px-2.5 pt-2 pb-2.5 space-y-1.5">
       <div className="relative">
-        {/* B1 `/` 与 `@` 自动补全菜单（渲染在 textarea 上方） */}
+        {/* B1 `/` 技能补全菜单（渲染在 textarea 上方） */}
           <CompletionMenu
             open={completionOpen}
             trigger={completionTrigger}
-            title={
-              completionTrigger === '/'
-                ? t('ai.completion.skillsTitle')
-                : t('ai.completion.refTitle')
-            }
+            title={t('ai.completion.skillsTitle')}
             items={completionItems}
             activeIndex={completionActive}
             onMove={handleCompletionMove}
             onSelect={handleCompletionSelect}
             onClose={() => setCompletionOpen(false)}
+          />
+        {/* 阶段 2：@ Mention 三维补全（文件/目录/技能） */}
+          <MentionList
+            open={mentionOpen}
+            query={mentionQuery}
+            onSelect={handleMentionSelect}
+            onClose={() => setMentionOpen(false)}
           />
         <textarea
           value={value}
@@ -433,13 +420,13 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
           <span className="text-[16px] leading-none">🖼</span>
         </button>
 
-        {/* 自动/手动应用修改开关 */}
+        {/* 写模式切换：auto 自动 / manual 手动 */}
         <div className="flex items-center gap-1 text-[12px]">
           <button
             type="button"
-            onClick={() => setAutoApplyRewrite(true)}
+            onClick={() => void setWriteMode('auto')}
             className={`px-1.5 py-0.5 rounded transition-colors ${
-              autoApplyRewrite
+              writeMode === 'auto'
                 ? 'text-[var(--accent)] font-medium'
                 : 'text-text-muted hover:text-text-sub'
             }`}
@@ -448,24 +435,24 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
           </button>
           <button
             type="button"
-            onClick={() => setAutoApplyRewrite(false)}
+            onClick={() => void setWriteMode(writeMode === 'auto' ? 'manual' : 'auto')}
             className={`relative w-8 h-4 rounded-full transition-colors ${
-              autoApplyRewrite ? 'bg-[var(--accent)]' : 'bg-text-muted'
+              writeMode === 'auto' ? 'bg-[var(--accent)]' : 'bg-text-muted'
             }`}
             role="switch"
-            aria-checked={!autoApplyRewrite}
+            aria-checked={writeMode === 'manual'}
           >
             <span
               className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${
-                autoApplyRewrite ? 'translate-x-0' : 'translate-x-4'
+                writeMode === 'auto' ? 'translate-x-0' : 'translate-x-4'
               }`}
             />
           </button>
           <button
             type="button"
-            onClick={() => setAutoApplyRewrite(false)}
+            onClick={() => void setWriteMode('manual')}
             className={`px-1.5 py-0.5 rounded transition-colors ${
-              !autoApplyRewrite
+              writeMode === 'manual'
                 ? 'text-[var(--accent)] font-medium'
                 : 'text-text-muted hover:text-text-sub'
             }`}
@@ -479,9 +466,13 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
           <button
             type="button"
             onClick={() => setSearchMenuOpen((v) => !v)}
-            title="联网搜索"
+            title={
+              searchConfig?.enabled
+                ? `联网搜索 (${selectedEngine ?? '未配置'})`
+                : '联网搜索 (未启用)'
+            }
             className={`flex items-center justify-center w-7 h-7 rounded transition-colors ${
-              selectedEngine
+              searchConfig?.enabled && selectedEngine
                 ? 'text-[var(--accent)] bg-[var(--accent)]/10'
                 : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
             }`}
@@ -489,24 +480,39 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
             <span className="text-[16px] leading-none">🌐</span>
           </button>
           {searchMenuOpen && (
-            <div className="absolute left-0 bottom-full mb-1 z-50 w-40 rounded-card border border-border bg-bg-secondary shadow-dropdown py-1">
-              <div className="px-3 pt-1 pb-1 text-[11px] text-text-muted">
-                搜索引擎
+            <div className="absolute left-0 bottom-full mb-1 z-50 w-48 rounded-card border border-border bg-bg-secondary shadow-dropdown py-1">
+              <div className="px-3 pt-1 pb-1 text-[11px] text-text-muted flex items-center justify-between">
+                <span>搜索引擎</span>
+                {searchConfig?.enabled ? (
+                  <span className="text-green-500">已启用</span>
+                ) : (
+                  <span className="text-text-muted">未启用</span>
+                )}
               </div>
-              {WEB_SEARCH_ENGINES.map((engine) => (
-                <button
-                  key={engine}
-                  type="button"
-                  onClick={() => handleToggleEngine(engine)}
-                  className={`block w-full text-left px-3 py-1.5 text-[13px] transition-colors ${
-                    selectedEngine === engine
-                      ? 'bg-[var(--accent)]/15 text-text-primary font-medium'
-                      : 'text-text-sub hover:bg-bg-tertiary'
-                  }`}
-                >
-                  {engine}
-                </button>
-              ))}
+              {WEB_SEARCH_ENGINES.map((engine) => {
+                const providerKey = engine === 'Firecrawl' ? 'firecrawl' : engine === 'Zhipu' ? 'zhipu' : engine === 'Tavily' ? 'tavily' : 'exa';
+                const hasKey = searchConfig?.hasApiKeys?.[providerKey as keyof typeof searchConfig.hasApiKeys];
+                return (
+                  <button
+                    key={engine}
+                    type="button"
+                    onClick={() => handleToggleEngine(engine)}
+                    className={`flex items-center justify-between w-full text-left px-3 py-1.5 text-[13px] transition-colors ${
+                      selectedEngine === engine
+                        ? 'bg-[var(--accent)]/15 text-text-primary font-medium'
+                        : 'text-text-sub hover:bg-bg-tertiary'
+                    }`}
+                  >
+                    <span>{engine}</span>
+                    {hasKey && <span className="text-[10px] text-green-500">✓</span>}
+                  </button>
+                );
+              })}
+              <div className="border-t border-border mt-1 pt-1 px-3">
+                <span className="text-[11px] text-text-muted">
+                  {searchConfig?.enabled ? '点击切换提供商' : '请在设置中启用搜索'}
+                </span>
+              </div>
             </div>
           )}
         </div>

@@ -20,12 +20,17 @@
     "db:migrate": "ts-node src/main/db/migrate.ts"
   },
   "dependencies": {
+    "@llamaindex/liteparse": "^2.13.1",
     "@monaco-editor/react": "^4.6.0",
+    "@mozilla/readability": "^0.6.0",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.6.0",
+    "cheerio": "^1.2.0",
+    "electron-updater": "^6.3.9",
     "html-to-docx": "^1.8.0",
     "jsonwebtoken": "^9.0.2",
     "katex": "^0.18.1",
+    "mammoth": "^1.12.1",
     "monaco-editor": "^0.55.1",
     "nodemailer": "^6.10.1",
     "prismjs": "^1.29.0",
@@ -35,9 +40,9 @@
     "remark-gfm": "^4.0.0",
     "remark-parse": "^11.0.0",
     "remark-rehype": "^11.1.2",
+    "sqlite-vec": "^0.1.9",
     "unified": "^11.0.0",
-    "zustand": "^4.5.0",
-    "electron-updater": "^6.3.9"
+    "zustand": "^4.5.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
@@ -89,7 +94,10 @@
       "icon": "public/icons/icon.png"
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "public/icons/icon.png",
       "identity": null
     },

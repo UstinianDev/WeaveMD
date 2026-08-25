@@ -71,6 +71,8 @@ function makeCandidate(over: Partial<{ chunkId: string; bm: number; pinned: bool
     pinned: over.pinned ?? false,
     sourceRef: JSON.stringify({ fileName: 'n.md' }),
     bm: over.bm ?? 0,
+    vecScore: null as number | null,
+    titleScore: 0,
   };
 }
 
@@ -106,7 +108,7 @@ describe('kbSearch.sanitizeFtsQuery — 净化与 CJK 前缀', () => {
 });
 
 describe('kbSearch.rankCandidates — 纯 FTS 评分 / 置顶 / 排序', () => {
-  it('仅 FTS 分：score = ftsNorm（min-max 归一），最高 bm → 1', () => {
+  it('仅 FTS 分：score = ftsNorm（min-max 归一），最高 bm → 0.9', () => {
     const cands = [
       makeCandidate({ chunkId: 'a', bm: 10 }),
       makeCandidate({ chunkId: 'b', bm: 5 }),
@@ -114,15 +116,17 @@ describe('kbSearch.rankCandidates — 纯 FTS 评分 / 置顶 / 排序', () => {
     ];
     const ranked = rankCandidates(cands, 1.5);
     expect(ranked[0].chunkId).toBe('a');
-    expect(ranked[0].score).toBeCloseTo(1, 6);
+    // 无向量时：score = fts * 0.9 + title * 0.1 = 1 * 0.9 + 0 = 0.9
+    expect(ranked[0].score).toBeCloseTo(0.9, 6);
     expect(ranked[1].chunkId).toBe('b');
-    // bm=5 → (5-(-3))/(10-(-3)) = 8/13
-    expect(ranked[1].score).toBeCloseTo(8 / 13, 6);
+    // bm=5 → ftsNorm = 8/13; score = (8/13) * 0.9
+    expect(ranked[1].score).toBeCloseTo((8 / 13) * 0.9, 6);
   });
 
   it('置顶×1.5 排序前移', () => {
     // min-max over {10,8,-3}：non-pinned top bm=10 → fts=1；pinned bm=8 → fts=11/13。
-    // pinned ×1.5 = 16.5/13 ≈ 1.269 > top 1.0 → 置顶文档前移。
+    // 无向量时：score = fts * 0.9 + title * 0.1
+    // pinned ×1.5 = (11/13) * 0.9 * 1.5 ≈ 1.142 > top 0.9 → 置顶文档前移。
     const lowPinned = makeCandidate({ chunkId: 'p', bm: 8 });
     lowPinned.pinned = true;
     const cands = [lowPinned, makeCandidate({ chunkId: 'top', bm: 10 }), makeCandidate({ chunkId: 'low', bm: -3 })];
@@ -130,8 +134,8 @@ describe('kbSearch.rankCandidates — 纯 FTS 评分 / 置顶 / 排序', () => {
     expect(ranked[0].chunkId).toBe('p');
     const pScore = ranked.find((r) => r.chunkId === 'p')?.score as number;
     const topScore = ranked.find((r) => r.chunkId === 'top')?.score as number;
-    expect(pScore).toBeCloseTo((11 / 13) * 1.5, 5);
-    expect(topScore).toBe(1);
+    expect(pScore).toBeCloseTo((11 / 13) * 0.9 * 1.5, 5);
+    expect(topScore).toBeCloseTo(0.9, 5);
   });
 
   it('按分数降序返回 IKbSearchResult 形状', () => {
@@ -189,7 +193,8 @@ describe('kbSearch.searchKB — 对外契约与拒答（纯 FTS5 BM25）', () =>
     const result = await searchKB('u1', '知识', { topK: 5, threshold: 1.5 });
     expect(result.refused).toBe(true);
     expect(result.best?.chunkId).toBe('c1');
-    expect(result.best?.score).toBeCloseTo(1, 6);
+    // 无向量时：score = fts * 0.9 + title * 0.1 = 1 * 0.9 + 0 = 0.9
+    expect(result.best?.score).toBeCloseTo(0.9, 6);
     expect(result.results[0].chunkId).toBe('c1');
   });
 
@@ -209,7 +214,8 @@ describe('kbSearch.searchKB — 对外契约与拒答（纯 FTS5 BM25）', () =>
     ];
     const result = await searchKB('u1', '知识', { topK: 5, threshold: 0.6 });
     expect(result.refused).toBe(false);
-    expect(result.best?.score).toBeCloseTo(1, 6);
+    // 无向量时：score = fts * 0.9 + title * 0.1 = 1 * 0.9 + 0 = 0.9
+    expect(result.best?.score).toBeCloseTo(0.9, 6);
   });
 
   it('搜索响应经 topK 截断', () => {

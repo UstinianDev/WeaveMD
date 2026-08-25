@@ -2,6 +2,20 @@
 
 ## 已完成
 
+### 写控制与任务安全模块（2026-08-24 ~ 2026-08-25，R1~R7 全部交付）
+
+参考 Notus 项目，7 项需求全部完成：
+
+- ✅ R1: 写模式切换（auto/manual 泛化到 editBlocks/createFile/createFolder，持久化 ai_config）
+- ✅ R2: 写预览版本对比（proposal 携带 MD5，确认时二次校验，stale 拒绝静默覆盖）
+- ✅ R3: Agent 交互暂停/恢复（ask_question_card → waiting_interaction → 用户回答恢复续轮）
+- ✅ R4: 待处理状态 UI（QuestionCard 组件 + waiting 状态标识 + 重试入口）
+- ✅ R5: 任务事件持久化（agentLoop/agentTaskWorker 全部事件 persistAndSend，渲染侧 visibilitychange replay）
+- ✅ R6: IndexedDB 草稿恢复（composer 输入 300ms 防抖保存，刷新后自动恢复，按 conversationId 索引）
+- ✅ R7: 已实现模块集成（DeadLoopDetector 替代硬编码 MAX_ROUNDS、每轮 checkpoint、完整文件快照、回滚 UI）
+
+**门禁**：tsc 0 新增 | vitest 1500/1500 | lint 0 error
+
 ### Notus Agent 克隆（2026-08-24，Phase 1-5 全部交付）
 
 深度模仿 Notus 项目的 AI Agent 功能，21 项功能全部实现：

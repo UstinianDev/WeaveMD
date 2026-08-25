@@ -18,6 +18,7 @@ import AgentStepTimeline from './AgentStepTimeline';
 import IntentCard from './IntentCard';
 import RewritePreviewCard from './RewritePreviewCard';
 import FileOpPreviewCard from './FileOpPreviewCard';
+import QuestionCard from './QuestionCard';
 
 const AgentTab: React.FC = () => {
   const { t } = useI18n();
@@ -33,6 +34,10 @@ const AgentTab: React.FC = () => {
   const fileOpProposals = useAgentStore((s) => s.fileOpProposals);
   const applyFileOpProposal = useAgentStore((s) => s.applyFileOpProposal);
   const discardFileOpProposal = useAgentStore((s) => s.discardFileOpProposal);
+
+  // R3: 交互提问状态
+  const pendingInteraction = useAgentStore((s) => s.pendingInteraction);
+  const resumeInteraction = useAgentStore((s) => s.resumeInteraction);
 
   const previewDocumentFromReply = useRewriteStore((s) => s.previewDocumentFromReply);
   const currentFile = useEditorStore((s) => s.currentFile);
@@ -127,6 +132,14 @@ const AgentTab: React.FC = () => {
           proposals={fileOpProposals}
           onApply={applyFileOpProposal}
           onDiscard={discardFileOpProposal}
+        />
+      )}
+
+      {/* R3: agent 模式：交互提问卡片（ask_question_card 暂停时显示） */}
+      {isAgentMode && pendingInteraction && (
+        <QuestionCard
+          questions={pendingInteraction.questions}
+          onSubmit={resumeInteraction}
         />
       )}
 

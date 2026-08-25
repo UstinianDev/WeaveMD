@@ -13,6 +13,7 @@ import type {
   AIErrorCode,
   IAIConfig,
   IAIConsent,
+  IClarifyQuestion,
 } from '@shared/ai';
 import { normalizeKbSettings } from '@shared/ai';
 import { IPC_CHANNELS } from '@shared/constants';
@@ -22,6 +23,8 @@ import { AgentTaskQueue } from './agentTaskQueue';
 import { AgentSessionStateMachine } from './agentSession';
 import { runAgentFlow } from './agentLoop';
 import { searchKB } from './kbSearch';
+import { persistAndSend } from './agentEventStore';
+import { createSnapshot } from './agentSnapshot';
 import {
   toIAIConfig,
   toIAIConsent,
@@ -52,6 +55,16 @@ export class AgentTaskWorker {
   private isRunning = false;
   private activeTasks: Map<string, AbortController> = new Map();
   private mainWindow: BrowserWindow | null = null;
+
+  /** R3: 暂停等待用户交互的 Promise 控制器（sessionId -> resolve/reject + session）。 */
+  private pendingInteractions: Map<
+    string,
+    {
+      resolve: (answers: Record<string, string>) => void;
+      reject: (err: Error) => void;
+      session: AgentSessionStateMachine;
+    }
+  > = new Map();
 
   constructor(
     db: BetterSqlite3Database,
@@ -102,10 +115,17 @@ export class AgentTaskWorker {
     console.log('[AgentTaskWorker] Stopped');
   }
 
-  /** 取消特定任务。 */
+  /** 取消特定任务（同时 reject 挂起的交互等待）。 */
   cancelTask(taskId: string): void {
     const controller = this.activeTasks.get(taskId);
     if (controller) {
+      // R3: reject 挂起的交互等待（如有）
+      for (const [sid, pending] of this.pendingInteractions) {
+        // 通过 AbortController abort 触发 agentLoop catch，pending resolve 不再需要
+        // 但为安全起见也 reject
+        pending.reject(new Error('Task cancelled'));
+        this.pendingInteractions.delete(sid);
+      }
       controller.abort();
       this.activeTasks.delete(taskId);
       this.queue.updateStatus(taskId, 'cancelled');
@@ -120,6 +140,23 @@ export class AgentTaskWorker {
   /** 检查指定任务是否正在执行。 */
   isTaskActive(taskId: string): boolean {
     return this.activeTasks.has(taskId);
+  }
+
+  /** R3: 恢复暂停的交互——用户提交答案后调用。 */
+  resumeInteraction(sessionId: string, answers: Record<string, string>): void {
+    const pending = this.pendingInteractions.get(sessionId);
+    if (!pending) return;
+    this.pendingInteractions.delete(sessionId);
+    // 转换会话状态 waiting_interaction -> running
+    if (pending.session.canTransitionTo('running')) {
+      pending.session.transition('running');
+    }
+    pending.resolve(answers);
+  }
+
+  /** 检查指定会话是否有挂起的交互等待。 */
+  hasPendingInteraction(sessionId: string): boolean {
+    return this.pendingInteractions.has(sessionId);
   }
 
   // -----------------------------------------------------------------------
@@ -152,6 +189,7 @@ export class AgentTaskWorker {
     this.activeTasks.set(task.id, abortController);
 
     let session: AgentSessionStateMachine | null = null;
+    const mainWindow = this.mainWindow;
 
     try {
       // 1. 创建 Agent 会话
@@ -166,9 +204,10 @@ export class AgentTaskWorker {
         sessionRow.id,
         'created',
       );
+      const sessionId = session.getSessionId();
 
-      // 2. 创建文件快照（记录操作前文件状态，用于回滚）
-      this.createFileSnapshot(session.getSessionId(), task.userId);
+      // 2. 创建文件快照（备份用户所有 .md 文件内容，用于回滚）
+      await createSnapshot(this.db, sessionId, task.userId);
 
       // 3. 状态 created -> queued -> running
       session.transition('queued');
@@ -191,7 +230,6 @@ export class AgentTaskWorker {
         : kbDefaults;
 
       // 6. 构造合成 event shim（runAgentFlow 仅用 event.sender 获取 BrowserWindow）
-      const mainWindow = this.mainWindow;
       const syntheticEvent = {
         sender: mainWindow?.webContents ?? ({
           send: () => {},
@@ -199,7 +237,7 @@ export class AgentTaskWorker {
         } as unknown as Electron.WebContents),
       } as Electron.IpcMainInvokeEvent;
 
-      // 7. 执行 Agent 流程
+      // 7. 执行 Agent 流程（传入 sessionId + mainWindow 以启用持久化事件推送）
       const result: AgentRunResult = await runAgentFlow(
         syntheticEvent,
         {
@@ -220,6 +258,30 @@ export class AgentTaskWorker {
             }),
           consent,
           db: this.db,
+          sessionId,
+          mainWindow: mainWindow ?? undefined,
+          // R3: ask_question_card 暂停/恢复回调
+          onInteractionRequired: (questions: IClarifyQuestion[]) => {
+            // 转换会话状态 running -> waiting_interaction
+            if (session && session.canTransitionTo('waiting_interaction')) {
+              session.transition('waiting_interaction');
+            }
+            // 推送问题卡片到渲染进程
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              persistAndSend(
+                this.db,
+                mainWindow,
+                sessionId,
+                task.conversationId,
+                IPC_CHANNELS.AGENT_INTERACTION_QUESTION,
+                { sessionId, conversationId: task.conversationId, questions },
+              );
+            }
+          },
+          waitForInteraction: () =>
+            new Promise<Record<string, string>>((resolve, reject) => {
+              this.pendingInteractions.set(sessionId, { resolve, reject, session: session! });
+            }),
         },
       );
 
@@ -227,14 +289,23 @@ export class AgentTaskWorker {
       this.queue.updateStatus(task.id, 'completed');
       session.transition('completed');
 
-      // 9. 推送完成事件
-      this.sendEvent(task.conversationId, IPC_CHANNELS.AI_STREAM_DONE, {
-        conversationId: task.conversationId,
-        taskId: task.id,
-        sessionId: session.getSessionId(),
-        success: true,
-        result,
-      });
+      // 9. 推送完成事件（持久化 + IPC）
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        persistAndSend(
+          this.db,
+          mainWindow,
+          sessionId,
+          task.conversationId,
+          IPC_CHANNELS.AI_STREAM_DONE,
+          {
+            conversationId: task.conversationId,
+            taskId: task.id,
+            sessionId,
+            success: true,
+            result,
+          },
+        );
+      }
     } catch (error) {
       // AbortError：任务被取消
       if (abortController.signal.aborted) {
@@ -258,85 +329,38 @@ export class AgentTaskWorker {
         session.transition('failed');
       }
 
-      // 推送错误事件
-      this.sendEvent(task.conversationId, IPC_CHANNELS.AI_STREAM_ERROR, {
-        conversationId: task.conversationId,
-        taskId: task.id,
-        code,
-        message,
-      });
+      // 推送错误事件（持久化 + IPC）
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        persistAndSend(
+          this.db,
+          mainWindow,
+          session?.getSessionId() ?? '',
+          task.conversationId,
+          IPC_CHANNELS.AI_STREAM_ERROR,
+          {
+            conversationId: task.conversationId,
+            taskId: task.id,
+            code,
+            message,
+          },
+        );
+      }
     } finally {
+      // R3: 清理该会话可能残留的交互等待（任务结束时）
+      if (session) {
+        const sid = session.getSessionId();
+        const lingering = this.pendingInteractions.get(sid);
+        if (lingering) {
+          lingering.reject(new Error('Task ended'));
+          this.pendingInteractions.delete(sid);
+        }
+      }
       this.activeTasks.delete(task.id);
       // 触发下一次轮询（可能有等待中的任务）
       void this.poll();
     }
   }
 
-  // -----------------------------------------------------------------------
-  // Private — Snapshot
-  // -----------------------------------------------------------------------
-
-  /**
-   * 创建文件快照：记录当前用户的文件树结构到 session.snapshot_json。
-   * 快照仅记录目录树骨架（文件路径+类型），不备份文件内容——
-   * Agent 工具全部只读，无需内容级回滚。
-   */
-  private createFileSnapshot(sessionId: string, userId: string): void {
-    try {
-      // 查询用户文件列表（轻量骨架快照）
-      const files = this.db
-        .prepare(
-          `SELECT id, name, path, type, parent_id
-           FROM files WHERE user_id = ?`,
-        )
-        .all(userId) as Array<{
-        id: string;
-        name: string;
-        path: string;
-        type: string;
-        parent_id: string | null;
-      }>;
-
-      const snapshot = JSON.stringify({
-        capturedAt: new Date().toISOString(),
-        fileCount: files.length,
-        files: files.map((f) => ({
-          id: f.id,
-          name: f.name,
-          path: f.path,
-          type: f.type,
-          parentId: f.parent_id,
-        })),
-      });
-
-      sessionDao.saveSnapshot(this.db, sessionId, snapshot);
-    } catch (err) {
-      // 快照失败不阻塞任务执行
-      console.warn('[AgentTaskWorker] Snapshot creation failed:', err);
-    }
-  }
-
-  // -----------------------------------------------------------------------
-  // Private — Event Delivery
-  // -----------------------------------------------------------------------
-
-  /** 向渲染进程推送 IPC 事件（无 mainWindow 时静默丢弃）。 */
-  private sendEvent(
-    conversationId: string,
-    channel: string,
-    payload: unknown,
-  ): void {
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      try {
-        this.mainWindow.webContents.send(channel, {
-          ...(typeof payload === 'object' && payload !== null ? payload : {}),
-          conversationId,
-        });
-      } catch (err) {
-        console.warn('[AgentTaskWorker] sendEvent failed:', err);
-      }
-    }
-  }
 }
 
 export default AgentTaskWorker;

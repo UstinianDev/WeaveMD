@@ -162,6 +162,15 @@
 - AI 面板样式优化（2026-08-22）：⑪ AI 回答行高调整（leading-relaxed→leading-normal）+ ⑫ AI 表格样式补全 + ⑬ 编辑器+目录区+代码块字体统一（Consolas + 阿里巴巴普惠体）+ ⑭ 间距全面压缩（margin/padding/space-y 减半）+ ⑮ 移除 whitespace-pre-wrap（修复双重换行：Markdown 段落 margin + 源文本换行符）+ ⑯ AI 面板 user 消息和 composer 输入框字体统一（Consolas + 阿里巴巴普惠体）
 - AI面板+编辑主区+导航栏优化（2026-08-23，Phase 1-5 全部交付）：① 浮动工具栏删 AI 改写 + ② 侧栏固定 20% + ③ 删除 Chat 模式 + ④ 导航栏重构（收起编辑器/AI 按钮移到左侧）+ ⑤ 编辑区收起功能 + ⑥ CreatePanel 新建文件/文件夹居中面板 + ⑦ 消息操作栏（hover 复制/编辑/重试 + 响应时间）+ ⑧ AI 处理流程状态展示（AIProcessStatus 8 种状态 + 脉冲指示器）+ ⑨ Composer 重构（📎🖼自动手动 toggle🌐联网搜索 + ContextRing 缩小）+ ⑩ KB 设置重构（EmbeddingSettings + SearchSettings + AIPanelSettings 5 tabs）+ ⑪ 多文件修订预览（RewriteDetailModal 居中弹窗 + 汇总卡片）+ ⑫ Embedding 客户端（embeddingClient.ts + embeddingHandlers.ts）+ ⑬ 搜索客户端（searchClient.ts 4 引擎 + searchHandlers.ts）+ ⑭ AI 文件操作工具（createFile/createFolder proposal + FileOpPreviewCard）+ ⑮ 测试同步修复
   门禁全绿（第 6 期：typecheck 0 | vitest 90/1261 | lint 0 | Playwright 14/14 | 真库迁移 smoke 0；第 7 期：typecheck 0 | vitest 93/1338 | lint 0 | Playwright 24/24）
+- 写控制与任务安全模块（2026-08-24 ~ 2026-08-25，R1~R7 全部交付）：
+  ① R1 写模式切换（`writeMode: WriteMode` 泛化 auto/manual，持久化 ai_config）+
+  ② R2 写预览版本对比（MD5 staleness detection，哈希不一致拒绝覆盖）+
+  ③ R3 Agent 交互暂停/恢复（ask_question_card → waiting_interaction → 恢复续轮，AgentLoopDeps 回调 + Worker pendingInteractions Map）+
+  ④ R4 待处理状态 UI（QuestionCard 组件 + waiting 标识 + 重试入口）+
+  ⑤ R5 事件持久化（persistAndSend + replayFromSeq）+
+  ⑥ R6 IndexedDB 草稿恢复（draftStore.ts，300ms 防抖 + conversationId 索引）+
+  ⑦ R7 已实现模块集成（DeadLoopDetector + checkpoint + snapshot + 回滚 UI）
+  门禁全绿（tsc 0 新增 | vitest 1500/1500 | lint 0 error）
 
 ## 已知限制（详见 docs/specs/editor-v2-progress.md §13.x）
 

@@ -67,6 +67,42 @@ const toolMock = vi.hoisted(() => ({
 }));
 vi.mock('@main/ai/toolRegistry', () => toolMock);
 
+// --- agentEventStore mock (R5-1) ---
+const eventStoreMock = vi.hoisted(() => ({
+  persistAndSend: vi.fn(),
+}));
+vi.mock('@main/ai/agentEventStore', () => eventStoreMock);
+
+// --- agentLoopGuard mock (R7a) ---
+const guardMock = vi.hoisted(() => {
+  class FakeDeadLoopDetector {
+    private maxRounds: number;
+    constructor(config?: { maxRounds?: number }) {
+      this.maxRounds = config?.maxRounds ?? 12;
+    }
+    checkRoundLimit(round: number): boolean {
+      return round >= this.maxRounds;
+    }
+    isNearRoundLimit(): boolean {
+      return false;
+    }
+    checkSameResult(_result: unknown) {
+      return { detected: false };
+    }
+    checkConsecutiveFailure(_toolName: string, _success: boolean) {
+      return { detected: false };
+    }
+  }
+  return { DeadLoopDetector: FakeDeadLoopDetector };
+});
+vi.mock('@main/ai/agentLoopGuard', () => guardMock);
+
+// --- agentCheckpoint mock (R7b) ---
+const checkpointMock = vi.hoisted(() => ({
+  saveCheckpoint: vi.fn(),
+}));
+vi.mock('@main/ai/agentCheckpoint', () => checkpointMock);
+
 import { runAgentFlow } from '@main/ai/agentLoop';
 import { IPC_CHANNELS } from '@shared/constants';
 import type { IAIConfig } from '@shared/ai';
@@ -121,6 +157,8 @@ beforeEach(() => {
   // 默认：allowSend 未授权（需要 KB 外发同意）——安全默认不提供 searchKB
   consentMock.needsKbSendConsent.mockReset().mockReturnValue(true);
   intentMock.classifyIntent.mockReset().mockReturnValue({ intent: 'create', confidence: 0.9 });
+  eventStoreMock.persistAndSend.mockReset();
+  checkpointMock.saveCheckpoint.mockReset();
 });
 
 describe('runAgentFlow', () => {
@@ -207,7 +245,7 @@ describe('runAgentFlow', () => {
     expect(toolTurn?.content).toContain('文件内容');
   });
 
-  it('does not loop forever when model keeps returning tool_calls (rounds capped)', async () => {
+  it('does not loop forever when model keeps returning tool_calls (rounds capped at maxRounds)', async () => {
     llmMock.streamChatCompletion.mockImplementation(() => {
       async function* g() {
         yield {
@@ -224,13 +262,14 @@ describe('runAgentFlow', () => {
       consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
     });
 
-    expect(llmMock.streamChatCompletion).toHaveBeenCalledTimes(6); // MAX_ROUNDS=6
+    // 默认 maxRounds=12（DeadLoopDetector），FakeDeadLoopDetector 在 round=12 时 break
+    expect(llmMock.streamChatCompletion).toHaveBeenCalledTimes(12);
     // 收敛 assistant 落库（提示文案）
     const assistantCalls = dbMock.appendMessage.mock.calls.filter(
       (c) => c[0].role === 'assistant'
     );
     expect(assistantCalls.length).toBeGreaterThan(0);
-    expect(res.roundsUsed).toBe(6);
+    expect(res.roundsUsed).toBe(12);
   });
 
   it('degrades to direct answer + hint when a tool fails', async () => {
@@ -384,7 +423,7 @@ describe('runAgentFlow', () => {
   });
 
   it('A1a: truncates an over-long currentDocument with a cut marker', async () => {
-    // 20008 字符 → estimateTokens((20008)/4 = 5002) > 5000 → 触发截断到 20000 + 尾部标记
+    // 20008 字符 -> estimateTokens((20008)/4 = 5002) > 5000 -> 触发截断到 20000 + 尾部标记
     const huge = '字'.repeat(20_008);
     intentMock.classifyIntent.mockReturnValue({ intent: 'rewrite', confidence: 0.9 });
     llmMock.streamChatCompletion.mockImplementation(() => {
@@ -435,5 +474,132 @@ describe('runAgentFlow', () => {
     }>;
     // 不注入任何 document 上下文 system 消息（无 currentDocument）
     expect(firstMessages.some((m) => m.content.includes('当前编辑文档内容'))).toBe(false);
+  });
+
+  // ============================================================
+  // R5-1：persistAndSend 集成（当 sessionId + db + mainWindow 存在时走持久化路径）
+  // ============================================================
+
+  it('R5-1: uses persistAndSend when sessionId + db + mainWindow are provided', async () => {
+    llmMock.streamChatCompletion.mockImplementation(() => {
+      async function* g() {
+        yield { delta: '持久化回复' };
+      }
+      return g();
+    });
+
+    const fakeMainWindow = { webContents: { send: vi.fn() } } as unknown as import('electron').BrowserWindow;
+    const fakeDb = {} as import('better-sqlite3').Database;
+
+    const controller = new AbortController();
+    await runAgentFlow(
+      makeEvent(),
+      payload(),
+      makeConfig(),
+      'enc:key',
+      controller,
+      {
+        consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+        sessionId: 'sess-1',
+        db: fakeDb,
+        mainWindow: fakeMainWindow,
+      }
+    );
+
+    // persistAndSend 应被调用（chunk + done）
+    expect(eventStoreMock.persistAndSend).toHaveBeenCalled();
+    // 首次调用应该是 chunk 事件
+    const firstCall = eventStoreMock.persistAndSend.mock.calls[0];
+    expect(firstCall[2]).toBe('sess-1'); // sessionId
+    expect(firstCall[4]).toBe('chunk'); // eventType
+  });
+
+  it('R5-1: falls back to sendStream when persistAndSend throws', async () => {
+    llmMock.streamChatCompletion.mockImplementation(() => {
+      async function* g() {
+        yield { delta: 'fallback 回复' };
+      }
+      return g();
+    });
+
+    // DB 写入失败
+    eventStoreMock.persistAndSend.mockImplementation(() => {
+      throw new Error('DB write failed');
+    });
+
+    const fakeMainWindow = { webContents: { send: vi.fn() } } as unknown as import('electron').BrowserWindow;
+    const fakeDb = {} as import('better-sqlite3').Database;
+
+    const controller = new AbortController();
+    await runAgentFlow(
+      makeEvent(),
+      payload(),
+      makeConfig(),
+      'enc:key',
+      controller,
+      {
+        consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+        sessionId: 'sess-1',
+        db: fakeDb,
+        mainWindow: fakeMainWindow,
+      }
+    );
+
+    // 降级到 sendStream（webContents.send 被调用）
+    expect(electronMock.webContentsSend).toHaveBeenCalledWith(
+      IPC_CHANNELS.AI_STREAM_CHUNK,
+      expect.anything()
+    );
+  });
+
+  // ============================================================
+  // R7b：saveCheckpoint 每轮结束时被调用
+  // ============================================================
+
+  it('R7b: saves checkpoint at end of each round when sessionId + db are provided', async () => {
+    let call = 0;
+    llmMock.streamChatCompletion.mockImplementation(() => {
+      call += 1;
+      if (call === 1) {
+        return (async function* () {
+          yield {
+            delta: '',
+            toolCalls: [{ index: 0, name: 'readFile', arguments: '{"file_id":"f1"}' }],
+          };
+        })();
+      }
+      return (async function* () {
+        yield { delta: '最终回复' };
+      })();
+    });
+    toolMock.executeTool.mockResolvedValue({ content: '文件内容', status: 'ok' });
+
+    const fakeDb = {} as import('better-sqlite3').Database;
+    const controller = new AbortController();
+    await runAgentFlow(
+      makeEvent(),
+      payload(),
+      makeConfig(),
+      'enc:key',
+      controller,
+      {
+        consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+        sessionId: 'sess-1',
+        db: fakeDb,
+      }
+    );
+
+    // 工具执行那轮结束后应保存 checkpoint
+    expect(checkpointMock.saveCheckpoint).toHaveBeenCalledWith(
+      fakeDb,
+      'sess-1',
+      expect.objectContaining({
+        roundIndex: 0,
+        roundsUsed: 1,
+        toolCallsHistory: expect.arrayContaining([
+          expect.objectContaining({ name: 'readFile' }),
+        ]),
+      })
+    );
   });
 });

@@ -12,18 +12,12 @@
 // - SSE 事件：message_start / content_block_delta / message_stop / error
 
 import type { StreamChatCompletionOptions, StreamChunk } from './llmClient';
+import { createStreamController, makeError, normalizeBaseUrl } from './streamScaffold';
 
 const ANTHROPIC_VERSION = '2023-06-01';
-const DEFAULT_TIMEOUT = 60_000;
-
-function makeError(code: string, message: string): Error & { code: string } {
-  const err = new Error(message) as Error & { code: string };
-  err.code = code;
-  return err;
-}
 
 // ---------------------------------------------------------------------------
-// Anthropic SSE 事件结构
+// Anthropic SSE 事件结构（协议特定）
 // ---------------------------------------------------------------------------
 
 interface AnthropicContentBlockDelta {
@@ -56,7 +50,7 @@ type AnthropicSseEvent =
   | { type: string };
 
 // ---------------------------------------------------------------------------
-// SSE 行解析（单事件块）
+// SSE 行解析（单事件块，Anthropic 协议特定）
 // ---------------------------------------------------------------------------
 
 /** 解析一组 SSE 文本行（单事件块），返回待 yield 的 StreamChunk 或抛出错误。 */
@@ -129,36 +123,7 @@ export async function* streamAnthropicCompletion(
     throw makeError('config_incomplete', 'Anthropic backend requires an API key');
   }
 
-  const controller = new AbortController();
-  const external = opts.signal;
-  if (external?.aborted) {
-    throw makeError('aborted', 'Request aborted');
-  }
-  const doAbort = (reason: string): void => {
-    try {
-      controller.abort(reason);
-    } catch {
-      controller.abort();
-    }
-  };
-  const onExternalAbort = (): void => doAbort('external');
-  if (external) {
-    external.addEventListener('abort', onExternalAbort);
-  }
-  const timeout = setTimeout(() => doAbort('timeout'), opts.timeoutMs ?? DEFAULT_TIMEOUT);
-
-  const finalize = (): void => {
-    clearTimeout(timeout);
-    if (external) {
-      external.removeEventListener('abort', onExternalAbort);
-    }
-  };
-
-  function abortError(): Error & { code: string } {
-    const reason = (controller.signal as unknown as { reason?: string }).reason;
-    if (reason === 'timeout') return makeError('timeout', 'Request timed out');
-    return makeError('aborted', 'Request aborted');
-  }
+  const sc = createStreamController(opts.signal, opts.timeoutMs);
 
   // 分离 system 消息与 user/assistant 消息
   const systemParts: string[] = [];
@@ -187,12 +152,9 @@ export async function* streamAnthropicCompletion(
     body.system = systemParts.join('\n\n');
   }
 
-  // 规范化 baseUrl：去除尾部 /v1 和 /，避免双重 /v1/v1/
-  const normalizedBase = opts.baseUrl.replace(/\/+$/, '').replace(/\/v1$/, '');
-
   let response: Response;
   try {
-    response = await fetch(`${normalizedBase}/v1/messages`, {
+    response = await fetch(`${normalizeBaseUrl(opts.baseUrl)}/v1/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -200,24 +162,24 @@ export async function* streamAnthropicCompletion(
         'anthropic-version': ANTHROPIC_VERSION,
       },
       body: JSON.stringify(body),
-      signal: controller.signal,
+      signal: sc.controller.signal,
     });
   } catch (err) {
-    finalize();
-    if (external?.aborted) throw makeError('aborted', 'Request aborted');
-    if (controller.signal.aborted) throw abortError();
+    sc.finalize();
+    if (opts.signal?.aborted) throw makeError('aborted', 'Request aborted');
+    if (sc.controller.signal.aborted) throw sc.abortError();
     throw makeError('network', `Network error: ${err instanceof Error ? err.message : err}`);
   }
 
   if (!response.ok) {
     await response.body?.cancel().catch(() => undefined);
-    finalize();
+    sc.finalize();
     throw makeError(`http_${response.status}`, `HTTP ${response.status} ${response.statusText}`.trim());
   }
 
   const responseBody = response.body;
   if (!responseBody) {
-    finalize();
+    sc.finalize();
     throw makeError('parse', 'Empty response body');
   }
 
@@ -237,9 +199,9 @@ export async function* streamAnthropicCompletion(
       for (const part of parts) {
         const chunk = processAnthropicSseLines(part.split('\n'));
         if (chunk) yield chunk;
-        if (external?.aborted || controller.signal.aborted) {
+        if (opts.signal?.aborted || sc.controller.signal.aborted) {
           await reader.cancel().catch(() => undefined);
-          throw abortError();
+          throw sc.abortError();
         }
       }
     }
@@ -251,13 +213,13 @@ export async function* streamAnthropicCompletion(
     }
   } catch (err) {
     await reader.cancel().catch(() => undefined);
-    finalize();
-    if (external?.aborted) throw makeError('aborted', 'Request aborted');
-    if (controller.signal.aborted) throw abortError();
+    sc.finalize();
+    if (opts.signal?.aborted) throw makeError('aborted', 'Request aborted');
+    if (sc.controller.signal.aborted) throw sc.abortError();
     // processAnthropicSseLines 可能抛出 anthropic_error，直接透传
     if (err instanceof Error && 'code' in err) throw err;
     throw makeError('network', `Stream error: ${err instanceof Error ? err.message : err}`);
   }
 
-  finalize();
+  sc.finalize();
 }

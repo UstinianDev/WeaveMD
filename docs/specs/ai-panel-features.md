@@ -73,3 +73,14 @@ ai_* 4 表 DDL + kb_* 预留、`ai:*` IPC + preload、设置面板 AI Tab（safe
 | 第 5 期 | 0 | 88/1229 | 0 | ai 14/14 | ✓ |
 | 第 6 期 | 0 | 90/1261 | 0 | ai 14/14 | ✓ |
 | 第 7 期 | 0 | 93/1338 | 0 | ai 24/24 | ✓ |
+| 写控制模块 | 0 | 114/1500 | 0 | — | ✓ |
+
+### 写控制与任务安全模块（2026-08-24 ~ 2026-08-25，R1~R7 全部交付）
+
+参考 Notus 项目 Write Control & Task Safety，两期实施：
+
+**第一期（2026-08-24）**：R2 写预览版本对比（MD5 staleness detection）+ R5 事件持久化（persistAndSend + replay）+ R7 已实现模块集成（DeadLoopDetector + checkpoint + snapshot + 回滚 UI）
+
+**第二期（2026-08-25）**：R1 写模式切换（auto/manual 泛化，持久化 ai_config）+ R3 Agent 交互暂停/恢复（ask_question_card → waiting_interaction → 恢复续轮）+ R4 待处理状态 UI（QuestionCard + waiting 标识 + 重试入口）+ R6 IndexedDB 草稿恢复（300ms 防抖 + 按 conversationId 索引）
+
+详见 [需求文档](../requirements/write-control-task-safety.req.md) / [实施计划](../plan/write-control-task-safety.plan.md) / [任务状态](../plan/write-control-task-safety.status.md)。

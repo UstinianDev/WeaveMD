@@ -27,7 +27,7 @@ import {
 import { cancelPendingByConversation } from '../../db/agentTaskDao';
 import { getDatabase } from '../../db/index';
 import { decryptApiKey } from '../secureConfig';
-import { needsConsent } from '../consent';
+import { needsConsent } from '@shared/ai';
 import { streamChatCompletion } from '../llmClient';
 import { activeStreams, DEFAULT_AI_CONFIG, DEFAULT_CONSENT, sendStream, toIAIConfig, toIAIConsent } from './shared';
 import { exportConversationToMarkdown } from '../conversationExport';

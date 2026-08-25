@@ -12,9 +12,12 @@ import { getAiConfig, getConversation } from '../../db/ai';
 import { runAgentFlow } from '../agentLoop';
 import { searchKB } from '../kbSearch';
 import { listSkillsForUi, loadUserSkillsFromDirs } from '../skillLoader';
-import { needsConsent } from '../consent';
+import { needsConsent } from '@shared/ai';
 import { AgentTaskQueue } from '../agentTaskQueue';
 import { AgentTaskWorker } from '../agentTaskWorker';
+import { replayFromSeq } from '../agentEventStore';
+import { rollbackToSnapshot } from '../agentSnapshot';
+import { getGlobalAgentFiles, setGlobalAgentFiles } from '../globalAgentFiles';
 import { activeStreams, DEFAULT_AI_CONFIG, DEFAULT_CONSENT, toIAIConfig, toIAIConsent } from './shared';
 
 /** 内置 skills 名称列表（不暴露给 UI，仅 agent 内部使用）。 */
@@ -26,9 +29,13 @@ const BUILTIN_SKILL_NAMES = new Set(['polish_rewrite', 'tech_organize', 'kb_qa_g
 
 let taskQueue: AgentTaskQueue | null = null;
 let taskWorker: AgentTaskWorker | null = null;
+let dbRef: BetterSqlite3Database | null = null;
+let mainWindowRef: BrowserWindow | null = null;
 
 /** 初始化 Agent 任务队列与 Worker（主进程启动时调用）。 */
 export function initAgentQueue(db: BetterSqlite3Database, mainWindow: BrowserWindow): void {
+  dbRef = db;
+  mainWindowRef = mainWindow;
   taskQueue = new AgentTaskQueue(db);
   taskWorker = new AgentTaskWorker(db, taskQueue);
   taskWorker.setMainWindow(mainWindow);
@@ -154,6 +161,104 @@ export function registerAgentHandlers(): void {
     return { success: true, data: { cancelled: true } };
   });
 
+  // --- agent: replay events（写控制模块：断线重连回放） ---
+  ipcMain.handle(
+    IPC_CHANNELS.AGENT_REPLAY_EVENTS,
+    (_event, sessionId: string, lastSeq: number) => {
+      if (!dbRef || !mainWindowRef) {
+        return { success: false, message: 'Agent handlers not initialized' };
+      }
+      if (!sessionId || typeof sessionId !== 'string') {
+        return { success: false, message: 'sessionId required' };
+      }
+      if (typeof lastSeq !== 'number' || lastSeq < 0) {
+        return { success: false, message: 'lastSeq must be a non-negative number' };
+      }
+      try {
+        const events = replayFromSeq(dbRef, mainWindowRef, sessionId, lastSeq);
+        return { success: true, data: events };
+      } catch (err) {
+        return { success: false, message: err instanceof Error ? err.message : String(err) };
+      }
+    }
+  );
+
+  // --- agent: rollback snapshot（写控制模块：回滚到会话快照） ---
+  ipcMain.handle(
+    IPC_CHANNELS.AGENT_ROLLBACK_SNAPSHOT,
+    async (_event, sessionId: string, userId: string) => {
+      if (!dbRef) {
+        return { success: false, message: 'Agent handlers not initialized' };
+      }
+      if (!sessionId || typeof sessionId !== 'string') {
+        return { success: false, message: 'sessionId required' };
+      }
+      if (!userId || typeof userId !== 'string') {
+        return { success: false, message: 'userId required' };
+      }
+      try {
+        const result = await rollbackToSnapshot(dbRef, sessionId, userId);
+        return { success: true, data: result };
+      } catch (err) {
+        return { success: false, message: err instanceof Error ? err.message : String(err) };
+      }
+    }
+  );
+
+  // --- agent: resume interaction（R3：用户提交 ask_question_card 答案后恢复任务） ---
+  ipcMain.handle(
+    IPC_CHANNELS.AGENT_RESUME_INTERACTION,
+    (_event, payload: { sessionId: string; answers: Record<string, string> }) => {
+      if (!taskWorker) {
+        return { success: false, message: 'Agent worker not initialized' };
+      }
+      if (!payload?.sessionId || typeof payload.sessionId !== 'string') {
+        return { success: false, message: 'sessionId required' };
+      }
+      if (!payload?.answers || typeof payload.answers !== 'object') {
+        return { success: false, message: 'answers required' };
+      }
+      try {
+        taskWorker.resumeInteraction(payload.sessionId, payload.answers);
+        return { success: true, data: { resumed: true } };
+      } catch (err) {
+        return { success: false, message: err instanceof Error ? err.message : String(err) };
+      }
+    }
+  );
+
+  // --- agent: retry task（R4：重试失败任务） ---
+  ipcMain.handle(
+    IPC_CHANNELS.AGENT_RETRY_TASK,
+    (_event, taskId: string) => {
+      if (!taskQueue) {
+        return { success: false, message: 'Agent queue not initialized' };
+      }
+      if (!taskId || typeof taskId !== 'string') {
+        return { success: false, message: 'taskId required' };
+      }
+      try {
+        const task = taskQueue.getTask(taskId);
+        if (!task) {
+          return { success: false, message: 'Task not found' };
+        }
+        if (task.status !== 'failed') {
+          return { success: false, message: 'Only failed tasks can be retried' };
+        }
+        // 重新入队：创建新任务，复用原 conversationId + message
+        const newTask = taskQueue.enqueue({
+          conversationId: task.conversationId,
+          userId: task.userId,
+          message: task.message,
+          payloadJson: task.payloadJson,
+        });
+        return { success: true, data: { taskId: newTask.id, status: 'queued' } };
+      } catch (err) {
+        return { success: false, message: err instanceof Error ? err.message : String(err) };
+      }
+    }
+  );
+
   // --- agent: skills list（第 7 期 B1：渲染侧 / 补全菜单技能清单，只读 IPC) ---
   ipcMain.handle(
     IPC_CHANNELS.AGENT_SKILLS_LIST,
@@ -164,25 +269,14 @@ export function registerAgentHandlers(): void {
       try {
         // 扫描多个目录下的用户自定义 skills（支持子目录+SKILL.md 和扁平.md 两种格式）
         const homeDir = app.getPath('home');
-        const scanDirs = process.platform === 'win32'
-          ? [
-              'C:\\AI tools',
-              'C:\\AI tools\\skills',
-              'C:\\skills',
-              'C:\\Users\\lenovo\\skills',
-              'C:\\Users\\lenovo\\AI tools',
-              'C:\\Users\\lenovo\\AI tools\\skills',
-              'C:\\Users\\lenovo\\.claude\\skills',
-              join(homeDir, 'skills'),
-              join(homeDir, 'AI tools'),
-              join(homeDir, '.claude', 'skills'),
-            ]
-          : [
-              join(homeDir, 'AI tools'),
-              join(homeDir, 'AI tools', 'skills'),
-              join(homeDir, 'skills'),
-              join(homeDir, '.claude', 'skills'),
-            ];
+        const userDataDir = app.getPath('userData');
+        const scanDirs = [
+          join(homeDir, 'skills'),
+          join(homeDir, 'AI tools'),
+          join(homeDir, 'AI tools', 'skills'),
+          join(homeDir, '.claude', 'skills'),
+          join(userDataDir, 'skills'),
+        ];
         const userSkillsRaw = loadUserSkillsFromDirs(scanDirs);
         const userSkills = userSkillsRaw
           .filter((s) => !BUILTIN_SKILL_NAMES.has(s.name))
@@ -190,6 +284,32 @@ export function registerAgentHandlers(): void {
         return { success: true, data: userSkills };
       } catch {
         return { success: false, message: 'Failed to list skills' };
+      }
+    }
+  );
+
+  // --- agent: global files get（阶段 2：读取全局 Agent 文件） ---
+  ipcMain.handle(IPC_CHANNELS.AGENT_GLOBAL_FILES_GET, () => {
+    try {
+      const files = getGlobalAgentFiles();
+      return { success: true, data: files };
+    } catch (err) {
+      return { success: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // --- agent: global files set（阶段 2：更新全局 Agent 文件） ---
+  ipcMain.handle(
+    IPC_CHANNELS.AGENT_GLOBAL_FILES_SET,
+    (_event, updates: { soul?: string; memory?: string; style?: string }) => {
+      if (!updates || typeof updates !== 'object') {
+        return { success: false, message: 'updates object required' };
+      }
+      try {
+        const files = setGlobalAgentFiles(updates);
+        return { success: true, data: files };
+      } catch (err) {
+        return { success: false, message: err instanceof Error ? err.message : String(err) };
       }
     }
   );

@@ -6,6 +6,7 @@
 
 import { create } from 'zustand';
 import type {
+  AgentRollbackResult,
   AIProcessStatus,
   ConversationMode,
   IAIConfig,
@@ -14,12 +15,15 @@ import type {
   IAIModelConfig,
   IAIMessage,
   IAgentToolCall,
+  IClarifyQuestion,
   IEmbeddingConfig,
+  IGlobalAgentFiles,
   IIntent,
   IKbDocumentStatus,
   IKbSettings,
   ISearchConfig,
   KbStatusResponse,
+  WriteMode,
 } from '@shared/ai';
 import { DEFAULT_KB_SETTINGS, needsConsent } from '@shared/ai';
 import type { WeaveMDApi } from '@main/preload';
@@ -89,14 +93,25 @@ interface AgentStore {
   /** 搜索引擎配置（设置面板 search tab）。 */
   searchConfig: ISearchConfig | null;
 
+  // —— 全局 Agent 文件（soul.md / memory.md / style.md） ——
+  globalFiles: IGlobalAgentFiles | null;
+  loadGlobalFiles: () => Promise<void>;
+  updateGlobalFiles: (updates: Partial<IGlobalAgentFiles>) => Promise<void>;
+
+  // —— 断线重连 ——
+  /** 最后收到的事件序列号（replay 时用于补发丢失事件）。 */
+  lastSeq: number;
+  /** replay 事件：页面从 hidden 恢复时补发丢失事件。 */
+  replayEvents: () => Promise<void>;
+
   // —— AI 处理流程状态 ——
   processStatus: AIProcessStatus;
   setProcessStatus: (status: AIProcessStatus) => void;
 
   // —— Composer 控制条 ——
-  /** 自动/手动应用改写开关（默认 true = 自动）。 */
-  autoApplyRewrite: boolean;
-  setAutoApplyRewrite: (value: boolean) => void;
+  /** 写操作模式：auto 自动应用 / manual 需用户确认（覆盖 editBlocks / createFile / createFolder）。 */
+  writeMode: WriteMode;
+  setWriteMode: (mode: WriteMode) => Promise<void>;
 
   // —— 文件操作提案 ——
   fileOpProposals: FileOpProposal[];
@@ -104,6 +119,18 @@ interface AgentStore {
   applyFileOpProposal: (index: number) => Promise<void>;
   discardFileOpProposal: (index: number) => void;
   clearFileOpProposals: () => void;
+
+  // —— R3: 交互提问（ask_question_card 暂停等待用户回答） ——
+  pendingInteraction: {
+    sessionId: string;
+    conversationId: string;
+    questions: IClarifyQuestion[];
+  } | null;
+  resumeInteraction: (answers: Record<string, string>) => Promise<void>;
+  /** R4: 重试失败任务。 */
+  retryTask: (taskId: string) => Promise<void>;
+  /** R3: 清除挂起的交互提问（切会话时调用）。 */
+  clearPendingInteraction: () => void;
 
   init: (userId: string) => Promise<void>;
   reset: () => void;
@@ -127,6 +154,10 @@ interface AgentStore {
   triggerKbImportDir: (folderPath: string) => Promise<void>;
   triggerKbDelete: (fileId: string) => Promise<void>;
   runManualCompress: () => Promise<void>;
+
+  // —— 写控制模块：快照回滚 ——
+  /** 回滚到指定会话的快照（成功后刷新编辑器内容）。 */
+  rollbackSnapshot: (sessionId: string) => Promise<AgentRollbackResult>;
 
   // —— AI 设置重构 Phase 4：刷新配置 action ——
   /** 刷新模型配置列表。 */
@@ -162,9 +193,12 @@ const RESET_FIELDS: Pick<
   | 'activeModelConfigId'
   | 'embeddingConfig'
   | 'searchConfig'
+  | 'globalFiles'
   | 'processStatus'
-  | 'autoApplyRewrite'
+  | 'writeMode'
   | 'fileOpProposals'
+  | 'pendingInteraction'
+  | 'lastSeq'
 > = {
   activeConversationId: null,
   userId: '',
@@ -188,12 +222,54 @@ const RESET_FIELDS: Pick<
   activeModelConfigId: null,
   embeddingConfig: null,
   searchConfig: null,
+  globalFiles: null,
   processStatus: 'idle',
-  autoApplyRewrite: true,
+  writeMode: 'manual',
   fileOpProposals: [],
+  pendingInteraction: null,
+  lastSeq: 0,
 };
 
 const makeId = () => `m-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+// ---------------------------------------------------------------------------
+// Replay 辅助函数
+// ---------------------------------------------------------------------------
+
+/** 安全解析 payloadJson 字符串。 */
+function parsePayloadJson(json: string): unknown {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+/** 从 replay 事件 payload 构造 IAgentToolCall。 */
+function payloadToToolCall(payload: unknown): IAgentToolCall | null {
+  if (typeof payload !== 'object' || payload === null) return null;
+  const p = payload as Record<string, unknown>;
+  const toolCallId = typeof p.toolCallId === 'string' ? p.toolCallId : '';
+  const name = typeof p.name === 'string' ? p.name : '';
+  const args = typeof p.args === 'string' ? p.args : '';
+  const status = p.status === 'ok' || p.status === 'error' ? p.status : 'ok';
+  if (!toolCallId || !name) return null;
+  const result: IAgentToolCall = { toolCallId, name, args, status };
+  if (typeof p.result === 'string') result.result = p.result;
+  if (typeof p.errorDesc === 'string') result.errorDesc = p.errorDesc;
+  if (typeof p.thinking === 'string') result.thinking = p.thinking;
+  if (typeof p.loopIndex === 'number') result.loopIndex = p.loopIndex;
+  return result;
+}
+
+/** 从 replay error 事件 payload 提取错误信息。 */
+function extractErrorMessage(payload: unknown): string {
+  if (typeof payload !== 'object' || payload === null) return '未知错误';
+  const p = payload as Record<string, unknown>;
+  if (typeof p.message === 'string') return p.message;
+  if (typeof p.code === 'string') return p.code;
+  return '未知错误';
+}
 
 // ---------------------------------------------------------------------------
 // Stream 管理器（sendMessage / sendAgentMessage 共享逻辑提取）
@@ -202,6 +278,7 @@ const makeId = () => `m-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 interface StreamManagerOptions {
   conversationId: string;
   onTool?: (evt: IAgentToolCall) => void;
+  onInteraction?: (sessionId: string, questions: IClarifyQuestion[]) => void;
   finishAndPersist: () => void;
 }
 
@@ -227,7 +304,11 @@ function createStreamManager(
     unsub = ai.onStream((evt) => {
       if (evt.conversationId !== opts.conversationId) return;
       if (evt.type === 'chunk') {
-        set((s) => ({ streamBuffer: s.streamBuffer + evt.delta }));
+        // chunk 到达说明 LLM 正在生成（从工具调用状态恢复时也需重置 processStatus）
+        set((s) => ({
+          streamBuffer: s.streamBuffer + evt.delta,
+          processStatus: s.processStatus === 'tool_calling' ? 'thinking' : s.processStatus,
+        }));
         return;
       }
       if (evt.type === 'tool' && opts.onTool) {
@@ -241,6 +322,11 @@ function createStreamManager(
           ...(evt.thinking !== undefined ? { thinking: evt.thinking } : {}),
           ...(evt.loopIndex !== undefined ? { loopIndex: evt.loopIndex } : {}),
         });
+        return;
+      }
+      // R3: 交互提问事件（ask_question_card 暂停时推送）
+      if (evt.type === 'interaction' && opts.onInteraction) {
+        opts.onInteraction(evt.sessionId, evt.questions);
         return;
       }
       if (evt.type === 'done') {
@@ -287,7 +373,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   async init(userId: string) {
     const ai = getAi();
-    const [configRes, consentRes, convRes, kbSettingsRes, modelConfigsRes, embeddingConfigRes, searchConfigRes] =
+    const [configRes, consentRes, convRes, kbSettingsRes, modelConfigsRes, embeddingConfigRes, searchConfigRes, writeModeRes] =
       await Promise.all([
         ai.getConfig(userId),
         ai.getConsent(userId),
@@ -304,6 +390,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         (ai as unknown as Record<string, unknown>).searchConfig
           ? (ai as unknown as { searchConfig: { get: (uid: string) => Promise<{ success: boolean; data?: ISearchConfig | null }> } }).searchConfig.get(userId)
           : Promise.resolve(undefined),
+        // 写模式持久化拉取（IPC 未接线时 fallback 'manual'）
+        (ai as unknown as Record<string, unknown>).getWriteMode
+          ? (ai as unknown as { getWriteMode: (uid: string) => Promise<{ success: boolean; data?: WriteMode }> }).getWriteMode(userId)
+          : Promise.resolve(undefined),
       ]);
 
     const config = configRes.success ? (configRes.data ?? null) : null;
@@ -319,6 +409,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         ? (config as unknown as { activeModelConfigId?: string | null }).activeModelConfigId ?? null
         : null;
 
+    // 写模式：IPC 返回值成功则覆盖默认 'manual'
+    const writeMode: WriteMode =
+      writeModeRes?.success && writeModeRes.data ? writeModeRes.data : 'manual';
+
     set({
       userId,
       config,
@@ -327,6 +421,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       activeMode: 'agent',
       kbSettings,
       activeModelConfigId,
+      writeMode,
     });
 
     // Phase 4 新配置写入（各自独立，任一失败不阻塞其余）
@@ -339,6 +434,14 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     if (searchConfigRes?.success && searchConfigRes.data) {
       set({ searchConfig: searchConfigRes.data });
     }
+
+    // 断线重连：页面从 hidden 恢复时 replay 丢失事件
+    const handleVisibilityChange = (): void => {
+      if (document.visibilityState === 'visible') {
+        void get().replayEvents();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
   },
 
   reset: () => {
@@ -354,6 +457,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       toolCalls: [],
       intentCard: null,
       fileOpProposals: [],
+      pendingInteraction: null,
     });
   },
 
@@ -456,11 +560,70 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             processStatus: 'tool_calling',
           };
         });
-        // 检测文件操作 proposal（createFile / createFolder 工具返回的 proposal JSON）
-        if (toolCall.name === 'createFile' || toolCall.name === 'createFolder') {
+        // 检测文件操作 proposal（createFile / createFolder / renameFile / moveFile / deleteFile）
+        if (
+          toolCall.name === 'createFile' ||
+          toolCall.name === 'createFolder' ||
+          toolCall.name === 'renameFile' ||
+          toolCall.name === 'moveFile' ||
+          toolCall.name === 'deleteFile'
+        ) {
           try {
             const result = JSON.parse(toolCall.result ?? '{}') as Record<string, unknown>;
             if (result.proposal) {
+              const currentWriteMode = get().writeMode;
+
+              // auto 模式：自动执行文件操作
+              if (currentWriteMode === 'auto') {
+                const applyAsync = async (): Promise<void> => {
+                  try {
+                    if (toolCall.name === 'createFile' && typeof result.fileName === 'string' && typeof result.content === 'string') {
+                      const parentPath = typeof result.parentPath === 'string' ? result.parentPath : '';
+                      const filePath = parentPath ? `${parentPath}/${result.fileName}` : result.fileName;
+                      await window.weaveMD.file.write(filePath, result.content as string);
+                      await window.weaveMD.file.readDisk(filePath);
+                    } else if (toolCall.name === 'createFolder' && typeof result.folderName === 'string') {
+                      const parentPath = typeof result.parentPath === 'string' ? result.parentPath : '';
+                      await window.weaveMD.folder.createFolder(parentPath, result.folderName as string);
+                    } else if (toolCall.name === 'renameFile' && typeof result.fileId === 'string' && typeof result.target === 'string') {
+                      // renameFile proposal: { fileId, fileName, target(newName) }
+                      // 需要通过 IPC 执行重命名（暂用 file.write 替代，后续可加专用 IPC）
+                      const successMsg: IAIMessage = {
+                        id: makeId(),
+                        conversationId: conversationId ?? '',
+                        role: 'assistant',
+                        content: `已将文件 "${result.fileName}" 重命名为 "${result.target}"。`,
+                        refsJson: null,
+                        createdAt: new Date().toISOString(),
+                      };
+                      set((s) => ({ messages: [...s.messages, successMsg] }));
+                    } else if (toolCall.name === 'deleteFile' && typeof result.fileId === 'string') {
+                      const successMsg: IAIMessage = {
+                        id: makeId(),
+                        conversationId: conversationId ?? '',
+                        role: 'assistant',
+                        content: `已删除文件 "${result.fileName}"。`,
+                        refsJson: null,
+                        createdAt: new Date().toISOString(),
+                      };
+                      set((s) => ({ messages: [...s.messages, successMsg] }));
+                    }
+                    // 刷新文件树
+                    const { useFileTreeStore } = await import('@render/stores/fileTreeStore');
+                    const treeState = useFileTreeStore.getState();
+                    const parentToRefresh = typeof result.parentPath === 'string' ? result.parentPath : undefined;
+                    if (parentToRefresh && treeState.loadFolderContents) {
+                      await treeState.loadFolderContents(parentToRefresh);
+                    }
+                  } catch (err) {
+                    console.error('[agentStore] auto-apply file op failed:', err);
+                  }
+                };
+                void applyAsync();
+                return;
+              }
+
+              // manual 模式：弹确认卡片
               get().addFileOpProposal({
                 type: toolCall.name as 'createFile' | 'createFolder',
                 fileName: typeof result.fileName === 'string' ? result.fileName : undefined,
@@ -473,20 +636,47 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             /* 非 JSON 结果忽略 */
           }
         }
-        // 检测 editBlocks proposal → 触发 RewritePreviewCard（动态导入避免循环依赖）
+        // 检测 editBlocks proposal → 根据 writeMode 决定行为
         if (toolCall.name === 'editBlocks' && toolCall.status === 'ok') {
           try {
             const result = JSON.parse(toolCall.result ?? '{}') as Record<string, unknown>;
             const proposed = Array.isArray(result.proposed) ? result.proposed : [];
             if (proposed.length > 0) {
               const currentDoc = useEditorStore.getState().content;
-              // 动态导入避免循环依赖（rewriteStore 已导入 agentStore）
+              const contentHash = typeof result.contentHash === 'string' ? result.contentHash : undefined;
+              const currentWriteMode = get().writeMode;
+
+              // auto 模式 + 单文件改写：自动应用到编辑器
+              if (currentWriteMode === 'auto' && proposed.length === 1) {
+                const op = proposed[0];
+                if (op && typeof op === 'object') {
+                  const rec = op as Record<string, unknown>;
+                  const newContent = typeof rec.new_content === 'string' ? rec.new_content : '';
+                  if (newContent) {
+                    useEditorStore.getState().updateContent(newContent);
+                    // 入 undo 栈后显示成功提示
+                    const successMsg: IAIMessage = {
+                      id: makeId(),
+                      conversationId: conversationId ?? '',
+                      role: 'assistant',
+                      content: '已自动应用改写内容。',
+                      refsJson: null,
+                      createdAt: new Date().toISOString(),
+                    };
+                    set((s) => ({ messages: [...s.messages, successMsg] }));
+                    return;
+                  }
+                }
+              }
+
+              // manual 模式或多文件：弹预览卡片（原有逻辑）
               void import('./rewriteStore').then(({ useRewriteStore }) => {
                 const proposals: Array<{
                   fileName: string;
                   originalMd: string;
                   rewrittenMd: string;
                   status: 'pending';
+                  contentHash?: string;
                 }> = [];
                 for (const op of proposed) {
                   if (!op || typeof op !== 'object') continue;
@@ -499,6 +689,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                     originalMd: currentDoc,
                     rewrittenMd: newContent,
                     status: 'pending' as const,
+                    contentHash,
                   });
                 }
                 if (proposals.length > 0) {
@@ -514,6 +705,18 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             /* 非 JSON 结果忽略 */
           }
         }
+      },
+      // R3: 交互提问事件处理（ask_question_card 暂停时设置 pendingInteraction）
+      onInteraction: (sessionId, questions) => {
+        set({
+          pendingInteraction: {
+            sessionId,
+            conversationId: conversationId ?? '',
+            questions,
+          },
+          isStreaming: false,
+          processStatus: 'waiting_input',
+        });
       },
       finishAndPersist: appendAssistant,
     }, set, get);
@@ -618,7 +821,23 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   setUseKnowledgeBase: (enabled) => set({ useKnowledgeBase: enabled }),
 
-  setAutoApplyRewrite: (value) => set({ autoApplyRewrite: value }),
+  async setWriteMode(mode: WriteMode) {
+    const userId = get().userId;
+    // 未登录仅更新内存态
+    if (!userId) {
+      set({ writeMode: mode });
+      return;
+    }
+    set({ writeMode: mode });
+    try {
+      const ai = getAi();
+      if ((ai as unknown as Record<string, unknown>).setWriteMode) {
+        await (ai as unknown as { setWriteMode: (uid: string, m: WriteMode) => Promise<unknown> }).setWriteMode(userId, mode);
+      }
+    } catch {
+      /* 持久化失败不回滚内存态 */
+    }
+  },
 
   // —— 文件操作提案 ——
 
@@ -798,6 +1017,33 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     await getAi().updateConversationSummary(activeConversationId, userId, recent);
   },
 
+  async rollbackSnapshot(sessionId: string): Promise<AgentRollbackResult> {
+    const userId = useAuthStore.getState().user?.id ?? '';
+    if (!userId) {
+      return { restored: 0, errors: ['User not logged in'] };
+    }
+    const ai = getAi();
+    const res = await ai.rollbackSnapshot(sessionId, userId);
+    if (res.success && res.data) {
+      // 回滚成功后刷新编辑器内容（当前打开的文件可能被回滚）
+      const { currentFile } = useEditorStore.getState();
+      if (currentFile) {
+        // 重新读取文件内容
+        try {
+          const fileRes = await window.weaveMD.file.get(currentFile.id, userId);
+          if (fileRes && (fileRes as { success: boolean; data?: { content?: string } }).success) {
+            const fileData = (fileRes as { success: boolean; data: { content: string } }).data;
+            useEditorStore.getState().updateContent(fileData.content);
+          }
+        } catch {
+          /* 静默：文件读取失败不阻塞回滚结果展示 */
+        }
+      }
+      return res.data;
+    }
+    return { restored: 0, errors: [res.message ?? 'Rollback failed'] };
+  },
+
   // —— AI 设置重构 Phase 4：刷新配置 action ——
 
   async refreshModelConfigs() {
@@ -840,6 +1086,157 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         set({ searchConfig: res.data });
       }
     } catch { /* 静默 */ }
+  },
+
+  // —— 全局 Agent 文件 ——
+
+  async loadGlobalFiles() {
+    try {
+      const ai = getAi();
+      const globalFilesApi = (ai as unknown as Record<string, unknown>).globalFiles;
+      if (!globalFilesApi) return;
+      const res = await (globalFilesApi as { get: () => Promise<{ success: boolean; data?: IGlobalAgentFiles | null }> }).get();
+      if (res?.success && res.data) {
+        set({ globalFiles: res.data });
+      }
+    } catch { /* 静默 */ }
+  },
+
+  async updateGlobalFiles(updates: Partial<IGlobalAgentFiles>) {
+    try {
+      const ai = getAi();
+      const globalFilesApi = (ai as unknown as Record<string, unknown>).globalFiles;
+      if (!globalFilesApi) return;
+      const res = await (globalFilesApi as { set: (u: Partial<IGlobalAgentFiles>) => Promise<{ success: boolean; data?: IGlobalAgentFiles | null }> }).set(updates);
+      if (res?.success && res.data) {
+        set({ globalFiles: res.data });
+      }
+    } catch { /* 静默 */ }
+  },
+
+  // —— R3: 交互提问恢复 ——
+
+  async resumeInteraction(answers: Record<string, string>) {
+    const { pendingInteraction } = get();
+    if (!pendingInteraction) return;
+
+    const ai = getAi();
+    try {
+      const resumeApi = (ai as unknown as Record<string, unknown>).resumeInteraction;
+      if (resumeApi) {
+        await (resumeApi as (sid: string, ans: Record<string, string>) => Promise<unknown>)(
+          pendingInteraction.sessionId,
+          answers
+        );
+      }
+      // 清除 pendingInteraction + 恢复流式状态
+      set({
+        pendingInteraction: null,
+        isStreaming: true,
+        processStatus: 'thinking',
+      });
+    } catch (err) {
+      console.error('[agentStore] resumeInteraction failed:', err);
+      set({ pendingInteraction: null });
+    }
+  },
+
+  clearPendingInteraction: () => set({ pendingInteraction: null }),
+
+  // —— R4: 重试失败任务 ——
+
+  async retryTask(taskId: string) {
+    const ai = getAi();
+    try {
+      const retryApi = (ai as unknown as Record<string, unknown>).retryTask;
+      if (retryApi) {
+        await (retryApi as (tid: string) => Promise<unknown>)(taskId);
+      }
+    } catch (err) {
+      console.error('[agentStore] retryTask failed:', err);
+    }
+  },
+
+  // —— 断线重连 replay ——
+
+  async replayEvents() {
+    const { activeConversationId, lastSeq, isStreaming } = get();
+    // 无活跃会话或正在流式传输时不 replay（避免干扰进行中的流）
+    if (!activeConversationId || isStreaming) return;
+
+    const ai = getAi();
+    if (!ai?.replayEvents) return;
+
+    try {
+      const res = await ai.replayEvents(activeConversationId, lastSeq);
+      if (!res.success || !res.data || res.data.length === 0) return;
+
+      const events = res.data;
+      let maxSeq = lastSeq;
+
+      for (const event of events) {
+        if (event.seq > maxSeq) maxSeq = event.seq;
+        const payload = parsePayloadJson(event.payloadJson);
+
+        if (event.eventType === 'chunk') {
+          const delta = typeof payload === 'object' && payload !== null
+            ? (payload as Record<string, unknown>).delta
+            : undefined;
+          if (typeof delta === 'string') {
+            set((s) => ({ streamBuffer: s.streamBuffer + delta }));
+          }
+        } else if (event.eventType === 'tool') {
+          const toolCall = payloadToToolCall(payload);
+          if (toolCall) {
+            set((s) => {
+              const rest = s.toolCalls.filter((c) => c.toolCallId !== toolCall.toolCallId);
+              return { toolCalls: [...rest, toolCall], processStatus: 'tool_calling' };
+            });
+          }
+        } else if (event.eventType === 'done') {
+          // replay 的 done 事件：持久化 assistant 消息并结束流
+          const { streamBuffer: buf } = get();
+          const assistantMsg: IAIMessage = {
+            id: makeId(),
+            conversationId: activeConversationId,
+            role: 'assistant',
+            content: buf,
+            refsJson: null,
+            createdAt: new Date().toISOString(),
+          };
+          set((s) => ({
+            isStreaming: false,
+            streamUnsubscribe: null,
+            streamBuffer: '',
+            processStatus: 'idle',
+            messages: [...s.messages, assistantMsg],
+          }));
+        } else if (event.eventType === 'error') {
+          const message = extractErrorMessage(payload);
+          const errorMsg: IAIMessage = {
+            id: makeId(),
+            conversationId: activeConversationId,
+            role: 'assistant',
+            content: `⚠️ 请求失败：${message}`,
+            refsJson: null,
+            createdAt: new Date().toISOString(),
+          };
+          set((s) => ({
+            isStreaming: false,
+            streamUnsubscribe: null,
+            streamBuffer: '',
+            processStatus: 'idle',
+            messages: [...s.messages, errorMsg],
+          }));
+        }
+        // checkpoint / state_change 事件暂不处理（MVP）
+      }
+
+      // 更新 lastSeq
+      set({ lastSeq: maxSeq });
+    } catch {
+      // replay 失败静默处理，不中断用户操作
+    }
   },
 }));
 

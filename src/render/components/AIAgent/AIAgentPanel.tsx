@@ -7,12 +7,18 @@
 // home → AIPanelHome；session → AIPanelSession；settings → AIPanelSettings。
 // 移除原「标题+模式下拉」头部（模式下拉已移入 AIPanelComposer）。
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
 import { useAgentStore } from '@render/stores/agentStore';
 import { useUIStore } from '@render/stores/uiStore';
 import { useRewriteStore } from '@render/stores/rewriteStore';
+import {
+  createDebouncedSaver,
+  deleteDraft,
+  loadDraft,
+  saveDraft,
+} from '@render/services/draftStore';
 import AIPanelHome, { formatRecentDate } from './AIPanelHome';
 import AIPanelSession from './AIPanelSession';
 import ConsentOverlay from './ConsentOverlay';
@@ -32,6 +38,7 @@ const AIAgentPanel: React.FC = () => {
   const deleteConversation = useAgentStore((s) => s.deleteConversation);
   const conversations = useAgentStore((s) => s.conversations);
   const activeMode = useAgentStore((s) => s.activeMode);
+  const activeConversationId = useAgentStore((s) => s.activeConversationId);
 
   const aiPanelWidth = useUIStore((s) => s.aiPanelWidth);
   const setAIPanelWidth = useUIStore((s) => s.setAIPanelWidth);
@@ -43,7 +50,13 @@ const AIAgentPanel: React.FC = () => {
 
   // M4：composer 草稿跨视图保留。草稿提升到本容器 state，home/session 共享同一份；
   // 视图切换（home↔settings↔session 互跳）不触发清空；仅新建/打开会话/发送成功/关面板清空。
+  // R6：草稿持久化到 IndexedDB，刷新后自动恢复。
   const [draft, setDraft] = useState('');
+
+  // R6: Debounced saver (stable reference across renders)
+  const debouncedSave = useRef(createDebouncedSaver(300)).current;
+  // Track previous conversationId for save-before-switch
+  const prevConvIdRef = useRef<string | null>(null);
 
   const [isCollapsing, setIsCollapsing] = useState(false);
 
@@ -55,6 +68,38 @@ const AIAgentPanel: React.FC = () => {
     initedRef.current = user.id;
     void init(user.id);
   }, [user, init]);
+
+  // R6: Restore draft from IndexedDB when activeConversationId changes.
+  // Also saves the outgoing conversation's draft before switching.
+  useEffect(() => {
+    const prevId = prevConvIdRef.current;
+    const currId = activeConversationId;
+
+    // Save outgoing draft (if non-empty) before switching
+    if (prevId && prevId !== currId && draft.trim()) {
+      void saveDraft(prevId, draft);
+    }
+
+    // Load incoming draft (or clear if no conversation)
+    if (currId) {
+      void loadDraft(currId).then((record) => {
+        setDraft(record?.text ?? '');
+      });
+    } else {
+      setDraft('');
+    }
+
+    prevConvIdRef.current = currId;
+    // Only react to activeConversationId changes; `draft` in the dep would cause loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversationId]);
+
+  // R6: Debounce-save draft to IndexedDB on every draft change.
+  // Skipped when conversationId is null (home view without active session).
+  useEffect(() => {
+    if (!activeConversationId) return;
+    debouncedSave(activeConversationId, draft);
+  }, [draft, activeConversationId, debouncedSave]);
 
   // 改写触发（选区「AI 改写」或 @ document scope）→ 预览卡/状态条只在 session 视图渲染，
   // 故从任意视图（home 为主）自动切到 session，保证校验/预览链路可见。
@@ -102,6 +147,10 @@ const AIAgentPanel: React.FC = () => {
 
   const handleClose = () => {
     setIsCollapsing(true);
+    // R6: Save draft before closing panel (restored on reopen if same conversation)
+    if (activeConversationId && draft.trim()) {
+      void saveDraft(activeConversationId, draft);
+    }
     setDraft('');
     window.setTimeout(() => {
       setIsCollapsing(false);
@@ -111,29 +160,35 @@ const AIAgentPanel: React.FC = () => {
 
   // + 新建会话：清空当前会话 + 进 session + 重置草稿
   const handleNewChat = () => {
+    // R6: Save current draft before switching to new (empty) conversation
+    if (activeConversationId && draft.trim()) {
+      void saveDraft(activeConversationId, draft);
+    }
     newChat();
     setView('session');
     setDraft('');
   };
 
-  // 打开最近会话（home RECENT 点击）→ loadConversation + 进 session + 重置草稿
+  // 打开最近会话（home RECENT 点击）→ loadConversation + 进 session
+  // R6: Draft save/restore handled by activeConversationId effect
   const handleOpenConversation = (id: string) => {
     void loadConversation(id, activeMode);
     setView('session');
-    setDraft('');
   };
 
-  // session 标题行 × 关闭当前会话 → newChat + 回 home（R14）+ 重置草稿
+  // session 标题行 × 关闭当前会话 → newChat + 回 home（R14）
+  // R6: Draft save handled by activeConversationId effect (newChat sets id to null)
   const handleCloseConversation = () => {
     newChat();
     setView('home');
-    setDraft('');
   };
 
   // R2: 历史会话删除
   const handleDeleteHistory = (id: string) => {
     if (window.confirm(t('ai.home.deleteConfirm'))) {
       void deleteConversation(id);
+      // R6: Clean up persisted draft for deleted conversation
+      void deleteDraft(id);
     }
   };
 
@@ -142,6 +197,14 @@ const AIAgentPanel: React.FC = () => {
     () => [...conversations].sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')),
     [conversations]
   );
+
+  // R6: Send handler — clears draft state + deletes IndexedDB record
+  const handleSendDraft = useCallback(() => {
+    if (activeConversationId) {
+      void deleteDraft(activeConversationId);
+    }
+    setDraft('');
+  }, [activeConversationId]);
 
   // 顶部栏（home/session 共用；settings 也保留顶部栏以便 ⚙ 返回/关面板）
   const renderTopBar = (rightExtra: React.ReactNode) => (
@@ -189,6 +252,7 @@ const AIAgentPanel: React.FC = () => {
             <AIPanelHome
               draft={draft}
               setDraft={setDraft}
+              onSend={handleSendDraft}
               onOpenConversation={handleOpenConversation}
               onViewAll={() => setView('history')}
               onCreateSession={() => setView('session')}
@@ -198,6 +262,7 @@ const AIAgentPanel: React.FC = () => {
             <AIPanelSession
               draft={draft}
               setDraft={setDraft}
+              onSend={handleSendDraft}
               onCloseConversation={handleCloseConversation}
             />
           )}
@@ -230,7 +295,6 @@ const AIAgentPanel: React.FC = () => {
                       onClick={() => {
                         void loadConversation(c.id, activeMode);
                         setView('session');
-                        setDraft('');
                       }}
                     >
                       <div className="flex-1 min-w-0">

@@ -13,6 +13,7 @@ import {
   normalizeKbSettings,
   type ChatBackend,
   type ConversationMode,
+  type WriteMode,
   type IAIMessage,
   type IAIConversation,
 } from '@shared/ai';
@@ -42,6 +43,8 @@ export interface AiConfigRow {
   kbPinnedWeight: number;
   // ---- ai-settings-redesign：多模型配置激活 ID ----
   activeModelConfigId: string | null;
+  // ---- 写模式（auto / manual） ----
+  writeMode: WriteMode;
 }
 
 interface AiConfigDbRow {
@@ -63,6 +66,7 @@ interface AiConfigDbRow {
   kb_pinned_weight: number | null;
   active_model_config_id: string | null;
   // 遗留列（kb_embedding_host / kb_embedding_model）不再读取/写入，保留 NULL
+  write_mode: string | null;
 }
 
 function mapConfigRow(row: AiConfigDbRow): AiConfigRow {
@@ -92,6 +96,8 @@ function mapConfigRow(row: AiConfigDbRow): AiConfigRow {
     kbThreshold: kb.threshold,
     kbPinnedWeight: kb.pinnedWeight,
     activeModelConfigId: row.active_model_config_id ?? null,
+    // write_mode: 新旧库兼容，NULL 或非 'auto' 值一律收敛为 'manual'
+    writeMode: row.write_mode === 'auto' ? 'auto' : 'manual',
   };
 }
 
@@ -118,6 +124,8 @@ export interface AiConfigUpdate {
   kbFuse?: number;
   kbThreshold?: number;
   kbPinnedWeight?: number;
+  // ---- 写模式（可选，缺省不回写） ----
+  writeMode?: WriteMode;
 }
 
 export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfigRow {
@@ -131,6 +139,7 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
          backend = ?, ollama_base_url = ?, remote_base_url = ?, model = ?,
          api_key_enc = ?, allow_network = ?, allow_send = ?, consent_updated_at = ?,
          kb_top_k = ?, kb_fuse = ?, kb_threshold = ?, kb_pinned_weight = ?,
+         write_mode = ?,
          updated_at = datetime('now')
        WHERE user_id = ?`
     ).run(
@@ -146,6 +155,7 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
       update.kbFuse ?? existing.kbFuse,
       update.kbThreshold ?? existing.kbThreshold,
       update.kbPinnedWeight ?? existing.kbPinnedWeight,
+      update.writeMode ?? existing.writeMode,
       userId
     );
   } else {
@@ -155,8 +165,9 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
       `INSERT INTO ai_config
          (id, user_id, backend, ollama_base_url, remote_base_url, model,
           api_key_enc, allow_network, allow_send, consent_updated_at,
-          kb_top_k, kb_fuse, kb_threshold, kb_pinned_weight)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          kb_top_k, kb_fuse, kb_threshold, kb_pinned_weight,
+          write_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       userId,
@@ -171,7 +182,8 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
       update.kbTopK ?? DEFAULT_KB_SETTINGS.topK,
       update.kbFuse ?? DEFAULT_KB_SETTINGS.fuse,
       update.kbThreshold ?? DEFAULT_KB_SETTINGS.threshold,
-      update.kbPinnedWeight ?? DEFAULT_KB_SETTINGS.pinnedWeight
+      update.kbPinnedWeight ?? DEFAULT_KB_SETTINGS.pinnedWeight,
+      update.writeMode ?? 'manual'
     );
   }
 

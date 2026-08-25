@@ -11,6 +11,7 @@ import { getAiConfig, upsertAiConfig } from '../../db/ai';
 import { countChunksByDoc, listKbDocumentsByUser } from '../../db/kb';
 import { getFile } from '../../db/files';
 import { indexFile, indexImportedText, removeByFile } from '../kbIndexer';
+import { parseDocument } from '../documentParser';
 import type { IKbImportResult } from '@shared/ai';
 
 export function registerKbHandlers(): void {
@@ -169,6 +170,22 @@ export function registerKbHandlers(): void {
           success: false,
           code: 'config_incomplete' as AIErrorCode,
           message: 'Failed to save knowledge base settings',
+        };
+      }
+    }
+  );
+
+  // 文档解析（PDF/DOCX/MD/TXT）
+  ipcMain.handle(
+    IPC_CHANNELS.KB_PARSE_DOCUMENT,
+    async (_event, filePath: string, fileName: string, mimeType?: string) => {
+      try {
+        const result = await parseDocument(filePath, fileName, mimeType);
+        return { success: true, data: result };
+      } catch (error) {
+        return {
+          success: false,
+          message: `Document parse failed: ${error instanceof Error ? error.message : String(error)}`,
         };
       }
     }
