@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const filesMock = vi.hoisted(() => ({
   listFiles: vi.fn(),
   getFile: vi.fn(),
+  createFile: vi.fn(),
+  renameFile: vi.fn(),
+  deleteFile: vi.fn(),
+  updateFileContent: vi.fn(),
 }));
 vi.mock('@main/db/files', () => filesMock);
 
@@ -29,9 +33,9 @@ function makeCtx(over: Partial<ToolCtx> = {}): ToolCtx {
 }
 
 describe('toolRegistry.defineCoreTools', () => {
-  it('defines exactly the 19 tools (listFiles/readFile/searchKB/runSkill/editBlocks/createFile/createFolder/ask_question_card/preview_patch_files/web_search/analyze_folder/check_links/get_task_activity/renameFile/moveFile/deleteFile/research_search/readLocalFile/listLocalDirectory)', () => {
+  it('defines exactly the 20 tools (listFiles/readFile/searchKB/runSkill/editBlocks/createFile/createFolder/ask_question_card/preview_patch_files/web_search/analyze_folder/check_links/get_task_activity/renameFile/moveFile/deleteFile/preview_file_revision/research_search/readLocalFile/listLocalDirectory)', () => {
     const names = defineCoreTools().map((t) => t.function.name);
-    expect(names).toEqual(['listFiles', 'readFile', 'searchKB', 'runSkill', 'editBlocks', 'createFile', 'createFolder', 'ask_question_card', 'preview_patch_files', 'web_search', 'analyze_folder', 'check_links', 'get_task_activity', 'renameFile', 'moveFile', 'deleteFile', 'research_search', 'readLocalFile', 'listLocalDirectory']);
+    expect(names).toEqual(['listFiles', 'readFile', 'searchKB', 'runSkill', 'editBlocks', 'createFile', 'createFolder', 'ask_question_card', 'preview_patch_files', 'web_search', 'analyze_folder', 'check_links', 'get_task_activity', 'renameFile', 'moveFile', 'deleteFile', 'preview_file_revision', 'research_search', 'readLocalFile', 'listLocalDirectory']);
   });
 
   it('has valid OpenAI function schema for every tool', () => {
@@ -238,7 +242,8 @@ describe('toolRegistry.executeTool', () => {
     expect(res.errorDesc).toContain('未知工具');
   });
 
-  it('createFile returns proposal JSON without touching disk', async () => {
+  it('createFile returns success JSON after creating file in DB', async () => {
+    filesMock.createFile.mockReturnValue({ id: 'new-id', name: 'note.md' });
     const res = await executeTool(
       'createFile',
       '{"file_name":"note.md","content":"# Hello","parent_path":"/docs"}',
@@ -246,14 +251,10 @@ describe('toolRegistry.executeTool', () => {
     );
     expect(res.status).toBe('ok');
     const parsed = JSON.parse(res.content);
-    expect(parsed.proposal).toBe(true);
-    expect(parsed.type).toBe('createFile');
+    expect(parsed.success).toBe(true);
+    expect(parsed.fileId).toBe('new-id');
     expect(parsed.fileName).toBe('note.md');
-    expect(parsed.content).toBe('# Hello');
-    expect(parsed.parentPath).toBe('/docs');
-    // 未落盘断言：写阅读工具均未被调用
-    expect(filesMock.listFiles).not.toHaveBeenCalled();
-    expect(filesMock.getFile).not.toHaveBeenCalled();
+    expect(filesMock.createFile).toHaveBeenCalledWith('u1', 'note.md', '# Hello');
   });
 
   it('createFile returns error for missing file_name', async () => {
@@ -268,7 +269,8 @@ describe('toolRegistry.executeTool', () => {
     expect(res.errorDesc).toContain('缺少 file_name');
   });
 
-  it('createFile defaults parentPath to empty when omitted', async () => {
+  it('createFile creates file via DB when args are valid', async () => {
+    filesMock.createFile.mockReturnValue({ id: 'id-2', name: 'a.md' });
     const res = await executeTool(
       'createFile',
       '{"file_name":"a.md","content":"hi"}',
@@ -276,10 +278,11 @@ describe('toolRegistry.executeTool', () => {
     );
     expect(res.status).toBe('ok');
     const parsed = JSON.parse(res.content);
-    expect(parsed.parentPath).toBe('');
+    expect(parsed.success).toBe(true);
+    expect(filesMock.createFile).toHaveBeenCalledWith('u1', 'a.md', 'hi');
   });
 
-  it('createFolder returns proposal JSON without touching disk', async () => {
+  it('createFolder returns success JSON (folder is logical concept)', async () => {
     const res = await executeTool(
       'createFolder',
       '{"folder_name":"notes","parent_path":"/docs"}',
@@ -287,11 +290,10 @@ describe('toolRegistry.executeTool', () => {
     );
     expect(res.status).toBe('ok');
     const parsed = JSON.parse(res.content);
-    expect(parsed.proposal).toBe(true);
+    expect(parsed.success).toBe(true);
     expect(parsed.type).toBe('createFolder');
     expect(parsed.folderName).toBe('notes');
     expect(parsed.parentPath).toBe('/docs');
-    expect(filesMock.listFiles).not.toHaveBeenCalled();
   });
 
   it('createFolder returns error for missing folder_name', async () => {

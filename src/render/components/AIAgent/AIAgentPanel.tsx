@@ -2,8 +2,7 @@
 // WeaveMD — AI 代理面板（三视图容器，M3）
 // ============================================
 // 外壳：顶部栏（左「WeaveMD」；右 [+ 新建会话] [⚙ 设置] [× 关闭 toggleAIPanel]）+
-// view 切换（home/session/settings 互跳）+ 保留左侧反向拖拽把手（clamp 260~520）+
-// ConsentOverlay 覆盖全面板。
+// view 切换（home/session/settings 互跳）+ 保留左侧反向拖拽把手（clamp 260~520）。
 // home → AIPanelHome；session → AIPanelSession；settings → AIPanelSettings。
 // 移除原「标题+模式下拉」头部（模式下拉已移入 AIPanelComposer）。
 
@@ -21,7 +20,6 @@ import {
 } from '@render/services/draftStore';
 import AIPanelHome, { formatRecentDate } from './AIPanelHome';
 import AIPanelSession from './AIPanelSession';
-import ConsentOverlay from './ConsentOverlay';
 
 type View = 'home' | 'session' | 'history';
 
@@ -29,9 +27,6 @@ const AIAgentPanel: React.FC = () => {
   const { t } = useI18n();
   const user = useAuthStore((s) => s.user);
 
-  const pendingConsent = useAgentStore((s) => s.pendingConsent);
-  const setPendingConsent = useAgentStore((s) => s.setPendingConsent);
-  const setConsent = useAgentStore((s) => s.setConsent);
   const init = useAgentStore((s) => s.init);
   const newChat = useAgentStore((s) => s.newChat);
   const loadConversation = useAgentStore((s) => s.loadConversation);
@@ -333,22 +328,6 @@ const AIAgentPanel: React.FC = () => {
         )}
       </aside>
 
-      {/* 知情同意弹层（覆盖整个面板，不随视图变化） */}
-      <div className="absolute inset-0 z-20 pointer-events-none">
-        <ConsentOverlay
-          visible={pendingConsent}
-          onRemember={(choice) => {
-            setConsent({
-              allowNetwork: choice.allowNetwork,
-              allowSend: choice.allowSend,
-              consentUpdatedAt: new Date().toISOString(),
-            }).catch(() => {
-              setPendingConsent(false);
-            });
-          }}
-          onDeny={() => setPendingConsent(false)}
-        />
-      </div>
     </>
   );
 };

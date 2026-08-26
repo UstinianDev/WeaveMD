@@ -12,7 +12,6 @@ import { getAiConfig, getConversation } from '../../db/ai';
 import { runAgentFlow } from '../agentLoop';
 import { searchKB } from '../kbSearch';
 import { listSkillsForUi, loadUserSkillsFromDirs } from '../skillLoader';
-import { needsConsent } from '@shared/ai';
 import { AgentTaskQueue } from '../agentTaskQueue';
 import { AgentTaskWorker } from '../agentTaskWorker';
 import { replayFromSeq } from '../agentEventStore';
@@ -66,15 +65,7 @@ export function registerAgentHandlers(): void {
 
     const { userId, conversationId } = payload;
 
-    // 入队前检查 consent（consent_required 必须同步返回，不能入队后再拒绝）
     const row = getAiConfig(userId);
-    const config = row ? toIAIConfig(row) : DEFAULT_AI_CONFIG;
-    const consent = row ? toIAIConsent(row) : DEFAULT_CONSENT;
-
-    // consent 分层检查：联网闸 allowNetwork（远程后端必填）
-    if (needsConsent(consent)) {
-      return { success: false, code: 'consent_required' as AIErrorCode, message: 'Consent required' };
-    }
 
     // 会话存在性校验
     if (conversationId && !getConversation(conversationId, userId)) {

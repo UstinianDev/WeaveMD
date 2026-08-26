@@ -1,10 +1,8 @@
 // ============================================
-// WeaveMD — Agent tool registry (read-only + proposal-only write tools)
+// WeaveMD — Agent tool registry
 // ============================================
-// 内置只读工具：listFiles / readFile / searchKB / runSkill + editBlocks（改写建议）。
-// 提案型写工具：createFile / createFolder（仅返回 proposal JSON，用户确认后渲染侧落盘）。
-// 分析工具：web_search / analyze_folder / check_links / get_task_activity。
-// 铁律一：无直接落盘工具——所有写路径必经预览确认。
+// 内置工具：listFiles / readFile / searchKB / runSkill / editBlocks / createFile / createFolder 等。
+// 写工具直接执行（原铁律一已移除）。
 // 数据访问全部按 ctx.userId 隔离（SECURITY：即使工具参数含 user_id，也只以 ctx.userId 为准）。
 
 import type { ToolDef } from '@shared/ai';
@@ -31,6 +29,7 @@ import { handleRenameFile, handleMoveFile, handleDeleteFile } from './tools/file
 import { handleResearchSearch } from './tools/researchSearchHandler';
 import { handleReadLocalFile } from './tools/readLocalFile';
 import { handleListLocalDirectory } from './tools/listLocalDirectory';
+import { executePreviewFileRevision, previewFileRevisionSchema } from './tools/previewFileRevision';
 
 // Schema 导入（defineCoreTools 需要）
 import { askQuestionCardSchema } from './tools/askQuestionCard';
@@ -65,6 +64,7 @@ const handlerMap = new Map<string, ToolHandler>([
   ['research_search', handleResearchSearch],
   ['readLocalFile', handleReadLocalFile],
   ['listLocalDirectory', handleListLocalDirectory],
+  ['preview_file_revision', executePreviewFileRevision],
 ]);
 
 // ---------------------------------------------------------------------------
@@ -160,7 +160,8 @@ export function defineCoreTools(): ToolDef[] {
       type: 'function',
       function: {
         name: 'createFile',
-        description: '在工作区新建文件（仅生成提案，用户确认后才创建）。',
+        description:
+          '在工作区新建文件并写入内容。当用户要求创建、新建文件/笔记时，你必须调用此工具，不要直接在聊天中输出文件内容。',
         parameters: {
           type: 'object',
           properties: {
@@ -176,7 +177,7 @@ export function defineCoreTools(): ToolDef[] {
       type: 'function',
       function: {
         name: 'createFolder',
-        description: '在工作区新建文件夹（仅生成提案，用户确认后才创建）。',
+        description: '在工作区新建文件夹。',
         parameters: {
           type: 'object',
           properties: {
@@ -196,6 +197,7 @@ export function defineCoreTools(): ToolDef[] {
     renameFileSchema,
     moveFileSchema,
     deleteFileSchema,
+    previewFileRevisionSchema,
     {
       type: 'function',
       function: {

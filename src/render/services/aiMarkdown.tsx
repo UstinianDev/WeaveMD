@@ -284,7 +284,14 @@ export function hastToReact(node: Element | Text | Root | null | undefined): Rea
     return React.createElement(tag, { key: `el-${keyTag(node)}`, ...(Object.keys(props).length ? props : null) });
   }
 
-  const children = (node.children ?? []).map((child, index) =>
+  // 过滤 table 子元素中的空白文本节点（React 不允许 <tbody> 含纯空白子节点）
+  const isTableChild = tag === 'table' || tag === 'thead' || tag === 'tbody' || tag === 'tr';
+  const rawChildren = node.children ?? [];
+  const filteredChildren = isTableChild
+    ? rawChildren.filter((c) => c.type !== 'text' || c.value.trim() !== '')
+    : rawChildren;
+
+  const children = filteredChildren.map((child, index) =>
     React.createElement(React.Fragment, { key: `${tag}-${keyTag(node)}-${index}` }, hastToReact(child as Element | Text))
   );
 

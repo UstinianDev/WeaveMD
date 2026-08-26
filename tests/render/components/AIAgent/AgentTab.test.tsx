@@ -112,10 +112,12 @@ describe('AgentTab (消息流展示区)', () => {
   });
 
   it('渲染工具轨迹 toolCalls', () => {
-    useAgentStore.setState({ ...defaultState, toolCalls: [toolCall] });
+    // Bug 1 修复：toolCalls 现在附着在消息上，而非全局 store
+    const assistantWithTools = { ...assistantMsg, toolCalls: [toolCall] };
+    useAgentStore.setState({ ...defaultState, messages: [userMsg, assistantWithTools] });
     render(<AgentTab />);
-    // AgentStepTimeline 按轮次分组展示，工具名显示为本地化标签
-    expect(screen.getByText('知识库检索')).toBeInTheDocument();
+    // AgentWorkflowCard 按轮次分组展示，工具名显示为原始名称（标题+详情各一次）
+    expect(screen.getAllByText('searchKB').length).toBeGreaterThanOrEqual(1);
   });
 
   it('渲染意图候选卡片并点击重发', () => {

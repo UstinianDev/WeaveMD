@@ -38,6 +38,8 @@ export interface IAIMessage {
   createdAt: string;
   /** 响应时间（毫秒），从发送到首 token 的时间 */
   responseTime?: number;
+  /** 本轮工具调用轨迹（快照，随消息持久化后可独立渲染）。 */
+  toolCalls?: import('./agent').IAgentToolCall[];
 }
 
 /** AI 处理流程状态 */

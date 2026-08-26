@@ -206,12 +206,13 @@ kb_chunks(id, document_id, seq, content, vector BLOB, source_ref /*文件+块定
 **死循环检测**：
 - `agentLoopGuard.ts`：3x 相同结果 / 2x 连续失败自动终止
 
-### 新增工具（6 个，共 13 个）
+### 新增工具（7 个，共 14 个）
 
 | 工具 | 功能 | 类型 |
 |------|------|------|
 | `ask_question_card` | 结构化提问卡片 | 交互 |
 | `preview_patch_files` | 多文件补丁预览 | 预览 |
+| `preview_file_revision` | 全文修订预览（对齐 Notus，自动读取当前文件生成 diff） | 预览 |
 | `web_search` | 联网搜索（集成 searchClient） | 搜索 |
 | `analyze_folder` | 目录结构分析 | 分析 |
 | `check_links` | 内部链接检查 | 检查 |

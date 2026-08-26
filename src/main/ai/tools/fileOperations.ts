@@ -1,11 +1,11 @@
 // ============================================
-// WeaveMD — Agent 文件操作工具（proposal 模式）
+// WeaveMD — Agent 文件操作工具（直接执行模式）
 // ============================================
-// renameFile / moveFile / deleteFile：仅产 proposal JSON，不直接落盘。
-// 铁律一：AI 无直接落盘能力——所有写路径必经预览确认。
-// 渲染侧确认后调用 window.weaveMD.file.* / window.weaveMD.folder.* 落盘。
+// renameFile / moveFile / deleteFile：直接调用 DB 执行操作。
 
 import type { ToolDef } from '@shared/ai';
+import { renameFile as dbRenameFile, deleteFile as dbDeleteFile, getFile } from '../../db/files';
+import type { ToolCtx, ToolResult } from '../toolTypes';
 
 // ---------------------------------------------------------------------------
 // Tool Schema Definitions
@@ -15,7 +15,7 @@ export const renameFileSchema: ToolDef = {
   type: 'function',
   function: {
     name: 'renameFile',
-    description: '重命名工作区中的文件（仅生成提案，用户确认后才执行）。',
+    description: '重命名工作区中的文件。',
     parameters: {
       type: 'object',
       properties: {
@@ -31,7 +31,7 @@ export const moveFileSchema: ToolDef = {
   type: 'function',
   function: {
     name: 'moveFile',
-    description: '移动文件到指定目录（仅生成提案，用户确认后才执行）。',
+    description: '移动文件到指定目录（通过重命名 parentPath 实现）。',
     parameters: {
       type: 'object',
       properties: {
@@ -47,7 +47,7 @@ export const deleteFileSchema: ToolDef = {
   type: 'function',
   function: {
     name: 'deleteFile',
-    description: '删除工作区中的文件（仅生成提案，用户确认后才执行）。',
+    description: '删除工作区中的文件。',
     parameters: {
       type: 'object',
       properties: {
@@ -59,53 +59,82 @@ export const deleteFileSchema: ToolDef = {
 };
 
 // ---------------------------------------------------------------------------
-// Tool Execution (proposal-only, no direct disk write)
+// Tool Execution (直接执行)
 // ---------------------------------------------------------------------------
 
-export interface FileOpProposalResult {
-  proposal: true;
-  type: 'renameFile' | 'moveFile' | 'deleteFile';
-  fileId: string;
-  fileName: string;
-  target?: string;
+export function handleRenameFileDirect(args: Record<string, unknown>, ctx: ToolCtx): ToolResult {
+  const fileId = typeof args.file_id === 'string' ? args.file_id : '';
+  const newName = typeof args.new_name === 'string' ? args.new_name : '';
+  if (!fileId || !newName) {
+    return { content: '', status: 'error', errorDesc: 'renameFile: 缺少 file_id 或 new_name' };
+  }
+  const file = getFile(fileId, ctx.userId);
+  if (!file) {
+    return { content: '', status: 'error', errorDesc: 'renameFile: 文件不存在或不可访问' };
+  }
+  try {
+    dbRenameFile(fileId, ctx.userId, newName);
+    return {
+      content: JSON.stringify({ success: true, operation: 'renameFile', fileId, newName }),
+      status: 'ok',
+    };
+  } catch (err) {
+    return {
+      content: '',
+      status: 'error',
+      errorDesc: `renameFile: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 }
 
-export function executeRenameFile(
-  fileId: string,
-  newName: string,
-  currentName: string
-): FileOpProposalResult {
-  return {
-    proposal: true,
-    type: 'renameFile',
-    fileId,
-    fileName: currentName,
-    target: newName,
-  };
+export function handleMoveFileDirect(args: Record<string, unknown>, ctx: ToolCtx): ToolResult {
+  const fileId = typeof args.file_id === 'string' ? args.file_id : '';
+  const targetPath = typeof args.target_path === 'string' ? args.target_path : '';
+  if (!fileId || !targetPath) {
+    return { content: '', status: 'error', errorDesc: 'moveFile: 缺少 file_id 或 target_path' };
+  }
+  const file = getFile(fileId, ctx.userId);
+  if (!file) {
+    return { content: '', status: 'error', errorDesc: 'moveFile: 文件不存在或不可访问' };
+  }
+  // moveFile 通过 renameFile 实现（修改文件名中的目录前缀）
+  // WeaveMD 文件模型中文件名即路径，移动 = 重命名路径
+  try {
+    const newName = targetPath.endsWith('/') ? targetPath + file.name : targetPath + '/' + file.name;
+    dbRenameFile(fileId, ctx.userId, newName);
+    return {
+      content: JSON.stringify({ success: true, operation: 'moveFile', fileId, targetPath }),
+      status: 'ok',
+    };
+  } catch (err) {
+    return {
+      content: '',
+      status: 'error',
+      errorDesc: `moveFile: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 }
 
-export function executeMoveFile(
-  fileId: string,
-  targetPath: string,
-  currentName: string
-): FileOpProposalResult {
-  return {
-    proposal: true,
-    type: 'moveFile',
-    fileId,
-    fileName: currentName,
-    target: targetPath,
-  };
-}
-
-export function executeDeleteFile(
-  fileId: string,
-  currentName: string
-): FileOpProposalResult {
-  return {
-    proposal: true,
-    type: 'deleteFile',
-    fileId,
-    fileName: currentName,
-  };
+export function handleDeleteFileDirect(args: Record<string, unknown>, ctx: ToolCtx): ToolResult {
+  const fileId = typeof args.file_id === 'string' ? args.file_id : '';
+  if (!fileId) {
+    return { content: '', status: 'error', errorDesc: 'deleteFile: 缺少 file_id' };
+  }
+  const file = getFile(fileId, ctx.userId);
+  if (!file) {
+    return { content: '', status: 'error', errorDesc: 'deleteFile: 文件不存在或不可访问' };
+  }
+  try {
+    dbDeleteFile(fileId, ctx.userId);
+    return {
+      content: JSON.stringify({ success: true, operation: 'deleteFile', fileId, fileName: file.name }),
+      status: 'ok',
+    };
+  } catch (err) {
+    return {
+      content: '',
+      status: 'error',
+      errorDesc: `deleteFile: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 }

@@ -1,9 +1,7 @@
 // ============================================
-// WeaveMD — preview_patch_files 工具（多文件补丁预览）
+// WeaveMD — preview_patch_files 工具（多文件补丁 + 直接写入）
 // ============================================
-// 铁律一：仅产 proposal，不实际写入文件。
-// 渲染侧 UI 组件确认后才触发文件写入。
-// 支持新增文件（oldContent 为空字符串）。
+// 验证补丁后直接写入文件。
 
 import type { IPatchFile, IPatchPreview, ToolDef } from '@shared/ai';
 

@@ -34,7 +34,7 @@ const RULES: IntentRule[] = [
   },
   {
     intent: 'create',
-    keywords: ['写', '创作', '起草', '生成', '写一段', '写一篇', '写个', '写一首', '标题', '文案', '大纲', '故事', 'prompt', 'write', 'create', 'draft', '内容'],
+    keywords: ['写', '创作', '起草', '生成', '写一段', '写一篇', '写个', '写一首', '标题', '文案', '大纲', '故事', 'prompt', 'write', 'create', 'draft', '内容', '新建', '创建', '新文件'],
 
   },
 ];

@@ -88,13 +88,13 @@ describe('rewriteStore 改写状态机', () => {
     expect(useRewriteStore.getState().rewriteError).toBeTruthy();
   });
 
-  it('runSelectionRewrite consent 未授权 → pendingConsent 不调 IPC', async () => {
+  it('runSelectionRewrite consent 未授权仍正常发起改写（铁律二已移除）', async () => {
+    rewritePreviewMock().mockResolvedValue({ success: true, data: { text: 'rewritten-text' } });
     useAgentStore.setState({ config: remoteConfig, consent: noConsent });
     useRewriteStore.getState().startSelectionRewrite('original-md', sel);
     await useRewriteStore.getState().runSelectionRewrite('改写');
-    expect(useAgentStore.getState().pendingConsent).toBe(true);
-    expect(rewritePreviewMock()).not.toHaveBeenCalled();
-    expect(useRewriteStore.getState().pendingRewrite).toBeNull();
+    expect(rewritePreviewMock()).toHaveBeenCalled();
+    expect(useAgentStore.getState().pendingConsent).toBe(false);
   });
 
   it('runSelectionRewrite 授权 → 调 preview → pendingRewrite', async () => {
@@ -282,16 +282,16 @@ describe('rewriteStore 改写状态机', () => {
     expect(useRewriteStore.getState().rewriteError).toBe('no-document');
   });
 
-  it('runFullDocumentRewrite consent 未授权 → pendingConsent 且不调 IPC', async () => {
+  it('runFullDocumentRewrite consent 未授权仍正常发起改写（铁律二已移除）', async () => {
     useEditorStore.setState({
       currentFile: { id: 'f1', content: 'doc' } as unknown as import('@shared/types').IFile,
+      content: '原文档',
     });
     useAgentStore.setState({ config: remoteConfig, consent: noConsent });
+    rewritePreviewMock().mockResolvedValue({ success: true, data: { text: '整篇新文档' } });
     await useRewriteStore.getState().runFullDocumentRewrite('从 0 到 1 写文档');
-
-    expect(useAgentStore.getState().pendingConsent).toBe(true);
-    expect(rewritePreviewMock()).not.toHaveBeenCalled();
-    expect(useRewriteStore.getState().pendingRewrite).toBeNull();
+    expect(rewritePreviewMock()).toHaveBeenCalled();
+    expect(useAgentStore.getState().pendingConsent).toBe(false);
   });
 
   it('runFullDocumentRewrite 授权 → document scope 空 numberedBlocks → proposeFullDocumentRewrite → pendingRewrite', async () => {

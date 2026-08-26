@@ -22,11 +22,11 @@ export interface IAIConsent {
 }
 
 /**
- * 知情同意判定（联网闸，主进程/渲染进程统一）。
- * 后端恒 remote（ollama 已去除），因此联网即外发。
+ * 知情同意判定 — 恒返回 false（铁律二已移除：联网/外发不再需要用户同意）。
+ * 保留函数签名供下游 import 不报错。
  */
-export function needsConsent(consent: IAIConsent | null): boolean {
-  return !consent?.allowNetwork;
+export function needsConsent(_consent: IAIConsent | null): boolean {
+  return false;
 }
 
 /** setConfig 单次更新载荷。 */

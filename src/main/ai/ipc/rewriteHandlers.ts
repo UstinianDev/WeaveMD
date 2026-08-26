@@ -6,7 +6,6 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@shared/constants';
 import type { AIErrorCode, RewriteRequestPayload } from '@shared/ai';
 import { getAiConfig } from '../../db/ai';
-import { needsConsent } from '@shared/ai';
 import { runRewrite } from '../rewrite';
 import { DEFAULT_AI_CONFIG, DEFAULT_CONSENT, toIAIConfig, toIAIConsent } from './shared';
 
@@ -19,15 +18,6 @@ export function registerRewriteHandlers(): void {
       const row = getAiConfig(userId);
       const config = row ? toIAIConfig(row) : DEFAULT_AI_CONFIG;
       const consent = row ? toIAIConsent(row) : DEFAULT_CONSENT;
-
-      // 铁律二：改写 = 联网，远端未授权联网 -> 拒绝，不发外发请求
-      if (needsConsent(consent)) {
-        return {
-          success: false,
-          code: 'consent_required',
-          message: 'Network consent required',
-        };
-      }
 
       const controller = new AbortController();
       try {

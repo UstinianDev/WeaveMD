@@ -29,7 +29,7 @@
 - `src/render/components/AIAgent/` — AI 面板（**第1~7期均已交付 + 三视图重构**：AIAgentPanel 为三视图外壳
   （home 主界面 RECENT 最近3 / session 会话 / settings 设置侧栏，顶部 WeaveMD+新建+⚙+×）+
   AIPanelComposer（共享 composer：模式下拉+ModelDropdown+handleSendAgent 分流）+
-  AgentTab 精瘦为消息流展示区 + ConsentOverlay + ToolCallTrace/IntentCard/MarkdownMessage/
+  AgentTab 精瘦为消息流展示区 + AgentWorkflowCard（模块化折叠卡片） + ConsentOverlay + ToolCallTrace/IntentCard/MarkdownMessage/
   KnowledgeBaseSettings/RewritePreviewCard（第5期）/CompletionMenu（第7期B1 补全）+
   settings/{ModelForm（迁自 SettingsModal ai Tab）,SkillsPanel,MCP占位}）
 - `src/render/editor/rewrite/` — 改写块逻辑（第5期）：selectionExport.ts（DOM 选区→SelectionRef+片段）/

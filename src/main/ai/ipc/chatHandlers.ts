@@ -27,7 +27,6 @@ import {
 import { cancelPendingByConversation } from '../../db/agentTaskDao';
 import { getDatabase } from '../../db/index';
 import { decryptApiKey } from '../secureConfig';
-import { needsConsent } from '@shared/ai';
 import { streamChatCompletion } from '../llmClient';
 import { activeStreams, DEFAULT_AI_CONFIG, DEFAULT_CONSENT, sendStream, toIAIConfig, toIAIConsent } from './shared';
 import { exportConversationToMarkdown } from '../conversationExport';
@@ -206,15 +205,6 @@ export function registerChatHandlers(): void {
     const row = getAiConfig(userId);
     const config: IAIConfig = row ? toIAIConfig(row) : DEFAULT_AI_CONFIG;
     const consent: IAIConsent = row ? toIAIConsent(row) : DEFAULT_CONSENT;
-
-    // 服务端同意闸：远程未同意 -> 拒绝
-    if (needsConsent(consent)) {
-      return {
-        success: false,
-        code: 'consent_required',
-        message: 'Network consent required',
-      };
-    }
 
     const controller = new AbortController();
     return await runChatFlow(event, payload, config, row?.apiKeyEnc ?? null, controller);

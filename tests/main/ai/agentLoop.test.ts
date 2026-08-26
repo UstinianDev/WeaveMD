@@ -154,30 +154,14 @@ beforeEach(() => {
   llmMock.streamChatCompletion.mockReset();
   toolMock.executeTool.mockReset();
   consentMock.needsConsent.mockReset().mockReturnValue(false);
-  // 默认：allowSend 未授权（需要 KB 外发同意）——安全默认不提供 searchKB
-  consentMock.needsKbSendConsent.mockReset().mockReturnValue(true);
+  // 铁律二已移除：needsKbSendConsent 恒返回 false
+  consentMock.needsKbSendConsent.mockReset().mockReturnValue(false);
   intentMock.classifyIntent.mockReset().mockReturnValue({ intent: 'create', confidence: 0.9 });
   eventStoreMock.persistAndSend.mockReset();
   checkpointMock.saveCheckpoint.mockReset();
 });
 
 describe('runAgentFlow', () => {
-  it('rejects with consent_required when agent consent not granted and sends nothing', async () => {
-    consentMock.needsConsent.mockReturnValue(true);
-    const controller = new AbortController();
-    await expect(
-      runAgentFlow(makeEvent(), payload(), makeConfig(), 'enc:key', controller, {
-        consent: { allowNetwork: false, allowSend: false, consentUpdatedAt: null },
-      })
-    ).rejects.toMatchObject({ code: 'consent_required' });
-    // 不发外发请求
-    expect(llmMock.streamChatCompletion).not.toHaveBeenCalled();
-    expect(electronMock.webContentsSend).not.toHaveBeenCalledWith(
-      IPC_CHANNELS.AI_STREAM_CHUNK,
-      expect.anything()
-    );
-  });
-
   it('executes tool_calls -> backfills role:tool -> continues loop -> converges', async () => {
     // round1: tool_calls(readFile); round2: final text
     let call = 0;
@@ -355,15 +339,12 @@ describe('runAgentFlow', () => {
     );
   });
 
-  it('useKnowledgeBase 但 allowSend 未授权 -> 不注入 searchKB 工具（降级普通作答）', async () => {
+  it('useKnowledgeBase 且 kbQa 意图 -> searchKB 始终注入（铁律二已移除）', async () => {
     intentMock.classifyIntent.mockReturnValue({ intent: 'kbQa', confidence: 0.9 });
-
-    // 默认 allowSend 未授权：needsKbSendConsent = true -> 不提供 searchKB，笔记不外发
-    consentMock.needsKbSendConsent.mockReturnValue(true);
 
     llmMock.streamChatCompletion.mockImplementation(() => {
       async function* g() {
-        yield { delta: '普通作答（未检索笔记）' };
+        yield { delta: '基于知识库的回答' };
       }
       return g();
     });
@@ -377,16 +358,10 @@ describe('runAgentFlow', () => {
       controller,
       { consent: { allowNetwork: true, allowSend: false, consentUpdatedAt: null } }
     );
-    // 工具列表不含 searchKB（allowSend 未授权，外发工具被降级）
+    // searchKB 始终注入（KB 外发限制已移除）
     const callOpts = llmMock.streamChatCompletion.mock.calls[0][0] as { tools?: Array<{ function: { name: string } }> };
     const toolNames = callOpts.tools?.map((t) => t.function.name) ?? [];
-    expect(toolNames).not.toContain('searchKB');
-    expect(toolMock.executeTool).not.toHaveBeenCalled();
-    // 正常收敛，不抛错
-    const assistantCalls = dbMock.appendMessage.mock.calls.filter(
-      (c) => c[0].role === 'assistant'
-    );
-    expect(assistantCalls.length).toBeGreaterThan(0);
+    expect(toolNames).toContain('searchKB');
     expect(res.roundsUsed).toBe(1);
   });
 

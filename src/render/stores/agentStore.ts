@@ -28,7 +28,7 @@ import type {
 import { DEFAULT_KB_SETTINGS, needsConsent } from '@shared/ai';
 import type { WeaveMDApi } from '@main/preload';
 
-// re-export 统一版 needsConsent（保持从 agentStore 导入的向后兼容）
+// re-export needsConsent（恒返回 false，铁律二已移除）
 export { needsConsent } from '@shared/ai';
 import { useAuthStore } from './authStore';
 import { useEditorStore } from '@render/stores/editorStore';
@@ -54,6 +54,22 @@ export interface FileOpProposal {
   folderName?: string;
   content?: string;
   parentPath?: string;
+  status: 'pending' | 'applied' | 'discarded';
+}
+
+/** editBlocks / preview_file_revision 待确认修订提案。 */
+export interface EditBlocksProposal {
+  /** 来源工具名。 */
+  toolName: 'editBlocks' | 'preview_file_revision';
+  /** 关联的文件 ID（preview_file_revision 有，editBlocks 为空）。 */
+  fileId?: string;
+  /** 关联的文件名（preview_file_revision 有）。 */
+  fileName?: string;
+  /** 原始内容（diff 对比用）。 */
+  originalContent: string;
+  /** 修订后内容。 */
+  newContent: string;
+  /** 状态。 */
   status: 'pending' | 'applied' | 'discarded';
 }
 
@@ -119,6 +135,13 @@ interface AgentStore {
   applyFileOpProposal: (index: number) => Promise<void>;
   discardFileOpProposal: (index: number) => void;
   clearFileOpProposals: () => void;
+
+  // —— editBlocks / preview_file_revision 修订提案 ——
+  editBlocksProposals: EditBlocksProposal[];
+  addEditBlocksProposal: (proposal: Omit<EditBlocksProposal, 'status'>) => void;
+  applyEditBlocksProposal: (index: number) => void;
+  discardEditBlocksProposal: (index: number) => void;
+  clearEditBlocksProposals: () => void;
 
   // —— R3: 交互提问（ask_question_card 暂停等待用户回答） ——
   pendingInteraction: {
@@ -197,6 +220,7 @@ const RESET_FIELDS: Pick<
   | 'processStatus'
   | 'writeMode'
   | 'fileOpProposals'
+  | 'editBlocksProposals'
   | 'pendingInteraction'
   | 'lastSeq'
 > = {
@@ -224,8 +248,9 @@ const RESET_FIELDS: Pick<
   searchConfig: null,
   globalFiles: null,
   processStatus: 'idle',
-  writeMode: 'manual',
+  writeMode: 'auto',
   fileOpProposals: [],
+  editBlocksProposals: [],
   pendingInteraction: null,
   lastSeq: 0,
 };
@@ -464,17 +489,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   async sendAgentMessage(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const { consent, activeConversationId, useKnowledgeBase } = get();
-
-    // 铁律二：agent 模式联网外发 + 知识库检索外发均需知情同意
-    if (needsConsent(consent)) {
-      set({ pendingConsent: true });
-      return;
-    }
-    if (useKnowledgeBase && !consent?.allowSend) {
-      set({ pendingConsent: true });
-      return;
-    }
+    const { activeConversationId, useKnowledgeBase } = get();
 
     // 前置校验：API Key 未配置时直接提示，避免走到主进程再失败
     const config = get().config;
@@ -528,13 +543,14 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     }));
 
     const appendAssistant = (): void => {
-      const { streamBuffer } = get();
+      const { streamBuffer, toolCalls: currentToolCalls } = get();
       const responseTime = Date.now() - startTime;
       set((s) => ({
         isStreaming: false,
         streamUnsubscribe: null,
         streamBuffer: '',
         processStatus: 'idle',
+        toolCalls: [],
         messages: [
           ...s.messages,
           {
@@ -545,6 +561,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             refsJson: null,
             createdAt: new Date().toISOString(),
             responseTime,
+            // Bug 1 修复：将本轮 toolCalls 快照附着到消息上
+            toolCalls: currentToolCalls.length > 0 ? [...currentToolCalls] : undefined,
           },
         ],
       }));
@@ -560,150 +578,89 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             processStatus: 'tool_calling',
           };
         });
-        // 检测文件操作 proposal（createFile / createFolder / renameFile / moveFile / deleteFile）
+        // 文件操作已在主进程直接执行，刷新文件树
         if (
           toolCall.name === 'createFile' ||
           toolCall.name === 'createFolder' ||
           toolCall.name === 'renameFile' ||
           toolCall.name === 'moveFile' ||
-          toolCall.name === 'deleteFile'
+          toolCall.name === 'deleteFile' ||
+          toolCall.name === 'preview_patch_files'
         ) {
           try {
             const result = JSON.parse(toolCall.result ?? '{}') as Record<string, unknown>;
-            if (result.proposal) {
-              const currentWriteMode = get().writeMode;
-
-              // auto 模式：自动执行文件操作
-              if (currentWriteMode === 'auto') {
-                const applyAsync = async (): Promise<void> => {
-                  try {
-                    if (toolCall.name === 'createFile' && typeof result.fileName === 'string' && typeof result.content === 'string') {
-                      const parentPath = typeof result.parentPath === 'string' ? result.parentPath : '';
-                      const filePath = parentPath ? `${parentPath}/${result.fileName}` : result.fileName;
-                      await window.weaveMD.file.write(filePath, result.content as string);
-                      await window.weaveMD.file.readDisk(filePath);
-                    } else if (toolCall.name === 'createFolder' && typeof result.folderName === 'string') {
-                      const parentPath = typeof result.parentPath === 'string' ? result.parentPath : '';
-                      await window.weaveMD.folder.createFolder(parentPath, result.folderName as string);
-                    } else if (toolCall.name === 'renameFile' && typeof result.fileId === 'string' && typeof result.target === 'string') {
-                      // renameFile proposal: { fileId, fileName, target(newName) }
-                      // 需要通过 IPC 执行重命名（暂用 file.write 替代，后续可加专用 IPC）
-                      const successMsg: IAIMessage = {
-                        id: makeId(),
-                        conversationId: conversationId ?? '',
-                        role: 'assistant',
-                        content: `已将文件 "${result.fileName}" 重命名为 "${result.target}"。`,
-                        refsJson: null,
-                        createdAt: new Date().toISOString(),
-                      };
-                      set((s) => ({ messages: [...s.messages, successMsg] }));
-                    } else if (toolCall.name === 'deleteFile' && typeof result.fileId === 'string') {
-                      const successMsg: IAIMessage = {
-                        id: makeId(),
-                        conversationId: conversationId ?? '',
-                        role: 'assistant',
-                        content: `已删除文件 "${result.fileName}"。`,
-                        refsJson: null,
-                        createdAt: new Date().toISOString(),
-                      };
-                      set((s) => ({ messages: [...s.messages, successMsg] }));
+            if (result.success) {
+              const refreshAsync = async (): Promise<void> => {
+                try {
+                  const { useFileTreeStore } = await import('@render/stores/fileTreeStore');
+                  const treeStore = useFileTreeStore.getState();
+                  if (toolCall.name === 'createFile' && result.fileId && result.fileName) {
+                    treeStore.addFile({
+                      id: result.fileId as string,
+                      name: result.fileName as string,
+                      path: result.fileName as string,
+                    });
+                  } else if (toolCall.name === 'deleteFile' && result.fileId) {
+                    treeStore.removeFile(result.fileId as string);
+                  } else {
+                    const files = await window.weaveMD.file.list(userId);
+                    if (Array.isArray(files)) {
+                      for (const f of treeStore.looseFiles) {
+                        treeStore.removeFile(f.id);
+                      }
+                      for (const f of files) {
+                        treeStore.addFile({ id: f.id, name: f.name, path: f.name });
+                      }
                     }
-                    // 刷新文件树
-                    const { useFileTreeStore } = await import('@render/stores/fileTreeStore');
-                    const treeState = useFileTreeStore.getState();
-                    const parentToRefresh = typeof result.parentPath === 'string' ? result.parentPath : undefined;
-                    if (parentToRefresh && treeState.loadFolderContents) {
-                      await treeState.loadFolderContents(parentToRefresh);
-                    }
-                  } catch (err) {
-                    console.error('[agentStore] auto-apply file op failed:', err);
                   }
-                };
-                void applyAsync();
-                return;
-              }
-
-              // manual 模式：弹确认卡片
-              get().addFileOpProposal({
-                type: toolCall.name as 'createFile' | 'createFolder',
-                fileName: typeof result.fileName === 'string' ? result.fileName : undefined,
-                folderName: typeof result.folderName === 'string' ? result.folderName : undefined,
-                content: typeof result.content === 'string' ? result.content : undefined,
-                parentPath: typeof result.parentPath === 'string' ? result.parentPath : undefined,
-              });
+                } catch (err) {
+                  console.warn('[agentStore] 文件树刷新失败:', toolCall.name, err);
+                }
+              };
+              void refreshAsync();
             }
-          } catch {
-            /* 非 JSON 结果忽略 */
-          }
+          } catch { /* 非 JSON 结果忽略 */ }
         }
-        // 检测 editBlocks proposal → 根据 writeMode 决定行为
+        // Bug 2 修复：editBlocks → 存为待确认提案（不自动应用）
         if (toolCall.name === 'editBlocks' && toolCall.status === 'ok') {
           try {
             const result = JSON.parse(toolCall.result ?? '{}') as Record<string, unknown>;
             const proposed = Array.isArray(result.proposed) ? result.proposed : [];
             if (proposed.length > 0) {
-              const currentDoc = useEditorStore.getState().content;
-              const contentHash = typeof result.contentHash === 'string' ? result.contentHash : undefined;
-              const currentWriteMode = get().writeMode;
-
-              // auto 模式 + 单文件改写：自动应用到编辑器
-              if (currentWriteMode === 'auto' && proposed.length === 1) {
-                const op = proposed[0];
+              const currentDoc = useEditorStore.getState().content ?? '';
+              const newParts: string[] = [];
+              for (const op of proposed) {
                 if (op && typeof op === 'object') {
                   const rec = op as Record<string, unknown>;
-                  const newContent = typeof rec.new_content === 'string' ? rec.new_content : '';
-                  if (newContent) {
-                    useEditorStore.getState().updateContent(newContent);
-                    // 入 undo 栈后显示成功提示
-                    const successMsg: IAIMessage = {
-                      id: makeId(),
-                      conversationId: conversationId ?? '',
-                      role: 'assistant',
-                      content: '已自动应用改写内容。',
-                      refsJson: null,
-                      createdAt: new Date().toISOString(),
-                    };
-                    set((s) => ({ messages: [...s.messages, successMsg] }));
-                    return;
-                  }
+                  const nc = typeof rec.new_content === 'string' ? rec.new_content : '';
+                  if (nc) newParts.push(nc);
                 }
               }
-
-              // manual 模式或多文件：弹预览卡片（原有逻辑）
-              void import('./rewriteStore').then(({ useRewriteStore }) => {
-                const proposals: Array<{
-                  fileName: string;
-                  originalMd: string;
-                  rewrittenMd: string;
-                  status: 'pending';
-                  contentHash?: string;
-                }> = [];
-                for (const op of proposed) {
-                  if (!op || typeof op !== 'object') continue;
-                  const rec = op as Record<string, unknown>;
-                  const blockId = typeof rec.block_id === 'string' ? rec.block_id : '';
-                  const newContent = typeof rec.new_content === 'string' ? rec.new_content : '';
-                  if (!blockId || !newContent) continue;
-                  proposals.push({
-                    fileName: blockId,
-                    originalMd: currentDoc,
-                    rewrittenMd: newContent,
-                    status: 'pending' as const,
-                    contentHash,
-                  });
-                }
-                if (proposals.length > 0) {
-                  useRewriteStore.setState({
-                    pendingMultiRewrite: proposals,
-                    rewriting: false,
-                    rewriteError: null,
-                  });
-                }
+              if (newParts.length > 0) {
+                const newContent = newParts.join('\n\n');
+                get().addEditBlocksProposal({
+                  toolName: 'editBlocks',
+                  originalContent: currentDoc,
+                  newContent,
+                });
+              }
+            }
+          } catch { /* 非 JSON 结果忽略 */ }
+        }
+        // Bug 3 修复：preview_file_revision → 存为待确认提案（主进程已改为不写盘）
+        if (toolCall.name === 'preview_file_revision' && toolCall.status === 'ok') {
+          try {
+            const result = JSON.parse(toolCall.result ?? '{}') as Record<string, unknown>;
+            if (result.success && typeof result.oldContent === 'string' && typeof result.newContent === 'string') {
+              get().addEditBlocksProposal({
+                toolName: 'preview_file_revision',
+                fileId: typeof result.fileId === 'string' ? result.fileId : undefined,
+                fileName: typeof result.filePath === 'string' ? result.filePath : undefined,
+                originalContent: result.oldContent,
+                newContent: result.newContent,
               });
             }
-          } catch {
-            /* 非 JSON 结果忽略 */
-          }
+          } catch { /* 非 JSON 结果忽略 */ }
         }
       },
       // R3: 交互提问事件处理（ask_question_card 暂停时设置 pendingInteraction）
@@ -736,12 +693,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       });
       // IpcResponse 类型不含 code（主进程 AGENT_RUN 失败信封实际携带），此处按运行时桥契约读取。
       const failedCode = (res as unknown as { code?: string }).code;
-      if (!res.success && failedCode === 'consent_required') {
-        // 服务端同意闸未过（联网闸兜底）：弹同意页而非静默丢弃，同意后用户重发。
-        mgr.finishWithoutPersist();
-        set({ pendingConsent: true, isStreaming: false, processStatus: 'idle' });
-        return;
-      }
       if (!res.success) {
         // 清理流监听器（流式 error 事件可能已先清理，此处兜底）
         mgr.finishWithoutPersist();
@@ -782,10 +733,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     } catch (err) {
       // 清理流监听器
       mgr.finishWithoutPersist();
-      if ((err as { code?: string })?.code === 'consent_required') {
-        set({ pendingConsent: true, processStatus: 'idle' });
-        return;
-      }
       // 显示错误给用户而不是静默吞掉
       const errorContent = err instanceof Error ? err.message : String(err);
       const errorMsg: IAIMessage = {
@@ -888,6 +835,50 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     })),
 
   clearFileOpProposals: () => set({ fileOpProposals: [] }),
+
+  // —— editBlocks / preview_file_revision 修订提案 ——
+  editBlocksProposals: [],
+
+  addEditBlocksProposal: (proposal) =>
+    set((s) => ({
+      editBlocksProposals: [...s.editBlocksProposals, { ...proposal, status: 'pending' }],
+    })),
+
+  applyEditBlocksProposal: (index) => {
+    const { editBlocksProposals } = get();
+    const proposal = editBlocksProposals[index];
+    if (!proposal || proposal.status !== 'pending') return;
+
+    if (proposal.toolName === 'editBlocks') {
+      // editBlocks：应用到当前编辑器
+      useEditorStore.getState().updateContent(proposal.newContent);
+    } else if (proposal.toolName === 'preview_file_revision' && proposal.fileId) {
+      // preview_file_revision：写入 DB
+      void window.weaveMD.file.write(proposal.fileId, proposal.newContent).then(() => {
+        // 刷新文件树
+        void import('@render/stores/fileTreeStore').then(({ useFileTreeStore }) => {
+          void useFileTreeStore.getState().loadFolderContents?.('');
+        });
+      }).catch((err) => {
+        console.warn('[agentStore] applyEditBlocksProposal write failed:', err);
+      });
+    }
+
+    set((s) => ({
+      editBlocksProposals: s.editBlocksProposals.map((p, i) =>
+        i === index ? { ...p, status: 'applied' as const } : p
+      ),
+    }));
+  },
+
+  discardEditBlocksProposal: (index) =>
+    set((s) => ({
+      editBlocksProposals: s.editBlocksProposals.map((p, i) =>
+        i === index ? { ...p, status: 'discarded' as const } : p
+      ),
+    })),
+
+  clearEditBlocksProposals: () => set({ editBlocksProposals: [] }),
 
   async setKbSettings(settings) {
     // 未登录（userId 空）仅更新内存态，不触发 IPC（防御）

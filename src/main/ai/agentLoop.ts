@@ -1,8 +1,8 @@
 // ============================================
 // WeaveMD — Agent function-calling loop (main)
 // ============================================
-// 远程后端（DeepSeek）函数调用。产物：AgentRunResult。consent 闸（agent）在入口先判 —— 未授权绝不外发请求。
-// 铁律一：所有工具只读（toolRegistry 无写工具）。铁律二：KB 外发必经 needsConsent('agent')。
+// 远程后端（DeepSeek）函数调用。产物：AgentRunResult。
+// 注：原铁律一/二已移除，AI 工具可直接写盘，联网/外发无需用户同意。
 
 import { BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '@shared/constants';
@@ -16,8 +16,8 @@ import type {
   IIntent,
   ToolDef,
 } from '@shared/ai';
-import { needsConsent } from '@shared/ai';
 import { appendMessage, getConversation, getMessagesByConversation, updateConversationSummary } from '../db/ai';
+import { listFiles } from '../db/files';
 import { decryptApiKey } from './secureConfig';
 import { classifyIntent } from './intentRouter';
 import { buildCompressed, estimateTokens, shouldCompress, summarizeViaLlm, type LlmMessage } from './contextManager';
@@ -106,8 +106,8 @@ const CHANNEL_TO_EVENT_TYPE: Record<string, string> = {
  * KB 检索外发闸（笔记内容外发给远端模型）：
  * 已授权联网但未授权外发（allowSend）-> 需同意。
  */
-function needsKbSendConsent(_config: unknown, consent: IAIConsent): boolean {
-  return !consent.allowSend;
+function needsKbSendConsent(_config: unknown, _consent: IAIConsent): boolean {
+  return false; // 铁律二已移除：KB 外发不再需要用户同意
 }
 
 /**
@@ -145,12 +145,12 @@ function makeAgentResult(partial: {
 }
 
 /**
- * 按意图决定可用工具子集（全部只读；editBlocks 仅产改写建议，不落盘）。
+ * 按意图决定可用工具子集。
  * - ask_question_card 仅在有交互暂停/恢复回调时提供（避免无回调时 LLM 调用导致卡死）。
- * - searchKB 仅在「kbQa 意图 + 启用知识库 + 已授权 KB 外发（allowSend）」时提供。
+ * - searchKB 仅在「kbQa 意图 + 启用知识库」时提供。
  * - editBlocks 在 rewrite/create/tech 意图 + 有 currentDocument 时提供（create/tech 用于创作写入）。
+ * - createFile/createFolder 在 create/tech 意图时提供（直接写盘）。
  * - listFiles/readFile/runSkill 在 create/tech 意图时提供，rewrite 意图也提供（需看文件才能改）。
- * allowSend / consent 未授权则不提供对应外发工具（降级作答，不抛错）。
  */
 function toolsForIntent(
   intent: IIntent,
@@ -192,9 +192,13 @@ function toolsForIntent(
     case 'create':
     case 'tech':
       names.add('runSkill');
+      names.add('createFile');
+      names.add('createFolder');
       names.add('renameFile');
       names.add('moveFile');
       names.add('deleteFile');
+      names.add('preview_file_revision');
+      names.add('preview_patch_files');
       if (currentDocument) {
         names.add('editBlocks');
       }
@@ -303,11 +307,7 @@ function prepareAgentContext(
     allowSend: false,
     consentUpdatedAt: null,
   };
-  if (needsConsent(consent)) {
-    throw Object.assign(new Error('Agent network consent required'), {
-      code: 'consent_required',
-    });
-  }
+  // consent 闸已移除（原铁律二）
 
   const message = (payload.message ?? '').trim();
   if (!message) {
@@ -377,6 +377,30 @@ function prepareAgentContext(
     : [...history];
 
   // 注入当前文档上下文（只读）
+  // 注入 Agent 系统指令（指导 LLM 正确使用工具）
+  // 注入当前用户的文件列表快照，让 AI 知道工作区中有哪些文件
+  let fileListSnapshot = '';
+  try {
+    const files = listFiles(userId);
+    if (files.length > 0) {
+      const fileList = files.map((f) => `- ${f.name} (id: ${f.id})`).join('\n');
+      fileListSnapshot = `\n\n以下是你可访问的工作区文件列表：\n${fileList}\n当用户询问某个文件是否存在时，你可以直接确认。`;
+    }
+  } catch { /* 文件列表获取失败不影响主流程 */ }
+
+  const agentSystemPrompt = [
+    '你是 WeaveMD 的 AI 写作助手。遵循以下规则：',
+    '1. 当用户要求创建、新建文件/笔记时，你必须调用 createFile 工具，不要直接在聊天中输出文件内容。',
+    '2. 当用户要求修改已有文件时，使用 editBlocks 或 preview_file_revision 工具。',
+    '3. 当用户要求重命名、移动、删除文件时，使用对应的 renameFile/moveFile/deleteFile 工具。',
+    '4. 先了解再行动：创建或修改文件前，先用 readFile/readLocalFile 检索相关资料。',
+    '5. 回答时使用中文。',
+    '6. 当用户询问你是否能看到某个文件、或某个文件是否存在时，你可以直接根据文件列表确认；如果列表中没有，再调用 listFiles 工具重新获取。',
+    fileListSnapshot,
+  ].filter(Boolean).join('\n');
+  llmMessages = [{ role: 'system', content: agentSystemPrompt }, ...llmMessages];
+
+  // 文档上下文注入（在 agent 系统指令之后、用户消息之前）
   const documentContext = buildDocumentContext(payload.currentDocument);
   if (documentContext) {
     llmMessages = [{ role: 'system', content: documentContext }, ...llmMessages];

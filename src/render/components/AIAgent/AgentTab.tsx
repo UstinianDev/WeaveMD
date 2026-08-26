@@ -14,10 +14,10 @@ import { useAgentStore } from '@render/stores/agentStore';
 import { useEditorStore } from '@render/stores/editorStore';
 import { useRewriteStore } from '@render/stores/rewriteStore';
 import AIMessageBubble from './AIMessageBubble';
-import AgentStepTimeline from './AgentStepTimeline';
+import AgentWorkflowCard from './AgentWorkflowCard';
+import EditBlocksPreviewCard from './EditBlocksPreviewCard';
 import IntentCard from './IntentCard';
 import RewritePreviewCard from './RewritePreviewCard';
-import FileOpPreviewCard from './FileOpPreviewCard';
 import QuestionCard from './QuestionCard';
 
 const AgentTab: React.FC = () => {
@@ -27,14 +27,11 @@ const AgentTab: React.FC = () => {
   const messages = useAgentStore((s) => s.messages);
   const isStreaming = useAgentStore((s) => s.isStreaming);
   const streamBuffer = useAgentStore((s) => s.streamBuffer);
-  const toolCalls = useAgentStore((s) => s.toolCalls);
+  // 当前轮次流式中的 toolCalls（尚未附着到消息）
+  const streamingToolCalls = useAgentStore((s) => s.toolCalls);
   const intentCard = useAgentStore((s) => s.intentCard);
   const processStatus = useAgentStore((s) => s.processStatus);
   const sendAgentMessage = useAgentStore((s) => s.sendAgentMessage);
-  const fileOpProposals = useAgentStore((s) => s.fileOpProposals);
-  const applyFileOpProposal = useAgentStore((s) => s.applyFileOpProposal);
-  const discardFileOpProposal = useAgentStore((s) => s.discardFileOpProposal);
-
   // R3: 交互提问状态
   const pendingInteraction = useAgentStore((s) => s.pendingInteraction);
   const resumeInteraction = useAgentStore((s) => s.resumeInteraction);
@@ -48,7 +45,7 @@ const AgentTab: React.FC = () => {
   useEffect(() => {
     const el = messageListRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length, toolCalls.length, streamBuffer, isStreaming]);
+  }, [messages.length, streamingToolCalls.length, streamBuffer, isStreaming]);
 
   const isAgentMode = activeMode === 'agent';
 
@@ -78,62 +75,66 @@ const AgentTab: React.FC = () => {
         </div>
       )}
 
-      {messages.map((m, idx) => (
-        <div key={m.id}>
-          <AIMessageBubble
-            role={m.role}
-            content={m.content}
-            refsJson={isAgentMode ? m.refsJson : null}
-            responseTime={m.responseTime}
-            createdAt={m.createdAt}
-            onCopy={() => {
-              void navigator.clipboard.writeText(m.content);
-            }}
-            onEdit={
-              m.role === 'user'
-                ? () => {
-                    // 将消息内容放入 composer 编辑模式（由 AIPanelComposer 消费 draft）
-                    useAgentStore.getState().setProcessStatus('idle');
-                  }
-                : undefined
-            }
-            onRetry={
-              m.role === 'assistant' && idx >= 2
-                ? () => {
-                    // 找到前一条 user 消息重新发送
-                    const prevUser = [...messages.slice(0, idx)].reverse().find((p) => p.role === 'user');
-                    if (prevUser) void sendAgentMessage(prevUser.content);
-                  }
-                : undefined
-            }
-          />
-          {/* agent 模式：A1c 回复可「预览写入文档」——文档已打开且回复非空才显示 */}
-          {isAgentMode &&
-            m.role === 'assistant' &&
-            m.content.trim() &&
-            currentFile && (
-              <button
-                type="button"
-                onClick={() => previewDocumentFromReply(m.content)}
-                className="ml-10 mt-0.5 text-[12px] px-2 py-0.5 rounded-md bg-bg-tertiary border border-border text-text-sub hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors"
-              >
-                {t('ai.rewrite.previewWrite')}
-              </button>
-            )}
-        </div>
-      ))}
+      {messages.map((m, idx) => {
+        // Bug 1 修复：从消息自身的 toolCalls 快照渲染（历史轮次独立保留）
+        const msgToolCalls = isAgentMode ? (m.toolCalls ?? []) : [];
+        const hasToolCalls = msgToolCalls.length > 0;
 
-      {/* agent 模式：改写预览卡片（选区/@ 改写提案确认，红删绿增 + 确认/取消）——在消息列表之后显示 */}
+        return (
+          <div key={m.id}>
+            {/* 在 assistant 消息之前渲染该轮的工作流卡片（执行过程在上，最终结果在下） */}
+            {m.role === 'assistant' && hasToolCalls && (
+              <div className="px-1 mb-1">
+                <AgentWorkflowCard toolCalls={msgToolCalls} />
+              </div>
+            )}
+            <AIMessageBubble
+              role={m.role}
+              content={m.content}
+              refsJson={isAgentMode ? m.refsJson : null}
+              responseTime={m.responseTime}
+              createdAt={m.createdAt}
+              onCopy={() => {
+                void navigator.clipboard.writeText(m.content);
+              }}
+              onEdit={
+                m.role === 'user'
+                  ? () => {
+                      useAgentStore.getState().setProcessStatus('idle');
+                    }
+                  : undefined
+              }
+              onRetry={
+                m.role === 'assistant' && idx >= 2
+                  ? () => {
+                      const prevUser = [...messages.slice(0, idx)].reverse().find((p) => p.role === 'user');
+                      if (prevUser) void sendAgentMessage(prevUser.content);
+                    }
+                  : undefined
+              }
+            />
+            {/* agent 模式：A1c 回复可「预览写入文档」——文档已打开且回复非空才显示 */}
+            {isAgentMode &&
+              m.role === 'assistant' &&
+              m.content.trim() &&
+              currentFile && (
+                <button
+                  type="button"
+                  onClick={() => previewDocumentFromReply(m.content)}
+                  className="ml-10 mt-0.5 text-[12px] px-2 py-0.5 rounded-md bg-bg-tertiary border border-border text-text-sub hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors"
+                >
+                  {t('ai.rewrite.previewWrite')}
+                </button>
+              )}
+          </div>
+        );
+      })}
+
+      {/* agent 模式：改写预览卡片（选区/@ 改写提案确认，红删绿增 + 确认/取消） */}
       {isAgentMode && <RewritePreviewCard />}
 
-      {/* agent 模式：文件操作预览卡片（createFile / createFolder 提案确认） */}
-      {isAgentMode && fileOpProposals.length > 0 && (
-        <FileOpPreviewCard
-          proposals={fileOpProposals}
-          onApply={applyFileOpProposal}
-          onDiscard={discardFileOpProposal}
-        />
-      )}
+      {/* Bug 2 修复：editBlocks / preview_file_revision 修订提案 diff 预览 */}
+      {isAgentMode && <EditBlocksPreviewCard />}
 
       {/* R3: agent 模式：交互提问卡片（ask_question_card 暂停时显示） */}
       {isAgentMode && pendingInteraction && (
@@ -143,16 +144,15 @@ const AgentTab: React.FC = () => {
         />
       )}
 
-      {/* agent 模式：工具轨迹分步时间线（按轮次分组，thinking 折叠） */}
-      {isAgentMode && toolCalls.length > 0 && (
-        <div className="px-1">
-          <AgentStepTimeline toolCalls={toolCalls} isStreaming={isStreaming} />
-        </div>
-      )}
-
       {/* 流式增量打字指示 */}
       {isStreaming && (
         <>
+          {/* 流式期间：如果已有 toolCalls，在流式气泡前显示工作流卡片 */}
+          {isAgentMode && streamingToolCalls.length > 0 && (
+            <div className="px-1 mb-1">
+              <AgentWorkflowCard toolCalls={streamingToolCalls} />
+            </div>
+          )}
           {/* AI 处理流程状态指示器 */}
           {processStatus !== 'idle' && (
             <div className="flex items-center gap-2 px-4 py-1.5 text-[13px] text-text-muted">

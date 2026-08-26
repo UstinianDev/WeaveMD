@@ -2,9 +2,8 @@
 // WeaveMD — Rewrite Store（第 5 期批次 4 完整实现）
 // ============================================
 // 改写预览状态机（选区触发为主 + 面板 @ 兜底共享管线）。
-// 铁律一：applyRewrite 是唯一写入点（editorStore.updateContent，入 undo 栈）；
-//         AI 永不直接写 —— pendingRewrite 只存 proposal，任何情况不自动 updateContent。
-// 铁律二：改写 = 联网，触发前校验 consent（needsConsent(consent)）。
+// applyRewrite 是唯一写入点（editorStore.updateContent，入 undo 栈）。
+// 注：原铁律一/二已移除。
 // 跨 store 读统一 useXxxStore.getState()，不引循环依赖。
 //
 // 触发入口（批次 3 落点）：
@@ -35,7 +34,7 @@ import {
   proposeFullDocumentRewrite,
   proposeSelectionRewrite,
 } from '@render/editor/rewrite/blockEdit';
-import { needsConsent, useAgentStore } from './agentStore';
+import { useAgentStore } from './agentStore';
 import { useUIStore } from './uiStore';
 import { useEditorStore } from './editorStore';
 
@@ -126,12 +125,7 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
     }
     const { md, sel } = selectionContext;
 
-    // 铁律二：联网闸（chat）
-    const { consent, userId } = useAgentStore.getState();
-    if (needsConsent(consent)) {
-      useAgentStore.getState().setPendingConsent(true); // 弹同意页，不发请求
-      return;
-    }
+    const { userId } = useAgentStore.getState();
 
     set({ rewriting: true, rewriteError: null, staleRejected: false });
     try {
@@ -172,12 +166,7 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
   },
 
   async startDocumentRewrite(md, instruction) {
-    // 铁律二：联网闸（chat）
-    const { consent, userId } = useAgentStore.getState();
-    if (needsConsent(consent)) {
-      useAgentStore.getState().setPendingConsent(true); // 弹同意页，不发请求
-      return;
-    }
+    const { userId } = useAgentStore.getState();
 
     set({ rewriting: true, rewriteError: null, staleRejected: false });
     try {
@@ -214,12 +203,7 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
       return;
     }
 
-    // 铁律二：改写 = 联网，consent 'chat' 闸
-    const { consent, userId } = useAgentStore.getState();
-    if (needsConsent(consent)) {
-      useAgentStore.getState().setPendingConsent(true); // 弹同意页，不发请求
-      return;
-    }
+    const { userId } = useAgentStore.getState();
 
     const content = useEditorStore.getState().content;
     set({ rewriting: true, rewriteError: null, staleRejected: false });
