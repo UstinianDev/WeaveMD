@@ -248,14 +248,24 @@ export class AgentTaskWorker {
         } as unknown as Electron.WebContents),
       } as Electron.IpcMainInvokeEvent;
 
-      // 6.5. 解析 payloadJson 中的额外字段（currentDocument / useKnowledgeBase 等）
+      // 6.5. 解析 payloadJson 中的额外字段（currentDocument / useKnowledgeBase / fileTreePaths 等）
       let currentDocument: string | undefined;
       let useKnowledgeBase: boolean | undefined;
+      let fileTreePaths: { files: string[]; folders: string[] } | undefined;
       try {
         if (task.payloadJson) {
           const extra = JSON.parse(task.payloadJson) as Record<string, unknown>;
           if (typeof extra.currentDocument === 'string') currentDocument = extra.currentDocument;
           if (typeof extra.useKnowledgeBase === 'boolean') useKnowledgeBase = extra.useKnowledgeBase;
+          if (extra.fileTreePaths && typeof extra.fileTreePaths === 'object') {
+            const ftp = extra.fileTreePaths as Record<string, unknown>;
+            if (Array.isArray(ftp.files) && Array.isArray(ftp.folders)) {
+              fileTreePaths = {
+                files: ftp.files.filter((f): f is string => typeof f === 'string'),
+                folders: ftp.folders.filter((f): f is string => typeof f === 'string'),
+              };
+            }
+          }
         }
       } catch {
         /* payloadJson 解析失败不阻断主流程 */
@@ -270,6 +280,7 @@ export class AgentTaskWorker {
           message: task.message,
           currentDocument,
           useKnowledgeBase,
+          fileTreePaths,
         },
         config,
         row?.apiKeyEnc ?? null,

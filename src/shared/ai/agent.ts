@@ -96,6 +96,8 @@ export interface AgentRunPayload {
   useKnowledgeBase?: boolean;
   kbSettings?: import('./kb').IKbSettings;
   currentDocument?: string;
+  /** 文件树路径（用户打开/导入的文件和文件夹，让 AI 可发现本地文件）。 */
+  fileTreePaths?: { files: string[]; folders: string[] };
 }
 
 /** 技能清单条目。 */

@@ -69,7 +69,7 @@ function getToolIcon(name: string): string {
 // 工具摘要提取
 // ---------------------------------------------------------------------------
 
-/** 从 args JSON 中提取关键参数的摘要。 */
+/** 从 args JSON 中提取关键参数的摘要。工具名与 toolRegistry 注册名一致（camelCase / 混合）。 */
 function extractToolSummary(call: IAgentToolCall): string {
   const { name, args } = call;
 
@@ -77,37 +77,74 @@ function extractToolSummary(call: IAgentToolCall): string {
     const parsed: Record<string, unknown> = args ? JSON.parse(args) : {};
 
     switch (name) {
-      case 'search_knowledge':
+      // 知识库检索
+      case 'searchKB':
         return `查询: "${String(parsed.query ?? '').slice(0, 60)}"`;
 
-      case 'read_file':
-      case 'read_skill_file': {
+      // 文件读取（DB 或本地磁盘）
+      case 'readFile': {
+        const fileId = String(parsed.file_id ?? '');
+        return fileId ? `读取: ${fileId.slice(0, 20)}` : '读取文件';
+      }
+      case 'readLocalFile': {
         const path = String(parsed.path ?? parsed.file_path ?? '');
         const shortPath = path.split('/').pop() ?? path;
-        return shortPath || '读取文件';
+        return shortPath || '读取本地文件';
       }
 
-      case 'list_files':
+      // 目录列表
+      case 'listFiles':
+        return '列出文件';
+      case 'listLocalDirectory': {
+        const dir = String(parsed.path ?? parsed.dir_path ?? '');
+        return dir ? `目录: ${dir}` : '浏览目录';
+      }
       case 'analyze_folder': {
         const dir = String(parsed.path ?? parsed.dir_path ?? '');
-        return dir ? `目录: ${dir}` : '查看目录结构';
+        return dir ? `分析: ${dir}` : '分析目录';
       }
 
-      case 'create_note': {
-        const title = String(parsed.title ?? '');
-        return title ? `标题: "${title.slice(0, 40)}"` : '创建笔记';
+      // 文件创建
+      case 'createFile':
+        return String(parsed.file_name ?? parsed.name ?? '创建文件');
+      case 'createFolder':
+        return String(parsed.folder_name ?? parsed.name ?? '创建文件夹');
+
+      // 文件操作
+      case 'renameFile':
+        return String(parsed.new_name ?? parsed.name ?? '重命名');
+      case 'moveFile':
+        return String(parsed.target_path ?? parsed.path ?? '移动文件');
+      case 'deleteFile':
+        return String(parsed.file_id ?? parsed.name ?? '删除文件');
+      case 'editLocalFile': {
+        const editPath = String(parsed.file_path ?? '');
+        const shortEditName = editPath.split('/').pop() ?? editPath;
+        return shortEditName ? `编辑: ${shortEditName}` : '编辑本地文件';
       }
 
-      case 'preview_file_revision':
-      case 'preview_patch_files': {
+      // 块级改写 / 文件修订
+      case 'editBlocks': {
+        const ops = parsed.block_ops;
+        if (Array.isArray(ops)) {
+          return `改写 ${ops.length} 个块`;
+        }
+        return '块级改写';
+      }
+      case 'preview_file_revision': {
         const filePath = String(parsed.file_path ?? parsed.path ?? '');
         const shortName = filePath.split('/').pop() ?? filePath;
         return shortName ? `修订: ${shortName}` : '文件修订';
       }
+      case 'preview_patch_files': {
+        const filePath = String(parsed.file_path ?? parsed.path ?? '');
+        const shortName = filePath.split('/').pop() ?? filePath;
+        return shortName ? `补丁: ${shortName}` : '文件补丁';
+      }
 
-      case 'preview_file_operations':
-        return String(parsed.operation ?? parsed.type ?? '文件操作');
-
+      // 技能 / 交互
+      case 'runSkill':
+        return String(parsed.skill ?? parsed.name ?? '调用技能');
       case 'ask_question_card': {
         const questions = parsed.questions;
         if (Array.isArray(questions)) {
@@ -116,34 +153,17 @@ function extractToolSummary(call: IAgentToolCall): string {
         return '生成提问卡片';
       }
 
-      case 'load_skill':
-        return String(parsed.name ?? parsed.skill_name ?? '加载 Skill');
+      // 搜索
+      case 'web_search':
+        return `搜索: "${String(parsed.query ?? '').slice(0, 40)}"`;
+      case 'research_search':
+        return `研究: "${String(parsed.query ?? '').slice(0, 40)}"`;
 
-      case 'edit_blocks': {
-        const ops = parsed.operations;
-        if (Array.isArray(ops)) {
-          return `改写 ${ops.length} 个块`;
-        }
-        return '块级改写';
-      }
-
-      case 'create_file':
-        return String(parsed.file_name ?? parsed.name ?? '创建文件');
-
-      case 'create_folder':
-        return String(parsed.folder_name ?? parsed.name ?? '创建文件夹');
-
+      // 链接 / 任务
       case 'check_links':
         return '检查内部链接';
-
       case 'get_task_activity':
         return '读取任务活动';
-
-      case 'list_skills':
-        return '列出 Skills';
-
-      case 'list_mcp_servers':
-        return '列出 MCP Servers';
 
       default: {
         // 通用摘要：取第一个字符串参数

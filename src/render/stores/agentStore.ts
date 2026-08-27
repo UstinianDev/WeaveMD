@@ -591,6 +591,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         if (
           toolCall.name === 'createFile' ||
           toolCall.name === 'createFolder' ||
+          toolCall.name === 'editLocalFile' ||
           toolCall.name === 'renameFile' ||
           toolCall.name === 'moveFile' ||
           toolCall.name === 'deleteFile' ||
@@ -613,8 +614,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                     // 优先使用 diskPath（主进程写入磁盘后的完整路径），
                     // 回退 fileName（仅 DB 场景）
                     const filePath = (result.diskPath as string) || (result.fileName as string);
-                    // id 使用 filePath，与 handleFileClick 打开文件时的 iFile.id = node.path 一致
-                    // 这样 currentFileId 匹配才能激活黄色渐变
                     treeStore.addFile({
                       id: filePath,
                       name: result.fileName as string,
@@ -630,9 +629,32 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                         newContent: fileContent,
                       });
                     }
+                  } else if (toolCall.name === 'createFolder' && result.folderPath) {
+                    // AI 创建的文件夹 → 加入文件树
+                    const folderPath = result.folderPath as string;
+                    const folderName = (result.folderName as string) || (folderPath.split(/[/\\]/).pop() ?? folderPath);
+                    treeStore.addFolder({
+                      id: folderPath,
+                      name: folderName,
+                      path: folderPath,
+                      isDirectory: true,
+                      children: [],
+                      expanded: false,
+                      isRoot: true,
+                    });
+                  } else if (toolCall.name === 'editLocalFile' && result.filePath) {
+                    // 编辑本地文件 → 如果文件在已知文件夹中，刷新该文件夹
+                    const editedPath = result.filePath as string;
+                    for (const folder of treeStore.folders) {
+                      if (editedPath.startsWith(folder.path)) {
+                        await treeStore.loadFolderContents(folder.path);
+                        break;
+                      }
+                    }
                   } else if (toolCall.name === 'deleteFile' && result.fileId) {
                     treeStore.removeFile(result.fileId as string);
                   } else {
+                    // renameFile / moveFile / preview_patch_files → 刷新 DB 文件列表
                     const files = await window.weaveMD.file.list(userId);
                     if (Array.isArray(files)) {
                       for (const f of treeStore.looseFiles) {
@@ -711,6 +733,18 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     set({ streamUnsubscribe: mgr.unsubscribe });
 
     try {
+      // 收集文件树路径（用户打开/导入的文件 + 文件夹），让 AI 可发现本地文件
+      let fileTreePaths: { files: string[]; folders: string[] } | undefined;
+      try {
+        const { useFileTreeStore } = await import('@render/stores/fileTreeStore');
+        const tree = useFileTreeStore.getState();
+        const files = tree.looseFiles.map((f) => f.path).filter(Boolean);
+        const folders = tree.folders.map((f) => f.path).filter(Boolean);
+        if (files.length > 0 || folders.length > 0) {
+          fileTreePaths = { files, folders };
+        }
+      } catch { /* 文件树获取失败不阻塞主流程 */ }
+
       const res = await ai.runAgent({
         userId,
         conversationId,
@@ -720,6 +754,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         kbSettings: get().kbSettings,
         // 当前文档 markdown 快照（只读上下文，供 editBlocks 产改写建议；不落盘）
         currentDocument: useEditorStore.getState().content,
+        // 文件树路径（用户打开/导入的文件和文件夹）
+        fileTreePaths,
       });
       // IpcResponse 类型不含 code（主进程 AGENT_RUN 失败信封实际携带），此处按运行时桥契约读取。
       const failedCode = (res as unknown as { code?: string }).code;

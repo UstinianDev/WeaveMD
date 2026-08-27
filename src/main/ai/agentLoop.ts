@@ -69,6 +69,8 @@ interface AgentReqPayload {
   useKnowledgeBase?: boolean;
   /** 当前文档 markdown 快照（只读上下文，供 editBlocks 产改写建议；不落盘）。 */
   currentDocument?: string;
+  /** 文件树路径（用户打开/导入的文件和文件夹，让 AI 可发现本地文件）。 */
+  fileTreePaths?: { files: string[]; folders: string[] };
 }
 
 /** 工具回填消息（OpenAI 续轮约定，额外字段随序列化传给远端）。 */
@@ -167,11 +169,12 @@ function toolsForIntent(
     names.add('ask_question_card');
   }
 
-  // 所有意图都可用的基础只读工具（文件访问 + 目录浏览 + 本地文件系统）
+  // 所有意图都可用的基础工具（文件访问 + 目录浏览 + 本地文件系统读写）
   names.add('listFiles');
   names.add('readFile');
   names.add('readLocalFile');
   names.add('listLocalDirectory');
+  names.add('editLocalFile');
   names.add('analyze_folder');
 
   switch (intent.intent) {
@@ -350,6 +353,7 @@ function prepareAgentContext(
     currentDocument: payload.currentDocument,
     db: deps.db,
     currentConversationId: payload.conversationId,
+    fileTreePaths: payload.fileTreePaths,
   };
 
   // KB 检索外发授权
@@ -384,9 +388,25 @@ function prepareAgentContext(
     const files = listFiles(userId);
     if (files.length > 0) {
       const fileList = files.map((f) => `- ${f.name} (id: ${f.id})`).join('\n');
-      fileListSnapshot = `\n\n以下是你可访问的工作区文件列表：\n${fileList}\n当用户询问某个文件是否存在时，你可以直接确认。`;
+      fileListSnapshot = `\n\n以下是你可访问的工作区文件列表（数据库）：\n${fileList}`;
     }
   } catch { /* 文件列表获取失败不影响主流程 */ }
+
+  // 注入用户打开/导入的本地文件和文件夹路径，让 AI 可发现并读取这些文件
+  let localFileTreeSnapshot = '';
+  if (payload.fileTreePaths) {
+    const { files: localFiles, folders: localFolders } = payload.fileTreePaths;
+    const parts: string[] = [];
+    if (localFiles.length > 0) {
+      parts.push(`本地文件（可用 readLocalFile 读取，用 editBlocks 改写）：\n${localFiles.map((p) => `- ${p}`).join('\n')}`);
+    }
+    if (localFolders.length > 0) {
+      parts.push(`本地文件夹（可用 listLocalDirectory 浏览）：\n${localFolders.map((p) => `- ${p}`).join('\n')}`);
+    }
+    if (parts.length > 0) {
+      localFileTreeSnapshot = `\n\n用户已打开/导入的本地资源：\n${parts.join('\n\n')}`;
+    }
+  }
 
   const agentSystemPrompt = [
     '你是 WeaveMD 的 AI 写作助手。遵循以下规则：',
@@ -396,7 +416,11 @@ function prepareAgentContext(
     '4. 先了解再行动：创建或修改文件前，先用 readFile/readLocalFile 检索相关资料。',
     '5. 回答时使用中文。',
     '6. 当用户询问你是否能看到某个文件、或某个文件是否存在时，你可以直接根据文件列表确认；如果列表中没有，再调用 listFiles 工具重新获取。',
+    '7. 用户打开/导入的本地文件可通过 readLocalFile（绝对路径）读取，通过 editLocalFile（绝对路径 + 新内容）直接编辑并写入磁盘。本地文件夹可通过 listLocalDirectory 浏览。',
+    '8. 创建文件时，如果用户已打开文件夹，文件会自动创建到该文件夹中。也可以通过 parent_path 参数指定子目录。',
+    '9. 创建文件夹时，目录会在磁盘上真实创建。支持嵌套路径（如 "子目录/深层目录"）。',
     fileListSnapshot,
+    localFileTreeSnapshot,
   ].filter(Boolean).join('\n');
   llmMessages = [{ role: 'system', content: agentSystemPrompt }, ...llmMessages];
 

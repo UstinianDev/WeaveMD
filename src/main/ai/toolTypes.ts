@@ -50,6 +50,8 @@ export interface ToolCtx {
   db?: import('better-sqlite3').Database;
   /** 当前会话 ID（供 get_task_activity 等工具默认使用）。 */
   currentConversationId?: string;
+  /** 文件树路径（用户打开/导入的文件和文件夹，供 createFile/createFolder/editLocalFile 定位写入目标）。 */
+  fileTreePaths?: { files: string[]; folders: string[] };
 }
 
 /** 工具处理器签名。 */

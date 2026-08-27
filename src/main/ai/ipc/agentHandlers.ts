@@ -79,6 +79,7 @@ export function registerAgentHandlers(): void {
       if (payload.useKnowledgeBase !== undefined) extra.useKnowledgeBase = payload.useKnowledgeBase;
       if (payload.kbSettings) extra.kbSettings = payload.kbSettings;
       if (payload.currentDocument) extra.currentDocument = payload.currentDocument;
+      if (payload.fileTreePaths) extra.fileTreePaths = payload.fileTreePaths;
 
       const task = taskQueue.enqueue({
         conversationId: conversationId ?? '',

@@ -76,6 +76,10 @@ const AgentTab: React.FC = () => {
       )}
 
       {messages.map((m, idx) => {
+        // tool 角色消息的工具调用详情已由 AgentWorkflowCard 渲染在 assistant 消息上方，
+        // 此处跳过避免重启后原始 JSON 结果被直接显示
+        if (m.role === 'tool') return null;
+
         // Bug 1 修复：从消息自身的 toolCalls 快照渲染（历史轮次独立保留）
         const msgToolCalls = isAgentMode ? (m.toolCalls ?? []) : [];
         const hasToolCalls = msgToolCalls.length > 0;

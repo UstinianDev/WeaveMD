@@ -29,6 +29,7 @@ import { handleRenameFile, handleMoveFile, handleDeleteFile } from './tools/file
 import { handleResearchSearch } from './tools/researchSearchHandler';
 import { handleReadLocalFile } from './tools/readLocalFile';
 import { handleListLocalDirectory } from './tools/listLocalDirectory';
+import { handleEditLocalFile } from './tools/editLocalFileHandler';
 import { executePreviewFileRevision, previewFileRevisionSchema } from './tools/previewFileRevision';
 
 // Schema 导入（defineCoreTools 需要）
@@ -64,6 +65,7 @@ const handlerMap = new Map<string, ToolHandler>([
   ['research_search', handleResearchSearch],
   ['readLocalFile', handleReadLocalFile],
   ['listLocalDirectory', handleListLocalDirectory],
+  ['editLocalFile', handleEditLocalFile],
   ['preview_file_revision', executePreviewFileRevision],
 ]);
 
@@ -240,6 +242,23 @@ export function defineCoreTools(): ToolDef[] {
             directory_path: { type: 'string', description: '目录的绝对路径（如 C:/Users/xxx/Desktop）' },
           },
           required: ['directory_path'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'editLocalFile',
+        description:
+          '直接编辑（或创建）本地文件系统中的文件。接受绝对路径和新内容，写入磁盘。' +
+          '用于修改用户电脑上的任意文件，不限于工作区文件。文件不存在时自动创建。',
+        parameters: {
+          type: 'object',
+          properties: {
+            file_path: { type: 'string', description: '文件的绝对路径（如 C:/Users/xxx/Desktop/note.md）' },
+            new_content: { type: 'string', description: '文件的新完整内容' },
+          },
+          required: ['file_path', 'new_content'],
         },
       },
     },
