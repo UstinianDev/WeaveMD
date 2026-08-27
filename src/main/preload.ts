@@ -152,6 +152,10 @@ export interface WeaveMDApi {
       messageId: string,
       newContent: string
     ) => Promise<IpcResponse<{ deletedMessages: number; cancelledTasks: number }>>;
+    updateMessageToolCalls: (
+      conversationId: string,
+      toolCalls: unknown[]
+    ) => Promise<IpcResponse<{ success: boolean }>>;
     updateConversationSummary: (
       conversationId: string,
       userId: string,
@@ -359,6 +363,8 @@ const api: WeaveMDApi = {
       ipcRenderer.invoke(IPC_CHANNELS.AI_CONVERSATION_EXPORT, conversationId, userId),
     editMessage: (userId, conversationId, messageId, newContent) =>
       ipcRenderer.invoke(IPC_CHANNELS.AI_MESSAGE_EDIT, userId, conversationId, messageId, newContent),
+    updateMessageToolCalls: (conversationId, toolCalls) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_MESSAGE_UPDATE_TOOL_CALLS, { conversationId, toolCalls }),
     updateConversationSummary: (conversationId, userId, summary) =>
       ipcRenderer.invoke(IPC_CHANNELS.AI_SUMMARY_UPDATE, conversationId, userId, summary),
     runAgent: (payload) => ipcRenderer.invoke(IPC_CHANNELS.AGENT_RUN, payload),

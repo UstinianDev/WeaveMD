@@ -218,6 +218,9 @@ function runMigrations(database: Database.Database): void {
   // ai_messages 表幂等补 tool_call_id 列（修复 Agent 工具调用后第二条消息 400 错误）
   addColumnIfMissing(database, 'ai_messages', 'tool_call_id', 'tool_call_id TEXT DEFAULT NULL');
 
+  // ai_messages 表幂等补 tool_calls 列（JSON 快照，重启后恢复工具调用轨迹）
+  addColumnIfMissing(database, 'ai_messages', 'tool_calls', 'tool_calls TEXT DEFAULT NULL');
+
   // 写模式（auto/manual）：ai_config 幂等补 write_mode 列，默认 'manual'
   addColumnIfMissing(database, 'ai_config', 'write_mode', "write_mode TEXT NOT NULL DEFAULT 'manual'");
 

@@ -283,7 +283,8 @@ export const useFileTreeStore = create<FileTreeState & FileTreeActions>()(
     const removed: string[] = [];
     const remainingLoose: IFileNode[] = [];
 
-    // looseFile：readDisk 失败则剔除并记录移除项；welcome:// 遗留节点一并剔除（由注入重建，不入盘）
+    // looseFile：readDisk 失败则回退 DB 查询；均失败才剔除
+    // welcome:// 遗留节点一并剔除（由注入重建，不入盘）
     for (const file of looseFiles) {
       if (file.id.startsWith('welcome://')) continue;
       try {
@@ -293,10 +294,33 @@ export const useFileTreeStore = create<FileTreeState & FileTreeActions>()(
         if (r.success) {
           remainingLoose.push(file);
         } else {
-          removed.push(file.path);
+          // 磁盘无文件，回退 DB 查询（AI 创建的文件可能仅存在于 DB）
+          const dbResult = (await window.weaveMD.file.get(file.id, '')) as unknown as {
+            success: boolean;
+            data?: { content: string };
+          };
+          if (dbResult?.success && dbResult.data) {
+            // DB 有该文件：保留并补全 content 缓存
+            remainingLoose.push({ ...file, content: dbResult.data.content });
+          } else {
+            removed.push(file.path);
+          }
         }
       } catch {
-        removed.push(file.path);
+        // readDisk 异常，同样回退 DB
+        try {
+          const dbResult = (await window.weaveMD.file.get(file.id, '')) as unknown as {
+            success: boolean;
+            data?: { content: string };
+          };
+          if (dbResult?.success && dbResult.data) {
+            remainingLoose.push({ ...file, content: dbResult.data.content });
+          } else {
+            removed.push(file.path);
+          }
+        } catch {
+          removed.push(file.path);
+        }
       }
     }
 

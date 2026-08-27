@@ -131,10 +131,11 @@
   API key 与允许联网间新增「当前提供商」状态行 + 断开连接（清 key）；② composer 草稿提升到 AIAgentPanel
   跨视图保留；① 选区改写 → 覆盖块整块渐变蓝高亮 + 左端取消胶囊（见第 7 期 A3）；⑤ AI 面板字号整体放大一档。
 - 右侧 AI 面板（导航栏「AI」按钮开合），Chat（纯对话）/ Agent（辅助创作）双智能体
-- 铁律一：**AI 无直接落盘能力**——第 5 期块级改写已交付，写路径=「红删绿增预览 → 用户确认 →
+- 铁律一：**AI 写入必经确认**——第 5 期块级改写已交付，写路径=「红删绿增预览 → 用户确认 →
   `editorStore.updateContent(rewrittenMd)` 入 undo 栈一次可撤销」；主进程只产 LLM 文本（薄代理 rewrite.ts），
   块级替换在渲染侧 blockEdit.ts（只算不写）；Agent 工具全部只读/仅产 proposal（listFiles/readFile/searchKB/runSkill
-  + editBlocks，第6期 stretch 仅产 proposal 不落盘）
+  + editBlocks 仅产 proposal）；**createFile 确认后 DB+磁盘双写**（userData/files/）；
+  **editBlocks 确认后 file.write 写盘**；preview_file_revision 返回 diff 供预览确认
 - 铁律二：**联网 / 笔记外发必须用户知情同意**（首次弹同意页，consent 分层：联网闸
   allowNetwork + KB 外发闸 allowSend）；key 用 safeStorage 加密存 SQLite，网络全走
   主进程、密钥不落渲染进程
@@ -171,6 +172,12 @@
   ⑥ R6 IndexedDB 草稿恢复（draftStore.ts，300ms 防抖 + conversationId 索引）+
   ⑦ R7 已实现模块集成（DeadLoopDetector + checkpoint + snapshot + 回滚 UI）
   门禁全绿（tsc 0 新增 | vitest 1500/1500 | lint 0 error）
+- AI 文件操作持久化修复（2026-08-26）：
+  ① AI 创建文件重启后不丢失（fileTreeStore.restore DB 回退查询）+
+  ② AI 新建文档点击有黄色渐变（addFile id 对齐 node.path）+
+  ③ AI 可写入本地文件（createFileHandler DB+磁盘双写 + editBlocks 确认后 file.write 写盘）+
+  ④ 重启后工具调用轨迹正常渲染（ai_messages.tool_calls 列 + IPC 持久化 + mapMessageRow 解析）
+  门禁全绿（tsc 0 新增 | vitest 1488/1488 | lint 0 新增）
 
 ## 已知限制（详见 docs/specs/editor-v2-progress.md §13.x）
 

@@ -161,7 +161,7 @@ describe('ai DAO — SQL 参数化与归属过滤行为', () => {
       content: 'hello',
     });
     const insert = callOf('run', 'INSERT INTO ai_messages');
-    expect(insert?.args).toEqual([expect.any(String), 'c1', 'u1', 'assistant', 'hello', null, null]);
+    expect(insert?.args).toEqual([expect.any(String), 'c1', 'u1', 'assistant', 'hello', null, null, null]);
   });
 
   it('listConversationsByUser filters by user_id + mode and orders by updated_at DESC', () => {

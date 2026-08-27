@@ -284,10 +284,19 @@ interface AiMessageDbRow {
   content: string;
   refs_json: string | null;
   tool_call_id: string | null;
+  tool_calls: string | null;
   created_at: string;
 }
 
 function mapMessageRow(row: AiMessageDbRow): IAIMessage {
+  let toolCalls: IAIMessage['toolCalls'];
+  if (row.tool_calls) {
+    try {
+      toolCalls = JSON.parse(row.tool_calls);
+    } catch {
+      toolCalls = undefined;
+    }
+  }
   return {
     id: row.id,
     conversationId: row.conversation_id,
@@ -297,6 +306,7 @@ function mapMessageRow(row: AiMessageDbRow): IAIMessage {
     refsJson: row.refs_json,
     toolCallId: row.tool_call_id,
     createdAt: row.created_at,
+    toolCalls,
   };
 }
 
@@ -307,12 +317,16 @@ export function appendMessage(msg: {
   content: string;
   refsJson?: string | null;
   toolCallId?: string | null;
+  toolCalls?: IAIMessage['toolCalls'];
 }): IAIMessage {
   const db = getDatabase();
   const id = randomUUID();
+  const toolCallsJson = msg.toolCalls && msg.toolCalls.length > 0
+    ? JSON.stringify(msg.toolCalls)
+    : null;
   db.prepare(
-    'INSERT INTO ai_messages (id, conversation_id, user_id, role, content, refs_json, tool_call_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, msg.conversationId, msg.userId, msg.role, msg.content, msg.refsJson ?? null, msg.toolCallId ?? null);
+    'INSERT INTO ai_messages (id, conversation_id, user_id, role, content, refs_json, tool_call_id, tool_calls) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, msg.conversationId, msg.userId, msg.role, msg.content, msg.refsJson ?? null, msg.toolCallId ?? null, toolCallsJson);
   db.prepare(
     "UPDATE ai_conversations SET updated_at = datetime('now') WHERE id = ? AND user_id = ?"
   ).run(msg.conversationId, msg.userId);
@@ -374,6 +388,39 @@ export function updateMessageContent(
     .prepare('UPDATE ai_messages SET content = ? WHERE id = ?')
     .run(content, messageId);
   return info.changes > 0;
+}
+
+/** 更新指定消息的 tool_calls JSON 快照。返回是否成功。 */
+export function updateMessageToolCalls(
+  messageId: string,
+  toolCalls: IAIMessage['toolCalls']
+): boolean {
+  const db = getDatabase();
+  const json = toolCalls && toolCalls.length > 0 ? JSON.stringify(toolCalls) : null;
+  const info = db
+    .prepare('UPDATE ai_messages SET tool_calls = ? WHERE id = ?')
+    .run(json, messageId);
+  return info.changes > 0;
+}
+
+/**
+ * 更新会话中最新一条 assistant 消息的 tool_calls。
+ * 渲染进程不知道主进程生成的 DB 消息 ID，故按 conversationId + role 定位。
+ */
+export function updateLatestAssistantToolCalls(
+  conversationId: string,
+  toolCalls: IAIMessage['toolCalls']
+): boolean {
+  const db = getDatabase();
+  const row = db
+    .prepare(
+      `SELECT id FROM ai_messages
+       WHERE conversation_id = ? AND role = 'assistant'
+       ORDER BY created_at DESC LIMIT 1`
+    )
+    .get(conversationId) as { id: string } | undefined;
+  if (!row) return false;
+  return updateMessageToolCalls(row.id, toolCalls);
 }
 
 // ---------------------------------------------------------------------------

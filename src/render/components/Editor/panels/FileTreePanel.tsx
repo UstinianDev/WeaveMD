@@ -50,6 +50,7 @@ const FileTreePanel: React.FC = () => {
         return;
       }
       // 始终以磁盘为准重新读取，不信任 fileTreeStore 中可能陈旧的 content 缓存
+      // DB 文件（AI 创建的 looseFiles）不在磁盘上，回退到 node.content
       let content = '';
       try {
         const result = (await window.weaveMD.file.readDisk(node.path)) as unknown as {
@@ -60,7 +61,23 @@ const FileTreePanel: React.FC = () => {
           content = result.data.content;
         }
       } catch {
-        // Fallback to empty content
+        // 磁盘读取失败（文件不存在于磁盘），回退到缓存内容
+      }
+      // 磁盘无内容但 node 有缓存内容（DB 文件场景）：使用缓存
+      if (!content && node.content) {
+        content = node.content;
+      }
+      // 最终兜底：从 DB 读取（AI 创建的文件可能只存在于 DB 中）
+      if (!content) {
+        try {
+          const dbResult = await window.weaveMD.file.get(node.id, '') as unknown as {
+            success: boolean;
+            data?: { content: string };
+          };
+          if (dbResult?.success && dbResult.data) {
+            content = dbResult.data.content;
+          }
+        } catch { /* ignore */ }
       }
       const now = new Date().toISOString();
       const iFile: IFile = {

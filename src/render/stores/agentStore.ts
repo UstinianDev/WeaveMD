@@ -545,6 +545,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     const appendAssistant = (): void => {
       const { streamBuffer, toolCalls: currentToolCalls } = get();
       const responseTime = Date.now() - startTime;
+      const hasToolCalls = currentToolCalls.length > 0;
       set((s) => ({
         isStreaming: false,
         streamUnsubscribe: null,
@@ -561,11 +562,19 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             refsJson: null,
             createdAt: new Date().toISOString(),
             responseTime,
-            // Bug 1 修复：将本轮 toolCalls 快照附着到消息上
-            toolCalls: currentToolCalls.length > 0 ? [...currentToolCalls] : undefined,
+            // 将本轮 toolCalls 快照附着到消息上
+            toolCalls: hasToolCalls ? [...currentToolCalls] : undefined,
           },
         ],
       }));
+      // 持久化 toolCalls 到 DB（主进程已落库 assistant 消息，此处补充 tool_calls 列）
+      if (hasToolCalls && conversationId) {
+        void window.weaveMD.ai
+          .updateMessageToolCalls(conversationId, currentToolCalls)
+          .catch((err) => {
+            console.warn('[agentStore] persist toolCalls failed:', err);
+          });
+      }
     };
 
     const mgr = createStreamManager({
@@ -595,10 +604,22 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                   const { useFileTreeStore } = await import('@render/stores/fileTreeStore');
                   const treeStore = useFileTreeStore.getState();
                   if (toolCall.name === 'createFile' && result.fileId && result.fileName) {
+                    // 从工具参数中提取 content，供 FileTreePanel 读取
+                    let fileContent = '';
+                    try {
+                      const args = JSON.parse(toolCall.args ?? '{}') as Record<string, unknown>;
+                      fileContent = typeof args.content === 'string' ? args.content : '';
+                    } catch { /* ignore */ }
+                    // 优先使用 diskPath（主进程写入磁盘后的完整路径），
+                    // 回退 fileName（仅 DB 场景）
+                    const filePath = (result.diskPath as string) || (result.fileName as string);
+                    // id 使用 filePath，与 handleFileClick 打开文件时的 iFile.id = node.path 一致
+                    // 这样 currentFileId 匹配才能激活黄色渐变
                     treeStore.addFile({
-                      id: result.fileId as string,
+                      id: filePath,
                       name: result.fileName as string,
-                      path: result.fileName as string,
+                      path: filePath,
+                      content: fileContent || undefined,
                     });
                   } else if (toolCall.name === 'deleteFile' && result.fileId) {
                     treeStore.removeFile(result.fileId as string);
@@ -850,11 +871,17 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     if (!proposal || proposal.status !== 'pending') return;
 
     if (proposal.toolName === 'editBlocks') {
-      // editBlocks：应用到当前编辑器
+      // editBlocks：应用到当前编辑器并写入磁盘
       useEditorStore.getState().updateContent(proposal.newContent);
-    } else if (proposal.toolName === 'preview_file_revision' && proposal.fileId) {
-      // preview_file_revision：写入 DB
-      void window.weaveMD.file.write(proposal.fileId, proposal.newContent).then(() => {
+      const currentPath = useEditorStore.getState().currentFile?.id;
+      if (currentPath) {
+        void window.weaveMD.file.write(currentPath, proposal.newContent).catch((err) => {
+          console.warn('[agentStore] applyEditBlocksProposal disk write failed:', err);
+        });
+      }
+    } else if (proposal.toolName === 'preview_file_revision' && proposal.fileName) {
+      // preview_file_revision：写入磁盘（file.write 参数是文件路径，不是 ID）
+      void window.weaveMD.file.write(proposal.fileName, proposal.newContent).then(() => {
         // 刷新文件树
         void import('@render/stores/fileTreeStore').then(({ useFileTreeStore }) => {
           void useFileTreeStore.getState().loadFolderContents?.('');

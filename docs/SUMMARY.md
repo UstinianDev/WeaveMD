@@ -1,6 +1,6 @@
 # WeaveMD 项目总结
 
-> 版本：v3.16 | 最后更新：2026-08-25
+> 版本：v3.17 | 最后更新：2026-08-26
 
 ## 1. 项目概览
 
@@ -103,6 +103,18 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用（离线优�
 - R5 任务事件持久化（persistAndSend + replayFromSeq）
 - R6 IndexedDB 草稿恢复（防抖保存 + 按 conversationId 索引）
 - R7 已实现模块集成（DeadLoopDetector + checkpoint + snapshot + 回滚 UI）
+
+### AI 文件操作持久化修复（2026-08-26）
+
+4 项 Bug 修复，涉及文件持久化、高亮对齐、磁盘写入、工具调用轨迹恢复：
+
+- [任务状态](./plan/ai-file-ops-persist.status.md) — 全部完成（tsc 0 | vitest 1488/1488 | lint 0）
+
+**修复内容**：
+- Bug 1：AI 创建文件重启后不丢失（fileTreeStore.restore DB 回退）
+- Bug 2：AI 新建文档点击有黄色渐变（addFile id 对齐 node.path）
+- Bug 3：AI 可写入本地文件（createFileHandler 磁盘双写 + editBlocks 确认写盘）
+- Bug 4：重启后工具调用轨迹正常渲染（ai_messages.tool_calls 列 + IPC 持久化）
 
 ## 4. 验证与测试
 

@@ -180,6 +180,8 @@ export const IPC_CHANNELS = {
 
   // AI — message edit（编辑用户消息并删除后续消息）
   AI_MESSAGE_EDIT: 'ai:message:edit',
+  // AI — 更新消息的 tool_calls 快照（重启后恢复工具调用轨迹）
+  AI_MESSAGE_UPDATE_TOOL_CALLS: 'ai:message:updateToolCalls',
 
   // AI — stream push (main -> render, webContents.send)
   AI_STREAM_CHUNK: 'ai:stream:chunk',

@@ -29,7 +29,11 @@ src/main/ai/                  # AI 主进程服务（第1/2/3/4/5期已交付 + 
 ├── intentRouter.ts           # 意图识别（规则 6 类）+ 候选提问卡片
 ├── contextManager.ts         # 上下文压缩（/4 估算 + 80% 阈值自动 + 手动）
 ├── skillLoader.ts            # skills 体系（3 内置 + userData/skills/ 用户扩展）
-├── toolRegistry.ts           # 内置只读工具注册（listFiles/readFile/searchKB/runSkill + editBlocks 仅产 proposal，第6期 stretch）
+├── toolRegistry.ts           # 内置工具注册（listFiles/readFile/searchKB/runSkill/editBlocks/createFile/createFolder + preview_file_revision 等 20 工具）
+├── tools/
+│   ├── createFileHandler.ts  # createFile：DB + 磁盘双写（userData/files/）
+│   ├── editBlocksHandler.ts  # editBlocks：仅产 proposal，确认后渲染侧写盘
+│   └── previewFileRevision.ts# preview_file_revision：返回 oldContent/newContent 供 diff 预览
 ├── agentLoop.ts              # 函数调用循环（≤6 轮，后端恒 remote、无降级）
 ├── rewrite.ts                # 改写薄 LLM 代理（第5期：consent 'chat' 闸 + 调 LLM 返回 {text}，零 markdown 解析）
 ├── modelList.ts              # ai.listModels（面板模型下拉数据源）：remote /models（Bearer key 主进程）
@@ -76,8 +80,10 @@ IPC 通道 `ai:*`（白名单）+ `kb:*` + `agent:*` + 流式 `ai:stream:tool`�
 | 预览应用 | ✅ **第 5 期已交付**：diff 红删绿增（`rewriteDiff` 行级 LCS）→ 用户确认后才经 `updateContent(rewrittenMd)` 写入编辑器（入 undo 栈一次可撤销）；stale 校验（确认时 content===原文，不一致拒应用） |
 | 意图识别 | ✅ 规则启发式 6 类（创作/改写、知识库问答、技术资料、网页抓取、闲聊、其他）；模糊 → 候选提问卡片（IntentCard）；工具失败自动兜底降级 |
 | 上下文压缩 | ✅ token 估算 = 字符数/4（非精确计分器，仅作相对阈值）；达 80% 自动 + 手动；早期对话合并为「历史摘要」，保留最近 N 轮原文 |
-| 工具权限 | ✅ 只读 4 工具（listFiles/readFile/searchKB/runSkill）+ `editBlocks`（第 6 期 stretch，仅产 proposal 不落盘、无写盘触发点）自动执行；**无真写工具**；
+| 工具权限 | ✅ 只读 4 工具（listFiles/readFile/searchKB/runSkill）+ `editBlocks`（仅产 proposal，确认后写盘）+ `createFile`（DB + 磁盘双写）+ `createFolder` 自动执行；
   ⚠️ `fetchContext7`/`fetchFirecrawl`（第 6 期 MCP）未注册 |
+| 文件持久化 | ✅ `createFile` 同时写 DB + 磁盘（`userData/files/`）；`editBlocks` 确认后 `file.write` 写盘；fileTreeStore.restore DB 回退（磁盘无文件时查 DB 保留）；重启后 AI 创建的文件不丢失 |
+| 工具调用轨迹 | ✅ `ai_messages.tool_calls` 列持久化（JSON 快照）；`appendAssistant` 后 IPC 更新；重启后 `AgentWorkflowCard` 正常渲染历史工具调用 |
 | 安全 | ✅ safeStorage 加密密钥；首次联网/外发弹知情同意页（可勾选：允许联网 `allowNetwork` / 允许笔记外发 `allowSend`）；联网与 KB 外发分层闸（consent 'agent' 需两者配合 needsKbSendConsent）；后端恒 remote、需填 key（无 ollama 降级）；召回仅关键词/FTS5 |
 | 会话 | ✅ Chat/Agent 各自独立会话（mode 区分），SQLite 持久化，按账号隔离，含历史摘要字段 |
 
@@ -90,7 +96,7 @@ ai_config(id, user_id UNIQUE, backend /*收敛 remote-only；遗留 'ollama' 读
           api_key_enc /*safeStorage 加密*/, allow_network INTEGER, allow_send INTEGER,
           consent_updated_at, created_at, updated_at)  -- 第1/2期新增：AI 配置与知情同意，按账号隔离
 ai_conversations(id, user_id, mode /*chat|agent*/, summary, created_at, updated_at)
-ai_messages(id, conversation_id, role /*user|assistant|tool*/, content, refs_json, created_at)
+ai_messages(id, conversation_id, role /*user|assistant|tool*/, content, refs_json, tool_call_id, tool_calls /*JSON 快照*/, created_at)
 kb_documents(id, user_id, file_id, source_type /*db|disk|import*/, title, pinned, status, created_at)
 kb_chunks(id, document_id, seq, content, vector BLOB, source_ref /*文件+块定位*/, created_at)
 -- 第3期新增：kb_chunks_fts 虚拟表（USING fts5, tokenize='unicode61 remove_diacritics 2'）+ 两触发器同步
