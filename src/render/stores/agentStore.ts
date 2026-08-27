@@ -60,7 +60,7 @@ export interface FileOpProposal {
 /** editBlocks / preview_file_revision 待确认修订提案。 */
 export interface EditBlocksProposal {
   /** 来源工具名。 */
-  toolName: 'editBlocks' | 'preview_file_revision';
+  toolName: 'editBlocks' | 'preview_file_revision' | 'createFile';
   /** 关联的文件 ID（preview_file_revision 有，editBlocks 为空）。 */
   fileId?: string;
   /** 关联的文件名（preview_file_revision 有）。 */
@@ -621,6 +621,15 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                       path: filePath,
                       content: fileContent || undefined,
                     });
+                    // createFile 完成后触发 diff 预览卡片（FileOpPreviewCard）
+                    if (fileContent) {
+                      get().addEditBlocksProposal({
+                        toolName: 'createFile',
+                        fileName: result.fileName as string,
+                        originalContent: '',
+                        newContent: fileContent,
+                      });
+                    }
                   } else if (toolCall.name === 'deleteFile' && result.fileId) {
                     treeStore.removeFile(result.fileId as string);
                   } else {
@@ -879,6 +888,15 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           console.warn('[agentStore] applyEditBlocksProposal disk write failed:', err);
         });
       }
+    } else if (proposal.toolName === 'createFile' && proposal.fileName) {
+      // createFile：文件已由主进程写入磁盘，此处打开文件并刷新文件树
+      void window.weaveMD.file.readDisk(proposal.fileName).then(() => {
+        void import('@render/stores/fileTreeStore').then(({ useFileTreeStore }) => {
+          void useFileTreeStore.getState().loadFolderContents?.('');
+        });
+      }).catch((err) => {
+        console.warn('[agentStore] applyEditBlocksProposal createFile refresh failed:', err);
+      });
     } else if (proposal.toolName === 'preview_file_revision' && proposal.fileName) {
       // preview_file_revision：写入磁盘（file.write 参数是文件路径，不是 ID）
       void window.weaveMD.file.write(proposal.fileName, proposal.newContent).then(() => {

@@ -53,9 +53,12 @@ const EditBlocksItem: React.FC<{
   const insCount = lines.filter((l) => l.type === 'ins').length;
 
   const isFileRevision = proposal.toolName === 'preview_file_revision';
-  const title = isFileRevision
-    ? `✏️ ${proposal.fileName ?? proposal.fileId ?? t('ai.editBlocks.fileRevision', '文件修订')}`
-    : `📝 ${t('ai.editBlocks.docRevision', '文档修订')}`;
+  const isCreateFile = proposal.toolName === 'createFile';
+  const title = isCreateFile
+    ? `📄 ${t('ai.editBlocks.createFile', '创建文件')}: ${proposal.fileName ?? ''}`
+    : isFileRevision
+      ? `✏️ ${proposal.fileName ?? proposal.fileId ?? t('ai.editBlocks.fileRevision', '文件修订')}`
+      : `📝 ${t('ai.editBlocks.docRevision', '文档修订')}`;
 
   return (
     <div className="mx-3 my-1 rounded-card border border-border bg-bg-tertiary/60 overflow-hidden shadow-sm">
@@ -162,9 +165,12 @@ const EditBlocksDetailModal: React.FC<{
   t: (key: string, fallback?: string) => string;
 }> = ({ proposal, lines, delCount, insCount, onClose, onApply, t }) => {
   const isFileRevision = proposal.toolName === 'preview_file_revision';
-  const title = isFileRevision
-    ? proposal.fileName ?? proposal.fileId ?? t('ai.editBlocks.fileRevision', '文件修订')
-    : t('ai.editBlocks.docRevision', '文档修订');
+  const isCreateFile = proposal.toolName === 'createFile';
+  const title = isCreateFile
+    ? `${t('ai.editBlocks.createFile', '创建文件')}: ${proposal.fileName ?? ''}`
+    : isFileRevision
+      ? proposal.fileName ?? proposal.fileId ?? t('ai.editBlocks.fileRevision', '文件修订')
+      : t('ai.editBlocks.docRevision', '文档修订');
 
   return (
     <div

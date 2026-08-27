@@ -338,7 +338,7 @@ function prepareAgentContext(
     baseUrl,
     model,
     apiKey,
-    timeoutMs: 60_000,
+    timeoutMs: 180_000,
     signal: controller.signal,
   };
   const skills: CoreSkill[] = loadSkills();
@@ -661,7 +661,7 @@ export async function runAgentFlow(
         apiKey: ctx.apiKey,
         messages: ctx.llmMessages as Array<{ role: string; content: string }>,
         ...(ctx.tools.length ? { tools: ctx.tools, toolChoice: 'auto' as const } : {}),
-        timeoutMs: 60_000,
+        timeoutMs: 180_000,
         signal: controller.signal,
       });
 
