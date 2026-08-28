@@ -16,7 +16,7 @@ import {
   parseImageBlockText,
   tokenizeInline,
 } from '@render/editor/kernel';
-import FloatingToolbar from '@render/components/Editor/v2/FloatingToolbar';
+import FloatingToolbar from '@render/components/Editor/v2/toolbar/FloatingToolbar';
 import type { ImageSelection } from '@render/components/Editor/v2/types';
 
 vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {

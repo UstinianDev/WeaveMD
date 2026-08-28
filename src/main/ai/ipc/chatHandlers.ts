@@ -28,9 +28,9 @@ import {
 import { cancelPendingByConversation } from '../../db/agentTaskDao';
 import { getDatabase } from '../../db/index';
 import { decryptApiKey } from '../secureConfig';
-import { streamChatCompletion } from '../llmClient';
+import { streamChatCompletion } from '../llm/llmClient';
 import { activeStreams, DEFAULT_AI_CONFIG, DEFAULT_CONSENT, sendStream, toIAIConfig, toIAIConsent } from './shared';
-import { exportConversationToMarkdown } from '../conversationExport';
+import { exportConversationToMarkdown } from '../files/conversationExport';
 
 interface ChatReqPayload {
   userId: string;

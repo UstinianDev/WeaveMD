@@ -7,7 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import React, { useState } from 'react';
-import AIPanelComposer from '@render/components/AIAgent/AIPanelComposer';
+import AIPanelComposer from '@render/components/AIAgent/panel/AIPanelComposer';
 import { useAgentStore } from '@render/stores/agentStore';
 import { resetRewriteStore, useRewriteStore } from '@render/stores/rewriteStore';
 import { useEditorStore } from '@render/stores/editorStore';

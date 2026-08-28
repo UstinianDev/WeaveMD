@@ -14,7 +14,7 @@ import type { BlockHandlers, InlineWidthMap } from '@render/components/Editor/v2
 
 import { byIndex, isCellInRange } from './tableHelpers';
 import { useTableEvents } from './useTableEvents';
-import TableToolbar, { type TableAction } from '../TableToolbar';
+import TableToolbar, { type TableAction } from '../toolbar/TableToolbar';
 
 interface TableBlockProps {
   block: BlockNodeV2;

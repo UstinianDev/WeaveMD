@@ -6,7 +6,7 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@shared/constants';
 import { getAiConfig } from '../../db/ai';
 import { getModelConfig } from '../../db/modelConfigs';
-import { listModelsForUser } from '../modelList';
+import { listModelsForUser } from '../llm/modelList';
 
 export function registerModelHandlers(): void {
   // --- model list（ai-panel-redesign M1, 需求 R17: 能力模型下拉实时拉取） ---

@@ -24,7 +24,7 @@ import {
   resolveSyntaxTypesInRange,
   type SyntaxType,
 } from '@render/editor/kernel/syntaxType';
-import { selectionSyntaxTypesConsistent } from '@render/components/Editor/v2/FloatingToolbar';
+import { selectionSyntaxTypesConsistent } from '@render/components/Editor/v2/toolbar/FloatingToolbar';
 
 /** 构造树并返回挂到根下的容器/叶子块 */
 function buildRoot(): BlockTreeV2 {

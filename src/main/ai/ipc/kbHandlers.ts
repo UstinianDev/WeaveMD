@@ -10,8 +10,8 @@ import { DEFAULT_KB_SETTINGS, normalizeKbSettings } from '@shared/ai';
 import { getAiConfig, upsertAiConfig, updateKbExtendedSettings } from '../../db/ai';
 import { countChunksByDoc, listKbDocumentsByUser } from '../../db/kb';
 import { getFile } from '../../db/files';
-import { indexFile, indexImportedText, removeByFile } from '../kbIndexer';
-import { parseDocument } from '../documentParser';
+import { indexFile, indexImportedText, removeByFile } from '../knowledge/kbIndexer';
+import { parseDocument } from '../files/documentParser';
 import type { IKbImportResult } from '@shared/ai';
 
 export function registerKbHandlers(): void {

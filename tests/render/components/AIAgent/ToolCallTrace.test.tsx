@@ -3,7 +3,7 @@
 // ============================================
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import ToolCallTrace from '@render/components/AIAgent/ToolCallTrace';
+import ToolCallTrace from '@render/components/AIAgent/message/ToolCallTrace';
 import type { IAgentToolCall } from '@shared/ai';
 
 vi.mock('@render/i18n', () => ({

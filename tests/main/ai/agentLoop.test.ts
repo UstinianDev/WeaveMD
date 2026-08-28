@@ -45,7 +45,7 @@ vi.mock('@main/ai/contextManager', () => ({
 }));
 
 const skillMock = vi.hoisted(() => ({ loadSkills: vi.fn(() => []), CORE_SKILLS: [] }));
-vi.mock('@main/ai/skillLoader', () => skillMock);
+vi.mock('@main/ai/skills/skillLoader', () => skillMock);
 
 const intentMock = vi.hoisted(() => ({
   classifyIntent: vi.fn(() => ({ intent: 'create', confidence: 0.9 })),
@@ -54,7 +54,7 @@ vi.mock('@main/ai/intentRouter', () => intentMock);
 
 // --- llmClient mock ---
 const llmMock = vi.hoisted(() => ({ streamChatCompletion: vi.fn() }));
-vi.mock('@main/ai/llmClient', () => llmMock);
+vi.mock('@main/ai/llm/llmClient', () => llmMock);
 
 // --- toolRegistry mock (only executeTool trusted impl mocked via vi.mock of executeTool + real defineCoreTools) ---
 const toolMock = vi.hoisted(() => ({
@@ -71,7 +71,7 @@ vi.mock('@main/ai/toolRegistry', () => toolMock);
 const eventStoreMock = vi.hoisted(() => ({
   persistAndSend: vi.fn(),
 }));
-vi.mock('@main/ai/agentEventStore', () => eventStoreMock);
+vi.mock('@main/ai/agent/agentEventStore', () => eventStoreMock);
 
 // --- agentLoopGuard mock (R7a) ---
 const guardMock = vi.hoisted(() => {
@@ -95,15 +95,15 @@ const guardMock = vi.hoisted(() => {
   }
   return { DeadLoopDetector: FakeDeadLoopDetector };
 });
-vi.mock('@main/ai/agentLoopGuard', () => guardMock);
+vi.mock('@main/ai/agent/agentLoopGuard', () => guardMock);
 
 // --- agentCheckpoint mock (R7b) ---
 const checkpointMock = vi.hoisted(() => ({
   saveCheckpoint: vi.fn(),
 }));
-vi.mock('@main/ai/agentCheckpoint', () => checkpointMock);
+vi.mock('@main/ai/agent/agentCheckpoint', () => checkpointMock);
 
-import { runAgentFlow } from '@main/ai/agentLoop';
+import { runAgentFlow } from '@main/ai/agent/agentLoop';
 import { IPC_CHANNELS } from '@shared/constants';
 import type { IAIConfig } from '@shared/ai';
 

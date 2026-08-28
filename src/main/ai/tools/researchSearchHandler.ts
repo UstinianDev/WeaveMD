@@ -1,4 +1,4 @@
-import { planQuery } from '../queryPlanner';
+import { planQuery } from '../knowledge/queryPlanner';
 import type { ToolResult } from '../toolTypes';
 
 export function handleResearchSearch(args: Record<string, unknown>): ToolResult {

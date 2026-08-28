@@ -38,9 +38,9 @@ export interface ToolCtx {
   /** KB 检索实现注入点（未注入则 searchKB 返回「知识库未就绪」）。 */
   searchKb?: SearchKbFn;
   /** runSkill 执行所需 LLM 上下文（复用 skillLoader.SkillRunnerCtx）。 */
-  skill?: import('./skillLoader').SkillRunnerCtx;
+  skill?: import('./skills/skillLoader').SkillRunnerCtx;
   /** 已加载技能列表（由调用方注入；缺省为空）。 */
-  skills?: import('./skillLoader').CoreSkill[];
+  skills?: import('./skills/skillLoader').CoreSkill[];
   /**
    * 当前文档 markdown 快照（渲染侧 editorStore.content 注入，只读上下文）。
    * 供 editBlocks 产生改写建议；缺失时 editBlocks 拒绝执行。

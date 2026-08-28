@@ -6,9 +6,9 @@ import { join } from 'path';
 const llmMock = vi.hoisted(() => ({
   streamChatCompletion: vi.fn(),
 }));
-vi.mock('@main/ai/llmClient', () => llmMock);
+vi.mock('@main/ai/llm/llmClient', () => llmMock);
 
-import { CORE_SKILLS, listSkillsForUi, loadSkills, runSkill } from '@main/ai/skillLoader';
+import { CORE_SKILLS, listSkillsForUi, loadSkills, runSkill } from '@main/ai/skills/skillLoader';
 
 /** 构造临时的 userData/skills 目录并返回其路径（测试结束自动清理）。 */
 function makeSkillsDir(content: Record<string, string>): string {

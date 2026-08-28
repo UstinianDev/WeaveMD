@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { normalizeModels, listModelsForUser } from '@main/ai/modelList';
+import { normalizeModels, listModelsForUser } from '@main/ai/llm/modelList';
 
 // decryptApiKey 依赖 electron.safeStorage -> 测试态 mock（明文=密文 base64 解码，便于断言 URL/Bearer）
 vi.mock('electron', () => ({

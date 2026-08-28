@@ -11,10 +11,10 @@ const filesMock = vi.hoisted(() => ({
 vi.mock('@main/db/files', () => filesMock);
 
 const skillMock = vi.hoisted(() => ({ runSkill: vi.fn() }));
-vi.mock('@main/ai/skillLoader', () => skillMock);
+vi.mock('@main/ai/skills/skillLoader', () => skillMock);
 
 import { defineCoreTools, executeTool, type SearchKbFn, type ToolCtx } from '@main/ai/toolRegistry';
-import type { CoreSkill } from '@main/ai/skillLoader';
+import type { CoreSkill } from '@main/ai/skills/skillLoader';
 
 // 真正写盘/写库的工具名（铁律一禁用）。editBlocks / createFile / createFolder / renameFile / moveFile / deleteFile 不在此列——
 // 它们只产 proposal 不落盘，另行断言其「仅产 proposal」语义。

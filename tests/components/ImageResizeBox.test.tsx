@@ -5,7 +5,7 @@ import { act, createRef } from 'react';
 import { fireEvent, render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import ImageResizeBox from '@render/components/Editor/v2/ImageResizeBox';
+import ImageResizeBox from '@render/components/Editor/v2/image/ImageResizeBox';
 import type { ImageSelection } from '@render/components/Editor/v2/types';
 
 const rect = { top: 100, left: 50, width: 200, height: 120 };

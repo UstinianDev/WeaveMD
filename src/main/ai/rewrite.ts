@@ -10,7 +10,7 @@
 
 import type { IAIConfig, RewriteReply, RewriteRequestPayload } from '@shared/ai';
 import { decryptApiKey } from './secureConfig';
-import { streamChatCompletion } from './llmClient';
+import { streamChatCompletion } from './llm/llmClient';
 
 /** selection 改写指令模板（LLM 先输出一行改写说明，再输出改写后完整 Markdown）。 */
 export const REWRITE_SELECTION_SYSTEM_INSTRUCTION =

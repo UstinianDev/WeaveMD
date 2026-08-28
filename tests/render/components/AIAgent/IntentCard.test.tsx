@@ -3,7 +3,7 @@
 // ============================================
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import IntentCard, { isAmbiguousIntent } from '@render/components/AIAgent/IntentCard';
+import IntentCard, { isAmbiguousIntent } from '@render/components/AIAgent/cards/IntentCard';
 import type { IIntent } from '@shared/ai';
 
 vi.mock('@render/i18n', () => ({

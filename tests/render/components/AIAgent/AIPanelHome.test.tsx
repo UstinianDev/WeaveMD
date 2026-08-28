@@ -4,7 +4,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import AIPanelHome, { formatRecentDate, recentConversations } from '@render/components/AIAgent/AIPanelHome';
+import AIPanelHome, { formatRecentDate, recentConversations } from '@render/components/AIAgent/panel/AIPanelHome';
 import { useAgentStore } from '@render/stores/agentStore';
 import type { IAIConversation } from '@shared/ai';
 
@@ -30,7 +30,7 @@ vi.mock('@render/i18n', () => ({
 let composerValue = '';
 let composerOnChange: ((v: string) => void) | undefined;
 
-vi.mock('@render/components/AIAgent/AIPanelComposer', () => ({
+vi.mock('@render/components/AIAgent/panel/AIPanelComposer', () => ({
   default: ({ value, onChange }: {
     value: string;
     onChange?: (v: string) => void;

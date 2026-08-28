@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { tokenize, buildFtsQuery, initJieba } from '@main/ai/tokenizer';
+import { tokenize, buildFtsQuery, initJieba } from '@main/ai/knowledge/tokenizer';
 
 describe('tokenizer — jieba 加载', () => {
   it('initJieba 返回 boolean', () => {

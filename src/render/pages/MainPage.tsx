@@ -3,7 +3,7 @@
 // ============================================
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import AIAgentPanel from '@render/components/AIAgent/AIAgentPanel';
+import AIAgentPanel from '@render/components/AIAgent/panel/AIAgentPanel';
 import StatusBar from '@render/components/Common/StatusBar';
 import EditorView from '@render/components/Editor/EditorView';
 import HistoryPanel from '@render/components/Editor/panels/HistoryPanel';

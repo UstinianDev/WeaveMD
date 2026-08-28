@@ -5,7 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import AIPanelSettings from '@render/components/AIAgent/AIPanelSettings';
+import AIPanelSettings from '@render/components/AIAgent/panel/AIPanelSettings';
 import { useAuthStore } from '@render/stores/authStore';
 import { useAgentStore } from '@render/stores/agentStore';
 

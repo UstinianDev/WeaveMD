@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { streamChatCompletion } from '@main/ai/llmClient';
+import { streamChatCompletion } from '@main/ai/llm/llmClient';
 
 type FetchFn = typeof fetch;
 type FetchMock = ReturnType<typeof vi.fn> & FetchFn;

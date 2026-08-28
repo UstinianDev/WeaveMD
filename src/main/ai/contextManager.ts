@@ -4,7 +4,7 @@
 // 无 tokenizer 依赖的字量估算 + 阈值压缩 + 摘要置顶重排。
 // 估算 len/4 为相对阈值（误差 ≤2x 不影响「是否该压缩」判定）；压缩为幂等安全动作。
 
-import { streamChatCompletion } from './llmClient';
+import { streamChatCompletion } from './llm/llmClient';
 
 export interface LlmMessage {
   role: string;

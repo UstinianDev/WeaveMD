@@ -3,7 +3,7 @@
 // ============================================
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import CompletionMenu from '@render/components/AIAgent/CompletionMenu';
+import CompletionMenu from '@render/components/AIAgent/composer/CompletionMenu';
 
 const skillItems = [
   { value: 'polish_rewrite', label: 'polish_rewrite', description: '润色文本', insertText: '/polish_rewrite ' },

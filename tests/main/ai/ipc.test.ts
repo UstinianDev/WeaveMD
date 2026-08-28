@@ -58,7 +58,7 @@ vi.mock('@main/ai/consent', () => consentMock);
 const llmMock = vi.hoisted(() => ({
   streamChatCompletion: vi.fn(),
 }));
-vi.mock('@main/ai/llmClient', () => llmMock);
+vi.mock('@main/ai/llm/llmClient', () => llmMock);
 
 // --- 第 3+4 期：知识库 / Agent 依赖 mock（避免真实 DB/fs/网络） ---
 const kbDaoMock = vi.hoisted(() => ({
@@ -77,17 +77,17 @@ const kbIndexerMock = vi.hoisted(() => ({
   indexFile: vi.fn(),
   removeByFile: vi.fn(() => true),
 }));
-vi.mock('@main/ai/kbIndexer', () => kbIndexerMock);
+vi.mock('@main/ai/knowledge/kbIndexer', () => kbIndexerMock);
 
 const kbSearchMock = vi.hoisted(() => ({
   searchKB: vi.fn(),
 }));
-vi.mock('@main/ai/kbSearch', () => kbSearchMock);
+vi.mock('@main/ai/knowledge/kbSearch', () => kbSearchMock);
 
 const agentLoopMock = vi.hoisted(() => ({
   runAgentFlow: vi.fn(),
 }));
-vi.mock('@main/ai/agentLoop', () => agentLoopMock);
+vi.mock('@main/ai/agent/agentLoop', () => agentLoopMock);
 
 const rewriteMock = vi.hoisted(() => ({
   runRewrite: vi.fn(),
@@ -101,7 +101,7 @@ const skillLoaderMock = vi.hoisted(() => ({
   ]),
   loadUserSkillsFromDirs: vi.fn(() => []),
 }));
-vi.mock('@main/ai/skillLoader', () => skillLoaderMock);
+vi.mock('@main/ai/skills/skillLoader', () => skillLoaderMock);
 
 import { IPC_CHANNELS } from '@shared/constants';
 import { registerAiIpcHandlers } from '@main/ai/ipc';

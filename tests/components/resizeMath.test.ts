@@ -7,7 +7,7 @@
 //   （宽高比由 img height:auto 保持），斜向按对角距离顺滑增长，无主轴向切换跳变。
 import { describe, expect, it } from 'vitest';
 
-import { computeResizeWidth, RESIZE_MIN_WIDTH } from '@render/components/Editor/v2/resizeMath';
+import { computeResizeWidth, RESIZE_MIN_WIDTH } from '@render/components/Editor/v2/image/resizeMath';
 
 describe('computeResizeWidth — 图片四角缩放算术', () => {
   const min = RESIZE_MIN_WIDTH;

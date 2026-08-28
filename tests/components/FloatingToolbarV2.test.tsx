@@ -17,7 +17,7 @@ import {
   makeParagraph,
 } from '@render/editor/kernel';
 import type { SyntaxType } from '@render/editor/kernel/syntaxType';
-import FloatingToolbar from '@render/components/Editor/v2/FloatingToolbar';
+import FloatingToolbar from '@render/components/Editor/v2/toolbar/FloatingToolbar';
 import {
   BLOCK_TYPE_OPTIONS,
   canConvertBlock,
@@ -26,7 +26,7 @@ import {
 import {
   selectionSyntaxTypesConsistent,
   syntaxTypeToOption,
-} from '@render/components/Editor/v2/FloatingToolbar';
+} from '@render/components/Editor/v2/toolbar/FloatingToolbar';
 
 // jsdom 不按真实帧时机触发 rAF，测试环境统一让 rAF 回调同步执行，
 // 保证事件→渲染的确定性；节流专项用例内再覆盖为可控的收集 stub。

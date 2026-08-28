@@ -68,9 +68,9 @@ import { initDatabase, getDatabase } from '@main/db/index';
 import { createFile } from '@main/db/files';
 import { createConversation } from '@main/db/ai';
 import { upsertAiConfig } from '@main/db/ai';
-import { indexFile } from '@main/ai/kbIndexer';
-import { searchKB } from '@main/ai/kbSearch';
-import { runAgentFlow } from '@main/ai/agentLoop';
+import { indexFile } from '@main/ai/knowledge/kbIndexer';
+import { searchKB } from '@main/ai/knowledge/kbSearch';
+import { runAgentFlow } from '@main/ai/agent/agentLoop';
 import { encryptApiKey } from '@main/ai/secureConfig';
 import type { IAIConfig } from '@shared/ai';
 

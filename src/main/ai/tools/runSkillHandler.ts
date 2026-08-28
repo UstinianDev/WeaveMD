@@ -1,4 +1,4 @@
-import { runSkill } from '../skillLoader';
+import { runSkill } from '../skills/skillLoader';
 import type { ToolCtx, ToolResult } from '../toolTypes';
 
 export async function handleRunSkill(args: Record<string, unknown>, ctx: ToolCtx): Promise<ToolResult> {

@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { IAIModelConfig } from '@shared/ai';
-import ModelDropdown from '@render/components/AIAgent/ModelDropdown';
+import ModelDropdown from '@render/components/AIAgent/composer/ModelDropdown';
 import { useAgentStore } from '@render/stores/agentStore';
 import { useAuthStore } from '@render/stores/authStore';
 

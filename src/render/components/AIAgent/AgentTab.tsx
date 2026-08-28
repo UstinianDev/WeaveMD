@@ -10,12 +10,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { IntentName } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 import { useAgentStore, onStreamDelta } from '@render/stores/agentStore';
-import AIMessageBubble from './AIMessageBubble';
-import AgentWorkflowCard from './AgentWorkflowCard';
-import EditBlocksPreviewCard from './EditBlocksPreviewCard';
-import IntentCard from './IntentCard';
-import RewritePreviewCard from './RewritePreviewCard';
-import QuestionCard from './QuestionCard';
+import AIMessageBubble from './message/AIMessageBubble';
+import AgentWorkflowCard from './cards/AgentWorkflowCard';
+import EditBlocksPreviewCard from './cards/EditBlocksPreviewCard';
+import IntentCard from './cards/IntentCard';
+import RewritePreviewCard from './cards/RewritePreviewCard';
+import QuestionCard from './cards/QuestionCard';
 
 // ---------------------------------------------------------------------------
 // 子组件：消息列表（不订阅 streamBuffer，只接收 messages prop）

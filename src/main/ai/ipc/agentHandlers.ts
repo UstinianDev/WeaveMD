@@ -9,14 +9,14 @@ import { IPC_CHANNELS } from '@shared/constants';
 import type { AIErrorCode, AgentRunPayload } from '@shared/ai';
 import { normalizeKbSettings } from '@shared/ai';
 import { getAiConfig, getConversation } from '../../db/ai';
-import { runAgentFlow } from '../agentLoop';
-import { searchKB } from '../kbSearch';
-import { listSkillsForUi, loadUserSkillsFromDirs } from '../skillLoader';
-import { AgentTaskQueue } from '../agentTaskQueue';
-import { AgentTaskWorker } from '../agentTaskWorker';
-import { replayFromSeq } from '../agentEventStore';
-import { rollbackToSnapshot } from '../agentSnapshot';
-import { getGlobalAgentFiles, setGlobalAgentFiles } from '../globalAgentFiles';
+import { runAgentFlow } from '../agent/agentLoop';
+import { searchKB } from '../knowledge/kbSearch';
+import { listSkillsForUi, loadUserSkillsFromDirs } from '../skills/skillLoader';
+import { AgentTaskQueue } from '../agent/agentTaskQueue';
+import { AgentTaskWorker } from '../agent/agentTaskWorker';
+import { replayFromSeq } from '../agent/agentEventStore';
+import { rollbackToSnapshot } from '../agent/agentSnapshot';
+import { getGlobalAgentFiles, setGlobalAgentFiles } from '../files/globalAgentFiles';
 import { activeStreams, DEFAULT_AI_CONFIG, DEFAULT_CONSENT, toIAIConfig, toIAIConsent } from './shared';
 
 /** 内置 skills 名称列表（不暴露给 UI，仅 agent 内部使用）。 */

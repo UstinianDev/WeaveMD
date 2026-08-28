@@ -3,7 +3,7 @@
 // ============================================
 import { describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
-import MarkdownMessage from '@render/components/AIAgent/MarkdownMessage';
+import MarkdownMessage from '@render/components/AIAgent/message/MarkdownMessage';
 import { containsDangerousHtml } from '@render/services/aiMarkdown';
 
 describe('MarkdownMessage', () => {

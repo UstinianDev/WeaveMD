@@ -8,7 +8,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import { EMPTY_URL_MESSAGE } from './modalConstants';
+import { EMPTY_URL_MESSAGE } from './toolbar/modalConstants';
 
 export interface InsertUrlModalProps {
   /** Modal title, e.g. "插入链接" or "插入图片". */

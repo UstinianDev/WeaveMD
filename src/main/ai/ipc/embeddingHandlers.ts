@@ -4,7 +4,7 @@
 
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@shared/constants';
-import { createEmbedding } from '../embeddingClient';
+import { createEmbedding } from '../knowledge/embeddingClient';
 import { getEmbeddingConfig } from '../../db/embeddingConfig';
 import { decryptApiKey } from '../secureConfig';
 

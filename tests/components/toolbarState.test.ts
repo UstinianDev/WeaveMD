@@ -12,7 +12,7 @@ import {
   makeHeading,
   makeParagraph,
 } from '@render/editor/kernel';
-import { computeToolbarState, type LinkRect } from '@render/components/Editor/v2/toolbarState';
+import { computeToolbarState, type LinkRect } from '@render/components/Editor/v2/toolbar/toolbarState';
 
 /** 链接文本：`[hello](https://x.io)`，链接 token 覆盖 [0, len)。选区落在此区间内 → inLink=true */
 const LINK_TEXT = '[hello](https://x.io)';

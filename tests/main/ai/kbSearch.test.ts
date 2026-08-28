@@ -52,7 +52,7 @@ vi.mock('@main/db/index', () => ({
   getDatabase: () => new FakeDatabase(),
 }));
 
-import { rankCandidates, sanitizeFtsQuery, searchKB } from '@main/ai/kbSearch';
+import { rankCandidates, sanitizeFtsQuery, searchKB } from '@main/ai/knowledge/kbSearch';
 import type { IKbSearchResult } from '@shared/ai';
 
 const { calls } = fakeDbMock;

@@ -15,8 +15,8 @@ import { registerAiIpcHandlers } from './ai/ipc';
 
 import { registerMailIpcHandlers } from './mail/ipc';
 import { registerUpdateIpcHandlers } from './update/ipc';
-import { reindexAfterSave, removeByFile } from './ai/kbIndexer';
-import type { IndexFileInput } from './ai/kbIndexer';
+import { reindexAfterSave, removeByFile } from './ai/knowledge/kbIndexer';
+import type { IndexFileInput } from './ai/knowledge/kbIndexer';
 import { createFile, deleteFile, getFile, listFiles, updateFileContent } from './db/files';
 import { exportFile } from './export/exportService';
 import type { ExportRequest } from './export/types';

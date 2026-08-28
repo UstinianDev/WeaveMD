@@ -4,7 +4,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import AIPanelSession from '@render/components/AIAgent/AIPanelSession';
+import AIPanelSession from '@render/components/AIAgent/panel/AIPanelSession';
 import { useAgentStore } from '@render/stores/agentStore';
 import type { IAIConversation } from '@shared/ai';
 
@@ -29,7 +29,7 @@ vi.mock('@render/components/AIAgent/AgentTab', () => ({
   default: () => <div data-testid="mock-message-flow">MessageFlow</div>,
 }));
 
-vi.mock('@render/components/AIAgent/KnowledgeBaseSettings', () => ({
+vi.mock('@render/components/AIAgent/knowledge/KnowledgeBaseSettings', () => ({
   default: () => <div data-testid="mock-kbsettings">KB Settings</div>,
 }));
 
@@ -37,7 +37,7 @@ vi.mock('@render/components/AIAgent/KnowledgeBaseSettings', () => ({
 let composerValue = '';
 let composerOnSend: (() => void) | undefined;
 
-vi.mock('@render/components/AIAgent/AIPanelComposer', () => ({
+vi.mock('@render/components/AIAgent/panel/AIPanelComposer', () => ({
   default: ({ value, onSend }: {
     value: string;
     onSend?: () => void;

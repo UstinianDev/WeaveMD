@@ -15,8 +15,8 @@ import { isStandaloneImageText, parseImageBlockText } from '@render/editor/kerne
 import { setImageWidth } from '@render/editor/controllers/imageWidthCtrl';
 import { setCursorAtOffset } from '@render/editor/kernel/selection';
 import EditorScrollContainer, { type EditorScrollContainerHandle } from './EditorScrollContainer';
-import FloatingToolbar from './FloatingToolbar';
-import ImageResizeBox from './ImageResizeBox';
+import FloatingToolbar from './toolbar/FloatingToolbar';
+import ImageResizeBox from './image/ImageResizeBox';
 import { useContentSync } from '@render/hooks/useContentSync';
 import { useCrossBlockDragSelection } from '@render/hooks/useCrossBlockDragSelection';
 import { useDomRegistry } from '@render/hooks/useDomRegistry';

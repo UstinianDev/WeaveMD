@@ -20,7 +20,7 @@ vi.mock('electron', () => ({
 const llmMock = vi.hoisted(() => ({
   streamChatCompletion: vi.fn(),
 }));
-vi.mock('@main/ai/llmClient', () => llmMock);
+vi.mock('@main/ai/llm/llmClient', () => llmMock);
 
 // --- secureConfig mock (apiKey 解密) ---
 const secureMock = vi.hoisted(() => ({

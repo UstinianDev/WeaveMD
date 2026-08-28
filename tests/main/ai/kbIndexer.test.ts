@@ -53,7 +53,7 @@ vi.mock('@main/db/index', () => ({
   getDatabase: () => new FakeDatabase(),
 }));
 
-import { splitNote, indexFile, indexImportedText, reindexAfterSave, removeByFile } from '@main/ai/kbIndexer';
+import { splitNote, indexFile, indexImportedText, reindexAfterSave, removeByFile } from '@main/ai/knowledge/kbIndexer';
 
 const { calls } = fakeDbMock;
 

@@ -8,8 +8,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
-import AIAgentPanel from '@render/components/AIAgent/AIAgentPanel';
-import AIPanelComposer from '@render/components/AIAgent/AIPanelComposer';
+import AIAgentPanel from '@render/components/AIAgent/panel/AIAgentPanel';
+import AIPanelComposer from '@render/components/AIAgent/panel/AIPanelComposer';
 import { useAgentStore } from '@render/stores/agentStore';
 import { useUIStore } from '@render/stores/uiStore';
 import { useAuthStore } from '@render/stores/authStore';
@@ -41,7 +41,7 @@ let lastSessionDraft = '';
 
 // 三视图子组件 mock：home/session 透传真实 AIPanelComposer（受控），记录 draft 变化；
 // settings 保持简单占位（focus 在 home↔settings 停留时 draft 保留）。
-vi.mock('@render/components/AIAgent/AIPanelHome', () => ({
+vi.mock('@render/components/AIAgent/panel/AIPanelHome', () => ({
   default: ({ draft, setDraft, onSend, onCreateSession, onOpenConversation, onViewAll }: {
     draft: string;
     setDraft: (v: string) => void;
@@ -73,7 +73,7 @@ vi.mock('@render/components/AIAgent/AIPanelHome', () => ({
     );
   },
 }));
-vi.mock('@render/components/AIAgent/AIPanelSession', () => ({
+vi.mock('@render/components/AIAgent/panel/AIPanelSession', () => ({
   default: ({ draft, setDraft, onSend, onCloseConversation }: {
     draft: string;
     setDraft: (v: string) => void;
@@ -116,7 +116,7 @@ vi.mock('@render/i18n', () => ({
   },
 }));
 
-vi.mock('@render/components/AIAgent/ModelDropdown', () => ({
+vi.mock('@render/components/AIAgent/composer/ModelDropdown', () => ({
   default: () => <span data-testid="mock-model">Model</span>,
 }));
 

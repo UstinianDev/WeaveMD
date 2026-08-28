@@ -3,7 +3,7 @@
 // ============================================
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import RewritePreviewCard from '@render/components/AIAgent/RewritePreviewCard';
+import RewritePreviewCard from '@render/components/AIAgent/cards/RewritePreviewCard';
 import { resetRewriteStore, useRewriteStore } from '@render/stores/rewriteStore';
 import type { RewriteProposal } from '@shared/ai';
 
