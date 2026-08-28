@@ -43,6 +43,7 @@ interface SseJsonShape {
   choices?: Array<{
     delta?: {
       content?: string;
+      reasoning?: string;
       tool_calls?: Array<{
         index?: number;
         function?: { name?: string; arguments?: string };
@@ -75,6 +76,7 @@ export function processSseLines(
     const choice = json.choices?.[0];
     const delta = choice?.delta;
     const content = delta?.content;
+    const reasoning = delta?.reasoning;
     const toolCallsDelta = delta?.tool_calls;
 
     let finishedToolCalls: Array<{ index: number; name: string; arguments: string }> = [];
@@ -97,6 +99,10 @@ export function processSseLines(
       chunks.push({ delta: '', toolCalls: finishedToolCalls });
     } else if (content && content.length > 0) {
       chunks.push({ delta: content });
+    } else if (reasoning && reasoning.length > 0) {
+      // 处理 reasoning 字段：某些模型（如 qwen3.5）会先发 reasoning 再发 content
+      // 这里将 reasoning 也作为 delta 返回，避免流卡住
+      chunks.push({ delta: reasoning });
     }
   }
   return chunks;
@@ -182,10 +188,18 @@ export async function* streamChatCompletion(
   // 工具调用累积：index -> { name, arguments }。随流增量拼接 arguments 直直至 finish。
   const toolAcc = new Map<number, { name: string; arguments: string }>();
 
+  // 流卡住检测：记录最后一次收到任何 SSE 数据的时间
+  // 注意：工具调用期间 LLM 可能长时间不发 content，但流本身未卡住
+  let lastDataTime = Date.now();
+  const STALL_TIMEOUT = 120_000; // 2 分钟无任何数据视为卡住（宽松，避免工具调用误触发）
+
   try {
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
+
+      // 收到任何数据块都重置计时器（包括心跳、空行等）
+      lastDataTime = Date.now();
 
       buffer += decoder.decode(value, { stream: true });
       const parts = buffer.split('\n\n');
@@ -199,6 +213,12 @@ export async function* streamChatCompletion(
           await reader.cancel().catch(() => undefined);
           throw sc.abortError();
         }
+      }
+
+      // 检测流是否卡住（仅在长时间无任何数据时触发）
+      if (Date.now() - lastDataTime > STALL_TIMEOUT) {
+        await reader.cancel().catch(() => undefined);
+        throw makeError('timeout', 'Stream stalled: no data received for 2 minutes');
       }
     }
     // 流尾兜底：若有未 flush 的工具调用（finish 未显式出现），补齐返回

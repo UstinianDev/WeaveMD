@@ -118,7 +118,7 @@ describe('llmClient.streamChatCompletion', () => {
     expect(chunks).toEqual(['Hel', 'lo', '!']);
   });
 
-  it('skips empty content / reasoning-only deltas', async () => {
+  it('skips empty content but passes through reasoning deltas', async () => {
     fetchMock.mockResolvedValue(
       makeResponse(
         makeBody(
@@ -132,7 +132,7 @@ describe('llmClient.streamChatCompletion', () => {
       )
     );
     const chunks = await collect(streamChatCompletion(baseOpts()));
-    expect(chunks).toEqual(['ans']);
+    expect(chunks).toEqual(['thinking', 'ans']);
   });
 
   it('ends on [DONE]', async () => {

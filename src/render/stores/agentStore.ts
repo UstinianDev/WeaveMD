@@ -488,7 +488,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   async sendAgentMessage(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const { activeConversationId, useKnowledgeBase } = get();
+    const { activeConversationId, useKnowledgeBase, isStreaming } = get();
+
+    // 如果正在流式传输，先停止当前流
+    if (isStreaming) {
+      get().stopStream();
+    }
 
     // 前置校验：API Key 未配置时直接提示，避免走到主进程再失败
     const config = get().config;
@@ -828,7 +833,13 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       void getAi().chatAbort(activeConversationId, userId);
       void getAi().agentAbort(activeConversationId, userId);
     }
-    set({ isStreaming: false, streamBuffer: '', streamUnsubscribe: null });
+    // 清理所有流式状态，包括 processStatus
+    set({
+      isStreaming: false,
+      streamBuffer: '',
+      streamUnsubscribe: null,
+      processStatus: 'idle',
+    });
   },
 
   setUseKnowledgeBase: (enabled) => set({ useKnowledgeBase: enabled }),

@@ -374,7 +374,9 @@ function prepareAgentContext(
       role: m.role,
       content: m.content,
       ...(m.toolCallId ? { tool_call_id: m.toolCallId } : {}),
-    }));
+    }))
+    // 过滤掉空内容的消息，避免 LLM 困惑
+    .filter((m) => m.content && m.content.trim().length > 0);
 
   let llmMessages: AgentLlmMessage[] = summary
     ? buildCompressed(history, summary, KEEP_RECENT_ROUNDS)
@@ -551,7 +553,7 @@ async function executeToolRound(
       : result.content;
     const toolResultForLlm = interactionAnswers
       ? JSON.stringify({ answers: interactionAnswers, phase: 'answered' })
-      : (result.errorDesc ? `[工具失败] ${result.errorDesc}` : result.content);
+      : (result.errorDesc ? `[工具 ${tc.name} 失败] ${result.errorDesc}` : result.content);
 
     appendMessage({
       conversationId: ctx.convId,

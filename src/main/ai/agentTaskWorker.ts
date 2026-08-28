@@ -394,6 +394,14 @@ export class AgentTaskWorker {
       }
       this.activeTasks.delete(task.id);
       this.conversationTaskMap.delete(task.conversationId);
+
+      // 清理 AbortController 的所有事件监听器
+      try {
+        abortController.abort(); // 确保 abort 状态被设置
+      } catch {
+        // 忽略已经 abort 的情况
+      }
+
       // 触发下一次轮询（可能有等待中的任务）
       void this.poll();
     }
