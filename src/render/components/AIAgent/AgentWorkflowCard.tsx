@@ -295,11 +295,12 @@ interface ToolCallRowProps {
   call: IAgentToolCall;
 }
 
-const ToolCallRow: React.FC<ToolCallRowProps> = ({ call }) => {
+const ToolCallRow: React.FC<ToolCallRowProps> = React.memo(({ call }) => {
   const isError = call.status === 'error';
   const icon = getToolIcon(call.name);
-  const summary = extractToolSummary(call);
-  const resultSummary = extractResultSummary(call);
+  // 6c: extractToolSummary/extractResultSummary 用 useMemo
+  const summary = useMemo(() => extractToolSummary(call), [call]);
+  const resultSummary = useMemo(() => extractResultSummary(call), [call]);
 
   return (
     <div className="flex items-start gap-2.5 py-1.5">
@@ -343,7 +344,8 @@ const ToolCallRow: React.FC<ToolCallRowProps> = ({ call }) => {
       </div>
     </div>
   );
-};
+});
+ToolCallRow.displayName = 'ToolCallRow';
 
 // ---------------------------------------------------------------------------
 // 子组件：单个步骤卡片（可折叠）
@@ -355,7 +357,7 @@ interface StepCardProps {
   onToggle: () => void;
 }
 
-const StepCard: React.FC<StepCardProps> = ({ step, expanded, onToggle }) => {
+const StepCard: React.FC<StepCardProps> = React.memo(({ step, expanded, onToggle }) => {
   const firstCall = step.calls[0];
   const hasError = step.calls.some((c) => c.status === 'error');
 
@@ -442,7 +444,8 @@ const StepCard: React.FC<StepCardProps> = ({ step, expanded, onToggle }) => {
       </div>
     </div>
   );
-};
+});
+StepCard.displayName = 'StepCard';
 
 // ---------------------------------------------------------------------------
 // 主组件：AgentWorkflowCard
@@ -508,10 +511,15 @@ const AgentWorkflowCard: React.FC<AgentWorkflowCardProps> = ({ toolCalls, durati
     }
   }, [allCollapsed, knownRounds]);
 
+  // 6b: errorCount 用 useMemo（必须在 early return 之前，遵守 hooks 规则）
+  const errorCount = useMemo(
+    () => toolCalls.filter((c) => c.status === 'error').length,
+    [toolCalls],
+  );
+
   if (steps.length === 0) return null;
 
   const totalCalls = toolCalls.length;
-  const errorCount = toolCalls.filter((c) => c.status === 'error').length;
 
   return (
     <div className="rounded-xl border border-border bg-bg-secondary/60 overflow-hidden glow-card" style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}>

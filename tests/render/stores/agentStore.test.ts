@@ -164,7 +164,6 @@ describe('agentStore 会话状态机', () => {
     expect(s.messages).toEqual([]);
     expect(s.activeConversationId).toBeNull();
     expect(s.isStreaming).toBe(false);
-    expect(s.streamBuffer).toBe('');
     expect(s.pendingConsent).toBe(false);
   });
 
@@ -223,7 +222,6 @@ describe('agentStore 会话状态机', () => {
     // 推流式 chunk
     emit({ type: 'chunk', conversationId: CONVERSATION_ID, delta: 'Hel' });
     emit({ type: 'chunk', conversationId: CONVERSATION_ID, delta: 'lo' });
-    expect(useAgentStore.getState().streamBuffer).toBe('Hello');
 
     // done
     emit({ type: 'done', conversationId: CONVERSATION_ID });
@@ -231,7 +229,6 @@ describe('agentStore 会话状态机', () => {
 
     const s = useAgentStore.getState();
     expect(s.isStreaming).toBe(false);
-    expect(s.streamBuffer).toBe('');
     const assistant = s.messages.find((m) => m.role === 'assistant');
     expect(assistant?.content).toBe('Hello');
   });
@@ -286,7 +283,6 @@ describe('agentStore 会话状态机', () => {
       consent: noConsent,
       isStreaming: true,
       activeConversationId: CONVERSATION_ID,
-      streamBuffer: 'partial',
     });
 
     useAgentStore.getState().stopStream();
@@ -299,7 +295,6 @@ describe('agentStore 会话状态机', () => {
     ).toHaveBeenCalledWith(CONVERSATION_ID, 'u1');
     const s = useAgentStore.getState();
     expect(s.isStreaming).toBe(false);
-    expect(s.streamBuffer).toBe('');
   });
 
   it('stopStream 未登录（无 userId）不调用 abort', () => {
@@ -309,7 +304,6 @@ describe('agentStore 会话状态机', () => {
       consent: noConsent,
       isStreaming: true,
       activeConversationId: CONVERSATION_ID,
-      streamBuffer: 'partial',
     });
 
     useAgentStore.getState().stopStream();

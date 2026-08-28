@@ -12,9 +12,12 @@ export interface LlmMessage {
   tool_call_id?: string;
 }
 
-/** token 估算：无 tokenizer，取 ceil(len/4)。中文 ~1 字/词，英文 ~4 字/token，偏保守。 */
+/**
+ * token 估算：无 tokenizer，按字符类型加权。
+ * 中文字符约 1~2 token/字，英文约 0.25 token/char；统一用 len/2 宁可多估触发压缩。
+ */
 export function estimateTokens(text: string): number {
-  return Math.ceil((text || '').length / 4);
+  return Math.ceil((text || '').length / 2);
 }
 
 /** 是否应触发压缩：tokens 达到 contextWindow 的 threshold（默认 0.8）。 */
@@ -45,7 +48,7 @@ export function buildCompressed(
 
 /**
  * 保留最近 keepRecentRounds 轮（user+assistant 视为一轮，tool 归其 assistant 轮）。
- * 从末尾倒推：收集 assistant 及其前的最近 user，及该轮覆盖的 tool 消息。
+ * 从末尾倒推：用 push 收集（O(1)），最后 reverse 恢复正序（O(n)），避免 unshift O(n^2)。
  */
 function keepRecentTail(messages: LlmMessage[], keepRounds: number): LlmMessage[] {
   const rounds: LlmMessage[][] = [];
@@ -53,21 +56,24 @@ function keepRecentTail(messages: LlmMessage[], keepRounds: number): LlmMessage[
 
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const msg = messages[i];
+    currentRound.push(msg);
     if (msg.role === 'user') {
-      currentRound.unshift(msg);
-      rounds.unshift(currentRound);
+      // 当前轮收集完毕（倒序），反转后存入
+      currentRound.reverse();
+      rounds.push(currentRound);
       currentRound = [];
       if (rounds.length >= keepRounds) break;
-    } else if (msg.role === 'assistant') {
-      currentRound.unshift(msg);
-    } else if (msg.role === 'tool') {
-      // tool 归属最近已出现的 assistant；若尚无 assistant 组，先归入当前组
-      currentRound.unshift(msg);
-    } else {
-      currentRound.unshift(msg);
     }
   }
 
+  // 如果循环结束时 currentRound 还有剩余消息（首条非 user 开头），也反转存入
+  if (currentRound.length > 0) {
+    currentRound.reverse();
+    rounds.push(currentRound);
+  }
+
+  // rounds 是从后往前收集的，反转后为正序
+  rounds.reverse();
   return rounds.flat();
 }
 

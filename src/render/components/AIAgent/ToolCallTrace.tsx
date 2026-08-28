@@ -5,7 +5,7 @@
 // （ok 绿 / error 红）+ 结果折叠展开。i18n 键 ai.tool.*。
 // 纯展示组件：一次性传入单条 tool call（含其流式回显），结果段可折叠。
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { IAgentToolCall } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 
@@ -36,13 +36,13 @@ function summarizeArgs(args: string): string {
   }
 }
 
-/** 格式化工具耗时：≥1s 显示秒，<1s 显示毫秒。 */
+/** 格式化工具耗时：>=1s 显示秒，<1s 显示毫秒。 */
 function formatDuration(ms: number): string {
   if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
   return `${ms}ms`;
 }
 
-const ToolCallTrace: React.FC<ToolCallTraceProps> = ({ call, duration }) => {
+const ToolCallTrace: React.FC<ToolCallTraceProps> = React.memo(({ call, duration }) => {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
 
@@ -50,6 +50,12 @@ const ToolCallTrace: React.FC<ToolCallTraceProps> = ({ call, duration }) => {
   const resultText = isError
     ? call.errorDesc ?? call.result ?? ''
     : call.result ?? '';
+
+  // 7b: summarizeArgs 结果用 useMemo
+  const argsSummary = useMemo(
+    () => truncate(summarizeArgs(call.args), ARGS_PREVIEW_LIMIT),
+    [call.args],
+  );
 
   return (
     <div
@@ -63,7 +69,7 @@ const ToolCallTrace: React.FC<ToolCallTraceProps> = ({ call, duration }) => {
             {call.name}
             {duration !== undefined && duration > 0 && (
               <span className="ml-1.5 font-normal text-text-sub">
-                · {formatDuration(duration)}
+                . {formatDuration(duration)}
               </span>
             )}
           </span>
@@ -88,7 +94,7 @@ const ToolCallTrace: React.FC<ToolCallTraceProps> = ({ call, duration }) => {
 
       {/* 参数摘要 */}
       <div className="text-[13px] text-text-sub break-words whitespace-pre-wrap">
-        {truncate(summarizeArgs(call.args), ARGS_PREVIEW_LIMIT)}
+        {argsSummary}
       </div>
 
       {/* 折叠的结果区 */}
@@ -105,6 +111,7 @@ const ToolCallTrace: React.FC<ToolCallTraceProps> = ({ call, duration }) => {
       )}
     </div>
   );
-};
+});
+ToolCallTrace.displayName = 'ToolCallTrace';
 
 export default ToolCallTrace;

@@ -151,7 +151,7 @@
   AGENT_RUN 检索兜底均消费持久化值）
 - Agent 能力：toolRegistry/agentLoop（≤6 轮函数调用循环，后端恒 remote、无降级）/
   skillLoader（3 内置 + 用户扩展 SKILL.md）/intentRouter（6 类 + 候选提问卡片）/
-  contextManager（/4 估算 + 80% 压缩）；渲染端 AgentTab + ToolCallTrace + IntentCard +
+  contextManager（/2 估算 + 80% 压缩）；渲染端 AgentTab + ToolCallTrace + IntentCard +
   MarkdownMessage（HAST→React 安全富文本，无 dangerouslySetInnerHTML）
 - 第 7 期体验重构（2026-08-15 全部交付）：A4 选区改写叶序错位修复（DOM 序含容器块 → 改用 content 解析叶序=位置+文本对齐，失同步保守 null）+
   A1 当前文档上下文注入（agentLoop system prompt + 截断）+ rewrite 意图补词 + 从 0 到 1 整篇写（预览确认 → updateContent 入 undo；未打开拒写）+
@@ -172,6 +172,19 @@
   ⑥ R6 IndexedDB 草稿恢复（draftStore.ts，300ms 防抖 + conversationId 索引）+
   ⑦ R7 已实现模块集成（DeadLoopDetector + checkpoint + snapshot + 回滚 UI）
   门禁全绿（tsc 0 新增 | vitest 1500/1500 | lint 0 error）
+- AI 模块性能优化（2026-08-26，29 项全部交付）：
+  **渲染端 18 项**：① streamBuffer 从 store 移到 AgentTab useRef + rAF 节流（消除每 token 全量重渲染）+
+  ② AIMessageBubble/StepCard/ToolCallRow/ToolCallTrace React.memo +
+  ③ MessageList 子组件抽取（隔离 streamBuffer 订阅）+
+  ④ parseRefsJson/processStatusText/buildCompletionItems/errorCount/extractToolSummary useMemo +
+  ⑤ handleCopy/handleRetry/handleOpenSource + AIAgentPanel 5 handler useCallback +
+  ⑥ init 多次 set() 合并 + visibilitychange 监听器清理；
+  **主进程 11 项**：⑦ 只读工具 Promise.all 并行执行 +
+  ⑧ rankCandidates Map 化（O(n²)→O(n)）+ ⑨ aggregateAndExpand 批量 SQL 查询 +
+  ⑩ contextManager push+reverse（O(n²)→O(n)）+ estimateTokens len/4→len/2（中文精度修正）+
+  ⑪ agentLoop 增量 token + 原地 push + 增量 checkpoint +
+  ⑫ defineCoreTools 模块级常量缓存 + AGENT_SKILLS_LIST 30s TTL 缓存 + rerankCache 惰性清理
+  门禁全绿（tsc 0 新增 | vitest 1499/1499 | lint 0 新增 error）
 - AI 文件操作持久化修复（2026-08-26）：
   ① AI 创建文件重启后不丢失（fileTreeStore.restore DB 回退查询）+
   ② AI 新建文档点击有黄色渐变（addFile id 对齐 node.path）+

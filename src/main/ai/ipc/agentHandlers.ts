@@ -22,6 +22,14 @@ import { activeStreams, DEFAULT_AI_CONFIG, DEFAULT_CONSENT, toIAIConfig, toIAICo
 /** 内置 skills 名称列表（不暴露给 UI，仅 agent 内部使用）。 */
 const BUILTIN_SKILL_NAMES = new Set(['polish_rewrite', 'tech_organize', 'kb_qa_guide']);
 
+/** 5a: AGENT_SKILLS_LIST 30s TTL 缓存（避免高频调用重复扫描 5 个目录）。 */
+interface SkillsCacheEntry {
+  data: Array<{ name: string; description: string }>;
+  timestamp: number;
+}
+let skillsCache: SkillsCacheEntry | null = null;
+const SKILLS_CACHE_TTL_MS = 30_000;
+
 // ---------------------------------------------------------------------------
 // Task Queue / Worker 单例
 // ---------------------------------------------------------------------------
@@ -264,6 +272,10 @@ export function registerAgentHandlers(): void {
         return { success: false, message: 'userId required' };
       }
       try {
+        // 5a: 检查缓存（30s TTL）
+        if (skillsCache && Date.now() - skillsCache.timestamp < SKILLS_CACHE_TTL_MS) {
+          return { success: true, data: skillsCache.data };
+        }
         // 扫描多个目录下的用户自定义 skills（支持子目录+SKILL.md 和扁平.md 两种格式）
         const homeDir = app.getPath('home');
         const userDataDir = app.getPath('userData');
@@ -278,6 +290,7 @@ export function registerAgentHandlers(): void {
         const userSkills = userSkillsRaw
           .filter((s) => !BUILTIN_SKILL_NAMES.has(s.name))
           .map((s) => ({ name: s.name, description: s.description }));
+        skillsCache = { data: userSkills, timestamp: Date.now() };
         return { success: true, data: userSkills };
       } catch {
         return { success: false, message: 'Failed to list skills' };

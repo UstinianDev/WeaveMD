@@ -141,7 +141,7 @@ const AIAgentPanel: React.FC = () => {
     [aiPanelWidth, setAIPanelWidth]
   );
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     setIsCollapsing(true);
     // R6: Save draft before closing panel (restored on reopen if same conversation)
     if (activeConversationId && draft.trim()) {
@@ -152,10 +152,10 @@ const AIAgentPanel: React.FC = () => {
       setIsCollapsing(false);
       toggleAIPanel();
     }, 150);
-  };
+  }, [activeConversationId, draft, toggleAIPanel]);
 
   // + 新建会话：清空当前会话 + 进 session + 重置草稿
-  const handleNewChat = () => {
+  const handleNewChat = useCallback(() => {
     // R6: Save current draft before switching to new (empty) conversation
     if (activeConversationId && draft.trim()) {
       void saveDraft(activeConversationId, draft);
@@ -163,28 +163,34 @@ const AIAgentPanel: React.FC = () => {
     newChat();
     setView('session');
     setDraft('');
-  };
+  }, [activeConversationId, draft, newChat]);
 
   // 打开最近会话（home RECENT 点击）→ loadConversation + 进 session
   // R6: Draft save/restore handled by activeConversationId effect
-  const handleOpenConversation = (id: string) => {
-    void loadConversation(id, activeMode);
-    setView('session');
-  };
+  const handleOpenConversation = useCallback(
+    (id: string) => {
+      void loadConversation(id, activeMode);
+      setView('session');
+    },
+    [loadConversation, activeMode],
+  );
 
   // session 标题行 × 关闭当前会话 → newChat + 回 home（R14）
   // R6: Draft save handled by activeConversationId effect (newChat sets id to null)
-  const handleCloseConversation = () => {
+  const handleCloseConversation = useCallback(() => {
     newChat();
     setView('home');
-  };
+  }, [newChat]);
 
   // R2: 历史会话删除（直接删除，无需确认）
-  const handleDeleteHistory = (id: string) => {
-    void deleteConversation(id);
-    // R6: Clean up persisted draft for deleted conversation
-    void deleteDraft(id);
-  };
+  const handleDeleteHistory = useCallback(
+    (id: string) => {
+      void deleteConversation(id);
+      // R6: Clean up persisted draft for deleted conversation
+      void deleteDraft(id);
+    },
+    [deleteConversation],
+  );
 
   // R2: 历史会话列表（按 updatedAt 倒序）
   const sortedConversations = React.useMemo(

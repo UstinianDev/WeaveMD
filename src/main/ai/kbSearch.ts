@@ -279,16 +279,16 @@ export function rankCandidates(
     candidateMap.set(c.chunkId, c);
   }
 
+  // 4a: 预建排名 Map（O(1) 查找替代 O(n) find）
+  const ftsRankMap = new Map(ftsSorted.map(e => [e.chunkId, e.rank]));
+  const vecRankMap = new Map(vecSorted.map(e => [e.chunkId, e.rank]));
+  const titleRankMap = new Map(titleSorted.map(e => [e.chunkId, e.rank]));
+
   // 生成结果
   const scored: IKbSearchResult[] = [];
   for (const [chunkId, rrfScore] of rrfScores) {
     const c = candidateMap.get(chunkId);
     if (!c) continue;
-
-    // 查找各路排名（调试用）
-    const ftsEntry = ftsSorted.find(e => e.chunkId === chunkId);
-    const vecEntry = vecSorted.find(e => e.chunkId === chunkId);
-    const titleEntry = titleSorted.find(e => e.chunkId === chunkId);
 
     scored.push({
       docId: c.documentId,
@@ -301,9 +301,9 @@ export function rankCandidates(
       sourceRef: c.sourceRef,
       isHeading: c.isHeading,
       rrfRanks: {
-        vec: vecEntry?.rank,
-        fts: ftsEntry?.rank,
-        title: titleEntry?.rank,
+        vec: vecRankMap.get(chunkId),
+        fts: ftsRankMap.get(chunkId),
+        title: titleRankMap.get(chunkId),
       },
     });
   }
@@ -422,66 +422,88 @@ export function aggregateAndExpand(
     capped.push(...arr.slice(0, maxChunksPerFile));
   }
 
-  // Step 3: 上下文扩展 — 为每个匹配 chunk 前后各扩展 contextExpand 个 chunk
+  // Step 3: 上下文扩展 — 4b: 批量查询邻居（减少 N 次 SQL 为 1 次）
   const expanded: IKbSearchResult[] = [];
   const seenChunkIds = new Set<string>();
 
+  // 加入匹配 chunk 自身
   for (const r of capped) {
-    // 加入匹配 chunk 自身
     if (!seenChunkIds.has(r.chunkId)) {
       expanded.push(r);
       seenChunkIds.add(r.chunkId);
     }
+  }
 
-    // 查询前后扩展 chunk
-    if (contextExpand > 0) {
-      try {
-        const neighbors = db.prepare(`
-          SELECT c.id AS chunkId, c.document_id AS documentId, c.content, c.seq,
-                 c.source_ref AS sourceRef, d.title AS fileName, d.pinned,
-                 c.heading_path AS headingPath
-            FROM kb_chunks c
-            JOIN kb_documents d ON d.id = c.document_id
-           WHERE d.id = ? AND d.user_id = ?
-             AND c.seq BETWEEN ? AND ?
-             AND c.id != ?
-           ORDER BY c.seq
-        `).all(
-          r.docId,
-          userId,
-          r.seq - contextExpand,
-          r.seq + contextExpand,
-          r.chunkId
-        ) as Array<{
-          chunkId: string;
-          documentId: string;
-          content: string;
-          seq: number;
-          sourceRef: string | null;
-          fileName: string;
-          pinned: number;
-          headingPath: string | null;
-        }>;
+  if (contextExpand > 0 && capped.length > 0) {
+    // 按 docId 分组收集 (seq, chunkId) 用于批量查询
+    const docSeqGroups = new Map<string, Array<{ seq: number; chunkId: string; score: number }>>();
+    for (const r of capped) {
+      const arr = docSeqGroups.get(r.docId) ?? [];
+      arr.push({ seq: r.seq, chunkId: r.chunkId, score: r.score });
+      docSeqGroups.set(r.docId, arr);
+    }
 
-        for (const n of neighbors) {
-          if (seenChunkIds.has(n.chunkId)) continue;
-          seenChunkIds.add(n.chunkId);
-          expanded.push({
-            docId: n.documentId,
-            chunkId: n.chunkId,
-            fileName: n.fileName,
-            content: n.content,
-            seq: n.seq,
-            // 上下文扩展 chunk 使用原匹配 chunk 分数的 50%
-            score: r.score * 0.5,
-            pinned: !!n.pinned,
-            sourceRef: n.sourceRef ?? null,
-            isHeading: !!n.headingPath,
-          });
+    try {
+      // 批量构建 OR 条件：每条 (docId, seq-range) 对应一个 AND 子句
+      const orClauses: string[] = [];
+      const params: Array<string | number> = [];
+      for (const [docId, seqs] of docSeqGroups) {
+        for (const s of seqs) {
+          orClauses.push('(d.id = ? AND c.seq BETWEEN ? AND ? AND c.id != ?)');
+          params.push(docId, s.seq - contextExpand, s.seq + contextExpand, s.chunkId);
         }
-      } catch {
-        // 查询失败时静默跳过扩展
       }
+      // 构建 seq→score 映射，用于计算扩展 chunk 的分数
+      const seqScoreMap = new Map<string, number>();
+      for (const [docId, seqs] of docSeqGroups) {
+        for (const s of seqs) {
+          seqScoreMap.set(`${docId}:${s.seq}`, s.score);
+        }
+      }
+
+      const sql = `
+        SELECT c.id AS chunkId, c.document_id AS documentId, c.content, c.seq,
+               c.source_ref AS sourceRef, d.title AS fileName, d.pinned,
+               c.heading_path AS headingPath
+          FROM kb_chunks c
+          JOIN kb_documents d ON d.id = c.document_id
+         WHERE d.user_id = ?
+           AND (${orClauses.join(' OR ')})
+         ORDER BY c.seq
+      `;
+
+      const neighbors = db.prepare(sql).all(userId, ...params) as Array<{
+        chunkId: string;
+        documentId: string;
+        content: string;
+        seq: number;
+        sourceRef: string | null;
+        fileName: string;
+        pinned: number;
+        headingPath: string | null;
+      }>;
+
+      for (const n of neighbors) {
+        if (seenChunkIds.has(n.chunkId)) continue;
+        seenChunkIds.add(n.chunkId);
+        // 找到最近的源匹配 chunk 分数（取最近 seq 的那个）
+        const parentScore = seqScoreMap.get(`${n.documentId}:${n.seq - contextExpand}`)
+          ?? seqScoreMap.get(`${n.documentId}:${n.seq + contextExpand}`)
+          ?? 0;
+        expanded.push({
+          docId: n.documentId,
+          chunkId: n.chunkId,
+          fileName: n.fileName,
+          content: n.content,
+          seq: n.seq,
+          score: parentScore * 0.5,
+          pinned: !!n.pinned,
+          sourceRef: n.sourceRef ?? null,
+          isHeading: !!n.headingPath,
+        });
+      }
+    } catch {
+      // 批量查询失败时静默跳过扩展
     }
   }
 
@@ -501,6 +523,9 @@ interface RerankCacheEntry {
 }
 const rerankCache = new Map<string, RerankCacheEntry>();
 const RERANK_CACHE_TTL_MS = 5 * 60 * 1000;
+/** 4c: 惰性清理 — 每 N 次写入才遍历清理一次过期条目。 */
+let rerankWriteCount = 0;
+const RERANK_CLEANUP_INTERVAL = 50;
 
 /**
  * 判断是否需要条件重排（满足任一条件）：
@@ -566,11 +591,14 @@ export async function conditionalRerank(
     return results;
   }
 
-  // 检查缓存
+  // 检查缓存（4c: 读取时检查 TTL，过期即删）
   const cacheKey = `${query}::${results.map(r => r.chunkId).join(',')}`;
   const cached = rerankCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < RERANK_CACHE_TTL_MS) {
-    return cached.results;
+  if (cached) {
+    if (Date.now() - cached.timestamp < RERANK_CACHE_TTL_MS) {
+      return cached.results;
+    }
+    rerankCache.delete(cacheKey);
   }
 
   try {
@@ -586,10 +614,15 @@ export async function conditionalRerank(
     // 写入缓存
     rerankCache.set(cacheKey, { results: final, timestamp: Date.now() });
 
-    // 清理过期缓存
-    for (const [key, entry] of rerankCache) {
-      if (Date.now() - entry.timestamp > RERANK_CACHE_TTL_MS) {
-        rerankCache.delete(key);
+    // 4c: 惰性清理 — 每 RERANK_CLEANUP_INTERVAL 次写入才遍历清理一次
+    rerankWriteCount += 1;
+    if (rerankWriteCount >= RERANK_CLEANUP_INTERVAL) {
+      rerankWriteCount = 0;
+      const now = Date.now();
+      for (const [key, entry] of rerankCache) {
+        if (now - entry.timestamp > RERANK_CACHE_TTL_MS) {
+          rerankCache.delete(key);
+        }
       }
     }
 

@@ -87,6 +87,14 @@ const CONTEXT_WINDOW = 64_000;
 const COMPRESS_THRESHOLD = 0.8;
 const KEEP_RECENT_ROUNDS = 6;
 
+/** 只读工具集合（无副作用，可并行执行）。 */
+const READ_ONLY_TOOLS = new Set([
+  'listFiles', 'readFile', 'searchKB', 'readFileRevision',
+  'listFileRevisions', 'getFileInfo', 'readLocalFile', 'listLocalDirectory',
+  'analyze_folder', 'check_links', 'get_task_activity', 'web_search',
+  'research_search',
+]);
+
 /** 文档上下文注入：估算 >5000 tokens（约 2 万字符）时截断到 20000 字符 + 尾部标记。 */
 const DOC_CONTEXT_TOKEN_LIMIT = 5000;
 const DOC_CONTEXT_CHAR_LIMIT = 20_000;
@@ -286,6 +294,8 @@ interface AgentContext {
   roundsUsed: number;
   reasoningTokenCount: number | null;
   assistantId: string;
+  /** 增量 token 统计（避免每轮全量重算）。 */
+  totalTokens: number;
 }
 
 /**
@@ -432,6 +442,9 @@ function prepareAgentContext(
     llmMessages = [{ role: 'system', content: documentContext }, ...llmMessages];
   }
 
+  // 初始 token 统计
+  const initTokens = llmMessages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+
   return {
     convId,
     userId,
@@ -451,6 +464,7 @@ function prepareAgentContext(
     roundsUsed: 0,
     reasoningTokenCount: null,
     assistantId: '',
+    totalTokens: initTokens,
   };
 }
 
@@ -464,7 +478,149 @@ interface ToolRoundResult {
 }
 
 /**
- * 执行一轮工具调用：逐工具执行 + ask_question_card 暂停 + 死循环检测 + 落库。
+ * 单工具执行结果（含原始索引，用于并行后恢复顺序）。
+ */
+interface ToolExecResult {
+  tc: { index: number; name: string; arguments: string };
+  toolCallId: string;
+  result: { content: string; status: 'ok' | 'error'; errorDesc?: string };
+}
+
+/**
+ * 执行单个工具并返回结构化结果（含错误兜底）。
+ */
+async function executeOneTool(
+  tc: { index: number; name: string; arguments: string },
+  round: number,
+  ctx: AgentContext
+): Promise<ToolExecResult> {
+  const toolCallId = `call_${round}_${tc.index}`;
+  let result: { content: string; status: 'ok' | 'error'; errorDesc?: string };
+  try {
+    result = await executeTool(tc.name, tc.arguments, ctx.toolCtx);
+  } catch (err) {
+    result = {
+      content: '',
+      status: 'error' as const,
+      errorDesc: err instanceof Error ? err.message : String(err),
+    };
+  }
+  return { tc, toolCallId, result };
+}
+
+/**
+ * 处理单个工具结果：发送事件、持久化、死循环检测。
+ * 返回 deadLoopBreak 标志。
+ */
+function handleToolResult(
+  entry: ToolExecResult,
+  ctx: AgentContext,
+  round: number,
+  thinkingText: string | undefined,
+  deps: AgentLoopDeps,
+  toolTurn: AgentLlmMessage[],
+  executionSegments: ExecutionSegment[]
+): { deadLoopBreak: boolean } {
+  const { tc, toolCallId, result } = entry;
+
+  const segment = createSegment(toolCallId, tc.name, round);
+  executionSegments.push(segment);
+
+  // 完成执行段
+  const segIndex = executionSegments.findIndex((s) => s.id === toolCallId);
+  if (segIndex >= 0) {
+    executionSegments[segIndex] = completeSegment(
+      segment,
+      result.errorDesc ?? result.content,
+      result.status === 'ok'
+    );
+  }
+
+  // R3: ask_question_card 暂停检测
+  let interactionAnswers: Record<string, string> | null = null;
+  if (
+    tc.name === 'ask_question_card' &&
+    result.status === 'ok' &&
+    deps.onInteractionRequired &&
+    deps.waitForInteraction
+  ) {
+    try {
+      const parsed = JSON.parse(result.content) as { success?: boolean; session?: { questions?: IClarifyQuestion[] } };
+      if (parsed.success && parsed.session?.questions?.length) {
+        deps.onInteractionRequired(parsed.session.questions);
+        // 注意：ask_question_card 是有副作用工具，走串行路径，此处 await 不会阻塞并行工具
+        interactionAnswers = null; // waitForInteraction 在外部串行处理
+      }
+    } catch {
+      interactionAnswers = null;
+    }
+  }
+
+  const toolEvent: IAgentToolCall = {
+    toolCallId,
+    name: tc.name,
+    args: tc.arguments,
+    status: result.status,
+    ...(result.status === 'ok' ? { result: result.content } : { errorDesc: result.errorDesc }),
+    ...(thinkingText ? { thinking: thinkingText } : {}),
+    loopIndex: round,
+  };
+  ctx.send(IPC_CHANNELS.AI_STREAM_TOOL, { conversationId: ctx.convId, ...toolEvent });
+  ctx.toolCallsHistory.push(toolEvent);
+
+  // R3: 用户答案注入
+  const toolResultContent = interactionAnswers
+    ? JSON.stringify({ answers: interactionAnswers, phase: 'answered' })
+    : result.content;
+  const toolResultForLlm = interactionAnswers
+    ? JSON.stringify({ answers: interactionAnswers, phase: 'answered' })
+    : (result.errorDesc ? `[工具 ${tc.name} 失败] ${result.errorDesc}` : result.content);
+
+  appendMessage({
+    conversationId: ctx.convId,
+    userId: ctx.userId,
+    role: 'tool',
+    content: result.errorDesc && !interactionAnswers
+      ? `[工具 ${tc.name} 失败] ${result.errorDesc}`
+      : toolResultContent,
+    toolCallId,
+  });
+  toolTurn.push({
+    role: 'tool',
+    tool_call_id: toolCallId,
+    content: toolResultForLlm,
+  });
+
+  // R7a: 死循环检测 — 相同结果
+  const sameResultCheck: LoopCheckResult = ctx.detector.checkSameResult(result.content);
+  if (sameResultCheck.detected) {
+    ctx.send(IPC_CHANNELS.AI_STREAM_ERROR, {
+      conversationId: ctx.convId,
+      code: 'loop_detected',
+      message: sameResultCheck.message ?? 'Dead loop detected: same result repeated',
+    });
+    return { deadLoopBreak: true };
+  }
+
+  // R7a: 死循环检测 — 连续失败
+  const failureCheck: LoopCheckResult = ctx.detector.checkConsecutiveFailure(
+    tc.name,
+    result.status === 'ok'
+  );
+  if (failureCheck.detected) {
+    ctx.send(IPC_CHANNELS.AI_STREAM_ERROR, {
+      conversationId: ctx.convId,
+      code: 'loop_detected',
+      message: failureCheck.message ?? 'Dead loop detected: consecutive failures',
+    });
+    return { deadLoopBreak: true };
+  }
+
+  return { deadLoopBreak: false };
+}
+
+/**
+ * 执行一轮工具调用：只读工具并行 + 有副作用工具串行 + 死循环检测 + 落库。
  */
 async function executeToolRound(
   ctx: AgentContext,
@@ -490,110 +646,38 @@ async function executeToolRound(
 
   const executionSegments: ExecutionSegment[] = [];
 
+  // 1a: 分区只读/有副作用工具
+  const readOnlyTcs: typeof accumulatedToolCalls = [];
+  const writableTcs: typeof accumulatedToolCalls = [];
   for (const tc of accumulatedToolCalls) {
-    const toolCallId = `call_${round}_${tc.index}`;
-    const segment = createSegment(toolCallId, tc.name, round);
-    executionSegments.push(segment);
-
-    let result;
-    try {
-      result = await executeTool(tc.name, tc.arguments, ctx.toolCtx);
-    } catch (err) {
-      result = {
-        content: '',
-        status: 'error' as const,
-        errorDesc: err instanceof Error ? err.message : String(err),
-      };
+    if (READ_ONLY_TOOLS.has(tc.name)) {
+      readOnlyTcs.push(tc);
+    } else {
+      writableTcs.push(tc);
     }
+  }
 
-    // 完成执行段
-    const segIndex = executionSegments.findIndex((s) => s.id === toolCallId);
-    if (segIndex >= 0) {
-      executionSegments[segIndex] = completeSegment(
-        segment,
-        result.errorDesc ?? result.content,
-        result.status === 'ok'
-      );
-    }
+  // 并行执行只读工具
+  const readOnlyResults: ToolExecResult[] = readOnlyTcs.length > 0
+    ? await Promise.all(readOnlyTcs.map((tc) => executeOneTool(tc, round, ctx)))
+    : [];
 
-    // R3: ask_question_card 暂停检测
-    let interactionAnswers: Record<string, string> | null = null;
-    if (
-      tc.name === 'ask_question_card' &&
-      result.status === 'ok' &&
-      deps.onInteractionRequired &&
-      deps.waitForInteraction
-    ) {
-      try {
-        const parsed = JSON.parse(result.content) as { success?: boolean; session?: { questions?: IClarifyQuestion[] } };
-        if (parsed.success && parsed.session?.questions?.length) {
-          deps.onInteractionRequired(parsed.session.questions);
-          interactionAnswers = await deps.waitForInteraction();
-        }
-      } catch {
-        interactionAnswers = null;
-      }
-    }
+  // 串行执行有副作用工具
+  const writableResults: ToolExecResult[] = [];
+  for (const tc of writableTcs) {
+    writableResults.push(await executeOneTool(tc, round, ctx));
+  }
 
-    const toolEvent: IAgentToolCall = {
-      toolCallId,
-      name: tc.name,
-      args: tc.arguments,
-      status: result.status,
-      ...(result.status === 'ok' ? { result: result.content } : { errorDesc: result.errorDesc }),
-      ...(thinkingText ? { thinking: thinkingText } : {}),
-      loopIndex: round,
-    };
-    ctx.send(IPC_CHANNELS.AI_STREAM_TOOL, { conversationId: ctx.convId, ...toolEvent });
-    ctx.toolCallsHistory.push(toolEvent);
+  // 合并结果，按 accumulatedToolCalls 原始顺序排列（index 关联）
+  const resultMap = new Map<number, ToolExecResult>();
+  for (const r of readOnlyResults) resultMap.set(r.tc.index, r);
+  for (const r of writableResults) resultMap.set(r.tc.index, r);
 
-    // R3: 用户答案注入
-    const toolResultContent = interactionAnswers
-      ? JSON.stringify({ answers: interactionAnswers, phase: 'answered' })
-      : result.content;
-    const toolResultForLlm = interactionAnswers
-      ? JSON.stringify({ answers: interactionAnswers, phase: 'answered' })
-      : (result.errorDesc ? `[工具 ${tc.name} 失败] ${result.errorDesc}` : result.content);
-
-    appendMessage({
-      conversationId: ctx.convId,
-      userId: ctx.userId,
-      role: 'tool',
-      content: result.errorDesc && !interactionAnswers
-        ? `[工具 ${tc.name} 失败] ${result.errorDesc}`
-        : toolResultContent,
-      toolCallId,
-    });
-    toolTurn.push({
-      role: 'tool',
-      tool_call_id: toolCallId,
-      content: toolResultForLlm,
-    });
-
-    // R7a: 死循环检测 — 相同结果
-    const sameResultCheck: LoopCheckResult = ctx.detector.checkSameResult(result.content);
-    if (sameResultCheck.detected) {
-      ctx.send(IPC_CHANNELS.AI_STREAM_ERROR, {
-        conversationId: ctx.convId,
-        code: 'loop_detected',
-        message: sameResultCheck.message ?? 'Dead loop detected: same result repeated',
-      });
-      return { toolTurn, deadLoopBreak: true };
-    }
-
-    // R7a: 死循环检测 — 连续失败
-    const failureCheck: LoopCheckResult = ctx.detector.checkConsecutiveFailure(
-      tc.name,
-      result.status === 'ok'
-    );
-    if (failureCheck.detected) {
-      ctx.send(IPC_CHANNELS.AI_STREAM_ERROR, {
-        conversationId: ctx.convId,
-        code: 'loop_detected',
-        message: failureCheck.message ?? 'Dead loop detected: consecutive failures',
-      });
-      return { toolTurn, deadLoopBreak: true };
-    }
+  for (const tc of accumulatedToolCalls) {
+    const entry = resultMap.get(tc.index);
+    if (!entry) continue;
+    const check = handleToolResult(entry, ctx, round, thinkingText, deps, toolTurn, executionSegments);
+    if (check.deadLoopBreak) return { toolTurn, deadLoopBreak: true };
   }
 
   return { toolTurn, deadLoopBreak: false };
@@ -654,29 +738,26 @@ export async function runAgentFlow(
 
       // R7a: 接近限制时注入收敛提示
       if (ctx.detector.isNearRoundLimit()) {
-        ctx.llmMessages = [
-          ...ctx.llmMessages,
-          {
-            role: 'system' as const,
-            content: `你已接近工具调用轮次上限（${deps.maxRounds ?? 12} 轮），请尽快给出最终回答。`,
-          },
-        ];
+        const convergenceMsg = {
+          role: 'system' as const,
+          content: `你已接近工具调用轮次上限（${deps.maxRounds ?? 12} 轮），请尽快给出最终回答。`,
+        };
+        ctx.llmMessages.push(convergenceMsg);
+        ctx.totalTokens += estimateTokens(convergenceMsg.content);
       }
 
-      // 上下文压缩（幂等）
+      // 上下文压缩（幂等）— 使用增量 token 统计
       const summary = getConversation(ctx.convId, ctx.userId)?.summary || '';
       if (
         summary &&
-        shouldCompress(
-          estimateTokens(ctx.llmMessages.map((m) => m.content).join('\n')),
-          CONTEXT_WINDOW,
-          COMPRESS_THRESHOLD
-        )
+        shouldCompress(ctx.totalTokens, CONTEXT_WINDOW, COMPRESS_THRESHOLD)
       ) {
         const newSummary = await summarizeViaLlm(ctx.llmMessages, ctx.skillContext);
         if (newSummary) {
           updateConversationSummary(ctx.convId, ctx.userId, newSummary);
           ctx.llmMessages = buildCompressed(ctx.llmMessages, newSummary, KEEP_RECENT_ROUNDS);
+          // 压缩后重算 token 统计
+          ctx.totalTokens = ctx.llmMessages.reduce((s, m) => s + estimateTokens(m.content), 0);
         }
       }
 
@@ -735,14 +816,19 @@ export async function runAgentFlow(
       );
       if (deadLoopBreak) break;
 
-      ctx.llmMessages = [...ctx.llmMessages, ...toolTurn];
+      // 1c: 原地 push（避免 spread 重新分配整个数组）
+      ctx.llmMessages.push(...toolTurn);
+      // 1b: 增量 token 统计
+      for (const m of toolTurn) {
+        ctx.totalTokens += estimateTokens(m.content);
+      }
 
-      // R7b: checkpoint
+      // R7b: checkpoint（1d: 增量 — 只记录本轮新增消息）
       if (ctx.hasSessionPersist) {
         try {
           const cpData: CheckpointData = {
             roundIndex: round,
-            llmMessages: ctx.llmMessages.map((m) => ({
+            llmMessages: toolTurn.map((m) => ({
               role: m.role as 'system' | 'user' | 'assistant' | 'tool',
               content: m.content,
               ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),

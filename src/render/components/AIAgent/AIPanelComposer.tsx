@@ -14,6 +14,7 @@ import { useAuthStore } from '@render/stores/authStore';
 import { useAgentStore } from '@render/stores/agentStore';
 import { useEditorStore } from '@render/stores/editorStore';
 import { useRewriteStore } from '@render/stores/rewriteStore';
+import { onStreamDelta } from '@render/stores/agentStore';
 import CompletionMenu, { type CompletionMenuItem } from './CompletionMenu';
 import ContextRing from './ContextRing';
 import ModelDropdown from './ModelDropdown';
@@ -73,7 +74,6 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
   const sendAgentMessage = useAgentStore((s) => s.sendAgentMessage);
   const stopStream = useAgentStore((s) => s.stopStream);
   const messages = useAgentStore((s) => s.messages);
-  const streamBuffer = useAgentStore((s) => s.streamBuffer);
   const writeMode = useAgentStore((s) => s.writeMode);
   const setWriteMode = useAgentStore((s) => s.setWriteMode);
 
@@ -103,13 +103,24 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
   /** 搜索菜单引用（点击外部关闭）。 */
   const searchMenuRef = useRef<HTMLDivElement>(null);
 
+  // 流式文本长度追踪（从 onStreamDelta 订阅，不写 store）
+  const streamLenRef = useRef(0);
+  useEffect(() => {
+    const unsubscribe = onStreamDelta((delta) => {
+      streamLenRef.current += delta.length;
+    });
+    // 流式结束时重置
+    if (!isStreaming) streamLenRef.current = 0;
+    return unsubscribe;
+  }, [isStreaming]);
+
   // R5: 上下文 token 估算
   const contextEstimate = useMemo(() => {
-    const totalChars = messages.reduce((acc, m) => acc + m.content.length, 0) + streamBuffer.length;
+    const totalChars = messages.reduce((acc, m) => acc + m.content.length, 0) + streamLenRef.current;
     const usedTokens = Math.round(totalChars / 4);
     const ratio = usedTokens / MAX_CONTEXT_TOKENS;
     return { usedTokens, ratio };
-  }, [messages, streamBuffer]);
+  }, [messages, isStreaming]);
 
   const contextTooltip = t(
     'ai.context.tooltip',
@@ -162,34 +173,39 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [searchMenuOpen]);
 
+  // 预计算技能列表和引用列表（useMemo），buildCompletionItems 只做 filter
+  const skillItems = useMemo<CompletionMenuItem[]>(
+    () =>
+      skills.map((s) => ({
+        value: s.name,
+        label: s.name,
+        description: s.description,
+        insertText: `/${s.name} `,
+      })),
+    [skills],
+  );
+
+  const refItems = useMemo<CompletionMenuItem[]>(
+    () => [
+      {
+        value: 'doc',
+        label: t('ai.completion.currentDoc'),
+        description: t('ai.completion.currentDocDesc'),
+        insertText: `${DOC_SCOPE_PREFIX} `,
+      },
+      {
+        value: 'kb',
+        label: t('ai.completion.kbDoc'),
+        description: t('ai.completion.kbDocDesc'),
+        insertText: `${KB_SCOPE_PREFIX} `,
+      },
+    ],
+    [t],
+  );
+
   /** 构建补全菜单项（`/` = 技能；`@` = 引用目标（当前文档 / 知识库））。 */
   const buildCompletionItems = (trigger: '/' | '@', query: string): CompletionMenuItem[] => {
-    let items: CompletionMenuItem[];
-    if (trigger === '/') {
-      items = [
-        ...skills.map((s) => ({
-          value: s.name,
-          label: s.name,
-          description: s.description,
-          insertText: `/${s.name} `,
-        })),
-      ];
-    } else {
-      items = [
-        {
-          value: 'doc',
-          label: t('ai.completion.currentDoc'),
-          description: t('ai.completion.currentDocDesc'),
-          insertText: `${DOC_SCOPE_PREFIX} `,
-        },
-        {
-          value: 'kb',
-          label: t('ai.completion.kbDoc'),
-          description: t('ai.completion.kbDocDesc'),
-          insertText: `${KB_SCOPE_PREFIX} `,
-        },
-      ];
-    }
+    const items = trigger === '/' ? skillItems : refItems;
     if (!query) return items;
     const q = query.toLowerCase();
     return items.filter((it) =>

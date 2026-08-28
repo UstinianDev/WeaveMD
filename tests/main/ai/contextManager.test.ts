@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { buildCompressed, estimateTokens, shouldCompress } from '@main/ai/contextManager';
 
 describe('contextManager.estimateTokens', () => {
-  it('estimates ceil(len/4)', () => {
+  it('estimates ceil(len/2)', () => {
     expect(estimateTokens('')).toBe(0);
-    expect(estimateTokens('hello world')).toBe(Math.ceil(11 / 4));
-    expect(estimateTokens('abcdefgh')).toBe(2);
-    expect(estimateTokens('abc')).toBe(1);
+    expect(estimateTokens('hello world')).toBe(Math.ceil(11 / 2));
+    expect(estimateTokens('abcdefgh')).toBe(4);
+    expect(estimateTokens('abc')).toBe(2);
   });
 });
 

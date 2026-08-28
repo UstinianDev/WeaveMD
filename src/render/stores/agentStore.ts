@@ -82,7 +82,6 @@ interface AgentStore {
   messages: IAIMessage[];
   conversations: IAIConversation[];
   isStreaming: boolean;
-  streamBuffer: string;
   consent: IAIConsent | null;
   config: IAIConfig | null;
   pendingConsent: boolean;
@@ -198,7 +197,6 @@ const RESET_FIELDS: Pick<
   | 'messages'
   | 'conversations'
   | 'isStreaming'
-  | 'streamBuffer'
   | 'consent'
   | 'config'
   | 'pendingConsent'
@@ -228,7 +226,6 @@ const RESET_FIELDS: Pick<
   messages: [],
   conversations: [],
   isStreaming: false,
-  streamBuffer: '',
   consent: null,
   config: null,
   pendingConsent: false,
@@ -255,6 +252,28 @@ const RESET_FIELDS: Pick<
 };
 
 const makeId = () => `m-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+/** 模块级保存 visibilitychange 回调引用，reset 时可移除。 */
+let _visibilityHandler: (() => void) | null = null;
+
+/**
+ * 流式文本 delta 回调注册表（模块级）。
+ * AgentTab 注册回调接收流式增量，store 在 chunk 到达时通知所有订阅者。
+ * 避免将 streamBuffer 放入 Zustand state 导致频繁 re-render。
+ */
+type StreamDeltaCallback = (delta: string) => void;
+const _streamDeltaListeners = new Set<StreamDeltaCallback>();
+
+/** 注册流式 delta 回调，返回取消注册函数。 */
+export function onStreamDelta(cb: StreamDeltaCallback): () => void {
+  _streamDeltaListeners.add(cb);
+  return () => { _streamDeltaListeners.delete(cb); };
+}
+
+/** 通知所有已注册的流式 delta 监听器。 */
+function notifyStreamDelta(delta: string): void {
+  for (const cb of _streamDeltaListeners) cb(delta);
+}
 
 // ---------------------------------------------------------------------------
 // Replay 辅助函数
@@ -320,7 +339,7 @@ function createStreamManager(
   const finishWithoutPersist = (): void => {
     unsub?.();
     unsub = null;
-    set((s) => ({ isStreaming: false, streamUnsubscribe: null, streamBuffer: '' }));
+    set((s) => ({ isStreaming: false, streamUnsubscribe: null }));
   };
 
   const subscribe = (): void => {
@@ -329,8 +348,8 @@ function createStreamManager(
       if (evt.conversationId !== opts.conversationId) return;
       if (evt.type === 'chunk') {
         // chunk 到达说明 LLM 正在生成（从工具调用状态恢复时也需重置 processStatus）
+        notifyStreamDelta(evt.delta);
         set((s) => ({
-          streamBuffer: s.streamBuffer + evt.delta,
           processStatus: s.processStatus === 'tool_calling' ? 'thinking' : s.processStatus,
         }));
         return;
@@ -376,7 +395,6 @@ function createStreamManager(
         set((s) => ({
           isStreaming: false,
           streamUnsubscribe: null,
-          streamBuffer: '',
           processStatus: 'idle',
           messages: [...s.messages, errorMsg],
         }));
@@ -437,6 +455,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     const writeMode: WriteMode =
       writeModeRes?.success && writeModeRes.data ? writeModeRes.data : 'manual';
 
+    // 合并为单次 set()，减少渲染批次
     set({
       userId,
       config,
@@ -446,30 +465,31 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       kbSettings,
       activeModelConfigId,
       writeMode,
+      ...(modelConfigsRes?.success && modelConfigsRes.data ? { modelConfigs: modelConfigsRes.data } : {}),
+      ...(embeddingConfigRes?.success && embeddingConfigRes.data ? { embeddingConfig: embeddingConfigRes.data } : {}),
+      ...(searchConfigRes?.success && searchConfigRes.data ? { searchConfig: searchConfigRes.data } : {}),
     });
 
-    // Phase 4 新配置写入（各自独立，任一失败不阻塞其余）
-    if (modelConfigsRes?.success && modelConfigsRes.data) {
-      set({ modelConfigs: modelConfigsRes.data });
-    }
-    if (embeddingConfigRes?.success && embeddingConfigRes.data) {
-      set({ embeddingConfig: embeddingConfigRes.data });
-    }
-    if (searchConfigRes?.success && searchConfigRes.data) {
-      set({ searchConfig: searchConfigRes.data });
-    }
-
     // 断线重连：页面从 hidden 恢复时 replay 丢失事件
-    const handleVisibilityChange = (): void => {
+    // 先移除旧监听器（init 可能被多次调用），再注册新的
+    if (_visibilityHandler) {
+      document.removeEventListener('visibilitychange', _visibilityHandler);
+    }
+    _visibilityHandler = (): void => {
       if (document.visibilityState === 'visible') {
         void get().replayEvents();
       }
     };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener('visibilitychange', _visibilityHandler);
   },
 
   reset: () => {
     get().streamUnsubscribe?.();
+    // 清理 visibilitychange 监听器
+    if (_visibilityHandler) {
+      document.removeEventListener('visibilitychange', _visibilityHandler);
+      _visibilityHandler = null;
+    }
     set({ ...RESET_FIELDS });
   },
 
@@ -477,7 +497,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     set({
       activeConversationId: null,
       messages: [],
-      streamBuffer: '',
       toolCalls: [],
       intentCard: null,
       fileOpProposals: [],
@@ -536,10 +555,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     };
     // 新一轮开始清空上轮轨迹/意图/提示
     const startTime = Date.now();
+    // 流式文本用局部变量累积（不写 store，由 AgentTab 自行管理 UI 展示）
+    let streamText = '';
+    const unsubscribeStreamDelta = onStreamDelta((delta) => { streamText += delta; });
     set((s) => ({
       messages: [...s.messages, userMsg],
       isStreaming: true,
-      streamBuffer: '',
       pendingConsent: false,
       toolCalls: [],
       intentCard: null,
@@ -547,13 +568,13 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     }));
 
     const appendAssistant = (): void => {
-      const { streamBuffer, toolCalls: currentToolCalls } = get();
+      unsubscribeStreamDelta();
+      const { toolCalls: currentToolCalls } = get();
       const responseTime = Date.now() - startTime;
       const hasToolCalls = currentToolCalls.length > 0;
       set((s) => ({
         isStreaming: false,
         streamUnsubscribe: null,
-        streamBuffer: '',
         processStatus: 'idle',
         toolCalls: [],
         messages: [
@@ -562,7 +583,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             id: makeId(),
             conversationId: conversationId ?? '',
             role: 'assistant' as const,
-            content: streamBuffer,
+            content: streamText,
             refsJson: null,
             createdAt: new Date().toISOString(),
             responseTime,
@@ -765,6 +786,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       const failedCode = (res as unknown as { code?: string }).code;
       if (!res.success) {
         // 清理流监听器（流式 error 事件可能已先清理，此处兜底）
+        unsubscribeStreamDelta();
         mgr.finishWithoutPersist();
         // 其他失败（网络/超时/配置等）：流式 error 事件可能已先到达，
         // 但如果还没到（竞态），此处补充错误消息
@@ -786,7 +808,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           set((s) => ({
             isStreaming: false,
             streamUnsubscribe: null,
-            streamBuffer: '',
             processStatus: 'idle',
             messages: [...s.messages, errorMsg],
           }));
@@ -802,6 +823,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       }
     } catch (err) {
       // 清理流监听器
+      unsubscribeStreamDelta();
       mgr.finishWithoutPersist();
       // 显示错误给用户而不是静默吞掉
       const errorContent = err instanceof Error ? err.message : String(err);
@@ -816,7 +838,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       set((s) => ({
         isStreaming: false,
         streamUnsubscribe: null,
-        streamBuffer: '',
         processStatus: 'idle',
         messages: [...s.messages, errorMsg],
       }));
@@ -836,7 +857,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     // 清理所有流式状态，包括 processStatus
     set({
       isStreaming: false,
-      streamBuffer: '',
       streamUnsubscribe: null,
       processStatus: 'idle',
     });
@@ -1015,7 +1035,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         activeConversationId: id,
         activeMode: mode,
         messages: res.data.messages,
-        streamBuffer: '',
         toolCalls: [],
         intentCard: null,
       });
@@ -1241,6 +1260,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
       const events = res.data;
       let maxSeq = lastSeq;
+      let replayStreamText = '';
 
       for (const event of events) {
         if (event.seq > maxSeq) maxSeq = event.seq;
@@ -1251,7 +1271,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             ? (payload as Record<string, unknown>).delta
             : undefined;
           if (typeof delta === 'string') {
-            set((s) => ({ streamBuffer: s.streamBuffer + delta }));
+            replayStreamText += delta;
+            notifyStreamDelta(delta);
           }
         } else if (event.eventType === 'tool') {
           const toolCall = payloadToToolCall(payload);
@@ -1263,19 +1284,18 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           }
         } else if (event.eventType === 'done') {
           // replay 的 done 事件：持久化 assistant 消息并结束流
-          const { streamBuffer: buf } = get();
           const assistantMsg: IAIMessage = {
             id: makeId(),
             conversationId: activeConversationId,
             role: 'assistant',
-            content: buf,
+            content: replayStreamText,
             refsJson: null,
             createdAt: new Date().toISOString(),
           };
+          replayStreamText = '';
           set((s) => ({
             isStreaming: false,
             streamUnsubscribe: null,
-            streamBuffer: '',
             processStatus: 'idle',
             messages: [...s.messages, assistantMsg],
           }));
@@ -1289,10 +1309,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             refsJson: null,
             createdAt: new Date().toISOString(),
           };
+          replayStreamText = '';
           set((s) => ({
             isStreaming: false,
             streamUnsubscribe: null,
-            streamBuffer: '',
             processStatus: 'idle',
             messages: [...s.messages, errorMsg],
           }));

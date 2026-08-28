@@ -6,7 +6,7 @@
 // （aiMarkdown HAST→React 安全渲染），tool 用 <ToolCallTrace/>，user 保持纯文本。
 // assistant refsJson（IKbSearchResult 数组）渲染「[来源: 文件名 · 块]」链接，点击 openFile。
 
-import React, { useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import type { AIMessageRole, IAgentToolCall } from '@shared/ai';
 import type { IFile } from '@shared/types';
 import { useI18n } from '@render/i18n';
@@ -107,7 +107,7 @@ const ROLE_LABEL: Record<AIMessageRole, string> = {
   tool: 'Tool',
 };
 
-/** 格式化响应时间：≥1s 显示秒，<1s 显示毫秒。 */
+/** 格式化响应时间：>=1s 显示秒，<1s 显示毫秒。 */
 function formatResponseTime(ms: number): string {
   if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
   return `${ms}ms`;
@@ -153,7 +153,7 @@ const IconButton: React.FC<{
   );
 };
 
-const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
+const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
   role,
   content,
   isStreaming = false,
@@ -175,6 +175,30 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
     setCopied(true);
     setTimeout(() => setCopied(false), 3000);
   }, [onCopy]);
+
+  // 3b: parseRefsJson 用 useMemo
+  const sources = useMemo(
+    () => (role === 'assistant' ? parseRefsJson(refsJson) : []),
+    [role, refsJson],
+  );
+
+  // 3c: handleOpenSource 用 useCallback
+  const handleOpenSource = useCallback((source: ParsedSource) => {
+    if (!source.fileId) return;
+    const userId = useAuthStore.getState().user?.id ?? '';
+    // getFile 走既有文件 API（尽力而为；失败不阻塞）
+    void window.weaveMD.file.get(source.fileId, userId).then((res) => {
+      const d = res as { success?: boolean; data?: IFile };
+      if (d.success !== false && d.data) {
+        useEditorStore.getState().openFile(d.data);
+        // 出处行号尽力滚动；无行号/超范围只 openFile，不阻塞
+        if (source.line) {
+          const total = d.data.content.split('\n').length;
+          tryScrollEditorToLine(source.line, total);
+        }
+      }
+    });
+  }, []);
 
   if (role === 'user') {
     return (
@@ -219,24 +243,6 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
   }
 
   const isTool = role === 'tool';
-  const sources = role === 'assistant' ? parseRefsJson(refsJson) : [];
-
-  const handleOpenSource = (source: ParsedSource) => {
-    if (!source.fileId) return;
-    const userId = useAuthStore.getState().user?.id ?? '';
-    // getFile 走既有文件 API（尽力而为；失败不阻塞）
-    void window.weaveMD.file.get(source.fileId, userId).then((res) => {
-      const d = res as { success?: boolean; data?: IFile };
-      if (d.success !== false && d.data) {
-        useEditorStore.getState().openFile(d.data);
-        // 出处行号尽力滚动；无行号/超范围只 openFile，不阻塞
-        if (source.line) {
-          const total = d.data.content.split('\n').length;
-          tryScrollEditorToLine(source.line, total);
-        }
-      }
-    });
-  };
 
   return (
     <div
@@ -264,17 +270,17 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
             className={`rounded-2xl rounded-tl-md px-3 py-1.5 text-[15px] leading-normal break-words bg-bg-secondary border border-[var(--border-color)] shadow-sm ai-markdown`}
           >
             {isStreaming && !content ? (
-              <span className="inline-block w-2 h-4 animate-pulse text-text-muted">▍</span>
+              <span className="inline-block w-2 h-4 animate-pulse text-text-muted">{'▍'}</span>
             ) : (
               <MarkdownMessage content={content} />
             )}
             {isStreaming && (
-              <span className="inline-block w-2 h-4 ml-1 animate-pulse text-text-muted">▍</span>
+              <span className="inline-block w-2 h-4 ml-1 animate-pulse text-text-muted">{'▍'}</span>
             )}
           </div>
         )}
 
-        {/* 出处来源链接：[来源: 文件名 · 块] */}
+        {/* 出处来源链接：[来源: 文件名 . 块] */}
         {sources.length > 0 && (
           <div className="flex flex-wrap gap-1.5 pt-1">
             {sources.map((source, index) => {
@@ -337,6 +343,7 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
       )}
     </div>
   );
-};
+});
+AIMessageBubble.displayName = 'AIMessageBubble';
 
 export default AIMessageBubble;
