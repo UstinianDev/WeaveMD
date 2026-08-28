@@ -7,6 +7,7 @@
 // 选中回调（onSelect）与关闭回调（onClose）均由父级注入，本组件无业务耦合。
 
 import React, { useEffect, useRef } from 'react';
+import Icon from '../Common/Icon';
 
 /** 补全菜单项：label/description 供展示，value 唯一，insertText 为注入 composer 的前缀文本。 */
 export interface CompletionMenuItem {
@@ -35,6 +36,7 @@ export interface CompletionMenuProps {
 
 const CompletionMenu: React.FC<CompletionMenuProps> = ({
   open,
+  trigger,
   title,
   items,
   activeIndex,
@@ -101,16 +103,21 @@ const CompletionMenu: React.FC<CompletionMenuProps> = ({
               e.preventDefault(); // 保持 textarea 焦点，防止 blur 触发外部点击关闭
             }}
             onClick={() => onSelect(item)}
-            className={`block w-full text-left px-3 py-1.5 text-[15px] transition-colors ${
+            className={`flex items-start gap-2.5 w-full text-left px-3 py-2 text-[14px] transition-colors ${
               isActive
-                ? 'bg-[var(--accent)]/15 text-text-primary'
+                ? 'bg-[var(--accent)]/10 text-text-primary'
                 : 'text-text-sub hover:bg-bg-tertiary'
             }`}
           >
-            <span className="block">{item.label}</span>
-            {item.description && (
-              <span className="block text-[13px] text-text-muted truncate">{item.description}</span>
-            )}
+            <span className="shrink-0 mt-0.5 w-6 h-6 rounded-md flex items-center justify-center bg-[var(--accent)]/10 text-[var(--accent)]">
+              <Icon icon={trigger === '/' ? 'lightning' : 'globe'} size={14} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium">{item.label}</span>
+              {item.description && (
+                <span className="block text-[12px] text-text-muted truncate mt-0.5">{item.description}</span>
+              )}
+            </span>
           </button>
         );
       })}

@@ -9,6 +9,7 @@ import React, { useState } from 'react';
 import { useI18n } from '@render/i18n';
 import { useAgentStore, type EditBlocksProposal } from '@render/stores/agentStore';
 import { diffLines } from '@render/filters/rewriteDiff';
+import Icon from '../Common/Icon';
 
 const EditBlocksPreviewCard: React.FC = () => {
   const { t } = useI18n();
@@ -54,18 +55,20 @@ const EditBlocksItem: React.FC<{
 
   const isFileRevision = proposal.toolName === 'preview_file_revision';
   const isCreateFile = proposal.toolName === 'createFile';
-  const title = isCreateFile
-    ? `📄 ${t('ai.editBlocks.createFile', '创建文件')}: ${proposal.fileName ?? ''}`
+  const titleIcon = isCreateFile ? 'file-add' : isFileRevision ? 'file-edit' : 'file-edit';
+  const titleText = isCreateFile
+    ? `${t('ai.editBlocks.createFile', '创建文件')}: ${proposal.fileName ?? ''}`
     : isFileRevision
-      ? `✏️ ${proposal.fileName ?? proposal.fileId ?? t('ai.editBlocks.fileRevision', '文件修订')}`
-      : `📝 ${t('ai.editBlocks.docRevision', '文档修订')}`;
+      ? `${proposal.fileName ?? proposal.fileId ?? t('ai.editBlocks.fileRevision', '文件修订')}`
+      : `${t('ai.editBlocks.docRevision', '文档修订')}`;
 
   return (
     <div className="mx-3 my-1 rounded-card border border-border bg-bg-tertiary/60 overflow-hidden shadow-sm">
       {/* header：汇总信息 + 操作按钮 */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-        <span className="text-[13px] font-medium text-text-primary">
-          {title}
+        <span className="text-[13px] font-medium text-text-primary flex items-center gap-1.5">
+          <Icon icon={titleIcon} size={14} className="text-text-sub" />
+          {titleText}
           <span className="ml-2 text-text-muted">
             (−{delCount} / +{insCount})
           </span>
@@ -191,9 +194,9 @@ const EditBlocksDetailModal: React.FC<{
           <button
             type="button"
             onClick={onClose}
-            className="text-[18px] text-text-muted hover:text-text-primary transition-colors"
+            className="text-text-muted hover:text-text-primary transition-colors"
           >
-            ✕
+            <Icon icon="close" size={18} />
           </button>
         </div>
 

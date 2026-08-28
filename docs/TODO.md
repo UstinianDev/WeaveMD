@@ -2,6 +2,30 @@
 
 ## 已完成
 
+### 知识库 Notus 对齐（2026-08-25 ~ 2026-08-27，R1~R12 全部交付）
+
+12 项需求全部完成，将 WeaveMD 知识库与 Notus 完全对齐：
+
+- ✅ R1: Embedding 多提供商（OpenAI/Qwen/Doubao/Zhipu/自定义，自适应批量 20→10→5→2→1）
+- ✅ R2: RRF 混合检索（向量+FTS5+标题三路并行 → `1/(60+rank)` 融合）
+- ✅ R3: 加权策略（当前文件+标题+时效+置顶四维权重）
+- ✅ R4: 段聚合（heading 提升+单文件 cap+上下文扩展）
+- ✅ R5: 查询理解（5类意图+指代消解+查询扩展+模糊检测）
+- ✅ R6: 条件重排（top2 差距<0.03 触发 LLM reranker，5分钟缓存）
+- ✅ R7: 知识澄清（歧义检测→澄清卡片→重新检索）
+- ✅ R8: 证据分级（grounded/weak/conflicting/no_evidence 四级）
+- ✅ R9: 研究循环（证据不足→自动3+2子查询）
+- ✅ R10: 文档上下文（top文档全文≤18K，总预算50K）
+- ✅ R11: jieba分词（cut_for_search+bigram回退，替换unicode61）
+- ✅ R12: 图片embedding（images_vec表+多模态embedding）
+
+**门禁**：tsc 0 新增 | vitest 1499/1499 | lint 0 error
+
+### @ 引用同步文件区 + 预览写入按钮移除（2026-08-27）
+
+- ✅ @ 引用改为从 fileTreeStore 实时读取（looseFiles 排除欢迎文档 + folders 扁平化），不再走 IPC
+- ✅ 移除每条 assistant 回复下方的「预览写入文档」按钮
+
 ### 写控制与任务安全模块（2026-08-24 ~ 2026-08-25，R1~R7 全部交付）
 
 参考 Notus 项目，7 项需求全部完成：

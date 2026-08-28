@@ -8,6 +8,7 @@
 import React, { useState } from 'react';
 import type { IAgentToolCall } from '@shared/ai';
 import { useI18n } from '@render/i18n';
+import Icon from '../Common/Icon';
 
 interface AgentStepTimelineProps {
   toolCalls: IAgentToolCall[];
@@ -91,7 +92,7 @@ const ToolCallRow: React.FC<{ call: IAgentToolCall; t: (key: string, fb?: string
               : 'bg-green-500/15 text-green-600'
           }`}
         >
-          {isError ? '✕' : '✓'}
+          {isError ? <Icon icon="close" size={10} /> : <Icon icon="check" size={10} />}
         </span>
         {/* 工具名 */}
         <span className="font-mono font-medium text-text-primary truncate">
@@ -180,7 +181,7 @@ const RoundStep: React.FC<{
               expanded ? 'rotate-90' : ''
             }`}
           >
-            ▶
+            <Icon icon="chevron-right" size={14} />
           </span>
           <span className="font-medium text-text-primary">
             {t('ai.step.round', '第 {n} 轮').replace('{n}', String(roundIndex + 1))}

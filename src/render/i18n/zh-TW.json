@@ -1,9 +1,6 @@
 {
   "ai.agent.compress": "壓縮上下文",
   "ai.agent.kbSettings": "知識庫",
-  "ai.compact.command": "/compact",
-  "ai.compact.description": "壓縮對話上下文",
-  "ai.compact.hint": "輸入 /compact 壓縮上下文",
   "ai.context.usage": "上下文：{used} / {total} tokens ({percent}%)",
   "ai.context.tooltip": "Token 使用：{used} / {total}",
   "ai.agent.placeholder": "Agent 能力第 4 期上線",
@@ -45,6 +42,8 @@
   "ai.settings.embedding.provider": "Provider",
   "ai.settings.embedding.baseUrl": "Base URL",
   "ai.settings.embedding.model": "模型名稱",
+  "ai.settings.embedding.dimension": "向量維度",
+  "ai.settings.embedding.dimensionHint": "修改後需重新索引知識庫才能生效",
   "ai.settings.embedding.multimodal": "啟用多模態向量",
   "ai.settings.embedding.test": "測試連線",
   "ai.settings.embedding.testing": "測試中...",

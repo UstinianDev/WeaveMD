@@ -1,21 +1,33 @@
 // ============================================
-// WeaveMD — 设置·Embedding 配置面板（Phase 5 重写）
+// WeaveMD — 设置·Embedding 配置面板（R1 多提供商 + R12 多模态）
 // ============================================
-// Base URL / 模型名称 / API Key / 多模态开关 / 测试连接 / 保存。
+// 提供商选择 / Base URL / 模型名称 / Dimension / API Key / 多模态开关 / 测试连接 / 保存。
 // 数据流：embeddingConfig.get / .set IPC。
 // 无 dangerouslySetInnerHTML、无 any。
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
 import { useAgentStore } from '@render/stores/agentStore';
+
+type EmbeddingProvider = 'openai' | 'qwen' | 'doubao' | 'zhipu' | 'custom';
+
+const PROVIDERS: { key: EmbeddingProvider; label: string; defaultModel: string; defaultBase: string; defaultDim: number }[] = [
+  { key: 'openai', label: 'OpenAI', defaultModel: 'text-embedding-3-small', defaultBase: 'https://api.openai.com', defaultDim: 1536 },
+  { key: 'qwen', label: '通义千问', defaultModel: 'text-embedding-v3', defaultBase: 'https://dashscope.aliyuncs.com', defaultDim: 1024 },
+  { key: 'doubao', label: '豆包', defaultModel: 'doubao-embedding', defaultBase: 'https://ark.cn-beijing.volces.com', defaultDim: 2048 },
+  { key: 'zhipu', label: '智谱', defaultModel: 'embedding-3', defaultBase: 'https://open.bigmodel.cn', defaultDim: 2048 },
+  { key: 'custom', label: '自定义', defaultModel: '', defaultBase: '', defaultDim: 1536 },
+];
 
 const EmbeddingSettings: React.FC = () => {
   const { t } = useI18n();
   const user = useAuthStore((s) => s.user);
 
+  const [provider, setProvider] = useState<EmbeddingProvider>('qwen');
   const [baseUrl, setBaseUrl] = useState('');
   const [model, setModel] = useState('');
+  const [dimension, setDimension] = useState(1024);
   const [apiKey, setApiKey] = useState('');
   const [hasApiKey, setHasApiKey] = useState(false);
   const [multimodal, setMultimodal] = useState(false);
@@ -23,6 +35,17 @@ const EmbeddingSettings: React.FC = () => {
   const [testResult, setTestResult] = useState<'ok' | 'fail' | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  /** 切换提供商时自动填充默认值。 */
+  const handleProviderChange = useCallback((newProvider: EmbeddingProvider) => {
+    setProvider(newProvider);
+    const preset = PROVIDERS.find((p) => p.key === newProvider);
+    if (preset) {
+      setBaseUrl(preset.defaultBase);
+      setModel(preset.defaultModel);
+      setDimension(preset.defaultDim);
+    }
+  }, []);
 
   // 加载已保存配置
   useEffect(() => {
@@ -33,8 +56,10 @@ const EmbeddingSettings: React.FC = () => {
         const res = await window.weaveMD.ai.embeddingConfig.get(user.id);
         if (cancelled) return;
         if (res.success && res.data) {
+          if (res.data.provider) setProvider(res.data.provider as EmbeddingProvider);
           setBaseUrl(res.data.baseUrl);
           setModel(res.data.model);
+          if (res.data.dimension) setDimension(res.data.dimension);
           setHasApiKey(res.data.hasApiKey);
           setMultimodal(res.data.multimodal);
         }
@@ -74,13 +99,17 @@ const EmbeddingSettings: React.FC = () => {
     setSaved(false);
     try {
       const payload: {
+        provider?: string;
         baseUrl?: string;
         model?: string;
+        dimension?: number;
         apiKey?: string;
         multimodal?: boolean;
       } = {
+        provider,
         baseUrl,
         model,
+        dimension,
         multimodal,
       };
       if (apiKey.trim()) payload.apiKey = apiKey.trim();
@@ -99,7 +128,31 @@ const EmbeddingSettings: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}>
+      {/* 提供商选择 */}
+      <div>
+        <label className="text-[14px] text-[var(--text-primary)] font-medium mb-1.5 block">
+          {t('ai.settings.embedding.provider', 'Embedding 提供商')}
+        </label>
+        <div className="flex gap-1 p-1 rounded-input bg-[var(--bg-tertiary)]">
+          {PROVIDERS.map((p) => (
+            <button
+              key={p.key}
+              type="button"
+              data-testid={`embedding-provider-${p.key}`}
+              onClick={() => handleProviderChange(p.key)}
+              className={`flex-1 px-2 py-1.5 text-[13px] rounded-input transition-colors ${
+                provider === p.key
+                  ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-sm border border-[var(--border-color)]'
+                  : 'text-[var(--text-sub)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Base URL */}
       <div>
         <label className="text-[14px] text-[var(--text-primary)] font-medium mb-1.5 block">
@@ -109,8 +162,8 @@ const EmbeddingSettings: React.FC = () => {
           type="text"
           value={baseUrl}
           onChange={(e) => setBaseUrl(e.target.value)}
-          placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
-          className="w-full border rounded-input px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+          placeholder={PROVIDERS.find((p) => p.key === provider)?.defaultBase || 'https://api.openai.com'}
+          className="w-full border rounded-lg px-3 py-2 text-[14px] outline-none focus:border-[#2563eb] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
         />
       </div>
 
@@ -123,9 +176,27 @@ const EmbeddingSettings: React.FC = () => {
           type="text"
           value={model}
           onChange={(e) => setModel(e.target.value)}
-          placeholder="text-embedding-v3"
-          className="w-full border rounded-input px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+          placeholder={PROVIDERS.find((p) => p.key === provider)?.defaultModel || 'text-embedding-v3'}
+          className="w-full border rounded-lg px-3 py-2 text-[14px] outline-none focus:border-[#2563eb] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
         />
+      </div>
+
+      {/* Dimension */}
+      <div>
+        <label className="text-[14px] text-[var(--text-primary)] font-medium mb-1.5 block">
+          {t('ai.settings.embedding.dimension', '向量维度')}
+        </label>
+        <input
+          type="number"
+          value={dimension}
+          onChange={(e) => setDimension(Number(e.target.value) || 1536)}
+          min={64}
+          max={4096}
+          className="w-full border rounded-lg px-3 py-2 text-[14px] outline-none focus:border-[#2563eb] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+        />
+        <p className="text-[12px] text-[var(--text-muted)] mt-1">
+          {t('ai.settings.embedding.dimensionHint', '修改后需重新索引知识库才能生效')}
+        </p>
       </div>
 
       {/* API Key */}
@@ -144,22 +215,27 @@ const EmbeddingSettings: React.FC = () => {
           onChange={(e) => setApiKey(e.target.value)}
           placeholder="sk-..."
           autoComplete="off"
-          className="w-full border rounded-input px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+          className="w-full border rounded-lg px-3 py-2 text-[14px] outline-none focus:border-[#2563eb] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
         />
       </div>
 
-      {/* 多模态开关 */}
+      {/* 多模态开关（R12） */}
       <div>
         <label className="flex items-center gap-3 px-3 py-2 rounded-input hover:bg-[var(--bg-tertiary)] cursor-pointer transition-colors">
           <input
             type="checkbox"
             checked={multimodal}
             onChange={(e) => setMultimodal(e.target.checked)}
-            className="accent-[#7C3AED]"
+            className="accent-[#2563eb]"
           />
-          <span className="text-[14px] text-[var(--text-sub)]">
-            {t('ai.settings.embedding.multimodal', '启用多模态向量')}
-          </span>
+          <div>
+            <span className="text-[14px] text-[var(--text-sub)]">
+              {t('ai.settings.embedding.multimodal', '启用多模态向量')}
+            </span>
+            <p className="text-[12px] text-[var(--text-muted)] mt-0.5">
+              需要视觉 Embedding 模型（如 qwen-vl-embed-v1）
+            </p>
+          </div>
         </label>
       </div>
 
@@ -183,7 +259,7 @@ const EmbeddingSettings: React.FC = () => {
           data-testid="embedding-test"
           onClick={() => void handleTest()}
           disabled={testing}
-          className="px-3.5 py-1 text-[14px] rounded-input border border-[var(--border-color)] text-[var(--text-primary)] hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-40 transition-colors"
+          className="px-3.5 py-1 text-[14px] rounded-input border border-[var(--border-color)] text-[var(--text-primary)] hover:border-[#2563eb] hover:text-[#2563eb] disabled:opacity-40 transition-colors"
         >
           {testing
             ? t('ai.settings.embedding.testing', '测试中...')
@@ -194,7 +270,7 @@ const EmbeddingSettings: React.FC = () => {
           data-testid="embedding-save"
           onClick={() => void handleSave()}
           disabled={saving}
-          className="px-3.5 py-1 text-[14px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 transition-opacity"
+          className="px-3.5 py-1 text-[14px] rounded-input bg-[#2563eb] text-white hover:bg-[#1d4ed8] disabled:opacity-40 transition-colors"
         >
           {t('settings.save')}
         </button>

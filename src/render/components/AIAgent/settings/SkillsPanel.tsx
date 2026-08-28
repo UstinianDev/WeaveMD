@@ -8,6 +8,7 @@ import React, { useEffect, useState } from 'react';
 import type { AgentSkillInfo } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
+import Icon from '../../Common/Icon';
 
 /** 内置技能名称集合（用于来源图标判断）。 */
 const CORE_SKILL_NAMES = new Set(['polish_rewrite', 'tech_organize', 'kb_qa_guide']);
@@ -46,7 +47,7 @@ const SkillsPanel: React.FC = () => {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}>
       {/* 扫描路径说明 */}
       <div className="rounded-input border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2.5">
         <div className="flex items-center justify-between mb-1.5">
@@ -58,7 +59,7 @@ const SkillsPanel: React.FC = () => {
             data-testid="skills-rescan"
             onClick={() => void handleRescan()}
             disabled={scanning}
-            className="text-[12px] px-2 py-0.5 rounded-input border border-[var(--border-color)] text-[var(--text-primary)] hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-40 transition-colors"
+            className="text-[12px] px-2 py-0.5 rounded-lg border border-[var(--border-color)] text-[var(--text-primary)] hover:border-[#2563eb] hover:text-[#2563eb] disabled:opacity-40 transition-colors"
           >
             {scanning ? '...' : '重新扫描'}
           </button>
@@ -86,7 +87,11 @@ const SkillsPanel: React.FC = () => {
               >
                 {/* 来源图标 */}
                 <span className="shrink-0 mt-0.5 text-[14px]" title={isCore ? '内置技能' : '用户技能'}>
-                  {isCore ? '📦' : '📄'}
+                  {isCore ? (
+                    <Icon icon="build" size={16} />
+                  ) : (
+                    <Icon icon="file-outline" size={16} />
+                  )}
                 </span>
                 <div className="flex-1 min-w-0">
                   <p className="text-[14px] font-medium text-[var(--text-primary)]">{s.name}</p>

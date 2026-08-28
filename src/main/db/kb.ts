@@ -248,3 +248,68 @@ export function countChunksByDoc(userId: string, docId: string): number {
     .get(docId, userId) as { cnt: number } | undefined;
   return row?.cnt ?? 0;
 }
+
+// ---------------------------------------------------------------------------
+// kb_images（R12：图片索引）
+// ---------------------------------------------------------------------------
+
+export interface KbImageRow {
+  id: string;
+  documentId: string;
+  sourceRef: string | null;
+  mimeType: string;
+  embeddingModel: string | null;
+  createdAt: string;
+}
+
+interface KbImageDbRow {
+  id: string;
+  document_id: string;
+  source_ref: string | null;
+  mime_type: string;
+  embedding_model: string | null;
+  created_at: string;
+}
+
+function mapImageRow(row: KbImageDbRow): KbImageRow {
+  return {
+    id: row.id,
+    documentId: row.document_id,
+    sourceRef: row.source_ref ?? null,
+    mimeType: row.mime_type,
+    embeddingModel: row.embedding_model ?? null,
+    createdAt: row.created_at,
+  };
+}
+
+/** 插入一条图片索引记录（kb_images 表）。 */
+export function insertImage(row: KbImageRow): void {
+  const db = getDatabase();
+  db.prepare(
+    `INSERT OR REPLACE INTO kb_images
+       (id, document_id, source_ref, mime_type, embedding_model, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(
+    row.id,
+    row.documentId,
+    row.sourceRef ?? null,
+    row.mimeType,
+    row.embeddingModel ?? null,
+    row.createdAt
+  );
+}
+
+/** 删除指定文档下的所有图片记录。 */
+export function deleteImagesByDoc(docId: string): void {
+  const db = getDatabase();
+  db.prepare('DELETE FROM kb_images WHERE document_id = ?').run(docId);
+}
+
+/** 查询指定文档下的所有图片记录。 */
+export function getImagesByDoc(docId: string): KbImageRow[] {
+  const db = getDatabase();
+  const rows = db
+    .prepare('SELECT * FROM kb_images WHERE document_id = ? ORDER BY created_at ASC')
+    .all(docId) as KbImageDbRow[];
+  return rows.map(mapImageRow);
+}

@@ -15,6 +15,7 @@ import { useEditorStore } from '@render/stores/editorStore';
 import { formatMessageTimestamp } from '@render/utils/messageTimestamp';
 import MarkdownMessage from './MarkdownMessage';
 import ToolCallTrace from './ToolCallTrace';
+import Icon from '../Common/Icon';
 
 interface AIMessageBubbleProps {
   role: AIMessageRole;
@@ -114,35 +115,9 @@ function formatResponseTime(ms: number): string {
 
 // ── SVG 图标组件 ──
 
-/** 复制图标（矩形+路径叠加）。 */
-const CopyIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-  </svg>
-);
-
-/** 对勾图标（复制成功反馈）。 */
-const CheckIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="20 6 9 17 4 12" />
-  </svg>
-);
-
-/** 编辑图标（笔形）。 */
-const EditIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-  </svg>
-);
-
-/** 重试图标（圆形箭头）。 */
-const RetryIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="23 4 23 10 17 10" />
-    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-  </svg>
+/** Iconify 图标组件（替代 inline SVG）。 */
+const IconifyIcon: React.FC<{ icon: string; size?: number }> = ({ icon, size = 14 }) => (
+  <Icon icon={icon} size={size} />
 );
 
 /** 图标操作按钮（带 tooltip）。 */
@@ -161,7 +136,7 @@ const IconButton: React.FC<{
         onClick={onClick}
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
-        className={`w-6 h-6 rounded-md flex items-center justify-center transition-colors ${
+        className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
           active
             ? 'bg-[var(--accent)]/15 text-[var(--accent)]'
             : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
@@ -209,36 +184,36 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
         onMouseLeave={() => setHovered(false)}
       >
         <div
-          className="max-w-[85%] rounded-2xl rounded-tr-md px-3.5 py-2 text-[15px] leading-relaxed bg-[var(--accent)] text-white shadow-sm"
-          style={{ fontFamily: "'Consolas', 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}
+          className="max-w-[85%] rounded-2xl rounded-tr-md px-3.5 py-2 text-[15px] leading-relaxed bg-[#2563eb] text-white shadow-sm"
+          style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}
         >
           <div className="whitespace-pre-wrap break-words">{content}</div>
         </div>
-        {/* 操作栏 + 时间戳：hover 时显示 */}
-        <div className={`flex items-center gap-1.5 mt-1 transition-opacity ${hovered ? 'opacity-100' : 'opacity-0'}`}>
+        {/* 操作栏 + 时间戳：始终可见 */}
+        <div className={`flex items-center gap-2 mt-1.5 transition-opacity ${hovered ? 'opacity-100' : 'opacity-70'}`}>
           {onCopy && (
             <IconButton label={copied ? '✓' : t('ai.msg.copy')} onClick={handleCopy} active={copied}>
-              {copied ? <CheckIcon /> : <CopyIcon />}
+              {copied ? <IconifyIcon icon="check" size={15} /> : <IconifyIcon icon="copy" size={15} />}
             </IconButton>
           )}
           {onEdit && (
             <IconButton label={t('ai.msg.edit')} onClick={onEdit}>
-              <EditIcon />
+              <IconifyIcon icon="edit" size={15} />
             </IconButton>
           )}
           {/* 时间戳 */}
           {createdAt && (
-            <span className="text-[11px] text-text-sub ml-1">
+            <span className="text-[12px] text-text-muted ml-0.5">
               {formatMessageTimestamp(createdAt)}
             </span>
           )}
+          {/* 响应时间 */}
+          {responseTime !== undefined && responseTime > 0 && (
+            <span className="text-[12px] text-text-muted">
+              {formatResponseTime(responseTime)}
+            </span>
+          )}
         </div>
-        {/* 响应时间：左下角 */}
-        {responseTime !== undefined && responseTime > 0 && (
-          <div className="self-start text-[11px] text-text-sub mt-0.5">
-            {formatResponseTime(responseTime)}
-          </div>
-        )}
       </div>
     );
   }
@@ -266,6 +241,7 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
   return (
     <div
       className="group flex flex-col px-3 py-1"
+      style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -332,31 +308,31 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = ({
           </div>
         )}
       </div>
-      {/* 操作栏：assistant 消息 hover 时显示（左对齐） */}
+      {/* 操作栏：assistant 消息始终可见（左对齐） */}
       {!isTool && !isStreaming && (
-        <div className={`flex items-center gap-1.5 mt-1 transition-opacity ${hovered ? 'opacity-100' : 'opacity-0'}`}>
+        <div className={`flex items-center gap-2 mt-1.5 transition-opacity ${hovered ? 'opacity-100' : 'opacity-70'}`}>
           {onCopy && (
             <IconButton label={copied ? '✓' : t('ai.msg.copy')} onClick={handleCopy} active={copied}>
-              {copied ? <CheckIcon /> : <CopyIcon />}
+              {copied ? <IconifyIcon icon="check" size={15} /> : <IconifyIcon icon="copy" size={15} />}
             </IconButton>
           )}
           {onRetry && (
             <IconButton label={t('ai.msg.retry')} onClick={onRetry}>
-              <RetryIcon />
+              <IconifyIcon icon="refresh" size={15} />
             </IconButton>
           )}
           {/* 时间戳 */}
           {createdAt && (
-            <span className="text-[11px] text-text-sub ml-1">
+            <span className="text-[12px] text-text-muted ml-0.5">
               {formatMessageTimestamp(createdAt)}
             </span>
           )}
-        </div>
-      )}
-      {/* 响应时间：assistant 消息右下角 */}
-      {!isTool && responseTime !== undefined && responseTime > 0 && (
-        <div className="self-end text-[11px] text-text-sub mt-0.5">
-          {formatResponseTime(responseTime)}
+          {/* 响应时间 */}
+          {responseTime !== undefined && responseTime > 0 && (
+            <span className="text-[12px] text-text-muted">
+              {formatResponseTime(responseTime)}
+            </span>
+          )}
         </div>
       )}
     </div>

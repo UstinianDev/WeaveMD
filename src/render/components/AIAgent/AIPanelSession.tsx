@@ -12,6 +12,7 @@ import { useI18n } from '@render/i18n';
 import { useAgentStore } from '@render/stores/agentStore';
 import AgentTab from './AgentTab';
 import AIPanelComposer from './AIPanelComposer';
+import Icon from '../Common/Icon';
 
 interface AIPanelSessionProps {
   /** 受控草稿（M4）：由 AIAgentPanel 持有，home 与 session 共享。 */
@@ -93,7 +94,7 @@ const AIPanelSession: React.FC<AIPanelSessionProps> = ({ draft, setDraft, onSend
           onClick={onCloseConversation}
           className="shrink-0 text-text-muted hover:text-red-400 transition-colors"
         >
-          ✕
+          <Icon icon="close" size={16} />
         </button>
       </div>
 

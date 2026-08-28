@@ -12,6 +12,7 @@ import { useI18n } from '@render/i18n';
 import { useRewriteStore } from '@render/stores/rewriteStore';
 import { diffLines } from '@render/filters/rewriteDiff';
 import RewriteDetailModal from './RewriteDetailModal';
+import Icon from '../Common/Icon';
 
 const RewritePreviewCard: React.FC = () => {
   const { t } = useI18n();
@@ -54,9 +55,9 @@ const RewritePreviewCard: React.FC = () => {
         type="button"
         aria-label={t('ai.rewrite.dismiss', '关闭')}
         onClick={() => dismissRewriteBanner()}
-        className="shrink-0 text-[15px] leading-none opacity-70 hover:opacity-100 transition-opacity"
+        className="shrink-0 opacity-70 hover:opacity-100 transition-opacity"
       >
-        ✕
+        <Icon icon="close" size={15} />
       </button>
     </div>
   );
@@ -109,7 +110,7 @@ const RewritePreviewCard: React.FC = () => {
           {/* 结果态反馈横幅 */}
           {rewriteResult === 'applied' && (
             <div className="px-3 py-2 text-[13px] text-green-600 bg-green-500/10 border-b border-green-500/20 flex items-center gap-2">
-              ✓ {t('ai.rewrite.applied')}
+              <Icon icon="check" size={14} className="inline-block mr-1" />{t('ai.rewrite.applied')}
             </div>
           )}
           {rewriteResult === 'cancelled' && (
@@ -211,7 +212,7 @@ const RewritePreviewCard: React.FC = () => {
       {/* 结果态反馈横幅（在卡片顶部，不替换卡片内容） */}
       {rewriteResult === 'applied' && (
         <div className="px-3 py-2 text-[13px] text-green-600 bg-green-500/10 border-b border-green-500/20 flex items-center gap-2">
-          ✓ {t('ai.rewrite.applied')}
+          <Icon icon="check" size={14} className="inline-block mr-1" />{t('ai.rewrite.applied')}
         </div>
       )}
       {rewriteResult === 'cancelled' && (

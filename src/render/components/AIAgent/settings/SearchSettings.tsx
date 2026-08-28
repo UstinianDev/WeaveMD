@@ -124,7 +124,7 @@ const SearchSettings: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}>
       {/* 总开关 */}
       <div>
         <label className="flex items-center gap-3 px-3 py-2 rounded-input hover:bg-[var(--bg-tertiary)] cursor-pointer transition-colors">
@@ -132,7 +132,7 @@ const SearchSettings: React.FC = () => {
             type="checkbox"
             checked={enabled}
             onChange={(e) => setEnabled(e.target.checked)}
-            className="accent-[#7C3AED]"
+            className="accent-[#2563eb]"
           />
           <span className="text-[14px] text-[var(--text-primary)] font-medium">
             {t('ai.settings.search.enabled', '启用联网搜索')}
@@ -180,7 +180,7 @@ const SearchSettings: React.FC = () => {
           onChange={(e) => handleApiKeyChange(provider, e.target.value)}
           placeholder="sk-..."
           autoComplete="off"
-          className="w-full border rounded-input px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+          className="w-full border rounded-lg px-3 py-2 text-[14px] outline-none focus:border-[#2563eb] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
         />
       </div>
 
@@ -235,7 +235,7 @@ const SearchSettings: React.FC = () => {
           data-testid="search-test"
           onClick={() => void handleTest()}
           disabled={testing}
-          className="px-3.5 py-1 text-[14px] rounded-input border border-[var(--border-color)] text-[var(--text-primary)] hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-40 transition-colors"
+          className="px-3.5 py-1 text-[14px] rounded-input border border-[var(--border-color)] text-[var(--text-primary)] hover:border-[#2563eb] hover:text-[#2563eb] disabled:opacity-40 transition-colors"
         >
           {testing
             ? t('ai.settings.search.testing', '测试中...')
@@ -246,7 +246,7 @@ const SearchSettings: React.FC = () => {
           data-testid="search-save"
           onClick={() => void handleSave()}
           disabled={saving}
-          className="px-3.5 py-1 text-[14px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 transition-opacity"
+          className="px-3.5 py-1 text-[14px] rounded-input bg-[#2563eb] text-white hover:bg-[#1d4ed8] disabled:opacity-40 transition-colors"
         >
           {t('settings.save')}
         </button>

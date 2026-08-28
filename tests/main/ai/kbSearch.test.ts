@@ -85,20 +85,37 @@ describe('kbSearch.sanitizeFtsQuery — 净化与 CJK 前缀', () => {
   it('剥离 FTS5 特殊字符（含引号；ASCII 输入不含 CJK 前缀 *）', () => {
     const q = sanitizeFtsQuery('"quote" paren() star* caret^ ~tilde +plus &and |or <>![x]');
     expect(q).not.toMatch(/[!"()*:^~+\-&|<>[\]{}]/);
-    expect(q).toBe('quote paren star caret tilde plus and or x');
+    // OR 连接的 token 列表（jieba 保持英文单词完整）
+    expect(q).toContain('quote');
+    expect(q).toContain('paren');
+    expect(q).toContain('star');
   });
 
-  it('折叠连续空白为单个空格', () => {
-    expect(sanitizeFtsQuery('a   b\t\tc\n')).toBe('a b c');
+  it('token 间以 OR 连接', () => {
+    const q = sanitizeFtsQuery('a   b\t\tc\n');
+    expect(q).toContain(' OR ');
+    expect(q).toContain('a');
+    expect(q).toContain('b');
+    expect(q).toContain('c');
   });
 
-  it('CJK token 追加 * 前缀通配（知识 → 知识*）', () => {
-    expect(sanitizeFtsQuery('知识库')).toBe('知识库*');
+  it('CJK 分词后各 token 追加 * 前缀通配（jieba cut_for_search 拆分）', () => {
+    const q = sanitizeFtsQuery('知识库');
+    // jieba cut_for_search: ["知识", "知识库"] → "知识* OR 知识库*"
+    expect(q).toContain('知识*');
+    // 整词也保留
+    expect(q).toContain('知识库*');
+    expect(q).toContain(' OR ');
   });
 
   it('ASCII token 不加 *；混合场景各自归一', () => {
     const q = sanitizeFtsQuery('markdown 知识 表格');
-    expect(q).toBe('markdown 知识* 表格*');
+    // jieba: ["markdown", " ", "知识", " ", "表格"] → 去空格去重
+    expect(q).toContain('markdown');
+    expect(q).toContain('知识*');
+    expect(q).toContain('表格*');
+    // 不含 OR 以外的 FTS5 特殊字符
+    expect(q).not.toMatch(/[!"():^~+\-&|<>[\]{}]/);
   });
 
   it('空输入 → 空串（不抛）', () => {
@@ -107,65 +124,70 @@ describe('kbSearch.sanitizeFtsQuery — 净化与 CJK 前缀', () => {
   });
 });
 
-describe('kbSearch.rankCandidates — 纯 FTS 评分 / 置顶 / 排序', () => {
-  it('仅 FTS 分：score = ftsNorm（min-max 归一），最高 bm → 0.9', () => {
+describe('kbSearch.rankCandidates — RRF 评分 / 置顶 / 排序', () => {
+  it('仅 FTS 路径：RRF 分数 = 1/(k+rank)，rank=1 最高', () => {
     const cands = [
-      makeCandidate({ chunkId: 'a', bm: 10 }),
-      makeCandidate({ chunkId: 'b', bm: 5 }),
-      makeCandidate({ chunkId: 'c', bm: -3 }),
+      makeCandidate({ chunkId: 'a', bm: 10 }), // BM25 最大 → FTS rank=1（bm 越小越好，这里 10 是"最差"）
+      makeCandidate({ chunkId: 'b', bm: 5 }),  // FTS rank=2
+      makeCandidate({ chunkId: 'c', bm: -3 }), // BM25 最小 → FTS rank=3（实际最好，但这里用原值排序）
     ];
     const ranked = rankCandidates(cands, 1.5);
-    expect(ranked[0].chunkId).toBe('a');
-    // 无向量时：score = fts * 0.9 + title * 0.1 = 1 * 0.9 + 0 = 0.9
-    expect(ranked[0].score).toBeCloseTo(0.9, 6);
+    // RRF: 三路只有 FTS 路有数据（vec 和 title 均为空）
+    // FTS 排序（bm 升序）：c(-3) rank=1, b(5) rank=2, a(10) rank=3
+    // score = 1/(60+rank)
+    expect(ranked[0].chunkId).toBe('c');
+    expect(ranked[0].score).toBeCloseTo(1 / (60 + 1), 6);
     expect(ranked[1].chunkId).toBe('b');
-    // bm=5 → ftsNorm = 8/13; score = (8/13) * 0.9
-    expect(ranked[1].score).toBeCloseTo((8 / 13) * 0.9, 6);
+    expect(ranked[1].score).toBeCloseTo(1 / (60 + 2), 6);
+    expect(ranked[2].chunkId).toBe('a');
+    expect(ranked[2].score).toBeCloseTo(1 / (60 + 3), 6);
   });
 
-  it('置顶×1.5 排序前移', () => {
-    // min-max over {10,8,-3}：non-pinned top bm=10 → fts=1；pinned bm=8 → fts=11/13。
-    // 无向量时：score = fts * 0.9 + title * 0.1
-    // pinned ×1.5 = (11/13) * 0.9 * 1.5 ≈ 1.142 > top 0.9 → 置顶文档前移。
+  it('置顶不改变 RRF 分数（置顶在 applyWeighting 中处理）', () => {
+    // rankCandidates 不再负责置顶乘法，置顶由 applyWeighting 处理
     const lowPinned = makeCandidate({ chunkId: 'p', bm: 8 });
     lowPinned.pinned = true;
     const cands = [lowPinned, makeCandidate({ chunkId: 'top', bm: 10 }), makeCandidate({ chunkId: 'low', bm: -3 })];
     const ranked = rankCandidates(cands, 1.5);
-    expect(ranked[0].chunkId).toBe('p');
-    const pScore = ranked.find((r) => r.chunkId === 'p')?.score as number;
-    const topScore = ranked.find((r) => r.chunkId === 'top')?.score as number;
-    expect(pScore).toBeCloseTo((11 / 13) * 0.9 * 1.5, 5);
-    expect(topScore).toBeCloseTo(0.9, 5);
+    // FTS 排序（bm 升序）：low(-3) rank=1, p(8) rank=2, top(10) rank=3
+    expect(ranked[0].chunkId).toBe('low');
+    expect(ranked[0].score).toBeCloseTo(1 / (60 + 1), 6);
+    expect(ranked[1].chunkId).toBe('p');
+    expect(ranked[1].score).toBeCloseTo(1 / (60 + 2), 6);
   });
 
-  it('按分数降序返回 IKbSearchResult 形状', () => {
+  it('按分数降序返回 IKbSearchResult 形状（含 rrfRanks）', () => {
     const cands = [
       makeCandidate({ chunkId: 'c', bm: -5 }),
       makeCandidate({ chunkId: 'a', bm: 10 }),
       makeCandidate({ chunkId: 'b', bm: 0 }),
     ];
     const ranked = rankCandidates(cands, 1.5);
-    expect(ranked.map((r) => r.chunkId)).toEqual(['a', 'b', 'c']);
+    // FTS 排序（bm 升序）：c(-5) rank=1, b(0) rank=2, a(10) rank=3
+    expect(ranked.map((r) => r.chunkId)).toEqual(['c', 'b', 'a']);
     const top: IKbSearchResult = ranked[0];
     expect(top).toMatchObject({
       docId: 'd1',
-      chunkId: 'a',
+      chunkId: 'c',
       fileName: 'n.md',
       pinned: false,
     });
     expect(typeof top.sourceRef).toBe('string');
+    // RRF 调试信息
+    expect(top.rrfRanks).toBeDefined();
+    expect(top.rrfRanks?.fts).toBe(1);
   });
 });
 
-describe('kbSearch.searchKB — 对外契约与拒答（纯 FTS5 BM25）', () => {
-  it('MATCH 查询参数化 + user_id 过滤 + LIMIT 为 topK×2 候选池', async () => {
+describe('kbSearch.searchKB — 对外契约与拒答（纯 FTS5 BM25 + RRF）', () => {
+  it('MATCH 查询参数化 + user_id 过滤 + LIMIT 为 topK×candidateMultiplier 候选池', async () => {
     const result = await searchKB('u1', '知识', { topK: 5 });
     expect(result.refused).toBe(true);
     const stmt = callOf('all', 'kb_chunks_fts');
     expect(stmt?.sql).toContain('MATCH ?');
     expect(stmt?.sql).toMatch(/d\.user_id = \?/);
-    // 候选池 = topK×2 = 10；最终结果再 slice 到 topK=5
-    expect(stmt?.args).toEqual([expect.any(String), 'u1', 10]);
+    // 候选池 = topK × candidateMultiplier(默认4) = 20；最终结果再 slice 到 topK=5
+    expect(stmt?.args).toEqual([expect.any(String), 'u1', 20]);
   });
 
   it('结果为空 → refused true 且 best null', async () => {
@@ -176,7 +198,7 @@ describe('kbSearch.searchKB — 对外契约与拒答（纯 FTS5 BM25）', () =>
   });
 
   it('top1 分数低于阈值 → refused true 且 best 为 top1', async () => {
-    // 单个候选：ftsNorm=1 < 阈值 1.5 → refused（best 仍返回 top1 供展示）
+    // 单个候选：RRF 分数 = 1/(60+1) ≈ 0.0164 < 阈值 0.6 → refused
     fakeRows.value = [
       {
         chunkId: 'c1',
@@ -187,35 +209,35 @@ describe('kbSearch.searchKB — 对外契约与拒答（纯 FTS5 BM25）', () =>
         pinned: 0,
         bm: 10,
         fileName: 'n.md',
-        vector: null,
-      },
-    ];
-    const result = await searchKB('u1', '知识', { topK: 5, threshold: 1.5 });
-    expect(result.refused).toBe(true);
-    expect(result.best?.chunkId).toBe('c1');
-    // 无向量时：score = fts * 0.9 + title * 0.1 = 1 * 0.9 + 0 = 0.9
-    expect(result.best?.score).toBeCloseTo(0.9, 6);
-    expect(result.results[0].chunkId).toBe('c1');
-  });
-
-  it('top1 分数达标 → refused false', async () => {
-    fakeRows.value = [
-      {
-        chunkId: 'c1',
-        documentId: 'd1',
-        content: 'content',
-        seq: 0,
-        sourceRef: null,
-        pinned: 0,
-        bm: 10,
-        fileName: 'n.md',
-        vector: null,
+        headingPath: null,
       },
     ];
     const result = await searchKB('u1', '知识', { topK: 5, threshold: 0.6 });
+    expect(result.refused).toBe(true);
+    expect(result.best?.chunkId).toBe('c1');
+    // RRF: 仅 FTS 路，rank=1 → score = 1/(60+1) ≈ 0.0164
+    expect(result.best?.score).toBeCloseTo(1 / 61, 4);
+    expect(result.results[0].chunkId).toBe('c1');
+  });
+
+  it('top1 分数达标 → refused false（低阈值场景）', async () => {
+    fakeRows.value = [
+      {
+        chunkId: 'c1',
+        documentId: 'd1',
+        content: 'content',
+        seq: 0,
+        sourceRef: null,
+        pinned: 0,
+        bm: 10,
+        fileName: 'n.md',
+        headingPath: null,
+      },
+    ];
+    // RRF 分数 ≈ 0.0164，设阈值 0.01 即可达标
+    const result = await searchKB('u1', '知识', { topK: 5, threshold: 0.01 });
     expect(result.refused).toBe(false);
-    // 无向量时：score = fts * 0.9 + title * 0.1 = 1 * 0.9 + 0 = 0.9
-    expect(result.best?.score).toBeCloseTo(0.9, 6);
+    expect(result.best?.score).toBeCloseTo(1 / 61, 4);
   });
 
   it('搜索响应经 topK 截断', () => {

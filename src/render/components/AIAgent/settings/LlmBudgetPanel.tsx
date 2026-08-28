@@ -69,7 +69,7 @@ const LlmBudgetPanel: React.FC = () => {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}>
       {/* 总开关 */}
       <div>
         <label className="flex items-center gap-3 px-3 py-2 rounded-input hover:bg-[var(--bg-tertiary)] cursor-pointer transition-colors">
@@ -77,7 +77,7 @@ const LlmBudgetPanel: React.FC = () => {
             type="checkbox"
             checked={config.enabled}
             onChange={(e) => setConfig((prev) => ({ ...prev, enabled: e.target.checked }))}
-            className="accent-[#7C3AED]"
+            className="accent-[#2563eb]"
           />
           <span className="text-[14px] text-[var(--text-primary)] font-medium">
             启用 Token 预算控制
@@ -144,7 +144,7 @@ const LlmBudgetPanel: React.FC = () => {
               onChange={(e) =>
                 setConfig((prev) => ({ ...prev, dailyLimit: Number(e.target.value) }))
               }
-              className="w-full px-3 py-1.5 text-[13px] rounded-input border border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
+              className="w-full px-3 py-1.5 text-[13px] rounded-input border border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-primary)] outline-none focus:border-[#2563eb]"
             />
           </div>
 
@@ -159,7 +159,7 @@ const LlmBudgetPanel: React.FC = () => {
               onChange={(e) =>
                 setConfig((prev) => ({ ...prev, monthlyLimit: Number(e.target.value) }))
               }
-              className="w-full px-3 py-1.5 text-[13px] rounded-input border border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
+              className="w-full px-3 py-1.5 text-[13px] rounded-input border border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-primary)] outline-none focus:border-[#2563eb]"
             />
           </div>
         </div>
@@ -175,7 +175,7 @@ const LlmBudgetPanel: React.FC = () => {
           type="button"
           onClick={() => void handleSave()}
           disabled={saving}
-          className="px-3.5 py-1 text-[14px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 transition-opacity"
+          className="px-3.5 py-1 text-[14px] rounded-input bg-[#2563eb] text-white hover:bg-[#1d4ed8] disabled:opacity-40 transition-colors"
         >
           {t('settings.save')}
         </button>

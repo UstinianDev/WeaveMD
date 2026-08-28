@@ -21,10 +21,10 @@ import MentionList from './MentionList';
 import {
   DOC_SCOPE_PREFIX,
   KB_SCOPE_PREFIX,
-  COMPACT_CMD,
   SEND_ROUTES,
   type SendContext,
 } from './sendRoutes';
+import Icon from '../Common/Icon';
 
 /** `/技能名 ` 前缀剥除（runSkill 技能指令）。 */
 const SLASH_SKILL_RE = /^\/[a-z_]+\s+/;
@@ -72,7 +72,6 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
   const isStreaming = useAgentStore((s) => s.isStreaming);
   const sendAgentMessage = useAgentStore((s) => s.sendAgentMessage);
   const stopStream = useAgentStore((s) => s.stopStream);
-  const runManualCompress = useAgentStore((s) => s.runManualCompress);
   const messages = useAgentStore((s) => s.messages);
   const streamBuffer = useAgentStore((s) => s.streamBuffer);
   const writeMode = useAgentStore((s) => s.writeMode);
@@ -168,12 +167,6 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
     let items: CompletionMenuItem[];
     if (trigger === '/') {
       items = [
-        {
-          value: 'compact',
-          label: t('ai.compact.command'),
-          description: t('ai.compact.description'),
-          insertText: `${COMPACT_CMD} `,
-        },
         ...skills.map((s) => ({
           value: s.name,
           label: s.name,
@@ -206,13 +199,6 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
 
   /** 变更 input 时检测光标处 token 是否以 / 或 @ 开头，从而开/关补全菜单。 */
   const refreshCompletion = (value: string) => {
-    // 输入完整 /compact 命令时关闭补全菜单（避免拦截 Enter）
-    const trimmed = value.trim();
-    if (trimmed === COMPACT_CMD || trimmed.startsWith(`${COMPACT_CMD} `)) {
-      setCompletionOpen(false);
-      setMentionOpen(false);
-      return;
-    }
     const match = /(^|\s)([/@])([^\s/@]*)$/.exec(value);
     if (!match) {
       setCompletionOpen(false);
@@ -255,15 +241,12 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
     setCompletionOpen(false);
   };
 
-  /** @ mention 选中处理：将选中项插入到输入框。 */
+  /** @ mention 选中处理：将选中项插入到输入框（仅文件/目录，技能由 `/` 负责）。 */
   const handleMentionSelect = (item: IMentionItem) => {
-    // 计算 @ 符号的位置
     const atIndex = value.lastIndexOf('@');
     if (atIndex === -1) return;
-    // 替换 @query 为选中的 mention
     const prefix = value.slice(0, atIndex);
-    const insertText = item.type === 'skill' ? `/${item.name} ` : `@${item.name} `;
-    onChange(prefix + insertText);
+    onChange(prefix + `@${item.name} `);
     setMentionOpen(false);
   };
 
@@ -289,7 +272,6 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
       activeConversationId: store.activeConversationId,
       messages: store.messages,
       sendAgentMessage: (msg) => { void sendAgentMessage(msg); },
-      runManualCompress: () => { void runManualCompress(); },
       startDocumentRewrite: (content, instruction) => {
         useRewriteStore.getState().startDocumentRewrite(content, instruction);
       },
@@ -417,16 +399,20 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
             {attachments.map((att) => (
               <div
                 key={att.id}
-                className="flex items-center gap-1 px-2 py-1 rounded bg-bg-tertiary border border-border text-[12px] text-text-sub"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-bg-tertiary border border-border text-[12px] text-text-sub"
               >
-                <span>{att.type === 'file' ? '📄' : '🖼'}</span>
+                <Icon
+                  icon={att.type === 'file' ? 'file-outline' : 'image'}
+                  size={14}
+                  className="text-text-muted"
+                />
                 <span className="max-w-[120px] truncate">{att.name}</span>
                 <button
                   type="button"
                   onClick={() => removeAttachment(att.id)}
                   className="ml-0.5 text-text-muted hover:text-red-400 transition-colors"
                 >
-                  ×
+                  <Icon icon="close" size={14} />
                 </button>
               </div>
             ))}
@@ -463,9 +449,9 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
           type="button"
           onClick={handleUploadFile}
           title="上传文件"
-          className="flex items-center justify-center w-7 h-7 rounded text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
+          className="flex items-center justify-center w-7 h-7 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
         >
-          <span className="text-[16px] leading-none">📎</span>
+          <Icon icon="attach" size={18} />
         </button>
 
         {/* 上传图片 */}
@@ -473,9 +459,9 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
           type="button"
           onClick={handleUploadImage}
           title="上传图片"
-          className="flex items-center justify-center w-7 h-7 rounded text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
+          className="flex items-center justify-center w-7 h-7 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
         >
-          <span className="text-[16px] leading-none">🖼</span>
+          <Icon icon="image" size={18} />
         </button>
 
         {/* 写模式切换：auto 自动 / manual 手动 */}
@@ -535,7 +521,7 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
                 : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
             }`}
           >
-            <span className="text-[16px] leading-none">🌐</span>
+            <Icon icon="web" size={18} />
           </button>
           {searchMenuOpen && (
             <div className="absolute left-0 bottom-full mb-1 z-50 w-48 rounded-card border border-border bg-bg-secondary shadow-dropdown py-1">
@@ -562,7 +548,7 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
                     }`}
                   >
                     <span>{engine}</span>
-                    {hasKey && <span className="text-[10px] text-green-500">✓</span>}
+                    {hasKey && <Icon icon="check" size={12} className="text-green-500" />}
                   </button>
                 );
               })}
@@ -605,7 +591,7 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
             onClick={handleSend}
             disabled={!value.trim()}
             data-testid="ai-composer-send"
-            className="px-3.5 py-1 text-[15px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+            className="px-3.5 py-1 text-[15px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity btn-shimmer"
           >
             {t('ai.send')}
           </button>

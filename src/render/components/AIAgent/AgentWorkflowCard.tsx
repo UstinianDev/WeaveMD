@@ -8,6 +8,7 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import type { IAgentToolCall } from '@shared/ai';
+import Icon from '../Common/Icon';
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -36,33 +37,56 @@ interface GroupedStep {
 // 工具图标映射
 // ---------------------------------------------------------------------------
 
+/** 工具名 → Icon 组件图标名。 */
 const TOOL_ICONS: Record<string, string> = {
-  search_knowledge: '🔍',
-  read_file: '📖',
-  list_files: '📂',
-  analyze_folder: '📂',
-  create_note: '📝',
-  preview_file_revision: '✏️',
-  preview_patch_files: '✏️',
-  preview_file_operations: '📁',
-  check_links: '🔗',
-  ask_question_card: '❓',
-  get_task_activity: '📋',
-  list_skills: '🧩',
-  get_skill_details: '🧩',
-  load_skill: '🧩',
-  read_skill_file: '🧩',
-  create_skill_draft: '🧩',
-  edit_blocks: '✏️',
-  create_file: '📄',
-  create_folder: '📁',
-  update_global_agent_file: '💾',
-  read_global_agent_file: '📄',
-  load_mcp_tool: '🔌',
+  searchKB: 'search',
+  readFile: 'file-outline',
+  readLocalFile: 'file-outline',
+  listFiles: 'folder-outline',
+  listLocalDirectory: 'folder-outline',
+  analyze_folder: 'folder',
+  createFile: 'file-add',
+  createFolder: 'folder-new',
+  create_note: 'file-add',
+  renameFile: 'file-edit',
+  moveFile: 'folder-move',
+  deleteFile: 'delete',
+  editLocalFile: 'edit',
+  editBlocks: 'edit',
+  preview_file_revision: 'check-circle',
+  preview_patch_files: 'check-circle',
+  preview_file_operations: 'check-circle',
+  runSkill: 'bolt',
+  ask_question_card: 'question',
+  check_links: 'link',
+  get_task_activity: 'schedule',
+  web_search: 'web',
+  research_search: 'search',
+  list_skills: 'bolt',
+  get_skill_details: 'bolt',
+  load_skill: 'bolt',
+  read_skill_file: 'bolt',
+  create_skill_draft: 'bolt',
+  update_global_agent_file: 'file-sync',
+  read_global_agent_file: 'file-outline',
+  load_mcp_tool: 'code',
 };
 
 function getToolIcon(name: string): string {
-  return TOOL_ICONS[name] ?? '🔧';
+  return TOOL_ICONS[name] ?? 'build';
+}
+
+/** 步骤卡片背景色循环（5 种深色系，带左侧色条）。 */
+const STEP_COLORS = [
+  { bg: 'rgba(37, 99, 235, 0.08)', border: '#2563eb', bar: '#2563eb' },    // 蓝
+  { bg: 'rgba(5, 150, 105, 0.08)', border: '#059669', bar: '#059669' },    // 绿
+  { bg: 'rgba(217, 119, 6, 0.08)',  border: '#d97706', bar: '#d97706' },    // 橙
+  { bg: 'rgba(124, 58, 237, 0.08)', border: '#7c3aed', bar: '#7c3aed' },   // 紫
+  { bg: 'rgba(6, 182, 212, 0.08)',  border: '#06b6d4', bar: '#06b6d4' },    // 青
+];
+
+function getStepColor(roundIndex: number) {
+  return STEP_COLORS[roundIndex % STEP_COLORS.length];
 }
 
 // ---------------------------------------------------------------------------
@@ -278,35 +302,41 @@ const ToolCallRow: React.FC<ToolCallRowProps> = ({ call }) => {
   const resultSummary = extractResultSummary(call);
 
   return (
-    <div className="flex items-start gap-2 py-1">
+    <div className="flex items-start gap-2.5 py-1.5">
       {/* 状态指示器 */}
       <span className="flex-shrink-0 mt-0.5">
         {isError ? (
-          <span className="text-red-400 text-[11px]">✕</span>
+          <Icon icon="close" size={14} className="text-red-400" />
         ) : (
-          <span className="text-green-400 text-[11px]">✓</span>
+          <Icon icon="check" size={14} className="text-green-400" />
         )}
       </span>
 
       {/* 内容 */}
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[12px]">{icon}</span>
+        <div className="flex items-center gap-2">
+          <Icon icon={icon} size={16} className="text-text-sub flex-shrink-0" />
           <span
-            className={`text-[12px] font-medium ${
+            className={`text-[14px] font-semibold ${
               isError ? 'text-red-400' : 'text-text-primary'
             }`}
           >
             {call.name}
           </span>
         </div>
-        <div className="text-[11px] text-text-sub mt-0.5 truncate">{summary}</div>
+        {/* 参数摘要 */}
+        <div className="text-[13px] text-text-sub mt-1 pl-6 break-all">
+          <span className="text-text-muted text-[12px] mr-1">参数:</span>
+          <code className="text-[12px] px-1.5 py-0.5 rounded bg-bg-tertiary text-text-primary">{summary}</code>
+        </div>
+        {/* 结果摘要 */}
         {resultSummary && (
           <div
-            className={`text-[11px] mt-0.5 ${
-              isError ? 'text-red-400/80' : 'text-text-muted'
-            } truncate`}
+            className={`text-[13px] mt-1 pl-6 break-all ${
+              isError ? 'text-red-400' : 'text-green-400'
+            }`}
           >
+            <span className="text-text-muted text-[12px] mr-1">结果:</span>
             {resultSummary}
           </div>
         )}
@@ -338,34 +368,44 @@ const StepCard: React.FC<StepCardProps> = ({ step, expanded, onToggle }) => {
   // 主摘要
   const mainSummary = extractToolSummary(firstCall);
 
-  // 左侧色条颜色
-  const borderColor = hasError ? 'border-l-red-400' : 'border-l-green-400';
+  // 每步不同色
+  const color = getStepColor(step.roundIndex);
+  const barColor = hasError ? '#ef4444' : color.bar;
 
   return (
     <div
-      className={`border border-border rounded-md border-l-2 ${borderColor} bg-bg-tertiary/40 overflow-hidden`}
+      className="rounded-lg overflow-hidden transition-all duration-300"
+      style={{
+        backgroundColor: hasError ? 'rgba(239, 68, 68, 0.06)' : color.bg,
+        borderLeft: `4px solid ${barColor}`,
+        border: `1px solid ${hasError ? 'rgba(239, 68, 68, 0.2)' : color.border}20`,
+        borderLeftWidth: '4px',
+        borderLeftColor: barColor,
+      }}
     >
       {/* 标题行（可点击折叠） */}
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left hover:bg-bg-secondary/60 transition-colors"
+        className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:opacity-80 transition-all duration-300"
+        style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}
       >
         {/* 折叠箭头 */}
         <svg
-          className={`w-3 h-3 text-text-muted transition-transform flex-shrink-0 ${
+          className={`w-3.5 h-3.5 text-text-muted transition-transform duration-300 flex-shrink-0 ${
             expanded ? 'rotate-90' : ''
           }`}
           viewBox="0 0 16 16"
           fill="currentColor"
+          style={{ transitionTimingFunction: 'cubic-bezier(0.34, 1.56, 0.64, 1)' }}
         >
           <path d="M6 4l4 4-4 4V4z" />
         </svg>
 
         {/* 工具图标 + 名称 */}
-        <span className="text-[12px]">{getToolIcon(firstCall.name)}</span>
+        <Icon icon={getToolIcon(firstCall.name)} size={18} className="flex-shrink-0" style={{ color: barColor }} />
         <span
-          className={`text-[12px] font-medium flex-shrink-0 ${
+          className={`text-[14px] font-semibold flex-shrink-0 ${
             hasError ? 'text-red-400' : 'text-text-primary'
           }`}
         >
@@ -374,25 +414,32 @@ const StepCard: React.FC<StepCardProps> = ({ step, expanded, onToggle }) => {
 
         {/* 状态徽章 */}
         {hasError && (
-          <span className="ml-auto flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-red-400/15 text-red-400 border border-red-400/20">
+          <span className="ml-auto flex-shrink-0 text-[11px] px-2 py-0.5 rounded-full bg-red-400/15 text-red-400 border border-red-400/20">
             失败
           </span>
         )}
 
         {/* 摘要（折叠时显示） */}
         {!expanded && (
-          <span className="ml-1 text-[11px] text-text-muted truncate">{mainSummary}</span>
+          <span className="ml-1 text-[13px] text-text-muted truncate">{mainSummary}</span>
         )}
       </button>
 
-      {/* 展开内容 */}
-      {expanded && (
-        <div className="px-2.5 pb-2 pt-0.5 border-t border-border/50 space-y-1">
+      {/* 展开内容（弹性动画） */}
+      <div
+        className="overflow-hidden transition-all duration-300"
+        style={{
+          maxHeight: expanded ? '500px' : '0',
+          opacity: expanded ? 1 : 0,
+          transitionTimingFunction: 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+        }}
+      >
+        <div className="px-3 pb-2.5 pt-1 border-t border-border/30 space-y-1">
           {step.calls.map((call) => (
             <ToolCallRow key={call.toolCallId} call={call} />
           ))}
         </div>
-      )}
+      </div>
     </div>
   );
 };
@@ -467,27 +514,29 @@ const AgentWorkflowCard: React.FC<AgentWorkflowCardProps> = ({ toolCalls, durati
   const errorCount = toolCalls.filter((c) => c.status === 'error').length;
 
   return (
-    <div className="rounded-lg border border-border bg-bg-secondary/50 overflow-hidden">
+    <div className="rounded-xl border border-border bg-bg-secondary/60 overflow-hidden glow-card" style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}>
       {/* 顶部 Header */}
-      <div className="flex items-center gap-2 px-3 py-2 bg-bg-tertiary/60 border-b border-border">
+      <div className="flex items-center gap-2.5 px-3.5 py-2.5 bg-bg-tertiary/50 border-b border-border">
         {/* 整体折叠按钮 */}
         <button
           type="button"
           onClick={toggleAll}
-          className="flex items-center gap-1.5 text-[12px] text-text-sub hover:text-text-primary transition-colors"
+          className="flex items-center gap-2 text-[14px] text-text-sub hover:text-text-primary transition-colors"
         >
           <svg
-            className={`w-3.5 h-3.5 transition-transform ${allCollapsed ? '' : 'rotate-90'}`}
+            className={`w-4 h-4 transition-transform duration-300 ${allCollapsed ? '' : 'rotate-90'}`}
             viewBox="0 0 16 16"
             fill="currentColor"
+            style={{ transitionTimingFunction: 'cubic-bezier(0.34, 1.56, 0.64, 1)' }}
           >
             <path d="M6 4l4 4-4 4V4z" />
           </svg>
-          <span className="font-medium">执行过程</span>
+          <Icon icon="settings" size={18} className="text-[#2563eb]" />
+          <span className="font-semibold">执行过程</span>
         </button>
 
         {/* 统计信息 */}
-        <div className="flex items-center gap-2 ml-auto text-[11px] text-text-muted">
+        <div className="flex items-center gap-2.5 ml-auto text-[13px] text-text-muted">
           {duration !== undefined && duration > 0 && (
             <span>{formatDuration(duration)}</span>
           )}
@@ -499,7 +548,7 @@ const AgentWorkflowCard: React.FC<AgentWorkflowCardProps> = ({ toolCalls, durati
       </div>
 
       {/* 步骤列表 */}
-      <div className="p-2 space-y-1.5">
+      <div className="p-2.5 space-y-2">
         {steps.map((step) => (
           <StepCard
             key={step.roundIndex}

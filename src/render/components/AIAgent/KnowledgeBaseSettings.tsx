@@ -9,6 +9,7 @@ import React, { useEffect, useState } from 'react';
 import type { IKbDocumentStatus } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 import { useAgentStore } from '@render/stores/agentStore';
+import Icon from '../Common/Icon';
 
 const STATUS_LABEL: Record<IKbDocumentStatus['status'], string> = {
   pending: 'kb.status.pending',
@@ -130,7 +131,7 @@ const KnowledgeBaseSettings: React.FC = () => {
                   className="flex-shrink-0 text-text-muted hover:text-red-400 transition-colors"
                   title={t('ai.kb.delete')}
                 >
-                  ✕
+                  <Icon icon="close" size={14} />
                 </button>
               )}
             </div>

@@ -20,6 +20,7 @@ import {
 } from '@render/services/draftStore';
 import AIPanelHome, { formatRecentDate } from './AIPanelHome';
 import AIPanelSession from './AIPanelSession';
+import Icon from '../Common/Icon';
 
 type View = 'home' | 'session' | 'history';
 
@@ -178,13 +179,11 @@ const AIAgentPanel: React.FC = () => {
     setView('home');
   };
 
-  // R2: 历史会话删除
+  // R2: 历史会话删除（直接删除，无需确认）
   const handleDeleteHistory = (id: string) => {
-    if (window.confirm(t('ai.home.deleteConfirm'))) {
-      void deleteConversation(id);
-      // R6: Clean up persisted draft for deleted conversation
-      void deleteDraft(id);
-    }
+    void deleteConversation(id);
+    // R6: Clean up persisted draft for deleted conversation
+    void deleteDraft(id);
   };
 
   // R2: 历史会话列表（按 updatedAt 倒序）
@@ -225,7 +224,7 @@ const AIAgentPanel: React.FC = () => {
           title={t('navbar.close')}
           className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-input text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
         >
-          ✕
+          <Icon icon="close" size={16} />
         </button>
       </div>
     </div>
@@ -262,15 +261,16 @@ const AIAgentPanel: React.FC = () => {
             />
           )}
           {view === 'history' && (
-            <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+            <div className="flex flex-1 flex-col min-h-0 overflow-hidden" style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}>
               {/* 历史会话标题栏 */}
               <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
                 <button
                   type="button"
+                  data-testid="history-back-btn"
                   onClick={() => setView('home')}
                   className="shrink-0 text-text-muted hover:text-text-primary transition-colors"
                 >
-                  ←
+                  <Icon icon="chevron-left" size={18} />
                 </button>
                 <span className="flex-1 text-[15px] font-semibold text-text-primary">
                   {t('ai.history.title')}
@@ -286,7 +286,7 @@ const AIAgentPanel: React.FC = () => {
                   sortedConversations.map((c) => (
                     <div
                       key={c.id}
-                      className="flex items-center w-full rounded-card border border-border bg-bg-secondary/40 px-3 py-2 hover:border-[var(--accent)] hover:bg-bg-tertiary transition-colors cursor-pointer"
+                      className="flex items-center w-full rounded-card border border-border bg-bg-secondary/40 px-3 py-2 hover:border-[#2563eb] hover:bg-bg-tertiary transition-colors cursor-pointer glow-card"
                       onClick={() => {
                         void loadConversation(c.id, activeMode);
                         setView('session');
@@ -306,9 +306,9 @@ const AIAgentPanel: React.FC = () => {
                         title={t('ai.home.delete')}
                         onClick={(e) => { e.stopPropagation(); handleDeleteHistory(c.id); }}
                         onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); handleDeleteHistory(c.id); } }}
-                        className="shrink-0 w-6 h-6 flex items-center justify-center text-text-muted hover:text-red-400 transition-colors cursor-pointer"
+                        className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md text-text-sub hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
                       >
-                        🗑
+                        <Icon icon="delete" size={16} />
                       </span>
                     </div>
                   ))

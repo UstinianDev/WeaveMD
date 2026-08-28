@@ -176,7 +176,6 @@ interface AgentStore {
   triggerKbImportFile: (input: { title: string; content: string }) => Promise<boolean>;
   triggerKbImportDir: (folderPath: string) => Promise<void>;
   triggerKbDelete: (fileId: string) => Promise<void>;
-  runManualCompress: () => Promise<void>;
 
   // —— 写控制模块：快照回滚 ——
   /** 回滚到指定会话的快照（成功后刷新编辑器内容）。 */
@@ -1073,20 +1072,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     if (res.success) {
       await get().loadKbStatus();
     }
-  },
-
-  async runManualCompress() {
-    const { activeConversationId, messages } = get();
-    if (!activeConversationId) return;
-    const userId = useAuthStore.getState().user?.id ?? '';
-    // 渲染侧手动压缩：截取最近几轮文本作轻量摘要，复用 AI_SUMMARY_UPDATE 通道
-    const recent = messages
-      .slice(-8)
-      .map((m) => (m.role === 'user' ? `Q:${m.content}` : `A:${m.content}`))
-      .join('\n')
-      .slice(0, 2000);
-    if (!recent.trim()) return;
-    await getAi().updateConversationSummary(activeConversationId, userId, recent);
   },
 
   async rollbackSnapshot(sessionId: string): Promise<AgentRollbackResult> {

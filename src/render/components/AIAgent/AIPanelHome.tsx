@@ -11,6 +11,7 @@ import type { IAIConversation } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 import { useAgentStore } from '@render/stores/agentStore';
 import AIPanelComposer from './AIPanelComposer';
+import Icon from '../Common/Icon';
 
 interface AIPanelHomeProps {
   /** 受控草稿（M4）：由 AIAgentPanel 持有，home 与 session 共享。 */
@@ -73,26 +74,35 @@ const AIPanelHome: React.FC<AIPanelHomeProps> = ({
 
   const recent = useMemo(() => recentConversations(filteredConversations), [filteredConversations]);
 
-  // R1: 删除会话（确认后删除）
+  // R1: 删除会话（直接删除，无需确认）
   const handleDelete = useCallback(
     (e: React.MouseEvent | React.KeyboardEvent, id: string) => {
       e.stopPropagation();
-      if (window.confirm(t('ai.home.deleteConfirm'))) {
-        void deleteConversation(id);
-      }
+      void deleteConversation(id);
     },
-    [deleteConversation, t]
+    [deleteConversation]
   );
 
   return (
-    <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+    <div className="flex flex-1 flex-col min-h-0 overflow-hidden" style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}>
       <div className="chat-scroll flex-1 overflow-y-auto px-4 py-6 space-y-5">
-        {/* 居中大图标 + 文案（R2/R3） */}
-        <div className="flex flex-col items-center text-center pt-4 space-y-2">
-          <span className="text-5xl" aria-hidden>
-            📔
-          </span>
-          <p className="text-base font-medium text-text-primary">{t('ai.home.cta')}</p>
+        {/* Hero 区：渐变背景卡片 + 装饰元素 + 流光边框 */}
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#2563eb]/10 via-[#2563eb]/5 to-transparent border border-[#2563eb]/20 px-5 py-6 shimmer-border">
+          {/* 装饰圆点 */}
+          <div className="absolute top-3 right-4 flex gap-1.5 opacity-30">
+            <div className="w-2 h-2 rounded-full bg-[#2563eb]" />
+            <div className="w-2 h-2 rounded-full bg-[#2563eb]/60" />
+            <div className="w-2 h-2 rounded-full bg-[#2563eb]/30" />
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-11 h-11 rounded-xl bg-[#2563eb]/15 text-[#2563eb]">
+              <Icon icon="bolt" size={24} />
+            </div>
+            <div>
+              <p className="text-[15px] font-semibold gradient-text-animated">{t('ai.home.cta')}</p>
+              <p className="text-[12px] text-text-muted mt-0.5">Markdown · 知识库 · 智能体</p>
+            </div>
+          </div>
         </div>
 
         {/* 阶段 2：对话搜索框 */}
@@ -102,7 +112,7 @@ const AIPanelHome: React.FC<AIPanelHomeProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t('ai.home.searchPlaceholder', '搜索会话...')}
-            className="w-full bg-bg-primary border border-border rounded-input px-3 py-1.5 text-[13px] text-text-primary placeholder-text-muted outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/30 transition-colors"
+            className="w-full bg-bg-primary border border-border rounded-input px-3 py-1.5 text-[13px] text-text-primary placeholder-text-muted outline-none focus:border-[#2563eb] focus:ring-1 focus:ring-[#2563eb]/30 transition-colors"
           />
           {searchQuery && (
             <button
@@ -110,7 +120,7 @@ const AIPanelHome: React.FC<AIPanelHomeProps> = ({
               onClick={() => setSearchQuery('')}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors"
             >
-              ✕
+              <Icon icon="close" size={14} />
             </button>
           )}
         </div>
@@ -124,7 +134,7 @@ const AIPanelHome: React.FC<AIPanelHomeProps> = ({
             <button
               type="button"
               onClick={onViewAll}
-              className="text-[13px] text-text-muted hover:text-[var(--accent)] transition-colors"
+              className="text-[13px] text-text-muted hover:text-[#2563eb] transition-colors"
             >
               {t('ai.home.viewAll')}{' '}
               <span aria-hidden>
@@ -143,7 +153,7 @@ const AIPanelHome: React.FC<AIPanelHomeProps> = ({
                   type="button"
                   data-testid="home-recent-item"
                   onClick={() => onOpenConversation(c.id)}
-                  className="flex items-center w-full text-left rounded-card border border-border bg-bg-secondary/40 px-3 py-2 hover:border-[var(--accent)] hover:bg-bg-tertiary transition-colors"
+                  className="flex items-center w-full text-left rounded-card border border-border bg-bg-secondary/40 px-3 py-2 hover:border-[#2563eb] hover:bg-bg-tertiary transition-colors glow-card"
                 >
                   <div className="flex-1 min-w-0">
                     <span className="block truncate text-[15px] text-text-primary">
@@ -160,9 +170,9 @@ const AIPanelHome: React.FC<AIPanelHomeProps> = ({
                     title={t('ai.home.delete')}
                     onClick={(e) => handleDelete(e, c.id)}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleDelete(e, c.id); }}
-                    className="shrink-0 w-6 h-6 flex items-center justify-center text-text-muted hover:text-red-400 transition-colors cursor-pointer"
+                    className="shrink-0 w-7 h-7 flex items-center justify-center rounded-md text-text-sub hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
                   >
-                    🗑
+                    <Icon icon="delete" size={16} />
                   </span>
                 </button>
               ))}

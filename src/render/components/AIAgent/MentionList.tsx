@@ -6,9 +6,10 @@
 // 键盘导航：↑↓ 选择，Enter 确认，Esc 关闭。
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AgentSkillInfo, IMentionItem } from '@shared/ai';
+import type { IMentionItem } from '@shared/ai';
 import { useI18n } from '@render/i18n';
-import { useAuthStore } from '@render/stores/authStore';
+import { useFileTreeStore, type IFolderNode } from '@render/stores/fileTreeStore';
+import Icon from '../Common/Icon';
 
 interface MentionListProps {
   open: boolean;
@@ -17,63 +18,48 @@ interface MentionListProps {
   onClose: () => void;
 }
 
-/** 从文件列表 API 获取文件/目录 mention 项。 */
-async function fetchMentionItems(userId: string): Promise<IMentionItem[]> {
-  try {
-    const fileRes = await window.weaveMD?.file.list(userId);
-    if (!fileRes || !(fileRes as { success: boolean; data?: unknown[] }).success) return [];
-    const files = (fileRes as { success: boolean; data: Array<{ id: string; name: string }> }).data;
-    return files.map((f) => ({
-      type: 'file' as const,
-      id: f.id,
-      name: f.name,
-      path: f.name,
-      description: `文件: ${f.name}`,
-    }));
-  } catch {
-    return [];
+/** 递归扁平化文件夹树为 IMentionItem[]。 */
+function flattenFolders(nodes: IFolderNode[]): IMentionItem[] {
+  const result: IMentionItem[] = [];
+  for (const n of nodes) {
+    if (n.isDirectory) {
+      result.push({
+        type: 'folder',
+        id: n.id,
+        name: n.name,
+        path: n.path,
+        description: `目录: ${n.name}`,
+      });
+    }
+    if (n.children.length > 0) {
+      result.push(...flattenFolders(n.children));
+    }
   }
+  return result;
 }
 
-/** 从技能列表 API 获取技能 mention 项。 */
-async function fetchSkillItems(userId: string): Promise<IMentionItem[]> {
-  try {
-    const res = await window.weaveMD?.ai.listSkills(userId);
-    if (!res?.success || !res.data) return [];
-    return res.data.map((s: AgentSkillInfo) => ({
-      type: 'skill' as const,
-      id: s.name,
-      name: s.name,
-      description: s.description,
-    }));
-  } catch {
-    return [];
-  }
-}
 
 const MentionList: React.FC<MentionListProps> = ({ open, query, onSelect, onClose }) => {
   const { t } = useI18n();
-  const user = useAuthStore((s) => s.user);
-  const [items, setItems] = useState<IMentionItem[]>([]);
+  const looseFiles = useFileTreeStore((s) => s.looseFiles);
+  const folders = useFileTreeStore((s) => s.folders);
   const [activeIndex, setActiveIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // 加载文件和技能数据
-  useEffect(() => {
-    if (!open) return;
-    const userId = user?.id ?? '';
-    if (!userId) return;
-
-    const load = async (): Promise<void> => {
-      const [fileItems, skillItems] = await Promise.all([
-        fetchMentionItems(userId),
-        fetchSkillItems(userId),
-      ]);
-      // 文件 + 技能（目录暂不支持，后续可扩展）
-      setItems([...fileItems, ...skillItems]);
-    };
-    void load();
-  }, [open, user?.id]);
+  // 从 store 实时同步当前目录文件区（排除欢迎文档）+ 文件夹
+  const items = useMemo<IMentionItem[]>(() => {
+    const fileItems: IMentionItem[] = looseFiles
+      .filter((f) => !f.id.startsWith('welcome://'))
+      .map((f) => ({
+        type: 'file' as const,
+        id: f.id,
+        name: f.name,
+        path: f.path,
+        description: `文件: ${f.name}`,
+      }));
+    const folderItems = flattenFolders(folders);
+    return [...fileItems, ...folderItems];
+  }, [looseFiles, folders]);
 
   // 按 query 过滤
   const filtered = useMemo(() => {
@@ -129,21 +115,30 @@ const MentionList: React.FC<MentionListProps> = ({ open, query, onSelect, onClos
 
   if (!open || filtered.length === 0) return null;
 
-  /** 类型图标。 */
-  const getTypeIcon = (type: IMentionItem['type']): string => {
+  /** 类型 Iconify 图标。 */
+  const getTypeIconify = (type: IMentionItem['type']): string => {
     switch (type) {
-      case 'file': return '📄';
-      case 'folder': return '📁';
-      case 'skill': return '⚡';
+      case 'file': return 'file-outline';
+      case 'folder': return 'folder-outline';
+      case 'skill': return 'lightning';
+    }
+  };
+
+  /** 类型图标背景色。 */
+  const getTypeBg = (type: IMentionItem['type']): string => {
+    switch (type) {
+      case 'file': return 'bg-[#2563eb]/10 text-[#2563eb]';
+      case 'folder': return 'bg-amber-500/10 text-amber-500';
+      case 'skill': return 'bg-emerald-500/10 text-emerald-500';
     }
   };
 
   /** 类型标签颜色。 */
   const getTypeColor = (type: IMentionItem['type']): string => {
     switch (type) {
-      case 'file': return 'text-blue-400';
-      case 'folder': return 'text-yellow-400';
-      case 'skill': return 'text-purple-400';
+      case 'file': return 'text-[#2563eb]';
+      case 'folder': return 'text-amber-500';
+      case 'skill': return 'text-emerald-500';
     }
   };
 
@@ -164,22 +159,24 @@ const MentionList: React.FC<MentionListProps> = ({ open, query, onSelect, onClos
           role="option"
           aria-selected={idx === activeIndex}
           onClick={() => onSelect(item)}
-          className={`flex items-center gap-2 w-full text-left px-3 py-1.5 text-[13px] transition-colors ${
+          className={`flex items-center gap-2.5 w-full text-left px-3 py-2 text-[13px] transition-colors ${
             idx === activeIndex
-              ? 'bg-[var(--accent)]/15 text-text-primary'
+              ? 'bg-[var(--accent)]/10 text-text-primary'
               : 'text-text-sub hover:bg-bg-tertiary'
           }`}
         >
-          <span className="text-[14px] leading-none">{getTypeIcon(item.type)}</span>
+          <span className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center ${getTypeBg(item.type)}`}>
+            <Icon icon={getTypeIconify(item.type)} size={14} />
+          </span>
           <div className="flex-1 min-w-0">
             <div className="truncate font-medium">{item.name}</div>
             {item.description && (
-              <div className={`truncate text-[11px] ${getTypeColor(item.type)}`}>
+              <div className="truncate text-[11px] text-text-muted">
                 {item.description}
               </div>
             )}
           </div>
-          <span className={`text-[10px] px-1.5 py-0.5 rounded ${getTypeColor(item.type)} bg-bg-tertiary`}>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${getTypeColor(item.type)} bg-bg-tertiary`}>
             {item.type === 'file' ? '文件' : item.type === 'folder' ? '目录' : '技能'}
           </span>
         </button>

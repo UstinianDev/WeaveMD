@@ -8,11 +8,12 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用。核心定�
 
 | 类别 | 技术 |
 |------|------|
-| 桌面框架 | Electron + Vite + Electron Builder |
-| 前端 | React 18 + TypeScript + Tailwind |
+| 桌面框架 | Electron ^31 + Vite ^5 + Electron Builder |
+| 前端 | React 18 + TypeScript ^5.4 + TailwindCSS ^3.4（自定义色板，非默认色） |
 | 状态管理 | Zustand v4 |
-| 数据存储 | SQLite（better-sqlite3） |
+| 数据存储 | SQLite（better-sqlite3 ^11，FTS5 全文检索） |
 | 编辑器 | 自研块树内核（v2，照搬 marktext/muya 架构）+ Monaco（Source 模式） |
+| AI | 远程 OpenAI 兼容 API + jieba-wasm 分词 + sqlite-vec 向量检索 |
 | 测试 | Vitest + Playwright（真实 Chromium E2E） |
 
 ## 目录结构
@@ -66,9 +67,9 @@ npm run build
 
 ## 项目文档
 
-- [SUMMARY](./SUMMARY.md) — 项目总结与模块索引
+- [SUMMARY](./SUMMARY.md) — 文档索引
 - [REQUIREMENTS](./REQUIREMENTS.md) — 功能需求文档
-- [TECH_STACK](./TECH_STACK.md) — 技术选型文档
+- [TODO](./TODO.md) — 功能进度与已知问题
 - [modules/](./modules/) — 各模块详细文档
 - [specs/](./specs/) — 编辑主区 v2 规格与实施记录
 - [testing/](./testing/) — TDD 测试报告

@@ -4,6 +4,7 @@
 // 展示批量文件操作的汇总信息（U5）。
 
 import React from 'react';
+import Icon from '../Common/Icon';
 
 interface BatchOperation {
   type: 'create' | 'modify' | 'delete' | 'rename';
@@ -22,10 +23,10 @@ interface BatchOperationCardProps {
 
 /** 操作类型图标。 */
 const TYPE_ICONS: Record<string, string> = {
-  create: '📄',
-  modify: '✏️',
-  delete: '🗑️',
-  rename: '📝',
+  create: 'file-add',
+  modify: 'file-edit',
+  delete: 'delete',
+  rename: 'folder-move',
 };
 
 /** 操作类型颜色。 */
@@ -56,7 +57,7 @@ const BatchOperationCard: React.FC<BatchOperationCardProps> = ({
   const failedCount = operations.filter((op) => op.status === 'failed').length;
 
   return (
-    <div className="rounded-card border border-border bg-bg-secondary/50 p-3 space-y-3">
+    <div className="rounded-card border border-border bg-bg-secondary/50 p-3 space-y-3 glow-card">
       {/* 标题 */}
       <div className="flex items-center justify-between">
         <span className="text-[13px] font-medium text-text-primary">
@@ -81,12 +82,15 @@ const BatchOperationCard: React.FC<BatchOperationCardProps> = ({
             key={index}
             className="flex items-center gap-2 px-2 py-1.5 rounded bg-bg-tertiary/50 text-[12px]"
           >
-            <span>{TYPE_ICONS[op.type] ?? '?'}</span>
+            <Icon icon={TYPE_ICONS[op.type] ?? 'file-outline'} size={14} />
             <span className={`font-mono ${TYPE_COLORS[op.type]}`}>
               {op.type === 'rename' ? `${op.filePath} → ${op.newPath}` : op.filePath}
             </span>
-            <span className={`ml-auto text-[10px] ${STATUS_COLORS[op.status]}`}>
-              {op.status === 'applied' ? '✓' : op.status === 'failed' ? '✗' : '⏳'}
+            <span className={`ml-auto ${STATUS_COLORS[op.status]}`}>
+              <Icon
+                icon={op.status === 'applied' ? 'check' : op.status === 'failed' ? 'close' : 'schedule'}
+                size={12}
+              />
             </span>
           </div>
         ))}

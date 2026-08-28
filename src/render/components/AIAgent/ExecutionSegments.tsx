@@ -6,6 +6,7 @@
 
 import React, { useMemo } from 'react';
 import type { IAgentToolCall } from '@shared/ai';
+import Icon from '../Common/Icon';
 
 interface ExecutionSegmentsProps {
   toolCalls: IAgentToolCall[];
@@ -18,11 +19,11 @@ const STATUS_COLORS: Record<string, string> = {
   running: 'text-yellow-400 bg-yellow-400/10',
 };
 
-/** 状态图标。 */
+/** 状态图标（Iconify）。 */
 const STATUS_ICONS: Record<string, string> = {
-  ok: '✓',
-  error: '✗',
-  running: '⟳',
+  ok: 'check',
+  error: 'close',
+  running: 'loop',
 };
 
 /** 工具名简称映射（减少视觉噪音）。 */
@@ -81,7 +82,7 @@ const ExecutionSegments: React.FC<ExecutionSegmentsProps> = ({ toolCalls }) => {
                   className={`flex items-center gap-1 px-2 py-1 rounded text-[12px] ${colorClass}`}
                   title={`${tc.name}: ${status}${tc.errorDesc ? ` (${tc.errorDesc})` : ''}`}
                 >
-                  <span className="text-[10px]">{icon}</span>
+                  <Icon icon={icon} size={11} />
                   <span>{shortName}</span>
                 </div>
               );

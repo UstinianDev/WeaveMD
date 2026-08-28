@@ -4,6 +4,7 @@
 // 展示文件修订之间的差异（U3）。
 
 import React from 'react';
+import Icon from '../Common/Icon';
 
 interface DiffLine {
   type: 'added' | 'removed' | 'unchanged';
@@ -63,7 +64,7 @@ const FileRevisionDiffDialog: React.FC<FileRevisionDiffDialogProps> = ({
             onClick={onClose}
             className="text-text-muted hover:text-text-primary transition-colors"
           >
-            ✕
+            <Icon icon="close" size={16} />
           </button>
         </div>
 

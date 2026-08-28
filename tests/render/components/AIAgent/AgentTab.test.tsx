@@ -132,19 +132,13 @@ describe('AgentTab (消息流展示区)', () => {
     expect(sendAgentMessage).toHaveBeenCalledWith('请帮我创作一篇文章');
   });
 
-  it('A1c: assistant 消息且文档已打开 → 「预览写入文档」按钮点击调用 previewDocumentFromReply', () => {
-    const previewDocumentFromReply = vi.fn();
-    vi.spyOn(useRewriteStore.getState(), 'previewDocumentFromReply').mockImplementation(
-      previewDocumentFromReply
-    );
+  it('A1c: assistant 消息且文档已打开 → 「预览写入文档」按钮已移除不再显示', () => {
     useEditorStore.setState({
       currentFile: { id: 'f1', name: 'doc', content: '当前文档' } as never,
     });
     useAgentStore.setState({ ...defaultState, messages: [assistantMsg] });
     render(<AgentTab />);
-    const btn = screen.getByText('预览写入文档');
-    fireEvent.click(btn);
-    expect(previewDocumentFromReply).toHaveBeenCalledWith('**好的**，我来写。');
+    expect(screen.queryByText('预览写入文档')).not.toBeInTheDocument();
   });
 
   it('A1c: 未打开文档 → assistant 消息不显示「预览写入文档」按钮', () => {

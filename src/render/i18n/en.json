@@ -1,9 +1,6 @@
 {
   "ai.agent.compress": "Compress context",
   "ai.agent.kbSettings": "Knowledge base",
-  "ai.compact.command": "/compact",
-  "ai.compact.description": "Compress conversation context",
-  "ai.compact.hint": "Type /compact to compress context",
   "ai.context.usage": "Context: {used} / {total} tokens ({percent}%)",
   "ai.context.tooltip": "Token usage: {used} / {total}",
   "ai.agent.placeholder": "Agent capabilities arrive in Phase 4",
@@ -45,6 +42,8 @@
   "ai.settings.embedding.provider": "Provider",
   "ai.settings.embedding.baseUrl": "Base URL",
   "ai.settings.embedding.model": "Model Name",
+  "ai.settings.embedding.dimension": "Vector Dimension",
+  "ai.settings.embedding.dimensionHint": "Requires re-indexing knowledge base after change",
   "ai.settings.embedding.multimodal": "Enable multimodal vectors",
   "ai.settings.embedding.test": "Test Connection",
   "ai.settings.embedding.testing": "Testing...",

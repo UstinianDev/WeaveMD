@@ -5,6 +5,7 @@
 
 import React, { useState } from 'react';
 import type { IClarifyQuestion } from '@shared/ai';
+import Icon from '../Common/Icon';
 
 interface ClarifyDrawerProps {
   open: boolean;
@@ -50,7 +51,7 @@ const ClarifyDrawer: React.FC<ClarifyDrawerProps> = ({
             onClick={onClose}
             className="text-text-muted hover:text-text-primary transition-colors"
           >
-            ✕
+            <Icon icon="close" size={16} />
           </button>
         </div>
 

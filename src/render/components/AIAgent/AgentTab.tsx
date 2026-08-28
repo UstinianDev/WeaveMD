@@ -2,8 +2,7 @@
 // WeaveMD — AI 面板消息流展示区（M3：AgentTab 精瘦化）
 // ============================================
 // 仅承担会话消息流 body：RewritePreviewCard + 消息列表（AIMessageBubble）+
-// 工具轨迹（ToolCallTrace）+ 意图候选卡（IntentCard）+ 流式增量 + 后端降级提示 +
-// assistant 回复「预览写入文档」（A1c）。
+// 工具轨迹（ToolCallTrace）+ 意图候选卡（IntentCard）+ 流式增量 + 后端降级提示。
 // 原 composer（发送/stop/补全）与 handleSendAgent 分流已移交 AIPanelComposer（宿主互换，协议原样）。
 // 原 KB 控件行已移入 AIPanelSession。无 dangerouslySetInnerHTML、无 any。
 
@@ -11,8 +10,6 @@ import React, { useEffect, useRef } from 'react';
 import type { IntentName } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 import { useAgentStore } from '@render/stores/agentStore';
-import { useEditorStore } from '@render/stores/editorStore';
-import { useRewriteStore } from '@render/stores/rewriteStore';
 import AIMessageBubble from './AIMessageBubble';
 import AgentWorkflowCard from './AgentWorkflowCard';
 import EditBlocksPreviewCard from './EditBlocksPreviewCard';
@@ -35,9 +32,6 @@ const AgentTab: React.FC = () => {
   // R3: 交互提问状态
   const pendingInteraction = useAgentStore((s) => s.pendingInteraction);
   const resumeInteraction = useAgentStore((s) => s.resumeInteraction);
-
-  const previewDocumentFromReply = useRewriteStore((s) => s.previewDocumentFromReply);
-  const currentFile = useEditorStore((s) => s.currentFile);
 
   const messageListRef = useRef<HTMLDivElement>(null);
 
@@ -117,19 +111,6 @@ const AgentTab: React.FC = () => {
                   : undefined
               }
             />
-            {/* agent 模式：A1c 回复可「预览写入文档」——文档已打开且回复非空才显示 */}
-            {isAgentMode &&
-              m.role === 'assistant' &&
-              m.content.trim() &&
-              currentFile && (
-                <button
-                  type="button"
-                  onClick={() => previewDocumentFromReply(m.content)}
-                  className="ml-10 mt-0.5 text-[12px] px-2 py-0.5 rounded-md bg-bg-tertiary border border-border text-text-sub hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors"
-                >
-                  {t('ai.rewrite.previewWrite')}
-                </button>
-              )}
           </div>
         );
       })}
@@ -160,7 +141,7 @@ const AgentTab: React.FC = () => {
           {/* AI 处理流程状态指示器 */}
           {processStatus !== 'idle' && (
             <div className="flex items-center gap-2 px-4 py-1.5 text-[13px] text-text-muted">
-              <span className="inline-block w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" />
+              <span className="inline-block w-2 h-2 rounded-full bg-[var(--accent)] glow-badge" />
               {processStatusText[processStatus] ?? processStatus}
             </div>
           )}

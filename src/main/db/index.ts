@@ -87,6 +87,29 @@ export const KB_CONFIG_ALTER_SQL = [
   { name: 'kb_pinned_weight', ddl: 'kb_pinned_weight REAL DEFAULT 1.5' },
   { name: 'kb_embedding_host', ddl: "kb_embedding_host TEXT DEFAULT 'http://localhost:11434'" },
   { name: 'kb_embedding_model', ddl: "kb_embedding_model TEXT DEFAULT 'nomic-embed-text'" },
+  // R2: RRF 融合参数
+  { name: 'kb_rrf_k', ddl: 'kb_rrf_k INTEGER DEFAULT 60' },
+  { name: 'kb_candidate_multiplier', ddl: 'kb_candidate_multiplier INTEGER DEFAULT 4' },
+  { name: 'kb_vec_score_threshold', ddl: 'kb_vec_score_threshold REAL DEFAULT 0.5' },
+  // R3: 加权参数
+  { name: 'kb_current_file_boost', ddl: 'kb_current_file_boost REAL DEFAULT 0.08' },
+  { name: 'kb_recency_boost', ddl: 'kb_recency_boost REAL DEFAULT 0.05' },
+  { name: 'kb_heading_boost', ddl: 'kb_heading_boost REAL DEFAULT 0.1' },
+  // R4: 段聚合参数
+  { name: 'kb_max_chunks_per_file', ddl: 'kb_max_chunks_per_file INTEGER DEFAULT 3' },
+  { name: 'kb_context_expand', ddl: 'kb_context_expand INTEGER DEFAULT 1' },
+  // R5~R9: 高级功能开关
+  { name: 'kb_enable_query_understanding', ddl: 'kb_enable_query_understanding INTEGER DEFAULT 1' },
+  { name: 'kb_enable_conditional_rerank', ddl: 'kb_enable_conditional_rerank INTEGER DEFAULT 1' },
+  { name: 'kb_enable_clarify', ddl: 'kb_enable_clarify INTEGER DEFAULT 1' },
+  { name: 'kb_enable_evidence_grading', ddl: 'kb_enable_evidence_grading INTEGER DEFAULT 1' },
+  { name: 'kb_enable_research_loop', ddl: 'kb_enable_research_loop INTEGER DEFAULT 1' },
+  // R10: 文档上下文
+  { name: 'kb_enable_document_context', ddl: 'kb_enable_document_context INTEGER DEFAULT 1' },
+  { name: 'kb_document_context_budget', ddl: 'kb_document_context_budget INTEGER DEFAULT 50000' },
+  // R1: Embedding 提供商
+  { name: 'kb_embedding_provider', ddl: "kb_embedding_provider TEXT DEFAULT 'openai'" },
+  { name: 'kb_embedding_dimension', ddl: 'kb_embedding_dimension INTEGER DEFAULT 1536' },
 ];
 
 function runMigrations(database: Database.Database): void {
@@ -202,6 +225,9 @@ function runMigrations(database: Database.Database): void {
 
   // 第 3 期：FTS5 关键词索引（表外虚拟表 + 触发器同步），幂等
   database.exec(FTS5_MIGRATION_SQL);
+
+  // R12: 图片向量表（幂等）
+  addImageVectorTables(database);
 
   // 问题反馈邮件授权码表（user_id 唯一，每用户一条密文），幂等
   database.exec(MAIL_CONFIG_SCHEMA);
@@ -438,6 +464,36 @@ function addAgentTables(database: Database.Database): void {
 function addKbVectorColumns(database: Database.Database): void {
   addColumnIfMissing(database, 'kb_documents', 'file_path', 'file_path TEXT DEFAULT NULL');
   addColumnIfMissing(database, 'kb_chunks', 'embedding_model', 'embedding_model TEXT DEFAULT NULL');
+  // R5: heading_path 列（段聚合 heading 提升用）
+  addColumnIfMissing(database, 'kb_chunks', 'heading_path', 'heading_path TEXT DEFAULT NULL');
+  // R3: updated_at 列（时效加权用）
+  addColumnIfMissing(database, 'kb_documents', 'updated_at', "updated_at TEXT DEFAULT (datetime('now'))");
+}
+
+/** R12: 图片向量表（幂等）。 */
+function addImageVectorTables(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS kb_images (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL REFERENCES kb_documents(id) ON DELETE CASCADE,
+      source_ref TEXT,
+      mime_type TEXT,
+      embedding_model TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_kb_img_doc ON kb_images(document_id);
+  `);
+  // images_vec 虚拟表（vec0）— 仅在 sqlite-vec 可用时创建
+  try {
+    database.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS images_vec USING vec0(
+        id TEXT PRIMARY KEY,
+        vector FLOAT[1024]
+      );
+    `);
+  } catch {
+    // sqlite-vec 不可用时静默跳过
+  }
 }
 
 /** file_revisions 表：Agent 文件操作修订历史。 */

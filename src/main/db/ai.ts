@@ -45,6 +45,24 @@ export interface AiConfigRow {
   activeModelConfigId: string | null;
   // ---- 写模式（auto / manual） ----
   writeMode: WriteMode;
+  // ---- R2~R10: 扩展 KB 设置（由 normalizeKbSettings 兜底） ----
+  kbRrfK: number;
+  kbCandidateMultiplier: number;
+  kbVecScoreThreshold: number;
+  kbCurrentFileBoost: number;
+  kbRecencyBoost: number;
+  kbHeadingBoost: number;
+  kbMaxChunksPerFile: number;
+  kbContextExpand: number;
+  kbEnableQueryUnderstanding: boolean;
+  kbEnableConditionalRerank: boolean;
+  kbEnableClarify: boolean;
+  kbEnableEvidenceGrading: boolean;
+  kbEnableResearchLoop: boolean;
+  kbEnableDocumentContext: boolean;
+  kbDocumentContextBudget: number;
+  kbEmbeddingProvider: string;
+  kbEmbeddingDimension: number;
 }
 
 interface AiConfigDbRow {
@@ -67,6 +85,24 @@ interface AiConfigDbRow {
   active_model_config_id: string | null;
   // 遗留列（kb_embedding_host / kb_embedding_model）不再读取/写入，保留 NULL
   write_mode: string | null;
+  // R2~R10: 新增 KB 配置列（NULL 时由 normalizeKbSettings 兜底）
+  kb_rrf_k: number | null;
+  kb_candidate_multiplier: number | null;
+  kb_vec_score_threshold: number | null;
+  kb_current_file_boost: number | null;
+  kb_recency_boost: number | null;
+  kb_heading_boost: number | null;
+  kb_max_chunks_per_file: number | null;
+  kb_context_expand: number | null;
+  kb_enable_query_understanding: number | null;
+  kb_enable_conditional_rerank: number | null;
+  kb_enable_clarify: number | null;
+  kb_enable_evidence_grading: number | null;
+  kb_enable_research_loop: number | null;
+  kb_enable_document_context: number | null;
+  kb_document_context_budget: number | null;
+  kb_embedding_provider: string | null;
+  kb_embedding_dimension: number | null;
 }
 
 function mapConfigRow(row: AiConfigDbRow): AiConfigRow {
@@ -76,6 +112,21 @@ function mapConfigRow(row: AiConfigDbRow): AiConfigRow {
     fuse: row.kb_fuse ?? undefined,
     threshold: row.kb_threshold ?? undefined,
     pinnedWeight: row.kb_pinned_weight ?? undefined,
+    rrfK: row.kb_rrf_k ?? undefined,
+    candidateMultiplier: row.kb_candidate_multiplier ?? undefined,
+    vecScoreThreshold: row.kb_vec_score_threshold ?? undefined,
+    currentFileBoost: row.kb_current_file_boost ?? undefined,
+    recencyBoost: row.kb_recency_boost ?? undefined,
+    headingBoost: row.kb_heading_boost ?? undefined,
+    maxChunksPerFile: row.kb_max_chunks_per_file ?? undefined,
+    contextExpand: row.kb_context_expand ?? undefined,
+    enableQueryUnderstanding: row.kb_enable_query_understanding != null ? !!row.kb_enable_query_understanding : undefined,
+    enableConditionalRerank: row.kb_enable_conditional_rerank != null ? !!row.kb_enable_conditional_rerank : undefined,
+    enableClarify: row.kb_enable_clarify != null ? !!row.kb_enable_clarify : undefined,
+    enableEvidenceGrading: row.kb_enable_evidence_grading != null ? !!row.kb_enable_evidence_grading : undefined,
+    enableResearchLoop: row.kb_enable_research_loop != null ? !!row.kb_enable_research_loop : undefined,
+    enableDocumentContext: row.kb_enable_document_context != null ? !!row.kb_enable_document_context : undefined,
+    documentContextBudget: row.kb_document_context_budget ?? undefined,
   });
   return {
     id: row.id,
@@ -98,6 +149,24 @@ function mapConfigRow(row: AiConfigDbRow): AiConfigRow {
     activeModelConfigId: row.active_model_config_id ?? null,
     // write_mode: 新旧库兼容，NULL 或非 'auto' 值一律收敛为 'manual'
     writeMode: row.write_mode === 'auto' ? 'auto' : 'manual',
+    // R2~R10: 扩展 KB 设置
+    kbRrfK: kb.rrfK!,
+    kbCandidateMultiplier: kb.candidateMultiplier!,
+    kbVecScoreThreshold: kb.vecScoreThreshold!,
+    kbCurrentFileBoost: kb.currentFileBoost!,
+    kbRecencyBoost: kb.recencyBoost!,
+    kbHeadingBoost: kb.headingBoost!,
+    kbMaxChunksPerFile: kb.maxChunksPerFile!,
+    kbContextExpand: kb.contextExpand!,
+    kbEnableQueryUnderstanding: kb.enableQueryUnderstanding!,
+    kbEnableConditionalRerank: kb.enableConditionalRerank!,
+    kbEnableClarify: kb.enableClarify!,
+    kbEnableEvidenceGrading: kb.enableEvidenceGrading!,
+    kbEnableResearchLoop: kb.enableResearchLoop!,
+    kbEnableDocumentContext: kb.enableDocumentContext!,
+    kbDocumentContextBudget: kb.documentContextBudget!,
+    kbEmbeddingProvider: row.kb_embedding_provider ?? 'openai',
+    kbEmbeddingDimension: row.kb_embedding_dimension ?? 1536,
   };
 }
 
@@ -190,6 +259,66 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
   const fresh = getAiConfig(userId);
   if (!fresh) throw new Error('Failed to upsert ai_config');
   return fresh;
+}
+
+/**
+ * 更新扩展 KB 设置（R2~R12 新增列）。
+ * 仅更新传入的字段，未传入的保持原值。
+ * 列不存在时静默跳过（幂等兼容旧库）。
+ */
+export function updateKbExtendedSettings(
+  userId: string,
+  settings: Record<string, unknown>
+): void {
+  const db = getDatabase();
+  const existing = getAiConfig(userId);
+  if (!existing) return;
+
+  // 字段映射：camelCase → snake_case
+  const fieldMap: Array<[string, string, 'number' | 'boolean' | 'string']> = [
+    ['rrfK', 'kb_rrf_k', 'number'],
+    ['candidateMultiplier', 'kb_candidate_multiplier', 'number'],
+    ['vecScoreThreshold', 'kb_vec_score_threshold', 'number'],
+    ['currentFileBoost', 'kb_current_file_boost', 'number'],
+    ['recencyBoost', 'kb_recency_boost', 'number'],
+    ['headingBoost', 'kb_heading_boost', 'number'],
+    ['maxChunksPerFile', 'kb_max_chunks_per_file', 'number'],
+    ['contextExpand', 'kb_context_expand', 'number'],
+    ['enableQueryUnderstanding', 'kb_enable_query_understanding', 'boolean'],
+    ['enableConditionalRerank', 'kb_enable_conditional_rerank', 'boolean'],
+    ['enableClarify', 'kb_enable_clarify', 'boolean'],
+    ['enableEvidenceGrading', 'kb_enable_evidence_grading', 'boolean'],
+    ['enableResearchLoop', 'kb_enable_research_loop', 'boolean'],
+    ['enableDocumentContext', 'kb_enable_document_context', 'boolean'],
+    ['documentContextBudget', 'kb_document_context_budget', 'number'],
+    ['embeddingProvider', 'kb_embedding_provider', 'string'],
+    ['embeddingDimension', 'kb_embedding_dimension', 'number'],
+  ];
+
+  const setClauses: string[] = [];
+  const values: unknown[] = [];
+
+  for (const [camel, snake, type] of fieldMap) {
+    if (!(camel in settings)) continue;
+    const val = settings[camel];
+    if (type === 'boolean') {
+      values.push(val ? 1 : 0);
+    } else {
+      values.push(val ?? null);
+    }
+    setClauses.push(`${snake} = ?`);
+  }
+
+  if (setClauses.length === 0) return;
+
+  setClauses.push("updated_at = datetime('now')");
+  values.push(userId);
+
+  try {
+    db.prepare(`UPDATE ai_config SET ${setClauses.join(', ')} WHERE user_id = ?`).run(...values);
+  } catch {
+    // 列不存在时静默跳过（旧库未迁移）
+  }
 }
 
 // ---------------------------------------------------------------------------

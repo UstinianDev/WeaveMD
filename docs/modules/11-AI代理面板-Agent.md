@@ -1,6 +1,6 @@
 # AI 代理面板 (Agent) 功能总结
 
-> 模块编号：11 | 优先级：P1 | 最后更新：2026-08-25 | 状态：**第 1~7 期均已交付；后端收敛 remote-only；Notus Agent 克隆完成（21 项功能）；写控制与任务安全模块 R1~R7 全部完成；真 MCP / GitHub 继续延**
+> 模块编号：11 | 优先级：P1 | 最后更新：2026-08-27 | 状态：**第 1~7 期均已交付；后端收敛 remote-only；Notus Agent 克隆完成（21 项功能）；写控制与任务安全模块 R1~R7；知识库 Notus 对齐 R1~R12；真 MCP / GitHub 继续延**
 > 需求编号：AGT-01~19 / KB-01~05（docs/REQUIREMENTS.md 3.7 / 3.8）
 > 交付记录：第1期基建 + 第2期 Chat 闭环（2026-08-14）、第3期知识库 + 第4期 Agent 能力
 > （2026-08-15）；远程 DeepSeek 后端已真连验证通过；
@@ -25,7 +25,13 @@
 src/main/ai/                  # AI 主进程服务（第1/2/3/4/5期已交付 + 2026-08-21 重构）
 ├── llmClient.ts              # LLM 调用（仅远程 OpenAI 兼容 API，SSE 流式 + tools 支持）
 ├── kbIndexer.ts              # 知识库导入/分块/增量重索引（保存防抖重嵌入、删除清理）
-├── kbSearch.ts               # 关键词召回（仅 FTS5 BM25 + 拒答 + 置顶加权；向量召回已去除）
+├── kbSearch.ts               # RRF 混合检索（向量+FTS5+标题三路融合 + 加权 + 段聚合 + 条件重排）
+├── queryPlanner.ts           # 查询理解（5类意图+指代消解+查询扩展+模糊检测）
+├── knowledgeClarify.ts       # 知识澄清（歧义检测→澄清卡片→重新检索）
+├── knowledgeRuntime.ts       # 证据分级（4级：grounded/weak/conflicting/no_evidence）
+├── knowledgeContext.ts       # 研究循环 + 文档上下文注入
+├── tokenizer.ts              # jieba-wasm 分词（cut_for_search+bigram回退）
+├── imageIndexer.ts           # 图片索引（images_vec表+多模态embedding）
 ├── intentRouter.ts           # 意图识别（规则 6 类）+ 候选提问卡片
 ├── contextManager.ts         # 上下文压缩（/4 估算 + 80% 阈值自动 + 手动）
 ├── skillLoader.ts            # skills 体系（3 内置 + userData/skills/ 用户扩展）
@@ -71,7 +77,7 @@ IPC 通道 `ai:*`（白名单）+ `kb:*` + `agent:*` + 流式 `ai:stream:tool`�
 | ---- | ---- |
 | LLM 后端 | **仅远程 OpenAI 兼容 API**（后端收敛 remote-only，必须填 key；ollama 已彻底去除）；见 AGT-04 |
 | 知识库 | ✅ = 账号内全部笔记（files 表 user_id 过滤 + 软删排除）+ 导入 md/txt 文档统一索引（kb DAO + FTS5 虚拟表 kb_chunks_fts + 触发器）；置顶 = 文件级开关（召回 ×1.5）；@ 文件 = 文件树当前目录的 .md（第 5 期块级改写）；**KB 参数（topK/fuse/threshold/置顶权重）第 6 期已持久化到 ai_config（kb:get/setSettings IPC）** |
-| 召回 | ✅ **仅 FTS5 BM25** 关键词召回（后端收敛后向量/embedding 已去除），top-k 默认 5；低于拒答阈值（默认 0.6）拒答不生成答案；CJK 连续中文字符匹配注意（FTS5 unicode61：连续 CJK 视为单 token） |
+| 召回 | ✅ **RRF 混合检索**（向量+FTS5+标题三路并行 → `1/(60+rank)` 融合）+ 加权策略（当前文件/标题/时效/置顶）+ 段聚合（heading提升+单文件cap+上下文扩展）+ 条件重排（top2差距<0.03触发LLM reranker）+ jieba-wasm分词（cut_for_search+bigram回退）；低于拒答阈值（默认 0.6）拒答；图片embedding（images_vec表+多模态）；查询理解（5类意图+指代消解+模糊检测→澄清卡片）+ 证据分级（4级）+ 研究循环（证据不足自动子查询）+ 文档上下文注入 |
 | 出处 | ✅ 每条回答附「[来源: 文件名 · 块]」，点击 openFile 打开文档（尽力按行滚动，比例近似接线） |
 | 导入 | ✅ md/txt（单文件 + 目录批量，主进程读盘），进 SQLite 按账号隔离；pdf/docx 后续（需引入解析器） |
 | Skills | ✅ 内置 3 个 core skill（润色/缩写/扩写、技术资料整理、知识库问答引导）+ 用户可扩展（`userData/skills/` 下 SKILL.md）；**GitHub 自取 `writing-shape` 延期**，未实施 |
@@ -87,7 +93,7 @@ IPC 通道 `ai:*`（白名单）+ `kb:*` + `agent:*` + 流式 `ai:stream:tool`�
 | 安全 | ✅ safeStorage 加密密钥；首次联网/外发弹知情同意页（可勾选：允许联网 `allowNetwork` / 允许笔记外发 `allowSend`）；联网与 KB 外发分层闸（consent 'agent' 需两者配合 needsKbSendConsent）；后端恒 remote、需填 key（无 ollama 降级）；召回仅关键词/FTS5 |
 | 会话 | ✅ Chat/Agent 各自独立会话（mode 区分），SQLite 持久化，按账号隔离，含历史摘要字段 |
 
-> 说明：KB 参数（topK/fuse/threshold/置顶权重；embedding host+model 已随向量召回去除）**第 6 期已持久化到 ai_config 表**（幂等迁移，`pragma_table_info` 探测 + 逐列 ADD；agentStore.kbSettings 由 `kb:get-settings`/`kb:set-settings` IPC 同步；KB_STATUS 探针与 AGENT_RUN 检索兜底均消费持久化值）。当前实现召回**仅走关键词/FTS5**，无向量路径。
+> 说明：KB 参数（topK/fuse/threshold/置顶权重 + R1-R12 扩展参数：rrfK/candidateMultiplier/vecScoreThreshold/currentFileBoost/recencyBoost/headingBoost/maxChunksPerFile/contextExpand + 8 个功能开关 + embedding provider/dimension）**已持久化到 ai_config 表**（幂等迁移，`pragma_table_info` 探测 + 逐列 ADD；agentStore.kbSettings 由 `kb:get-settings`/`kb:set-settings` IPC 同步）。召回走 RRF 三路混合（向量+FTS5+标题），jieba-wasm 中文分词。
 
 ## 4. 数据模型（新增表，全部 `user_id` 隔离）
 

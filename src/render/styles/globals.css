@@ -16,9 +16,9 @@ html.light-header {
   --text-primary: #111827;
   --text-sub: #6b7280;
   --text-muted: #9ca3af;
-  --accent: #7c3aed;
-  --accent-secondary: #6366f1;
-  --accent-hover: #6d28d9;
+  --accent: #2563eb;
+  --accent-secondary: #3b82f6;
+  --accent-hover: #1d4ed8;
   --radius-input: 8px;
   --radius-card: 12px;
   --transition-duration: 150ms;
@@ -49,9 +49,9 @@ html.light {
   --text-primary: #111827;
   --text-sub: #6b7280;
   --text-muted: #9ca3af;
-  --accent: #7c3aed;
-  --accent-secondary: #6366f1;
-  --accent-hover: #6d28d9;
+  --accent: #2563eb;
+  --accent-secondary: #3b82f6;
+  --accent-hover: #1d4ed8;
   --navbar-bg: #1a1a1a;
   --navbar-text-primary: #ffffff;
   --navbar-text-sub: #999999;
@@ -75,9 +75,9 @@ html.dark {
   --text-primary: #ffffff;
   --text-sub: #999999;
   --text-muted: #666666;
-  --accent: #7c3aed;
-  --accent-secondary: #6366f1;
-  --accent-hover: #6d28d9;
+  --accent: #2563eb;
+  --accent-secondary: #3b82f6;
+  --accent-hover: #1d4ed8;
   --navbar-bg: #1a1a1a;
   --navbar-text-primary: #ffffff;
   --navbar-text-sub: #999999;
@@ -101,9 +101,9 @@ html.custom {
   --text-primary: #ffffff;
   --text-sub: #999999;
   --text-muted: #666666;
-  --accent: #7c3aed;
-  --accent-secondary: #6366f1;
-  --accent-hover: #6d28d9;
+  --accent: #2563eb;
+  --accent-secondary: #3b82f6;
+  --accent-hover: #1d4ed8;
   --navbar-bg: #1a1a1a;
   --navbar-text-primary: #ffffff;
   --navbar-text-sub: #999999;
@@ -2727,4 +2727,166 @@ span.comment-marker {
   height: 1px;
   background: var(--border-color);
   margin: 0.4em 0;
+}
+
+/* ============================================ */
+/* Aceternity UI 灵感动画（纯 CSS，无 JS 依赖）  */
+/* ============================================ */
+
+/* 旋转渐变边框（Border Magic Button） */
+@keyframes border-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 微光扫过（Shimmer） */
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* 脉冲发光（Glow Pulse） */
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* 旋转渐变边框容器（.border-magic） */
+.border-magic {
+  position: relative;
+  isolation: isolate;
+}
+.border-magic::before {
+  content: '';
+  position: absolute;
+  inset: -1000%;
+  z-index: -1;
+  animation: border-spin 3s linear infinite;
+  background: conic-gradient(
+    from 90deg at 50% 50%,
+    var(--accent) 0%,
+    transparent 25%,
+    var(--accent-secondary) 50%,
+    transparent 75%,
+    var(--accent) 100%
+  );
+}
+.border-magic::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--bg-primary);
+}
+
+/* 微光按钮（.btn-shimmer） */
+.btn-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.btn-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 25%,
+    rgba(255, 255, 255, 0.15) 50%,
+    transparent 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2.5s linear infinite;
+}
+
+/* 发光卡片悬停（.glow-card）—— session 卡片、按钮组 */
+.glow-card {
+  position: relative;
+  transition: box-shadow 0.3s ease;
+}
+.glow-card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: linear-gradient(
+    135deg,
+    var(--accent) 0%,
+    var(--accent-secondary) 50%,
+    var(--accent) 100%
+  );
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  filter: blur(6px);
+}
+.glow-card:hover::before {
+  opacity: 0.4;
+}
+
+/* 聚光灯悬停（.spotlight-card）—— 鼠标跟随渐变 */
+.spotlight-card {
+  position: relative;
+  overflow: hidden;
+}
+.spotlight-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  opacity: 0;
+  background: radial-gradient(
+    600px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(37, 99, 235, 0.08),
+    transparent 40%
+  );
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+.spotlight-card:hover::after {
+  opacity: 1;
+}
+
+/* 脉冲发光徽章（.glow-badge）—— 状态指示器 */
+.glow-badge {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* 旋转渐变文字（.gradient-text-animated） */
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.gradient-text-animated {
+  background: linear-gradient(90deg, var(--accent), var(--accent-secondary), var(--accent));
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradient-shift 3s ease infinite;
+}
+
+/* 流光边框卡片（.shimmer-border）—— 特色卡片 */
+.shimmer-border {
+  position: relative;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+.shimmer-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    var(--accent) 0%,
+    var(--accent-secondary) 25%,
+    transparent 50%,
+    var(--accent) 75%,
+    var(--accent-secondary) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 3s linear infinite;
 }

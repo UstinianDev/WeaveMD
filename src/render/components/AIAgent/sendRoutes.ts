@@ -4,8 +4,6 @@
 // 从 handleSendAgent 7 路 if-branch 提取的独立处理器。
 // 每个处理器接收文本和上下文，返回 true 表示已处理。
 
-import type { IAIConversation } from '@shared/ai';
-
 /** 发送路由上下文（组件状态快照，避免闭包捕获）。 */
 export interface SendContext {
   userId: string | undefined;
@@ -13,7 +11,6 @@ export interface SendContext {
   activeConversationId: string | null;
   messages: Array<{ id: string; conversationId: string; role: string; content: string; refsJson: string | null; createdAt: string }>;
   sendAgentMessage: (msg: string) => void;
-  runManualCompress: () => void;
   startDocumentRewrite: (content: string, instruction: string) => void;
   runFullDocumentRewrite: (text: string) => void;
   runSelectionRewrite: (instruction: string) => void;
@@ -28,21 +25,9 @@ export interface SendContext {
 export const DOC_SCOPE_PREFIX = '@文档';
 export const KB_SCOPE_PREFIX = '@知识库';
 export const SLASH_SKILL_RE = /^\/[a-z_]+\s+/;
-export const COMPACT_CMD = '/compact';
 
 export const WRITE_WHOLE_DOC_RE =
   /从\s*0\s*到\s*1|从零|从头|整篇|全文|写一篇|写整篇|写一份|写个文档|write\s+(a\s+)?(full|entire|complete)|create\s+(a\s+)?document|write\s+a\s+doc/;
-
-/** 路由 0：/compact 命令 → 压缩上下文。 */
-export function routeCompact(text: string, ctx: SendContext): boolean {
-  if (text !== COMPACT_CMD && !text.startsWith(`${COMPACT_CMD} `)) return false;
-  const description = text.slice(COMPACT_CMD.length).trim();
-  ctx.runManualCompress();
-  if (description) {
-    setTimeout(() => { ctx.sendAgentMessage(description); }, 100);
-  }
-  return true;
-}
 
 /** 路由 1：有选区上下文 → 选区改写。 */
 export function routeSelectionRewrite(text: string, ctx: SendContext): boolean {
@@ -116,7 +101,6 @@ export function routePlainAgent(text: string, ctx: SendContext): boolean {
 
 /** 路由表（优先级从高到低）。 */
 export const SEND_ROUTES: Array<(text: string, ctx: SendContext) => boolean> = [
-  routeCompact,
   routeSelectionRewrite,
   routeSlashSkill,
   routeDocScope,

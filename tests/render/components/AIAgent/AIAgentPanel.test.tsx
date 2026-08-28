@@ -228,7 +228,7 @@ describe('AIAgentPanel（三视图外壳）', () => {
     // 切 history（home 卸载）
     fireEvent.click(screen.getByTestId('mock-view-all'));
     // 返回 home（history → home，通过点返回按钮）
-    const backBtn = screen.getByText('←');
+    const backBtn = screen.getByTestId('history-back-btn');
     fireEvent.click(backBtn);
     expect(screen.getByTestId('view-home')).toBeInTheDocument();
     // 草稿保留：home composer 重新挂载后受控 value 仍为原草稿
@@ -247,7 +247,7 @@ describe('AIAgentPanel（三视图外壳）', () => {
     // 点 view-all 进 history（home → history，不触发清空）
     fireEvent.click(screen.getByTestId('mock-view-all'));
     // history 返回 → 回 home，草稿仍在
-    fireEvent.click(screen.getByText('←'));
+    fireEvent.click(screen.getByTestId('history-back-btn'));
     expect(screen.getByTestId('view-home')).toBeInTheDocument();
     expect(lastHomeDraft).toBe('共享草稿');
     expect((screen.getByPlaceholderText('输入你的问题...') as HTMLTextAreaElement).value).toBe(

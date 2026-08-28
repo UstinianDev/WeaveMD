@@ -1,23 +1,57 @@
 // ============================================
-// WeaveMD — 知识库混合检索（FTS5 BM25 + 向量余弦 + 标题匹配）
+// WeaveMD — 知识库混合检索（R2~R6 完整检索管线）
 // ============================================
-// searchKB(userId, query, opts) 为对外契约（精确签名）。
-// 混合检索：FTS5 BM25 + sqlite-vec 向量余弦 + 标题/路径 LIKE 匹配，三路融合排序。
-// 无向量时降级到纯 FTS5 + 标题匹配。topK×2 候选池 → 融合评分 → 取 topK → 拒答。
+// searchKB(userId, query, opts) 为对外契约。
+// R2: RRF 混合检索融合（向量 + FTS5 + 标题匹配三路并行）
+// R3: 加权策略（当前文件/时效/标题/置顶）
+// R4: 段聚合增强（heading 提升 + 单文件 cap + 上下文扩展）
+// R6: 条件重排（LLM 重排，可选注入）
 
 import { getDatabase } from '../db/index';
+import { buildFtsQuery } from './tokenizer';
 import type Database from 'better-sqlite3';
-import type { IKbSearchResult } from '@shared/ai';
+import type {
+  IKbSearchResult,
+  IKbSearchDetailedResponse,
+  QueryIntentType,
+} from '@shared/ai';
+
+// ---------------------------------------------------------------------------
+// 接口定义
+// ---------------------------------------------------------------------------
 
 export interface KbSearchOptions {
+  // 原有参数
   topK?: number;
   fuse?: number;
   pinnedWeight?: number;
   threshold?: number;
   /** 查询向量（可选，由 embeddingClient 生成，用于向量余弦搜索）。 */
   queryVector?: number[];
+  // R2: RRF 融合参数
+  rrfK?: number;
+  candidateMultiplier?: number;
+  vecScoreThreshold?: number;
+  // R3: 加权参数
+  currentFileId?: string;
+  /** 当前文件加权上限（默认 0.12）。 */
+  currentFileBoost?: number;
+  /** 时效加权（默认 0.05）。 */
+  recencyBoost?: number;
+  /** 标题加权（默认 0.1）。 */
+  headingBoost?: number;
+  // R4: 段聚合参数
+  maxChunksPerFile?: number;
+  contextExpand?: number;
+  // R5: 扩展查询
+  expandedQueries?: string[];
+  // R6: 条件重排开关
+  enableConditionalRerank?: boolean;
+  /** LLM 重排函数（可选注入，避免直接依赖 llmClient）。 */
+  rerankFn?: (query: string, results: IKbSearchResult[]) => Promise<IKbSearchResult[]>;
 }
 
+/** 向后兼容的简单响应类型。 */
 export type KbSearchResponse = {
   refused: boolean;
   threshold: number;
@@ -25,91 +59,32 @@ export type KbSearchResponse = {
   results: IKbSearchResult[];
 };
 
+// ---------------------------------------------------------------------------
+// 常量
+// ---------------------------------------------------------------------------
+
 const EPS = 1e-9;
+const DEFAULT_RRF_K = 60;
+const DEFAULT_CANDIDATE_MULTIPLIER = 4;
+const DEFAULT_VEC_SCORE_THRESHOLD = 0.5;
+const DEFAULT_CURRENT_FILE_BOOST = 0.12;
+const DEFAULT_RECENCY_BOOST = 0.05;
+const DEFAULT_HEADING_BOOST = 0.1;
+const DEFAULT_MAX_CHUNKS_PER_FILE = 3;
+const DEFAULT_CONTEXT_EXPAND = 1;
+/** 时效加权窗口（7 天，毫秒）。 */
+const RECENCY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
-// 纯函数
+// 纯函数（保留原有）
 // ---------------------------------------------------------------------------
-
-const CJK_RE = /[㐀-䶿一-鿿豈-﫿]/;
-const FTS_SPECIAL_RE = /[!"()*:^~+\-&|<>[\]{}]/g;
-
-function hasCjk(text: string): boolean {
-  return CJK_RE.test(text);
-}
 
 /**
- * 净化用户查询为纯 token 匹配：
- * 1) 剥离 FTS5 语法特殊字符（防语法注入/误导）；2) 折叠连续空白为单空格；
- * 3) 对含 CJK 的 token 追加 `*` 前缀（连续 CJK 视为单 token，须 `知识*` 式命中）。
+ * 净化用户查询为 FTS5 匹配字符串（R11：委托 tokenizer.buildFtsQuery）。
+ * jieba 分词 → CJK token 前缀匹配 → OR 连接；jieba 不可用时降级 bigram。
  */
 export function sanitizeFtsQuery(query: string): string {
-  const cleaned = query.replace(FTS_SPECIAL_RE, ' ').replace(/\s+/g, ' ').trim();
-  if (!cleaned) return '';
-  return cleaned
-    .split(' ')
-    .map((tok) => (hasCjk(tok) ? `${tok}*` : tok))
-    .join(' ');
-}
-
-/** 召回候选（rankCandidates 输入）。bm = FTS5 BM25 原始分。 */
-export interface SearchCandidate {
-  chunkId: string;
-  documentId: string;
-  fileName: string;
-  content: string;
-  seq: number;
-  pinned: boolean;
-  sourceRef: string | null;
-  bm: number;
-  /** 向量余弦相似度分数（0-1），无向量时为 null。 */
-  vecScore: number | null;
-  /** 标题/路径匹配分数（0-1），无匹配时为 0。 */
-  titleScore: number;
-}
-
-/**
- * 段聚合：将同一文档中相邻 seq 的片段合并为更大的上下文。
- * 相邻片段合并后 content 拼接，score 取最高分。
- * 合并窗口：seq 差值 <= 1 的片段视为相邻。
- */
-export function aggregateSegments(
-  results: IKbSearchResult[],
-  windowSize: number = 1
-): IKbSearchResult[] {
-  if (results.length === 0) return [];
-
-  // 按 documentId + seq 排序
-  const sorted = [...results].sort((a, b) => {
-    if (a.docId !== b.docId) return a.docId.localeCompare(b.docId);
-    return a.seq - b.seq;
-  });
-
-  const aggregated: IKbSearchResult[] = [];
-  let current: IKbSearchResult | null = null;
-
-  for (const item of sorted) {
-    if (!current) {
-      current = { ...item };
-      continue;
-    }
-
-    // 同一文档且相邻 seq → 合并
-    if (
-      current.docId === item.docId &&
-      Math.abs(current.seq - item.seq) <= windowSize
-    ) {
-      current.content += '\n\n' + item.content;
-      current.score = Math.max(current.score, item.score);
-      // seq 保持第一个片段的 seq
-    } else {
-      aggregated.push(current);
-      current = { ...item };
-    }
-  }
-
-  if (current) aggregated.push(current);
-  return aggregated;
+  return buildFtsQuery(query);
 }
 
 /**
@@ -132,34 +107,52 @@ export function detectQueryIntent(query: string): 'question' | 'command' | 'keyw
   return 'keyword';
 }
 
-/**
- * 条件重排：根据查询意图调整排序策略。
- * - question：优先高分片段（精确匹配）
- * - command：优先完整上下文（聚合后片段）
- * - keyword：保持原序
- */
-export function rerankByIntent(
-  results: IKbSearchResult[],
-  intent: 'question' | 'command' | 'keyword'
-): IKbSearchResult[] {
-  if (intent === 'keyword') return results;
+// ---------------------------------------------------------------------------
+// R2: RRF 混合检索
+// ---------------------------------------------------------------------------
 
-  const sorted = [...results];
-
-  if (intent === 'question') {
-    // 问题模式：优先高分片段
-    sorted.sort((a, b) => b.score - a.score);
-  } else if (intent === 'command') {
-    // 命令模式：优先长片段（更完整上下文）
-    sorted.sort((a, b) => b.content.length - a.content.length);
-  }
-
-  return sorted;
+/** 召回候选（rankCandidates 输入）。bm = FTS5 BM25 原始分。 */
+export interface SearchCandidate {
+  chunkId: string;
+  documentId: string;
+  fileName: string;
+  content: string;
+  seq: number;
+  pinned: boolean;
+  sourceRef: string | null;
+  bm: number;
+  /** 向量余弦相似度分数（0-1），无向量时为 null。 */
+  vecScore: number | null;
+  /** 标题/路径匹配分数（0-1），无匹配时为 0。 */
+  titleScore: number;
+  /** chunk 类型标记（heading 路径非空则为 heading）。 */
+  isHeading?: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// 向量搜索 + 标题匹配
-// ---------------------------------------------------------------------------
+/** RRF 单路结果：chunkId + 原始排名。 */
+interface RrfChannelEntry {
+  chunkId: string;
+  rank: number;
+}
+
+/**
+ * RRF 融合：将多路按原始排名分配 rrfScore 并求和。
+ * rrfScore(rank, k) = 1 / (k + rank)
+ * 返回 chunkId → 总 rrfScore 的 Map。
+ */
+export function rrfFusion(
+  channels: RrfChannelEntry[][],
+  rrfK: number = DEFAULT_RRF_K
+): Map<string, number> {
+  const scores = new Map<string, number>();
+  for (const channel of channels) {
+    for (const entry of channel) {
+      const prev = scores.get(entry.chunkId) ?? 0;
+      scores.set(entry.chunkId, prev + 1 / (rrfK + entry.rank));
+    }
+  }
+  return scores;
+}
 
 /**
  * sqlite-vec 向量余弦搜索（可选路径）。
@@ -170,7 +163,8 @@ function vectorSearch(
   db: Database.Database,
   userId: string,
   queryVector: number[],
-  limit: number
+  limit: number,
+  threshold: number = DEFAULT_VEC_SCORE_THRESHOLD
 ): Map<string, number> {
   const result = new Map<string, number>();
   try {
@@ -191,7 +185,10 @@ function vectorSearch(
 
     for (const row of rows) {
       const similarity = Math.max(0, 1 - row.distance / 2);
-      result.set(row.chunkId, similarity);
+      // 低于阈值的不纳入
+      if (similarity >= threshold) {
+        result.set(row.chunkId, similarity);
+      }
     }
   } catch {
     // sqlite-vec 不可用时静默降级
@@ -240,55 +237,367 @@ function titleMatchSearch(
 }
 
 /**
- * 评分 + 排序（纯函数，可单测）：
- * - ftsNorm 对候选 BM25 做 min-max 归一（同极值 → 全部 1）。
- * - 三路融合：FTS × fuse + 向量 × (1-fuse) + 标题 × 0.1。
- * - pinned 文档 × pinnedWeight。
+ * RRF 评分 + 排序（替代原有 rankCandidates 的加权融合）。
+ * - 三路并行：向量（sqlite-vec cosine）+ FTS5（BM25）+ 标题匹配（LIKE）
+ * - 每路按分数排序分配 rank，rrfScore = 1 / (k + rank)
+ * - chunk 最终分 = 各路 rrfScore 之和
+ * - R2: 向量候选 = topK × candidateMultiplier，vecScoreThreshold 过滤
  * 返回按 score 降序的 IKbSearchResult[]。
  */
 export function rankCandidates(
   candidates: SearchCandidate[],
   pinnedWeight: number,
-  fuse: number = 0.5
+  _fuse: number = 0.5, // 保留参数签名兼容，RRF 模式下不使用
+  rrfK: number = DEFAULT_RRF_K
 ): IKbSearchResult[] {
   if (candidates.length === 0) return [];
 
-  const bms = candidates.map((c) => c.bm);
-  const min = Math.min(...bms);
-  const max = Math.max(...bms);
-  const range = max - min;
-  const ftsNorm = (bm: number): number => (range > EPS ? (bm - min) / range : 1);
+  // 构建三路排名
+  // 路径 1: FTS5 BM25（降序，bm 越小越好，取负值排序）
+  const ftsSorted = [...candidates]
+    .sort((a, b) => a.bm - b.bm) // BM25 原始分越小越好
+    .map((c, i) => ({ chunkId: c.chunkId, rank: i + 1 }));
 
-  const scored = candidates.map((c) => {
-    const fts = ftsNorm(c.bm);
-    const vec = c.vecScore;
-    const title = c.titleScore ?? 0;
+  // 路径 2: 向量余弦（降序，相似度越高越好）
+  const vecCandidates = candidates.filter(c => c.vecScore !== null);
+  const vecSorted = [...vecCandidates]
+    .sort((a, b) => (b.vecScore ?? 0) - (a.vecScore ?? 0))
+    .map((c, i) => ({ chunkId: c.chunkId, rank: i + 1 }));
 
-    // 三路融合：有向量时 fuse 控制 FTS vs 向量权重，无向量时 FTS 权重更高
-    let score: number;
-    if (vec !== null && vec !== undefined) {
-      // 有向量数据：三路融合
-      score = fts * fuse + vec * (1 - fuse) + title * 0.1;
-    } else {
-      // 无向量数据：FTS 为主 + 标题补充（保持向后兼容）
-      score = fts * 0.9 + title * 0.1;
-    }
-    if (c.pinned) score *= pinnedWeight;
+  // 路径 3: 标题匹配（降序）
+  const titleCandidates = candidates.filter(c => c.titleScore > 0);
+  const titleSorted = [...titleCandidates]
+    .sort((a, b) => b.titleScore - a.titleScore)
+    .map((c, i) => ({ chunkId: c.chunkId, rank: i + 1 }));
 
-    return {
+  // RRF 融合
+  const rrfScores = rrfFusion([ftsSorted, vecSorted, titleSorted], rrfK);
+
+  // 构建候选 map（用于快速查找原始数据）
+  const candidateMap = new Map<string, SearchCandidate>();
+  for (const c of candidates) {
+    candidateMap.set(c.chunkId, c);
+  }
+
+  // 生成结果
+  const scored: IKbSearchResult[] = [];
+  for (const [chunkId, rrfScore] of rrfScores) {
+    const c = candidateMap.get(chunkId);
+    if (!c) continue;
+
+    // 查找各路排名（调试用）
+    const ftsEntry = ftsSorted.find(e => e.chunkId === chunkId);
+    const vecEntry = vecSorted.find(e => e.chunkId === chunkId);
+    const titleEntry = titleSorted.find(e => e.chunkId === chunkId);
+
+    scored.push({
       docId: c.documentId,
       chunkId: c.chunkId,
       fileName: c.fileName,
       content: c.content,
       seq: c.seq,
-      score,
+      score: rrfScore,
       pinned: c.pinned,
       sourceRef: c.sourceRef,
-    } satisfies IKbSearchResult;
-  });
+      isHeading: c.isHeading,
+      rrfRanks: {
+        vec: vecEntry?.rank,
+        fts: ftsEntry?.rank,
+        title: titleEntry?.rank,
+      },
+    });
+  }
 
   scored.sort((a, b) => b.score - a.score);
   return scored;
+}
+
+// ---------------------------------------------------------------------------
+// R3: 加权策略（RRF 之后）
+// ---------------------------------------------------------------------------
+
+/**
+ * 应用加权策略：
+ * - 当前文件加权：+min(currentFileBoost, max(0.04, score*0.25))
+ * - 时效加权：文件 7 天内更新 → +recencyBoost
+ * - 标题加权：heading 类型 chunk → +headingBoost
+ * - 置顶：×pinnedWeight
+ */
+export function applyWeighting(
+  result: IKbSearchResult,
+  opts: {
+    currentFileId?: string;
+    currentFileBoost?: number;
+    recencyBoost?: number;
+    headingBoost?: number;
+    pinnedWeight?: number;
+    updatedAt?: number | null; // 文件更新时间戳（毫秒）
+  }
+): IKbSearchResult {
+  let score = result.score;
+
+  // 当前文件加权
+  if (opts.currentFileId && result.docId === opts.currentFileId) {
+    const boost = opts.currentFileBoost ?? DEFAULT_CURRENT_FILE_BOOST;
+    score += Math.min(boost, Math.max(0.04, result.score * 0.25));
+  }
+
+  // 时效加权：7 天内更新的文件
+  if (opts.updatedAt) {
+    const age = Date.now() - opts.updatedAt;
+    if (age >= 0 && age < RECENCY_WINDOW_MS) {
+      score += opts.recencyBoost ?? DEFAULT_RECENCY_BOOST;
+    }
+  }
+
+  // 标题加权
+  if (result.isHeading) {
+    score += opts.headingBoost ?? DEFAULT_HEADING_BOOST;
+  }
+
+  // 置顶
+  if (result.pinned) {
+    score *= opts.pinnedWeight ?? 1.5;
+  }
+
+  return { ...result, score };
+}
+
+// ---------------------------------------------------------------------------
+// R4: 段聚合增强
+// ---------------------------------------------------------------------------
+
+/**
+ * 段聚合增强：
+ * - heading 提升：heading chunk 的分数提升给同 heading 下子 chunk
+ * - 单文件 cap：maxChunksPerFile，取分数最高的 N 个
+ * - 上下文扩展：匹配 chunk 前后各扩展 contextExpand 个 chunk（通过 seq 查 kb_chunks）
+ * - maxSections = max(topK*2, 8)
+ */
+export function aggregateAndExpand(
+  results: IKbSearchResult[],
+  db: Database.Database,
+  userId: string,
+  opts: {
+    maxChunksPerFile?: number;
+    contextExpand?: number;
+    topK?: number;
+  }
+): IKbSearchResult[] {
+  if (results.length === 0) return [];
+
+  const maxChunksPerFile = opts.maxChunksPerFile ?? DEFAULT_MAX_CHUNKS_PER_FILE;
+  const contextExpand = opts.contextExpand ?? DEFAULT_CONTEXT_EXPAND;
+  const maxSections = Math.max((opts.topK ?? 5) * 2, 8);
+
+  // Step 1: heading 提升 — heading chunk 的分数传递给同文档下相邻 chunk
+  const headingScores = new Map<string, number>(); // docId → heading 最高分
+  for (const r of results) {
+    if (r.isHeading) {
+      const prev = headingScores.get(r.docId) ?? 0;
+      headingScores.set(r.docId, Math.max(prev, r.score));
+    }
+  }
+
+  // heading boost：同文档非 heading chunk 从 heading 分数中获得 30% 提升
+  const boosted = results.map(r => {
+    if (!r.isHeading && headingScores.has(r.docId)) {
+      const headingScore = headingScores.get(r.docId)!;
+      return { ...r, score: r.score + headingScore * 0.3 };
+    }
+    return r;
+  });
+
+  // Step 2: 单文件 cap — 每个文件最多取 maxChunksPerFile 个最高分 chunk
+  const byFile = new Map<string, IKbSearchResult[]>();
+  for (const r of boosted) {
+    const arr = byFile.get(r.docId) ?? [];
+    arr.push(r);
+    byFile.set(r.docId, arr);
+  }
+
+  const capped: IKbSearchResult[] = [];
+  for (const [, arr] of byFile) {
+    arr.sort((a, b) => b.score - a.score);
+    capped.push(...arr.slice(0, maxChunksPerFile));
+  }
+
+  // Step 3: 上下文扩展 — 为每个匹配 chunk 前后各扩展 contextExpand 个 chunk
+  const expanded: IKbSearchResult[] = [];
+  const seenChunkIds = new Set<string>();
+
+  for (const r of capped) {
+    // 加入匹配 chunk 自身
+    if (!seenChunkIds.has(r.chunkId)) {
+      expanded.push(r);
+      seenChunkIds.add(r.chunkId);
+    }
+
+    // 查询前后扩展 chunk
+    if (contextExpand > 0) {
+      try {
+        const neighbors = db.prepare(`
+          SELECT c.id AS chunkId, c.document_id AS documentId, c.content, c.seq,
+                 c.source_ref AS sourceRef, d.title AS fileName, d.pinned,
+                 c.heading_path AS headingPath
+            FROM kb_chunks c
+            JOIN kb_documents d ON d.id = c.document_id
+           WHERE d.id = ? AND d.user_id = ?
+             AND c.seq BETWEEN ? AND ?
+             AND c.id != ?
+           ORDER BY c.seq
+        `).all(
+          r.docId,
+          userId,
+          r.seq - contextExpand,
+          r.seq + contextExpand,
+          r.chunkId
+        ) as Array<{
+          chunkId: string;
+          documentId: string;
+          content: string;
+          seq: number;
+          sourceRef: string | null;
+          fileName: string;
+          pinned: number;
+          headingPath: string | null;
+        }>;
+
+        for (const n of neighbors) {
+          if (seenChunkIds.has(n.chunkId)) continue;
+          seenChunkIds.add(n.chunkId);
+          expanded.push({
+            docId: n.documentId,
+            chunkId: n.chunkId,
+            fileName: n.fileName,
+            content: n.content,
+            seq: n.seq,
+            // 上下文扩展 chunk 使用原匹配 chunk 分数的 50%
+            score: r.score * 0.5,
+            pinned: !!n.pinned,
+            sourceRef: n.sourceRef ?? null,
+            isHeading: !!n.headingPath,
+          });
+        }
+      } catch {
+        // 查询失败时静默跳过扩展
+      }
+    }
+  }
+
+  // 按分数排序，截取 maxSections
+  expanded.sort((a, b) => b.score - a.score);
+  return expanded.slice(0, maxSections);
+}
+
+// ---------------------------------------------------------------------------
+// R6: 条件重排
+// ---------------------------------------------------------------------------
+
+/** R6 重排缓存：5 分钟 TTL。 */
+interface RerankCacheEntry {
+  results: IKbSearchResult[];
+  timestamp: number;
+}
+const rerankCache = new Map<string, RerankCacheEntry>();
+const RERANK_CACHE_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * 判断是否需要条件重排（满足任一条件）：
+ * 1. top2 差距 < 0.03
+ * 2. 意图 summary | comparison | follow_up
+ * 3. 结果分散 3+ 文件
+ * 4. 置信度低（top1 分数 < 0.15）
+ */
+export function shouldRerank(
+  results: IKbSearchResult[],
+  intent: QueryIntentType
+): boolean {
+  if (results.length < 2) return false;
+
+  // 条件 1: top2 差距 < 0.03
+  const top2Gap = results[0].score - results[1].score;
+  if (top2Gap < 0.03) return true;
+
+  // 条件 2: 意图 summary | comparison | follow_up
+  if (intent === 'summary' || intent === 'comparison' || intent === 'follow_up') return true;
+
+  // 条件 3: 结果分散 3+ 文件
+  const uniqueFiles = new Set(results.map(r => r.docId));
+  if (uniqueFiles.size >= 3) return true;
+
+  // 条件 4: 置信度低
+  if (results[0].score < 0.15) return true;
+
+  return false;
+}
+
+/**
+ * 将 detectQueryIntent 的返回值映射到 QueryIntentType。
+ */
+function mapIntentToType(intent: 'question' | 'command' | 'keyword'): QueryIntentType {
+  switch (intent) {
+    case 'question': return 'fact';
+    case 'command': return 'procedure';
+    case 'keyword': return 'fact';
+  }
+}
+
+/**
+ * 条件重排（R6）：满足触发条件时调用 LLM 对 top-N 评分。
+ * 使用内存 5 分钟 TTL 缓存。
+ */
+export async function conditionalRerank(
+  results: IKbSearchResult[],
+  query: string,
+  intent: QueryIntentType,
+  opts: {
+    enableConditionalRerank?: boolean;
+    rerankFn?: (query: string, results: IKbSearchResult[]) => Promise<IKbSearchResult[]>;
+  }
+): Promise<IKbSearchResult[]> {
+  // 未启用或无重排函数时直接返回
+  if (!opts.enableConditionalRerank || !opts.rerankFn) {
+    return results;
+  }
+
+  // 检查是否需要重排
+  if (!shouldRerank(results, intent)) {
+    return results;
+  }
+
+  // 检查缓存
+  const cacheKey = `${query}::${results.map(r => r.chunkId).join(',')}`;
+  const cached = rerankCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < RERANK_CACHE_TTL_MS) {
+    return cached.results;
+  }
+
+  try {
+    // 调用 LLM 重排（取 top-10 送入重排）
+    const topN = results.slice(0, 10);
+    const reranked = await opts.rerankFn(query, topN);
+
+    // 合并：重排后的 top-N + 剩余未重排的
+    const rerankedIds = new Set(reranked.map(r => r.chunkId));
+    const remaining = results.filter(r => !rerankedIds.has(r.chunkId));
+    const final = [...reranked, ...remaining];
+
+    // 写入缓存
+    rerankCache.set(cacheKey, { results: final, timestamp: Date.now() });
+
+    // 清理过期缓存
+    for (const [key, entry] of rerankCache) {
+      if (Date.now() - entry.timestamp > RERANK_CACHE_TTL_MS) {
+        rerankCache.delete(key);
+      }
+    }
+
+    return final;
+  } catch {
+    // 重排失败时返回原始结果
+    return results;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -296,36 +605,41 @@ export function rankCandidates(
 // ---------------------------------------------------------------------------
 
 /**
- * 混合检索：FTS5 BM25 + 向量余弦（可选）+ 标题匹配 → 融合评分 → 取 topK → 拒答。
+ * 混合检索：FTS5 BM25 + 向量余弦（可选）+ 标题匹配 → RRF 融合 → 加权 → 段聚合 → 条件重排。
  * 无 queryVector 时降级到纯 FTS5 + 标题匹配。
  */
 export async function searchKB(
   userId: string,
   query: string,
   opts: KbSearchOptions
-): Promise<KbSearchResponse> {
+): Promise<IKbSearchDetailedResponse> {
   const topK = opts.topK ?? 5;
   const pinnedWeight = opts.pinnedWeight ?? 1.5;
   const threshold = opts.threshold ?? 0.6;
-  const fuse = opts.fuse ?? 0.5;
+  const rrfK = opts.rrfK ?? DEFAULT_RRF_K;
+  const candidateMultiplier = opts.candidateMultiplier ?? DEFAULT_CANDIDATE_MULTIPLIER;
+  const vecScoreThreshold = opts.vecScoreThreshold ?? DEFAULT_VEC_SCORE_THRESHOLD;
 
   const cleaned = sanitizeFtsQuery(query);
-  const response: KbSearchResponse = {
+  const emptyResponse: IKbSearchDetailedResponse = {
     refused: true,
     threshold,
     best: null,
     results: [],
   };
-  if (!cleaned) return response;
+  if (!cleaned) return emptyResponse;
 
   const db = getDatabase();
-  const candidateLimit = Math.max(1, topK * 2);
+  const candidateLimit = Math.max(1, topK * candidateMultiplier);
 
-  // FTS5 BM25 召回
-  const rows = db
+  // ---- 三路并行召回 ----
+
+  // 路径 1: FTS5 BM25 召回
+  const ftsRows = db
     .prepare(
       `SELECT c.id AS chunkId, c.document_id AS documentId, c.content, c.seq,
-              c.source_ref AS sourceRef, d.title AS fileName, d.pinned,
+              c.source_ref AS sourceRef, c.heading_path AS headingPath,
+              d.title AS fileName, d.pinned,
               bm25(kb_chunks_fts) AS bm
          FROM kb_chunks_fts
          JOIN kb_chunks c ON c.rowid = kb_chunks_fts.rowid
@@ -339,21 +653,116 @@ export async function searchKB(
     content: string;
     seq: number;
     sourceRef: string | null;
+    headingPath: string | null;
     fileName: string;
     pinned: number;
     bm: number;
   }>;
 
-  // 向量搜索（可选）
+  // 路径 2: 向量搜索（可选），候选 = topK × candidateMultiplier
+  const vecLimit = topK * candidateMultiplier;
   const vecScores = opts.queryVector
-    ? vectorSearch(db, userId, opts.queryVector, candidateLimit * 2)
+    ? vectorSearch(db, userId, opts.queryVector, vecLimit, vecScoreThreshold)
     : new Map<string, number>();
 
-  // 标题匹配
+  // 路径 3: 标题匹配
   const titleScores = titleMatchSearch(db, userId, cleaned, candidateLimit);
 
-  // 融合分数到候选
-  const candidates: SearchCandidate[] = rows.map((r) => ({
+  // ---- R5: 扩展查询合并 ----
+  // expandedQueries 由外部（agentLoop）注入，每条扩展查询额外走 FTS5 召回
+  const extraFtsRows: typeof ftsRows = [];
+  if (opts.expandedQueries && opts.expandedQueries.length > 0) {
+    for (const eq of opts.expandedQueries) {
+      const eqCleaned = sanitizeFtsQuery(eq);
+      if (!eqCleaned) continue;
+      try {
+        const rows = db.prepare(`
+          SELECT c.id AS chunkId, c.document_id AS documentId, c.content, c.seq,
+                 c.source_ref AS sourceRef, c.heading_path AS headingPath,
+                 d.title AS fileName, d.pinned,
+                 bm25(kb_chunks_fts) AS bm
+            FROM kb_chunks_fts
+            JOIN kb_chunks c ON c.rowid = kb_chunks_fts.rowid
+            JOIN kb_documents d ON d.id = c.document_id
+           WHERE kb_chunks_fts MATCH ? AND d.user_id = ?
+           ORDER BY bm LIMIT ?
+        `).all(eqCleaned, userId, Math.ceil(candidateLimit / 2)) as typeof ftsRows;
+        extraFtsRows.push(...rows);
+      } catch {
+        // 扩展查询失败时静默跳过
+      }
+    }
+  }
+
+  // 合并所有 FTS 结果（去重）
+  const allFtsRows = [...ftsRows];
+  const seenFtsChunkIds = new Set(ftsRows.map(r => r.chunkId));
+  for (const r of extraFtsRows) {
+    if (!seenFtsChunkIds.has(r.chunkId)) {
+      allFtsRows.push(r);
+      seenFtsChunkIds.add(r.chunkId);
+    }
+  }
+
+  // ---- 构建候选集 ----
+
+  // 收集所有涉及的 documentId（用于查 updated_at）
+  const docIds = new Set<string>();
+  for (const r of allFtsRows) docIds.add(r.documentId);
+  // 向量结果也可能命中不同文档，从 vecScores 的 chunkId 反查
+  // （但此处 vecScores 只有 chunkId，需要额外查询，简化为仅用 FTS 已知文档）
+
+  // 查询文档更新时间
+  const updatedAtMap = new Map<string, number>();
+  if (docIds.size > 0) {
+    try {
+      const placeholders = Array.from(docIds).map(() => '?').join(',');
+      const docRows = db.prepare(`
+        SELECT id, updated_at FROM kb_documents WHERE id IN (${placeholders})
+      `).all(...docIds) as Array<{ id: string; updated_at: string | null }>;
+      for (const row of docRows) {
+        if (row.updated_at) {
+          updatedAtMap.set(row.id, new Date(row.updated_at).getTime());
+        }
+      }
+    } catch {
+      // 查询失败时静默跳过
+    }
+  }
+
+  // 也从向量结果中补充 chunkId → documentId 映射
+  const vecChunkIds = [...vecScores.keys()].filter(id => !seenFtsChunkIds.has(id));
+  if (vecChunkIds.length > 0) {
+    try {
+      const placeholders = vecChunkIds.map(() => '?').join(',');
+      const vecDocRows = db.prepare(`
+        SELECT c.id AS chunkId, c.document_id AS documentId, c.content, c.seq,
+               c.source_ref AS sourceRef, c.heading_path AS headingPath,
+               d.title AS fileName, d.pinned
+          FROM kb_chunks c
+          JOIN kb_documents d ON d.id = c.document_id
+         WHERE c.id IN (${placeholders})
+      `).all(...vecChunkIds) as Array<{
+        chunkId: string;
+        documentId: string;
+        content: string;
+        seq: number;
+        sourceRef: string | null;
+        headingPath: string | null;
+        fileName: string;
+        pinned: number;
+      }>;
+      for (const r of vecDocRows) {
+        allFtsRows.push({ ...r, bm: 0 }); // BM25 分为 0，纯向量命中
+        docIds.add(r.documentId);
+      }
+    } catch {
+      // 查询失败时静默跳过
+    }
+  }
+
+  // 构建候选
+  const candidates: SearchCandidate[] = allFtsRows.map((r) => ({
     chunkId: r.chunkId,
     documentId: r.documentId,
     fileName: r.fileName,
@@ -364,20 +773,71 @@ export async function searchKB(
     bm: r.bm,
     vecScore: vecScores.get(r.chunkId) ?? null,
     titleScore: titleScores.get(r.documentId) ?? 0,
+    isHeading: !!r.headingPath,
   }));
-  if (candidates.length === 0) return response;
+  if (candidates.length === 0) return emptyResponse;
 
-  const ranked = rankCandidates(candidates, pinnedWeight, fuse);
+  // ---- R2: RRF 融合评分 ----
+  const ranked = rankCandidates(candidates, pinnedWeight, opts.fuse, rrfK);
 
-  // 段聚合：合并相邻片段
-  const aggregated = aggregateSegments(ranked, 1);
+  // ---- R3: 加权策略 ----
+  const weighted = ranked.map(r => {
+    const updatedAt = updatedAtMap.get(r.docId) ?? null;
+    return applyWeighting(r, {
+      currentFileId: opts.currentFileId,
+      currentFileBoost: opts.currentFileBoost,
+      recencyBoost: opts.recencyBoost,
+      headingBoost: opts.headingBoost,
+      pinnedWeight,
+      updatedAt,
+    });
+  });
 
-  // 条件重排：根据查询意图调整排序
+  // 重新排序（加权后分数可能改变排序）
+  weighted.sort((a, b) => b.score - a.score);
+
+  // ---- R4: 段聚合增强 ----
+  const aggregated = aggregateAndExpand(weighted, db, userId, {
+    maxChunksPerFile: opts.maxChunksPerFile,
+    contextExpand: opts.contextExpand,
+    topK,
+  });
+
+  // ---- R6: 条件重排 ----
   const intent = detectQueryIntent(query);
-  const reranked = rerankByIntent(aggregated, intent);
+  const intentType = mapIntentToType(intent);
+  const reranked = await conditionalRerank(aggregated, query, intentType, {
+    enableConditionalRerank: opts.enableConditionalRerank,
+    rerankFn: opts.rerankFn,
+  });
 
+  // ---- 截取 topK + 拒答判断 ----
   const results = reranked.slice(0, topK);
   const best = results[0] ?? null;
   const refused = !best || best.score < threshold;
-  return { refused, threshold, best, results };
+
+  return {
+    refused,
+    threshold,
+    best,
+    results,
+  };
+}
+
+/**
+ * 向后兼容的简单搜索接口（返回 KbSearchResponse）。
+ * 调用方（agentTaskWorker、agentHandlers）使用此函数。
+ */
+export async function searchKBCompat(
+  userId: string,
+  query: string,
+  opts: KbSearchOptions
+): Promise<KbSearchResponse> {
+  const detailed = await searchKB(userId, query, opts);
+  return {
+    refused: detailed.refused,
+    threshold: detailed.threshold,
+    best: detailed.best,
+    results: detailed.results,
+  };
 }

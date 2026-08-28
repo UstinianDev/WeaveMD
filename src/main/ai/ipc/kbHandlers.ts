@@ -7,7 +7,7 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@shared/constants';
 import type { AIErrorCode, IKbSettings, KbImportDirRequest } from '@shared/ai';
 import { DEFAULT_KB_SETTINGS, normalizeKbSettings } from '@shared/ai';
-import { getAiConfig, upsertAiConfig } from '../../db/ai';
+import { getAiConfig, upsertAiConfig, updateKbExtendedSettings } from '../../db/ai';
 import { countChunksByDoc, listKbDocumentsByUser } from '../../db/kb';
 import { getFile } from '../../db/files';
 import { indexFile, indexImportedText, removeByFile } from '../kbIndexer';
@@ -101,12 +101,17 @@ export function registerKbHandlers(): void {
     async (_event, payload: { userId: string }) => {
       try {
         const docs = listKbDocumentsByUser(payload.userId);
-        // 纯 FTS5 降级：不再发起向量探针，embedding 恒不可用（KbStatusResponse 契约保留字段）
+        // 检查 embedding 配置是否可用
+        const config = getAiConfig(payload.userId);
+        const hasEmbedding = !!(config?.kbEmbeddingProvider && config?.apiKeyEnc);
         return {
           success: true,
           data: {
             documents: docs.length,
-            embedding: { available: false, dims: null },
+            embedding: {
+              available: hasEmbedding,
+              dims: config?.kbEmbeddingDimension ?? null,
+            },
           },
         };
       } catch (error) {
@@ -115,7 +120,7 @@ export function registerKbHandlers(): void {
     }
   );
 
-  // --- KB 参数持久化读写（第 6 期批次 2；user_id 隔离 + IpcResponse<IKbSettings>） ---
+  // --- KB 参数持久化读写（第 6 期批次 2 + R2~R10 扩展；user_id 隔离） ---
   ipcMain.handle(
     IPC_CHANNELS.KB_GET_SETTINGS,
     (_event, payload: { userId: string }) => {
@@ -128,6 +133,21 @@ export function registerKbHandlers(): void {
               fuse: row.kbFuse,
               threshold: row.kbThreshold,
               pinnedWeight: row.kbPinnedWeight,
+              rrfK: row.kbRrfK,
+              candidateMultiplier: row.kbCandidateMultiplier,
+              vecScoreThreshold: row.kbVecScoreThreshold,
+              currentFileBoost: row.kbCurrentFileBoost,
+              recencyBoost: row.kbRecencyBoost,
+              headingBoost: row.kbHeadingBoost,
+              maxChunksPerFile: row.kbMaxChunksPerFile,
+              contextExpand: row.kbContextExpand,
+              enableQueryUnderstanding: row.kbEnableQueryUnderstanding,
+              enableConditionalRerank: row.kbEnableConditionalRerank,
+              enableClarify: row.kbEnableClarify,
+              enableEvidenceGrading: row.kbEnableEvidenceGrading,
+              enableResearchLoop: row.kbEnableResearchLoop,
+              enableDocumentContext: row.kbEnableDocumentContext,
+              documentContextBudget: row.kbDocumentContextBudget,
             })
           : { ...DEFAULT_KB_SETTINGS };
         return { success: true, data: settings };
@@ -149,21 +169,42 @@ export function registerKbHandlers(): void {
     ) => {
       try {
         const settings = normalizeKbSettings(payload.settings);
+        // 基础4字段走 upsertAiConfig（向后兼容）
         const row = upsertAiConfig(payload.userId, {
           kbTopK: settings.topK,
           kbFuse: settings.fuse,
           kbThreshold: settings.threshold,
           kbPinnedWeight: settings.pinnedWeight,
         });
+        // R2~R10 扩展字段走 updateKbExtendedSettings
+        updateKbExtendedSettings(payload.userId, payload.settings as Record<string, unknown>);
         // 写后回读，返回实际落盘归一值
+        const fresh = getAiConfig(payload.userId);
         return {
           success: true,
-          data: normalizeKbSettings({
-            topK: row.kbTopK,
-            fuse: row.kbFuse,
-            threshold: row.kbThreshold,
-            pinnedWeight: row.kbPinnedWeight,
-          }),
+          data: fresh
+            ? normalizeKbSettings({
+                topK: fresh.kbTopK,
+                fuse: fresh.kbFuse,
+                threshold: fresh.kbThreshold,
+                pinnedWeight: fresh.kbPinnedWeight,
+                rrfK: fresh.kbRrfK,
+                candidateMultiplier: fresh.kbCandidateMultiplier,
+                vecScoreThreshold: fresh.kbVecScoreThreshold,
+                currentFileBoost: fresh.kbCurrentFileBoost,
+                recencyBoost: fresh.kbRecencyBoost,
+                headingBoost: fresh.kbHeadingBoost,
+                maxChunksPerFile: fresh.kbMaxChunksPerFile,
+                contextExpand: fresh.kbContextExpand,
+                enableQueryUnderstanding: fresh.kbEnableQueryUnderstanding,
+                enableConditionalRerank: fresh.kbEnableConditionalRerank,
+                enableClarify: fresh.kbEnableClarify,
+                enableEvidenceGrading: fresh.kbEnableEvidenceGrading,
+                enableResearchLoop: fresh.kbEnableResearchLoop,
+                enableDocumentContext: fresh.kbEnableDocumentContext,
+                documentContextBudget: fresh.kbDocumentContextBudget,
+              })
+            : settings,
         };
       } catch (error) {
         return {

@@ -39,7 +39,7 @@
 
 ## 规范
 
-- 中文交流；代码/标识符英文；React 18 + TS strict；Zustand v4；Tailwind
+- 中文交流；代码/标识符英文；React 18 + TS strict；Zustand v4；Tailwind（自定义色板，禁止默认色）
 - 文档优先：改代码前先同步需求/技术文档，完成后更新进度与验证记录
 - 命名：组件 PascalCase，函数/文件 camelCase；不用 `any`
 - 标题字号：H1 26/700、H2 22/600、H3 18/600、H4 16/500、正文 14/400

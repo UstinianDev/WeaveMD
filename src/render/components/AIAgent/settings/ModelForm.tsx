@@ -157,7 +157,7 @@ const ModelForm: React.FC = () => {
   // —— 视图 A：配置列表 ——
   if (view === 'list') {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4" style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}>
         {/* 标题栏 */}
         <div className="flex items-center justify-between">
           <h3 className="text-[15px] font-semibold text-[var(--text-primary)]">
@@ -167,7 +167,7 @@ const ModelForm: React.FC = () => {
             type="button"
             data-testid="model-config-new"
             onClick={() => setView('create')}
-            className="px-3 py-1 text-[13px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 transition-opacity"
+            className="px-3 py-1 text-[13px] rounded-lg bg-[#2563eb] text-white hover:bg-[#1d4ed8] transition-colors"
           >
             {t('ai.settings.modelConfigs.new', '+ 新建配置')}
           </button>
@@ -205,7 +205,7 @@ const ModelForm: React.FC = () => {
 
                   {/* 状态/操作按钮 */}
                   {isActive ? (
-                    <span className="shrink-0 text-[12px] font-medium text-[var(--accent)]">
+                    <span className="shrink-0 text-[12px] font-medium text-[#2563eb]">
                       {t('ai.settings.modelConfigs.active', '当前')}
                     </span>
                   ) : (
@@ -213,7 +213,7 @@ const ModelForm: React.FC = () => {
                       type="button"
                       data-testid={`model-config-activate-${cfg.id}`}
                       onClick={() => void handleActivate(cfg.id)}
-                      className="shrink-0 text-[12px] px-2 py-1 rounded-input border border-[var(--border-color)] text-[var(--text-primary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+                      className="shrink-0 text-[12px] px-2 py-1 rounded-input border border-[var(--border-color)] text-[var(--text-primary)] hover:border-[#2563eb] hover:text-[#2563eb] transition-colors"
                     >
                       {t('ai.settings.modelConfigs.activate', '激活')}
                     </button>
@@ -237,7 +237,7 @@ const ModelForm: React.FC = () => {
 
   // —— 视图 B：新建配置表单 ——
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}>
       {/* 标题 */}
       <h3 className="text-[15px] font-semibold text-[var(--text-primary)]">
         {t('ai.settings.modelConfigs.title', 'AI 模型配置')}
@@ -251,7 +251,7 @@ const ModelForm: React.FC = () => {
         <select
           value={formProtocol}
           onChange={(e) => setFormProtocol(e.target.value as ModelProtocol)}
-          className="w-full border rounded-input px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+          className="w-full border rounded-lg px-3 py-2 text-[14px] outline-none focus:border-[#2563eb] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
         >
           {PROTOCOL_OPTIONS.map((p) => (
             <option key={p.value} value={p.value}>{p.label}</option>
@@ -267,7 +267,7 @@ const ModelForm: React.FC = () => {
         <select
           value={formProvider}
           onChange={(e) => handleProviderChange(e.target.value)}
-          className="w-full border rounded-input px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+          className="w-full border rounded-lg px-3 py-2 text-[14px] outline-none focus:border-[#2563eb] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
         >
           {PROVIDER_OPTIONS.map((p) => (
             <option key={p.value} value={p.value}>{p.label}</option>
@@ -285,7 +285,7 @@ const ModelForm: React.FC = () => {
           value={formBaseUrl}
           onChange={(e) => setFormBaseUrl(e.target.value)}
           placeholder={PROTOCOL_BASE_URL_PLACEHOLDER[formProtocol]}
-          className="w-full border rounded-input px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+          className="w-full border rounded-lg px-3 py-2 text-[14px] outline-none focus:border-[#2563eb] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
         />
       </div>
 
@@ -299,7 +299,7 @@ const ModelForm: React.FC = () => {
           value={formModel}
           onChange={(e) => setFormModel(e.target.value)}
           placeholder="e.g. gpt-4o / claude-sonnet-4-20250514"
-          className="w-full border rounded-input px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+          className="w-full border rounded-lg px-3 py-2 text-[14px] outline-none focus:border-[#2563eb] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
         />
       </div>
 
@@ -314,7 +314,7 @@ const ModelForm: React.FC = () => {
           onChange={(e) => setFormApiKey(e.target.value)}
           placeholder="sk-..."
           autoComplete="off"
-          className="w-full border rounded-input px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
+          className="w-full border rounded-lg px-3 py-2 text-[14px] outline-none focus:border-[#2563eb] bg-[var(--input-bg)] border-[var(--border-color)] text-[var(--text-primary)]"
         />
       </div>
 
@@ -334,7 +334,7 @@ const ModelForm: React.FC = () => {
           type="button"
           data-testid="model-config-cancel"
           onClick={handleCancel}
-          className="px-3.5 py-1.5 text-[14px] rounded-input border border-[var(--border-color)] text-[var(--text-primary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+          className="px-3.5 py-1.5 text-[14px] rounded-input border border-[var(--border-color)] text-[var(--text-primary)] hover:border-[#2563eb] hover:text-[#2563eb] transition-colors"
         >
           {t('ai.settings.modelConfigs.cancel', '取消')}
         </button>
@@ -343,7 +343,7 @@ const ModelForm: React.FC = () => {
           data-testid="model-config-add"
           onClick={() => void handleCreate()}
           disabled={saving || !formModel.trim()}
-          className="px-3.5 py-1.5 text-[14px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 transition-opacity"
+          className="px-3.5 py-1.5 text-[14px] rounded-input bg-[#2563eb] text-white hover:bg-[#1d4ed8] disabled:opacity-40 transition-colors"
         >
           {saving ? '...' : t('ai.settings.modelConfigs.add', '添加配置')}
         </button>

@@ -5,6 +5,7 @@
 
 import React, { useMemo } from 'react';
 import type { IAgentToolCall } from '@shared/ai';
+import Icon from '../Common/Icon';
 
 interface AgentLoopLogListProps {
   toolCalls: IAgentToolCall[];
@@ -39,8 +40,8 @@ const STATUS_COLORS: Record<string, string> = {
 
 /** 状态图标。 */
 const STATUS_ICONS: Record<string, string> = {
-  ok: '✓',
-  error: '✗',
+  ok: 'check',
+  error: 'close',
 };
 
 const AgentLoopLogList: React.FC<AgentLoopLogListProps> = ({ toolCalls }) => {
@@ -81,7 +82,7 @@ const AgentLoopLogList: React.FC<AgentLoopLogListProps> = ({ toolCalls }) => {
                   key={tc.toolCallId}
                   className="flex items-start gap-2 px-2 py-1.5 rounded bg-bg-tertiary/50 text-[12px]"
                 >
-                  <span className={`mt-0.5 ${statusColor}`}>{statusIcon}</span>
+                  <span className={`mt-0.5 ${statusColor}`}><Icon icon={statusIcon} size={12} /></span>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-text-primary">{toolName}</span>
