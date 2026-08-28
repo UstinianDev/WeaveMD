@@ -26,6 +26,7 @@ describe('tableCodec — parse/serialize 往返不变量（T1.2）', () => {
         ['1', '2', '3'],
         ['4', '5', '6'],
       ],
+      alignments: ['left', 'left', 'left'],
     };
     expect(parseTableText(serializeTable(m))).toEqual(m);
   });
@@ -34,6 +35,7 @@ describe('tableCodec — parse/serialize 往返不变量（T1.2）', () => {
     const m: TableMatrix = {
       header: ['x|y', 'plain'],
       rows: [['a|b|c', 'd']],
+      alignments: ['left', 'left'],
     };
     expect(parseTableText(serializeTable(m))).toEqual(m);
   });
@@ -42,29 +44,31 @@ describe('tableCodec — parse/serialize 往返不变量（T1.2）', () => {
     const m: TableMatrix = {
       header: ['', 'b'],
       rows: [['', '']],
+      alignments: ['left', 'left'],
     };
     expect(parseTableText(serializeTable(m))).toEqual(m);
   });
 
   it('单元格 trim：边界空白剥离，内嵌空格保留', () => {
     // 计划 §1.1 step4：每格 trim。解析对边界空白做归一化（trim 稳定）。
-    const m: TableMatrix = { header: ['a', 'b'], rows: [['spaced', '']] };
+    const m: TableMatrix = { header: ['a', 'b'], rows: [['spaced', '']], alignments: ['left', 'left'] };
     expect(parseTableText(serializeTable(m))).toEqual(m);
     // 原始带边界空白的输入 → 解析后剥离空白（trim 归一化）
     const raw = '|  a  | b |\n| --- | --- |\n| spaced   | c |';
-    expect(parseTableText(raw)).toEqual({ header: ['a', 'b'], rows: [['spaced', 'c']] });
+    expect(parseTableText(raw)).toEqual({ header: ['a', 'b'], rows: [['spaced', 'c']], alignments: ['left', 'left'] });
   });
 
-  it('对齐标记输入 → serialize 固定 `---` 输出（T1.3），列数一致', () => {
+  it('对齐标记输入 → parse 解析对齐信息，serialize 保留对齐', () => {
     const input =
       '| left | center | right |\n' +
       '|:-----|:------:|------:|\n' +
       '| x    | y      | z     |';
     const m = parseTableText(input);
     expect(m.header).toEqual(['left', 'center', 'right']);
+    expect(m.alignments).toEqual(['left', 'center', 'right']);
     expect(parseTableText(serializeTable(m))).toEqual(m);
-    // 归一化输出不含 `:` 对齐标记
-    expect(serializeTable(m)).toContain('| --- | --- | --- |');
+    // 归一化输出保留对齐标记
+    expect(serializeTable(m)).toContain('| --- | :---: | ---: |');
   });
 });
 
@@ -73,6 +77,7 @@ describe('tableCodec — `\\|` 转义/解义闭环', () => {
     const m: TableMatrix = {
       header: ['a'],
       rows: [['pipe|inside']],
+      alignments: ['left'],
     };
     const md = serializeTable(m);
     expect(md).toBe('| a |\n| --- |\n| pipe\\|inside |');
@@ -80,7 +85,7 @@ describe('tableCodec — `\\|` 转义/解义闭环', () => {
   });
 
   it('连续多个 `|` 均正确转义/解义', () => {
-    const m: TableMatrix = { header: ['h'], rows: [['one|two|three']] };
+    const m: TableMatrix = { header: ['h'], rows: [['one|two|three']], alignments: ['left'] };
     expect(parseTableText(serializeTable(m))).toEqual(m);
   });
 
@@ -93,13 +98,17 @@ describe('tableCodec — `\\|` 转义/解义闭环', () => {
 });
 
 describe('tableCodec — 对齐容错（T1.3）', () => {
-  it.each([':---:', ':---', '---:'])('分隔单元格 `%s` 均可识别，列数一致', (align) => {
-    const md = `| h1 | h2 |\n| ${align} | ${align} |\n| 1 | 2 |`;
+  it.each([
+    [':---:', ':---:'],
+    [':---', '---'],
+    ['---:', '---:'],
+  ] as const)('分隔单元格 `%s` 均可识别，序列化为规范形式 `%s`', (input, expected) => {
+    const md = `| h1 | h2 |\n| ${input} | ${input} |\n| 1 | 2 |`;
     const m = parseTableText(md);
     expect(m.header).toEqual(['h1', 'h2']);
     expect(m.rows).toEqual([['1', '2']]);
-    // serialize 归一化为固定 `---`
-    expect(serializeTable(m)).toContain('| --- | --- |');
+    // serialize 归一化为规范对齐形式
+    expect(serializeTable(m)).toContain(`| ${expected} | ${expected} |`);
   });
 
   it('单列无首尾竖线分隔行 `---` 亦可识别', () => {
@@ -111,13 +120,13 @@ describe('tableCodec — 对齐容错（T1.3）', () => {
 
 describe('tableCodec — 畸形输入保守空（T1.1）', () => {
   it('空串 → 空结构，不抛错', () => {
-    expect(parseTableText('')).toEqual({ header: [], rows: [] });
+    expect(parseTableText('')).toEqual({ header: [], rows: [], alignments: [] });
   });
 
   it.each(['| a |', '| a |\n| b |', 'single line', '| a | b |\nnot a sep line'])(
     '畸形/单行/非分隔行输入 `%j` → 空结构不抛错',
     (input) => {
-      expect(parseTableText(input)).toEqual({ header: [], rows: [] });
+      expect(parseTableText(input)).toEqual({ header: [], rows: [], alignments: [] });
     }
   );
 });
@@ -144,6 +153,7 @@ describe('tableCodec — 与 markdownToState/stateToMarkdown 端到端往返（T
         ['a|b', 'x'],
         ['c', 'y|z'],
       ],
+      alignments: ['left', 'left'],
     };
     const md = serializeTable(m);
     // 该文本能被内核解析为 table 叶子块
@@ -156,7 +166,7 @@ describe('tableCodec — 与 markdownToState/stateToMarkdown 端到端往返（T
   });
 
   it('kernelRoundTrip 对普通矩阵保持文本不变', () => {
-    const m: TableMatrix = { header: ['a', 'b'], rows: [['1', '2'], ['3', '4']] };
+    const m: TableMatrix = { header: ['a', 'b'], rows: [['1', '2'], ['3', '4']], alignments: ['left', 'left'] };
     expect(kernelRoundTrip(m)).toBe(serializeTable(m));
   });
 });

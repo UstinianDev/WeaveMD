@@ -44,6 +44,8 @@ function makeHandlers(onTableEdit: BlockHandlers['onTableEdit'] = vi.fn()): Bloc
     registerDom: vi.fn(),
     unregisterDom: vi.fn(),
     onTableEdit,
+    onInsertTable: vi.fn(),
+    onRemoveTable: vi.fn(),
     onRemoveThematicBreak: vi.fn(),
   };
 }
@@ -72,7 +74,11 @@ function cellByKey(container: HTMLElement, cellkey: string): HTMLElement {
   return el!;
 }
 
+beforeEach(() => {
+  vi.useFakeTimers();
+});
 afterEach(() => {
+  vi.useRealTimers();
   document.body.innerHTML = '';
   window.getSelection()?.removeAllRanges();
 });
@@ -116,16 +122,19 @@ describe('TableBlock — 渲染结构（T2.1/T2.2）', () => {
 });
 
 describe('TableBlock — 单元格输入回写（T2.3）', () => {
-  it('编辑数据格 onInput → onTableEdit(blockId, 新规范 md)', () => {
+  it('编辑数据格 → blur 后 onTableEdit(blockId, 新规范 md)', () => {
     const onTableEdit = vi.fn();
     const { container, block } = renderTable(TABLE_3COL, onTableEdit);
     const td = cellByKey(container, '0:1');
-    // 模拟把 "1" 改成 "42"：先设 DOM textContent 再触发 input
+    td.focus();
     td.textContent = '42';
     fireEvent.input(td);
-
+    // 编辑期间不触发 onTableEdit
+    expect(onTableEdit).toHaveBeenCalledTimes(0);
+    // blur 触发 flush → onTableEdit
+    fireEvent.blur(td);
     expect(onTableEdit).toHaveBeenCalledTimes(1);
-    const [blockId, text, focus] = onTableEdit.mock.calls[0] as [string, string, unknown];
+    const [blockId, text] = onTableEdit.mock.calls[0] as [string, string];
     expect(blockId).toBe(block.id);
     expect(text).toBe([
       '| 名 | 值 | 备注 |',
@@ -133,55 +142,69 @@ describe('TableBlock — 单元格输入回写（T2.3）', () => {
       '| a | 42 | x |',
       '| b | 2 | y |',
     ].join('\n'));
-    // 纯文本输入不传焦点（null / undefined）
-    expect(focus).toBeFalsy();
   });
 
-  it('编辑表头格 onInput → 同步回写 header', () => {
+  it('编辑表头格 → blur 后回写 header', () => {
     const onTableEdit = vi.fn();
     const { container } = renderTable(TABLE_3COL, onTableEdit);
     const th = cellByKey(container, '-1:0');
+    th.focus();
     th.textContent = '名称';
     fireEvent.input(th);
+    fireEvent.blur(th);
     const text = (onTableEdit.mock.calls[0] as [string, string])[1];
     expect(text.split('\n')[0]).toBe('| 名称 | 值 | 备注 |');
   });
 
-  it('鼠标点击切格后编辑同文本不被误判跳过（lastDomRef 按格隔离，应修）', () => {
-    // 回归：单实例 lastDomTextRef 跨格共享，鼠标点击切格不重置 ref，
-    // 若新格文本与上一格上次同步值相同会误判「与上次相同」而跳过回写 → 数据丢失。
+  it('连续编辑同一格只产生一次 onTableEdit（debounce 到 blur）', () => {
     const onTableEdit = vi.fn();
     const { container } = renderTable(TABLE_3COL, onTableEdit);
-    // 编辑格 0:0："a" → "x"（lastDom 记为 'x'）
+    const td = cellByKey(container, '0:0');
+    td.focus();
+    td.textContent = 'x';
+    fireEvent.input(td);
+    td.textContent = 'xy';
+    fireEvent.input(td);
+    td.textContent = 'xyz';
+    fireEvent.input(td);
+    // 编辑期间 0 次
+    expect(onTableEdit).toHaveBeenCalledTimes(0);
+    // blur 后 1 次，文本为最终值
+    fireEvent.blur(td);
+    expect(onTableEdit).toHaveBeenCalledTimes(1);
+    const text = (onTableEdit.mock.calls[0] as [string, string])[1];
+    expect(text.split('\n')[2]).toBe('| xyz | 1 | x |');
+  });
+
+  it('切格（focusCell）自动 flush 上一格编辑', () => {
+    const onTableEdit = vi.fn();
+    const { container } = renderTable(TABLE_3COL, onTableEdit);
     const td00 = cellByKey(container, '0:0');
+    td00.focus();
     td00.textContent = 'x';
     fireEvent.input(td00);
+    expect(onTableEdit).toHaveBeenCalledTimes(0);
+    // Tab 切到下一格 → flush 上一格
+    fireEvent.keyDown(td00, { key: 'Tab' });
     expect(onTableEdit).toHaveBeenCalledTimes(1);
-    // 鼠标点击切到格 0:1（原值 "1"）：onMouseEnter 只 setHover，不触发 focusCell 重置 ref
-    fireEvent.mouseEnter(cellByKey(container, '0:1'));
-    // 编辑 0:1："1" → "x"（文本恰与上一格 lastDom 相同）
-    const td01 = cellByKey(container, '0:1');
-    td01.textContent = 'x';
-    fireEvent.input(td01);
-    // 旧实现会误判跳过 → 仅 1 次；正确应 2 次且第二格回写生效
-    expect(onTableEdit).toHaveBeenCalledTimes(2);
-    const text = (onTableEdit.mock.calls[1] as [string, string])[1];
-    expect(text.split('\n')[2]).toBe('| a | x | x |');
+    const text = (onTableEdit.mock.calls[0] as [string, string])[1];
+    expect(text.split('\n')[2]).toBe('| x | 1 | x |');
   });
 });
 
 describe('TableBlock — | 转义（T2.4）', () => {
-  it('编辑时 DOM 内未转义 | 被转为 \\| 并同步模型', () => {
+  it('编辑时 DOM 内未转义 | 被转为 \\|，blur 后同步模型', () => {
     const onTableEdit = vi.fn();
     const { container } = renderTable(TABLE_3COL, onTableEdit);
     const td = cellByKey(container, '0:2');
-    // DOM 内出现未转义竖线（模拟用户直接输入 |）
+    td.focus();
     td.textContent = 'x|y';
     fireEvent.input(td);
-
+    // DOM 已转义
+    expect(td.textContent).toBe('x\\|y');
+    // blur 后模型同步
+    fireEvent.blur(td);
     const text = (onTableEdit.mock.calls[0] as [string, string])[1];
-    expect(text).toContain('x\\|y');
-    // 模型序列化后单元格为转义形态（| 作分隔符，只有 \| 算内容）
     expect(text).toBe([
       '| 名 | 值 | 备注 |',
       '| --- | --- | --- |',
@@ -194,16 +217,14 @@ describe('TableBlock — | 转义（T2.4）', () => {
     const onTableEdit = vi.fn();
     const { container } = renderTable(TABLE_3COL, onTableEdit);
     const td = cellByKey(container, '0:0');
-    // 光标置于末尾（模拟用户点击格尾）：cell 0:0 当前为 "a"。
-    // 直接构造折叠 Range at end（jsdom 的 focus 会重置 anchor，须显式设选区）
     td.focus();
     const range = document.createRange();
     range.selectNodeContents(td);
-    range.collapse(false); // 折叠到尾
+    range.collapse(false);
     const sel = window.getSelection()!;
     sel.removeAllRanges();
     sel.addRange(range);
-    // 在末尾输入单个竖线：原生 beforeinput data="|"
+    // 在末尾输入单个竖线
     const ev = new InputEvent('beforeinput', {
       inputType: 'insertText',
       data: '|',
@@ -212,9 +233,9 @@ describe('TableBlock — | 转义（T2.4）', () => {
     });
     td.dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
-
-    // DOM 被程序化写为 \| 并触发 onInput 同步模型
     expect(td.textContent).toBe('a\\|');
+    // blur 后同步模型
+    fireEvent.blur(td);
     expect(onTableEdit).toHaveBeenCalled();
     const text = (onTableEdit.mock.calls.at(-1) as [string, string])[1];
     expect(text.split('\n')[2]).toBe('| a\\| | 1 | x |');
@@ -285,36 +306,34 @@ describe('TableBlock — 跨格导航（T2.5/T2.6）', () => {
   });
 });
 
-describe('TableBlock — 增删行列（T3）', () => {
-  it('列顶 + 新增一列（header 与每数据行同 index 插空串）并聚焦', () => {
+describe('TableBlock — 工具栏增删行列（T3）', () => {
+  it('点击单元格 → 工具栏出现，点击插入列右 → 新增一列', () => {
     const onTableEdit = vi.fn();
-    const { container, block } = renderTable(TABLE_3COL, onTableEdit);
-    // 悬停表头格触发列手柄渲染
-    fireEvent.mouseEnter(cellByKey(container, '-1:1'));
-    const addCol = container.querySelector('[data-action="add-col"]') as HTMLElement | null;
-    expect(addCol).not.toBeNull();
-    fireEvent.click(addCol!);
+    const { container } = renderTable(TABLE_3COL, onTableEdit);
+    // 点击表头格 → 工具栏出现
+    fireEvent.click(cellByKey(container, '-1:1'));
+    // 工具栏中有"→列"按钮
+    const addColRight = container.querySelector('.table-toolbar-btn[title="右侧插入列"]') as HTMLElement | null;
+    expect(addColRight).not.toBeNull();
+    fireEvent.click(addColRight!);
 
     expect(onTableEdit).toHaveBeenCalledTimes(1);
-    const [blockId, text, focus] = onTableEdit.mock.calls[0] as [string, string, { row: number; col: number }];
-    expect(blockId).toBe(block.id);
+    const text = (onTableEdit.mock.calls[0] as [string, string])[1];
     const lines = text.split('\n');
     // header 与 2 数据行均变为 4 列
     expect(lines[0]).toBe('| 名 | 值 |  | 备注 |');
     expect(lines[2]).toBe('| a | 1 |  | x |');
     expect(lines[3]).toBe('| b | 2 |  | y |');
-    expect(focus).toEqual({ row: -1, col: 2 });
   });
 
-  it('列顶 - 删除该列', () => {
+  it('工具栏删列 → 删除当前列', () => {
     const onTableEdit = vi.fn();
     const { container } = renderTable(TABLE_3COL, onTableEdit);
-    fireEvent.mouseEnter(cellByKey(container, '-1:1'));
-    const rmCol = container.querySelector('[data-action="remove-col"]') as HTMLElement | null;
+    fireEvent.click(cellByKey(container, '-1:1'));
+    const rmCol = container.querySelector('.table-toolbar-btn[title="删除当前列"]') as HTMLElement | null;
     expect(rmCol).not.toBeNull();
     fireEvent.click(rmCol!);
     const text = (onTableEdit.mock.calls[0] as [string, string])[1];
-    // 删第 2 列：剩余 名/备注 两列
     expect(text).toBe([
       '| 名 | 备注 |',
       '| --- | --- |',
@@ -323,26 +342,25 @@ describe('TableBlock — 增删行列（T3）', () => {
     ].join('\n'));
   });
 
-  it('行首 + 在该行下方新增空行', () => {
+  it('工具栏插入行下方 → 在当前行下方新增空行', () => {
     const onTableEdit = vi.fn();
     const { container } = renderTable(TABLE_3COL, onTableEdit);
-    fireEvent.mouseEnter(cellByKey(container, '0:0'));
-    const addRow = container.querySelector('[data-action="add-row"]') as HTMLElement | null;
-    expect(addRow).not.toBeNull();
-    fireEvent.click(addRow!);
+    fireEvent.click(cellByKey(container, '0:0'));
+    const addRowBelow = container.querySelector('.table-toolbar-btn[title="下方插入行"]') as HTMLElement | null;
+    expect(addRowBelow).not.toBeNull();
+    fireEvent.click(addRowBelow!);
     const text = (onTableEdit.mock.calls[0] as [string, string])[1];
     const lines = text.split('\n');
     expect(lines.length).toBe(5);
-    // 新空行插在原第 1 行（a/1/x）之后
     expect(lines[3]).toBe('|  |  |  |');
     expect(lines[4]).toBe('| b | 2 | y |');
   });
 
-  it('行首 - 删除该数据行', () => {
+  it('工具栏删行 → 删除当前数据行', () => {
     const onTableEdit = vi.fn();
     const { container } = renderTable(TABLE_3COL, onTableEdit);
-    fireEvent.mouseEnter(cellByKey(container, '0:0'));
-    const rmRow = container.querySelector('[data-action="remove-row"]') as HTMLElement | null;
+    fireEvent.click(cellByKey(container, '0:0'));
+    const rmRow = container.querySelector('.table-toolbar-btn[title="删除当前行"]') as HTMLElement | null;
     expect(rmRow).not.toBeNull();
     fireEvent.click(rmRow!);
     const text = (onTableEdit.mock.calls[0] as [string, string])[1];
@@ -354,37 +372,86 @@ describe('TableBlock — 增删行列（T3）', () => {
   });
 });
 
-describe('TableBlock — 边界（T3.3）', () => {
-  it('仅 1 列时删列手柄不渲染（禁删）', () => {
-    const single = ['| 名 |', '| --- |', '| a |'].join('\n');
-    const { container } = renderTable(single);
-    fireEvent.mouseEnter(cellByKey(container, '-1:0'));
-    expect(container.querySelector('[data-action="remove-col"]')).toBeNull();
+// ---- Bug 回归：输入后光标位置 ----
+
+/** 获取光标在 el 内的文本偏移（折叠选区） */
+function getCursorOffset(el: HTMLElement): number {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return -1;
+  const range = sel.getRangeAt(0);
+  const pre = document.createRange();
+  pre.selectNodeContents(el);
+  pre.setEnd(range.startContainer, range.startOffset);
+  return pre.toString().length;
+}
+
+describe('TableBlock — 输入后光标位置（Bug 回归）', () => {
+  it('在空单元格输入字符后光标应在末尾而非开头', () => {
+    // 构造含空单元格的表格
+    const EMPTY_CELL_TABLE = [
+      '| A |  |',
+      '| --- | --- |',
+      '|  |  |',
+    ].join('\n');
+    const onTableEdit = vi.fn();
+    const { container } = renderTable(EMPTY_CELL_TABLE, onTableEdit);
+    const td = cellByKey(container, '0:0');
+    // 聚焦并设光标到末尾（模拟用户点击空格后开始输入）
+    td.focus();
+    // 模拟用户输入 "h"：浏览器会将 textContent 从 "" 变为 "h"
+    td.textContent = 'h';
+    // 手动设置光标到 "h" 之后（模拟浏览器行为）
+    const range = document.createRange();
+    range.selectNodeContents(td);
+    range.collapse(false);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    // 触发 input 事件
+    fireEvent.input(td);
+    vi.advanceTimersByTime(0);
+    // 关键断言：光标应在 offset 1（"h" 之后），而非 0（开头）
+    const offset = getCursorOffset(td);
+    expect(offset).toBe(1);
   });
 
-  it('删除最后一个数据行后 → 命中删除行禁用边界（行手柄不再渲染）', () => {
-    // 先删两行中一行，剩下最后一行
+  it('在已有内容的单元格追加输入后光标应在末尾', () => {
     const onTableEdit = vi.fn();
-    const { container, rerender } = render(
-      <TableBlock block={makeTable(makeDummyTree(), TABLE_3COL)} handlers={makeHandlers(onTableEdit)} />
-    );
-    fireEvent.mouseEnter(cellByKey(container, '0:0'));
-    const rmRow = container.querySelector('[data-action="remove-row"]') as HTMLElement | null;
-    fireEvent.click(rmRow!);
-    const text = (onTableEdit.mock.calls[0] as [string, string])[1];
-    // 只剩一行 → 数据行 0 行首 delete 应禁用
-    const remSingleBlock = makeTable(makeDummyTree(), text);
-    rerender(
-      <TableBlock block={remSingleBlock} handlers={makeHandlers(onTableEdit)} />
-    );
-    // 此时 rows.length===1，行删除手柄仍可渲染（>=1），但 rows.length===0 才禁；
-    // 本测试聚焦"最后一行可删"→删后矩阵 rows 空，再渲染时删除手柄隐藏。
-    fireEvent.mouseEnter(cellByKey(container, '0:0'));
-    const rmRow2 = container.querySelector('[data-action="remove-row"]') as HTMLElement | null;
-    expect(rmRow2).not.toBeNull();
-    fireEvent.click(rmRow2!);
-    const lastText = (onTableEdit.mock.calls[1] as [string, string])[1];
-    // 数据行删空：期望矩阵仅剩 header（rows.length===0）→ serialize 为 header + 分隔行
-    expect(lastText).toBe('| 名 | 值 | 备注 |\n| --- | --- | --- |');
+    const { container } = renderTable(TABLE_3COL, onTableEdit);
+    const td = cellByKey(container, '0:0'); // "a"
+    td.focus();
+    // 模拟追加 "bc"：text 从 "a" 变为 "abc"
+    td.textContent = 'abc';
+    const range = document.createRange();
+    range.selectNodeContents(td);
+    range.collapse(false);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    fireEvent.input(td);
+    vi.advanceTimersByTime(0);
+    // 光标应在 offset 3（"abc" 之后），而非 0
+    const offset = getCursorOffset(td);
+    expect(offset).toBe(3);
+  });
+
+  it('删除内容后光标应在删除后的位置而非开头', () => {
+    const onTableEdit = vi.fn();
+    const { container } = renderTable(TABLE_3COL, onTableEdit);
+    const td = cellByKey(container, '0:0'); // "a"
+    td.focus();
+    // 模拟删除：text 从 "a" 变为 ""
+    td.textContent = '';
+    const range = document.createRange();
+    range.selectNodeContents(td);
+    range.collapse(false);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    fireEvent.input(td);
+    vi.advanceTimersByTime(0);
+    // 光标应在 offset 0（空内容时 offset 0 就是正确位置）
+    const offset = getCursorOffset(td);
+    expect(offset).toBe(0);
   });
 });

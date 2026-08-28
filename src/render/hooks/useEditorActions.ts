@@ -24,7 +24,7 @@ import {
 } from '@render/editor/controllers';
 import type { EditorActionResult, EditorInstance } from '@render/editor/editorInstance';
 import type { BlockMetaV2, BlockNodeV2, BlockTreeV2, ImageAlign } from '@render/editor/kernel';
-import { deleteLeafRange, replaceLeafRange, setBlockText, updateMeta, removeBlock, adjacentLeafFocus, makeParagraph, replaceBlock, renderBlock } from '@render/editor/kernel';
+import { deleteLeafRange, replaceLeafRange, setBlockText, updateMeta, removeBlock, adjacentLeafFocus, makeParagraph, replaceBlock, renderBlock, makeTable, insertBlockAfter, serializeTable, appendChild } from '@render/editor/kernel';
 import { resolveSyntaxType } from '@render/editor/kernel/syntaxType';
 import { setCursorAtOffset, setRangeAtOffset } from '@render/editor/kernel/selection';
 import { useEditorStore } from '@render/stores/editorStore';
@@ -415,12 +415,64 @@ export function useEditorActions({
     },
     [commitTree]
   );
+  // 插入表格：在当前块后插入 rows×cols 表格，焦点落在第一个表头单元格。
+  // 不走 setPendingFocus（TableBlock 不注册 DOM），直接在 commitTree 后
+  // 用 rAF 等待 DOM 渲染完成，再聚焦第一个表头单元格。
+  const onInsertTable = useCallback(
+    (blockId: string, rows: number, cols: number) => {
+      const instance = instanceRef.current;
+      if (!instance) return;
+      // 生成空表格 markdown
+      const header = Array(cols).fill('') as string[];
+      const dataRows = Array.from({ length: rows - 1 }, () => Array(cols).fill('') as string[]);
+      const alignments = Array(cols).fill('left') as ('left' | 'center' | 'right')[];
+      const tableText = serializeTable({ header, rows: dataRows, alignments });
+      const tableBlock = makeTable(instance.tree, tableText);
+      instance.tree = insertBlockAfter(instance.tree, blockId, tableBlock);
+      // 渲染块内容
+      instance.tree = renderBlock(instance.tree, tableBlock.id, tableText);
+      // 尾随受保护空行（对齐代码块/分隔线行为，保证表格后始终有可编辑段落）
+      const trailingP = makeParagraph(instance.tree, '');
+      instance.tree = insertBlockAfter(instance.tree, tableBlock.id, trailingP);
+      instance.tree = renderBlock(instance.tree, trailingP.id, '');
+      commitTree(instance);
+      // 等待 DOM 渲染后聚焦第一个表头单元格（TableBlock 不注册 DOM，绕过 useFocusRestore）
+      requestAnimationFrame(() => {
+        const wrapper = document.querySelector(`[data-block-id="${tableBlock.id}"]`);
+        const firstCell = wrapper?.querySelector<HTMLElement>('[data-cellkey="-1:0"]');
+        if (firstCell) {
+          firstCell.focus({ preventScroll: true });
+        }
+      });
+    },
+    [commitTree]
+  );
   // 删除分隔线块（点击选中 → Backspace/Delete 删除，对齐 code-block/image-block 删除路径）
   const onRemoveThematicBreak = useCallback(
     (blockId: string) => {
       applyBlockAction((instance) => {
         const block = instance.tree.blocks[blockId];
         if (!block || block.type !== 'thematic-break') return null;
+        const focus = adjacentLeafFocus(instance.tree, blockId, 'prev');
+        const next = removeBlock(instance.tree, blockId);
+        instance.tree = next;
+        if (focus) return { changedBlockIds: [blockId], focus };
+        // 唯一块：转为空段落
+        const p = makeParagraph(next, '');
+        let tree2 = replaceBlock(next, blockId, p);
+        tree2 = renderBlock(tree2, p.id, '');
+        instance.tree = tree2;
+        return { changedBlockIds: [p.id], focus: { blockId: p.id, offset: 0 } };
+      });
+    },
+    [applyBlockAction]
+  );
+  // 删除表格块（工具栏"删表"按钮）
+  const onRemoveTable = useCallback(
+    (blockId: string) => {
+      applyBlockAction((instance) => {
+        const block = instance.tree.blocks[blockId];
+        if (!block || block.type !== 'table') return null;
         const focus = adjacentLeafFocus(instance.tree, blockId, 'prev');
         const next = removeBlock(instance.tree, blockId);
         instance.tree = next;
@@ -458,6 +510,8 @@ export function useEditorActions({
       onRedo,
       onFenceLanguageChange,
       onTableEdit,
+      onInsertTable,
+      onRemoveTable,
       onRemoveThematicBreak,
       registerDom,
       unregisterDom,
@@ -484,6 +538,8 @@ export function useEditorActions({
       onRedo,
       onFenceLanguageChange,
       onTableEdit,
+      onInsertTable,
+      onRemoveTable,
       onRemoveThematicBreak,
       registerDom,
       unregisterDom,

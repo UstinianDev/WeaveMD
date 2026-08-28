@@ -53,10 +53,13 @@ function mergeParagraph(instance: EditorInstance, block: BlockNodeV2): EditorAct
   const prevLeaf = getPrevLeaf(tree, block.id);
 
   if (prevLeaf && prevLeaf.text !== null) {
-    // 前块是代码块：段落受 Backspace 保护（不合并、不删除）——
-    // 代码块后的空行是退出/分隔行，只有先删除代码块本身，该空行才恢复为普通段落
-    // 图片块同受保护（R2）：独立图后的段落（空或非空）不会被退格合并进图片块
-    if (prevLeaf.type === 'code-block' || prevLeaf.type === 'image-block' || prevLeaf.type === 'thematic-break') {
+    // 前块是代码块/图片块/分割线/表格：段落受 Backspace 保护（不合并、不删除）——
+    // 这些块后的空行是退出/分隔行，只有先删除块本身，该空行才恢复为普通段落
+    if (prevLeaf.type === 'code-block' || prevLeaf.type === 'image-block' || prevLeaf.type === 'thematic-break' || prevLeaf.type === 'table') {
+      return null;
+    }
+    // 前块是段落且以行内图片结尾：同样保护（粘贴图片后的受保护空行）
+    if (prevLeaf.type === 'paragraph' && /!\[[^\]]*\]\([^)]+\)\s*$/.test(prevLeaf.text)) {
       return null;
     }
     // 合并到前一个内容块（跨容器也合并：列表项内容 / 引用内容，实现"退格跳回上一行"）

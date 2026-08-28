@@ -624,6 +624,9 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
   link: {
     openExternal: async () => {},
   },
+  clipboard: {
+    readImage: async () => null,
+  },
   folder: {
     readFolder: async () => createSuccessResult([]),
     createFolder: async () =>

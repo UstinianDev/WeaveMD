@@ -4,7 +4,7 @@
 // 从 TableBlock 提取的所有依赖 refs/state 的事件处理逻辑。
 // 包含：幂等重渲染差分、IME 守卫、跨格导航、增删行列、beforeinput 拦截。
 
-import React, { useRef, useState } from 'react';
+import React, { useRef } from 'react';
 
 import type { BlockNodeV2 } from '@render/editor/kernel';
 import { parseTableText, serializeTable, type TableMatrix } from '@render/editor/kernel';
@@ -13,62 +13,132 @@ import type { BlockHandlers } from '@render/components/Editor/v2/types';
 
 import {
   type CellPos,
+  type CellRange,
   type TableCellEl,
   TEXT_INPUT_TYPES,
   byIndex,
   applyCellText,
   nextCell,
   prevCell,
+  isMultiCell,
+  clearCellsInRange,
 } from './tableHelpers';
 
-export function useTableEvents(block: BlockNodeV2, handlers: BlockHandlers) {
-  // 幂等重渲染：按 cellkey 记录每格上次同步 DOM 文本差分（同引用跳过，光标不跳）。
-  // 必须是 per-cellkey Map：鼠标点击切格不触发 focusCell，若用单值 ref 会残留上一格值，
-  // 新格文本恰与上一格 lastDom 相同时误判跳过回写 → 数据丢失。
+export function useTableEvents(block: BlockNodeV2, handlers: BlockHandlers, onSelectionChange?: () => void) {
+  // ---- 核心状态 ----
+  // 幂等重渲染：按 cellkey 记录每格上次同步 DOM 文本差分
   const lastDomTextRef = useRef<Map<string, string>>(new Map());
-  // IME 组合守卫：组合期间跳过导航与转义
+  // IME 组合守卫
   const composingRef = useRef(false);
-  // 增删行列/末格增行后重建 DOM 的焦点靶格（cellkey）
+  // 增删行列后焦点靶格
   const pendingCellRef = useRef<string | null>(null);
-  // 手柄悬停状态：仅悬停格显示行/列 +/-
-  const [hover, setHover] = useState<CellPos | null>(null);
+  // 多单元格选区
+  const selectionRef = useRef<CellRange | null>(null);
+  const draggingRef = useRef(false);
+  // handlers/block ref（避免闭包捕获旧值）
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
+  const blockRef = useRef(block);
+  blockRef.current = block;
+
+  // ---- marktext 模式：编辑中单元格文本存 ref，不触发 React 重渲染 ----
+  // 对齐 muya 架构：输入期间 DOM 由浏览器管理，模型同步延迟到编辑结束（blur/切格/导航）
+  interface PendingEdit { key: string; pos: CellPos; text: string; }
+  const pendingEditRef = useRef<PendingEdit | null>(null);
+
+  /** 将编辑中的单元格文本同步到模型（触发一次 React 重渲染） */
+  const flushCellEdit = (): void => {
+    const pending = pendingEditRef.current;
+    if (!pending) return;
+    pendingEditRef.current = null;
+    const curBlock = blockRef.current;
+    const src = curBlock.text ?? '';
+    const m = src ? parseTableText(src) : { header: [], rows: [], alignments: [] };
+    const next = applyCellText(m, pending.pos, pending.text);
+    const newText = serializeTable(next);
+    // 仅当文本真正变化时才提交（避免无意义重渲染）
+    if (newText !== src) {
+      handlersRef.current.onTableEdit(curBlock.id, newText);
+    }
+  };
 
   // 由 M1 parseTableText 解析矩阵（block.text 变化触发 React.memo 重渲染）
-  const matrix = block.text ? parseTableText(block.text) : { header: [], rows: [] };
+  const matrix = block.text ? parseTableText(block.text) : { header: [], rows: [], alignments: [] };
   const colCount = Math.max(matrix.header.length, ...matrix.rows.map((r) => r.length));
   const rowCount = matrix.rows.length;
 
-  /** 同步一次模型：更新矩阵 pos 格 → serializeTable → onTableEdit */
-  const commitCell = (pos: CellPos, rawText: string): void => {
-    const src = block.text ?? '';
-    const m = src ? parseTableText(src) : { header: [], rows: [] };
-    const next = applyCellText(m, pos, rawText);
-    handlers.onTableEdit(block.id, serializeTable(next));
-  };
-
   /** 单元格输入（onInput 与 compositionend 共用）：
-   *  ① 基于 DOM 文本做 lastDomTextRef 差分（与上次同步值相同则跳过，幂等重渲染不重复写）；
-   *  ② 未转义 `|` → `\|`（就地 DOM 直改，保证格内文本是合法 markdown；矩阵保存解义态）；
-   *  ③ 矩阵存「解义」文本（`\|`→`|`），serializeTable 再统一转义，避免双重转义；
-   *     → onTableEdit(block.id, serializeTable(matrix)) → 入撤销栈。 */
+   *  对齐 marktext：输入期间仅更新 ref，不触发 React 重渲染。
+   *  DOM 由浏览器原生管理（contentEditable），光标自然保留在正确位置。 */
   const handleCellInput = (el: HTMLElement, pos: CellPos): void => {
     if (composingRef.current) return;
+    clearSelection();
     const rawDom = el.textContent ?? '';
     const key = byIndex(pos.row, pos.col);
-    if (lastDomTextRef.current.get(key) === rawDom) return; // 与上次同步的 DOM 相同 → 跳过
+    // 幂等：与上次处理的 DOM 相同 → 跳过
+    if (lastDomTextRef.current.get(key) === rawDom) return;
+    // 竖线转义（就地 DOM 直改）
     const escaped = rawDom.includes('|') ? rawDom.replace(/\|/g, '\\|') : rawDom;
-    if (escaped !== rawDom) el.textContent = escaped; // 转义就地写回 DOM（显示与源码一致）
+    if (escaped !== rawDom) {
+      el.textContent = escaped;
+    }
     lastDomTextRef.current.set(key, escaped);
-    // 模型保存解义文本：`\|` → `|`（codec 互逆：parse 解义 / serialize 转义）
-    commitCell(pos, rawDom.replace(/\\\|/g, '|'));
+    // 模型文本（解义态）
+    const modelText = rawDom.replace(/\\\|/g, '|');
+    // 仅存 ref，不触发 setTree —— 浏览器保持光标，React 不干扰
+    pendingEditRef.current = { key, pos, text: modelText };
   };
 
   /** 聚焦并恢复光标到指定格 offset */
   const focusCell = (el: HTMLElement, offset = 0): void => {
+    // 切格前先 flush 上一格的编辑
+    flushCellEdit();
     const key = el.getAttribute('data-cellkey');
     if (key) lastDomTextRef.current.set(key, el.textContent ?? '');
     el.focus({ preventScroll: true });
     setCursorAtOffset(el, offset);
+  };
+
+  // ---- 多选管理 ----
+
+  /** 清除选区并通知重渲染 */
+  const clearSelection = (): void => {
+    if (selectionRef.current) {
+      selectionRef.current = null;
+      onSelectionChange?.();
+    }
+  };
+
+  /** 设置选区（anchor+focus）并通知重渲染 */
+  const setSelection = (range: CellRange | null): void => {
+    selectionRef.current = range;
+    onSelectionChange?.();
+  };
+
+  /** 鼠标按下：设置 anchor，开始拖选 */
+  const handleCellMouseDown = (pos: CellPos, e: React.MouseEvent<HTMLElement>): void => {
+    // Shift+点击 = 扩展选区（以当前 anchor 为起点，新 pos 为 focus）
+    if (e.shiftKey && selectionRef.current) {
+      setSelection({ anchor: selectionRef.current.anchor, focus: pos });
+      return;
+    }
+    // 普通点击：设置 anchor，清除旧选区
+    draggingRef.current = true;
+    setSelection({ anchor: pos, focus: pos });
+  };
+
+  /** 鼠标进入：拖选中时更新 focus */
+  const handleCellMouseMove = (pos: CellPos): void => {
+    if (!draggingRef.current || !selectionRef.current) return;
+    // 只在 focus 真正变化时更新（避免每像素都触发重渲染）
+    const cur = selectionRef.current.focus;
+    if (cur.row === pos.row && cur.col === pos.col) return;
+    setSelection({ anchor: selectionRef.current.anchor, focus: pos });
+  };
+
+  /** 鼠标释放：结束拖选 */
+  const handleCellMouseUp = (): void => {
+    draggingRef.current = false;
   };
 
   /** 同表内按 cellkey 查格（reconcile 后原子重查） */
@@ -78,13 +148,14 @@ export function useTableEvents(block: BlockNodeV2, handlers: BlockHandlers) {
     return el ?? fromEl;
   };
 
-  /** 矩阵变更统一提交（增删行列/末格增行）：改矩阵 → serialize → onTableEdit(含 focus 靶格) */
+  /** 矩阵变更统一提交（增删行列/末格增行）：先 flush 编辑，再改矩阵 → serialize → onTableEdit */
   const commitMatrix = (mutate: (m: TableMatrix) => void, focus: CellPos): void => {
-    const m = block.text ? parseTableText(block.text) : { header: [], rows: [] };
+    flushCellEdit(); // 结构变更前 flush 编辑中的单元格
+    const m = blockRef.current.text ? parseTableText(blockRef.current.text) : { header: [], rows: [], alignments: [] };
     mutate(m);
     const newText = serializeTable(m);
     pendingCellRef.current = byIndex(focus.row, focus.col);
-    handlers.onTableEdit(block.id, newText, focus);
+    handlersRef.current.onTableEdit(blockRef.current.id, newText, focus);
   };
 
   /** 末格增行：追加空数据行聚焦目标格 */
@@ -109,19 +180,19 @@ export function useTableEvents(block: BlockNodeV2, handlers: BlockHandlers) {
       const escaped = data.replace(/\|/g, '\\|');
       el.textContent = (el.textContent ?? '') + escaped;
       lastDomTextRef.current.set(byIndex(pos.row, pos.col), el.textContent);
-      commitCell(pos, (el.textContent ?? '').replace(/\\\|/g, '|'));
+      // 存 ref 而非触发重渲染
+      pendingEditRef.current = { key: byIndex(pos.row, pos.col), pos, text: (el.textContent ?? '').replace(/\\\|/g, '|') };
       return;
     }
 
     const data = e.data ?? '';
     if (!data.includes('|')) return;
-    // 竖线输入：preventDefault，程序化在光标处写转义 `\|` 并同步模型
+    // 竖线输入：preventDefault，程序化在光标处写转义 `\|`
     e.preventDefault();
     const sel = window.getSelection();
     let caret = (el.textContent ?? '').length;
     if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
       try {
-        // 折叠选区点 → 从格起点到该点的文本长度（collapse 时 cloneRange().toString() 为空，须重建）
         const pt = sel.getRangeAt(0);
         const caretRange = document.createRange();
         caretRange.selectNodeContents(el);
@@ -133,59 +204,85 @@ export function useTableEvents(block: BlockNodeV2, handlers: BlockHandlers) {
     }
     const left = (el.textContent ?? '').slice(0, caret);
     const right = (el.textContent ?? '').slice(caret);
-    const inserted = data.replace(/\|/g, '\\|'); // 含多竖线也整体转义
+    const inserted = data.replace(/\|/g, '\\|');
     const newText = `${left}${inserted}${right}`;
     el.textContent = newText;
     lastDomTextRef.current.set(byIndex(pos.row, pos.col), newText);
-    commitCell(pos, newText.replace(/\\\|/g, '|'));
-    focusCell(el, left.length + inserted.length);
+    pendingEditRef.current = { key: byIndex(pos.row, pos.col), pos, text: newText.replace(/\\\|/g, '|') };
+    setCursorAtOffset(el, left.length + inserted.length);
   };
 
-  /** onKeyDown：Enter/Tab/Shift+Tab 跨格导航 + Ctrl+Z/Y 撤销重做 */
+  /** onKeyDown：Enter/Tab/Shift+Tab 跨格导航 + Delete 清除多选 + Ctrl+Z/Y 撤销重做 */
   const handleCellKeyDown = (e: React.KeyboardEvent<HTMLElement>, pos: CellPos): void => {
     if ((e.ctrlKey || e.metaKey) && !e.altKey) {
       const key = e.key.toLowerCase();
       if (key === 'z') {
         e.preventDefault();
-        if (e.shiftKey) handlers.onRedo();
-        else handlers.onUndo();
+        flushCellEdit();
+        if (e.shiftKey) handlersRef.current.onRedo();
+        else handlersRef.current.onUndo();
         return;
       }
       if (key === 'y') {
         e.preventDefault();
-        handlers.onRedo();
+        flushCellEdit();
+        handlersRef.current.onRedo();
         return;
       }
     }
-    if (composingRef.current) return; // IME 组合期间忽略导航
+    if (composingRef.current) return;
+
+    // Delete/Backspace + 多选 → 清除选区内所有格文本
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectionRef.current && isMultiCell(selectionRef.current)) {
+      e.preventDefault();
+      flushCellEdit();
+      const range = selectionRef.current;
+      const curMatrix = blockRef.current.text ? parseTableText(blockRef.current.text) : matrix;
+      const cleared = clearCellsInRange(curMatrix, range);
+      const newText = serializeTable(cleared);
+      clearSelection();
+      handlersRef.current.onTableEdit(blockRef.current.id, newText);
+      return;
+    }
+
+    // Delete/Backspace 单格 → flush 编辑后让浏览器原生处理
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      // 浏览器原生处理 DOM 删除，onInput 会捕获并更新 pendingEditRef
+      // 无需 flush（编辑仍在同一格）
+      return;
+    }
+
+    // 任意非修饰键（非 Shift/Tab/Enter）→ 清除多选
+    if (!e.shiftKey && e.key !== 'Tab' && e.key !== 'Enter') {
+      clearSelection();
+    }
 
     const el = e.currentTarget;
     if (e.key === 'Enter') {
-      e.preventDefault(); // 格内无换行
+      e.preventDefault();
+      clearSelection();
       if (!matrix.header.length) return;
-      // Enter = 同列下一行（T2.5），非 Shift+Enter 一律导航下行
       if (pos.row + 1 < rowCount) {
-        focusCell(cellByPos(el, pos.row + 1, pos.col));
+        focusCell(cellByPos(el, pos.row + 1, pos.col)); // focusCell 内部会 flush
       } else {
-        // 末行 Enter → 增行聚焦新行同列
-        appendRow(pos.col);
+        appendRow(pos.col); // commitMatrix 内部会 flush
       }
       return;
     }
     if (e.key === 'Tab') {
       e.preventDefault();
+      clearSelection();
       const target = e.shiftKey ? prevCell(pos, colCount, rowCount) : nextCell(pos, colCount, rowCount);
       if (target) {
-        focusCell(cellByPos(el, target.row, target.col));
+        focusCell(cellByPos(el, target.row, target.col)); // focusCell 内部会 flush
       } else if (!e.shiftKey) {
-        // Tab 末格 → 新增行聚焦新行首列
-        appendRow(0);
+        appendRow(0); // commitMatrix 内部会 flush
       }
       return;
     }
   };
 
-  /** 单元格公共事件绑定（避免 th/td 重复 JSX）——beforeinput 走原生监听（对齐 ContentBlock） */
+  /** 单元格公共事件绑定——beforeinput 走原生监听（对齐 ContentBlock） */
   const cellEvents = (pos: CellPos, onMouseEnter: () => void) => {
     const nativeRefCb = (el: HTMLElement | null) => {
       if (!el) return;
@@ -201,6 +298,7 @@ export function useTableEvents(block: BlockNodeV2, handlers: BlockHandlers) {
       suppressContentEditableWarning: true,
       spellCheck: false,
       onInput: (e: React.FormEvent<HTMLElement>) => handleCellInput(e.currentTarget, pos),
+      onBlur: () => flushCellEdit(), // 编辑结束 → 同步模型
       onCompositionStart: () => {
         composingRef.current = true;
       },
@@ -209,6 +307,9 @@ export function useTableEvents(block: BlockNodeV2, handlers: BlockHandlers) {
         handleCellInput(e.currentTarget, pos);
       },
       onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => handleCellKeyDown(e, pos),
+      onMouseDown: (e: React.MouseEvent<HTMLElement>) => handleCellMouseDown(pos, e),
+      onMouseMove: () => handleCellMouseMove(pos),
+      onMouseUp: handleCellMouseUp,
       onMouseEnter,
       ref: nativeRefCb,
     };
@@ -218,12 +319,12 @@ export function useTableEvents(block: BlockNodeV2, handlers: BlockHandlers) {
     matrix,
     colCount,
     rowCount,
-    hover,
-    setHover,
     pendingCellRef,
     cellEvents,
     commitMatrix,
     appendRow,
     focusCell,
+    selectionRef,
+    flushCellEdit,
   };
 }

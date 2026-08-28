@@ -191,6 +191,17 @@
   ③ AI 可写入本地文件（createFileHandler DB+磁盘双写 + editBlocks 确认后 file.write 写盘）+
   ④ 重启后工具调用轨迹正常渲染（ai_messages.tool_calls 列 + IPC 持久化 + mapMessageRow 解析）
   门禁全绿（tsc 0 新增 | vitest 1488/1488 | lint 0 新增）
+- 表格功能优化（2026-08-27，三轮交付）：
+  **第一轮**：① tableCodec 对齐支持（`TableMatrix.alignments` + `:---`/`:---:`/`---:` 解析序列化）+
+  ② 棋盘格表格选择器（`TablePicker.tsx` 6×8 网格 + 行×列输入）+
+  ③ 浮动工具栏表格按钮（OBJECT_BUTTONS 新增 `▦` → `onInsertTable`）；
+  **第二轮**：④ 表格工具栏重构（`TableToolbar.tsx`：点击任意位置弹出，含对齐/增删行列/行列数调整）+
+  ⑤ 移除 hover +/- 按钮 + ⑥ 表格创建焦点恢复（rAF）+ ⑦ 分隔线空行持久化；
+  **第三轮修复**：⑧ 表格输入光标跳变修复（`useTableEvents.handleCellInput` 模型值未变时跳过 commitCell）+
+  ⑨ 表格尾随受保护空行（`onInsertTable` 追加空段落 + `appendTrailingParagraphIfLast` 扩展至 `table`）+
+  ⑩ 工具栏新增「删表」按钮（`onRemoveTable`）+
+  ⑪ 粘贴图片转为 `![](data:url)` 插入模型（`ContentBlock.handlePaste` 拦截剪贴板图片数据）
+  门禁全绿（tsc 0 新增 | vitest 1497/1497 | lint 0 新增 error）
 
 ## 已知限制（详见 docs/specs/editor-v2-progress.md §13.x）
 

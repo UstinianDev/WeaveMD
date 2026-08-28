@@ -173,6 +173,10 @@ export interface BlockHandlers {
     text: string,
     focus?: { row: number; col: number } | null
   ) => void;
+  /** 插入表格：在当前块后插入 rows×cols 表格 */
+  onInsertTable: (blockId: string, rows: number, cols: number) => void;
+  /** 删除表格块 */
+  onRemoveTable: (blockId: string) => void;
   /** 删除分隔线块（点击选中 → Backspace/Delete） */
   onRemoveThematicBreak: (blockId: string) => void;
 }

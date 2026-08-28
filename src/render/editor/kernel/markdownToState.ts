@@ -188,15 +188,25 @@ function sameListFamily(info: ListItemInfo, listType: 'bullet-list' | 'ordered-l
 // 保证"新建 → 保存 → 重载"两态收敛。见 docs/specs/code-block-trailing-paragraph.md
 // （图片扩展见 docs/requirements/editor-image-link-polish.req.md R2）。
 
-/** 解析完成后：整树文档序最后叶子为 code-block 或 image-block 时，在其同父容器末尾追加空 paragraph */
+/** 判断段落文本是否以行内图片结尾（`![...](...)` 模式） */
+function endsWithInlineImage(text: string): boolean {
+  return /!\[[^\]]*\]\([^)]+\)\s*$/.test(text);
+}
+
+/** 解析完成后：整树文档序最后叶子为 code-block / image-block / 分割线 / 表格 /
+ *  或以行内图片结尾的段落时，在其同父容器末尾追加空 paragraph */
 function appendTrailingParagraphIfLast(builder: Builder): void {
   // toTree 与 Builder 共享同一批节点对象，补偿 attach 仍然生效
   const tree = builder.toTree();
   const lastLeaf = getLastLeaf(tree, tree.root.id);
-  if (!lastLeaf || (lastLeaf.type !== 'code-block' && lastLeaf.type !== 'image-block')) return;
+  if (!lastLeaf) return;
+  // 独立块类型保护
+  const isProtectedType = lastLeaf.type === 'code-block' || lastLeaf.type === 'image-block' || lastLeaf.type === 'thematic-break' || lastLeaf.type === 'table';
+  // 段落以行内图片结尾也需保护
+  const isImageParagraph = lastLeaf.type === 'paragraph' && endsWithInlineImage(lastLeaf.text ?? '');
+  if (!isProtectedType && !isImageParagraph) return;
   const parent = lastLeaf.parentId ? tree.blocks[lastLeaf.parentId] : null;
   if (!parent) return;
-  // 同父容器语义：根级代码块挂到 document 根；引用内代码块挂到 blockquote 容器内
   const paragraph = builder.addBlock('paragraph', '');
   builder.attach(parent, paragraph);
 }

@@ -562,4 +562,15 @@ export function registerAllIpcHandlers(): void {
       shell.openExternal(url);
     }
   });
+
+  // ========================================
+  // Clipboard — read image from system clipboard (fallback for external image paste)
+  // ========================================
+  ipcMain.handle(IPC_CHANNELS.CLIPBOARD_READ_IMAGE, async () => {
+    const { clipboard } = await import('electron');
+    const image = clipboard.readImage();
+    if (image.isEmpty()) return null;
+    const buffer = image.toPNG();
+    return `data:image/png;base64,${buffer.toString('base64')}`;
+  });
 }

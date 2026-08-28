@@ -169,6 +169,18 @@ export function formatRange(
 
   let tree = setBlockText(instance.tree, blockId, newText);
   tree = renderBlock(tree, blockId, newText);
+  // 图片插入后：若文本以行内图片结尾且当前块是文档最后叶子，追加受保护空行
+  // （对齐 code-block / image-block / thematic-break / table 的尾随空行行为）
+  if (style === 'image' && newText.endsWith(')') && /!\[[^\]]*\]\([^)]+\)$/.test(newText)) {
+    const lastLeaf = getLastLeaf(tree, tree.root.id);
+    if (lastLeaf && lastLeaf.id === blockId) {
+      const parent = lastLeaf.parentId ? tree.blocks[lastLeaf.parentId] : null;
+      if (parent) {
+        const trailingP = makeParagraph(tree, '');
+        tree = appendChild(tree, parent.id, trailingP);
+      }
+    }
+  }
   instance.tree = tree;
   if (options.restoreSelection === true && selection) {
     return {

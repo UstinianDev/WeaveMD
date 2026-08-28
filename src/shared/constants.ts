@@ -79,6 +79,9 @@ export const IPC_CHANNELS = {
   // Link
   LINK_OPEN_EXTERNAL: 'link:open-external',
 
+  // Clipboard
+  CLIPBOARD_READ_IMAGE: 'clipboard:read-image',
+
   // App / Update
   APP_GET_VERSION: 'app:get-version',
   UPDATE_CHECK: 'update:check',

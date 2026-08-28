@@ -1858,52 +1858,176 @@ html.dark .code-fence-content .token.variable {
   outline: 2px solid var(--accent-color, #42d392);
   outline-offset: -2px;
 }
-.table-col-handles,
-.table-row-handles {
-  position: absolute;
+/* 多选高亮：半透明蓝色背景，覆盖 focus 的绿色轮廓 */
+.table-block-grid .table-cell-selected {
+  background-color: rgba(66, 133, 244, 0.15) !important;
+}
+.table-block-grid .table-cell-selected:focus {
+  outline-color: rgba(66, 133, 244, 0.6);
+}
+
+/* ===== TablePicker — 棋盘格表格尺寸选择器 ===== */
+.table-picker {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  font-size: 12px;
+  user-select: none;
+}
+.table-picker-grid {
   display: flex;
-  gap: 2px;
-  z-index: 20;
-  pointer-events: auto;
-  opacity: 0.95;
-}
-/* 列顶 +/−：悬停在表头格上，位于列右上 */
-.table-col-handles {
-  top: -9px;
-  right: -10px;
-}
-/* 行首 +/−：悬停在数据格上，位于行首左侧 */
-.table-row-handles {
-  left: -22px;
-  top: 50%;
-  transform: translateY(-50%);
   flex-direction: column;
+  margin-bottom: 8px;
 }
-.table-col-handles button,
-.table-row-handles button {
-  width: 18px;
-  height: 18px;
-  padding: 0;
+.table-picker-row {
+  display: flex;
+}
+.table-picker-cell {
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  margin-right: 2px;
+  margin-bottom: 2px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+}
+.table-picker-header {
+  background: var(--bg-tertiary);
+}
+.table-picker-cell.selected {
+  background: var(--accent-color, #42d392);
+}
+.table-picker-header.selected {
+  background: var(--accent-color, #42d392);
+  opacity: 0.7;
+}
+.table-picker-footer {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
-  line-height: 1;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
+}
+.table-picker-input {
+  box-sizing: border-box;
+  width: 32px;
+  height: 22px;
+  padding: 0 4px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: 4px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  outline: none;
+}
+.table-picker-input:focus {
+  border-color: var(--accent-color, #42d392);
+}
+.table-picker-sep {
+  color: var(--text-sub);
+}
+.table-picker-ok {
+  height: 22px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--accent-color, #42d392);
+  border: none;
+  border-radius: 4px;
   cursor: pointer;
 }
-.table-col-handles button:hover,
-.table-row-handles button:hover {
-  border-color: var(--accent-color, #42d392);
-  color: var(--accent-color, #42d392);
+.table-picker-ok:hover {
+  opacity: 0.9;
 }
-.table-col-handles button:disabled,
-.table-row-handles button:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
+
+/* ===== TableToolbar — 表格专属工具栏 ===== */
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+  user-select: none;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.table-toolbar-section {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.table-toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border-color);
+  margin: 0 4px;
+}
+.table-toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--text-sub);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  line-height: 1;
+}
+.table-toolbar-btn:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+}
+.table-toolbar-btn.active {
+  color: var(--accent-color, #42d392);
+  background: var(--bg-tertiary);
+}
+.table-toolbar-btn.danger {
+  color: #ef4444;
+}
+.table-toolbar-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+.table-toolbar-size {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.table-toolbar-label {
+  color: var(--text-sub);
+  font-size: 11px;
+}
+.table-toolbar-input {
+  box-sizing: border-box;
+  width: 40px;
+  height: 22px;
+  padding: 0 4px;
+  font-size: 11px;
+  text-align: center;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  outline: none;
+  -moz-appearance: textfield;
+}
+.table-toolbar-input::-webkit-inner-spin-button,
+.table-toolbar-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.table-toolbar-input:focus {
+  border-color: var(--accent-color, #42d392);
 }
 
 /* Blockquote block */

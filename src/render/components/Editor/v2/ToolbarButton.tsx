@@ -16,7 +16,7 @@ export interface ToolbarButtonProps {
   active?: boolean;
   disabled?: boolean;
   testId?: string;
-  onClick: () => void;
+  onClick: (e?: React.MouseEvent) => void;
 }
 
 function ToolbarButton({
@@ -39,7 +39,7 @@ function ToolbarButton({
         e.preventDefault();
         e.stopPropagation();
         if (disabled) return;
-        onClick();
+        onClick(e);
       }}
       className={'ft-btn ' + (className ?? '') + (active ? ' active' : '')}
       style={{

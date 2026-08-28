@@ -111,6 +111,9 @@ export interface WeaveMDApi {
   link: {
     openExternal: (url: string) => Promise<void>;
   };
+  clipboard: {
+    readImage: () => Promise<string | null>;
+  };
   ai: {
     getConfig: (userId: string) => Promise<IpcResponse<IAIConfig>>;
     setConfig: (userId: string, config: AiConfigUpdate) => Promise<IpcResponse<IAIConfig>>;
@@ -338,6 +341,9 @@ const api: WeaveMDApi = {
   },
   link: {
     openExternal: (url) => ipcRenderer.invoke(IPC_CHANNELS.LINK_OPEN_EXTERNAL, url),
+  },
+  clipboard: {
+    readImage: () => ipcRenderer.invoke(IPC_CHANNELS.CLIPBOARD_READ_IMAGE),
   },
   ai: {
     getConfig: (userId) => ipcRenderer.invoke(IPC_CHANNELS.AI_GET_CONFIG, userId),

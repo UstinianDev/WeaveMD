@@ -23,6 +23,7 @@ import { computeToolbarState, syntaxTypeToOption, type LinkRect, type SelectionS
 import { createRafThrottle } from '@render/utils/rafThrottle';
 import InsertUrlModal from './InsertUrlModal';
 import ImageToolbar from './ImageToolbar';
+import TablePicker from './TablePicker';
 import ToolbarButton from './ToolbarButton';
 
 export type { BlockTypeOption };
@@ -75,10 +76,12 @@ interface FloatingToolbarProps {
     imgEnd: number,
     img: { src: string; alt: string; title?: string }
   ) => void;
+  /** 插入表格：在当前块后插入 rows×cols 表格 */
+  onInsertTable?: (blockId: string, rows: number, cols: number) => void;
 }
 
 interface FormatButton {
-  style: InlineFormatStyle;
+  style: InlineFormatStyle | 'table';
   label: string;
   title: string;
   group: 'char' | 'object';
@@ -141,6 +144,7 @@ const OBJECT_BUTTONS: FormatButton[] = [
   { style: 'link', label: '🔗', title: '链接', group: 'object' },
   { style: 'image', label: '🖼', title: '图片', group: 'object' },
   { style: 'math', label: '∑', title: '数学公式', group: 'object' },
+  { style: 'table', label: '▦', title: '表格', group: 'object' },
 ];
 
 /**
@@ -180,6 +184,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   onInsertImageFromSelection,
   pickImage,
   onReplaceImage,
+  onInsertTable,
 }) => {
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number }>({
@@ -189,6 +194,9 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   const [selection, setSelection] = useState<SelectionState | null>(null);
   // U5/K3b：链接按钮打开 InsertUrlModal；图片按钮不再走该 Modal
   const [insertModal, setInsertModal] = useState<{ style: 'link' } | null>(null);
+  // 表格棋盘格选择器
+  const [tablePickerOpen, setTablePickerOpen] = useState(false);
+  const [tablePickerRect, setTablePickerRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
   // K5：ImageToolbar 内部 ImageEditTool 弹层的打开态（经 onModalStateChange 上抛，
   // 风险 A——并入 isModalOpen 守卫，防止点击弹层内误关文本/图片工具栏）
   const [imageModalOpen, setImageModalOpen] = useState(false);
@@ -367,7 +375,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   // SPEC-EDIT-FT3 4.3：驻留退出条件——点击工具栏外任意位置（capture 阶段）与 Escape
   // K3b：守卫合并 insertModal / imageModalOpen（ImageEditTool 自处理自身交互，弹层态经
   // onModalStateChange 上抛并入此守卫），wrapRef 覆盖工具栏与 ImageToolbar 挂载点
-  const isModalOpen = insertModal !== null || imageModalOpen;
+  const isModalOpen = insertModal !== null || imageModalOpen || tablePickerOpen;
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
       // U5/K3b：Modal / ImageEditTool 打开期间点击自身或外部均由弹层处理，不隐工具栏
@@ -427,7 +435,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     if (!selection) return new Set<InlineFormatStyle>();
     const set = new Set<InlineFormatStyle>();
     for (const button of [...CHAR_BUTTONS, ...OBJECT_BUTTONS]) {
-      if (button.activeTest?.(selection.anchorText)) set.add(button.style);
+      if (button.style !== 'table' && button.activeTest?.(selection.anchorText)) set.add(button.style);
     }
     return set;
   }, [selection]);
@@ -453,7 +461,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
   }, [selection, pickImage, onInsertImageFromSelection, hideToolbar]);
 
   const handleFormat = useCallback(
-    (button: FormatButton) => {
+    (button: FormatButton, event?: React.MouseEvent) => {
       if (!selection) return;
       if (button.style === 'link') {
         // U5：link 打开 InsertUrlModal 取 URL（替换禁用环境不可用的 window.prompt）
@@ -463,6 +471,16 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       if (button.style === 'image') {
         // K6：图片按钮 → 直选文件并直接替换选区（取消 = no-op）
         void handleInsertImageClick();
+        return;
+      }
+      if (button.style === 'table') {
+        // 表格按钮 → 打开棋盘格选择器，锚定到按钮位置
+        const btnEl = event?.currentTarget as HTMLElement | undefined;
+        if (btnEl) {
+          const rect = btnEl.getBoundingClientRect();
+          setTablePickerRect({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
+        }
+        setTablePickerOpen(true);
         return;
       }
       onFormat(selection.blockId, button.style, selection.start, selection.end, undefined, true);
@@ -495,6 +513,19 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
       setVisibleGuarded(false);
     },
     [selection, currentType, onConvertBlock, setVisibleGuarded]
+  );
+
+  // 表格棋盘格确认：在当前块后插入表格
+  const handleTablePickerConfirm = useCallback(
+    (rows: number, cols: number) => {
+      if (selection && onInsertTable) {
+        onInsertTable(selection.blockId, rows, cols);
+      }
+      setTablePickerOpen(false);
+      stickyRef.current = false;
+      setVisibleGuarded(false);
+    },
+    [selection, onInsertTable, setVisibleGuarded]
   );
 
   // Bug fix：折叠光标在链接内不再显示「块类型 | 解链」工具栏（点击链接内容不再弹工具栏）。
@@ -583,7 +614,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
           title={button.title}
           label={button.label}
           className={button.className}
-          active={activeFormats.has(button.style)}
+          active={button.style !== 'table' && activeFormats.has(button.style)}
           disabled={isCodeBlock}
           onClick={() => handleFormat(button)}
         />
@@ -597,7 +628,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
           title={button.title}
           label={button.label}
           disabled={isCodeBlock}
-          onClick={() => handleFormat(button)}
+          onClick={(e) => handleFormat(button, e)}
         />
       ))}
 
@@ -630,6 +661,13 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
           setInsertModal(null);
         }}
         onCancel={() => setInsertModal(null)}
+      />
+      {/* 表格棋盘格选择器 */}
+      <TablePicker
+        visible={tablePickerOpen}
+        anchorRect={tablePickerRect}
+        onConfirm={handleTablePickerConfirm}
+        onClose={() => setTablePickerOpen(false)}
       />
     </div>
   );

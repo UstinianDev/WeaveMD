@@ -160,9 +160,78 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
     return () => el.removeEventListener('beforeinput', handleNativeBeforeInput);
   }, []);
 
-  // 跨块选区 + 粘贴：clipboardData 取纯文本，走块树级删除 + 插入
+  // 跨块选区 + 粘贴：clipboardData 取纯文本，走块树级删除 + 插入。
+  // 图片粘贴：拦截剪贴板中的图片数据，转为 data URL 后以 `![](src)` 插入模型。
+  // onFormat ref：FileReader.onload 是异步的，闭包可能捕获旧引用
+  const onFormatRef = useRef(onFormat);
+  useEffect(() => { onFormatRef.current = onFormat; }, [onFormat]);
+
+  /** 从剪贴板提取图片 blob：优先 DataTransferItem.getAsFile()，降级 DataTransfer.files */
+  const extractImageBlob = (dt: DataTransfer): File | null => {
+    // 方式 1：DataTransferItem.getAsFile（标准路径）
+    if (dt.items) {
+      for (let i = 0; i < dt.items.length; i++) {
+        if (dt.items[i].kind === 'file' && dt.items[i].type.startsWith('image/')) {
+          const file = dt.items[i].getAsFile();
+          if (file) return file;
+        }
+      }
+    }
+    // 方式 2：DataTransfer.files 降级（某些环境 clipboardData.items 不含图片项）
+    if (dt.files) {
+      for (let i = 0; i < dt.files.length; i++) {
+        if (dt.files[i].type.startsWith('image/')) {
+          return dt.files[i];
+        }
+      }
+    }
+    return null;
+  };
+
+  /** 计算光标在 contentEditable 元素内的文本偏移 */
+  const getCursorOffset = useCallback((el: HTMLElement): number => {
+    const sel = window.getSelection();
+    let offset = (el.textContent ?? '').length;
+    if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
+      const range = sel.getRangeAt(0);
+      const pre = document.createRange();
+      pre.selectNodeContents(el);
+      pre.setEnd(range.startContainer, range.startOffset);
+      offset = pre.toString().length;
+    }
+    return offset;
+  }, []);
+
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLSpanElement>) => {
+      const dt = e.clipboardData;
+      if (!dt) return;
+      // 同步阶段捕获元素引用（React 合成事件池化：异步回调中 e.currentTarget 为 null）
+      const el = e.currentTarget;
+      // 方式 1：web clipboard API（浏览器内部复制的图片）
+      const blob = extractImageBlob(dt);
+      if (blob) {
+        e.preventDefault();
+        const reader = new FileReader();
+        reader.onload = () => {
+          const offset = getCursorOffset(el);
+          onFormatRef.current(blockId, 'image', offset, offset, reader.result as string);
+        };
+        reader.readAsDataURL(blob);
+        return;
+      }
+      // 方式 2：Electron clipboard API fallback（外部复制的图片，如截图工具、文件管理器）
+      const api = window.weaveMD;
+      if (api?.clipboard?.readImage) {
+        void api.clipboard.readImage().then((dataUrl) => {
+          if (dataUrl) {
+            e.preventDefault();
+            const offset = getCursorOffset(el);
+            onFormatRef.current(blockId, 'image', offset, offset, dataUrl);
+          }
+        }).catch(() => { /* 无图片 → 允许默认粘贴 */ });
+      }
+      // 跨块选区粘贴：纯文本
       const cross = getCrossBlockSelection();
       if (!cross) return;
       e.preventDefault();
@@ -174,7 +243,7 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
         e.clipboardData?.getData('text/plain') ?? ''
       );
     },
-    [onReplaceCrossBlock]
+    [blockId, getCursorOffset, onReplaceCrossBlock]
   );
 
   const handleCompositionStart = useCallback(() => {

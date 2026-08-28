@@ -7,12 +7,17 @@
 //
 // 互逆不变量（T1.2）：parseTableText(serializeTable(m)) === m（对矩形 m）。
 
+/** 列对齐方式 */
+export type ColumnAlign = 'left' | 'center' | 'right';
+
 /** 解析后的表格矩阵结构（T1.1） */
 export interface TableMatrix {
   /** 表头单元格（去格式、去转义后的纯文本） */
   header: string[];
   /** 数据行各单元格纯文本；每行长度 = header.length（恒矩形） */
   rows: string[][];
+  /** 每列的对齐方式；长度 = header.length；默认全 'left' */
+  alignments: ColumnAlign[];
 }
 
 /**
@@ -55,12 +60,22 @@ function splitRowCells(line: string): string[] {
   return raw.map((cell) => unescapeCell(cell.trim()));
 }
 
+/** 从分隔单元格文本解析对齐方式 */
+function parseAlign(cell: string): ColumnAlign {
+  const trimmed = cell.trim();
+  const left = trimmed.startsWith(':');
+  const right = trimmed.endsWith(':');
+  if (left && right) return 'center';
+  if (right) return 'right';
+  return 'left';
+}
+
 /** 解析规范 markdown 表格文本为矩阵（T1.1） */
 export function parseTableText(text: string): TableMatrix {
   const lines = text.split('\n');
   // 空 / <2 行 → 保守空结构（不抛错，T1.1「空表/畸形表保守返回空结构」）
   if (lines.length < 2) {
-    return { header: [], rows: [] };
+    return { header: [], rows: [], alignments: [] };
   }
 
   const headerLine = lines[0];
@@ -68,11 +83,18 @@ export function parseTableText(text: string): TableMatrix {
 
   // 第 1 行必须是对齐分隔行；不匹配（畸形）→ 保守空结构，避免静默丢数据
   if (!isSeparatorRow(separatorLine)) {
-    return { header: [], rows: [] };
+    return { header: [], rows: [], alignments: [] };
   }
 
   const header = splitRowCells(headerLine);
   const colCount = header.length;
+
+  // 解析分隔行的对齐信息
+  const sepCells = splitRowCells(separatorLine);
+  const alignments: ColumnAlign[] = [];
+  for (let i = 0; i < colCount; i++) {
+    alignments.push(i < sepCells.length ? parseAlign(sepCells[i]) : 'left');
+  }
 
   const rows: string[][] = [];
   for (let i = 2; i < lines.length; i++) {
@@ -83,7 +105,7 @@ export function parseTableText(text: string): TableMatrix {
     rows.push(padToColumns(cells, colCount));
   }
 
-  return { header, rows };
+  return { header, rows, alignments };
 }
 
 /** 把单行单元格补齐/截断到指定列数：不足补空串，超过截断 */
@@ -97,9 +119,18 @@ function padToColumns(cells: string[], colCount: number): string[] {
   return padded;
 }
 
+/** 把对齐方式序列化为分隔单元格文本 */
+function serializeAlign(align: ColumnAlign): string {
+  switch (align) {
+    case 'center': return ':---:';
+    case 'right': return '---:';
+    default: return '---';
+  }
+}
+
 /** 把矩阵序列化为规范 markdown 表格文本（T1.2） */
 export function serializeTable(matrix: TableMatrix): string {
-  const { header, rows } = matrix;
+  const { header, rows, alignments } = matrix;
   // 空矩阵 → 空串（与 parse 空结构互逆）
   if (header.length === 0 && rows.length === 0) {
     return '';
@@ -112,8 +143,13 @@ export function serializeTable(matrix: TableMatrix): string {
     `| ${cells.map((c) => escapeCell(c)).join(' | ')} |`;
 
   lines.push(renderRow(header));
-  // 第 2 行固定统一对齐分隔行（T1.3 不保留原对齐信息）
-  lines.push(`| ${Array(colCount).fill('---').join(' | ')} |`);
+  // 对齐分隔行：按 alignments 生成，无 alignments 时默认全 left
+  const aligns = alignments ?? Array(colCount).fill('left') as ColumnAlign[];
+  const sepCells: string[] = [];
+  for (let i = 0; i < colCount; i++) {
+    sepCells.push(serializeAlign(aligns[i] ?? 'left'));
+  }
+  lines.push(`| ${sepCells.join(' | ')} |`);
 
   for (const row of rows) {
     // 补足到 colCount（恒矩形）

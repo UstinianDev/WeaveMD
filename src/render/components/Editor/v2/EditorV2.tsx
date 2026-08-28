@@ -374,6 +374,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
         onInsertImageFromSelection={handlers.onInsertImageFromSelection}
         onReplaceImage={handlers.onReplaceImage}
         pickImage={window.weaveMD?.dialog.pickImage}
+        onInsertTable={handlers.onInsertTable}
       />
     </div>
   );

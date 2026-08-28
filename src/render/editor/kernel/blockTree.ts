@@ -475,22 +475,26 @@ export function replaceBlock(tree: BlockTreeV2, id: string, node: BlockNodeV2): 
   return nextTree;
 }
 
-/** 更新叶子块文本（清空行内缓存） */
+/** 更新叶子块文本（清空行内缓存）。
+ *  仅克隆被修改的块，保持其余块引用稳定——React.memo 可跳过未变更块的重渲染。 */
 export function setBlockText(tree: BlockTreeV2, id: string, text: string): BlockTreeV2 {
   const block = tree.blocks[id];
   if (!block || block.text === text) return tree;
-  const nextTree = cloneTree(tree);
-  nextTree.blocks[id] = { ...nextTree.blocks[id], text, inlineHtml: null };
-  return nextTree;
+  return {
+    ...tree,
+    blocks: { ...tree.blocks, [id]: { ...block, text, inlineHtml: null } },
+  };
 }
 
-/** 写入行内渲染缓存（不视为内容变更） */
+/** 写入行内渲染缓存（不视为内容变更）。
+ *  仅克隆被修改的块，保持其余块引用稳定。 */
 export function setInlineHtml(tree: BlockTreeV2, id: string, html: string): BlockTreeV2 {
   const block = tree.blocks[id];
   if (!block) return tree;
-  const nextTree = cloneTree(tree);
-  nextTree.blocks[id] = { ...nextTree.blocks[id], inlineHtml: html };
-  return nextTree;
+  return {
+    ...tree,
+    blocks: { ...tree.blocks, [id]: { ...block, inlineHtml: html } },
+  };
 }
 
 /** 更新叶子文本的行内缓存（统一 renderBlockHtml + setInlineHtml 模式） */
