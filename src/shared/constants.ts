@@ -201,6 +201,9 @@ export const IPC_CHANNELS = {
   MAIL_SET: 'mail:set',
   MAIL_SEND: 'mail:send',
   MAIL_PICK_IMAGES: 'mail:pick-images',
+
+  // Notification — 系统通知（AI 交互提问卡片）
+  NOTIFICATION_SEND: 'notification:send',
 } as const;
 
 // --- Design Tokens ---

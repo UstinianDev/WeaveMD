@@ -278,6 +278,9 @@ export interface WeaveMDApi {
     skipVersion: (version: string) => Promise<IpcResponse<{ success: boolean }>>;
     onEvent: (cb: (evt: unknown) => void) => () => void;
   };
+  notification: {
+    send: (title: string, body: string) => Promise<void>;
+  };
 }
 
 const api: WeaveMDApi = {
@@ -546,6 +549,10 @@ const api: WeaveMDApi = {
         ipcRenderer.removeListener(IPC_CHANNELS.UPDATE_EVENT, handler);
       };
     },
+  },
+  notification: {
+    send: (title: string, body: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.NOTIFICATION_SEND, title, body),
   },
 };
 

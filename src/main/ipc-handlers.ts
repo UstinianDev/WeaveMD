@@ -573,4 +573,22 @@ export function registerAllIpcHandlers(): void {
     const buffer = image.toPNG();
     return `data:image/png;base64,${buffer.toString('base64')}`;
   });
+
+  // ========================================
+  // Notification — 系统通知（AI 交互提问卡片）
+  // ========================================
+  ipcMain.handle(IPC_CHANNELS.NOTIFICATION_SEND, async (_event, title: string, body: string) => {
+    const { Notification } = await import('electron');
+    if (!Notification.isSupported()) return;
+
+    const notification = new Notification({ title, body });
+    notification.on('click', () => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win) {
+        if (win.isMinimized()) win.restore();
+        win.focus();
+      }
+    });
+    notification.show();
+  });
 }

@@ -731,6 +731,9 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
     skipVersion: async () => createSuccessResult({ success: true }),
     onEvent: () => () => {},
   },
+  notification: {
+    send: async () => {},
+  },
 });
 
 let hasWarnedAboutFallback = false;
