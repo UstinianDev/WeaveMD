@@ -486,8 +486,11 @@ interface ToolExecResult {
   result: { content: string; status: 'ok' | 'error'; errorDesc?: string };
 }
 
+/** 单工具执行超时（毫秒）。网络/文件 I/O 工具可能较慢，给予充足时间。 */
+const TOOL_EXEC_TIMEOUT_MS = 30_000;
+
 /**
- * 执行单个工具并返回结构化结果（含错误兜底）。
+ * 执行单个工具并返回结构化结果（含错误兜底 + 超时保护）。
  */
 async function executeOneTool(
   tc: { index: number; name: string; arguments: string },
@@ -497,7 +500,14 @@ async function executeOneTool(
   const toolCallId = `call_${round}_${tc.index}`;
   let result: { content: string; status: 'ok' | 'error'; errorDesc?: string };
   try {
-    result = await executeTool(tc.name, tc.arguments, ctx.toolCtx);
+    // 超时保护：防止单个工具卡死整个 Agent 循环
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`工具 ${tc.name} 执行超时（${TOOL_EXEC_TIMEOUT_MS / 1000}秒）`)), TOOL_EXEC_TIMEOUT_MS);
+    });
+    result = await Promise.race([
+      executeTool(tc.name, tc.arguments, ctx.toolCtx),
+      timeoutPromise,
+    ]);
   } catch (err) {
     result = {
       content: '',

@@ -451,7 +451,7 @@ StepCard.displayName = 'StepCard';
 // 主组件：AgentWorkflowCard
 // ---------------------------------------------------------------------------
 
-const AgentWorkflowCard: React.FC<AgentWorkflowCardProps> = ({ toolCalls, duration }) => {
+const AgentWorkflowCard: React.FC<AgentWorkflowCardProps> = React.memo(({ toolCalls, duration }) => {
   // 整体折叠状态
   const [allCollapsed, setAllCollapsed] = useState(false);
 
@@ -568,6 +568,7 @@ const AgentWorkflowCard: React.FC<AgentWorkflowCardProps> = ({ toolCalls, durati
       </div>
     </div>
   );
-};
+});
+AgentWorkflowCard.displayName = 'AgentWorkflowCard';
 
 export default AgentWorkflowCard;

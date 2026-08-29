@@ -17,6 +17,11 @@ import IntentCard from './cards/IntentCard';
 import RewritePreviewCard from './cards/RewritePreviewCard';
 import QuestionCard from './cards/QuestionCard';
 
+/** 默认显示的最近消息数量 */
+const DEFAULT_VISIBLE_MESSAGES = 30;
+/** 每次加载更多的消息数量 */
+const LOAD_MORE_COUNT = 20;
+
 // ---------------------------------------------------------------------------
 // 子组件：消息列表（不订阅 streamBuffer，只接收 messages prop）
 // ---------------------------------------------------------------------------
@@ -28,6 +33,25 @@ interface MessageListProps {
 }
 
 const MessageList: React.FC<MessageListProps> = React.memo(({ messages, isAgentMode, sendAgentMessage }) => {
+  const { t } = useI18n();
+  const [visibleCount, setVisibleCount] = useState(DEFAULT_VISIBLE_MESSAGES);
+
+  // 计算实际显示的消息（跳过 tool 角色消息）
+  const visibleMessages = useMemo(() => {
+    const nonToolMessages = messages.filter((m) => m.role !== 'tool');
+    const startIndex = Math.max(0, nonToolMessages.length - visibleCount);
+    return nonToolMessages.slice(startIndex).map((m) => ({
+      message: m,
+      originalIndex: messages.indexOf(m),
+    }));
+  }, [messages, visibleCount]);
+
+  const hasMoreMessages = messages.filter((m) => m.role !== 'tool').length > visibleCount;
+
+  const handleLoadMore = useCallback(() => {
+    setVisibleCount((prev) => prev + LOAD_MORE_COUNT);
+  }, []);
+
   const handleCopy = useCallback((content: string) => {
     void navigator.clipboard.writeText(content);
   }, []);
@@ -42,11 +66,18 @@ const MessageList: React.FC<MessageListProps> = React.memo(({ messages, isAgentM
 
   return (
     <>
-      {messages.map((m, idx) => {
-        // tool 角色消息的工具调用详情已由 AgentWorkflowCard 渲染在 assistant 消息上方，
-        // 此处跳过避免重启后原始 JSON 结果被直接显示
-        if (m.role === 'tool') return null;
-
+      {hasMoreMessages && (
+        <div className="flex justify-center py-2">
+          <button
+            type="button"
+            onClick={handleLoadMore}
+            className="px-4 py-1.5 text-[13px] text-text-muted hover:text-text-primary bg-bg-tertiary hover:bg-bg-secondary rounded-full border border-border transition-colors"
+          >
+            {t('ai.msg.loadMore', '加载更多消息')}
+          </button>
+        </div>
+      )}
+      {visibleMessages.map(({ message: m, originalIndex: idx }) => {
         // Bug 1 修复：从消息自身的 toolCalls 快照渲染（历史轮次独立保留）
         const msgToolCalls = isAgentMode ? (m.toolCalls ?? []) : [];
         const hasToolCalls = msgToolCalls.length > 0;

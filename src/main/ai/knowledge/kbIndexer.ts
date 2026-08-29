@@ -15,6 +15,7 @@ import {
 } from '../../db/kb';
 import { getDatabase } from '../../db/index';
 import { createEmbedding } from './embeddingClient';
+import { invalidateKbSearchCache } from './kbSearch';
 import type { IKbImportResult } from '@shared/ai';
 
 // ---------------------------------------------------------------------------
@@ -213,6 +214,8 @@ export async function indexFile(
     const chunkCount = await writeChunks(docId, file.content, file.name, opts.embedding);
     setKbDocStatus(userId, docId, 'done');
     const fresh = getKbDocumentByFile(userId, file.id);
+    // 索引完成后清除搜索缓存
+    invalidateKbSearchCache(userId);
     return {
       docId,
       title,
@@ -234,6 +237,8 @@ export async function reindexAfterSave(
   opts: KbIndexOpts
 ): Promise<IKbImportResult | null> {
   deleteKbDocumentByFile(userId, file.id);
+  // 重建索引前清除搜索缓存
+  invalidateKbSearchCache(userId);
   return indexFile(userId, file, opts);
 }
 
@@ -259,6 +264,8 @@ export async function indexImportedText(
     deleteChunksByDoc(docId);
     const chunkCount = await writeChunks(docId, text, title, opts.embedding);
     setKbDocStatus(userId, docId, 'done');
+    // 导入完成后清除搜索缓存
+    invalidateKbSearchCache(userId);
     return { docId, title, chunks: chunkCount, status: 'done' };
   } catch {
     setKbDocStatus(userId, docId ?? '', 'error');
@@ -268,5 +275,10 @@ export async function indexImportedText(
 
 /** 删除某 file 关联的知识库文档（文件删除清理）。 */
 export function removeByFile(userId: string, fileId: string): boolean {
-  return deleteKbDocumentByFile(userId, fileId);
+  const result = deleteKbDocumentByFile(userId, fileId);
+  // 删除完成后清除搜索缓存
+  if (result) {
+    invalidateKbSearchCache(userId);
+  }
+  return result;
 }

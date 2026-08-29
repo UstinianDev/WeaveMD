@@ -12,9 +12,10 @@ interface MarkdownMessageProps {
   content: string;
 }
 
-const MarkdownMessage: React.FC<MarkdownMessageProps> = ({ content }) => {
+const MarkdownMessage: React.FC<MarkdownMessageProps> = React.memo(({ content }) => {
   const rendered = renderAIMarkdownSafe(content);
   return <div className="ai-markdown ai-prose">{rendered}</div>;
-};
+});
+MarkdownMessage.displayName = 'MarkdownMessage';
 
 export default MarkdownMessage;
