@@ -21,21 +21,13 @@
   ImageToolbar（图片工具栏）+ toolbarState（纯函数）
 - `src/render/components/Editor/` — EditorView 薄编排器（v2 唯一）
 - `src/render/stores/ services/ styles/` — Zustand / markdown 服务 / globals.css
-- `src/main/ai/` — AI 主进程服务（**第1/2/3/4/5期均已交付 + 后端收敛 remote-only**：llmClient/consent/secureConfig +
-  kbIndexer / kbSearch / intentRouter / contextManager / toolRegistry /
-  skillLoader / agentLoop / modelList / rewrite（改写薄 LLM 代理，第5期）；
-  `ipc/` 按域拆分（shared + configConsent/chat/kb/agent/rewrite/model handlers，ipc.ts 薄 re-export）；
-  `mcpManager` 真 MCP 进程管理延期）
-- `src/render/components/AIAgent/` — AI 面板（**第1~7期均已交付 + 三视图重构**：AIAgentPanel 为三视图外壳
-  （home 主界面 RECENT 最近3 / session 会话 / settings 设置侧栏，顶部 WeaveMD+新建+⚙+×）+
-  AIPanelComposer（共享 composer：模式下拉+ModelDropdown+handleSendAgent 分流）+
-  AgentTab 精瘦为消息流展示区 + AgentWorkflowCard（模块化折叠卡片） + ConsentOverlay + ToolCallTrace/IntentCard/MarkdownMessage/
-  KnowledgeBaseSettings/RewritePreviewCard（第5期）/CompletionMenu（第7期B1 补全）+
-  settings/{ModelForm（迁自 SettingsModal ai Tab）,SkillsPanel,MCP占位}）
-- `src/render/editor/rewrite/` — 改写块逻辑（第5期）：selectionExport.ts（DOM 选区→SelectionRef+片段）/
-  blockEdit.ts（proposal 计算，只算不写）；`src/render/stores/rewriteStore.ts` 改写状态机；
-  `src/render/filters/rewriteDiff.ts` 行级红删绿增 diff
-- `docs/` — REQUIREMENTS / TECH_STACK / SUMMARY / modules/ / specs/
+- `src/main/ai/` — AI 主进程服务（remote-only）：`llm/`（llmClient/modelList）+
+  `agent/`（agentLoop/agentSession/agentTaskQueue）+ `knowledge/`（kbIndexer/kbSearch）+
+  `files/`（conversationExport/documentParser）+ `skills/` + `tools/`（18+ handler）+
+  `ipc/` 按域拆分（7 个 handler 模块）
+- `src/render/components/AIAgent/` — AI 面板三视图外壳（home/session/settings）+
+  AIPanelComposer + AgentTab 消息流 + settings/{ModelForm,EmbeddingSettings,SearchSettings,...}
+- `docs/` — REQUIREMENTS / SUMMARY / modules/ / specs/
 
 ## 规范
 
@@ -46,183 +38,59 @@
 - 编辑器+目录区字体：中文楷体（KaiTi）、英文 Consolas（`.editor-scroll-container` + `.outline-scroll`）
 - 行前缀解析统一走 `src/render/services/lineMarkdown.ts`（含 U+00A0 分隔）
 
-## UI 美化（2026-08-29）
+## 编辑主区 v2（当前主线）
 
-- **字体统一**：代码块使用 `Consolas + 阿里巴巴普惠体 B`（`.code-fence-content`）；编辑主区保持 `Consolas + 阿里巴巴普惠体`
-- **工具栏毛玻璃效果**：浮动工具栏、表格工具栏、图片工具栏均使用 `backdrop-filter: blur(12px) saturate(180%)` 实现毛玻璃
-- **按钮悬停动效**：工具栏按钮悬停时 `translateY(-1px)` + `box-shadow` 发光效果，active 态 `inset shadow`
-- **编辑主区块悬停**：标题块和段落块悬停使用 `color-mix(in srgb, var(--accent) 6%, transparent)` 柔和蓝色
-- **代码块增强**：悬停时 `box-shadow` 增强 + `border-color: var(--accent)`；头部使用 `backdrop-filter` 毛玻璃
-- **Composer 标签**：`/skill` 和 `@doc` 显示为带样式的标签（`.input-tag`），在输入框**内部**显示（overlay 方案），支持删除按钮和悬停下划线
-- **浮动工具栏图标**：所有按钮使用 Material Design Icons（react-icons/md）替代文字字符（B→bold, I→italic, U→underline, S→strikethrough, </>→code, H→highlight, 🔗→link, 🖼→image, ∑→math, ▦→table, 解链→unlink, ⌫→eraser）
-- **CSS 变量**：新增 `@font-face` 声明阿里巴巴普惠体 B；工具栏背景使用 `color-mix` 半透明混合
-
-## 编辑主区 v2（当前主线，架构照搬 marktext/muya）
+> 详细规范见 `docs/specs/editor-v2-architecture.md`（§1-§6 架构）+
+> `docs/specs/editor-v2-progress.md`（§13 实施记录）+
+> `docs/modules/04-编辑主区-Editor.md`（模块文档）
 
 - 仅叶子块内容 span（`ContentBlock`）可编辑；不可变块树 + 无损双向转换（往返不变式）
-- 行内语法标记保留在 DOM（`span.md-syntax`），`textContent` 与源一致
 - 前缀即时转换（`# `/`- `/`1. `/`- [ ] `/`> `/` ```lang `），退格在内容起点降级
   （六条退出规则：docs/specs/markdown-block-exit-rules.md）
-- 语法外观对齐 marktext（spec 13.7）：标题 `#`×n 光标提示、深灰列表 marker、
-  圆形任务复选框、引用绿色竖线，语法符号全部不可选中；类名勿用 `list-item`
-  （Tailwind 工具类冲突，用 `list-item-block`）
-- 退出/退格链（spec 13.9 / 13.11）：空列表项退格退出列表；空代码块退格一键删除、
-  回车退出（保留）；代码块后空行 Backspace 受保护（删除代码块后可删）；删光标题
-  内容后连续退格光标跳回上一行
-- 代码块尾随保护空行持久化（SPEC-EDIT-CBTP）：`markdownToState` 解析期若整树最后
-  叶子为 code-block 自动补尾随空段落，重载/模式切换后不丢失；文本输出不变
-- 分割线后自动空行保护（2026-08-19）：输入 `---` 转为 `thematic-break` 后自动创建
-  尾随空行（对齐代码块行为）；空行受 Backspace 保护（不删除、不合并），只有分割线
-  被删除后空行才恢复为普通段落；焦点自动移到尾随空行
-- 浮动工具栏（SPEC-EDIT-FT v1.0）：选区触发且**仅单一语法类型显示**（h1+h2 不显示）；
-  自定义块类型下拉（正文/H1-H6/代码块/引用/三类列表，`canConvertBlock` 矩阵置灰，
-  `syntaxTypeToOption` 映射）——纯函数 `selectionSyntaxTypesConsistent` / `resolveSyntaxType`
-  均在 kernel/syntaxType.ts 与 toolbarState.ts（FloatingToolbar re-export），组件测试直接覆盖
-- 行内格式（SPEC-EDIT-FT2）：inlineLexer + 双形态 toggle（加粗两次回原文，永不产生 `****`）+
-  橡皮擦；叠加收敛（SPEC-EDIT-FT3）：Step 0 选区归一化 + 跨 token 拆分解除 + 跨风格三连 `***`
-  渲染/剥离；相邻混合强调（SPEC-EDIT-FT4）：close run 拆分（`**12*3***`）+ open 三连拆分
-  （`***12*3**`）均解析为 strong 内嵌 em，渲染无字面残体（详情见
-  specs/floating-toolbar-ux-and-inline-format.md / format-sticky.md）
-- 原生拖拽移动选区已禁用：EditorV2 根容器 `onDragStart` preventDefault（含标记选区不被拖走）；
-  跨块拖选走 `useCrossBlockDragSelection`（mousedown/mousemove），不受影响
-- 跨块鼠标拖选（spec 13.13）：rAF 节流 + 反向显式交换端点 + 非内容区回退 + mouseup
-  末帧兜底/3 帧重放（`useCrossBlockDragSelection.ts`）；Backspace/Delete 走
-  `deleteLeafRange` 块树级删除；**注意**：Chromium 对跨编辑宿主 Selection.toString()
-  只返回 anchor 块内文本（Range 边界保留跨块），拖选验证须用块 id + Backspace 而非文本
-- 拖选闪烁优化（SPEC-EDIT-DSF）：`lastAppliedRangeRef` 端点级变化检测（端点全等跳过
-  重建，静止不再 selection 风暴）；`FloatingToolbar` selectionchange 改 rAF 合并
-  （渲染 ≤ 每帧一次）；`resolveSyntaxTypesInRange` 边枚举边比对短路 + 500 叶上限
-- 焦点恢复：`applyAction` 树未变时立即恢复；降级转换焦点用新块 id
-- 图片（K3~K7）：工具栏「图片」直选（`dialog.pickImage` 系统文件框，取消 no-op）；
-  `image-block` 原子块（`kernel/imageBlock.ts`，`<div align>` 包裹对齐）+ 点击选中 →
-  图片工具栏（修改图片/内联图片/居左/居中/居右/移除，行内图对齐/内联置灰）；本地图走
-  `media://` 协议（`src/main/media-protocol.ts`，**非 standard scheme**——盘符编码进 host
-  不被 Chromium 规范化拒绝，修复完整 app 本地图加载失败）
-- 图片缩放（R1~R3）：选中图片显示 `.image-resize-box` 四角手柄，拖拽直改 `<img style.width>`
-  （DOM-only），提交独立图 `setImageWidth` / 行内图写 `BlockWidthMap`；宽度落点在 `<img>` 自身
-  （`applyImgWidth`，非外层 div），小图可放大、无溢出；等比例拖拽 = 主轴向符号 × √(dx²+dy²)
-- 跨块选区替换（2026-08-13）：字符输入/粘贴跨块选区时浏览器原生只改 DOM，`onInput` 仅同步
-  焦点块模型 → 其余块"复活"。ContentBlock 原生 `beforeinput`/`onPaste` 拦截 → `replaceLeafRange`
-  （blockTree.ts）块树级删除+插入收敛单块
-- 可编辑表格块（editor-table-block，2026-08-16）：`table` 仍为叶子块（text 存规范多行 markdown，
-  **不改内核** markdownToState/stateToMarkdown/syntaxType 语义）；`kernel/tableCodec.ts` 纯函数
-  parseTableText/serializeTable（`\|` 转义/解义、对齐分隔容错、保守空结构）；渲染层 `TableBlock.tsx`
-  `<table>` 网格每格 `contenteditable="plaintext-only"`（单元格编辑回写 text、悬停 +/- 手柄增删行列、
-  Enter/Tab/Shift+Tab 跨格、IME 守卫、幂等重渲染按 cellkey Map 差分防光标跳变）；selection/AI 改写/
-  outline 对 table 的既有只读排除行为保持（T4 零破坏）
-- **v1 回退路径已退役（2026-08-06）**：v2 为唯一路径，`__EDITOR_V2__` 开关已移除，
-  v1 组件/服务/测试已删除（EditorView 1920 行重写为薄编排器）
-- **编辑主区性能优化（2026-08-29）**：
-  ① cloneTree 精准化（`changeBlockType`/`updateMeta` O(N)→O(1) 精准拷贝 + `batchRemoveBlocks` 批量删除 O(k*N)→O(N））+
-  ② tokenizeInline LRU 缓存（256 条，同文本 3-5 次解析→1 次，`clearInlineCache()` 导出）+
-  ③ outline 脏标记（`extractHeadingOutlineCached` + `OutlineCache` 增量版本就绪）+
-  ④ React.memo 补全（ToolbarButton memo + CodeBlock handleCopy ref 模式 + ContentBlock useLayoutEffect 依赖）+
-  ⑤ 消除重复计算（selection.ts tokens 参数 + imageBlock.ts 单次 parse）+
-  ⑥ TableBlock 选区已为 DOM 直接操作模式 +
-  ⑦ scroll 监听合并（EditorV2 rewriteHighlights 合并到 EditorScrollContainer）+
-  ⑧ Prism/KaTeX code splitting（vite manual chunks 分割）
-  门禁全绿（tsc 0 新增 | vitest 1528/1528 | lint 0 新增 error）
+- 语法外观对齐 marktext：标题 `#`×n 光标提示、深灰列表 marker、圆形任务复选框、引用绿色竖线
+- 浮动工具栏（SPEC-EDIT-FT）：选区触发 + 块类型下拉 + 行内格式（加粗/斜体/删除线/高亮/代码/链接/图片/数学/表格）
+- 图片：工具栏直选系统文件框 + `media://` 本地图协议 + 四角等比缩放 + 图片工具栏
+- 可编辑表格块：`tableCodec.ts` 纯函数 + `TableBlock.tsx` 每格 `contenteditable="plaintext-only"` + `TableToolbar.tsx`
+- 跨块拖选：rAF 节流 + 反向交换端点 + `useCrossBlockDragSelection.ts`
+- 跨块选区替换：`beforeinput`/`onPaste` 拦截 → `replaceLeafRange` 块树级删除+插入
+- 性能优化：cloneTree 精准化 + tokenizeInline LRU 缓存（256 条）+ outline 脏标记 + React.memo 补全 + Prism/KaTeX code splitting
+
+## AI 代理面板与知识库
+
+> 详细规范见 `docs/specs/ai-panel-features.md`（交付记录）+
+> `docs/modules/11-AI代理面板-Agent.md`（架构文档）
+
+- **后端 remote-only**：Ollama 已移除，`ChatBackend` 收敛为 `'remote'`；KB 仅 FTS5 关键词召回
+- 右侧 AI 面板（导航栏「AI」按钮开合），仅 Agent 模式（Chat 已删除）
+- 铁律一：**AI 写入必经确认**——红删绿增预览 → 用户确认 → `updateContent` 入 undo 栈
+- 铁律二：**联网 / 笔记外发必须用户知情同意**；key 用 safeStorage 加密存 SQLite
+- Agent 能力：toolRegistry + agentLoop（≤6 轮）+ skillLoader + intentRouter + contextManager
+- 知识库：FTS5 BM25 召回 + 拒答 0.6 + 出处可跳转 + 置顶 ×1.5
+- 写控制：writeMode auto/manual + MD5 staleness detection + Agent 交互暂停/恢复 + 事件持久化
+- 三视图重构：home（RECENT 最近3）/ session（会话）/ settings（设置侧栏）
 
 ## 关键文件
 
-- `src/render/editor/kernel/` — blockTree / markdownToState / stateToMarkdown /
-  inlineRenderer / outline / selection / syntaxType（resolveSyntaxType）/ imageBlock
-- `src/main/media-protocol.ts` — media:// 本地图协议（decodeMediaUrl + registerMediaProtocol，
-  非 standard scheme）
-- `src/render/services/saveCurrentDraft.ts` — 切换/关闭前统一保存前置（flushEditorDraft +
-  dirty 落盘），FileTreePanel 与 Navbar 共用
+- `src/render/editor/kernel/` — blockTree / markdownToState / stateToMarkdown / inlineRenderer / selection
+- `src/main/media-protocol.ts` — media:// 本地图协议（非 standard scheme）
+- `src/render/services/saveCurrentDraft.ts` — 切换/关闭前统一保存前置
 - `src/render/editor/controllers/` — input / enter / backspace / convert / click / list / format
 - `src/render/editor/editorInstance.ts` — 内核宿主（内容加载、markdown 同步）
 - `src/render/components/Editor/v2/EditorV2.tsx` — v2 入口（状态、事件路由、焦点恢复、撤销）
 - `src/render/components/Editor/v2/blocks/ContentBlock.tsx` — 唯一 contentEditable 表面
-- `src/render/components/Editor/v2/FloatingToolbar.tsx` — 文本浮动工具栏（SPEC-REFACTOR 拆出
-  ImageToolbar 图片工具栏 / toolbarState 纯函数 / ToolbarButton 共享按钮）
+- `src/render/components/Editor/v2/FloatingToolbar.tsx` — 文本浮动工具栏
 - `src/render/components/Editor/v2/ImageResizeBox.tsx` + `resizeMath.ts` — 图片四角缩放
-  （纯算术下沉 resizeMath；`imageAnchor.ts` 提供 findImageEl/readImageRect 共享查询）
-- `src/render/components/Editor/v2/modalConstants.ts` — 弹层共享常量（EMPTY_URL_MESSAGE）
 - `src/render/components/Editor/EditorView.tsx` — 薄编排器（v2 唯一）
-- `docs/modules/11-AI代理面板-Agent.md` — AI 代理面板 + 知识库导入设计（第1/2期基建+Chat、
-  第3/4期知识库+Agent 均交付；需求 AGT-01~19 / KB-01~05 见 REQUIREMENTS 3.7/3.8）
 
-## AI 代理面板与知识库（2026-08-16：第 1~7 期均已交付 + 后端收敛 remote-only）
+## UI 美化
 
-- **后端收敛 remote-only（ai-panel-ux-optimize，2026-08-16）**：彻底去除 ollama（`ChatBackend` 收敛为 `'remote'`；
-  主进程删 `probeOllama`/AI_HEALTH/ollama 分支/`agentBackendHint`/`embeddingClient.ts` 整文件）；
-  KB 降级**仅 FTS5**、后端固定远程、必须填 key；DB 遗留列保留但读时 `'ollama'`→`'remote'` 收敛。① ModelForm
-  API key 与允许联网间新增「当前提供商」状态行 + 断开连接（清 key）；② composer 草稿提升到 AIAgentPanel
-  跨视图保留；① 选区改写 → 覆盖块整块渐变蓝高亮 + 左端取消胶囊（见第 7 期 A3）；⑤ AI 面板字号整体放大一档。
-- 右侧 AI 面板（导航栏「AI」按钮开合），Chat（纯对话）/ Agent（辅助创作）双智能体
-- 铁律一：**AI 写入必经确认**——第 5 期块级改写已交付，写路径=「红删绿增预览 → 用户确认 →
-  `editorStore.updateContent(rewrittenMd)` 入 undo 栈一次可撤销」；主进程只产 LLM 文本（薄代理 rewrite.ts），
-  块级替换在渲染侧 blockEdit.ts（只算不写）；Agent 工具全部只读/仅产 proposal（listFiles/readFile/searchKB/runSkill
-  + editBlocks 仅产 proposal）；**createFile 确认后 DB+磁盘双写**（userData/files/）；
-  **editBlocks 确认后 file.write 写盘**；preview_file_revision 返回 diff 供预览确认
-- 铁律二：**联网 / 笔记外发必须用户知情同意**（首次弹同意页，consent 分层：联网闸
-  allowNetwork + KB 外发闸 allowSend）；key 用 safeStorage 加密存 SQLite，网络全走
-  主进程、密钥不落渲染进程
-- 块级改写（第 5 期）：选区触发（FloatingToolbar「AI 改写」→ 面板 composer 描述）+ 面板 @ 兜底
-  （AgentTab `@ + 描述`，编号块协议 `[{block_index,new_content}]`，定位失败拒应用）；定向块编辑协议
-  内部统一 `EditBlockOp[]`；红删绿增预览（rewriteDiff 行级 LCS + RewritePreviewCard，复用
-  renderAIMarkdownSafe 无 dangerouslySetInnerHTML）；stale 校验（确认时 content===原文，不一致拒应用）
-- 知识库 = 账号内全部笔记 + 导入文档（md/txt）：kb DAO + FTS5 虚拟表 `kb_chunks_fts`
-  （CJK 前缀匹配注意；**后端收敛后仅 FTS5 关键词召回，向量/embedding 已去除**）+ kbIndexer
-  （保存防抖重嵌入/删除清理）；FTS5 BM25 召回 + 拒答 0.6 +
-  出处可跳转 + 置顶 ×1.5；**KB 参数（topK/fuse/threshold/置顶权重）第 6 期已持久化
-  到 ai_config**（kb:get/setSettings IPC，agentStore.init 拉取 + setKbSettings async；KB_STATUS 探针与
-  AGENT_RUN 检索兜底均消费持久化值）
-- Agent 能力：toolRegistry/agentLoop（≤6 轮函数调用循环，后端恒 remote、无降级）/
-  skillLoader（3 内置 + 用户扩展 SKILL.md）/intentRouter（6 类 + 候选提问卡片）/
-  contextManager（/2 估算 + 80% 压缩）；渲染端 AgentTab + ToolCallTrace + IntentCard +
-  MarkdownMessage（HAST→React 安全富文本，无 dangerouslySetInnerHTML）
-- 第 7 期体验重构（2026-08-15 全部交付）：A4 选区改写叶序错位修复（DOM 序含容器块 → 改用 content 解析叶序=位置+文本对齐，失同步保守 null）+
-  A1 当前文档上下文注入（agentLoop system prompt + 截断）+ rewrite 意图补词 + 从 0 到 1 整篇写（预览确认 → updateContent 入 undo；未打开拒写）+
-  A2 混合类型工具栏（mouseup 弹 AI 改写）+ A3 选区改写 → **覆盖块整块渐变蓝高亮（.rewrite-highlight 纯 CSS overlay 不入 contentEditable）+ 左端取消胶囊（.rewrite-cancel-capsule）** +
-  B1 / @ 补全（AGENT_SKILLS_LIST 只读 IPC + CompletionMenu）+ B2 命名「智能体」（文案+i18n）+ B3 双 Tab 合并单面板 + 模式下拉（activeMode 域隔离）+ C1 美化
-- 延期不交付：真 MCP server 管理（fetchContext7/fetchFirecrawl）、GitHub 自取 writing-shape；
-- AI 面板体验优化（2026-08-21）：① 主界面最近会话删除按钮（🗑 + confirm）+ ② 历史会话列表视图（View All → history）+ ③ 会话标题栏布局（标题+🗑+×）+ ④ /compact 命令压缩上下文（含 CompletionMenu 补全，chat/agent 双模式）+ ⑤ 底栏上下文指示器（圆环形进度条 + token 估算，悬停显示占比）+ ⑥ 选区改写消息入会话（user 消息 + 预览卡片作 AI 回复）+ ⑦ 改写预览仅 diff（可折叠 15px + AI 改动说明，移除整段输出）+ ⑧ 编辑器+目录区字体统一（Consolas+KaiTi）
-- AI 面板体验修复（2026-08-22）：⑨ 选区改写预览卡片位置修正（移至消息列表之后，跟随改写请求而非固定最上方）+ ⑩ AI 回答自动换行（whitespace-pre-wrap）
-- AI 面板样式优化（2026-08-22）：⑪ AI 回答行高调整（leading-relaxed→leading-normal）+ ⑫ AI 表格样式补全 + ⑬ 编辑器+目录区+代码块字体统一（Consolas + 阿里巴巴普惠体）+ ⑭ 间距全面压缩（margin/padding/space-y 减半）+ ⑮ 移除 whitespace-pre-wrap（修复双重换行：Markdown 段落 margin + 源文本换行符）+ ⑯ AI 面板 user 消息和 composer 输入框字体统一（Consolas + 阿里巴巴普惠体）
-- AI面板+编辑主区+导航栏优化（2026-08-23，Phase 1-5 全部交付）：① 浮动工具栏删 AI 改写 + ② 侧栏固定 20% + ③ 删除 Chat 模式 + ④ 导航栏重构（收起编辑器/AI 按钮移到左侧）+ ⑤ 编辑区收起功能 + ⑥ CreatePanel 新建文件/文件夹居中面板 + ⑦ 消息操作栏（hover 复制/编辑/重试 + 响应时间）+ ⑧ AI 处理流程状态展示（AIProcessStatus 8 种状态 + 脉冲指示器）+ ⑨ Composer 重构（📎🖼自动手动 toggle🌐联网搜索 + ContextRing 缩小）+ ⑩ KB 设置重构（EmbeddingSettings + SearchSettings + AIPanelSettings 5 tabs）+ ⑪ 多文件修订预览（RewriteDetailModal 居中弹窗 + 汇总卡片）+ ⑫ Embedding 客户端（embeddingClient.ts + embeddingHandlers.ts）+ ⑬ 搜索客户端（searchClient.ts 4 引擎 + searchHandlers.ts）+ ⑭ AI 文件操作工具（createFile/createFolder proposal + FileOpPreviewCard）+ ⑮ 测试同步修复
-  门禁全绿（第 6 期：typecheck 0 | vitest 90/1261 | lint 0 | Playwright 14/14 | 真库迁移 smoke 0；第 7 期：typecheck 0 | vitest 93/1338 | lint 0 | Playwright 24/24）
-- 写控制与任务安全模块（2026-08-24 ~ 2026-08-25，R1~R7 全部交付）：
-  ① R1 写模式切换（`writeMode: WriteMode` 泛化 auto/manual，持久化 ai_config）+
-  ② R2 写预览版本对比（MD5 staleness detection，哈希不一致拒绝覆盖）+
-  ③ R3 Agent 交互暂停/恢复（ask_question_card → waiting_interaction → 恢复续轮，AgentLoopDeps 回调 + Worker pendingInteractions Map）+
-  ④ R4 待处理状态 UI（QuestionCard 组件 + waiting 标识 + 重试入口）+
-  ⑤ R5 事件持久化（persistAndSend + replayFromSeq）+
-  ⑥ R6 IndexedDB 草稿恢复（draftStore.ts，300ms 防抖 + conversationId 索引）+
-  ⑦ R7 已实现模块集成（DeadLoopDetector + checkpoint + snapshot + 回滚 UI）
-  门禁全绿（tsc 0 新增 | vitest 1500/1500 | lint 0 error）
-- AI 模块性能优化（2026-08-26，29 项全部交付）：
-  **渲染端 18 项**：① streamBuffer 从 store 移到 AgentTab useRef + rAF 节流（消除每 token 全量重渲染）+
-  ② AIMessageBubble/StepCard/ToolCallRow/ToolCallTrace React.memo +
-  ③ MessageList 子组件抽取（隔离 streamBuffer 订阅）+
-  ④ parseRefsJson/processStatusText/buildCompletionItems/errorCount/extractToolSummary useMemo +
-  ⑤ handleCopy/handleRetry/handleOpenSource + AIAgentPanel 5 handler useCallback +
-  ⑥ init 多次 set() 合并 + visibilitychange 监听器清理；
-  **主进程 11 项**：⑦ 只读工具 Promise.all 并行执行 +
-  ⑧ rankCandidates Map 化（O(n²)→O(n)）+ ⑨ aggregateAndExpand 批量 SQL 查询 +
-  ⑩ contextManager push+reverse（O(n²)→O(n)）+ estimateTokens len/4→len/2（中文精度修正）+
-  ⑪ agentLoop 增量 token + 原地 push + 增量 checkpoint +
-  ⑫ defineCoreTools 模块级常量缓存 + AGENT_SKILLS_LIST 30s TTL 缓存 + rerankCache 惰性清理
-  门禁全绿（tsc 0 新增 | vitest 1499/1499 | lint 0 新增 error）
-- AI 文件操作持久化修复（2026-08-26）：
-  ① AI 创建文件重启后不丢失（fileTreeStore.restore DB 回退查询）+
-  ② AI 新建文档点击有黄色渐变（addFile id 对齐 node.path）+
-  ③ AI 可写入本地文件（createFileHandler DB+磁盘双写 + editBlocks 确认后 file.write 写盘）+
-  ④ 重启后工具调用轨迹正常渲染（ai_messages.tool_calls 列 + IPC 持久化 + mapMessageRow 解析）
-  门禁全绿（tsc 0 新增 | vitest 1488/1488 | lint 0 新增）
-- 表格功能优化（2026-08-27，三轮交付）：
-  **第一轮**：① tableCodec 对齐支持（`TableMatrix.alignments` + `:---`/`:---:`/`---:` 解析序列化）+
-  ② 棋盘格表格选择器（`TablePicker.tsx` 6×8 网格 + 行×列输入）+
-  ③ 浮动工具栏表格按钮（OBJECT_BUTTONS 新增 `▦` → `onInsertTable`）；
-  **第二轮**：④ 表格工具栏重构（`TableToolbar.tsx`：点击任意位置弹出，含对齐/增删行列/行列数调整）+
-  ⑤ 移除 hover +/- 按钮 + ⑥ 表格创建焦点恢复（rAF）+ ⑦ 分隔线空行持久化；
-  **第三轮修复**：⑧ 表格输入光标跳变修复（`useTableEvents.handleCellInput` 模型值未变时跳过 commitCell）+
-  ⑨ 表格尾随受保护空行（`onInsertTable` 追加空段落 + `appendTrailingParagraphIfLast` 扩展至 `table`）+
-  ⑩ 工具栏新增「删表」按钮（`onRemoveTable`）+
-  ⑪ 粘贴图片转为 `![](data:url)` 插入模型（`ContentBlock.handlePaste` 拦截剪贴板图片数据）
-  门禁全绿（tsc 0 新增 | vitest 1497/1497 | lint 0 新增 error）
+> 详细规范见 `docs/specs/editor-v2-features.md`（编辑器 UI）+
+> CLAUDE.md 同级 `memory/ui-beautify-2026-08-29.md`
+
+- 字体：代码块 `Consolas + 阿里巴巴普惠体 B`；编辑主区 `Consolas + 阿里巴巴普惠体`
+- 工具栏毛玻璃：`backdrop-filter: blur(12px) saturate(180%)`
+- 浮动工具栏图标：Material Design Icons（react-icons/md）
+- 主题：Default（明亮）+ Warm Earth（暖色陶土），CSS 变量在 globals.css
 
 ## 已知限制（详见 docs/specs/editor-v2-progress.md §13.x）
 
