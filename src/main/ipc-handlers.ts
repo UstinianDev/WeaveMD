@@ -427,6 +427,21 @@ export function registerAllIpcHandlers(): void {
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.FILE_RENAME, async (_event, { oldPath, newName }: { oldPath: string; newName: string }) => {
+    try {
+      const dir = oldPath.substring(0, oldPath.lastIndexOf('/'));
+      const newPath = `${dir}/${newName}`;
+      // 检查目标是否已存在
+      if (fs.existsSync(newPath)) {
+        return { success: false, message: 'Target already exists' };
+      }
+      fs.renameSync(oldPath, newPath);
+      return { success: true, data: { newPath, newName } };
+    } catch (error) {
+      return { success: false, message: 'Failed to rename' };
+    }
+  });
+
   // ========================================
   // History
   // ========================================

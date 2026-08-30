@@ -93,8 +93,9 @@ export function isStandaloneImageText(text: string): boolean {
  * 非独立图 → null（调用方置灰/拒绝）。
  */
 export function wrapImageAlign(text: string, align: ImageAlign): string | null {
-  if (!isStandaloneImageText(text)) return null;
-  const parsed = parseImageBlockText(text)!;
+  // parseImageBlockText 一次调用替代 isStandaloneImageText + parseImageBlockText 两次
+  const parsed = parseImageBlockText(text);
+  if (!parsed) return null;
   if (parsed.align === null) return `<div align="${align}">${text}</div>`;
   // 捕获可选 style 段并原样保留（align 在前，style 在后，保证 width 换向不丢）
   return text.replace(
@@ -112,8 +113,9 @@ export function wrapImageAlign(text: string, align: ImageAlign): string | null {
  *   - width ≤ 0 / NaN → null（非法值拒绝）。
  */
 export function wrapImageWidth(text: string, width: number | null): string | null {
-  if (!isStandaloneImageText(text)) return null;
-  const parsed = parseImageBlockText(text)!;
+  // parseImageBlockText 一次调用替代 isStandaloneImageText + parseImageBlockText 两次
+  const parsed = parseImageBlockText(text);
+  if (!parsed) return null;
   const align = parsed.align;
   if (width === null) {
     // 剥 style：已有 wrapper → 移除 open tag 的 style 段（保留 align）；裸图 → 原样

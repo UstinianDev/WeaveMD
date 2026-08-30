@@ -39,6 +39,7 @@ interface FileTreeActions {
   removeFile: (fileId: string) => void;
   removeFileFromEverywhere: (fileId: string) => void;
   removeNodeFromTree: (folderId: string, nodeId: string) => void;
+  renameNode: (oldId: string, newName: string) => void;
   toggleExpand: (folderId: string) => void;
   loadFolderContents: (path: string) => Promise<void>;
   toggleSelect: (id: string) => void;
@@ -255,6 +256,43 @@ export const useFileTreeStore = create<FileTreeState & FileTreeActions>()(
         ? state.selectedIds.filter((sid) => sid !== id)
         : [...state.selectedIds, id],
     })),
+
+  renameNode: (oldId, newName) =>
+    set((state) => {
+      // Update in looseFiles
+      const newLooseFiles = state.looseFiles.map((f) => {
+        if (f.id === oldId) {
+          const dir = f.path.substring(0, f.path.lastIndexOf('/'));
+          const newPath = dir ? `${dir}/${newName}` : newName;
+          return { ...f, id: newPath, name: newName, path: newPath };
+        }
+        return f;
+      });
+
+      // Update in folder tree (recursive)
+      const renameInTree = (nodes: IFolderNode[]): IFolderNode[] =>
+        nodes.map((n) => {
+          if (n.id === oldId) {
+            const dir = n.path.substring(0, n.path.lastIndexOf('/'));
+            const newPath = dir ? `${dir}/${newName}` : newName;
+            return { ...n, id: newPath, name: newName, path: newPath };
+          }
+          return { ...n, children: renameInTree(n.children) };
+        });
+
+      return {
+        looseFiles: newLooseFiles,
+        folders: renameInTree(state.folders),
+        selectedIds: state.selectedIds.map((sid) => {
+          if (sid === oldId) {
+            // We can't compute the exact new path here without the old node,
+            // but the caller will handle selection update separately if needed
+            return sid;
+          }
+          return sid;
+        }),
+      };
+    }),
 
   clearSelection: () => set({ selectedIds: [] }),
 

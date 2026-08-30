@@ -7,12 +7,12 @@
 // - 焦点恢复：局部 pendingCellRef + useLayoutEffect 按 cellkey 恢复
 // - 表格工具栏：点击表格任意位置弹出 TableToolbar（对齐/增删行列/调整尺寸）
 
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { BlockNodeV2, ColumnAlign } from '@render/editor/kernel';
 import type { BlockHandlers, InlineWidthMap } from '@render/components/Editor/v2/types';
 
-import { byIndex, isCellInRange } from './tableHelpers';
+import { byIndex } from './tableHelpers';
 import { useTableEvents } from './useTableEvents';
 import TableToolbar, { type TableAction } from '../toolbar/TableToolbar';
 
@@ -23,24 +23,38 @@ interface TableBlockProps {
 }
 
 const TableBlock: React.FC<TableBlockProps> = ({ block, handlers, blockWidthMap }) => {
-  // 选区变化回调：触发 React 重渲染
-  const [selVersion, setSelVersion] = useState(0);
-  const onSelectionChange = useCallback(() => setSelVersion((v) => v + 1), []);
+  // 选区变化回调：仅通知工具栏更新位置（不触发 React 重渲染，高亮走 DOM 直操作）
+  const onSelectionChange = useCallback(() => {}, []);
 
   const {
     matrix, colCount, rowCount,
     pendingCellRef,
     cellEvents, commitMatrix, focusCell,
-    selectionRef,
   } = useTableEvents(block, handlers, onSelectionChange);
 
   void blockWidthMap;
-  void selVersion; // 实际通过 onSelectionChange 触发重渲染
 
   // 表格工具栏状态
   const [toolbarVisible, setToolbarVisible] = useState(false);
   const [activeCell, setActiveCell] = useState<{ row: number; col: number }>({ row: -1, col: 0 });
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const [anchorRect, setAnchorRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+
+  // 滚动时更新 anchorRect，使工具栏跟随表格
+  useEffect(() => {
+    if (!toolbarVisible) return;
+    const container = wrapperRef.current?.closest('.editor-scroll-container');
+    if (!container) return;
+    const handleScroll = () => {
+      if (wrapperRef.current) {
+        setAnchorRect(wrapperRef.current.getBoundingClientRect());
+      }
+    };
+    container.addEventListener('scroll', handleScroll, true);
+    return () => {
+      container.removeEventListener('scroll', handleScroll, true);
+    };
+  }, [toolbarVisible]);
 
   // 焦点恢复：增删行列后重建 DOM，按 cellkey 定位恢复
   React.useLayoutEffect(() => {
@@ -61,6 +75,10 @@ const TableBlock: React.FC<TableBlockProps> = ({ block, handlers, blockWidthMap 
         const [r, c] = key.split(':').map(Number);
         setActiveCell({ row: r, col: c });
       }
+    }
+    // 设置锚定位置
+    if (wrapperRef.current) {
+      setAnchorRect(wrapperRef.current.getBoundingClientRect());
     }
     setToolbarVisible(true);
   }, []);
@@ -167,20 +185,16 @@ const TableBlock: React.FC<TableBlockProps> = ({ block, handlers, blockWidthMap 
 
   // 当前列对齐
   const currentAlign: ColumnAlign = matrix.alignments[activeCell.col] ?? 'left';
-  // 当前选区（读 ref 以获取最新值，selVersion 保证重渲染时更新）
-  const sel = selectionRef.current;
-  void selVersion; // 消除 unused 警告，实际通过 layoutEffect 同步
 
   const headerCells = matrix.header.map((cell, col) => {
     const key = byIndex(-1, col);
     const align = matrix.alignments[col] ?? 'left';
-    const inSel = sel && isCellInRange({ row: -1, col }, sel);
     return (
       <th
         key={key}
         data-cellkey={key}
         {...cellEvents({ row: -1, col }, () => {})}
-        className={`table-cell${inSel ? ' table-cell-selected' : ''}`}
+        className="table-cell"
         style={{ textAlign: align }}
       >
         {cell}
@@ -193,13 +207,12 @@ const TableBlock: React.FC<TableBlockProps> = ({ block, handlers, blockWidthMap 
       {rowCells.map((cell, col) => {
         const key = byIndex(row, col);
         const align = matrix.alignments[col] ?? 'left';
-        const inSel = sel && isCellInRange({ row, col }, sel);
         return (
           <td
             key={key}
             data-cellkey={key}
             {...cellEvents({ row, col }, () => {})}
-            className={`table-cell${inSel ? ' table-cell-selected' : ''}`}
+            className="table-cell"
             style={{ textAlign: align }}
           >
             {cell}
@@ -229,7 +242,7 @@ const TableBlock: React.FC<TableBlockProps> = ({ block, handlers, blockWidthMap 
         alignment={currentAlign}
         rowCount={rowCount}
         colCount={colCount}
-        anchorRect={wrapperRef.current?.getBoundingClientRect() ?? null}
+        anchorRect={anchorRect}
         onAction={handleAction}
         onClose={() => setToolbarVisible(false)}
       />

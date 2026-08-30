@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  clearInlineCache,
   findIntersectingStyleToken,
   findIntersectingStyleTokens,
   normalizeHref,
@@ -581,6 +582,61 @@ describe('inlineLexer — safeUrl 裸域名放行（editor-link-image-fix B1）'
     expect(safeUrl('/p')).toBe('/p');
     expect(safeUrl(String.raw`\\server\share\x`)).toBe(String.raw`\\server\share\x`);
     expect(safeUrl(String.raw`C:\a.png`)).toBe(String.raw`C:\a.png`);
+  });
+});
+
+describe('inlineLexer — LRU 缓存', () => {
+  beforeEach(() => {
+    clearInlineCache();
+  });
+
+  it('相同参数二次调用返回相同结果（缓存命中）', () => {
+    const text = '**bold** and *italic*';
+    const first = tokenizeInline(text);
+    const second = tokenizeInline(text);
+    expect(second).toEqual(first);
+    // 同一引用（缓存直接返回）
+    expect(second).toBe(first);
+  });
+
+  it('不同 text 参数产生不同结果', () => {
+    const a = tokenizeInline('**a**');
+    const b = tokenizeInline('**b**');
+    expect(a[0].contentStart).toBe(2);
+    expect(b[0].contentStart).toBe(2);
+    expect(a).not.toBe(b);
+  });
+
+  it('不同 start/end 区间产生不同缓存条目', () => {
+    const text = 'xx**bold**yy';
+    const full = tokenizeInline(text, 0, text.length);
+    const sub = tokenizeInline(text, 2, 10);
+    expect(full).toHaveLength(1);
+    expect(sub).toHaveLength(1);
+    expect(full).not.toBe(sub);
+  });
+
+  it('clearInlineCache 清除后重新计算', () => {
+    const text = '**test**';
+    const first = tokenizeInline(text);
+    clearInlineCache();
+    const second = tokenizeInline(text);
+    expect(second).toEqual(first);
+    // 清除后不是同一引用
+    expect(second).not.toBe(first);
+  });
+
+  it('缓存容量溢出时淘汰最旧条目', () => {
+    // 填满 256 条
+    for (let i = 0; i < 256; i++) {
+      tokenizeInline(`**item-${i}**`);
+    }
+    // 再加一条触发淘汰
+    tokenizeInline('**overflow**');
+    // 第一条（item-0）应被淘汰，重新计算
+    const result = tokenizeInline('**item-0**');
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe('strong');
   });
 });
 

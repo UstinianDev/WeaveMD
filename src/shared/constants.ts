@@ -41,6 +41,7 @@ export const IPC_CHANNELS = {
   FILE_WRITE: 'file:write',
   FILE_DELETE_DISK: 'file:delete-disk',
   FILE_READ: 'file:read',
+  FILE_RENAME: 'file:rename',
 
   // History
   HISTORY_LIST: 'history:list',

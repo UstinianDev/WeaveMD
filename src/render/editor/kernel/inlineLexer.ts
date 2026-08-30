@@ -522,12 +522,33 @@ export function isBoundedWrap(text: string, open: string, close: string): boolea
   return true;
 }
 
+// ---- LRU 缓存（模块级，利用 Map 插入顺序实现淘汰） ----
+const TOKEN_CACHE_MAX = 256;
+const tokenCache = new Map<string, InlineToken[]>();
+
+/** 清除 tokenizeInline 的 LRU 缓存（文本变化时由调用方负责调用） */
+export function clearInlineCache(): void {
+  tokenCache.clear();
+}
+
 /**
  * 对 text 的 [start, end) 区间做行内 token 识别。
  * 返回该区间内所有已识别的结构化 token（绝对偏移），未覆盖字符为普通文本。
  * 嵌套内容（link 标签 / del / mark / strong / em 内文）经 children 递归。
+ *
+ * 内部维护 256 条 LRU 缓存，同一 (text, start, end) 组合在一次编辑周期内只解析一次。
  */
 export function tokenizeInline(text: string, start = 0, end = text.length): InlineToken[] {
+  const cacheKey = `${text}\x00${start}\x00${end}`;
+
+  const cached = tokenCache.get(cacheKey);
+  if (cached) {
+    // LRU：移到末尾（最新）
+    tokenCache.delete(cacheKey);
+    tokenCache.set(cacheKey, cached);
+    return cached;
+  }
+
   const tokens: InlineToken[] = [];
   let i = start;
   while (i < end) {
@@ -550,6 +571,14 @@ export function tokenizeInline(text: string, start = 0, end = text.length): Inli
       i++;
     }
   }
+
+  // 存入缓存；超容量时淘汰最旧条目
+  tokenCache.set(cacheKey, tokens);
+  if (tokenCache.size > TOKEN_CACHE_MAX) {
+    const oldest = tokenCache.keys().next().value;
+    if (oldest !== undefined) tokenCache.delete(oldest);
+  }
+
   return tokens;
 }
 

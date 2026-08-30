@@ -8,10 +8,13 @@
 // style.color === 'var(--accent)'），重构时不得改为纯 CSS 类。
 
 import React from 'react';
+import Icon from '../../../Common/Icon';
 
 export interface ToolbarButtonProps {
   title: string;
   label: string;
+  /** Iconify 图标名称（可选，优先于 label 显示） */
+  icon?: string;
   className?: string;
   active?: boolean;
   disabled?: boolean;
@@ -22,6 +25,7 @@ export interface ToolbarButtonProps {
 function ToolbarButton({
   title,
   label,
+  icon,
   className,
   active = false,
   disabled = false,
@@ -55,9 +59,9 @@ function ToolbarButton({
         e.currentTarget.style.backgroundColor = active ? 'var(--bg-tertiary)' : 'transparent';
       }}
     >
-      {label}
+      {icon ? <Icon icon={icon} size={16} /> : label}
     </button>
   );
 }
 
-export default ToolbarButton;
+export default React.memo(ToolbarButton);

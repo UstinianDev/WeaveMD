@@ -66,6 +66,7 @@ export interface WeaveMDApi {
     write: (filePath: string, content: string) => Promise<unknown>;
     deleteDisk: (filePath: string) => Promise<unknown>;
     readDisk: (filePath: string) => Promise<unknown>;
+    rename: (oldPath: string, newName: string) => Promise<unknown>;
   };
   history: {
     list: (fileId: string) => Promise<unknown>;
@@ -304,6 +305,7 @@ const api: WeaveMDApi = {
       ipcRenderer.invoke(IPC_CHANNELS.FILE_WRITE, { filePath, content }),
     deleteDisk: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.FILE_DELETE_DISK, filePath),
     readDisk: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.FILE_READ, filePath),
+    rename: (oldPath, newName) => ipcRenderer.invoke(IPC_CHANNELS.FILE_RENAME, { oldPath, newName }),
   },
   history: {
     list: (fileId) => ipcRenderer.invoke(IPC_CHANNELS.HISTORY_LIST, fileId),

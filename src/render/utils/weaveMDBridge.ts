@@ -473,6 +473,8 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
       createSuccessResult(undefined, 'Browser bridge: deleteDisk not available'),
     readDisk: async (_filePath) =>
       createSuccessResult(undefined, 'Browser bridge: readDisk not available'),
+    rename: async (_oldPath, _newName) =>
+      createSuccessResult(undefined, 'Browser bridge: rename not available'),
   },
   history: {
     list: async (fileId) => {

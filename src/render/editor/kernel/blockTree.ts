@@ -445,6 +445,62 @@ export function removeBlock(tree: BlockTreeV2, id: string): BlockTreeV2 {
   return nextTree;
 }
 
+/**
+ * 批量移除多个块及其子树（一次 cloneTree，O(N) 总量）。
+ * ids 中不存在或无父的块会被跳过。
+ */
+export function batchRemoveBlocks(tree: BlockTreeV2, ids: string[]): BlockTreeV2 {
+  if (ids.length === 0) return tree;
+
+  // 预检：至少有一个有效目标
+  const validIds = ids.filter((id) => {
+    const b = tree.blocks[id];
+    return b && b.parentId;
+  });
+  if (validIds.length === 0) return tree;
+
+  const nextTree = cloneTree(tree);
+  const removeSet = new Set(validIds);
+
+  // 收集所有需删除的 ID（目标块 + 其子树）
+  const allRemoveIds = new Set<string>();
+  for (const id of validIds) {
+    const target = nextTree.blocks[id];
+    if (!target) continue;
+    const collect = (node: BlockNodeV2) => {
+      allRemoveIds.add(node.id);
+      for (const childId of node.childrenIds) {
+        const child = nextTree.blocks[childId];
+        if (child) collect(child);
+      }
+    };
+    collect(target);
+  }
+
+  // 对每个目标块执行摘除（兄弟链 + 父 childrenIds）
+  for (const id of validIds) {
+    const target = nextTree.blocks[id];
+    if (!target) continue;
+    const parent = target.parentId ? nextTree.blocks[target.parentId] : undefined;
+    if (!parent) continue;
+
+    // 兄弟链：跳过已被标记删除的兄弟
+    if (target.prevId && nextTree.blocks[target.prevId] && !removeSet.has(target.prevId)) {
+      nextTree.blocks[target.prevId].nextId = target.nextId;
+    }
+    if (target.nextId && nextTree.blocks[target.nextId] && !removeSet.has(target.nextId)) {
+      nextTree.blocks[target.nextId].prevId = target.prevId;
+    }
+    parent.childrenIds = parent.childrenIds.filter((cid) => cid !== id);
+  }
+
+  // 批量删除
+  for (const removeId of allRemoveIds) {
+    delete nextTree.blocks[removeId];
+  }
+  return nextTree;
+}
+
 /** 用新节点替换 id 块（保留位置与父子关系） */
 export function replaceBlock(tree: BlockTreeV2, id: string, node: BlockNodeV2): BlockTreeV2 {
   const block = tree.blocks[id];
@@ -522,9 +578,11 @@ export function changeBlockType(
   const block = tree.blocks[id];
   if (!block || block.type === type) return tree;
   if (block.text === null || !isLeafBlockType(type)) return tree;
-  const nextTree = cloneTree(tree);
-  nextTree.blocks[id] = { ...nextTree.blocks[id], type, inlineHtml: null };
-  return nextTree;
+  const updated: BlockNodeV2 = { ...block, type, inlineHtml: null };
+  return {
+    ...tree,
+    blocks: { ...tree.blocks, [id]: updated },
+  };
 }
 
 /** 更新块元数据 */
@@ -535,10 +593,13 @@ export function updateMeta(
 ): BlockTreeV2 {
   const block = tree.blocks[id];
   if (!block) return tree;
-  const nextTree = cloneTree(tree);
-  nextTree.blocks[id] = {
-    ...nextTree.blocks[id],
-    meta: { ...(nextTree.blocks[id].meta ?? {}), ...patch },
+  const updated: BlockNodeV2 = {
+    ...block,
+    meta: { ...(block.meta ?? {}), ...patch },
+  };
+  const nextTree: BlockTreeV2 = {
+    ...tree,
+    blocks: { ...tree.blocks, [id]: updated },
   };
   // 代码块语言变更会改变高亮渲染：重算行内缓存（R2 语言切换刷新）
   if (block.type === 'code-block' && 'fenceLanguage' in patch) {
@@ -590,18 +651,27 @@ export function mergeLeafIntoPrev(tree: BlockTreeV2, leafId: string): BlockTreeV
   return nextTree;
 }
 
-/** 清理空容器（列表项/列表/引用），自底向上移除 */
+/** 清理空容器（列表项/列表/引用），自底向上批量移除 */
 export function removeEmptyContainers(tree: BlockTreeV2): BlockTreeV2 {
+  const containerTypes = new Set([
+    'list-item',
+    'bullet-list',
+    'ordered-list',
+    'task-list',
+    'blockquote',
+  ]);
+
+  // 自底向上迭代：每轮收集空容器 → 一次批量删除 → 重复直到无新空容器
   let nextTree = tree;
-  const containers = getAllBlocksInOrder(nextTree).filter((b) =>
-    ['list-item', 'bullet-list', 'ordered-list', 'task-list', 'blockquote'].includes(b.type)
-  );
-  for (const container of [...containers].reverse()) {
-    const current = nextTree.blocks[container.id];
-    if (!current) continue;
-    if (current.childrenIds.length === 0) {
-      nextTree = removeBlock(nextTree, current.id);
+  for (;;) {
+    const emptyIds: string[] = [];
+    for (const b of getAllBlocksInOrder(nextTree)) {
+      if (containerTypes.has(b.type) && b.childrenIds.length === 0) {
+        emptyIds.push(b.id);
+      }
     }
+    if (emptyIds.length === 0) break;
+    nextTree = batchRemoveBlocks(nextTree, emptyIds);
   }
   return nextTree;
 }
@@ -630,22 +700,21 @@ export function deleteLeafRange(
     return { tree: nextTree, focusBlockId: startLeafId, focusOffset: s };
   }
 
+  // setBlockText 是精准拷贝 O(1)，两次调用后树结构仍是原始树的轻量副本
   let nextTree = tree;
   nextTree = setBlockText(nextTree, startLeafId, (start.text ?? '').slice(0, startOffset));
   nextTree = renderBlock(nextTree, startLeafId);
   nextTree = setBlockText(nextTree, endLeafId, (end.text ?? '').slice(endOffset));
   nextTree = renderBlock(nextTree, endLeafId);
 
-  // 中间叶子整块删除（在未删除的树上收集，再统一移除）
+  // 中间叶子整块删除：收集后一次 batchRemoveBlocks（单次 cloneTree O(N)）
   const toRemove: string[] = [];
   let leaf = getNextLeaf(nextTree, startLeafId);
   while (leaf && leaf.id !== endLeafId) {
     toRemove.push(leaf.id);
     leaf = getNextLeaf(nextTree, leaf.id);
   }
-  for (const id of toRemove) {
-    nextTree = removeBlock(nextTree, id);
-  }
+  nextTree = batchRemoveBlocks(nextTree, toRemove);
   nextTree = removeEmptyContainers(nextTree);
   return { tree: nextTree, focusBlockId: startLeafId, focusOffset: startOffset };
 }

@@ -196,12 +196,14 @@ const ImageToolbar: React.FC<ImageToolbarProps> = ({
           testId="image-toolbar-edit"
           title="修改图片"
           label="修改图片"
+          icon="image-edit"
           onClick={handleEditImage}
         />
         <ToolbarButton
           testId="image-toolbar-inline"
           title="内联图片"
           label="内联图片"
+          icon="image-inline"
           disabled={!imageSelection.standalone}
           onClick={handleMakeInline}
         />
@@ -210,6 +212,7 @@ const ImageToolbar: React.FC<ImageToolbarProps> = ({
           testId="image-toolbar-align-left"
           title="居左"
           label="居左"
+          icon="align-left"
           disabled={!imageSelection.standalone}
           active={imageSelection.align === 'left'}
           onClick={() => handleAlignImage('left')}
@@ -218,6 +221,7 @@ const ImageToolbar: React.FC<ImageToolbarProps> = ({
           testId="image-toolbar-align-center"
           title="居中"
           label="居中"
+          icon="align-center"
           disabled={!imageSelection.standalone}
           active={imageSelection.align === 'center'}
           onClick={() => handleAlignImage('center')}
@@ -226,6 +230,7 @@ const ImageToolbar: React.FC<ImageToolbarProps> = ({
           testId="image-toolbar-align-right"
           title="居右"
           label="居右"
+          icon="align-right"
           disabled={!imageSelection.standalone}
           active={imageSelection.align === 'right'}
           onClick={() => handleAlignImage('right')}
@@ -235,6 +240,7 @@ const ImageToolbar: React.FC<ImageToolbarProps> = ({
           testId="image-toolbar-remove"
           title="移除图片"
           label="移除图片"
+          icon="image-remove"
           onClick={handleRemoveImage}
         />
       </div>

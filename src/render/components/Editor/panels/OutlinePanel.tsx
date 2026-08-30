@@ -1,15 +1,25 @@
 // ============================================
 // WeaveMD — Document Outline Panel (Tab Container)
 // ============================================
+// 重构：Tab Header 替换为 SidebarToolbar（含搜索、导入、导出、新建），
+// 搜索框在工具栏下方展开，FileTreePanel 支持搜索过滤。
 
-import React, { useMemo, useState } from 'react';
-import { useI18n } from '@render/i18n';
+import React, { useCallback, useMemo, useState } from 'react';
 import type { OutlineItem } from '@render/services/markdown';
 import { extractOutline } from '@render/services/markdown';
 import { useEditorStore } from '@render/stores/editorStore';
 import { useFileTreeStore } from '@render/stores/fileTreeStore';
 import { useUIStore } from '@render/stores/uiStore';
+import { useNavbarActions } from '@render/hooks/useNavbarActions';
 import FileTreePanel from './FileTreePanel';
+import SidebarToolbar from './SidebarToolbar';
+import FileSearchBar from './FileSearchBar';
+import ImportMarkdownModal from './ImportMarkdownModal';
+import CreatePanel from '@render/components/Navbar/CreatePanel';
+import type { IFile } from '@shared/types';
+import { createDiskFile } from '@render/services/fileOps';
+import { useAuthStore } from '@render/stores/authStore';
+import { useRecentStore } from '@render/stores/recentStore';
 
 const INDENT_CLASSES = ['ml-0', 'ml-4', 'ml-8'] as const;
 const FONT_CLASSES = [
@@ -110,12 +120,22 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
   onNavigateToHeading,
   activeHeadingIndex = null,
 }) => {
-  const { t } = useI18n();
   const content = useEditorStore((s) => s.content);
   const isOutlinePanelCollapsed = useUIStore((s) => s.isOutlinePanelCollapsed);
   const toggleOutlinePanel = useUIStore((s) => s.toggleOutlinePanel);
   const isEditorCollapsed = useUIStore((s) => s.isEditorCollapsed);
   const activeTab = useFileTreeStore((s) => s.activeTab);
+  const addFile = useFileTreeStore((s) => s.addFile);
+  const loadFolderContents = useFileTreeStore((s) => s.loadFolderContents);
+  const setActiveTab = useFileTreeStore((s) => s.setActiveTab);
+  const openFile = useEditorStore((s) => s.openFile);
+  const authUser = useAuthStore((s) => s.user);
+  const { handleExport } = useNavbarActions();
+
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [importOpen, setImportOpen] = useState(false);
+  const [createPanelType, setCreatePanelType] = useState<'file' | 'folder' | null>(null);
 
   const outline = useMemo(() => {
     if (!content) return [];
@@ -126,6 +146,69 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
 
   // 编辑区收起时，大纲 tab 无意义（无文档内容），强制切到文件 tab
   const effectiveTab = isEditorCollapsed ? 'files' : activeTab;
+
+  // 工具栏回调
+  const handleToggleSearch = useCallback(() => {
+    setSearchOpen((prev) => {
+      if (prev) setSearchQuery('');
+      return !prev;
+    });
+  }, []);
+
+  const handleNewFile = useCallback(() => {
+    setCreatePanelType('file');
+  }, []);
+
+  const handleNewFolder = useCallback(() => {
+    setCreatePanelType('folder');
+  }, []);
+
+  const handleCreateConfirm = useCallback(
+    async (name: string, parentPath: string) => {
+      if (!authUser) return;
+      try {
+        if (createPanelType === 'file') {
+          const filePath = parentPath
+            ? `${parentPath.replace(/[/\\]$/, '')}/${name}`
+            : name;
+          const finalPath = filePath.endsWith('.md') ? filePath : `${filePath}.md`;
+          await window.weaveMD.file.write(finalPath, '');
+          const readResult = (await window.weaveMD.file.readDisk(finalPath)) as {
+            success: boolean;
+            data?: { path: string; name: string; content: string };
+          };
+          if (readResult.success && readResult.data) {
+            const file: IFile = createDiskFile(authUser, readResult.data);
+            openFile(file);
+            useRecentStore.getState().touchRecent({
+              id: file.id,
+              path: readResult.data.path,
+              name: readResult.data.name,
+            });
+            addFile({
+              id: readResult.data.path,
+              name: readResult.data.name,
+              path: readResult.data.path,
+              content: '',
+            });
+          }
+        } else {
+          const folderPath = parentPath
+            ? `${parentPath.replace(/[/\\]$/, '')}/${name}`
+            : name;
+          await window.weaveMD.folder.createFolder(folderPath, '');
+          const normalizedPath = folderPath.replace(/\\/g, '/');
+          loadFolderContents(normalizedPath);
+          setActiveTab('files');
+        }
+      } catch {
+        // error
+      } finally {
+        setCreatePanelType(null);
+      }
+    },
+    [authUser, createPanelType, openFile, addFile, loadFolderContents, setActiveTab]
+  );
 
   if (isOutlinePanelCollapsed) {
     return (
@@ -152,49 +235,28 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
 
   return (
     <aside className="bg-bg-secondary border-r border-border flex flex-col h-full w-full">
-      {/* Tab Header */}
-      <div
-        className="flex items-center border-b px-3 py-2 gap-1"
-        style={{ borderColor: 'var(--border-color)' }}
-      >
-        <button
-          onClick={() => {
-            if (!isEditorCollapsed) useFileTreeStore.getState().setActiveTab('outline');
+      {/* 工具栏 */}
+      <SidebarToolbar
+        isEditorCollapsed={isEditorCollapsed}
+        searchOpen={searchOpen}
+        onToggleSearch={handleToggleSearch}
+        onImport={() => setImportOpen(true)}
+        onExport={handleExport}
+        onNewFile={handleNewFile}
+        onNewFolder={handleNewFolder}
+      />
+
+      {/* 搜索框 */}
+      {searchOpen && (
+        <FileSearchBar
+          value={searchQuery}
+          onChange={setSearchQuery}
+          onClose={() => {
+            setSearchOpen(false);
+            setSearchQuery('');
           }}
-          disabled={isEditorCollapsed}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded text-sm transition-colors ${
-            isEditorCollapsed
-              ? 'opacity-40 cursor-not-allowed text-text-muted'
-              : effectiveTab === 'outline'
-                ? 'bg-accent/20 text-text-primary'
-                : 'text-text-muted hover:text-text-primary'
-          }`}
-        >
-          <span>📑</span>
-          <span>{t('sidebar.outline')}</span>
-        </button>
-        <button
-          onClick={() => useFileTreeStore.getState().setActiveTab('files')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded text-sm transition-colors ${
-            effectiveTab === 'files'
-              ? 'bg-accent/20 text-text-primary'
-              : 'text-text-muted hover:text-text-primary'
-          }`}
-        >
-          <span>📁</span>
-          <span>{t('sidebar.files')}</span>
-        </button>
-        {/* 收起侧栏按钮 */}
-        <button
-          onClick={toggleOutlinePanel}
-          className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
-          title={t('sidebar.collapse', '收起侧栏')}
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-        </button>
-      </div>
+        />
+      )}
 
       {/* Tab Content */}
       {effectiveTab === 'outline' ? (
@@ -225,7 +287,19 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
           </div>
         </>
       ) : (
-        <FileTreePanel />
+        <FileTreePanel searchQuery={searchQuery} />
+      )}
+
+      {/* 导入模态框 */}
+      {importOpen && <ImportMarkdownModal onClose={() => setImportOpen(false)} />}
+
+      {/* 新建文件/文件夹面板 */}
+      {createPanelType && (
+        <CreatePanel
+          type={createPanelType}
+          onClose={() => setCreatePanelType(null)}
+          onConfirm={(name, parentPath) => void handleCreateConfirm(name, parentPath)}
+        />
       )}
     </aside>
   );

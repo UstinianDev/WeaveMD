@@ -1,19 +1,21 @@
 # AI 代理面板 (Agent) 功能总结
 
-> 模块编号：11 | 优先级：P1 | 最后更新：2026-08-27 | 状态：**第 1~7 期均已交付；后端收敛 remote-only；Notus Agent 克隆完成（21 项功能）；写控制与任务安全模块 R1~R7；知识库 Notus 对齐 R1~R12；真 MCP / GitHub 继续延**
+> 模块编号：11 | 优先级：P1 | 最后更新：2026-08-29 | 状态：**第 1~7 期均已交付；后端收敛 remote-only；Notus Agent 克隆完成（21 项功能）；写控制与任务安全模块 R1~R7；知识库 Notus 对齐 R1~R12；AI 性能优化 v2；UI 美化完成；真 MCP / GitHub 继续延**
 > 需求编号：AGT-01~19 / KB-01~05（docs/REQUIREMENTS.md 3.7 / 3.8）
 > 交付记录：第1期基建 + 第2期 Chat 闭环（2026-08-14）、第3期知识库 + 第4期 Agent 能力
 > （2026-08-15）；远程 DeepSeek 后端已真连验证通过；
 > 历史曾试点本地 ollama qwen3.5:0.8b（实测故障：无限思考不产 content），2026-08-16 已彻底去除 ollama、收敛 remote-only
+> Chat 模式已删除（2026-08-23），仅保留 Agent 模式
 
 ## 1. 功能概述
 
-右侧 AI 面板（顶部导航栏「AI」按钮开合），Chat / Agent 双智能体：
+右侧 AI 面板（顶部导航栏「AI」按钮开合），**仅 Agent 模式**（Chat 模式已删除）：
 
-- **Chat**：纯对话——无工具、无知识库、无 @ 文件、无块改写、无意图路由
-- **Agent**：辅助创作（第3+4期已交付）——内置 4 只读工具（listFiles/readFile/searchKB/runSkill）+ **editBlocks（第 6 期 stretch，仅产 proposal 不落盘）** + 3 内置 skills + 用户扩展 + 可选「依照知识库创作」+ 意图识别/提问卡片/上下文压缩/工具调用轨迹 +
+- **Agent**：辅助创作——内置 4 只读工具（listFiles/readFile/searchKB/runSkill）+ **editBlocks（第 6 期 stretch，仅产 proposal 不落盘）** + 3 内置 skills + 用户扩展 + 可选「依照知识库创作」+ 意图识别/提问卡片/上下文压缩/工具调用轨迹 +
   知识库召回（仅 FTS5，后端收敛后无向量/双路）与出处；⚠️ MCP（context7/firecrawl）为**第 6 期延期未交付**
 - **块级改写**（第5期已交付）：编辑器选区触发（FloatingToolbar「AI 改写」→ AI 面板 composer 描述 → 红删绿增预览 → 确认 `updateContent` 一次可撤销）+ 面板 @ 兜底；定向块编辑协议（内部 `EditBlockOp[]`，面板 @ 走编号块 `[{block_index,new_content}]`，定位失败拒应用）；主进程只产 LLM 文本（薄代理），块级替换在渲染侧，**AI 无直接落盘**（写仅确认后）
+- **Composer 标签**（2026-08-29）：`/skill` 和 `@doc` 在输入框内部显示（overlay 方案），支持删除按钮和悬停下划线
+- **浮动工具栏图标**（2026-08-29）：使用 Material Design Icons 替代文字字符（12个图标）
 
 两条铁律：**① AI 无直接落盘能力**，写路径必经「红删绿增预览 → 用户确认」；**② 联网/笔记外发必须用户知情同意**。
 

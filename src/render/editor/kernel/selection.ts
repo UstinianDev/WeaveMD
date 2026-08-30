@@ -7,6 +7,7 @@
 // （deleteSelectionContent），光标落入 `.md-syntax` 标记内时吸附内容边界。
 
 import { tokenizeInline } from './inlineLexer';
+import type { InlineToken } from './inlineLexer';
 
 export interface CursorOffsets {
   start: number;
@@ -164,17 +165,20 @@ export function getCrossBlockSelection(): {
  * 将对应边界吸附到内容区边界，使后续删除/格式化只作用于纯内容。
  * 无需要吸附时返回 null。
  * 例：`**加粗**` 选区 [3,6)（覆盖 close 标记 `**`）→ [3,5)（纯内容 `粗`）。
+ *
+ * 可选 `tokens` 参数：外部已 tokenizeInline(text) 时传入，避免重复计算。
  */
 export function snapSelectionToContent(
   text: string,
   start: number,
-  end: number
+  end: number,
+  tokens?: InlineToken[]
 ): [number, number] | null {
   if (start >= end) return null;
   let ns = start;
   let ne = end;
-  const tokens = tokenizeInline(text);
-  for (const t of tokens) {
+  const toks = tokens ?? tokenizeInline(text);
+  for (const t of toks) {
     if (t.openLen === 0 || t.closeLen === 0) continue;
     if (ns < t.contentStart && t.start < ne) ns = t.contentStart;
     if (ne > t.contentEnd && t.end > ns) ne = t.contentEnd;
@@ -197,10 +201,12 @@ export function deleteSelectionContent(
   const s = Math.max(0, Math.min(start, end));
   const e = Math.max(0, Math.max(start, end));
   if (s === e) return null;
-  const snap = snapSelectionToContent(text, s, e);
+  // 入口 tokenize 一次，传给 snapSelectionToContent 避免重复计算
+  const tokens = tokenizeInline(text);
+  const snap = snapSelectionToContent(text, s, e, tokens);
   const ns = snap?.[0] ?? s;
   const ne = snap?.[1] ?? e;
-  const whole = tokenizeInline(text).find(
+  const whole = tokens.find(
     (t) => t.openLen > 0 && t.closeLen > 0 && t.contentStart === ns && t.contentEnd === ne
   );
   if (whole) {

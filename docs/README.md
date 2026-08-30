@@ -13,8 +13,9 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用。核心定�
 | 状态管理 | Zustand v4 |
 | 数据存储 | SQLite（better-sqlite3 ^11，FTS5 全文检索） |
 | 编辑器 | 自研块树内核（v2，照搬 marktext/muya 架构）+ Monaco（Source 模式） |
-| AI | 远程 OpenAI 兼容 API + jieba-wasm 分词 + sqlite-vec 向量检索 |
+| AI | 远程 OpenAI 兼容 API（remote-only）+ jieba-wasm 分词 + FTS5 关键词召回 |
 | 测试 | Vitest + Playwright（真实 Chromium E2E） |
+| 图标 | react-icons/md（Material Design Icons） |
 
 ## 目录结构
 
@@ -70,6 +71,18 @@ npm run build
 - [SUMMARY](./SUMMARY.md) — 文档索引
 - [REQUIREMENTS](./REQUIREMENTS.md) — 功能需求文档
 - [TODO](./TODO.md) — 功能进度与已知问题
-- [modules/](./modules/) — 各模块详细文档
-- [specs/](./specs/) — 编辑主区 v2 规格与实施记录
-- [testing/](./testing/) — TDD 测试报告
+- [modules/](./modules/) — 各模块详细文档（11 个模块）
+- [specs/](./specs/) — 编辑主区 v2 规格与实施记录（12 个规格文档）
+- [testing/](./testing/) — TDD 测试报告（6 个测试报告）
+- [plan/](./plan/) — Devflow 实施计划与状态记录（10 个文档）
+- [requirements/](./requirements/) — Devflow 需求文档（4 个文档）
+
+### 查阅规则（渐进式披露）
+
+- 项目是什么、怎么跑 → README.md
+- 功能需求、验收标准 → REQUIREMENTS.md
+- 功能进度、已知问题 → TODO.md
+- 模块实现细节、架构 → docs/modules/{模块名}.md
+- 编辑主区规格、设计决策 → docs/specs/
+- 测试覆盖、验证证据 → docs/testing/
+- 实施计划、变更清单 → docs/plan/

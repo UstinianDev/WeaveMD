@@ -1,6 +1,25 @@
 # TODO
 
+> 最后更新：2026-08-29
+
 ## 已完成
+
+### UI 美化（2026-08-29）
+
+- ✅ 字体统一：代码块使用 `Consolas + 阿里巴巴普惠体 B`，编辑主区保持 `Consolas + 阿里巴巴普惠体`
+- ✅ 工具栏毛玻璃效果：浮动工具栏、表格工具栏、图片工具栏均使用 `backdrop-filter` 毛玻璃
+- ✅ 按钮悬停动效：工具栏按钮悬停 `translateY(-1px)` + `box-shadow` 发光
+- ✅ Composer 标签：`/skill` 和 `@doc` 在输入框内部显示（overlay 方案）
+- ✅ 浮动工具栏图标：使用 Material Design Icons 替代文字字符（12个图标）
+
+**门禁**：tsc 0 新增 | vitest 1505/1505 | vite build ok
+
+### AI 模块性能优化 v2（2026-08-29）
+
+- ✅ 前端 4 组件 memo（AIMessageBubble、StepCard、ToolCallRow、ToolCallTrace）
+- ✅ 后端 5 项 DB 查询优化（agentEventStore persistAndSend seq参数、touchConversation 延迟更新、getMessagesByConversation SELECT 精简、appendMessage 去除 SELECT 回读、AgentContext 缓存 summary）
+
+**门禁**：tsc 0 新增 | vitest 1499/1499 | lint 0 新增 error
 
 ### 知识库 Notus 对齐（2026-08-25 ~ 2026-08-27，R1~R12 全部交付）
 

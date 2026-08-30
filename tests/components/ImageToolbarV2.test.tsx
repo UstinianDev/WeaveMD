@@ -105,13 +105,13 @@ describe('FloatingToolbar — K4 图片工具栏', () => {
 
     const toolbar = container.querySelector('[data-testid="image-toolbar"]');
     expect(toolbar).not.toBeNull();
-    // 6 个按钮中文文案
-    expect(getBtn(container, 'image-toolbar-edit').textContent).toBe('修改图片');
-    expect(getBtn(container, 'image-toolbar-inline').textContent).toBe('内联图片');
-    expect(getBtn(container, 'image-toolbar-align-left').textContent).toBe('居左');
-    expect(getBtn(container, 'image-toolbar-align-center').textContent).toBe('居中');
-    expect(getBtn(container, 'image-toolbar-align-right').textContent).toBe('居右');
-    expect(getBtn(container, 'image-toolbar-remove').textContent).toBe('移除图片');
+    // 6 个按钮中文文案（title 属性）
+    expect(getBtn(container, 'image-toolbar-edit').title).toBe('修改图片');
+    expect(getBtn(container, 'image-toolbar-inline').title).toBe('内联图片');
+    expect(getBtn(container, 'image-toolbar-align-left').title).toBe('居左');
+    expect(getBtn(container, 'image-toolbar-align-center').title).toBe('居中');
+    expect(getBtn(container, 'image-toolbar-align-right').title).toBe('居右');
+    expect(getBtn(container, 'image-toolbar-remove').title).toBe('移除图片');
     // 文本工具栏（块下拉 / 加粗等）不出现
     expect(container.querySelector('.block-type-trigger')).toBeNull();
     expect(container.querySelector('button[title="加粗"]')).toBeNull();

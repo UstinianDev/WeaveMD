@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   appendChild,
+  batchRemoveBlocks,
   changeBlockType,
   createDocumentTree,
   deleteLeafRange,
@@ -377,5 +378,71 @@ describe('blockTree — changeBlockType（K3：块类型转换）', () => {
   it('不存在的块 id → 原样返回', () => {
     const tree = createDocumentTree();
     expect(changeBlockType(tree, 'nope', 'paragraph')).toBe(tree);
+  });
+});
+
+describe('blockTree — 精准拷贝引用稳定性', () => {
+  it('changeBlockType 后未修改块的引用不变', () => {
+    let tree = createDocumentTree();
+    const p1 = makeParagraph(tree, 'a');
+    const p2 = makeParagraph(tree, 'b');
+    const h = makeHeading(tree, 2, 'h');
+    tree = appendChild(tree, tree.root.id, p1);
+    tree = appendChild(tree, tree.root.id, h);
+    tree = appendChild(tree, tree.root.id, p2);
+
+    const rootBefore = tree.root;
+    const p1Before = tree.blocks[p1.id];
+    const p2Before = tree.blocks[p2.id];
+
+    const newTree = changeBlockType(tree, h.id, 'paragraph');
+
+    // 未修改块的引用完全不变
+    expect(newTree.blocks[p1.id]).toBe(p1Before);
+    expect(newTree.blocks[p2.id]).toBe(p2Before);
+    expect(newTree.root).toBe(rootBefore);
+    // 被修改块是新引用
+    expect(newTree.blocks[h.id]).not.toBe(tree.blocks[h.id]);
+    expect(newTree.blocks[h.id].type).toBe('paragraph');
+  });
+
+  it('updateMeta 后未修改块的引用不变', () => {
+    let tree = createDocumentTree();
+    const p1 = makeParagraph(tree, 'a');
+    const h = makeHeading(tree, 1, 'title');
+    tree = appendChild(tree, tree.root.id, p1);
+    tree = appendChild(tree, tree.root.id, h);
+
+    const p1Before = tree.blocks[p1.id];
+    const rootBefore = tree.root;
+
+    const newTree = updateMeta(tree, h.id, { headingLevel: 3 });
+
+    expect(newTree.blocks[p1.id]).toBe(p1Before);
+    expect(newTree.root).toBe(rootBefore);
+    expect(newTree.blocks[h.id]).not.toBe(tree.blocks[h.id]);
+    expect(newTree.blocks[h.id].meta?.headingLevel).toBe(3);
+  });
+
+  it('batchRemoveBlocks 后未删除块的引用不变（跳过被删块的兄弟链修正）', () => {
+    let tree = createDocumentTree();
+    const p1 = makeParagraph(tree, 'a');
+    const p2 = makeParagraph(tree, 'b');
+    const p3 = makeParagraph(tree, 'c');
+    tree = appendChild(tree, tree.root.id, p1);
+    tree = appendChild(tree, tree.root.id, p2);
+    tree = appendChild(tree, tree.root.id, p3);
+
+    // 删除中间的 p2
+    const newTree = batchRemoveBlocks(tree, [p2.id]);
+
+    // p1 和 p3 被引用更新（prevId/nextId 变了），所以是新引用
+    expect(newTree.blocks[p1.id]).not.toBe(tree.blocks[p1.id]);
+    expect(newTree.blocks[p3.id]).not.toBe(tree.blocks[p3.id]);
+    // p2 已删除
+    expect(newTree.blocks[p2.id]).toBeUndefined();
+    // 兄弟链正确
+    expect(newTree.blocks[p1.id].nextId).toBe(p3.id);
+    expect(newTree.blocks[p3.id].prevId).toBe(p1.id);
   });
 });

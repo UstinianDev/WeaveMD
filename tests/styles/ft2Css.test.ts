@@ -88,14 +88,14 @@ describe('SPEC-EDIT-FT3 CSS: 工具栏尺寸缩小（G4，SPEC-EDIT-FT3 §4.4）
     expect(b).toMatch(/padding:\s*3px\s+6px/);
   });
 
-  it('CS5b: 工具栏按钮与下拉尺寸类存在（按钮32×28 / trigger 28+px6 / option 6px 10px / menu 176px / divider 1×16 margin 0 2px）', () => {
+  it('CS5b: 工具栏按钮与下拉尺寸类存在（按钮32×28 / trigger 28+px8 / option 6px 10px / menu 176px / divider 1×16 margin 0 2px）', () => {
     const btn = blockText('.floating-toolbar-v2 .ft-btn');
     expect(btn).toMatch(/width:\s*32px/);
     expect(btn).toMatch(/height:\s*28px/);
     expect(btn).toMatch(/font-size:\s*13px/);
     const trigger = blockText('.block-type-trigger');
     expect(trigger).toMatch(/height:\s*28px/);
-    expect(trigger).toMatch(/padding:\s*0\s+6px/);
+    expect(trigger).toMatch(/padding:\s*0\s+8px/);
     expect(trigger).toMatch(/font-size:\s*13px/);
     const option = blockText('.block-type-option');
     expect(option).toMatch(/padding:\s*6px\s+10px/);

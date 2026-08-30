@@ -28,6 +28,16 @@ import { createRafThrottle } from '@render/utils/rafThrottle';
 /** 连续命中非内容区的帧数上限：超过即停止更新，回到编辑器内自动恢复 */
 const MISS_FRAME_LIMIT = 6;
 
+/**
+ * 拖选程序化写入标记。
+ * processPending 中 setStart/setEnd 会触发 selectionchange，
+ * 即使 FloatingToolbar handler 提前返回，事件分发本身也会导致浏览器布局重算
+ * （尤其在标题大字体 + tracking-tight 跨格式上下文时严重）。
+ * 拖选写入前置 true，rAF 后重置——selectionchange 作为 macrotask 在 rAF 之后分发，
+ * 此时标记仍为 true，FloatingToolbar 跳过 window.getSelection() 调用。
+ */
+export const dragWritingRef: { current: boolean } = { current: false };
+
 /** 选区端点快照（SPEC-EDIT-DSF 4.1：端点级变化检测） */
 export interface RangeEndpoint {
   startNode: Node | null;
@@ -39,6 +49,20 @@ export interface RangeEndpoint {
 function nodesEqual(a: Node | null, b: Node | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
+  // Same parent + same child index -> same DOM position -> semantically identical.
+  // Fast path avoids expensive isEqualNode deep comparison every frame.
+  // Handles React recreating text nodes with identical content during re-renders.
+  try {
+    const pa = a.parentNode;
+    if (pa && pa === b.parentNode) {
+      const children = pa.childNodes;
+      const idxA = Array.prototype.indexOf.call(children, a);
+      const idxB = Array.prototype.indexOf.call(children, b);
+      if (idxA >= 0 && idxA === idxB) return true;
+    }
+  } catch {
+    // DOM API unavailable
+  }
   try {
     if (typeof a.isEqualNode === 'function') {
       return a.isEqualNode(b);
@@ -161,6 +185,9 @@ export function useCrossBlockDragSelection(containerRef: RefObject<HTMLDivElemen
           endOffset: next.endOffset,
         };
         if (!areRangeEndpointsEqual(lastAppliedRangeRef.current, candidate)) {
+          // 抑制 selectionchange 处理：setStart/setEnd 触发的 selectionchange 是 macrotask，
+          // 在 rAF 之后分发；dragWritingRef 在 rAF 后重置，覆盖事件分发窗口。
+          dragWritingRef.current = true;
           const sel = window.getSelection();
           if (sel) {
             if (sel.rangeCount === 1) {
@@ -175,6 +202,9 @@ export function useCrossBlockDragSelection(containerRef: RefObject<HTMLDivElemen
             }
           }
           lastAppliedRangeRef.current = candidate;
+          // rAF 回调在浏览器事件分发（selectionchange macrotask）之前执行，
+          // 一个 rAF 足以覆盖本次写入触发的 selectionchange。
+          requestAnimationFrame(() => { dragWritingRef.current = false; });
         }
       }
     };

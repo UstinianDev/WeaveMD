@@ -1,6 +1,6 @@
 # WeaveMD 文档索引
 
-> 最后更新：2026-08-27
+> 最后更新：2026-08-29（文档整理完成）
 
 ## 核心文档
 
@@ -52,6 +52,13 @@
 | [spec-edit-ft4](./testing/spec-edit-ft4.tdd.md) | 相邻混合强调 TDD |
 | [spec-edit-cbtp](./testing/spec-edit-cbtp.tdd.md) | 代码块尾随空行 TDD |
 | [spec-edit-dsf](./testing/spec-edit-dsf.tdd.md) | 拖选闪烁 TDD |
+
+## Devflow 产出（计划/需求）
+
+| 文档 | 说明 |
+|------|------|
+| [plan/](./plan/) | 实施计划与状态记录 |
+| [requirements/](./requirements/) | 需求文档 |
 
 ## 其他
 

@@ -4,7 +4,7 @@
 // 围栏代码块：语言徽标 + contentEditable 代码区（pre-wrap）。
 // 代码文本由 kernel inlineRenderer 用 Prism 高亮渲染 token HTML（plaintext 回退转义）。
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 
 import { normalizeFenceLanguage } from '@render/editor/kernel/fenceLanguage';
 import type { BlockNodeV2 } from '@render/editor/kernel';
@@ -37,12 +37,15 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ block, handlers }) => {
   const language = normalizeFenceLanguage(block.meta?.fenceLanguage);
   const [copied, setCopied] = useState(false);
 
+  const textRef = useRef(block.text);
+  textRef.current = block.text;
+
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(block.text ?? '').then(() => {
+    navigator.clipboard.writeText(textRef.current ?? '').then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
-  }, [block.text]);
+  }, []);
 
   return (
     <div

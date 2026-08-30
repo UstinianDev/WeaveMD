@@ -93,16 +93,18 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
   // 用 useLayoutEffect：在浏览器 paint 前同步恢复 focus/selection，
   // 避免用户（或自动化输入）在渲染后立即按键时丢失目标。
   const pendingOffsetRef = useRef<number | null>(null);
+  const getPendingRangeRef = useRef(getPendingRange);
+  getPendingRangeRef.current = getPendingRange;
   useLayoutEffect(() => {
     if (pendingOffsetRef.current !== null && ref.current) {
       setCursorAtOffset(ref.current, pendingOffsetRef.current);
       pendingOffsetRef.current = null;
     }
-    const pendingRange = getPendingRange?.();
+    const pendingRange = getPendingRangeRef.current?.();
     if (pendingRange && ref.current) {
       setRangeAtOffset(ref.current, pendingRange.start, pendingRange.end);
     }
-  });
+  }, [inlineHtml, text]);
 
   const syncDomToModel = useCallback(
     (el: HTMLSpanElement) => {

@@ -46,6 +46,17 @@
 - 编辑器+目录区字体：中文楷体（KaiTi）、英文 Consolas（`.editor-scroll-container` + `.outline-scroll`）
 - 行前缀解析统一走 `src/render/services/lineMarkdown.ts`（含 U+00A0 分隔）
 
+## UI 美化（2026-08-29）
+
+- **字体统一**：代码块使用 `Consolas + 阿里巴巴普惠体 B`（`.code-fence-content`）；编辑主区保持 `Consolas + 阿里巴巴普惠体`
+- **工具栏毛玻璃效果**：浮动工具栏、表格工具栏、图片工具栏均使用 `backdrop-filter: blur(12px) saturate(180%)` 实现毛玻璃
+- **按钮悬停动效**：工具栏按钮悬停时 `translateY(-1px)` + `box-shadow` 发光效果，active 态 `inset shadow`
+- **编辑主区块悬停**：标题块和段落块悬停使用 `color-mix(in srgb, var(--accent) 6%, transparent)` 柔和蓝色
+- **代码块增强**：悬停时 `box-shadow` 增强 + `border-color: var(--accent)`；头部使用 `backdrop-filter` 毛玻璃
+- **Composer 标签**：`/skill` 和 `@doc` 显示为带样式的标签（`.input-tag`），在输入框**内部**显示（overlay 方案），支持删除按钮和悬停下划线
+- **浮动工具栏图标**：所有按钮使用 Material Design Icons（react-icons/md）替代文字字符（B→bold, I→italic, U→underline, S→strikethrough, </>→code, H→highlight, 🔗→link, 🖼→image, ∑→math, ▦→table, 解链→unlink, ⌫→eraser）
+- **CSS 变量**：新增 `@font-face` 声明阿里巴巴普惠体 B；工具栏背景使用 `color-mix` 半透明混合
+
 ## 编辑主区 v2（当前主线，架构照搬 marktext/muya）
 
 - 仅叶子块内容 span（`ContentBlock`）可编辑；不可变块树 + 无损双向转换（往返不变式）
@@ -101,6 +112,16 @@
   outline 对 table 的既有只读排除行为保持（T4 零破坏）
 - **v1 回退路径已退役（2026-08-06）**：v2 为唯一路径，`__EDITOR_V2__` 开关已移除，
   v1 组件/服务/测试已删除（EditorView 1920 行重写为薄编排器）
+- **编辑主区性能优化（2026-08-29）**：
+  ① cloneTree 精准化（`changeBlockType`/`updateMeta` O(N)→O(1) 精准拷贝 + `batchRemoveBlocks` 批量删除 O(k*N)→O(N））+
+  ② tokenizeInline LRU 缓存（256 条，同文本 3-5 次解析→1 次，`clearInlineCache()` 导出）+
+  ③ outline 脏标记（`extractHeadingOutlineCached` + `OutlineCache` 增量版本就绪）+
+  ④ React.memo 补全（ToolbarButton memo + CodeBlock handleCopy ref 模式 + ContentBlock useLayoutEffect 依赖）+
+  ⑤ 消除重复计算（selection.ts tokens 参数 + imageBlock.ts 单次 parse）+
+  ⑥ TableBlock 选区已为 DOM 直接操作模式 +
+  ⑦ scroll 监听合并（EditorV2 rewriteHighlights 合并到 EditorScrollContainer）+
+  ⑧ Prism/KaTeX code splitting（vite manual chunks 分割）
+  门禁全绿（tsc 0 新增 | vitest 1528/1528 | lint 0 新增 error）
 
 ## 关键文件
 

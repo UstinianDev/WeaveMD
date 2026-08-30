@@ -17,6 +17,7 @@ import {
   type TableCellEl,
   TEXT_INPUT_TYPES,
   byIndex,
+  normalizeRange,
   applyCellText,
   nextCell,
   prevCell,
@@ -99,19 +100,51 @@ export function useTableEvents(block: BlockNodeV2, handlers: BlockHandlers, onSe
     setCursorAtOffset(el, offset);
   };
 
-  // ---- 多选管理 ----
+  // ---- 多选管理（DOM 直接操作 class，不触发 React 重渲染） ----
 
-  /** 清除选区并通知重渲染 */
+  /** rAF 节流：选区高亮 DOM 同步 */
+  const highlightRafRef = useRef(0);
+
+  /** 将当前 selectionRef 同步到 DOM（table-cell-selected class），rAF 节流 */
+  const syncSelectionHighlight = (): void => {
+    if (highlightRafRef.current) cancelAnimationFrame(highlightRafRef.current);
+    highlightRafRef.current = requestAnimationFrame(() => {
+      highlightRafRef.current = 0;
+      const range = selectionRef.current;
+      // 找到表格元素（从第一个 data-cellkey 元素向上查找）
+      const firstCell = document.querySelector<HTMLElement>('[data-cellkey]');
+      const table = firstCell?.closest('table');
+      if (!table) return;
+      const cells = table.querySelectorAll<HTMLElement>('td, th');
+      if (!range) {
+        // 无选区：移除所有高亮
+        for (const cell of cells) cell.classList.remove('table-cell-selected');
+        return;
+      }
+      const { minRow, maxRow, minCol, maxCol } = normalizeRange(range);
+      for (const cell of cells) {
+        const key = cell.getAttribute('data-cellkey');
+        if (!key) continue;
+        const [r, c] = key.split(':').map(Number);
+        const inRange = r >= minRow && r <= maxRow && c >= minCol && c <= maxCol;
+        cell.classList.toggle('table-cell-selected', inRange);
+      }
+    });
+  };
+
+  /** 清除选区并同步 DOM 高亮 */
   const clearSelection = (): void => {
     if (selectionRef.current) {
       selectionRef.current = null;
+      syncSelectionHighlight();
       onSelectionChange?.();
     }
   };
 
-  /** 设置选区（anchor+focus）并通知重渲染 */
+  /** 设置选区（anchor+focus）并同步 DOM 高亮 */
   const setSelection = (range: CellRange | null): void => {
     selectionRef.current = range;
+    syncSelectionHighlight();
     onSelectionChange?.();
   };
 

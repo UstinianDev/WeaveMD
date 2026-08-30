@@ -21,6 +21,7 @@ import {
 } from '../types';
 import { computeToolbarState, syntaxTypeToOption, type LinkRect, type SelectionState } from './toolbarState';
 import { createRafThrottle } from '@render/utils/rafThrottle';
+import { dragWritingRef } from '@render/hooks/useCrossBlockDragSelection';
 import InsertUrlModal from '../InsertUrlModal';
 import ImageToolbar from './ImageToolbar';
 import TablePicker from './TablePicker';
@@ -85,6 +86,7 @@ interface FormatButton {
   label: string;
   title: string;
   group: 'char' | 'object';
+  icon?: string;
   className?: string;
   activeTest?: (text: string) => boolean;
 }
@@ -96,6 +98,7 @@ const CHAR_BUTTONS: FormatButton[] = [
     label: 'B',
     title: '加粗',
     group: 'char',
+    icon: 'bold',
     className: 'font-bold',
     activeTest: (t) => isBoundedWrap(t, ...MARKERS.bold),
   },
@@ -104,6 +107,7 @@ const CHAR_BUTTONS: FormatButton[] = [
     label: 'I',
     title: '斜体',
     group: 'char',
+    icon: 'italic',
     className: 'italic',
     activeTest: (t) => isBoundedWrap(t, ...MARKERS.italic),
   },
@@ -112,6 +116,7 @@ const CHAR_BUTTONS: FormatButton[] = [
     label: 'U',
     title: '下划线',
     group: 'char',
+    icon: 'underline',
     className: 'underline',
     activeTest: (t) => isBoundedWrap(t, ...MARKERS.underline),
   },
@@ -120,6 +125,7 @@ const CHAR_BUTTONS: FormatButton[] = [
     label: 'S',
     title: '删除线',
     group: 'char',
+    icon: 'strikethrough',
     className: 'line-through',
     activeTest: (t) => isBoundedWrap(t, ...MARKERS.strike),
   },
@@ -128,6 +134,7 @@ const CHAR_BUTTONS: FormatButton[] = [
     label: '</>',
     title: '行内代码',
     group: 'char',
+    icon: 'code-inline',
     activeTest: (t) => isBoundedWrap(t, ...MARKERS.code),
   },
   {
@@ -135,16 +142,17 @@ const CHAR_BUTTONS: FormatButton[] = [
     label: 'H',
     title: '高亮',
     group: 'char',
+    icon: 'highlight',
     activeTest: (t) => isBoundedWrap(t, ...MARKERS.highlight),
   },
 ];
 
 /** SPEC-EDIT-FT2 4.6：对象插入组（弹 URL 输入） */
 const OBJECT_BUTTONS: FormatButton[] = [
-  { style: 'link', label: '🔗', title: '链接', group: 'object' },
-  { style: 'image', label: '🖼', title: '图片', group: 'object' },
-  { style: 'math', label: '∑', title: '数学公式', group: 'object' },
-  { style: 'table', label: '▦', title: '表格', group: 'object' },
+  { style: 'link', label: '🔗', title: '链接', group: 'object', icon: 'link-insert' },
+  { style: 'image', label: '🖼', title: '图片', group: 'object', icon: 'image-insert' },
+  { style: 'math', label: '∑', title: '数学公式', group: 'object', icon: 'math' },
+  { style: 'table', label: '▦', title: '表格', group: 'object', icon: 'table' },
 ];
 
 /**
@@ -323,6 +331,11 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
     if (!container) return;
 
     const handleSelectionChange = () => {
+      // 拖选程序化写入期间：跳过 window.getSelection() 调用。
+      // setStart/setEnd 触发的 selectionchange 是 macrotask，在 rAF 之后分发；
+      // dragWritingRef 在 rAF 后重置，覆盖事件分发窗口。
+      // 即使 mouseDownRef 已拦截，window.getSelection() 本身也会触发浏览器布局重算。
+      if (dragWritingRef.current) return;
       latestSelectionRef.current = window.getSelection();
       if (mouseDownRef.current) return;
       selectionThrottle.schedule();
@@ -613,6 +626,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
           key={button.style}
           title={button.title}
           label={button.label}
+          icon={button.icon}
           className={button.className}
           active={button.style !== 'table' && activeFormats.has(button.style)}
           disabled={isCodeBlock}
@@ -627,6 +641,7 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
           key={button.style}
           title={button.title}
           label={button.label}
+          icon={button.icon}
           disabled={isCodeBlock}
           onClick={(e) => handleFormat(button, e)}
         />
@@ -636,11 +651,12 @@ const FloatingToolbar: React.FC<FloatingToolbarProps> = ({
 
       {/* 选区命中链接时提供移除链接；橡皮擦：清除选区全部行内标记 */}
       {selection.inLink && (
-        <ToolbarButton title="移除链接" label="解链" onClick={handleUnlink} />
+        <ToolbarButton title="移除链接" label="解链" icon="unlink" onClick={handleUnlink} />
       )}
       <ToolbarButton
         title="橡皮擦"
         label="⌫"
+        icon="eraser"
         disabled={isCodeBlock}
         onClick={handleClearFormat}
       />

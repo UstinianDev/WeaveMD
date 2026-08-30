@@ -51,5 +51,13 @@ export default defineConfig({
   root: '.',
   build: {
     outDir: 'dist-render',
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (id.includes('node_modules/prismjs')) return 'prismjs';
+          if (id.includes('node_modules/katex')) return 'katex';
+        },
+      },
+    },
   },
 });

@@ -10,7 +10,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { EditorInstance } from '@render/editor/editorInstance';
 import type { BlockTreeV2 } from '@render/editor/kernel';
-import { extractHeadingOutline } from '@render/editor/kernel/outline';
+import { extractHeadingOutlineCached, type OutlineCache } from '@render/editor/kernel/outline';
 import { isStandaloneImageText, parseImageBlockText } from '@render/editor/kernel';
 import { setImageWidth } from '@render/editor/controllers/imageWidthCtrl';
 import { setCursorAtOffset } from '@render/editor/kernel/selection';
@@ -69,7 +69,13 @@ const EditorV2: React.FC<EditorV2Props> = ({
     setPendingRange,
   });
 
-  const outline = useMemo(() => extractHeadingOutline(tree), [tree]);
+  const outlineCacheRef = useRef<OutlineCache | null>(null);
+  const outline = useMemo(() => {
+    // changedBlockIds 暂传 null（全量路径），缓存结构已就绪，后续可接入脏标记追踪
+    const result = extractHeadingOutlineCached(tree, outlineCacheRef.current, null);
+    outlineCacheRef.current = result.cache;
+    return result.outline;
+  }, [tree]);
 
   // K4：当前选中的图片（点击 img 后由 handleContainerClick 计算；动作执行后清空）
   const [imageSelection, setImageSelection] = useState<ImageSelection | null>(null);
@@ -86,17 +92,16 @@ const EditorV2: React.FC<EditorV2Props> = ({
   // 滚动/缩放重定位计数：作为 memo 依赖导致矩形重算
   const [highlightTick, setHighlightTick] = useState(0);
   const rerunHighlights = useCallback(() => setHighlightTick((n) => n + 1), []);
+  // 滚动重定位：合并到 EditorScrollContainer 的 onScrollAny（减少独立 scroll 监听器）；
+  // 始终传同一引用，仅在 selectionSel 非空时实际递增 tick（避免 prop 引用变化触发 listener 重注册）。
+  const onScrollHighlight = useCallback(() => {
+    if (useRewriteStore.getState().selectionContext?.sel) setHighlightTick((n) => n + 1);
+  }, []);
+  // resize 仍需独立监听（window 级事件，非容器 scroll）
   useEffect(() => {
     if (!selectionSel) return;
-    const containerEl = containerRef.current;
-    if (!containerEl) return;
-    const onRelayout = () => rerunHighlights();
-    containerEl.addEventListener('scroll', onRelayout, true);
-    window.addEventListener('resize', onRelayout);
-    return () => {
-      containerEl.removeEventListener('scroll', onRelayout, true);
-      window.removeEventListener('resize', onRelayout);
-    };
+    window.addEventListener('resize', rerunHighlights);
+    return () => window.removeEventListener('resize', rerunHighlights);
   }, [selectionSel, rerunHighlights]);
   const rewriteHighlights = useMemo(() => {
     void highlightTick;
@@ -311,6 +316,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
         handlers={handlers}
         blockWidthMap={blockWidthMap}
         onScroll={handleScroll}
+        onScrollAny={onScrollHighlight}
       />
       {/* A3 选区持久高亮：纯 CSS overlay，绝对定位改写范围半透明高亮。pointer-events:none
           不拦截编辑器交互；z-index < 工具栏，不遮浮动工具栏。绝不改块文本。 */}

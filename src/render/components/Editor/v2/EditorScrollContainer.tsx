@@ -20,10 +20,12 @@ interface EditorScrollContainerProps {
   /** R1：块→行内图宽度 map（透传 BlockRenderer） */
   blockWidthMap: BlockWidthMap;
   onScroll?: (scrollTop: number, containerEl: HTMLElement) => void;
+  /** 每次滚动均触发的无参回调（用于 rewriteHighlights 等轻量 tick 更新） */
+  onScrollAny?: () => void;
 }
 
 const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScrollContainerProps>(
-  ({ tree, handlers, blockWidthMap, onScroll }, ref) => {
+  ({ tree, handlers, blockWidthMap, onScroll, onScrollAny }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
 
     useImperativeHandle(ref, () => ({
@@ -42,10 +44,11 @@ const EditorScrollContainer = forwardRef<EditorScrollContainerHandle, EditorScro
       const container = containerRef.current;
       const handleScroll = () => {
         onScroll?.(container.scrollTop, container);
+        onScrollAny?.();
       };
       container.addEventListener('scroll', handleScroll);
       return () => container.removeEventListener('scroll', handleScroll);
-    }, [onScroll]);
+    }, [onScroll, onScrollAny]);
 
     return (
       <div ref={containerRef} className="editor-scroll-container h-full overflow-y-auto">

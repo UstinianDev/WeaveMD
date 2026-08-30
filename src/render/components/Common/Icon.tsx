@@ -48,6 +48,9 @@ import {
   MdOutlinePending,
   MdOutlineDone,
   MdOutlineClose,
+  MdOutlineFormatAlignLeft,
+  MdOutlineFormatAlignCenter,
+  MdOutlineFormatAlignRight,
   MdOutlineRocket,
   MdOutlineChat,
   MdOutlineSmartToy,
@@ -120,6 +123,19 @@ import {
   MdOutlineInvertColors,
   MdOutlineTonality,
   MdOutlineExposure,
+  // 浮动工具栏格式化图标
+  MdFormatBold,
+  MdFormatItalic,
+  MdFormatUnderlined,
+  MdFormatStrikethrough,
+  MdCode,
+  MdOutlineHighlight,
+  MdInsertLink,
+  MdOutlineImage,
+  MdOutlineFunctions,
+  MdOutlineGridOn,
+  MdLinkOff,
+  MdOutlineAutoFixNormal,
 } from 'react-icons/md';
 
 /** 图标名称到组件的映射表。 */
@@ -251,6 +267,28 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: 
   'invert': MdOutlineInvertColors,
   'tonality': MdOutlineTonality,
   'exposure': MdOutlineExposure,
+
+  // 浮动工具栏格式化
+  'bold': MdFormatBold,
+  'italic': MdFormatItalic,
+  'underline': MdFormatUnderlined,
+  'strikethrough': MdFormatStrikethrough,
+  'code-inline': MdCode,
+  'highlight': MdOutlineHighlight,
+  'link-insert': MdInsertLink,
+  'image-insert': MdOutlineImage,
+  'math': MdOutlineFunctions,
+  'table': MdOutlineGridOn,
+  'unlink': MdLinkOff,
+  'eraser': MdOutlineAutoFixNormal,
+
+  // 图片工具栏
+  'image-edit': MdEdit,
+  'image-inline': MdOutlineImage,
+  'align-left': MdOutlineFormatAlignLeft,
+  'align-center': MdOutlineFormatAlignCenter,
+  'align-right': MdOutlineFormatAlignRight,
+  'image-remove': MdDeleteOutline,
 };
 
 export interface IconProps {
