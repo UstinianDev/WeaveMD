@@ -127,9 +127,9 @@ const EmbeddingSettings: React.FC = () => {
       if (res.success && res.data) {
         setHasApiKey(res.data.hasApiKey);
       }
-      // 刷新 store + 标记连接未验证（新 key 尚未测试）
+      // 刷新 store + 根据保存结果标记连接状态
       await useAgentStore.getState().refreshEmbeddingConfig();
-      useAgentStore.setState({ embeddingConnectionOk: false });
+      useAgentStore.setState({ embeddingConnectionOk: Boolean(res.success && res.data?.hasApiKey) });
       setSaved(true);
     } catch {
       /* 静默 */

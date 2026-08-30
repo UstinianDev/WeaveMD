@@ -476,11 +476,11 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       ...(modelConfigsRes?.success && modelConfigsRes.data ? { modelConfigs: modelConfigsRes.data } : {}),
       ...(embeddingConfigRes?.success && embeddingConfigRes.data ? {
         embeddingConfig: embeddingConfigRes.data,
-        embeddingConnectionOk: embeddingConfigRes.data.hasApiKey,
+        embeddingConnectionOk: Boolean(embeddingConfigRes.data.hasApiKey),
       } : {}),
       ...(searchConfigRes?.success && searchConfigRes.data ? {
         searchConfig: searchConfigRes.data,
-        searchConnectionOk: searchConfigRes.data.enabled && searchConfigRes.data.hasApiKeys?.[searchConfigRes.data.provider],
+        searchConnectionOk: Boolean(searchConfigRes.data.enabled && searchConfigRes.data.hasApiKeys?.[searchConfigRes.data.provider]),
       } : {}),
     });
 

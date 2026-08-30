@@ -116,9 +116,10 @@ const SearchSettings: React.FC = () => {
       if (res.success && res.data) {
         setHasApiKeys(res.data.hasApiKeys);
       }
-      // 刷新 store + 标记连接未验证（新 key 尚未测试）
+      // 刷新 store + 根据保存结果标记连接状态
       await useAgentStore.getState().refreshSearchConfig();
-      useAgentStore.setState({ searchConnectionOk: false });
+      const savedOk = Boolean(res.success && res.data?.enabled && res.data?.hasApiKeys?.[res.data?.provider]);
+      useAgentStore.setState({ searchConnectionOk: savedOk });
       setSaved(true);
     } catch {
       /* 静默 */

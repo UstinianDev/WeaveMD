@@ -31,7 +31,7 @@
   "ai.modelDropdown.manualPlaceholder": "Type a model ID",
   "ai.modelDropdown.unconfigured": "No model configured",
   "ai.configRequired": "Please configure LLM, Embedding and Search first",
-  "ai.lock.message": "Configure LLM and Embedding first to unlock generation, Q&A and retrieval capabilities.",
+  "ai.lock.message": "Configure LLM, Embedding and Search first to unlock generation, Q&A and retrieval capabilities.",
   "ai.lock.goSettings": "Go to Settings",
   "ai.session.close": "Close current conversation",
   "ai.settings.back": "Back",

@@ -31,7 +31,7 @@
   "ai.modelDropdown.manualPlaceholder": "輸入模型 ID",
   "ai.modelDropdown.unconfigured": "未配置模型",
   "ai.configRequired": "請先完成 LLM、Embedding 和搜尋配置",
-  "ai.lock.message": "先完成 LLM 與 Embedding 配置後，這裡的生成、問答和檢索能力才會開放。",
+  "ai.lock.message": "先完成 LLM、Embedding 和搜索配置後，這裡的生成、問答和檢索能力才會開放。",
   "ai.lock.goSettings": "前往設定",
   "ai.session.close": "關閉目前對話",
   "ai.settings.back": "返回",

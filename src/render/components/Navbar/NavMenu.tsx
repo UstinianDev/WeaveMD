@@ -43,7 +43,7 @@ const NavMenu: React.FC<NavMenuProps> = ({
         trigger={
           <button
             type="button"
-            title={tooltip ? t(tooltip, tooltip) : undefined}
+            title={tooltip ? t(tooltip) : undefined}
             className={`flex items-center justify-center w-[28px] h-[28px] rounded-md text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] hover:bg-[var(--accent)]/10 transition-all duration-150 cursor-pointer select-none ${triggerClassName}`}
           >
             {icon}
