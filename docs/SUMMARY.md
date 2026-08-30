@@ -1,13 +1,13 @@
 # WeaveMD 文档索引
 
-> 最后更新：2026-08-29（文档整理完成）
+> 最后更新：2026-08-30
 
 ## 核心文档
 
 | 文档 | 说明 |
 |------|------|
 | [README](../README.md) | 项目简介、技术栈、运行方式 |
-| [REQUIREMENTS](./REQUIREMENTS.md) | 功能需求文档（AUTH/EDIT/NAV/FILE/EXP/UI/AGT/KB/WC） |
+| [REQUIREMENTS](./REQUIREMENTS.md) | 功能需求文档 |
 | [TODO](./TODO.md) | 功能进度与已知问题 |
 
 ## 模块文档
@@ -16,15 +16,15 @@
 |------|------|
 | [01-加载页面](./modules/01-加载页面-Splash.md) | 启动动画 |
 | [02-认证系统](./modules/02-认证系统-Auth.md) | 注册/登录/JWT/多账号 |
-| [03-顶部导航栏](./modules/03-顶部导航栏-Navbar.md) | 菜单/导出/视图切换 |
+| [03-顶部导航栏](./modules/03-顶部导航栏-Navbar.md) | 图标菜单/撤销/重做/设置 |
 | [04-编辑主区](./modules/04-编辑主区-Editor.md) | v2 块树内核架构 |
-| [05-设置界面](./modules/05-设置界面-Settings.md) | 主题/AI/知识库设置 |
-| [06-窗口控制](./modules/06-窗口控制-Window.md) | Frameless 窗口 |
-| [07-数据持久化层](./modules/07-数据持久化层-Database.md) | SQLite + better-sqlite3 |
-| [08-IPC通信机制](./modules/08-IPC通信机制.md) | 白名单通道 + contextBridge |
+| [05-设置界面](./modules/05-设置界面-Settings.md) | UnifiedSettings 8 Tab + 主题系统 |
+| [06-窗口控制](./modules/06-窗口控制-Window.md) | Frameless 窗口 + 自动更新 |
+| [07-数据持久化层](./modules/07-数据持久化层-Database.md) | SQLite 16+ 表（核心 + AI/Agent/配置） |
+| [08-IPC通信机制](./modules/08-IPC通信机制.md) | 80+ 通道（9 组：Auth/File/Settings/AI/KB/Agent...） |
 | [09-国际化](./modules/09-国际化-i18n.md) | 中文简繁 + 英文 |
 | [10-导出功能](./modules/10-导出功能-Export.md) | 8 格式导出 |
-| [11-AI代理面板](./modules/11-AI代理面板-Agent.md) | Chat/Agent/知识库/R1-R12 对齐 |
+| [11-AI代理面板](./modules/11-AI代理面板-Agent.md) | Agent/知识库/改写/写控制 |
 
 ## 规格文档
 
@@ -52,13 +52,6 @@
 | [spec-edit-ft4](./testing/spec-edit-ft4.tdd.md) | 相邻混合强调 TDD |
 | [spec-edit-cbtp](./testing/spec-edit-cbtp.tdd.md) | 代码块尾随空行 TDD |
 | [spec-edit-dsf](./testing/spec-edit-dsf.tdd.md) | 拖选闪烁 TDD |
-
-## Devflow 产出（计划/需求）
-
-| 文档 | 说明 |
-|------|------|
-| [plan/](./plan/) | 实施计划与状态记录 |
-| [requirements/](./requirements/) | 需求文档 |
 
 ## 其他
 

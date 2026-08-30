@@ -6,6 +6,7 @@ import React, { useEffect, useState } from 'react';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
 import { useUIStore } from '@render/stores/uiStore';
+import Icon from '@render/components/Common/Icon';
 
 const AccountSettings: React.FC = () => {
   const { t } = useI18n();
@@ -94,13 +95,17 @@ const AccountSettings: React.FC = () => {
     <div className="space-y-4">
       <h2 className="text-[16px] font-semibold text-[var(--text-primary)]">{t('settings.account')}</h2>
 
-      {/* Account info */}
-      <div className="p-4 bg-[var(--bg-primary)] rounded-input border border-[var(--border-color)]">
-        <p className="text-[15px] text-[var(--text-sub)]">
-          {`${t('settings.accountInfo')}: `}
-          <span className="text-[var(--text-primary)] font-semibold">@{user?.username}</span>
-        </p>
-        <p className="text-[13px] text-[var(--text-muted)] mt-1">{t('settings.manageAccount')}</p>
+      {/* Account info card */}
+      <div className="p-4 bg-gradient-to-br from-[var(--bg-primary)] to-[var(--bg-secondary)] rounded-lg border border-[var(--border-color)] shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-full bg-[var(--accent)]/15 flex items-center justify-center text-[18px] font-bold text-[var(--accent)] border-2 border-[var(--accent)]/25">
+            {user?.username?.charAt(0).toUpperCase() ?? '?'}
+          </div>
+          <div>
+            <p className="text-[16px] font-semibold text-[var(--text-primary)]">@{user?.username}</p>
+            <p className="text-[12px] text-[var(--text-muted)] mt-0.5">{t('settings.manageAccount')}</p>
+          </div>
+        </div>
       </div>
 
       {!showSwitchAccount ? (
@@ -108,16 +113,18 @@ const AccountSettings: React.FC = () => {
           <button
             type="button"
             onClick={() => setShowSwitchAccount(true)}
-            className="w-full px-3 py-2 text-[15px] rounded-input border border-[var(--border-color)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+            className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[14px] rounded-lg border border-[var(--border-color)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] hover:shadow-sm transition-all"
           >
+            <Icon icon="account" size={16} />
             {t('settings.switchAccount')}
           </button>
           <button
             type="button"
             onClick={handleLogout}
             disabled={isLoggingOut}
-            className="w-full px-3 py-2 text-[15px] rounded-input border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors"
+            className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[14px] rounded-lg border border-red-400/30 text-red-500 hover:bg-red-500/8 hover:shadow-sm transition-all"
           >
+            <Icon icon="logout" size={16} />
             {t('settings.logOut')}
           </button>
           {showDeleteConfirm ? (
@@ -146,8 +153,9 @@ const AccountSettings: React.FC = () => {
             <button
               type="button"
               onClick={() => setShowDeleteConfirm(true)}
-              className="w-full px-3 py-2 text-[15px] rounded-input border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors"
+              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-[14px] rounded-lg border border-red-400/30 text-red-500 hover:bg-red-500/8 hover:shadow-sm transition-all"
             >
+              <Icon icon="trash" size={16} />
               {t('settings.deleteAccount')}
             </button>
           )}

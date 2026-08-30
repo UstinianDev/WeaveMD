@@ -153,6 +153,37 @@ html.high-contrast {
   --highlight-text: #1a1a1a;
 }
 
+/* ===== Notus Theme — Warm Terracotta (inspired by Notus) ===== */
+html.notus {
+  /* Backgrounds — warm parchment palette */
+  --bg-primary: #FAF9F5;
+  --bg-secondary: #F0EDE6;
+  --bg-tertiary: #E8E5DE;
+  --border-color: #D8D4CB;
+  --text-primary: #1A1311;
+  --text-sub: #6B6158;
+  --text-muted: #9C9489;
+  /* Accent — Terracotta */
+  --accent: #C15F3C;
+  --accent-secondary: #D4896E;
+  --accent-hover: #A8502F;
+  /* Navbar — warm dark stone */
+  --navbar-bg: #1C1917;
+  --navbar-text-primary: #EDE8E3;
+  --navbar-text-sub: #A69E95;
+  /* Inputs & surfaces */
+  --input-bg: #FFFFFF;
+  --modal-bg: #FFFFFF;
+  --bg-code: #F0EDE6;
+  --text-code: #1A1311;
+  /* Shadows — warm tint */
+  --shadow-modal: 0 4px 24px rgba(26, 19, 17, 0.12);
+  --shadow-dropdown: 0 4px 16px rgba(26, 19, 17, 0.10);
+  /* Highlight */
+  --highlight-bg: #FBEEE8;
+  --highlight-text: #1A1311;
+}
+
 /* Base Styles */
 html,
 body {
@@ -754,6 +785,12 @@ html.light .markdown-preview code[class*='language-'] {
   text-shadow: none;
 }
 
+html.notus .markdown-preview pre[class*='language-'],
+html.notus .markdown-preview code[class*='language-'] {
+  color: var(--text-code);
+  text-shadow: none;
+}
+
 :root .markdown-preview .token.comment,
 :root .markdown-preview .token.prolog,
 :root .markdown-preview .token.doctype,
@@ -997,6 +1034,62 @@ html.high-contrast .markdown-preview .token.regex,
 html.high-contrast .markdown-preview .token.important,
 html.high-contrast .markdown-preview .token.variable {
   color: #fb923c;
+}
+
+/* ===== Notus Theme — Syntax Highlighting ===== */
+html.notus .markdown-preview .token.comment,
+html.notus .markdown-preview .token.prolog,
+html.notus .markdown-preview .token.doctype,
+html.notus .markdown-preview .token.cdata {
+  color: #9C9489;
+}
+
+html.notus .markdown-preview .token.punctuation {
+  color: #6B6158;
+}
+
+html.notus .markdown-preview .token.property,
+html.notus .markdown-preview .token.tag,
+html.notus .markdown-preview .token.boolean,
+html.notus .markdown-preview .token.number,
+html.notus .markdown-preview .token.constant,
+html.notus .markdown-preview .token.symbol,
+html.notus .markdown-preview .token.deleted {
+  color: #C15F3C;
+}
+
+html.notus .markdown-preview .token.selector,
+html.notus .markdown-preview .token.attr-name,
+html.notus .markdown-preview .token.string,
+html.notus .markdown-preview .token.char,
+html.notus .markdown-preview .token.builtin,
+html.notus .markdown-preview .token.inserted {
+  color: #1E8E3E;
+}
+
+html.notus .markdown-preview .token.operator,
+html.notus .markdown-preview .token.entity,
+html.notus .markdown-preview .token.url,
+html.notus .markdown-preview .language-css .token.string,
+html.notus .markdown-preview .style .token.string {
+  color: #A8502F;
+}
+
+html.notus .markdown-preview .token.atrule,
+html.notus .markdown-preview .token.attr-value,
+html.notus .markdown-preview .token.keyword {
+  color: #7C3AED;
+}
+
+html.notus .markdown-preview .token.function,
+html.notus .markdown-preview .token.class-name {
+  color: #2563EB;
+}
+
+html.notus .markdown-preview .token.regex,
+html.notus .markdown-preview .token.important,
+html.notus .markdown-preview .token.variable {
+  color: #EA580C;
 }
 
 /* ============================================ */
@@ -1371,6 +1464,20 @@ html.high-contrast .markdown-block-rendered .markdown-comment {
 html.light-header .markdown-block-rendered code,
 html.light .markdown-block-rendered code {
   color: #7c2d12;
+}
+
+html.notus .markdown-block-rendered code {
+  color: #A8502F;
+}
+
+html.notus .markdown-block-rendered .markdown-highlight,
+html.notus .markdown-block-rendered mark {
+  background: color-mix(in srgb, #C15F3C 20%, transparent);
+}
+
+html.notus .markdown-block-rendered .markdown-comment {
+  color: #9C9489;
+  background: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
 }
 
 /* ============================================ */

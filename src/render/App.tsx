@@ -92,7 +92,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const html = document.documentElement;
     // Remove all theme classes
-    html.classList.remove('dark', 'light', 'light-header', 'high-contrast', 'custom');
+    html.classList.remove('dark', 'light', 'light-header', 'high-contrast', 'custom', 'notus');
     // Apply current theme class
     html.classList.add(theme);
   }, [theme]);

@@ -90,7 +90,7 @@ export interface HistoryState {
 }
 
 // --- Enums ---
-export type ThemeType = 'light' | 'dark' | 'light-header' | 'high-contrast' | 'custom';
+export type ThemeType = 'light' | 'dark' | 'light-header' | 'high-contrast' | 'custom' | 'notus';
 
 export type LanguageType = 'zh-CN' | 'zh-TW' | 'en';
 

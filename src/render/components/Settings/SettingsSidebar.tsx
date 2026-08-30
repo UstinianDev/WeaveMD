@@ -40,7 +40,10 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ activeTab, onTabChang
   }, {});
 
   return (
-    <nav className="w-[180px] flex-shrink-0 border-r border-[var(--border-color)] py-3 px-2 space-y-3 overflow-y-auto">
+    <nav
+      className="w-[180px] flex-shrink-0 border-r border-[var(--border-color)] py-3 px-2 space-y-3 overflow-y-auto"
+      style={{ fontFamily: "'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', Consolas, 'Courier New', monospace" }}
+    >
       {Object.entries(groups).map(([group, tabs]) => (
         <div key={group}>
           <div className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
@@ -52,10 +55,10 @@ const SettingsSidebar: React.FC<SettingsSidebarProps> = ({ activeTab, onTabChang
                 key={tab.key}
                 type="button"
                 onClick={() => onTabChange(tab.key)}
-                className={`w-full text-left px-3 py-2 text-[14px] rounded-input transition-colors ${
+                className={`w-full text-left px-3 py-2 text-[14px] rounded-md transition-all duration-150 ${
                   activeTab === tab.key
-                    ? 'bg-[var(--accent)]/15 text-[var(--text-primary)] border border-[var(--accent)]/30 font-medium'
-                    : 'text-[var(--text-sub)] hover:bg-[var(--bg-tertiary)] border border-transparent'
+                    ? 'bg-[var(--accent)]/12 text-[var(--text-primary)] border border-[var(--accent)]/25 font-medium shadow-sm'
+                    : 'text-[var(--text-sub)] hover:bg-[var(--bg-tertiary)] border border-transparent hover:translate-x-0.5'
                 }`}
               >
                 {t(tab.i18nKey, tab.fallback)}

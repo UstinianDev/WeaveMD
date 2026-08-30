@@ -1,36 +1,24 @@
-# 顶部导航栏 (Navbar) 功能总结
+# 03 — 顶部导航栏
 
-> 模块编号：03 | 优先级：P0 | 最后更新：2026-08-06
->
-> **v2 兼容性（2026-08-06）**：编辑主区 v2 重做后本模块功能不变——撤销/重做仍经
-> `editorStore.undo/redo`（content 快照栈，v2 每次编辑序列化同步，天然兼容）；
-> Source Code Mode 切换、Find & Replace（content 文本层，替换后 v2 重建树）、
-> 文件/文件夹操作均与 v2 编辑主区正常协作。
+> 最后更新：2026-08-30
 
----
+## 做什么
 
-## 1. 功能概述
+应用主界面顶部导航栏：应用 Logo、编辑器/AI 面板切换、帮助/视图菜单、撤销/重做、设置、窗口控制。
 
-应用主界面的顶部导航栏，包含应用 Logo、账号标签、File/Help/History/View 菜单、撤销/重做、导出、查找替换 (Ctrl+F)、窗口控制等功能。
-
-## 2. 架构位置
+## 架构
 
 ```
 src/render/components/Navbar/
-├── TopBar.tsx           # 导航栏主组件（布局 + 快捷键）
-├── FileMenu.tsx         # 文件菜单（New/Open/Delete/Close + 新建/打开/删除文件夹）
-├── HelpMenu.tsx         # 帮助菜单（Settings / Version）
-├── HistoryMenu.tsx      # 历史菜单（文件列表 / Manage Files）
-├── ViewMenu.tsx         # 视图菜单（Source Code Mode 切换）
-├── MoreMenu.tsx         # 更多菜单（Find & Replace / Edit History）
-└── WindowControls.tsx   # 窗口控制按钮（Min/Max/Close）
-src/render/components/Editor/
-└── FindReplaceBar.tsx   # 查找与替换 inline bar（Typora 风格，渲染于 EditorView 内）
-src/render/stores/
-├── authStore.ts         # 用户认证状态
-├── editorStore.ts       # 编辑器状态（当前文件、撤销/重做）
-├── uiStore.ts           # UI 状态（isSourceCodeMode, isFindReplaceOpen, 模态框等）
-└── historyStore.ts      # 历史文件列表
+├── TopBar.tsx           ← 导航栏主组件（布局 + 快捷键）
+├── HelpMenu.tsx         ← 帮助菜单（反馈 / 更新 / 版本）— 图标触发器
+├── ViewMenu.tsx         ← 视图菜单（Source Code Mode）— 图标触发器
+├── NavMenu.tsx          ← 菜单包装器（支持文字/图标两种触发器）
+├── WindowControls.tsx   ← 窗口控制（Min/Max/Close）
+└── ExportMenu.tsx       ← 导出菜单（8 格式）
+
+src/render/components/Editor/panels/
+└── FindReplaceBar.tsx   ← 查找替换 inline bar
 ```
 
 ## 3. 实现逻辑流程

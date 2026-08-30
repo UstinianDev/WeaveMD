@@ -14,12 +14,9 @@ const LANGUAGES: { value: LanguageType; label: string }[] = [
   { value: 'en', label: 'English' },
 ];
 
-const THEMES: { value: ThemeType; label: string; preview: string }[] = [
-  { value: 'light-header', label: 'Light with Light Header', preview: 'bg-white border' },
-  { value: 'light', label: 'Light', preview: 'bg-white border' },
-  { value: 'dark', label: 'Dark', preview: 'bg-[#0F0F0F]' },
-  { value: 'high-contrast', label: 'High Contrast', preview: 'bg-black' },
-  { value: 'custom', label: 'Custom', preview: 'bg-gradient-to-r from-[#7C3AED] to-[#6366F1]' },
+const THEMES: { value: ThemeType; label: string; description: string; colors: { bg: string; accent: string; nav: string } }[] = [
+  { value: 'light-header', label: 'Default', description: '明亮清爽', colors: { bg: '#FFFFFF', accent: '#2563EB', nav: '#FFFFFF' } },
+  { value: 'notus', label: 'Warm Earth', description: '暖色陶土', colors: { bg: '#FAF9F5', accent: '#C15F3C', nav: '#1C1917' } },
 ];
 
 const SystemSettings: React.FC = () => {
@@ -85,21 +82,41 @@ const SystemSettings: React.FC = () => {
         <label className="text-[15px] text-[var(--text-primary)] font-medium mb-2 block">
           {t('settings.theme')}
         </label>
-        <div className="grid grid-cols-2 gap-2">
-          {THEMES.map((th) => (
-            <button
-              key={th.value}
-              onClick={() => setSelectedTheme(th.value)}
-              className={`flex items-center gap-3 p-3 rounded-input border transition-colors text-left ${
-                selectedTheme === th.value
-                  ? 'border-[var(--accent)] bg-[var(--accent)]/10'
-                  : 'border-[var(--border-color)] hover:border-[var(--accent-secondary)]'
-              }`}
-            >
-              <div className={`w-8 h-8 rounded border border-[var(--border-color)] ${th.preview}`} />
-              <span className="text-[14px] text-[var(--text-sub)]">{th.label}</span>
-            </button>
-          ))}
+        <div className="grid grid-cols-2 gap-3">
+          {THEMES.map((th) => {
+            const isSelected = selectedTheme === th.value;
+            return (
+              <button
+                key={th.value}
+                onClick={() => setSelectedTheme(th.value)}
+                className="relative flex items-center gap-3 p-4 rounded-lg border-2 transition-all text-left hover:shadow-md"
+                style={{
+                  borderColor: isSelected ? '#2563EB' : 'var(--border-color)',
+                  backgroundColor: isSelected ? 'rgba(37, 99, 235, 0.06)' : 'transparent',
+                }}
+              >
+                {/* Checkmark badge */}
+                {isSelected && (
+                  <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[#2563EB] flex items-center justify-center">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  </div>
+                )}
+                {/* Theme preview — simulated navbar + content */}
+                <div className="w-12 h-12 rounded-lg overflow-hidden border border-gray-200 shadow-sm flex flex-col">
+                  <div className="h-[40%] w-full" style={{ backgroundColor: th.colors.nav }} />
+                  <div className="flex-1 w-full flex items-center justify-center" style={{ backgroundColor: th.colors.bg }}>
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: th.colors.accent }} />
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="text-[13px] font-semibold block truncate" style={{ color: isSelected ? '#2563EB' : 'var(--text-primary)' }}>{th.label}</span>
+                  <span className="text-[11px] text-[var(--text-muted)]">{th.description}</span>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
 

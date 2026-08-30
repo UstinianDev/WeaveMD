@@ -18,6 +18,10 @@ interface NavMenuProps {
   position?: 'bottom-left' | 'bottom-right';
   /** 附加到统一 trigger span 的类名 */
   triggerClassName?: string;
+  /** 图标触发器（IconButton 风格） */
+  icon?: React.ReactNode;
+  /** 图标按钮的 tooltip */
+  tooltip?: string;
 }
 
 const NavMenu: React.FC<NavMenuProps> = ({
@@ -27,8 +31,31 @@ const NavMenu: React.FC<NavMenuProps> = ({
   width = 200,
   position,
   triggerClassName = '',
+  icon,
+  tooltip,
 }) => {
   const { t } = useI18n();
+
+  // 图标模式：使用 IconButton 风格
+  if (icon) {
+    return (
+      <Dropdown
+        trigger={
+          <button
+            type="button"
+            title={tooltip ? t(tooltip, tooltip) : undefined}
+            className={`flex items-center justify-center w-[28px] h-[28px] rounded-md text-[var(--navbar-text-primary,#FFFFFF)] hover:text-[var(--accent)] hover:bg-[var(--accent)]/10 transition-all duration-150 cursor-pointer select-none ${triggerClassName}`}
+          >
+            {icon}
+          </button>
+        }
+        items={items}
+        width={width}
+        position={position}
+      />
+    );
+  }
+
   const content = trigger ?? (label ? <>{t(label)} ▾</> : null);
 
   return (

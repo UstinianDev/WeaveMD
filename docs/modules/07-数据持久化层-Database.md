@@ -1,22 +1,31 @@
-# 数据持久化层 (Database) 功能总结
+# 07 — 数据持久化层
 
-> 模块编号：07 | 优先级：P0 | 最后更新：2026-07-08
+> 最后更新：2026-08-30
 
----
+## 做什么
 
-## 1. 功能概述
+使用 SQLite (better-sqlite3) 实现本地数据持久化。核心 4 表 + AI/Agent/配置扩展表，共 16+ 张表。支持 WAL 模式、外键约束、数据隔离、级联删除。
 
-使用 SQLite (better-sqlite3) 实现本地数据持久化，包含用户、文件、历史版本、设置四张表。支持 WAL 模式、外键约束、数据隔离、级联删除。
-
-## 2. 架构位置
+## 架构
 
 ```
 src/main/db/
-├── index.ts       # 数据库初始化、迁移、生命周期管理
-├── users.ts       # 用户 CRUD（创建、查询、验证、删除）
-├── files.ts       # 文件 CRUD（创建、读取、更新、软删除）
-├── history.ts     # 历史版本 CRUD（保存、查询、删除）
-└── settings.ts    # 设置 CRUD（读取、更新）
+├── index.ts              ← 初始化、迁移、生命周期
+├── users.ts              ← 用户 CRUD
+├── files.ts              ← 文件 CRUD（软删除）
+├── history.ts            ← 历史版本
+├── settings.ts           ← 用户设置
+├── ai.ts                 ← AI 配置 + 对话 + 消息
+├── kb.ts                 ← 知识库（kb_documents + kb_chunks + kb_chunks_fts）
+├── agentTaskDao.ts       ← Agent 任务队列
+├── agentSessionDao.ts    ← Agent 会话
+├── agentSnapshotDao.ts   ← Agent 快照（回滚）
+├── agentEventDao.ts      ← Agent 事件流
+├── modelConfigs.ts       ← 多模型配置
+├── embeddingConfig.ts    ← Embedding 配置
+├── searchConfig.ts       ← 搜索配置
+├── mail.ts               ← 邮件配置
+└── appMeta.ts            ← 应用元数据
 ```
 
 ## 3. 数据库 Schema
@@ -214,7 +223,44 @@ app.on('before-quit')
   → closeDatabase() — 关闭数据库连接
 ```
 
-## 9. 关键设计决策
+## 9. 扩展表（AI / Agent / 配置）
+
+### 9.1 AI 表（ai.ts）
+
+| 表 | 用途 |
+|------|------|
+| `ai_config` | AI 全局配置（activeModelConfigId、consent、writeMode） |
+| `ai_conversations` | 对话列表（标题、创建时间） |
+| `ai_messages` | 对话消息（role、content、tool_calls、token 用量） |
+
+### 9.2 知识库表（kb.ts）
+
+| 表 | 用途 |
+|------|------|
+| `kb_documents` | 文档元数据（路径、类型、哈希） |
+| `kb_chunks` | 文档分块（文本、embedding） |
+| `kb_chunks_fts` | FTS5 虚拟表（全文检索） |
+
+### 9.3 Agent 表
+
+| 表 | 文件 | 用途 |
+|------|------|------|
+| `agent_task_queue` | agentTaskDao.ts | 任务队列（状态、优先级） |
+| `agent_sessions` | agentSessionDao.ts | 会话记录 |
+| `agent_run_events` | agentEventDao.ts | 事件流（工具调用、检查点） |
+| `agent_file_snapshots` | agentSnapshotDao.ts | 文件快照（回滚用） |
+
+### 9.4 配置表
+
+| 表 | 文件 | 用途 |
+|------|------|------|
+| `model_configs` | modelConfigs.ts | 多模型配置（name、baseURL、apiKey、model） |
+| `embedding_config` | embeddingConfig.ts | Embedding 服务配置 |
+| `search_config` | searchConfig.ts | 搜索服务配置 |
+| `mail_config` | mail.ts | 邮件配置 |
+| `app_meta` | appMeta.ts | 应用元数据 |
+
+## 10. 关键设计决策
 
 1. **WAL 模式**：启用 WAL (Write-Ahead Logging) 提升并发读写性能
 2. **UUID 主键**：使用随机 UUID 作为主键，避免自增 ID 暴露数据量
