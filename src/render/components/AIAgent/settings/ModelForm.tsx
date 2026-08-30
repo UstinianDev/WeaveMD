@@ -72,14 +72,20 @@ const ModelForm: React.FC = () => {
 
   // —— 删除配置 ——
   const handleDelete = async (configId: string): Promise<void> => {
+    if (!user) return;
     try {
-      const res = await window.weaveMD.ai.modelConfigs.delete(configId);
+      const res = await window.weaveMD.ai.modelConfigs.delete(user.id, configId);
       if (res.success) {
-        // 如果删的是当前激活项，清空激活
-        if (activeModelConfigId === configId) {
-          useAgentStore.setState({ activeModelConfigId: null });
-        }
+        // 刷新 modelConfigs 列表
         await useAgentStore.getState().refreshModelConfigs();
+        // 刷新 config（主进程已处理级联：无剩余→清空，有剩余→自动激活下一个）
+        const cfgRes = await window.weaveMD.ai.getConfig(user.id);
+        if (cfgRes.success && cfgRes.data) {
+          useAgentStore.setState({
+            config: cfgRes.data,
+            activeModelConfigId: cfgRes.data.activeModelConfigId ?? null,
+          });
+        }
       }
     } catch {
       /* 静默 */

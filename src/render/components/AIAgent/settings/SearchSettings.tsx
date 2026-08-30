@@ -83,9 +83,12 @@ const SearchSettings: React.FC = () => {
         apiKey: apiKeys[provider].trim(),
         userId: user.id,
       });
-      setTestResult(res.success ? 'ok' : 'fail');
+      const ok = res.success;
+      setTestResult(ok ? 'ok' : 'fail');
+      useAgentStore.setState({ searchConnectionOk: ok });
     } catch {
       setTestResult('fail');
+      useAgentStore.setState({ searchConnectionOk: false });
     } finally {
       setTesting(false);
     }
@@ -113,8 +116,9 @@ const SearchSettings: React.FC = () => {
       if (res.success && res.data) {
         setHasApiKeys(res.data.hasApiKeys);
       }
-      // 刷新 store
+      // 刷新 store + 标记连接未验证（新 key 尚未测试）
       await useAgentStore.getState().refreshSearchConfig();
+      useAgentStore.setState({ searchConnectionOk: false });
       setSaved(true);
     } catch {
       /* 静默 */

@@ -21,9 +21,17 @@ interface SignupPageProps {
   onSwitchToLogin: (prefillUsername?: string) => void;
   onMascotStateChange: (state: MascotState) => void;
   onPasswordVisibleChange: (visible: boolean) => void;
+  onTypingChange?: (isTyping: boolean) => void;
+  onPasswordLengthChange?: (length: number) => void;
 }
 
-const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateChange, onPasswordVisibleChange }) => {
+const SignupPage: React.FC<SignupPageProps> = ({
+  onSwitchToLogin,
+  onMascotStateChange,
+  onPasswordVisibleChange,
+  onTypingChange,
+  onPasswordLengthChange,
+}) => {
   const { t } = useI18n();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -64,6 +72,16 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
       onMascotStateChange('idle');
     }
   }, [focusedField, generalError, registrationSuccess, onMascotStateChange]);
+
+  // Notify parent about typing state (for animated characters)
+  useEffect(() => {
+    onTypingChange?.(focusedField === 'username' && username.length > 0);
+  }, [focusedField, username, onTypingChange]);
+
+  // Notify parent about password length (for animated characters)
+  useEffect(() => {
+    onPasswordLengthChange?.(password.length);
+  }, [password, onPasswordLengthChange]);
 
   // Check username availability with debounce
   useEffect(() => {
@@ -172,31 +190,31 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
 
   if (registrationSuccess) {
     return (
-      <div className="w-full max-w-[380px] text-center">
+      <div className="w-full max-w-[420px] text-center">
         <span className="text-5xl">✅</span>
-        <h2 className="text-xl font-bold text-gray-900 mt-4">{t('auth.regSuccess')}</h2>
-        <p className="text-sm text-gray-500 mt-2">{t('auth.redirecting')}</p>
+        <h2 className="text-xl font-bold text-gray-900 mt-4" style={{ fontFamily: 'KaiTi, serif' }}>{t('auth.regSuccess')}</h2>
+        <p className="text-sm text-gray-500 mt-2" style={{ fontFamily: 'Consolas, monospace' }}>{t('auth.redirecting')}</p>
       </div>
     );
   }
 
   return (
-    <div className="w-full max-w-[380px]">
+    <div className="w-full max-w-[420px]">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">{t('auth.createAccount')}</h1>
-        <p className="text-sm text-gray-500 mt-1">{t('auth.startJourney')}</p>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-900" style={{ fontFamily: 'KaiTi, serif', letterSpacing: '0.02em' }}>{t('auth.createAccount')}</h1>
+        <p className="text-base text-gray-500 mt-2" style={{ fontFamily: 'Consolas, monospace' }}>{t('auth.startJourney')}</p>
       </div>
 
       {/* General error */}
       {generalError && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+        <div className="mb-6 p-3.5 bg-red-50 border border-red-200 rounded-lg text-base text-red-600" style={{ fontFamily: 'Consolas, monospace' }}>
           {generalError}
         </div>
       )}
 
       {/* Username */}
-      <div className="mb-4">
+      <div className="mb-6">
         <Input
           label={t('auth.username')}
           value={username}
@@ -211,16 +229,16 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
           onBlur={() => setFocusedField(null)}
         />
         {usernameAvailable === true && (
-          <p className="text-xs text-green-500 mt-1">{`✓ ${t('auth.available')}`}</p>
+          <p className="text-sm text-green-500 mt-1.5" style={{ fontFamily: 'Consolas, monospace' }}>{`✓ ${t('auth.available')}`}</p>
         )}
         {usernameAvailable === false && (
-          <p className="text-xs text-red-500 mt-1">{`✗ ${t('auth.taken')}`}</p>
+          <p className="text-sm text-red-500 mt-1.5" style={{ fontFamily: 'Consolas, monospace' }}>{`✗ ${t('auth.taken')}`}</p>
         )}
-        {usernameChecking && <p className="text-xs text-gray-400 mt-1">{t('auth.checking')}</p>}
+        {usernameChecking && <p className="text-sm text-gray-400 mt-1.5" style={{ fontFamily: 'Consolas, monospace' }}>{t('auth.checking')}</p>}
       </div>
 
       {/* Password */}
-      <div className="mb-2">
+      <div className="mb-4">
         <Input
           label={t('auth.password')}
           type="password"
@@ -238,13 +256,13 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
 
       {/* Password strength indicator */}
       {password && (
-        <div className="mb-4">
+        <div className="mb-6">
           <div className="flex gap-1 h-1 mb-1">
             <div
               className={`flex-1 rounded-full bg-gray-200 ${strengthConfig[passwordStrength].width} ${strengthConfig[passwordStrength].color}`}
             />
           </div>
-          <p className="text-xs text-gray-400">
+          <p className="text-sm text-gray-400" style={{ fontFamily: 'Consolas, monospace' }}>
             {`${t('auth.strength')}: `}
             <span
               className={
@@ -262,9 +280,9 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
       )}
 
       {/* Captcha */}
-      <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-xs text-gray-600 font-medium">{t('auth.securityCheck')}</p>
+      <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-sm text-gray-600 font-medium" style={{ fontFamily: 'Consolas, monospace' }}>{t('auth.securityCheck')}</p>
           <button
             onClick={regenerateCaptcha}
             className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -283,7 +301,7 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
             </svg>
           </button>
         </div>
-        <p className="text-lg font-bold text-gray-900 mb-2 font-mono">{captcha.question}</p>
+        <p className="text-xl font-bold text-gray-900 mb-3 font-mono" style={{ fontFamily: 'Consolas, monospace' }}>{captcha.question}</p>
         <Input
           value={captchaAnswer}
           onChange={(v) => {
@@ -297,14 +315,14 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
       </div>
 
       {/* Terms checkbox */}
-      <label className="flex items-center gap-2 mb-6 cursor-pointer select-none">
+      <label className="flex items-center gap-2.5 mb-8 cursor-pointer select-none">
         <input
           type="checkbox"
           checked={agreeTerms}
           onChange={(e) => setAgreeTerms(e.target.checked)}
           className="w-4 h-4 rounded border-gray-300 bg-transparent accent-purple-600 cursor-pointer"
         />
-        <span className="text-xs text-gray-500">{t('auth.terms')}</span>
+        <span className="text-sm text-gray-500" style={{ fontFamily: 'Consolas, monospace' }}>{t('auth.terms')}</span>
       </label>
 
       {/* Register button */}
@@ -322,10 +340,11 @@ const SignupPage: React.FC<SignupPageProps> = ({ onSwitchToLogin, onMascotStateC
       </Button>
 
       {/* Sign in link */}
-      <div className="mt-6 text-center">
+      <div className="mt-8 text-center">
         <button
           onClick={() => onSwitchToLogin()}
-          className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
+          className="text-base text-gray-400 hover:text-gray-600 transition-colors"
+          style={{ fontFamily: 'Consolas, monospace' }}
         >
           {t('auth.alreadyHave')}
         </button>

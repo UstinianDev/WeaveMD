@@ -14,11 +14,16 @@ type EmbeddingProvider = 'openai' | 'qwen' | 'doubao' | 'zhipu' | 'custom';
 
 const PROVIDERS: { key: EmbeddingProvider; label: string; defaultModel: string; defaultBase: string; defaultDim: number }[] = [
   { key: 'openai', label: 'OpenAI', defaultModel: 'text-embedding-3-small', defaultBase: 'https://api.openai.com', defaultDim: 1536 },
-  { key: 'qwen', label: '通义千问', defaultModel: 'text-embedding-v3', defaultBase: 'https://dashscope.aliyuncs.com', defaultDim: 1024 },
+  { key: 'qwen', label: '通义千问', defaultModel: 'text-embedding-v3', defaultBase: 'https://dashscope.aliyuncs.com/compatible-mode/v1', defaultDim: 1024 },
   { key: 'doubao', label: '豆包', defaultModel: 'doubao-embedding', defaultBase: 'https://ark.cn-beijing.volces.com', defaultDim: 2048 },
   { key: 'zhipu', label: '智谱', defaultModel: 'embedding-3', defaultBase: 'https://open.bigmodel.cn', defaultDim: 2048 },
   { key: 'custom', label: '自定义', defaultModel: '', defaultBase: '', defaultDim: 1536 },
 ];
+
+/** 旧版默认 URL → 新版映射，加载时自动修正已保存的过期地址。 */
+const DEPRECATED_BASE_URLS: Record<string, string> = {
+  'https://dashscope.aliyuncs.com': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+};
 
 const EmbeddingSettings: React.FC = () => {
   const { t } = useI18n();
@@ -57,7 +62,9 @@ const EmbeddingSettings: React.FC = () => {
         if (cancelled) return;
         if (res.success && res.data) {
           if (res.data.provider) setProvider(res.data.provider as EmbeddingProvider);
-          setBaseUrl(res.data.baseUrl);
+          // 自动修正已保存的过期 Base URL
+          const migratedUrl = DEPRECATED_BASE_URLS[res.data.baseUrl] ?? res.data.baseUrl;
+          setBaseUrl(migratedUrl);
           setModel(res.data.model);
           if (res.data.dimension) setDimension(res.data.dimension);
           setHasApiKey(res.data.hasApiKey);
@@ -85,9 +92,12 @@ const EmbeddingSettings: React.FC = () => {
         apiKey: apiKey.trim(),
         userId: user.id,
       });
-      setTestResult(res.success ? 'ok' : 'fail');
+      const ok = res.success;
+      setTestResult(ok ? 'ok' : 'fail');
+      useAgentStore.setState({ embeddingConnectionOk: ok });
     } catch {
       setTestResult('fail');
+      useAgentStore.setState({ embeddingConnectionOk: false });
     } finally {
       setTesting(false);
     }
@@ -117,8 +127,9 @@ const EmbeddingSettings: React.FC = () => {
       if (res.success && res.data) {
         setHasApiKey(res.data.hasApiKey);
       }
-      // 刷新 store
+      // 刷新 store + 标记连接未验证（新 key 尚未测试）
       await useAgentStore.getState().refreshEmbeddingConfig();
+      useAgentStore.setState({ embeddingConnectionOk: false });
       setSaved(true);
     } catch {
       /* 静默 */

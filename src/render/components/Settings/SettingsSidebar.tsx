@@ -5,7 +5,7 @@
 import React from 'react';
 import { useI18n } from '@render/i18n';
 
-export type UnifiedSettingsTab = 'system' | 'account' | 'model' | 'embedding' | 'search' | 'skills' | 'mcp';
+export type UnifiedSettingsTab = 'system' | 'account' | 'model' | 'embedding' | 'search' | 'skills' | 'mcp' | 'personality';
 
 interface TabDef {
   key: UnifiedSettingsTab;
@@ -22,6 +22,7 @@ const TABS: TabDef[] = [
   { key: 'search', i18nKey: 'settings.unified.search', fallback: '搜索', group: 'AI 设置' },
   { key: 'skills', i18nKey: 'settings.unified.skills', fallback: '技能', group: 'AI 设置' },
   { key: 'mcp', i18nKey: 'settings.unified.mcp', fallback: 'MCP', group: 'AI 设置' },
+  { key: 'personality', i18nKey: 'settings.unified.personality', fallback: 'Agent 个性', group: 'AI 设置' },
 ];
 
 interface SettingsSidebarProps {

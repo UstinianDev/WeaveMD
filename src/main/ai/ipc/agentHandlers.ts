@@ -16,7 +16,7 @@ import { AgentTaskQueue } from '../agent/agentTaskQueue';
 import { AgentTaskWorker } from '../agent/agentTaskWorker';
 import { replayFromSeq } from '../agent/agentEventStore';
 import { rollbackToSnapshot } from '../agent/agentSnapshot';
-import { getGlobalAgentFiles, setGlobalAgentFiles } from '../files/globalAgentFiles';
+import { getGlobalAgentFiles, setGlobalAgentFiles, getDefaultAgentFileContent } from '../files/globalAgentFiles';
 import { activeStreams, DEFAULT_AI_CONFIG, DEFAULT_CONSENT, toIAIConfig, toIAIConsent } from './shared';
 
 /** 内置 skills 名称列表（不暴露给 UI，仅 agent 内部使用）。 */
@@ -318,6 +318,19 @@ export function registerAgentHandlers(): void {
       try {
         const files = setGlobalAgentFiles(updates);
         return { success: true, data: files };
+      } catch (err) {
+        return { success: false, message: err instanceof Error ? err.message : String(err) };
+      }
+    }
+  );
+
+  // --- agent: global files default（获取单个文件的默认内容） ---
+  ipcMain.handle(
+    IPC_CHANNELS.AGENT_GLOBAL_FILES_DEFAULT,
+    (_event, file: 'soul' | 'style' | 'memory') => {
+      try {
+        const content = getDefaultAgentFileContent(file);
+        return { success: true, data: { content } };
       } catch (err) {
         return { success: false, message: err instanceof Error ? err.message : String(err) };
       }

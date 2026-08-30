@@ -79,7 +79,7 @@ describe('FileTreePanel.handleFileClick', () => {
     expect(useEditorStore.getState().isDirty).toBe(false);
   });
 
-  it('点击当前已打开文件为 no-op，不读盘也不覆盖未保存编辑', async () => {
+  it('点击当前已打开文件触发关闭（toggle），先保存再关闭', async () => {
     useEditorStore.setState({
       currentFile: diskA,
       content: '# A edited',
@@ -99,10 +99,10 @@ describe('FileTreePanel.handleFileClick', () => {
       fireEvent.click(screen.getByText('a.md'));
     });
 
+    // 点击已打开文件 → 先保存 dirty 草稿，再关闭
+    expect(window.weaveMD.file.write).toHaveBeenCalledWith('/disk/a.md', '# A edited');
     expect(window.weaveMD.file.readDisk).not.toHaveBeenCalled();
-    expect(window.weaveMD.file.write).not.toHaveBeenCalled();
-    expect(useEditorStore.getState().currentFile?.id).toBe('/disk/a.md');
-    expect(useEditorStore.getState().content).toBe('# A edited');
+    expect(useEditorStore.getState().currentFile).toBeNull();
   });
 
   it('始终以磁盘为准读取目标文件，忽略 fileTreeStore 陈旧缓存', async () => {

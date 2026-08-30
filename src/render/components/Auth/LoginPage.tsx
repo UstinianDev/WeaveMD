@@ -22,6 +22,8 @@ interface LoginPageProps {
   prefillUsername?: string;
   onMascotStateChange: (state: MascotState) => void;
   onPasswordVisibleChange: (visible: boolean) => void;
+  onTypingChange?: (isTyping: boolean) => void;
+  onPasswordLengthChange?: (length: number) => void;
 }
 
 const LoginPage: React.FC<LoginPageProps> = ({
@@ -30,6 +32,8 @@ const LoginPage: React.FC<LoginPageProps> = ({
   prefillUsername,
   onMascotStateChange,
   onPasswordVisibleChange,
+  onTypingChange,
+  onPasswordLengthChange,
 }) => {
   const { t } = useI18n();
   const [username, setUsername] = useState(prefillUsername || '');
@@ -71,6 +75,16 @@ const LoginPage: React.FC<LoginPageProps> = ({
       onMascotStateChange('idle');
     }
   }, [focusedField, username, error, onMascotStateChange]);
+
+  // Notify parent about typing state (for animated characters)
+  useEffect(() => {
+    onTypingChange?.(focusedField === 'username' && username.length > 0);
+  }, [focusedField, username, onTypingChange]);
+
+  // Notify parent about password length (for animated characters)
+  useEffect(() => {
+    onPasswordLengthChange?.(password.length);
+  }, [password, onPasswordLengthChange]);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -143,24 +157,30 @@ const LoginPage: React.FC<LoginPageProps> = ({
   };
 
   return (
-    <div className="w-full max-w-[380px]">
+    <div className="w-full max-w-[420px]">
       {/* Logo & Header */}
-      <div className="mb-8">
-        <span className="text-3xl">📔</span>
-        <h1 className="text-2xl font-bold text-gray-900 mt-3">{t('app.name')}</h1>
-        <p className="text-sm text-gray-500 mt-1">{t('auth.welcome')}</p>
-        <p className="text-xs text-gray-400 mt-0.5">{t('auth.signInPrompt')}</p>
+      <div className="mb-10">
+        <div className="w-14 h-14 rounded-xl flex items-center justify-center mb-4" style={{ backgroundColor: 'color-mix(in srgb, #6C3FF5 12%, transparent)' }}>
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#6C3FF5" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+            <path d="M8 7h8M8 11h6" />
+          </svg>
+        </div>
+        <h1 className="text-3xl font-bold text-gray-900" style={{ fontFamily: 'KaiTi, serif', letterSpacing: '0.02em' }}>{t('app.name')}</h1>
+        <p className="text-base text-gray-500 mt-2" style={{ fontFamily: 'Consolas, monospace' }}>{t('auth.welcome')}</p>
+        <p className="text-sm text-gray-400 mt-1" style={{ fontFamily: 'Consolas, monospace' }}>{t('auth.signInPrompt')}</p>
       </div>
 
       {/* Error */}
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
+        <div className="mb-6 p-3.5 bg-red-50 border border-red-200 rounded-lg text-base text-red-600" style={{ fontFamily: 'Consolas, monospace' }}>
           {error}
         </div>
       )}
 
       {/* Username with dropdown */}
-      <div className="relative mb-4" ref={dropdownRef}>
+      <div className="relative mb-6" ref={dropdownRef}>
         <Input
           label={t('auth.username')}
           value={username}
@@ -214,7 +234,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
       </div>
 
       {/* Password */}
-      <div className="mb-2">
+      <div className="mb-4">
         <Input
           label={t('auth.password')}
           type="password"
@@ -236,14 +256,14 @@ const LoginPage: React.FC<LoginPageProps> = ({
       </div>
 
       {/* Remember me */}
-      <label className="flex items-center gap-2 mb-6 cursor-pointer select-none">
+      <label className="flex items-center gap-2.5 mb-8 cursor-pointer select-none">
         <input
           type="checkbox"
           checked={rememberMe}
           onChange={(e) => setRememberMe(e.target.checked)}
           className="w-4 h-4 rounded border-gray-300 bg-transparent accent-purple-600 cursor-pointer"
         />
-        <span className="text-xs text-gray-500">{t('auth.rememberMe')}</span>
+        <span className="text-sm text-gray-500" style={{ fontFamily: 'Consolas, monospace' }}>{t('auth.rememberMe')}</span>
       </label>
 
       {/* Login button */}
@@ -260,11 +280,12 @@ const LoginPage: React.FC<LoginPageProps> = ({
       </Button>
 
       {/* Links */}
-      <div className="mt-6 text-center space-y-2">
+      <div className="mt-8 text-center space-y-3">
         <p>
           <button
             onClick={onCreateNewAccount}
-            className="text-sm text-purple-600 hover:text-purple-800 transition-colors font-medium"
+            className="text-base text-purple-600 hover:text-purple-800 transition-colors font-medium"
+            style={{ fontFamily: 'Consolas, monospace' }}
           >
             {t('auth.createNew')}
           </button>
@@ -273,6 +294,7 @@ const LoginPage: React.FC<LoginPageProps> = ({
           <button
             onClick={onSwitchToRegister}
             className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
+            style={{ fontFamily: 'Consolas, monospace' }}
           >
             {t('auth.noAccount')}
           </button>
@@ -281,14 +303,15 @@ const LoginPage: React.FC<LoginPageProps> = ({
 
       {/* Quick account switch pills */}
       {recentAccounts.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-gray-100">
-          <p className="text-xs text-gray-400 mb-2">{t('auth.quickSwitch')}</p>
-          <div className="flex flex-wrap gap-2">
+        <div className="mt-6 pt-4 border-t border-gray-100">
+          <p className="text-sm text-gray-400 mb-3" style={{ fontFamily: 'Consolas, monospace' }}>{t('auth.quickSwitch')}</p>
+          <div className="flex flex-wrap gap-2.5">
             {recentAccounts.slice(0, 5).map((account) => (
               <button
                 key={account}
                 onClick={() => handleSelectRecent(account)}
-                className="px-3 py-1 text-xs text-gray-500 bg-gray-100 rounded-full hover:bg-purple-100 hover:text-purple-700 transition-colors"
+                className="px-4 py-1.5 text-sm text-gray-500 bg-gray-100 rounded-full hover:bg-purple-100 hover:text-purple-700 transition-colors"
+                style={{ fontFamily: 'Consolas, monospace' }}
               >
                 {account}
               </button>

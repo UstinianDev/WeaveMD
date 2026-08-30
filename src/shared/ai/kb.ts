@@ -24,7 +24,7 @@ export interface IEmbeddingProviderConfig {
 /** Embedding 提供商默认配置。 */
 export const EMBEDDING_PROVIDER_DEFAULTS: Record<EmbeddingProviderType, Partial<IEmbeddingProviderConfig>> = {
   openai: { baseUrl: 'https://api.openai.com', model: 'text-embedding-3-small', dimension: 1536, batchSize: 20 },
-  qwen: { baseUrl: 'https://dashscope.aliyuncs.com', model: 'text-embedding-v3', dimension: 1024, batchSize: 10 },
+  qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'text-embedding-v3', dimension: 1024, batchSize: 10 },
   doubao: { baseUrl: 'https://ark.cn-beijing.volces.com', model: 'doubao-embedding', dimension: 2048, batchSize: 20 },
   zhipu: { baseUrl: 'https://open.bigmodel.cn', model: 'embedding-3', dimension: 2048, batchSize: 20 },
   custom: { baseUrl: '', model: '', dimension: 1536, batchSize: 20 },

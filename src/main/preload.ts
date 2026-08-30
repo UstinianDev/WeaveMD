@@ -218,7 +218,7 @@ export interface WeaveMDApi {
         apiKey?: string;
         hint?: string;
       }) => Promise<IpcResponse<IAIModelConfig>>;
-      delete: (id: string) => Promise<IpcResponse<{ deleted: boolean }>>;
+      delete: (userId: string, configId: string) => Promise<IpcResponse<{ deleted: boolean }>>;
       activate: (userId: string, configId: string) => Promise<IpcResponse<IAIConfig>>;
     };
     embeddingConfig: {
@@ -243,6 +243,7 @@ export interface WeaveMDApi {
     globalFiles: {
       get: () => Promise<IpcResponse<IGlobalAgentFiles>>;
       set: (updates: { soul?: string; memory?: string; style?: string }) => Promise<IpcResponse<IGlobalAgentFiles>>;
+      default: (file: 'soul' | 'style' | 'memory') => Promise<IpcResponse<{ content: string }>>;
     };
   };
   kb: {
@@ -491,8 +492,8 @@ const api: WeaveMDApi = {
         ipcRenderer.invoke(IPC_CHANNELS.AI_MODEL_CONFIGS_CREATE, { userId, config }),
       update: (id, config) =>
         ipcRenderer.invoke(IPC_CHANNELS.AI_MODEL_CONFIGS_UPDATE, { id, config }),
-      delete: (id) =>
-        ipcRenderer.invoke(IPC_CHANNELS.AI_MODEL_CONFIGS_DELETE, id),
+      delete: (userId, configId) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_MODEL_CONFIGS_DELETE, { configId, userId }),
       activate: (userId, configId) =>
         ipcRenderer.invoke(IPC_CHANNELS.AI_MODEL_CONFIGS_ACTIVATE, { userId, configId }),
     },
@@ -513,6 +514,8 @@ const api: WeaveMDApi = {
         ipcRenderer.invoke(IPC_CHANNELS.AGENT_GLOBAL_FILES_GET),
       set: (updates) =>
         ipcRenderer.invoke(IPC_CHANNELS.AGENT_GLOBAL_FILES_SET, updates),
+      default: (file) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AGENT_GLOBAL_FILES_DEFAULT, file),
     },
   },
   kb: {

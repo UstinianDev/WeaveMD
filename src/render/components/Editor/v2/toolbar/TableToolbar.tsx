@@ -29,6 +29,8 @@ export type TableAction =
 interface TableToolbarProps {
   /** 是否可见 */
   visible: boolean;
+  /** 所属表格块的 block id（用于 click-outside 判断同表/异表） */
+  blockId: string;
   /** 当前活跃列的对齐方式（-1 表示未知） */
   alignment: ColumnAlign;
   /** 当前行数 */
@@ -61,6 +63,7 @@ const EDIT_BUTTONS: { action: TableAction; label: string; title: string; danger?
 
 const TableToolbar: React.FC<TableToolbarProps> = ({
   visible,
+  blockId,
   alignment,
   rowCount,
   colCount,
@@ -78,15 +81,18 @@ const TableToolbar: React.FC<TableToolbarProps> = ({
     setEditCols(colCount);
   }, [rowCount, colCount]);
 
-  // 点击外部关闭（但不关闭如果点击的是表格内的单元格）
+  // 点击外部关闭（仅排除同一表格实例内的点击）
   useEffect(() => {
     if (!visible) return;
     const handleMouseDown = (e: MouseEvent) => {
       const target = e.target as Element;
-      if (target.closest?.('.table-cell') || target.closest?.('.table-block')) return;
-      if (containerRef.current && !containerRef.current.contains(target)) {
-        onClose();
-      }
+      // 点击同一表格块内 → 不关闭
+      const ownBlock = target.closest?.('[data-block-id]');
+      if (ownBlock?.getAttribute('data-block-id') === blockId) return;
+      // 点击工具栏自身 → 不关闭
+      if (containerRef.current && containerRef.current.contains(target)) return;
+      // 其他情况（空白/其他表格/其他块）→ 关闭
+      onClose();
     };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -97,7 +103,7 @@ const TableToolbar: React.FC<TableToolbarProps> = ({
       document.removeEventListener('mousedown', handleMouseDown, true);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [visible, onClose]);
+  }, [visible, onClose, blockId]);
 
   const handleSetRows = useCallback(() => {
     if (editRows >= 1) onAction('set-rows', editRows);

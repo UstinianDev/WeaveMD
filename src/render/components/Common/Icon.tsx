@@ -136,6 +136,7 @@ import {
   MdOutlineGridOn,
   MdLinkOff,
   MdOutlineAutoFixNormal,
+  MdOutlineLock,
 } from 'react-icons/md';
 
 /** 图标名称到组件的映射表。 */
@@ -164,6 +165,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: 
   'link': MdLink,
   'web': MdWeb,
   'folder': MdFolderOpen,
+  'folder-open': MdFolderOpen,
   'folder-outline': MdOutlineFolder,
   'folder-new': MdOutlineCreateNewFolder,
   'folder-move': MdOutlineDriveFileMove,
@@ -189,6 +191,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: 
   'close-circle': MdOutlineClose,
   'rocket': MdOutlineRocket,
   'info': MdOutlineInfo,
+  'lock': MdOutlineLock,
 
   // Agent/Chat
   'chat': MdOutlineChat,

@@ -56,11 +56,11 @@ const Input: React.FC<InputProps> = ({
 
   return (
     <div className={`flex flex-col gap-1 ${className}`}>
-      {label && <label className="text-xs text-text-sub font-medium">{label}</label>}
+      {label && <label className="text-sm text-text-sub font-medium" style={{ fontFamily: 'Consolas, monospace' }}>{label}</label>}
 
       <div
         className={`
-          relative flex items-center h-10 rounded-input border
+          relative flex items-center h-12 rounded-input border
           transition-colors duration-150
           ${isFocused ? 'border-accent shadow-[0_0_0_2px_rgba(124,58,237,0.2)]' : 'border-border'}
           ${error ? 'border-red-500' : ''}
@@ -87,8 +87,8 @@ const Input: React.FC<InputProps> = ({
           }}
           onKeyDown={onKeyDown}
           className="
-            flex-1 h-full bg-transparent text-sm text-text-primary
-            placeholder-text-muted px-3 outline-none
+            flex-1 h-full bg-transparent text-base text-text-primary
+            placeholder-text-muted px-4 outline-none
             disabled:cursor-not-allowed
             font-sans
           "
@@ -149,8 +149,8 @@ const Input: React.FC<InputProps> = ({
         )}
       </div>
 
-      {error && <p className="text-xs text-red-400">{error}</p>}
-      {hint && !error && <p className="text-xs text-text-muted">{hint}</p>}
+      {error && <p className="text-sm text-red-400" style={{ fontFamily: 'Consolas, monospace' }}>{error}</p>}
+      {hint && !error && <p className="text-sm text-text-muted" style={{ fontFamily: 'Consolas, monospace' }}>{hint}</p>}
     </div>
   );
 };

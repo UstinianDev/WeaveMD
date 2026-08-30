@@ -136,7 +136,7 @@ describe('ModelForm (Phase 5: 双视图模型配置)', () => {
     await waitFor(() => {
       expect(
         (window.weaveMD.ai.modelConfigs.delete as ReturnType<typeof vi.fn>)
-      ).toHaveBeenCalledWith('cfg-2');
+      ).toHaveBeenCalledWith('u1', 'cfg-2');
     });
   });
 

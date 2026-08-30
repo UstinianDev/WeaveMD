@@ -25,6 +25,29 @@ const remoteConfig: IAIConfig = {
   hasApiKey: true,
 };
 
+/** 模拟已配置的模型列表（sendAgentMessage 需要 modelConfigs.length > 0）。 */
+const mockModelConfigs = [
+  { id: 'cfg-1', name: 'deepseek-chat', protocol: 'openai' as const, provider: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', hasApiKey: true, hint: '' },
+];
+
+/** 模拟 Embedding 配置（sendAgentMessage 需要 embeddingConfig.hasApiKey）。 */
+const mockEmbeddingConfig = {
+  provider: 'openai',
+  baseUrl: 'https://api.openai.com/v1',
+  model: 'text-embedding-3-small',
+  hasApiKey: true,
+  multimodal: false,
+};
+
+/** 模拟搜索配置（sendAgentMessage 需要 searchConfig.enabled + provider + hasApiKeys）。 */
+const mockSearchConfig = {
+  enabled: true,
+  provider: 'firecrawl' as const,
+  callMode: 'auto',
+  maxResults: 10,
+  hasApiKeys: { firecrawl: true, zhipu: false, tavily: false, exa: false },
+};
+
 /** 未配置 key 的 remote 配置（hasApiKey=false），用于「断开/未配置」场景。 */
 const remoteNoKeyConfig: IAIConfig = {
   backend: 'remote',
@@ -170,7 +193,7 @@ describe('agentStore 会话状态机', () => {
   it('sendAgentMessage 无 consent 仍正常发送（铁律二已移除）', async () => {
     // 铁律二已移除：consent 不再阻拦，sendAgentMessage 继续执行到 createConversation
     // 这里只验证不会因为 consent 而提前 return
-    useAgentStore.setState({ config: remoteConfig, consent: noConsent, activeMode: 'agent' });
+    useAgentStore.setState({ config: remoteConfig, modelConfigs: mockModelConfigs, embeddingConfig: mockEmbeddingConfig, embeddingConnectionOk: true, searchConfig: mockSearchConfig, searchConnectionOk: true, consent: noConsent, activeMode: 'agent' });
     // createConversation 在 mock 中返回 undefined，会导致后续逻辑报错
     // 但我们只关心 consent 检查不会阻拦，所以用 try-catch 包裹
     try {
@@ -209,7 +232,7 @@ describe('agentStore 会话状态机', () => {
       data: { id: CONVERSATION_ID, userId: 'u1', mode: 'agent', summary: '', createdAt: '', updatedAt: '' },
     });
 
-    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent, activeMode: 'agent' });
+    useAgentStore.setState({ config: remoteConfig, modelConfigs: mockModelConfigs, embeddingConfig: mockEmbeddingConfig, embeddingConnectionOk: true, searchConfig: mockSearchConfig, searchConnectionOk: true, consent: grantedConsent, activeMode: 'agent' });
 
     const sendPromise = useAgentStore.getState().sendAgentMessage('hello');
     // 排空微任务队列，让 sendAgentMessage 走到「append user msg + 订阅流」之后
@@ -256,7 +279,7 @@ describe('agentStore 会话状态机', () => {
       data: { id: CONVERSATION_ID, userId: 'u1', mode: 'agent', summary: '', createdAt: '', updatedAt: '' },
     });
 
-    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent, activeMode: 'agent' });
+    useAgentStore.setState({ config: remoteConfig, modelConfigs: mockModelConfigs, embeddingConfig: mockEmbeddingConfig, embeddingConnectionOk: true, searchConfig: mockSearchConfig, searchConnectionOk: true, consent: grantedConsent, activeMode: 'agent' });
 
     const emit = (evt: AIStreamEvent) => streamCb?.(evt);
 
@@ -334,7 +357,7 @@ describe('agentStore 会话状态机', () => {
       success: true,
       data: { conversationId: 'conv-title', assistantId: 'a1', roundsUsed: 1, intent: null },
     });
-    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent, activeMode: 'agent' });
+    useAgentStore.setState({ config: remoteConfig, modelConfigs: mockModelConfigs, embeddingConfig: mockEmbeddingConfig, embeddingConnectionOk: true, searchConfig: mockSearchConfig, searchConnectionOk: true, consent: grantedConsent, activeMode: 'agent' });
 
     const longMsg = 'a'.repeat(80);
     await useAgentStore.getState().sendAgentMessage(longMsg);
@@ -382,7 +405,7 @@ describe('agentStore agent 模式', () => {
   });
 
   it('sendAgentMessage 无 consent 仍正常发送（铁律二已移除）', async () => {
-    useAgentStore.setState({ config: remoteConfig, consent: noConsent, activeMode: 'agent' });
+    useAgentStore.setState({ config: remoteConfig, modelConfigs: mockModelConfigs, embeddingConfig: mockEmbeddingConfig, embeddingConnectionOk: true, searchConfig: mockSearchConfig, searchConnectionOk: true, consent: noConsent, activeMode: 'agent' });
     await useAgentStore.getState().sendAgentMessage('帮我整理');
     // 铁律二已移除：不再阻拦
     expect(useAgentStore.getState().pendingConsent).toBe(false);
@@ -411,7 +434,7 @@ describe('agentStore agent 模式', () => {
     const s = useAgentStore.getState();
     const assistantMsgs = s.messages.filter((m) => m.role === 'assistant');
     expect(assistantMsgs).toHaveLength(1);
-    expect(assistantMsgs[0]?.content).toContain('API Key');
+    expect(assistantMsgs[0]?.content).toContain('LLM');
     expect(
       (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent
     ).not.toHaveBeenCalled();
@@ -429,7 +452,7 @@ describe('agentStore agent 模式', () => {
       new Error('Network timeout')
     );
 
-    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent, activeMode: 'agent' });
+    useAgentStore.setState({ config: remoteConfig, modelConfigs: mockModelConfigs, embeddingConfig: mockEmbeddingConfig, embeddingConnectionOk: true, searchConfig: mockSearchConfig, searchConnectionOk: true, consent: grantedConsent, activeMode: 'agent' });
     await useAgentStore.getState().sendAgentMessage('查询');
 
     const s = useAgentStore.getState();
@@ -470,7 +493,7 @@ describe('agentStore agent 模式', () => {
       },
     });
 
-    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent, activeMode: 'agent' });
+    useAgentStore.setState({ config: remoteConfig, modelConfigs: mockModelConfigs, embeddingConfig: mockEmbeddingConfig, embeddingConnectionOk: true, searchConfig: mockSearchConfig, searchConnectionOk: true, consent: grantedConsent, activeMode: 'agent' });
     const sendPromise = useAgentStore.getState().sendAgentMessage('写一篇介绍');
     await new Promise((r) => setTimeout(r, 0));
 
@@ -503,7 +526,7 @@ describe('agentStore agent 模式', () => {
       success: true,
       data: { conversationId: 'agent-conv-title', assistantId: 'a1', roundsUsed: 1, intent: null },
     });
-    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent, activeMode: 'agent' });
+    useAgentStore.setState({ config: remoteConfig, modelConfigs: mockModelConfigs, embeddingConfig: mockEmbeddingConfig, embeddingConnectionOk: true, searchConfig: mockSearchConfig, searchConnectionOk: true, consent: grantedConsent, activeMode: 'agent' });
 
     const firstMsgText = '帮我生成一篇代理介绍文档，内容要完整且覆盖要点';
     await useAgentStore.getState().sendAgentMessage(firstMsgText);
@@ -531,7 +554,7 @@ describe('agentStore agent 模式', () => {
       data: { conversationId: 'agent-conv-2', assistantId: 'a1', roundsUsed: 1, intent: null },
     });
 
-    useAgentStore.setState({ config: remoteConfig, consent: grantedConsent, activeMode: 'agent' });
+    useAgentStore.setState({ config: remoteConfig, modelConfigs: mockModelConfigs, embeddingConfig: mockEmbeddingConfig, embeddingConnectionOk: true, searchConfig: mockSearchConfig, searchConnectionOk: true, consent: grantedConsent, activeMode: 'agent' });
     const sendPromise = useAgentStore.getState().sendAgentMessage('查找');
     await new Promise((r) => setTimeout(r, 0));
 

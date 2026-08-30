@@ -167,6 +167,7 @@ export const IPC_CHANNELS = {
   // AI — Agent 全局文件（阶段 2）
   AGENT_GLOBAL_FILES_GET: 'agent:global-files:get',
   AGENT_GLOBAL_FILES_SET: 'agent:global-files:set',
+  AGENT_GLOBAL_FILES_DEFAULT: 'agent:global-files:default',
 
   // AI — Agent 附件/图片（阶段 2）
   AGENT_UPLOAD_ATTACHMENT: 'agent:upload:attachment',

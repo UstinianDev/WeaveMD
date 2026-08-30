@@ -6,6 +6,7 @@
 import React, { useCallback, useState } from 'react';
 import type { IFile } from '@shared/types';
 import { useI18n } from '@render/i18n';
+import Icon from '@render/components/Common/Icon';
 import { saveCurrentDraftIfNeeded } from '@render/services/saveCurrentDraft';
 import { isWelcomeFile } from '@render/services/welcomeDocument';
 import { useEditorStore } from '@render/stores/editorStore';
@@ -270,8 +271,12 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
               <span className="w-4" />
             )}
 
-            <span className="text-base select-none">
-              {isFolder ? (node.expanded ? '📂' : '📁') : '📄'}
+            <span className="select-none text-text-muted">
+              {isFolder ? (
+                <Icon icon={node.expanded ? 'folder-open' : 'folder-outline'} size={16} />
+              ) : (
+                <Icon icon="file-outline" size={16} />
+              )}
             </span>
 
             {isRenaming ? (
@@ -325,7 +330,9 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
           }
         >
           <span className="w-4" />
-          <span className="text-base select-none">📄</span>
+          <span className="select-none text-text-muted">
+            <Icon icon="file-outline" size={16} />
+          </span>
           {isRenaming ? (
             <RenameInput
               currentName={file.name}

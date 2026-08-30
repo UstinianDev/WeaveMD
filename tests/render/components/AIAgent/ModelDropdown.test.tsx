@@ -128,7 +128,7 @@ describe('ModelDropdown (Phase 5: modelConfigs 数据源)', () => {
     await waitFor(() => {
       fireEvent.click(screen.getByTestId('model-dropdown'));
     });
-    expect(screen.getByText('未配置模型')).toBeInTheDocument();
+    expect(screen.getAllByText('未配置模型').length).toBeGreaterThanOrEqual(1);
 
     fireEvent.click(screen.getByTestId('model-manual-toggle'));
     const input = screen.getByTestId('model-manual-input');

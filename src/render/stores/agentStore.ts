@@ -105,8 +105,12 @@ interface AgentStore {
   activeModelConfigId: string | null;
   /** Embedding 模型配置（独立于 AI 模型配置，仅用于知识库索引与检索）。 */
   embeddingConfig: IEmbeddingConfig | null;
+  /** Embedding 连接验证状态（测试通过=true，保存新key=false，init时按hasApiKey推断）。 */
+  embeddingConnectionOk: boolean;
   /** 搜索引擎配置（设置面板 search tab）。 */
   searchConfig: ISearchConfig | null;
+  /** 搜索连接验证状态（测试通过=true，保存新key=false，init时按hasApiKey推断）。 */
+  searchConnectionOk: boolean;
 
   // —— 全局 Agent 文件（soul.md / memory.md / style.md） ——
   globalFiles: IGlobalAgentFiles | null;
@@ -212,7 +216,9 @@ const RESET_FIELDS: Pick<
   | 'modelConfigs'
   | 'activeModelConfigId'
   | 'embeddingConfig'
+  | 'embeddingConnectionOk'
   | 'searchConfig'
+  | 'searchConnectionOk'
   | 'globalFiles'
   | 'processStatus'
   | 'writeMode'
@@ -241,7 +247,9 @@ const RESET_FIELDS: Pick<
   modelConfigs: [],
   activeModelConfigId: null,
   embeddingConfig: null,
+  embeddingConnectionOk: false,
   searchConfig: null,
+  searchConnectionOk: false,
   globalFiles: null,
   processStatus: 'idle',
   writeMode: 'auto',
@@ -466,9 +474,18 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       activeModelConfigId,
       writeMode,
       ...(modelConfigsRes?.success && modelConfigsRes.data ? { modelConfigs: modelConfigsRes.data } : {}),
-      ...(embeddingConfigRes?.success && embeddingConfigRes.data ? { embeddingConfig: embeddingConfigRes.data } : {}),
-      ...(searchConfigRes?.success && searchConfigRes.data ? { searchConfig: searchConfigRes.data } : {}),
+      ...(embeddingConfigRes?.success && embeddingConfigRes.data ? {
+        embeddingConfig: embeddingConfigRes.data,
+        embeddingConnectionOk: embeddingConfigRes.data.hasApiKey,
+      } : {}),
+      ...(searchConfigRes?.success && searchConfigRes.data ? {
+        searchConfig: searchConfigRes.data,
+        searchConnectionOk: searchConfigRes.data.enabled && searchConfigRes.data.hasApiKeys?.[searchConfigRes.data.provider],
+      } : {}),
     });
+
+    // 全局 Agent 文件加载（非阻塞）
+    void get().loadGlobalFiles();
 
     // 断线重连：页面从 hidden 恢复时 replay 丢失事件
     // 先移除旧监听器（init 可能被多次调用），再注册新的
@@ -514,14 +531,18 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       get().stopStream();
     }
 
-    // 前置校验：API Key 未配置时直接提示，避免走到主进程再失败
+    // 前置校验：LLM / Embedding / Search 任一未配置或连接未验证时直接提示
     const config = get().config;
-    if (!config?.hasApiKey) {
+    const modelConfigs = get().modelConfigs;
+    const llmOk = config?.hasApiKey && modelConfigs.length > 0;
+    const embOk = get().embeddingConnectionOk;
+    const searchOk = get().searchConnectionOk;
+    if (!llmOk || !embOk || !searchOk) {
       const errorMsg: IAIMessage = {
         id: makeId(),
         conversationId: activeConversationId ?? 'error-temp',
         role: 'assistant',
-        content: '⚠️ 请先在设置中配置 API Key 后再使用 AI 功能。',
+        content: '⚠️ 请先在设置中完成 LLM、Embedding 和搜索配置后再使用 AI 功能。',
         refsJson: null,
         createdAt: new Date().toISOString(),
       };

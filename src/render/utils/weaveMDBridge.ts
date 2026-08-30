@@ -682,7 +682,7 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
       list: async () => createSuccessResult([]),
       create: async () => ({ success: false }),
       update: async () => ({ success: false }),
-      delete: async () => ({ success: false }),
+      delete: async (_userId: string, _configId: string) => ({ success: false }),
       activate: async () => ({ success: false }),
     },
     embeddingConfig: {
@@ -696,6 +696,7 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
     globalFiles: {
       get: async () => ({ success: false }),
       set: async () => ({ success: false }),
+      default: async () => ({ success: false }),
     },
   },
   kb: {

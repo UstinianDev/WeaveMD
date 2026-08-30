@@ -36,9 +36,18 @@ const AIAgentPanel: React.FC = () => {
   const activeMode = useAgentStore((s) => s.activeMode);
   const activeConversationId = useAgentStore((s) => s.activeConversationId);
 
+  // 配置状态（未配置时面板上锁）：LLM + Embedding + Search 三重检查
+  const config = useAgentStore((s) => s.config);
+  const modelConfigs = useAgentStore((s) => s.modelConfigs);
+  const embeddingConnectionOk = useAgentStore((s) => s.embeddingConnectionOk);
+  const searchConnectionOk = useAgentStore((s) => s.searchConnectionOk);
+  const llmReady = Boolean(config?.hasApiKey && modelConfigs.length > 0);
+  const isConfigured = llmReady && embeddingConnectionOk && searchConnectionOk;
+
   const aiPanelWidth = useUIStore((s) => s.aiPanelWidth);
   const setAIPanelWidth = useUIStore((s) => s.setAIPanelWidth);
   const toggleAIPanel = useUIStore((s) => s.toggleAIPanel);
+  const toggleSettings = useUIStore((s) => s.toggleSettings);
   const isEditorCollapsed = useUIStore((s) => s.isEditorCollapsed);
 
   // 视图状态（平凡，无须 store）：home 主界面 / session 会话 / settings 设置
@@ -239,7 +248,7 @@ const AIAgentPanel: React.FC = () => {
   return (
     <>
       <aside
-        className={`flex flex-col h-full border-l border-border bg-bg-secondary transition-transform ${
+        className={`relative flex flex-col h-full border-l border-border bg-bg-secondary transition-transform ${
           isEditorCollapsed ? 'flex-1 min-w-0' : 'flex-shrink-0'
         } ${isCollapsing ? 'translate-x-full' : 'translate-x-0'}`}
         style={{ width: isEditorCollapsed ? '100%' : aiPanelWidth }}
@@ -323,6 +332,30 @@ const AIAgentPanel: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* 未配置锁屏蒙板 */}
+        {!isConfigured && view !== 'history' && (
+          <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-bg-secondary/80 backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-4 px-6 text-center">
+              <div className="w-12 h-12 rounded-full bg-bg-tertiary flex items-center justify-center">
+                <Icon icon="lock" size={24} className="text-text-muted" />
+              </div>
+              <p className="text-[14px] text-text-sub leading-relaxed max-w-[240px]">
+                {t(
+                  'ai.lock.message',
+                  '先完成 LLM 与 Embedding 配置后，这里的生成、问答和检索能力才会开放。'
+                )}
+              </p>
+              <button
+                type="button"
+                onClick={() => toggleSettings()}
+                className="px-4 py-1.5 text-[13px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 transition-opacity"
+              >
+                {t('ai.lock.goSettings', '前往设置')}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* 反向拖拽把手：编辑区收起时隐藏（全屏无需调整宽度） */}
         {!isEditorCollapsed && (

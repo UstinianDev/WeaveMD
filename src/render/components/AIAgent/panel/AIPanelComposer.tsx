@@ -97,11 +97,17 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
   const writeMode = useAgentStore((s) => s.writeMode);
   const setWriteMode = useAgentStore((s) => s.setWriteMode);
 
+  // 配置状态（用于未配置锁）：LLM + Embedding + Search 三重检查
+  const config = useAgentStore((s) => s.config);
+  const modelConfigs = useAgentStore((s) => s.modelConfigs);
+  const embeddingConnectionOk = useAgentStore((s) => s.embeddingConnectionOk);
+  const searchConnectionOk = useAgentStore((s) => s.searchConnectionOk);
+  const searchConfig = useAgentStore((s) => s.searchConfig);
+  const llmReady = Boolean(config?.hasApiKey && modelConfigs.length > 0);
+  const isConfigured = llmReady && embeddingConnectionOk && searchConnectionOk;
+
   // 改写状态
   const selectionContext = useRewriteStore((s) => s.selectionContext);
-
-  // 搜索配置
-  const searchConfig = useAgentStore((s) => s.searchConfig);
 
   // —— 控制条状态 ——
   const [searchMenuOpen, setSearchMenuOpen] = useState(false);
@@ -412,7 +418,7 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
 
   const handleSend = () => {
     const text = value.trim();
-    if (!text || isStreaming) return;
+    if (!text || isStreaming || !isConfigured) return;
     setCompletionOpen(false);
 
     let fullText = text;
@@ -820,7 +826,8 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
           <button
             type="button"
             onClick={handleSend}
-            disabled={!value.trim()}
+            disabled={!value.trim() || !isConfigured}
+            title={!isConfigured ? t('ai.configRequired', '请先在设置中配置 API Key') : undefined}
             data-testid="ai-composer-send"
             className="px-3.5 py-1 text-[15px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity btn-shimmer"
           >

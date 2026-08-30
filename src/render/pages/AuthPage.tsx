@@ -1,6 +1,7 @@
 // ============================================
 // WeaveMD — Auth Page Container
-// Two-column layout: Left = mascot, Right = form
+// Two-column layout: Left = animated characters, Right = form
+// 字体：中文阿里巴巴普惠体 + 英文 Consolas
 // ============================================
 
 import React, { useState, useCallback } from 'react';
@@ -17,6 +18,8 @@ const AuthPage: React.FC = () => {
   const [prefillUsername, setPrefillUsername] = useState<string | undefined>();
   const [mascotState, setMascotState] = useState<MascotState>('idle');
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [passwordLength, setPasswordLength] = useState(0);
 
   const handleSwitchToRegister = useCallback(() => setMode('register'), []);
   const handleSwitchToLogin = useCallback((username?: string) => {
@@ -26,16 +29,66 @@ const AuthPage: React.FC = () => {
   const handleCreateNewAccount = useCallback(() => setMode('register'), []);
 
   return (
-    <div className="flex h-screen bg-white overflow-hidden">
-      {/* Left Panel — Interactive Mascot */}
-      <div className="hidden md:flex w-[45%] lg:w-[50%] bg-gradient-to-br from-purple-50 via-white to-indigo-50 items-center justify-center relative border-r border-purple-100">
-        {/* Decorative background elements */}
+    <div className="flex h-screen overflow-hidden" style={{ fontFamily: 'KaiTi, serif' }}>
+      {/* Left Panel — Animated Characters (CareerCompass 风格) */}
+      <div
+        className="hidden md:flex w-[45%] lg:w-[50%] items-center justify-center relative"
+        style={{
+          background: 'linear-gradient(135deg, #9CA3AF 0%, #6B7280 50%, #4B5563 100%)',
+        }}
+      >
+        {/* 装饰性背景 */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-10 left-10 w-32 h-32 bg-purple-200/20 rounded-full blur-3xl" />
-          <div className="absolute bottom-20 right-10 w-40 h-40 bg-indigo-200/20 rounded-full blur-3xl" />
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-purple-100/10 rounded-full blur-3xl" />
+          <div
+            className="absolute"
+            style={{
+              inset: 0,
+              background:
+                'repeating-linear-gradient(0deg, transparent, transparent 19px, rgba(255,255,255,0.03) 19px, rgba(255,255,255,0.03) 20px), repeating-linear-gradient(90deg, transparent, transparent 19px, rgba(255,255,255,0.03) 19px, rgba(255,255,255,0.03) 20px)',
+            }}
+          />
+          <div
+            className="absolute rounded-full"
+            style={{
+              top: '25%',
+              right: '25%',
+              width: '16rem',
+              height: '16rem',
+              background: 'rgba(156,163,175,0.2)',
+              filter: 'blur(60px)',
+            }}
+          />
+          <div
+            className="absolute rounded-full"
+            style={{
+              bottom: '25%',
+              left: '25%',
+              width: '24rem',
+              height: '24rem',
+              background: 'rgba(107,114,128,0.2)',
+              filter: 'blur(60px)',
+            }}
+          />
         </div>
-        <InteractiveMascot state={mascotState} passwordVisible={passwordVisible} />
+
+        <div className="relative z-20 flex items-end justify-center" style={{ height: '500px' }}>
+          <InteractiveMascot
+            state={mascotState}
+            passwordVisible={passwordVisible}
+            isTyping={isTyping}
+            passwordLength={passwordLength}
+          />
+        </div>
+
+        {/* 底部链接 */}
+        <div
+          className="absolute bottom-6 left-0 right-0 flex items-center justify-center gap-8 text-sm"
+          style={{ color: 'rgba(75,85,99,0.7)', fontFamily: 'Consolas, monospace' }}
+        >
+          <span className="hover:text-gray-900 transition-colors cursor-default">
+            WeaveMD © 2026
+          </span>
+        </div>
       </div>
 
       {/* Right Panel — Auth Form */}
@@ -52,6 +105,8 @@ const AuthPage: React.FC = () => {
               onSwitchToLogin={handleSwitchToLogin}
               onMascotStateChange={setMascotState}
               onPasswordVisibleChange={setPasswordVisible}
+              onTypingChange={setIsTyping}
+              onPasswordLengthChange={setPasswordLength}
             />
           ) : (
             <LoginPage
@@ -60,6 +115,8 @@ const AuthPage: React.FC = () => {
               prefillUsername={prefillUsername}
               onMascotStateChange={setMascotState}
               onPasswordVisibleChange={setPasswordVisible}
+              onTypingChange={setIsTyping}
+              onPasswordLengthChange={setPasswordLength}
             />
           )}
         </div>

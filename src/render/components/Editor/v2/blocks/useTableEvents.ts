@@ -4,7 +4,7 @@
 // 从 TableBlock 提取的所有依赖 refs/state 的事件处理逻辑。
 // 包含：幂等重渲染差分、IME 守卫、跨格导航、增删行列、beforeinput 拦截。
 
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 
 import type { BlockNodeV2 } from '@render/editor/kernel';
 import { parseTableText, serializeTable, type TableMatrix } from '@render/editor/kernel';
@@ -36,6 +36,8 @@ export function useTableEvents(block: BlockNodeV2, handlers: BlockHandlers, onSe
   // 多单元格选区
   const selectionRef = useRef<CellRange | null>(null);
   const draggingRef = useRef(false);
+  // 当前表格 DOM 元素引用（由 TableBlock 通过 tableRef 回调设置）
+  const tableElRef = useRef<HTMLTableElement | null>(null);
   // handlers/block ref（避免闭包捕获旧值）
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
@@ -111,9 +113,8 @@ export function useTableEvents(block: BlockNodeV2, handlers: BlockHandlers, onSe
     highlightRafRef.current = requestAnimationFrame(() => {
       highlightRafRef.current = 0;
       const range = selectionRef.current;
-      // 找到表格元素（从第一个 data-cellkey 元素向上查找）
-      const firstCell = document.querySelector<HTMLElement>('[data-cellkey]');
-      const table = firstCell?.closest('table');
+      // 限定到当前表格实例的 DOM 子树，避免跨表格误操作
+      const table = tableElRef.current;
       if (!table) return;
       const cells = table.querySelectorAll<HTMLElement>('td, th');
       if (!range) {
@@ -148,6 +149,23 @@ export function useTableEvents(block: BlockNodeV2, handlers: BlockHandlers, onSe
     onSelectionChange?.();
   };
 
+  // 全局 mousedown 监听：点击当前表格外时清除选区（解决跨表格高亮残留）
+  useEffect(() => {
+    const handleGlobalMouseDown = (e: MouseEvent): void => {
+      const table = tableElRef.current;
+      if (!table) return;
+      // 点击在当前表格内 → 不清除（由 handleCellMouseDown 处理）
+      if (table.contains(e.target as Node)) return;
+      // 点击在当前表格外 → 清除选区和高亮
+      if (selectionRef.current) {
+        selectionRef.current = null;
+        syncSelectionHighlight();
+      }
+    };
+    document.addEventListener('mousedown', handleGlobalMouseDown, true);
+    return () => document.removeEventListener('mousedown', handleGlobalMouseDown, true);
+  }, []);
+
   /** 鼠标按下：设置 anchor，开始拖选 */
   const handleCellMouseDown = (pos: CellPos, e: React.MouseEvent<HTMLElement>): void => {
     // Shift+点击 = 扩展选区（以当前 anchor 为起点，新 pos 为 focus）
@@ -176,9 +194,14 @@ export function useTableEvents(block: BlockNodeV2, handlers: BlockHandlers, onSe
 
   /** 同表内按 cellkey 查格（reconcile 后原子重查） */
   const cellByPos = (fromEl: HTMLElement, row: number, col: number): HTMLElement => {
-    const table = fromEl.closest('table');
+    const table = tableElRef.current ?? fromEl.closest('table');
     const el = table?.querySelector<HTMLElement>(`[data-cellkey="${byIndex(row, col)}"]`);
     return el ?? fromEl;
+  };
+
+  /** 回调 ref：由 TableBlock 挂到 <table> 元素上，供 syncSelectionHighlight 使用 */
+  const tableRef = (el: HTMLTableElement | null): void => {
+    tableElRef.current = el;
   };
 
   /** 矩阵变更统一提交（增删行列/末格增行）：先 flush 编辑，再改矩阵 → serialize → onTableEdit */
@@ -359,5 +382,6 @@ export function useTableEvents(block: BlockNodeV2, handlers: BlockHandlers, onSe
     focusCell,
     selectionRef,
     flushCellEdit,
+    tableRef,
   };
 }

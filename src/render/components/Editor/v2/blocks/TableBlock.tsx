@@ -30,6 +30,7 @@ const TableBlock: React.FC<TableBlockProps> = ({ block, handlers, blockWidthMap 
     matrix, colCount, rowCount,
     pendingCellRef,
     cellEvents, commitMatrix, focusCell,
+    tableRef,
   } = useTableEvents(block, handlers, onSelectionChange);
 
   void blockWidthMap;
@@ -56,12 +57,13 @@ const TableBlock: React.FC<TableBlockProps> = ({ block, handlers, blockWidthMap 
     };
   }, [toolbarVisible]);
 
-  // 焦点恢复：增删行列后重建 DOM，按 cellkey 定位恢复
+  // 焦点恢复：增删行列后重建 DOM，按 cellkey 定位恢复（限定到当前表格）
   React.useLayoutEffect(() => {
     const target = pendingCellRef.current;
     if (target === null) return;
     pendingCellRef.current = null;
-    const el = document.querySelector<HTMLElement>(`[data-cellkey="${target}"]`);
+    const table = wrapperRef.current?.querySelector('table');
+    const el = table?.querySelector<HTMLElement>(`[data-cellkey="${target}"]`);
     if (el) focusCell(el, 0);
   });
 
@@ -230,7 +232,7 @@ const TableBlock: React.FC<TableBlockProps> = ({ block, handlers, blockWidthMap 
       onClick={handleWrapperClick}
     >
       <div className="markdown-table-wrap overflow-x-auto rounded-lg border border-[var(--border-color)]">
-        <table className="table-block-grid">
+        <table ref={tableRef} className="table-block-grid">
           <thead>
             <tr>{headerCells}</tr>
           </thead>
@@ -239,6 +241,7 @@ const TableBlock: React.FC<TableBlockProps> = ({ block, handlers, blockWidthMap 
       </div>
       <TableToolbar
         visible={toolbarVisible}
+        blockId={block.id}
         alignment={currentAlign}
         rowCount={rowCount}
         colCount={colCount}

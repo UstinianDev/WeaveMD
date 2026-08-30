@@ -5,6 +5,7 @@
 // 保留：HelpMenu、ViewMenu、Undo/Redo、Settings、WindowControls。
 
 import React, { useEffect, useState } from 'react';
+import Icon from '@render/components/Common/Icon';
 import IconButton from '@render/components/Common/IconButton';
 import { useI18n } from '@render/i18n';
 import FeedbackModal from '@render/components/Feedback/FeedbackModal';
@@ -119,8 +120,12 @@ const TopBar: React.FC = () => {
       {/* Left section */}
       <div className="flex items-center gap-2 px-3 h-full no-drag">
         {/* App icon (brand) */}
-        <span className="text-xl mr-1 select-none" title="WeaveMD">
-          📔
+        <span className="text-xl mr-1 select-none" title="WeaveMD" style={{ color: 'var(--accent, #6C3FF5)' }}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+            <path d="M8 7h8M8 11h6" />
+          </svg>
         </span>
 
         {/* Toggle Editor collapse */}
@@ -180,7 +185,7 @@ const TopBar: React.FC = () => {
             onClick={() => setErrorMessage('')}
             className="text-xs text-red-400 hover:text-red-300"
           >
-            ✕
+            <Icon icon="close" size={12} />
           </button>
         </div>
       )}

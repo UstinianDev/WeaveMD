@@ -12,8 +12,9 @@ import EmbeddingSettings from '../settings/EmbeddingSettings';
 import SearchSettings from '../settings/SearchSettings';
 import SkillsPanel from '../settings/SkillsPanel';
 import McpPanel from '../settings/McpPanel';
+import AgentPersonalityPanel from '../settings/AgentPersonalityPanel';
 
-export type SettingsTab = 'model' | 'embedding' | 'search' | 'skills' | 'mcp';
+export type SettingsTab = 'model' | 'embedding' | 'search' | 'skills' | 'mcp' | 'personality';
 
 interface AIPanelSettingsProps {
   /** 返回上一视图（home/session）。 */
@@ -26,6 +27,7 @@ const TABS: { key: SettingsTab; label: string }[] = [
   { key: 'search', label: 'ai.settings.tab.search' },
   { key: 'skills', label: 'ai.settings.tab.skills' },
   { key: 'mcp', label: 'ai.settings.tab.mcp' },
+  { key: 'personality', label: 'ai.settings.tab.personality' },
 ];
 
 const AIPanelSettings: React.FC<AIPanelSettingsProps> = ({ onBack }) => {
@@ -75,6 +77,7 @@ const AIPanelSettings: React.FC<AIPanelSettingsProps> = ({ onBack }) => {
           {tab === 'search' && <SearchSettings />}
           {tab === 'skills' && <SkillsPanel />}
           {tab === 'mcp' && <McpPanel />}
+          {tab === 'personality' && <AgentPersonalityPanel />}
         </div>
       </div>
     </div>

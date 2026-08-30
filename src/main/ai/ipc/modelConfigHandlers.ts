@@ -128,12 +128,48 @@ export function registerModelConfigHandlers(): void {
     }
   );
 
-  // 删除模型配置
+  // 删除模型配置（级联清理 ai_config 中的活跃引用）
   ipcMain.handle(
     IPC_CHANNELS.AI_MODEL_CONFIGS_DELETE,
-    (_event, configId: string) => {
+    (_event, payload: { configId: string; userId: string }) => {
       try {
-        const deleted = deleteModelConfig(configId);
+        const deleted = deleteModelConfig(payload.configId);
+
+        if (deleted) {
+          // 删除后检查该用户是否还有剩余配置
+          const remaining = listModelConfigs(payload.userId);
+
+          if (remaining.length === 0) {
+            // 无剩余配置 → 清空 ai_config 中的模型关联字段
+            const db = getDatabase();
+            db.prepare(
+              `UPDATE ai_config SET
+                 active_model_config_id = NULL,
+                 api_key_enc = NULL,
+                 remote_base_url = '',
+                 model = '',
+                 updated_at = datetime('now')
+               WHERE user_id = ?`
+            ).run(payload.userId);
+          } else {
+            // 还有剩余配置 → 如果删的是活跃项，自动激活第一个剩余配置
+            const configRow = getAiConfig(payload.userId);
+            if (configRow?.activeModelConfigId === payload.configId) {
+              const next = remaining[0];
+              const db = getDatabase();
+              db.prepare(
+                `UPDATE ai_config SET
+                   active_model_config_id = ?,
+                   remote_base_url = ?,
+                   model = ?,
+                   api_key_enc = ?,
+                   updated_at = datetime('now')
+                 WHERE user_id = ?`
+              ).run(next.id, next.baseUrl, next.model, next.apiKeyEnc ?? null, payload.userId);
+            }
+          }
+        }
+
         return { success: true, data: { deleted } };
       } catch {
         return { success: false, message: 'Failed to delete model config' };

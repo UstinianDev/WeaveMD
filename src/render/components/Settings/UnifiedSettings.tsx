@@ -14,6 +14,7 @@ import EmbeddingSettings from '@render/components/AIAgent/settings/EmbeddingSett
 import SearchSettings from '@render/components/AIAgent/settings/SearchSettings';
 import SkillsPanel from '@render/components/AIAgent/settings/SkillsPanel';
 import McpPanel from '@render/components/AIAgent/settings/McpPanel';
+import AgentPersonalityPanel from '@render/components/AIAgent/settings/AgentPersonalityPanel';
 import SettingsSidebar from './SettingsSidebar';
 import type { UnifiedSettingsTab } from './SettingsSidebar';
 
@@ -69,6 +70,7 @@ const UnifiedSettings: React.FC<UnifiedSettingsProps> = ({ open, onClose }) => {
             {activeTab === 'search' && <SearchSettings />}
             {activeTab === 'skills' && <SkillsPanel />}
             {activeTab === 'mcp' && <McpPanel />}
+            {activeTab === 'personality' && <AgentPersonalityPanel />}
           </div>
         </div>
       </div>

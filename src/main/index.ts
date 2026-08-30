@@ -9,6 +9,7 @@ import { initAutoUpdater } from './update';
 import { MEDIA_SCHEME_PRIVILEGES, registerMediaProtocol } from './media-protocol';
 import { initDatabase, closeDatabase, getDatabase } from './db/index';
 import { initAgentQueue, cleanupAgentQueue } from './ai/ipc';
+import { initGlobalAgentFiles } from './ai/files/globalAgentFiles';
 
 // Register media:// as a privileged scheme so http dev pages can fetch/stream
 // local images. Must be called before app ready (top-level), see Electron docs:
@@ -40,6 +41,9 @@ if (!gotTheLock) {
 app.whenReady().then(() => {
   // Initialize database
   initDatabase();
+
+  // Initialize global Agent files (soul.md / style.md / memory.md)
+  initGlobalAgentFiles();
 
   // Register media:// protocol handler for local image loading
   registerMediaProtocol();

@@ -207,13 +207,21 @@ const MainPage: React.FC = () => {
                 />
               ) : (
                 <div className="flex items-center justify-center h-full">
-                  <div className="text-center">
-                    <p className="text-4xl mb-4">📝</p>
-                    <p className="text-text-sub text-sm mb-1">
-                      Open or create a file to start editing
+                  <div className="text-center animate-fadeIn">
+                    <div className="mb-6 inline-flex items-center justify-center w-20 h-20 rounded-2xl" style={{ backgroundColor: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}>
+                      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M17 3a2.85 2.85 0 114 4L7.5 20.5 2 22l1.5-5.5Z" />
+                        <path d="m15 5 4 4" />
+                      </svg>
+                    </div>
+                    <h3 className="text-lg font-medium mb-2" style={{ color: 'var(--text-primary)', fontFamily: 'KaiTi, serif' }}>
+                      {t('editor.emptyTitle', '开始编辑')}
+                    </h3>
+                    <p className="text-sm mb-1" style={{ color: 'var(--text-muted)', fontFamily: 'Consolas, monospace' }}>
+                      {t('editor.emptyHint', '打开或创建一个文件开始写作')}
                     </p>
-                    <p className="text-text-muted text-xs">
-                      Use File → New File or File → Open File from the menu
+                    <p className="text-xs" style={{ color: 'var(--text-muted)', opacity: 0.6, fontFamily: 'Consolas, monospace' }}>
+                      {t('editor.emptyShortcut', 'Ctrl+N 新建 · Ctrl+O 打开')}
                     </p>
                   </div>
                 </div>
@@ -232,9 +240,14 @@ const MainPage: React.FC = () => {
         {/* 编辑区和AI面板都收起时的占位提示 */}
         {isEditorCollapsed && !isAIPanelOpen && (
           <main className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <p className="text-4xl mb-4">🪟</p>
-              <p className="text-text-sub text-sm">
+            <div className="text-center animate-fadeIn">
+              <div className="mb-4 inline-flex items-center justify-center w-16 h-16 rounded-2xl" style={{ backgroundColor: 'color-mix(in srgb, var(--accent) 8%, transparent)' }}>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <path d="M9 3v18M3 9h6M15 9h6M15 15h6" />
+                </svg>
+              </div>
+              <p className="text-sm" style={{ color: 'var(--text-muted)', fontFamily: 'KaiTi, serif' }}>
                 {t('navbar.expandHint', '使用顶部按钮展开富文本编辑器或 AI Agent面板。')}
               </p>
             </div>

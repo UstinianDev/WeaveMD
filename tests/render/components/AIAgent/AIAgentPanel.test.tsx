@@ -144,7 +144,18 @@ describe('AIAgentPanel（三视图外壳）', () => {
     // spy 掉 sendMessage/sendAgentMessage，避免真实 send 触发网络同意弹层盖住视图断言。
     vi.spyOn(useAgentStore.getState(), 'sendAgentMessage').mockResolvedValue(undefined);
     useUIStore.setState({ isAIPanelOpen: true, aiPanelWidth: 480 });
-    useAgentStore.setState({ activeMode: 'agent', pendingConsent: false });
+    useAgentStore.setState({
+      activeMode: 'agent',
+      pendingConsent: false,
+      // 配置状态：默认已配置（避免发送按钮被禁用）
+      config: { backend: 'remote', remoteBaseUrl: '', model: 'gpt-4o', hasApiKey: true },
+      modelConfigs: [{ id: 'cfg-1', name: 'OpenAI - gpt-4o', protocol: 'openai', provider: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o', hasApiKey: true, hint: '' }],
+      activeModelConfigId: 'cfg-1',
+      embeddingConfig: { provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'text-embedding-3-small', hasApiKey: true, multimodal: false },
+      embeddingConnectionOk: true,
+      searchConfig: { enabled: true, provider: 'firecrawl', callMode: 'auto', maxResults: 10, hasApiKeys: { firecrawl: true, zhipu: false, tavily: false, exa: false } },
+      searchConnectionOk: true,
+    });
     useAuthStore.setState({
       user: MOCK_USER,
       token: 'tok',

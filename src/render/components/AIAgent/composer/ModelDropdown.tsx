@@ -73,6 +73,7 @@ const ModelDropdown: React.FC = () => {
 
   const currentModel = config?.model || '';
   const activeConfig = modelConfigs.find((c) => c.id === activeModelConfigId);
+  const isConfigured = Boolean(config?.hasApiKey && modelConfigs.length > 0);
 
   // 选中配置 → 激活
   const selectConfig = (configId: string): void => {
@@ -119,10 +120,12 @@ const ModelDropdown: React.FC = () => {
     }
   }, [open, loadState, modelConfigs.length]);
 
-  // 按钮标签：有激活配置显示 provider - model；否则显示手动值/当前配置
+  // 按钮标签：有激活配置显示 provider - model；未配置时显示 "未配置模型"
   const buttonLabel = activeConfig
     ? `${activeConfig.provider} - ${activeConfig.model}`
-    : manualValue || currentModel || t('ai.modelDropdown.label');
+    : !isConfigured
+      ? t('ai.modelDropdown.unconfigured', '未配置模型')
+      : manualValue || currentModel || t('ai.modelDropdown.label');
 
   return (
     <div className="relative inline-block text-[13px]">
@@ -130,7 +133,12 @@ const ModelDropdown: React.FC = () => {
         type="button"
         data-testid="model-dropdown"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 rounded-input border border-[var(--border-color)] bg-[var(--input-bg)] px-2 py-1 text-[var(--text-sub)] hover:border-[var(--accent)] hover:text-[var(--text-primary)] transition-colors"
+        className={`flex items-center gap-1 rounded-input border border-[var(--border-color)] bg-[var(--input-bg)] px-2 py-1 transition-colors ${
+          isConfigured
+            ? 'text-[var(--text-sub)] hover:border-[var(--accent)] hover:text-[var(--text-primary)]'
+            : 'text-[var(--text-muted)] opacity-68 cursor-not-allowed'
+        }`}
+        style={!isConfigured ? { opacity: 0.68, cursor: 'not-allowed' } : undefined}
       >
         <span className="max-w-[10rem] truncate">{buttonLabel}</span>
         <span className="text-[11px] text-[var(--text-muted)]">▾</span>

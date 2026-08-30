@@ -58,6 +58,30 @@ const defaultState = {
   streamBuffer: '',
   toolCalls: [],
   pendingConsent: false,
+  // 配置状态：默认已配置（避免发送按钮被禁用）
+  config: {
+    backend: 'remote' as const,
+    remoteBaseUrl: '',
+    model: 'gpt-4o',
+    hasApiKey: true,
+  },
+  modelConfigs: [
+    {
+      id: 'cfg-1',
+      name: 'OpenAI - gpt-4o',
+      protocol: 'openai' as const,
+      provider: 'OpenAI',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
+      hasApiKey: true,
+      hint: '',
+    },
+  ],
+  activeModelConfigId: 'cfg-1',
+  embeddingConfig: { provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'text-embedding-3-small', hasApiKey: true, multimodal: false },
+  embeddingConnectionOk: true,
+  searchConfig: { enabled: true, provider: 'firecrawl' as const, callMode: 'auto', maxResults: 10, hasApiKeys: { firecrawl: true, zhipu: false, tavily: false, exa: false } },
+  searchConnectionOk: true,
 };
 
 describe('AIPanelComposer（handleSendAgent 分流）', () => {
