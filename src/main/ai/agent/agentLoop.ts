@@ -21,7 +21,7 @@ import { listFiles } from '../../db/files';
 import { decryptApiKey } from '../secureConfig';
 import { classifyIntent } from '../intentRouter';
 import { buildCompressed, estimateTokens, shouldCompress, summarizeViaLlm, type LlmMessage } from '../contextManager';
-import { streamChatCompletion } from '../llm/llmClient';
+import { streamChatCompletionWithRetry } from '../llm/llmClient';
 import { defineCoreTools, executeTool, type SearchKbFn, type ToolCtx } from '../toolRegistry';
 import { loadSkills, type CoreSkill, type SkillRunnerCtx } from '../skills/skillLoader';
 import { persistAndSend } from './agentEventStore';
@@ -177,13 +177,15 @@ function toolsForIntent(
     names.add('ask_question_card');
   }
 
-  // 所有意图都可用的基础工具（文件访问 + 目录浏览 + 本地文件系统读写）
+  // 所有意图都可用的基础工具（文件访问 + 目录浏览 + 本地文件系统读写 + 辅助只读）
   names.add('listFiles');
   names.add('readFile');
   names.add('readLocalFile');
   names.add('listLocalDirectory');
   names.add('editLocalFile');
   names.add('analyze_folder');
+  names.add('check_links');
+  names.add('get_task_activity');
 
   switch (intent.intent) {
     case 'kbQa':
@@ -395,12 +397,17 @@ function prepareAgentContext(
   // 注入当前文档上下文（只读）
   // 注入 Agent 系统指令（指导 LLM 正确使用工具）
   // 注入当前用户的文件列表快照，让 AI 知道工作区中有哪些文件
+  // 截断限制：避免文件过多导致初始上下文膨胀
+  const MAX_FILE_LIST = 50;
+  const MAX_LOCAL_TREE = 30;
   let fileListSnapshot = '';
   try {
     const files = listFiles(userId);
     if (files.length > 0) {
-      const fileList = files.map((f) => `- ${f.name} (id: ${f.id})`).join('\n');
-      fileListSnapshot = `\n\n以下是你可访问的工作区文件列表（数据库）：\n${fileList}`;
+      const truncated = files.slice(0, MAX_FILE_LIST);
+      const fileList = truncated.map((f) => `- ${f.name} (id: ${f.id})`).join('\n');
+      const suffix = files.length > MAX_FILE_LIST ? `\n- ...（还有 ${files.length - MAX_FILE_LIST} 个文件，用 listFiles 工具查看完整列表）` : '';
+      fileListSnapshot = `\n\n以下是你可访问的工作区文件列表（数据库）：\n${fileList}${suffix}`;
     }
   } catch { /* 文件列表获取失败不影响主流程 */ }
 
@@ -410,7 +417,10 @@ function prepareAgentContext(
     const { files: localFiles, folders: localFolders } = payload.fileTreePaths;
     const parts: string[] = [];
     if (localFiles.length > 0) {
-      parts.push(`本地文件（可用 readLocalFile 读取，用 editBlocks 改写）：\n${localFiles.map((p) => `- ${p}`).join('\n')}`);
+      const truncated = localFiles.slice(0, MAX_LOCAL_TREE);
+      let list = truncated.map((p) => `- ${p}`).join('\n');
+      if (localFiles.length > MAX_LOCAL_TREE) list += `\n- ...（还有 ${localFiles.length - MAX_LOCAL_TREE} 个文件）`;
+      parts.push(`本地文件（可用 readLocalFile 读取，用 editBlocks 改写）：\n${list}`);
     }
     if (localFolders.length > 0) {
       parts.push(`本地文件夹（可用 listLocalDirectory 浏览）：\n${localFolders.map((p) => `- ${p}`).join('\n')}`);
@@ -690,6 +700,34 @@ async function executeToolRound(
     if (check.deadLoopBreak) return { toolTurn, deadLoopBreak: true };
   }
 
+  // R3 关键修复：ask_question_card 成功后，暂停循环等待用户回答
+  // handleToolResult 已调用 onInteractionRequired 推送 UI 通知，
+  // 此处 await waitForInteraction 阻塞直到用户提交答案，然后注入答案到 tool result
+  if (deps.waitForInteraction) {
+    for (const tc of accumulatedToolCalls) {
+      if (tc.name !== 'ask_question_card') continue;
+      const callId = `call_${round}_${tc.index}`;
+      const askResult = toolTurn.find(
+        (m) => m.role === 'tool' && m.tool_call_id === callId,
+      );
+      if (!askResult) continue;
+      try {
+        const parsed = JSON.parse(askResult.content) as { success?: boolean };
+        if (parsed.success) {
+          const answers = await deps.waitForInteraction();
+          // 将用户答案注入为额外的 tool 消息，让 LLM 在下一轮看到答案
+          toolTurn.push({
+            role: 'tool',
+            content: JSON.stringify({ type: 'user_answers', answers }),
+            tool_call_id: callId,
+          });
+        }
+      } catch {
+        // waitForInteraction 被 reject（用户取消等），不注入答案
+      }
+    }
+  }
+
   return { toolTurn, deadLoopBreak: false };
 }
 
@@ -757,22 +795,24 @@ export async function runAgentFlow(
       }
 
       // 上下文压缩（幂等）— 使用增量 token 统计
-      const summary = getConversation(ctx.convId, ctx.userId)?.summary || '';
-      if (
-        summary &&
-        shouldCompress(ctx.totalTokens, CONTEXT_WINDOW, COMPRESS_THRESHOLD)
-      ) {
-        const newSummary = await summarizeViaLlm(ctx.llmMessages, ctx.skillContext);
-        if (newSummary) {
-          updateConversationSummary(ctx.convId, ctx.userId, newSummary);
-          ctx.llmMessages = buildCompressed(ctx.llmMessages, newSummary, KEEP_RECENT_ROUNDS);
-          // 压缩后重算 token 统计
-          ctx.totalTokens = ctx.llmMessages.reduce((s, m) => s + estimateTokens(m.content), 0);
+      // 移除 summary 条件：首次超阈值也应触发压缩，否则上下文会无限膨胀
+      if (shouldCompress(ctx.totalTokens, CONTEXT_WINDOW, COMPRESS_THRESHOLD)) {
+        try {
+          const newSummary = await summarizeViaLlm(ctx.llmMessages, ctx.skillContext);
+          if (newSummary) {
+            updateConversationSummary(ctx.convId, ctx.userId, newSummary);
+            ctx.llmMessages = buildCompressed(ctx.llmMessages, newSummary, KEEP_RECENT_ROUNDS);
+            // 压缩后重算 token 统计
+            ctx.totalTokens = ctx.llmMessages.reduce((s, m) => s + estimateTokens(m.content), 0);
+          }
+        } catch (compressErr) {
+          // 压缩失败不应阻断主流程，记录日志后继续
+          console.warn('[Agent] Context compression failed, continuing without compression:', compressErr);
         }
       }
 
       // LLM 流式调用
-      const gen = streamChatCompletion({
+      const gen = streamChatCompletionWithRetry({
         baseUrl: ctx.baseUrl,
         model: ctx.model,
         apiKey: ctx.apiKey,

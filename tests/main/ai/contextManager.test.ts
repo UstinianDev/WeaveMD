@@ -2,11 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { buildCompressed, estimateTokens, shouldCompress } from '@main/ai/contextManager';
 
 describe('contextManager.estimateTokens', () => {
-  it('estimates ceil(len/2)', () => {
+  it('estimates tokens by character type (CJK-aware)', () => {
     expect(estimateTokens('')).toBe(0);
-    expect(estimateTokens('hello world')).toBe(Math.ceil(11 / 2));
-    expect(estimateTokens('abcdefgh')).toBe(4);
-    expect(estimateTokens('abc')).toBe(2);
+    // 纯英文：0.25 token/char → ceil(11 * 0.25) = 3
+    expect(estimateTokens('hello world')).toBe(3);
+    // 纯英文：ceil(8 * 0.25) = 2
+    expect(estimateTokens('abcdefgh')).toBe(2);
+    // 纯英文：ceil(3 * 0.25) = 1
+    expect(estimateTokens('abc')).toBe(1);
+    // 纯中文：0.75 token/字 → ceil(4 * 0.75) = 3
+    expect(estimateTokens('你好世界')).toBe(3);
+    // 混合：4 CJK * 0.75 + 3 Latin * 0.25 = 3 + 0.75 = 3.75 → ceil = 4
+    expect(estimateTokens('你好abc测试')).toBe(4);
   });
 });
 

@@ -53,7 +53,10 @@ const intentMock = vi.hoisted(() => ({
 vi.mock('@main/ai/intentRouter', () => intentMock);
 
 // --- llmClient mock ---
-const llmMock = vi.hoisted(() => ({ streamChatCompletion: vi.fn() }));
+const llmMock = vi.hoisted(() => ({
+  streamChatCompletion: vi.fn(),
+  streamChatCompletionWithRetry: vi.fn(),
+}));
 vi.mock('@main/ai/llm/llmClient', () => llmMock);
 
 // --- toolRegistry mock (only executeTool trusted impl mocked via vi.mock of executeTool + real defineCoreTools) ---
@@ -152,6 +155,10 @@ beforeEach(() => {
   });
   dbMock.getMessagesByConversation.mockReset().mockReturnValue([]);
   llmMock.streamChatCompletion.mockReset();
+  // streamChatCompletionWithRetry 直接委托给 streamChatCompletion（测试不验证重试逻辑）
+  llmMock.streamChatCompletionWithRetry.mockReset().mockImplementation(
+    (opts: unknown) => llmMock.streamChatCompletion(opts),
+  );
   toolMock.executeTool.mockReset();
   consentMock.needsConsent.mockReset().mockReturnValue(false);
   // 铁律二已移除：needsKbSendConsent 恒返回 false

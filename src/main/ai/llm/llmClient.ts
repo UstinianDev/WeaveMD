@@ -188,18 +188,29 @@ export async function* streamChatCompletion(
   // 工具调用累积：index -> { name, arguments }。随流增量拼接 arguments 直直至 finish。
   const toolAcc = new Map<number, { name: string; arguments: string }>();
 
-  // 流卡住检测：记录最后一次收到任何 SSE 数据的时间
-  // 注意：工具调用期间 LLM 可能长时间不发 content，但流本身未卡住
-  let lastDataTime = Date.now();
-  const STALL_TIMEOUT = 120_000; // 2 分钟无任何数据视为卡住（宽松，避免工具调用误触发）
+  // 流卡住检测：用 Promise.race 包装 reader.read()，确保 read() 挂起时也能超时
+  const STALL_TIMEOUT = 90_000; // 90 秒无任何数据视为卡住
+  let stallTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const readWithStallTimeout = (): Promise<ReadableStreamReadResult<Uint8Array>> => {
+    return Promise.race([
+      reader.read(),
+      new Promise<never>((_, reject) => {
+        stallTimer = setTimeout(() => {
+          reject(makeError('timeout', 'Stream stalled: no data received for 90 seconds'));
+        }, STALL_TIMEOUT);
+      }),
+    ]);
+  };
 
   try {
     while (true) {
-      const { value, done } = await reader.read();
+      const { value, done } = await readWithStallTimeout();
+      if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
       if (done) break;
 
-      // 收到任何数据块都重置计时器（包括心跳、空行等）
-      lastDataTime = Date.now();
+      // 收到任何数据块都重置全局超时，防止正常长输出被截断
+      sc.resetTimeout();
 
       buffer += decoder.decode(value, { stream: true });
       const parts = buffer.split('\n\n');
@@ -213,12 +224,6 @@ export async function* streamChatCompletion(
           await reader.cancel().catch(() => undefined);
           throw sc.abortError();
         }
-      }
-
-      // 检测流是否卡住（仅在长时间无任何数据时触发）
-      if (Date.now() - lastDataTime > STALL_TIMEOUT) {
-        await reader.cancel().catch(() => undefined);
-        throw makeError('timeout', 'Stream stalled: no data received for 2 minutes');
       }
     }
     // 流尾兜底：若有未 flush 的工具调用（finish 未显式出现），补齐返回
@@ -244,4 +249,56 @@ export async function* streamChatCompletion(
   }
 
   sc.finalize();
+}
+
+// ---------------------------------------------------------------------------
+// 重试逻辑（指数退避，仅对可恢复错误生效）
+// ---------------------------------------------------------------------------
+
+/** 判断是否为可重试的瞬态错误。 */
+function isTransientError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code = (err as { code?: string }).code;
+  if (!code) return false;
+  // 网络错误、HTTP 429（限流）、HTTP 5xx（服务端错误）、超时
+  if (code === 'network' || code === 'timeout') return true;
+  if (code.startsWith('http_')) {
+    const status = parseInt(code.replace('http_', ''), 10);
+    return status === 429 || status >= 500;
+  }
+  return false;
+}
+
+/** 指数退避延迟序列（毫秒）。 */
+const RETRY_DELAYS = [2000, 5000, 10000];
+
+/**
+ * 带重试的流式 LLM 调用包装器。
+ * 对可恢复错误（网络抖动、429 限流、5xx 服务端错误、超时）进行指数退避重试。
+ * 非可恢复错误（配置错误、abort 等）直接抛出。
+ *
+ * 重要：重试会重启整个流，之前已 yield 的 delta 不会重复。
+ * 调用方（agentLoop）已将 delta 累加到 assistantContent，所以重试是安全的。
+ */
+export async function* streamChatCompletionWithRetry(
+  opts: StreamChatCompletionOptions
+): AsyncGenerator<StreamChunk> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+    try {
+      yield* streamChatCompletion(opts);
+      return; // 成功完成
+    } catch (err) {
+      lastError = err;
+      if (!isTransientError(err) || attempt >= RETRY_DELAYS.length) {
+        throw err; // 不可重试或已用尽重试次数
+      }
+      const delay = RETRY_DELAYS[attempt];
+      // 通知前端正在重试（通过 console 日志，不影响 UI 流程）
+      const code = (err as { code?: string }).code ?? 'unknown';
+      console.warn(`[LLM] Transient error (${code}), retrying in ${delay}ms (attempt ${attempt + 1}/${RETRY_DELAYS.length})...`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  throw lastError;
 }
