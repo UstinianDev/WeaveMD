@@ -322,18 +322,60 @@ export function parseAIMarkdown(md: string): Root {
   return processor.runSync(tree as never) as Root;
 }
 
+// ── LRU 渲染缓存（流式场景：content 每次尾部追加，避免重复解析全量 markdown）──
+const MARKDOWN_CACHE_MAX = 64;
+
+/** content → React.ReactNode 缓存（Map 保持插入序，天然支持 LRU 淘汰）。 */
+const markdownCache = new Map<string, React.ReactNode>();
+
+/**
+ * 简易内容 hash：前 100 字符 + 总长度，作为缓存 key。
+ * 对流式追加场景足够区分（尾部差异即 key 不同），计算开销近零。
+ */
+function contentHash(md: string): string {
+  return `${md.slice(0, 100)}|${md.length}`;
+}
+
+/** 手动清除缓存（流式结束后调用，释放不再需要的 React 节点）。 */
+export function clearMarkdownCache(): void {
+  markdownCache.clear();
+}
+
 /**
  * 统一入口：渲染 AI Markdown 字符串为 React 节点。
  * 解析失败/异常 → 原样纯文本兜底（安全，绝无注入）。
+ * 带 LRU 缓存（最多 64 条），命中时直接返回已渲染节点。
  */
 export function renderAIMarkdownSafe(md: string): React.ReactNode {
   if (!md) return md;
+
+  const key = contentHash(md);
+  const cached = markdownCache.get(key);
+  if (cached !== undefined) {
+    // 命中：移到末尾（最近使用）
+    markdownCache.delete(key);
+    markdownCache.set(key, cached);
+    return cached;
+  }
+
+  let result: React.ReactNode;
   try {
     const root = parseAIMarkdown(md);
-    return renderAIMarkdownRoot(root);
+    result = renderAIMarkdownRoot(root);
   } catch {
-    return md;
+    result = md;
   }
+
+  // 插入新条目；超出上限时淘汰最旧（Map 迭代器首个）
+  markdownCache.set(key, result);
+  if (markdownCache.size > MARKDOWN_CACHE_MAX) {
+    const oldest = markdownCache.keys().next();
+    if (!oldest.done) {
+      markdownCache.delete(oldest.value);
+    }
+  }
+
+  return result;
 }
 
 /** 统一入口别名：渲染 AI Markdown 为 React 节点（解析失败 → 纯文本兜底）。 */

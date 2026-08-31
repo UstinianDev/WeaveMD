@@ -24,6 +24,7 @@ export function initDatabase(): Database.Database {
   // Enable WAL mode for better concurrent performance
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  db.pragma('busy_timeout = 5000');
 
   // 加载 sqlite-vec 向量搜索扩展
   try {

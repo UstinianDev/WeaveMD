@@ -20,6 +20,8 @@ export interface StreamController {
   finalize: () => void;
   /** 根据 abort 原因返回规范化错误。 */
   abortError: () => Error & { code: string };
+  /** 收到数据时调用，重置超时计时器（防止正常长输出被截断）。 */
+  resetTimeout: () => void;
 }
 
 /**
@@ -50,7 +52,13 @@ export function createStreamController(
     externalSignal.addEventListener('abort', onExternalAbort);
   }
 
-  const timeout = setTimeout(() => doAbort('timeout'), timeoutMs);
+  let timeout = setTimeout(() => doAbort('timeout'), timeoutMs);
+
+  /** 收到数据时重置超时计时器，防止正常长输出被全局超时截断。 */
+  const resetTimeout = (): void => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => doAbort('timeout'), timeoutMs);
+  };
 
   const finalize = (): void => {
     clearTimeout(timeout);
@@ -65,7 +73,7 @@ export function createStreamController(
     return makeError('aborted', 'Request aborted');
   };
 
-  return { controller, finalize, abortError };
+  return { controller, finalize, abortError, resetTimeout };
 }
 
 /**

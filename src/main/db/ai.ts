@@ -6,6 +6,7 @@
 // API key 仅以密文 (api_key_enc) 存储/读取；明文经 safeStorage 在 secureConfig 层加解密，
 // 明文绝不落库、绝不出主进程。
 
+import type Database from 'better-sqlite3';
 import { randomUUID } from 'crypto';
 import { getDatabase } from './index';
 import {
@@ -17,6 +18,22 @@ import {
   type IAIMessage,
   type IAIConversation,
 } from '@shared/ai';
+
+// ---------------------------------------------------------------------------
+// Prepared statement cache — avoids repeated SQL compilation overhead
+// ---------------------------------------------------------------------------
+
+const stmtCache = new Map<string, Database.Statement>();
+
+/** Return a cached prepared statement for the given SQL string. */
+function cachedPrepare(db: Database.Database, sql: string): Database.Statement {
+  let stmt = stmtCache.get(sql);
+  if (!stmt) {
+    stmt = db.prepare(sql);
+    stmtCache.set(sql, stmt);
+  }
+  return stmt;
+}
 
 // ---------------------------------------------------------------------------
 // ai_config
@@ -172,8 +189,7 @@ function mapConfigRow(row: AiConfigDbRow): AiConfigRow {
 
 export function getAiConfig(userId: string): AiConfigRow | null {
   const db = getDatabase();
-  const row = db
-    .prepare('SELECT * FROM ai_config WHERE user_id = ?')
+  const row = cachedPrepare(db, 'SELECT * FROM ai_config WHERE user_id = ?')
     .get(userId) as AiConfigDbRow | undefined;
   if (!row) return null;
   return mapConfigRow(row);
@@ -203,7 +219,7 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
 
   if (existing) {
     // UPDATE 沿用「只改渲染传的字段」语义：update.x ?? existing.x 保留其余
-    db.prepare(
+    cachedPrepare(db,
       `UPDATE ai_config SET
          backend = ?, ollama_base_url = ?, remote_base_url = ?, model = ?,
          api_key_enc = ?, allow_network = ?, allow_send = ?, consent_updated_at = ?,
@@ -230,7 +246,7 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
   } else {
     const id = randomUUID();
     // INSERT 在无配置新建时用 update.x ?? DEFAULT_KB_SETTINGS.x 兜底
-    db.prepare(
+    cachedPrepare(db,
       `INSERT INTO ai_config
          (id, user_id, backend, ollama_base_url, remote_base_url, model,
           api_key_enc, allow_network, allow_send, consent_updated_at,
@@ -348,19 +364,17 @@ function mapConversationRow(row: AiConversationDbRow): IAIConversation {
 export function createConversation(userId: string, mode: ConversationMode): IAIConversation {
   const db = getDatabase();
   const id = randomUUID();
-  db.prepare(
+  cachedPrepare(db,
     'INSERT INTO ai_conversations (id, user_id, mode, summary) VALUES (?, ?, ?, ?)'
   ).run(id, userId, mode || 'chat', '');
-  const row = db
-    .prepare('SELECT * FROM ai_conversations WHERE id = ? AND user_id = ?')
+  const row = cachedPrepare(db, 'SELECT * FROM ai_conversations WHERE id = ? AND user_id = ?')
     .get(id, userId) as AiConversationDbRow;
   return mapConversationRow(row);
 }
 
 export function getConversation(conversationId: string, userId: string): IAIConversation | null {
   const db = getDatabase();
-  const row = db
-    .prepare('SELECT * FROM ai_conversations WHERE id = ? AND user_id = ?')
+  const row = cachedPrepare(db, 'SELECT * FROM ai_conversations WHERE id = ? AND user_id = ?')
     .get(conversationId, userId) as AiConversationDbRow | undefined;
   if (!row) return null;
   return mapConversationRow(row);
@@ -370,21 +384,18 @@ export function listConversationsByUser(userId: string, mode?: ConversationMode)
   const db = getDatabase();
   const rows =
     mode !== undefined
-      ? (db
-          .prepare(
+      ? (cachedPrepare(db,
             'SELECT * FROM ai_conversations WHERE user_id = ? AND mode = ? ORDER BY updated_at DESC'
           )
           .all(userId, mode) as AiConversationDbRow[])
-      : (db
-          .prepare('SELECT * FROM ai_conversations WHERE user_id = ? ORDER BY updated_at DESC')
+      : (cachedPrepare(db, 'SELECT * FROM ai_conversations WHERE user_id = ? ORDER BY updated_at DESC')
           .all(userId) as AiConversationDbRow[]);
   return rows.map(mapConversationRow);
 }
 
 export function deleteConversation(conversationId: string, userId: string): boolean {
   const db = getDatabase();
-  const info = db
-    .prepare('DELETE FROM ai_conversations WHERE id = ? AND user_id = ?')
+  const info = cachedPrepare(db, 'DELETE FROM ai_conversations WHERE id = ? AND user_id = ?')
     .run(conversationId, userId);
   return info.changes > 0;
 }
@@ -395,7 +406,7 @@ export function updateConversationSummary(
   summary: string
 ): IAIConversation | null {
   const db = getDatabase();
-  db.prepare(
+  cachedPrepare(db,
     'UPDATE ai_conversations SET summary = ?, updated_at = datetime(?) WHERE id = ? AND user_id = ?'
   ).run(summary, 'now', conversationId, userId);
   return getConversation(conversationId, userId);
@@ -453,14 +464,13 @@ export function appendMessage(msg: {
   const toolCallsJson = msg.toolCalls && msg.toolCalls.length > 0
     ? JSON.stringify(msg.toolCalls)
     : null;
-  db.prepare(
+  cachedPrepare(db,
     'INSERT INTO ai_messages (id, conversation_id, user_id, role, content, refs_json, tool_call_id, tool_calls) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(id, msg.conversationId, msg.userId, msg.role, msg.content, msg.refsJson ?? null, msg.toolCallId ?? null, toolCallsJson);
-  db.prepare(
+  cachedPrepare(db,
     "UPDATE ai_conversations SET updated_at = datetime('now') WHERE id = ? AND user_id = ?"
   ).run(msg.conversationId, msg.userId);
-  const row = db
-    .prepare('SELECT * FROM ai_messages WHERE id = ?')
+  const row = cachedPrepare(db, 'SELECT * FROM ai_messages WHERE id = ?')
     .get(id) as AiMessageDbRow;
   return mapMessageRow(row);
 }
@@ -470,8 +480,7 @@ export function getMessagesByConversation(
   userId: string
 ): IAIMessage[] {
   const db = getDatabase();
-  const rows = db
-    .prepare(
+  const rows = cachedPrepare(db,
       `SELECT m.* FROM ai_messages m
          JOIN ai_conversations c ON c.id = m.conversation_id
         WHERE m.conversation_id = ? AND c.user_id = ?
@@ -496,13 +505,11 @@ export function deleteMessagesAfter(
   messageId: string
 ): number {
   const db = getDatabase();
-  const target = db
-    .prepare('SELECT created_at FROM ai_messages WHERE id = ? AND conversation_id = ?')
+  const target = cachedPrepare(db, 'SELECT created_at FROM ai_messages WHERE id = ? AND conversation_id = ?')
     .get(messageId, conversationId) as { created_at: string } | undefined;
   if (!target) return 0;
 
-  const info = db
-    .prepare('DELETE FROM ai_messages WHERE conversation_id = ? AND created_at > ?')
+  const info = cachedPrepare(db, 'DELETE FROM ai_messages WHERE conversation_id = ? AND created_at > ?')
     .run(conversationId, target.created_at);
   return info.changes;
 }
@@ -513,8 +520,7 @@ export function updateMessageContent(
   content: string
 ): boolean {
   const db = getDatabase();
-  const info = db
-    .prepare('UPDATE ai_messages SET content = ? WHERE id = ?')
+  const info = cachedPrepare(db, 'UPDATE ai_messages SET content = ? WHERE id = ?')
     .run(content, messageId);
   return info.changes > 0;
 }
@@ -526,8 +532,7 @@ export function updateMessageToolCalls(
 ): boolean {
   const db = getDatabase();
   const json = toolCalls && toolCalls.length > 0 ? JSON.stringify(toolCalls) : null;
-  const info = db
-    .prepare('UPDATE ai_messages SET tool_calls = ? WHERE id = ?')
+  const info = cachedPrepare(db, 'UPDATE ai_messages SET tool_calls = ? WHERE id = ?')
     .run(json, messageId);
   return info.changes > 0;
 }
@@ -541,8 +546,7 @@ export function updateLatestAssistantToolCalls(
   toolCalls: IAIMessage['toolCalls']
 ): boolean {
   const db = getDatabase();
-  const row = db
-    .prepare(
+  const row = cachedPrepare(db,
       `SELECT id FROM ai_messages
        WHERE conversation_id = ? AND role = 'assistant'
        ORDER BY created_at DESC LIMIT 1`
@@ -564,8 +568,7 @@ export function searchConversations(
   const db = getDatabase();
   const searchTerm = `%${query}%`;
 
-  const rows = db
-    .prepare(
+  const rows = cachedPrepare(db,
       `SELECT DISTINCT c.*
        FROM ai_conversations c
        LEFT JOIN ai_messages m ON c.id = m.conversation_id

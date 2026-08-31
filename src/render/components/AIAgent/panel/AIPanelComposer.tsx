@@ -86,7 +86,7 @@ interface AIPanelComposerProps {
   onCompose?: () => void;
 }
 
-const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSend, onCompose }) => {
+const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange, onSend, onCompose }) => {
   const { t } = useI18n();
   const user = useAuthStore((s) => s.user);
 
@@ -838,5 +838,7 @@ const AIPanelComposer: React.FC<AIPanelComposerProps> = ({ value, onChange, onSe
     </div>
   );
 };
+
+const AIPanelComposer = React.memo(AIPanelComposerInner);
 
 export default AIPanelComposer;

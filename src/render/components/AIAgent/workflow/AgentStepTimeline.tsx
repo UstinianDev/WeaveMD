@@ -5,7 +5,7 @@
 // 每轮可折叠，thinking 文本用 <details> 折叠展示。
 // 纯展示组件：传入 toolCalls 数组，内部按 loopIndex 分组渲染。
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { IAgentToolCall } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 import Icon from '../../Common/Icon';
@@ -216,8 +216,8 @@ const AgentStepTimeline: React.FC<AgentStepTimelineProps> = ({
 
   if (toolCalls.length === 0) return null;
 
-  const groups = groupByLoop(toolCalls);
-  const sortedRounds = Array.from(groups.entries()).sort(([a], [b]) => a - b);
+  const groups = useMemo(() => groupByLoop(toolCalls), [toolCalls]);
+  const sortedRounds = useMemo(() => Array.from(groups.entries()).sort(([a], [b]) => a - b), [groups]);
 
   return (
     <div className="space-y-1.5">

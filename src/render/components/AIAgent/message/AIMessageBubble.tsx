@@ -272,7 +272,7 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
             {isStreaming && !content ? (
               <span className="inline-block w-2 h-4 animate-pulse text-text-muted">{'▍'}</span>
             ) : (
-              <MarkdownMessage content={content} />
+              <MarkdownMessage content={content} isStreaming={isStreaming} />
             )}
             {isStreaming && (
               <span className="inline-block w-2 h-4 ml-1 animate-pulse text-text-muted">{'▍'}</span>
