@@ -5,14 +5,17 @@
 // 返回文件/子目录的名称、类型、路径和大小。
 
 import { readdirSync, statSync } from 'fs';
-import { join } from 'path';
+import { join, resolve, isAbsolute } from 'path';
 import type { ToolHandler, ToolResult } from '../toolTypes';
 
 export const handleListLocalDirectory: ToolHandler = (args): ToolResult => {
-  const dirPath = args.directory_path as string | undefined;
-  if (!dirPath || typeof dirPath !== 'string') {
+  const rawPath = args.directory_path as string | undefined;
+  if (!rawPath || typeof rawPath !== 'string') {
     return { content: '', status: 'error', errorDesc: '缺少 directory_path 参数' };
   }
+
+  // 相对路径自动基于 cwd 解析为绝对路径
+  const dirPath = isAbsolute(rawPath) ? rawPath : resolve(process.cwd(), rawPath);
 
   try {
     const stat = statSync(dirPath);

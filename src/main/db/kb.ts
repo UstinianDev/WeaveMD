@@ -67,7 +67,6 @@ export function upsertKbDocument(userId: string, doc: UpsertKbDocumentInput): Kb
 
   const pinned = doc.pinned ?? false;
   const status = doc.status ?? 'pending';
-  const now = new Date().toISOString();
 
   if (existing) {
     db.prepare(
@@ -75,11 +74,8 @@ export function upsertKbDocument(userId: string, doc: UpsertKbDocumentInput): Kb
          SET title = ?, source_type = ?, pinned = ?, status = ?
        WHERE id = ? AND user_id = ?`
     ).run(doc.title, doc.sourceType, pinned ? 1 : 0, status, existing.id, userId);
-    const fresh = db
-      .prepare('SELECT * FROM kb_documents WHERE id = ? AND user_id = ?')
-      .get(existing.id, userId) as KbDocumentDbRow | undefined;
-    if (fresh) return mapDocumentRow(fresh);
-    return { ...existing, title: doc.title, pinned, status };
+    // 直接构造返回值，省掉回读 SELECT
+    return { ...existing, title: doc.title, sourceType: doc.sourceType, pinned, status };
   }
 
   const id = randomUUID();
@@ -88,10 +84,7 @@ export function upsertKbDocument(userId: string, doc: UpsertKbDocumentInput): Kb
        (id, user_id, file_id, source_type, title, pinned, status)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).run(id, userId, doc.fileId ?? null, doc.sourceType, doc.title, pinned ? 1 : 0, status);
-  const row = db
-    .prepare('SELECT * FROM kb_documents WHERE id = ? AND user_id = ?')
-    .get(id, userId) as KbDocumentDbRow | undefined;
-  if (row) return mapDocumentRow(row);
+  // 直接构造返回值，省掉回读 SELECT
   return {
     id,
     userId,
@@ -100,7 +93,7 @@ export function upsertKbDocument(userId: string, doc: UpsertKbDocumentInput): Kb
     title: doc.title,
     pinned,
     status,
-    createdAt: now,
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -128,6 +121,45 @@ export function listKbDocumentsByUser(userId: string): KbDocumentRow[] {
     .prepare('SELECT * FROM kb_documents WHERE user_id = ? ORDER BY created_at DESC')
     .all(userId) as KbDocumentDbRow[];
   return rows.map(mapDocumentRow);
+}
+
+/** 单条聚合查询：listKbDocumentsByUser + chunk count（替代 N+1 模式）。 */
+export function listKbDocumentsWithChunkCount(userId: string): Array<{
+  docId: string;
+  fileId: string | null;
+  title: string;
+  sourceType: KbSourceType;
+  pinned: boolean;
+  status: KbDocumentStatus;
+  chunkCount: number;
+}> {
+  const db = getDatabase();
+  const rows = db.prepare(`
+    SELECT d.id AS docId, d.file_id AS fileId, d.title, d.source_type AS sourceType,
+           d.pinned, d.status, COUNT(c.id) AS chunkCount
+      FROM kb_documents d
+      LEFT JOIN kb_chunks c ON c.document_id = d.id
+     WHERE d.user_id = ?
+     GROUP BY d.id
+     ORDER BY d.created_at DESC
+  `).all(userId) as Array<{
+    docId: string;
+    fileId: string | null;
+    title: string;
+    sourceType: string;
+    pinned: number;
+    status: string;
+    chunkCount: number;
+  }>;
+  return rows.map((r) => ({
+    docId: r.docId,
+    fileId: r.fileId,
+    title: r.title,
+    sourceType: (r.sourceType as KbSourceType) || 'import',
+    pinned: !!r.pinned,
+    status: (r.status as KbDocumentStatus) || 'pending',
+    chunkCount: r.chunkCount,
+  }));
 }
 
 export function deleteKbDocumentByFile(userId: string, fileId: string): boolean {
@@ -221,6 +253,31 @@ export function insertChunk(chunk: InsertChunkInput): KbChunkRow {
     sourceRef: chunk.sourceRef ?? null,
     createdAt: new Date().toISOString(),
   };
+}
+
+/** 批量插入 chunks（事务包裹，避免逐条 auto-commit）。返回插入行。 */
+export function insertChunksBatch(chunks: InsertChunkInput[]): KbChunkRow[] {
+  const db = getDatabase();
+  const insertStmt = db.prepare(
+    `INSERT INTO kb_chunks (id, document_id, seq, content, source_ref) VALUES (?, ?, ?, ?, ?)`
+  );
+  const wrapped = db.transaction((items: InsertChunkInput[]) => {
+    const results: KbChunkRow[] = [];
+    for (const chunk of items) {
+      const id = randomUUID();
+      insertStmt.run(id, chunk.documentId, chunk.seq, chunk.content, chunk.sourceRef ?? null);
+      results.push({
+        id,
+        documentId: chunk.documentId,
+        seq: chunk.seq,
+        content: chunk.content,
+        sourceRef: chunk.sourceRef ?? null,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    return results;
+  });
+  return wrapped(chunks);
 }
 
 export function deleteChunksByDoc(docId: string): void {

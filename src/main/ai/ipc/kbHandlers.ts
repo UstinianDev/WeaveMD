@@ -8,7 +8,7 @@ import { IPC_CHANNELS } from '@shared/constants';
 import type { AIErrorCode, IKbSettings, KbImportDirRequest } from '@shared/ai';
 import { DEFAULT_KB_SETTINGS, normalizeKbSettings } from '@shared/ai';
 import { getAiConfig, upsertAiConfig, updateKbExtendedSettings } from '../../db/ai';
-import { countChunksByDoc, listKbDocumentsByUser } from '../../db/kb';
+import { listKbDocumentsByUser, listKbDocumentsWithChunkCount } from '../../db/kb';
 import { getFile } from '../../db/files';
 import { indexFile, indexImportedText, removeByFile } from '../knowledge/kbIndexer';
 import { parseDocument } from '../files/documentParser';
@@ -19,15 +19,8 @@ export function registerKbHandlers(): void {
     IPC_CHANNELS.KB_LIST,
     (_event, payload: { userId: string }) => {
       try {
-        const docs = listKbDocumentsByUser(payload.userId).map((d) => ({
-          docId: d.id,
-          fileId: d.fileId,
-          title: d.title,
-          sourceType: d.sourceType,
-          pinned: d.pinned,
-          status: d.status,
-          chunkCount: countChunksByDoc(payload.userId, d.id),
-        }));
+        // 单条聚合查询替代 N+1（listKbDocumentsByUser + countChunksByDoc × N）
+        const docs = listKbDocumentsWithChunkCount(payload.userId);
         return { success: true, data: docs };
       } catch (error) {
         return { success: false, message: 'Failed to list knowledge base' };

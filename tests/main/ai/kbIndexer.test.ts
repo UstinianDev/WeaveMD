@@ -46,6 +46,11 @@ class FakeDatabase {
   prepare(sql: string): FakeStatement {
     return fakeDbMock.prepare(sql) as FakeStatement;
   }
+
+  /** 事务包装：直接执行回调（FakeDB 无真实事务）。 */
+  transaction<T extends (...args: unknown[]) => unknown>(fn: T): T {
+    return fn;
+  }
 }
 
 vi.mock('better-sqlite3', () => ({ default: FakeDatabase }));

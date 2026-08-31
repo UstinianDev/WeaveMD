@@ -314,12 +314,14 @@ export function renderAIMarkdownRoot(root: Root | null): React.ReactNode {
 }
 
 // —— 权威解析入口（parse + runSync 一次性转换 markdown → HAST）——
+// processor 提升到模块级复用，避免每次调用重建管线
+const mdProcessor = unified().use(remarkParse).use(remarkGfm).use(remarkRehype, {
+  allowDangerousHtml: false,
+});
+
 export function parseAIMarkdown(md: string): Root {
-  const processor = unified().use(remarkParse).use(remarkGfm).use(remarkRehype, {
-    allowDangerousHtml: false,
-  });
-  const tree = processor.parse(md);
-  return processor.runSync(tree as never) as Root;
+  const tree = mdProcessor.parse(md);
+  return mdProcessor.runSync(tree as never) as Root;
 }
 
 // ── LRU 渲染缓存（流式场景：content 每次尾部追加，避免重复解析全量 markdown）──

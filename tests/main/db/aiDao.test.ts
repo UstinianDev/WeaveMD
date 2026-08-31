@@ -161,7 +161,8 @@ describe('ai DAO — SQL 参数化与归属过滤行为', () => {
       content: 'hello',
     });
     const insert = callOf('run', 'INSERT INTO ai_messages');
-    expect(insert?.args).toEqual([expect.any(String), 'c1', 'u1', 'assistant', 'hello', null, null, null]);
+    // 9 args: id, conversation_id, user_id, role, content, refs_json, tool_call_id, tool_calls, created_at
+    expect(insert?.args).toEqual([expect.any(String), 'c1', 'u1', 'assistant', 'hello', null, null, null, expect.any(String)]);
   });
 
   it('listConversationsByUser filters by user_id + mode and orders by updated_at DESC', () => {
@@ -180,12 +181,12 @@ describe('ai DAO — SQL 参数化与归属过滤行为', () => {
     expect(stmt?.args).toEqual(['u1']);
   });
 
-  it('getMessagesByConversation joins conversation to enforce user ownership', () => {
+  it('getMessagesByConversation filters by conversation_id and user_id', () => {
     getMessagesByConversation('c1', 'u1');
     const stmt = callOf('all', 'ai_messages');
-    expect(stmt?.sql).toContain('JOIN ai_conversations');
-    expect(stmt?.sql).toMatch(/WHERE m\.conversation_id = \? AND c\.user_id = \?/);
-    expect(stmt?.sql).toContain('ORDER BY m.created_at ASC');
+    expect(stmt?.sql).toContain('WHERE conversation_id = ?');
+    expect(stmt?.sql).toContain('AND user_id = ?');
+    expect(stmt?.sql).toContain('ORDER BY created_at ASC');
     expect(stmt?.args).toEqual(['c1', 'u1']);
   });
 

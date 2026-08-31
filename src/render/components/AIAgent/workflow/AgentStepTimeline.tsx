@@ -16,12 +16,6 @@ interface AgentStepTimelineProps {
   isStreaming?: boolean;
 }
 
-/** 格式化工具耗时：≥1s 显示秒，<1s 显示毫秒。 */
-function formatDuration(ms: number): string {
-  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${ms}ms`;
-}
-
 /** 截断字符串。 */
 function truncate(value: string, limit: number): string {
   if (value.length <= limit) return value;
@@ -71,7 +65,7 @@ function groupByLoop(toolCalls: IAgentToolCall[]): Map<number, IAgentToolCall[]>
 }
 
 /** 单个工具调用行。 */
-const ToolCallRow: React.FC<{ call: IAgentToolCall; t: (key: string, fb?: string) => string }> = ({
+const ToolCallRow: React.FC<{ call: IAgentToolCall; t: (key: string, fb?: string) => string }> = React.memo(({
   call,
   t,
 }) => {
@@ -139,7 +133,7 @@ const ToolCallRow: React.FC<{ call: IAgentToolCall; t: (key: string, fb?: string
       )}
     </div>
   );
-};
+});
 
 /** 单轮步骤卡片。 */
 const RoundStep: React.FC<{
@@ -148,7 +142,7 @@ const RoundStep: React.FC<{
   isLast: boolean;
   isStreaming: boolean;
   t: (key: string, fb?: string) => string;
-}> = ({ roundIndex, calls, isLast, isStreaming, t }) => {
+}> = React.memo(({ roundIndex, calls, isLast, isStreaming, t }) => {
   // 最后一轮且正在流式时默认展开，否则折叠
   const [expanded, setExpanded] = useState(isLast && isStreaming);
 
@@ -205,7 +199,7 @@ const RoundStep: React.FC<{
       )}
     </div>
   );
-};
+});
 
 /** Agent 分步可视化时间线主组件。 */
 const AgentStepTimeline: React.FC<AgentStepTimelineProps> = ({
@@ -213,11 +207,10 @@ const AgentStepTimeline: React.FC<AgentStepTimelineProps> = ({
   isStreaming = false,
 }) => {
   const { t } = useI18n();
-
-  if (toolCalls.length === 0) return null;
-
   const groups = useMemo(() => groupByLoop(toolCalls), [toolCalls]);
   const sortedRounds = useMemo(() => Array.from(groups.entries()).sort(([a], [b]) => a - b), [groups]);
+
+  if (toolCalls.length === 0) return null;
 
   return (
     <div className="space-y-1.5">

@@ -130,17 +130,13 @@ export function updateSessionStatus(
   db: BetterSqlite3Database,
   sessionId: string,
   status: AgentSessionStatus
-): AgentSession | null {
-  db.prepare(
+): boolean {
+  const info = db.prepare(
     `UPDATE agent_sessions
      SET status = ?, updated_at = datetime('now')
      WHERE id = ?`
   ).run(status, sessionId);
-
-  const row = db
-    .prepare('SELECT * FROM agent_sessions WHERE id = ?')
-    .get(sessionId) as AgentSessionDbRow | undefined;
-  return row ? mapSessionRow(row) : null;
+  return info.changes > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -151,17 +147,29 @@ export function updateSessionRounds(
   db: BetterSqlite3Database,
   sessionId: string,
   roundsUsed: number
-): AgentSession | null {
-  db.prepare(
+): boolean {
+  const info = db.prepare(
     `UPDATE agent_sessions
      SET rounds_used = ?, updated_at = datetime('now')
      WHERE id = ?`
   ).run(roundsUsed, sessionId);
+  return info.changes > 0;
+}
 
-  const row = db
-    .prepare('SELECT * FROM agent_sessions WHERE id = ?')
-    .get(sessionId) as AgentSessionDbRow | undefined;
-  return row ? mapSessionRow(row) : null;
+// ---------------------------------------------------------------------------
+// incrementSessionRounds — 原子 +1（避免读-改-写往返）
+// ---------------------------------------------------------------------------
+
+export function incrementSessionRounds(
+  db: BetterSqlite3Database,
+  sessionId: string
+): boolean {
+  const info = db.prepare(
+    `UPDATE agent_sessions
+     SET rounds_used = rounds_used + 1, updated_at = datetime('now')
+     WHERE id = ?`
+  ).run(sessionId);
+  return info.changes > 0;
 }
 
 // ---------------------------------------------------------------------------

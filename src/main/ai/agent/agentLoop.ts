@@ -432,15 +432,28 @@ function prepareAgentContext(
 
   const agentSystemPrompt = [
     '你是 WeaveMD 的 AI 写作助手。遵循以下规则：',
-    '1. 当用户要求创建、新建文件/笔记时，你必须调用 createFile 工具，不要直接在聊天中输出文件内容。',
-    '2. 当用户要求修改已有文件时，使用 editBlocks 或 preview_file_revision 工具。',
-    '3. 当用户要求重命名、移动、删除文件时，使用对应的 renameFile/moveFile/deleteFile 工具。',
-    '4. 先了解再行动：创建或修改文件前，先用 readFile/readLocalFile 检索相关资料。',
-    '5. 回答时使用中文。',
-    '6. 当用户询问你是否能看到某个文件、或某个文件是否存在时，你可以直接根据文件列表确认；如果列表中没有，再调用 listFiles 工具重新获取。',
-    '7. 用户打开/导入的本地文件可通过 readLocalFile（绝对路径）读取，通过 editLocalFile（绝对路径 + 新内容）直接编辑并写入磁盘。本地文件夹可通过 listLocalDirectory 浏览。',
-    '8. 创建文件时，如果用户已打开文件夹，文件会自动创建到该文件夹中。也可以通过 parent_path 参数指定子目录。',
-    '9. 创建文件夹时，目录会在磁盘上真实创建。支持嵌套路径（如 "子目录/深层目录"）。',
+    '',
+    '## 核心工作流（先了解再行动）',
+    '0. **简单问题直接回答**：数学计算、通用知识、闲聊等简单问题，直接回答，不要调用任何工具。',
+    '1. **理解需求**：分析用户意图，信息不足时用 ask_question_card 向用户提问澄清，不要猜测。',
+    '2. **检索资料**：创建或修改文件前，先用 readFile/searchKB/readLocalFile 检索相关资料。换不同角度检索，避免重复相同查询。',
+    '3. **规划步骤**：复杂任务（如多文件创建、长文写作）先在脑中拆分为有序步骤，逐步执行。',
+    '4. **执行操作**：调用工具完成任务。创建文件用 createFile，修改文件用 editBlocks/preview_file_revision，文件操作用 renameFile/moveFile/deleteFile。',
+    '5. **确认结果**：操作完成后简要告知用户结果。',
+    '',
+    '## 工具使用规则',
+    '- 创建/新建文件 → 必须调用 createFile 工具，不要直接在聊天中输出文件内容。',
+    '- 修改已有文件 → 使用 editBlocks（当前文档）或 preview_file_revision（任意文件）。',
+    '- 本地文件操作 → readLocalFile/editLocalFile/listLocalDirectory 支持相对路径和绝对路径，工具会自动解析。返回的 path 字段是绝对路径，后续操作请使用该绝对路径。',
+    '- 知识检索 → 使用 searchKB 检索知识库，首次用宽泛关键词，后续换不同角度。',
+    '- 不确定时提问 → 用 ask_question_card 向用户展示结构化提问卡片（支持文本输入/选择/确认），暂停等待用户回答后再继续。',
+    '',
+    '## 其他规则',
+    '- 回答时使用中文。',
+    '- 用户询问文件是否存在时，先根据文件列表确认；列表中没有再调用 listFiles 重新获取。',
+    '- 创建文件时如果用户已打开文件夹，文件会自动创建到该文件夹中。也可通过 parent_path 指定子目录。',
+    '- 创建文件夹时目录会在磁盘上真实创建，支持嵌套路径（如 "子目录/深层目录"）。',
+    '- 对于大型写作任务（如写一篇完整文章），按章节拆分为多个步骤执行，每步只处理一个文件。',
     fileListSnapshot,
     localFileTreeSnapshot,
   ].filter(Boolean).join('\n');
@@ -546,8 +559,8 @@ function handleToolResult(
   const segment = createSegment(toolCallId, tc.name, round);
   executionSegments.push(segment);
 
-  // 完成执行段
-  const segIndex = executionSegments.findIndex((s) => s.id === toolCallId);
+  // 完成执行段（segment 刚 push 到末尾，直接用 length - 1）
+  const segIndex = executionSegments.length - 1;
   if (segIndex >= 0) {
     executionSegments[segIndex] = completeSegment(
       segment,
@@ -588,13 +601,13 @@ function handleToolResult(
   ctx.send(IPC_CHANNELS.AI_STREAM_TOOL, { conversationId: ctx.convId, ...toolEvent });
   ctx.toolCallsHistory.push(toolEvent);
 
-  // R3: 用户答案注入
-  const toolResultContent = interactionAnswers
+  // R3: 用户答案注入（复用 JSON.stringify 结果）
+  const answeredJson = interactionAnswers
     ? JSON.stringify({ answers: interactionAnswers, phase: 'answered' })
-    : result.content;
-  const toolResultForLlm = interactionAnswers
-    ? JSON.stringify({ answers: interactionAnswers, phase: 'answered' })
-    : (result.errorDesc ? `[工具 ${tc.name} 失败] ${result.errorDesc}` : result.content);
+    : null;
+  const toolResultContent = answeredJson ?? result.content;
+  const toolResultForLlm = answeredJson
+    ?? (result.errorDesc ? `[工具 ${tc.name} 失败] ${result.errorDesc}` : result.content);
 
   appendMessage({
     conversationId: ctx.convId,

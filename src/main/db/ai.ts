@@ -243,6 +243,24 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
       update.writeMode ?? existing.writeMode,
       userId
     );
+    // 直接构造返回值，省掉回读 SELECT
+    return {
+      ...existing,
+      backend: 'remote',
+      ollamaBaseUrl: update.ollamaBaseUrl ?? existing.ollamaBaseUrl,
+      remoteBaseUrl: update.remoteBaseUrl ?? existing.remoteBaseUrl,
+      model: update.model ?? existing.model,
+      apiKeyEnc: update.apiKeyEnc !== undefined ? update.apiKeyEnc : existing.apiKeyEnc,
+      allowNetwork: update.allowNetwork ?? existing.allowNetwork,
+      allowSend: update.allowSend ?? existing.allowSend,
+      consentUpdatedAt: update.consentUpdatedAt !== undefined ? update.consentUpdatedAt : existing.consentUpdatedAt,
+      kbTopK: update.kbTopK ?? existing.kbTopK,
+      kbFuse: update.kbFuse ?? existing.kbFuse,
+      kbThreshold: update.kbThreshold ?? existing.kbThreshold,
+      kbPinnedWeight: update.kbPinnedWeight ?? existing.kbPinnedWeight,
+      writeMode: update.writeMode ?? existing.writeMode,
+      updatedAt: new Date().toISOString(),
+    };
   } else {
     const id = randomUUID();
     // INSERT 在无配置新建时用 update.x ?? DEFAULT_KB_SETTINGS.x 兜底
@@ -270,11 +288,51 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
       update.kbPinnedWeight ?? DEFAULT_KB_SETTINGS.pinnedWeight,
       update.writeMode ?? 'manual'
     );
+    // 直接构造返回值，省掉回读 SELECT
+    const kb = normalizeKbSettings({
+      topK: update.kbTopK ?? DEFAULT_KB_SETTINGS.topK,
+      fuse: update.kbFuse ?? DEFAULT_KB_SETTINGS.fuse,
+      threshold: update.kbThreshold ?? DEFAULT_KB_SETTINGS.threshold,
+      pinnedWeight: update.kbPinnedWeight ?? DEFAULT_KB_SETTINGS.pinnedWeight,
+    });
+    return {
+      id,
+      userId,
+      backend: 'remote',
+      ollamaBaseUrl: update.ollamaBaseUrl ?? 'http://localhost:11434',
+      remoteBaseUrl: update.remoteBaseUrl ?? 'https://api.deepseek.com',
+      model: update.model ?? '',
+      apiKeyEnc: update.apiKeyEnc ?? null,
+      allowNetwork: update.allowNetwork ?? false,
+      allowSend: update.allowSend ?? false,
+      consentUpdatedAt: update.consentUpdatedAt ?? null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      activeModelConfigId: null,
+      writeMode: update.writeMode ?? 'manual',
+      kbTopK: kb.topK,
+      kbFuse: kb.fuse,
+      kbThreshold: kb.threshold,
+      kbPinnedWeight: kb.pinnedWeight,
+      kbRrfK: kb.rrfK!,
+      kbCandidateMultiplier: kb.candidateMultiplier!,
+      kbVecScoreThreshold: kb.vecScoreThreshold!,
+      kbCurrentFileBoost: kb.currentFileBoost!,
+      kbRecencyBoost: kb.recencyBoost!,
+      kbHeadingBoost: kb.headingBoost!,
+      kbMaxChunksPerFile: kb.maxChunksPerFile!,
+      kbContextExpand: kb.contextExpand!,
+      kbEnableQueryUnderstanding: kb.enableQueryUnderstanding!,
+      kbEnableConditionalRerank: kb.enableConditionalRerank!,
+      kbEnableClarify: kb.enableClarify!,
+      kbEnableEvidenceGrading: kb.enableEvidenceGrading!,
+      kbEnableResearchLoop: kb.enableResearchLoop!,
+      kbEnableDocumentContext: kb.enableDocumentContext!,
+      kbDocumentContextBudget: kb.documentContextBudget!,
+      kbEmbeddingProvider: 'openai',
+      kbEmbeddingDimension: 1536,
+    };
   }
-
-  const fresh = getAiConfig(userId);
-  if (!fresh) throw new Error('Failed to upsert ai_config');
-  return fresh;
 }
 
 /**
@@ -461,18 +519,27 @@ export function appendMessage(msg: {
 }): IAIMessage {
   const db = getDatabase();
   const id = randomUUID();
+  const createdAt = new Date().toISOString();
   const toolCallsJson = msg.toolCalls && msg.toolCalls.length > 0
     ? JSON.stringify(msg.toolCalls)
     : null;
   cachedPrepare(db,
-    'INSERT INTO ai_messages (id, conversation_id, user_id, role, content, refs_json, tool_call_id, tool_calls) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, msg.conversationId, msg.userId, msg.role, msg.content, msg.refsJson ?? null, msg.toolCallId ?? null, toolCallsJson);
+    'INSERT INTO ai_messages (id, conversation_id, user_id, role, content, refs_json, tool_call_id, tool_calls, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, msg.conversationId, msg.userId, msg.role, msg.content, msg.refsJson ?? null, msg.toolCallId ?? null, toolCallsJson, createdAt);
   cachedPrepare(db,
     "UPDATE ai_conversations SET updated_at = datetime('now') WHERE id = ? AND user_id = ?"
   ).run(msg.conversationId, msg.userId);
-  const row = cachedPrepare(db, 'SELECT * FROM ai_messages WHERE id = ?')
-    .get(id) as AiMessageDbRow;
-  return mapMessageRow(row);
+  return {
+    id,
+    conversationId: msg.conversationId,
+    userId: msg.userId,
+    role: msg.role,
+    content: msg.content,
+    refsJson: msg.refsJson ?? null,
+    toolCallId: msg.toolCallId ?? null,
+    createdAt,
+    toolCalls: msg.toolCalls,
+  };
 }
 
 export function getMessagesByConversation(
@@ -480,11 +547,11 @@ export function getMessagesByConversation(
   userId: string
 ): IAIMessage[] {
   const db = getDatabase();
+  // userId 已由上游 prepareAgentContext 校验会话归属，此处无需 JOIN
   const rows = cachedPrepare(db,
-      `SELECT m.* FROM ai_messages m
-         JOIN ai_conversations c ON c.id = m.conversation_id
-        WHERE m.conversation_id = ? AND c.user_id = ?
-        ORDER BY m.created_at ASC`
+      `SELECT * FROM ai_messages
+        WHERE conversation_id = ? AND user_id = ?
+        ORDER BY created_at ASC`
     )
     .all(conversationId, userId) as AiMessageDbRow[];
   return rows.map(mapMessageRow);

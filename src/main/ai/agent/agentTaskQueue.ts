@@ -111,14 +111,13 @@ export class AgentTaskQueue {
   // Private
   // -----------------------------------------------------------------------
 
-  /** 将同会话中旧的 pending 任务标记为 superseded。 */
+  /** 将同会话中旧的 pending 任务标记为 superseded（单条 UPDATE，避免加载全部任务）。 */
   private supersedeOldTasks(conversationId: string, newTaskId: string): void {
-    const tasks = taskDao.getTasksByConversation(this.db, conversationId);
-    for (const task of tasks) {
-      if (task.id !== newTaskId && task.status === 'pending') {
-        taskDao.supersedeTask(this.db, task.id);
-      }
-    }
+    this.db.prepare(
+      `UPDATE agent_task_queue
+         SET status = 'superseded'
+       WHERE conversation_id = ? AND status = 'pending' AND id != ?`
+    ).run(conversationId, newTaskId);
   }
 }
 

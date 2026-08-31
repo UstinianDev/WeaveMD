@@ -10,6 +10,17 @@ import type { AgentRunEvent } from '@shared/ai';
 import * as eventDao from '../../db/agentEventDao';
 
 // ---------------------------------------------------------------------------
+// In-memory seq counter — avoids SELECT MAX(seq) on every event
+// ---------------------------------------------------------------------------
+
+const seqCounters = new Map<string, number>();
+
+/** Reset seq counter for a session (call at session start). */
+export function resetSeqCounter(sessionId: string): void {
+  seqCounters.delete(sessionId);
+}
+
+// ---------------------------------------------------------------------------
 // persistAndSend — 持久化事件并通过 IPC 推送
 // ---------------------------------------------------------------------------
 
@@ -21,7 +32,12 @@ export function persistAndSend(
   eventType: string,
   payload: unknown
 ): AgentRunEvent {
-  const nextSeq = eventDao.getLatestSeq(db, sessionId) + 1;
+  let seq = seqCounters.get(sessionId);
+  if (seq === undefined) {
+    seq = eventDao.getLatestSeq(db, sessionId);
+  }
+  const nextSeq = seq + 1;
+  seqCounters.set(sessionId, nextSeq);
   const payloadJson = JSON.stringify(payload);
 
   const event = eventDao.insertEvent(

@@ -44,7 +44,7 @@ const STATUS_ICONS: Record<string, string> = {
   error: 'close',
 };
 
-const AgentLoopLogList: React.FC<AgentLoopLogListProps> = ({ toolCalls }) => {
+const AgentLoopLogList: React.FC<AgentLoopLogListProps> = React.memo(({ toolCalls }) => {
   // 按轮次分组
   const grouped = useMemo(() => {
     const groups = new Map<number, IAgentToolCall[]>();
@@ -102,6 +102,6 @@ const AgentLoopLogList: React.FC<AgentLoopLogListProps> = ({ toolCalls }) => {
       ))}
     </div>
   );
-};
+});
 
 export default AgentLoopLogList;

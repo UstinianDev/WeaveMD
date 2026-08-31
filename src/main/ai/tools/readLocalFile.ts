@@ -5,15 +5,19 @@
 // 大小限制 1MB，防止读取过大文件导致内存问题。
 
 import { readFileSync, statSync } from 'fs';
+import { resolve, isAbsolute } from 'path';
 import type { ToolHandler, ToolResult } from '../toolTypes';
 
 const MAX_FILE_SIZE = 1_000_000; // 1MB
 
 export const handleReadLocalFile: ToolHandler = (args): ToolResult => {
-  const filePath = args.file_path as string | undefined;
-  if (!filePath || typeof filePath !== 'string') {
+  const rawPath = args.file_path as string | undefined;
+  if (!rawPath || typeof rawPath !== 'string') {
     return { content: '', status: 'error', errorDesc: '缺少 file_path 参数' };
   }
+
+  // 相对路径自动基于 cwd 解析为绝对路径
+  const filePath = isAbsolute(rawPath) ? rawPath : resolve(process.cwd(), rawPath);
 
   try {
     const stat = statSync(filePath);
@@ -31,7 +35,7 @@ export const handleReadLocalFile: ToolHandler = (args): ToolResult => {
     const content = readFileSync(filePath, 'utf-8');
     return {
       content: JSON.stringify({
-        path: filePath,
+        path: filePath, // 返回绝对路径，供 editLocalFile 等后续工具引用
         content,
         size: stat.size,
         modifiedAt: stat.mtime.toISOString(),

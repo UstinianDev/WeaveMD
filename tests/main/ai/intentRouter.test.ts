@@ -51,6 +51,23 @@ describe('intentRouter.classifyIntent', () => {
     expect(classifyIntent('生成一个营销标题').intent).toBe('create');
   });
 
+  it('classifies colloquial create intents (口语化创建)', () => {
+    expect(classifyIntent('给我一个文件').intent).toBe('create');
+    expect(classifyIntent('我要一个笔记').intent).toBe('create');
+    expect(classifyIntent('来个新文档').intent).toBe('create');
+    expect(classifyIntent('弄一个新笔记').intent).toBe('create');
+    expect(classifyIntent('建一个文档').intent).toBe('create');
+  });
+
+  it('classifies colloquial rewrite/delete intents (口语化修改/删除)', () => {
+    expect(classifyIntent('改变一下这个').intent).toBe('rewrite');
+    expect(classifyIntent('弄一下这个').intent).toBe('rewrite');
+    expect(classifyIntent('丢掉这个文件').intent).toBe('rewrite');
+    expect(classifyIntent('扔掉这个笔记').intent).toBe('rewrite');
+    expect(classifyIntent('删了这个').intent).toBe('rewrite');
+    expect(classifyIntent('去掉这个').intent).toBe('rewrite');
+  });
+
   it('falls back to chat when no keyword hits', () => {
     const res = classifyIntent('今天天气怎么样');
     expect(res.intent).toBe('chat');

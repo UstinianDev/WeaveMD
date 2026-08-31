@@ -45,6 +45,9 @@ export class AgentSessionStateMachine {
   private sessionId: string;
   private db: BetterSqlite3Database;
   private currentStatus: AgentSessionStatus;
+  /** 缓存轮次，-1 表示未初始化。 */
+  private _roundsUsed = -1;
+  private _maxRounds = 20;
 
   constructor(
     db: BetterSqlite3Database,
@@ -95,6 +98,8 @@ export class AgentSessionStateMachine {
     const session = sessionDao.getSession(this.db, this.sessionId);
     if (session) {
       this.currentStatus = session.status;
+      this._roundsUsed = session.roundsUsed;
+      this._maxRounds = session.maxRounds;
     }
     return session;
   }
@@ -119,25 +124,32 @@ export class AgentSessionStateMachine {
     return sessionDao.loadSnapshot(this.db, this.sessionId);
   }
 
-  /** 已用轮次 +1（读-改-写，依赖 SQLite 单写串行保证）。 */
+  /** 已用轮次 +1（原子 UPDATE，避免读-改-写往返）。 */
   incrementRounds(): void {
-    const session = sessionDao.getSession(this.db, this.sessionId);
-    if (session) {
-      sessionDao.updateSessionRounds(this.db, this.sessionId, session.roundsUsed + 1);
-    }
+    sessionDao.incrementSessionRounds(this.db, this.sessionId);
+    // 本地计数同步（避免下次 isNearRoundLimit 额外查库）
+    this._roundsUsed++;
   }
 
-  /** 是否接近轮次限制（>= 80%）。 */
+  /** 是否接近轮次限制（>= 80%）。使用本地缓存避免额外 DB 查询。 */
   isNearRoundLimit(): boolean {
-    const session = sessionDao.getSession(this.db, this.sessionId);
-    if (!session) return false;
-    return session.roundsUsed >= session.maxRounds * 0.8;
+    if (this._roundsUsed < 0) {
+      const session = sessionDao.getSession(this.db, this.sessionId);
+      if (!session) return false;
+      this._roundsUsed = session.roundsUsed;
+      this._maxRounds = session.maxRounds;
+    }
+    return this._roundsUsed >= this._maxRounds * 0.8;
   }
 
-  /** 是否已达到轮次限制。 */
+  /** 是否已达到轮次限制。使用本地缓存避免额外 DB 查询。 */
   isAtRoundLimit(): boolean {
-    const session = sessionDao.getSession(this.db, this.sessionId);
-    if (!session) return false;
-    return session.roundsUsed >= session.maxRounds;
+    if (this._roundsUsed < 0) {
+      const session = sessionDao.getSession(this.db, this.sessionId);
+      if (!session) return false;
+      this._roundsUsed = session.roundsUsed;
+      this._maxRounds = session.maxRounds;
+    }
+    return this._roundsUsed >= this._maxRounds;
   }
 }

@@ -208,6 +208,7 @@ function runMigrations(database: Database.Database): void {
       created_at  TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_kb_doc_user ON kb_documents(user_id);
+    CREATE INDEX IF NOT EXISTS idx_kb_doc_user_file ON kb_documents(user_id, file_id);
 
     CREATE TABLE IF NOT EXISTS kb_chunks (
       id           TEXT PRIMARY KEY,

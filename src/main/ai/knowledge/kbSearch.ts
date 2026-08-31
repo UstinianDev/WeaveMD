@@ -198,6 +198,7 @@ function vectorSearch(
 
 /**
  * 标题/路径 LIKE 匹配（补充召回）。
+ * 单条查询 + OR 条件（替代逐关键词 N 次查询）。
  * 返回 documentId → 匹配分数（0-1）。
  */
 function titleMatchSearch(
@@ -210,28 +211,34 @@ function titleMatchSearch(
   const keywords = query.split(/\s+/).filter(k => k.length > 1).slice(0, 3);
   if (keywords.length === 0) return result;
 
-  for (const keyword of keywords) {
-    try {
-      const rows = db.prepare(`
-        SELECT id AS docId, title
-          FROM kb_documents
-         WHERE user_id = ?
-           AND (title LIKE ? OR file_path LIKE ?)
-         LIMIT ?
-      `).all(userId, `%${keyword}%`, `%${keyword}%`, limit) as Array<{
-        docId: string;
-        title: string;
-      }>;
+  // 构建 OR 条件：每个关键词对应 (title LIKE ? OR file_path LIKE ?)
+  const orClauses = keywords.map(() => '(title LIKE ? OR file_path LIKE ?)').join(' OR ');
+  const params: unknown[] = [userId];
+  for (const kw of keywords) {
+    params.push(`%${kw}%`, `%${kw}%`);
+  }
+  params.push(limit);
 
-      for (const row of rows) {
-        if (!row.docId || !row.title) continue;
-        const existing = result.get(row.docId) ?? 0;
-        const exactMatch = row.title.toLowerCase().includes(keyword.toLowerCase()) ? 0.3 : 0.1;
-        result.set(row.docId, Math.min(1, existing + exactMatch));
+  try {
+    const rows = db.prepare(`
+      SELECT id AS docId, title
+        FROM kb_documents
+       WHERE user_id = ?
+         AND (${orClauses})
+       LIMIT ?
+    `).all(...params) as Array<{ docId: string; title: string }>;
+
+    for (const row of rows) {
+      if (!row.docId || !row.title) continue;
+      let score = 0;
+      for (const kw of keywords) {
+        const match = row.title.toLowerCase().includes(kw.toLowerCase()) ? 0.3 : 0.1;
+        score += match;
       }
-    } catch {
-      // 表不存在或查询失败时静默跳过
+      result.set(row.docId, Math.min(1, score));
     }
+  } catch {
+    // 表不存在或查询失败时静默跳过
   }
   return result;
 }

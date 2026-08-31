@@ -8,8 +8,7 @@
 import {
   deleteChunksByDoc,
   deleteKbDocumentByFile,
-  getKbDocumentByFile,
-  insertChunk,
+  insertChunksBatch,
   setKbDocStatus,
   upsertKbDocument,
 } from '../../db/kb';
@@ -131,18 +130,15 @@ async function writeChunks(
   const chunks = splitNote(content);
   if (chunks.length === 0) return 0;
 
-  // 第一步：文本分块入库（收集 id 供向量写入）
-  const insertedChunks: { id: string; text: string }[] = [];
-  for (const chunk of chunks) {
-    const sourceRef = buildSourceRef(fileName, chunk.approxOffset);
-    const row = insertChunk({
-      documentId,
-      seq: chunk.seq,
-      content: chunk.text,
-      sourceRef,
-    });
-    insertedChunks.push({ id: row.id, text: chunk.text });
-  }
+  // 第一步：批量文本分块入库（事务包裹，避免逐条 auto-commit）
+  const batchInput = chunks.map((chunk) => ({
+    documentId,
+    seq: chunk.seq,
+    content: chunk.text,
+    sourceRef: buildSourceRef(fileName, chunk.approxOffset),
+  }));
+  const insertedRows = insertChunksBatch(batchInput);
+  const insertedChunks = insertedRows.map((row, i) => ({ id: row.id, text: chunks[i].text }));
 
   // 第二步：批量生成向量（如果配置了 embedding）
   if (embeddingConfig && insertedChunks.length > 0) {
@@ -213,14 +209,13 @@ export async function indexFile(
     deleteChunksByDoc(docId);
     const chunkCount = await writeChunks(docId, file.content, file.name, opts.embedding);
     setKbDocStatus(userId, docId, 'done');
-    const fresh = getKbDocumentByFile(userId, file.id);
     // 索引完成后清除搜索缓存
     invalidateKbSearchCache(userId);
     return {
       docId,
       title,
       chunks: chunkCount,
-      status: fresh ? fresh.status : 'done',
+      status: 'done',
     };
   } catch {
     setKbDocStatus(userId, docId ?? '', 'error');
