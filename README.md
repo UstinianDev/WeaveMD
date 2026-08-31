@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/icon.png" width="100" alt="WeaveMD Logo">
+  <img src="public/icons/icon.png" width="100" alt="WeaveMD Logo">
 </p>
 
 <h1 align="center">WeaveMD</h1>
