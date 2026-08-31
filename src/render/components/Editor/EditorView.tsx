@@ -27,9 +27,16 @@ const EditorView: React.FC<EditorViewProps> = ({ onNavigateReady, onActiveHeadin
   const sourceEditorHandleRef = useRef<SourceCodeEditorHandle | null>(null);
   const [themesLoading, setThemesLoading] = useState(true);
 
+  // --- 滚动位置保持：模式切换时保存/恢复 ---
+  /** 保存的 Normal 模式 scrollTop（.editor-scroll-container 的 scrollTop） */
+  const savedNormalScrollRef = useRef<number>(0);
+  /** 保存的 Source 模式滚动行号 */
+  const savedSourceLineRef = useRef<number>(1);
+
   const content = useEditorStore((s) => s.content);
   const setContent = useEditorStore((s) => s.updateContent);
   const setEditorDraftFlusher = useUIStore((s) => s.setEditorDraftFlusher);
+  const setBeforeToggleSourceMode = useUIStore((s) => s.setBeforeToggleSourceMode);
   const isSourceCodeMode = useUIStore((s) => s.isSourceCodeMode);
   const isFindReplaceOpen = useUIStore((s) => s.isFindReplaceOpen);
 
@@ -154,6 +161,49 @@ const EditorView: React.FC<EditorViewProps> = ({ onNavigateReady, onActiveHeadin
       });
     }
   }, [isSourceCodeMode, onNavigateReady, themesLoading]);
+
+  // 注册 beforeToggleSourceMode：切换前保存当前编辑器的滚动位置
+  useEffect(() => {
+    setBeforeToggleSourceMode(() => {
+      if (isSourceCodeMode) {
+        // 当前 Source → 切到 Normal：保存 Monaco 可见行号
+        const monacoScrollDom = document.querySelector('.monaco-editor .overflow-guard');
+        if (monacoScrollDom) {
+          const scrollTop = monacoScrollDom.scrollTop as number;
+          // Monaco 默认行高 ~20px，近似行号
+          savedSourceLineRef.current = Math.max(1, Math.floor(scrollTop / 20) + 1);
+        }
+      } else {
+        // 当前 Normal → 切到 Source：保存 EditorV2 scrollTop
+        const container = document.querySelector('.editor-scroll-container');
+        if (container) {
+          savedNormalScrollRef.current = container.scrollTop;
+        }
+      }
+    });
+    return () => setBeforeToggleSourceMode(null);
+  }, [isSourceCodeMode, setBeforeToggleSourceMode]);
+
+  // 恢复滚动位置：模式切换后，新编辑器挂载时恢复
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      if (isSourceCodeMode) {
+        // 切到了 Source → 恢复 Monaco 到之前保存的行号
+        if (savedSourceLineRef.current > 1) {
+          sourceEditorHandleRef.current?.scrollToLine(savedSourceLineRef.current);
+        }
+      } else {
+        // 切到了 Normal → 恢复 EditorV2 的 scrollTop
+        if (savedNormalScrollRef.current > 0) {
+          const container = document.querySelector('.editor-scroll-container');
+          if (container) {
+            container.scrollTop = savedNormalScrollRef.current;
+          }
+        }
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isSourceCodeMode]);
 
   // 草稿刷新器：Source 模式强制 flush Monaco 150ms 防抖内容，避免切换文件丢失；
   // Normal 模式 EditorV2 每 keystroke 已同步 store，无需 flush（no-op）。
