@@ -47,7 +47,7 @@ npm run build
 
 ### 2. 上传到 GitHub Release
 
-1. 在 GitHub 仓库创建新的 Release（Tag 格式：`v1.1.0`）
+1. 在 [GitHub Releases](https://github.com/UstinianDev/WeaveMD/releases) 创建新的 Release（Tag 格式：`v1.2.0`）
 2. 上传以下文件：
    - Windows：`WeaveMD Setup x.x.x.exe`
    - macOS：`WeaveMD-x.x.x.dmg` + `WeaveMD-x.x.x-mac.zip`
@@ -123,9 +123,9 @@ npx electron-builder --linux
     },
     "publish": {
       "provider": "github",
-      "owner": "pengwenhua59",
-      "repo": "weavemd-releases",
-      "public": true
+      "owner": "UstinianDev",
+      "repo": "WeaveMD",
+      "private": false
     }
   }
 }

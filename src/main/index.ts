@@ -5,7 +5,7 @@
 import { app, BrowserWindow, protocol } from 'electron';
 import { createMainWindow } from './window';
 import { registerAllIpcHandlers } from './ipc-handlers';
-import { initAutoUpdater } from './update';
+import { initAutoUpdater, checkForUpdatesAndNotify } from './update';
 import { MEDIA_SCHEME_PRIVILEGES, registerMediaProtocol } from './media-protocol';
 import { initDatabase, closeDatabase, getDatabase } from './db/index';
 import { initAgentQueue, cleanupAgentQueue } from './ai/ipc';
@@ -60,6 +60,11 @@ app.whenReady().then(() => {
   // Initialize agent task queue (after window creation, needs BrowserWindow ref)
   const db = getDatabase();
   initAgentQueue(db, mainWindow);
+
+  // Auto-check for updates 15s after startup (non-blocking, silent)
+  setTimeout(() => {
+    checkForUpdatesAndNotify().catch(() => {});
+  }, 15_000);
 });
 
 app.on('window-all-closed', () => {

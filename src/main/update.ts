@@ -92,13 +92,17 @@ export function initAutoUpdater(): void {
   });
 }
 
-/** Check for updates. Returns current state. */
+/** Check for updates. Returns current state. Includes 30s timeout. */
 export async function checkForUpdates(): Promise<UpdateEvent> {
   if (!app.isPackaged || !autoUpdater) {
     return { state: 'not-available' };
   }
   try {
-    const result = await autoUpdater.checkForUpdates();
+    // 30s timeout — prevents indefinite "checking" if GitHub is unreachable
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Update check timed out (30s)')), 30_000);
+    });
+    const result = await Promise.race([autoUpdater.checkForUpdates(), timeoutPromise]);
     if (!result) return { state: 'not-available' };
     return {
       state: 'available',
@@ -114,6 +118,17 @@ export async function checkForUpdates(): Promise<UpdateEvent> {
       error: err instanceof Error ? err.message : 'Check failed',
     };
   }
+}
+
+/**
+ * Check for updates and broadcast result via push event.
+ * This is the primary entry point for IPC — always sends UPDATE_EVENT
+ * so the renderer UI never gets stuck in 'checking' state.
+ */
+export async function checkForUpdatesAndNotify(): Promise<UpdateEvent> {
+  const result = await checkForUpdates();
+  sendEvent(result);
+  return result;
 }
 
 /** Download the pending update. */
@@ -139,7 +154,7 @@ export function quitAndInstall(): void {
 }
 
 /** Broadcast update event to all renderer windows. */
-function sendEvent(event: UpdateEvent): void {
+export function sendEvent(event: UpdateEvent): void {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
       win.webContents.send(IPC_CHANNELS.UPDATE_EVENT, event);

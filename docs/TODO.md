@@ -1,8 +1,39 @@
 # TODO
 
-> 最后更新：2026-08-29
+> 最后更新：2026-08-31
 
 ## 已完成
+
+### 性能优化 + Bug 修复（2026-08-31）
+
+**Agent 执行流程 DB 优化（8 项）：**
+- ✅ agentEventStore seq 内存缓存（省掉每事件 SELECT MAX(seq)）
+- ✅ appendMessage 客户端生成 timestamp（省掉 INSERT 后 SELECT）
+- ✅ getMessagesByConversation 去掉冗余 JOIN
+- ✅ agentSessionDao UPDATE 后省掉回读 SELECT
+- ✅ incrementRounds 原子 UPDATE（3 次→1 次查询）
+- ✅ supersedeOldTasks 单条 UPDATE 替代加载全部任务
+- ✅ agentLoop findIndex→直接数组访问 + 双重 JSON.stringify 复用
+
+**知识库搜索优化（5 项）：**
+- ✅ KB_LIST N+1→单条聚合查询（50 文档：51→1 查询）
+- ✅ writeChunks 事务包裹（批量写入 10-100x）
+- ✅ 新增复合索引 idx_kb_doc_user_file
+- ✅ indexFile 去掉冗余 getKbDocumentByFile
+- ✅ titleMatchSearch 3→1 条查询
+
+**写控制 + 前端优化：**
+- ✅ editLocalFile statSync 替代 readFileSync（省大文件 I/O）
+- ✅ AgentStepTimeline + AgentLoopLogList React.memo
+- ✅ aiMarkdown unified processor 模块级复用
+- ✅ DAO 层 upsertKbDocument/upsertAiConfig 省回读 SELECT
+
+**Bug 修复：**
+- ✅ 编辑器模式切换滚动位置保持（Normal↔Source 不再跳顶）
+- ✅ 检查更新卡住修复（publish 配置指向正确仓库 + 始终发 push 事件 + 30s 超时）
+- ✅ 启动自动检查更新（15s 后静默检查，有新版本在 Help 菜单提示）
+
+**门禁**：tsc 0 新增 | vitest 1530/1530 | lint 0 新增 error | vite build ok
 
 ### UI 美化（2026-08-29）
 

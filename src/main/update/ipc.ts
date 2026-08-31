@@ -5,9 +5,10 @@
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@shared/constants';
 import {
-  checkForUpdates,
+  checkForUpdatesAndNotify,
   downloadUpdate,
   quitAndInstall,
+  sendEvent,
 } from '../update';
 import { getAppMeta, setAppMeta } from '../db/appMeta';
 
@@ -20,13 +21,15 @@ const SKIPPED_VERSION_KEY = 'updates.skipped_version';
 export function registerUpdateIpcHandlers(): void {
   // --- UPDATE_CHECK ---
   ipcMain.handle(IPC_CHANNELS.UPDATE_CHECK, async () => {
-    const result = await checkForUpdates();
+    const result = await checkForUpdatesAndNotify();
 
     // If an update is available, check if user has skipped this version
     if (result.state === 'available' && result.version) {
       const skipped = getAppMeta(SKIPPED_VERSION_KEY);
       if (skipped === result.version) {
-        return { success: true, data: { state: 'not-available' } };
+        const notAvail = { state: 'not-available' as const };
+        sendEvent(notAvail);
+        return { success: true, data: notAvail };
       }
     }
 

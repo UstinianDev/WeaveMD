@@ -27,7 +27,8 @@
   `ipc/` 按域拆分（7 个 handler 模块）
 - `src/render/components/AIAgent/` — AI 面板三视图外壳（home/session/settings）+
   AIPanelComposer + AgentTab 消息流 + settings/{ModelForm,EmbeddingSettings,SearchSettings,...}
-- `docs/` — REQUIREMENTS / SUMMARY / modules/ / specs/
+- `README.md` — GitHub 项目主页（功能介绍、下载安装、开发指南）
+- `docs/` — REQUIREMENTS / SUMMARY / modules/ / specs/ / guide/
 
 ## 规范
 
