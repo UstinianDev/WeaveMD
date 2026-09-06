@@ -22,6 +22,8 @@ export interface StreamChatCompletionOptions {
   toolChoice?: 'auto';
   timeoutMs?: number;
   signal?: AbortSignal;
+  /** 重试前回调：调用方用于清空已累积的部分内容（如 assistantContent / toolCalls）。 */
+  onRetry?: (attempt: number) => void;
 }
 
 export interface StreamChunk {
@@ -278,7 +280,8 @@ const RETRY_DELAYS = [2000, 5000, 10000];
  * 非可恢复错误（配置错误、abort 等）直接抛出。
  *
  * 重要：重试会重启整个流，之前已 yield 的 delta 不会重复。
- * 调用方（agentLoop）已将 delta 累加到 assistantContent，所以重试是安全的。
+ * 调用方必须通过 onRetry 回调清空已累积的部分内容（assistantContent / accumulatedToolCalls），
+ * 否则重试后的内容会与失败时的部分内容拼接，导致答非所问。
  */
 export async function* streamChatCompletionWithRetry(
   opts: StreamChatCompletionOptions
@@ -297,6 +300,8 @@ export async function* streamChatCompletionWithRetry(
       // 通知前端正在重试（通过 console 日志，不影响 UI 流程）
       const code = (err as { code?: string }).code ?? 'unknown';
       console.warn(`[LLM] Transient error (${code}), retrying in ${delay}ms (attempt ${attempt + 1}/${RETRY_DELAYS.length})...`);
+      // 通知调用方重试，以便清空已累积的部分内容（Bug fix: 重试不重置累积状态）
+      opts.onRetry?.(attempt);
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }

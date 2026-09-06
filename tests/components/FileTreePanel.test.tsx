@@ -51,7 +51,7 @@ afterEach(() => {
 });
 
 describe('FileTreePanel.handleFileClick', () => {
-  it('在切换文件前保存当前 dirty 草稿，再从磁盘加载目标文件', async () => {
+  it('在切换文件前弹出确认框，点击保存后落盘再切换', async () => {
     useEditorStore.setState({
       currentFile: diskA,
       content: '# A edited',
@@ -67,8 +67,18 @@ describe('FileTreePanel.handleFileClick', () => {
       </Wrapper>
     );
 
+    // 点击 b.md → 弹出确认框（不立即切换）
     await act(async () => {
       fireEvent.click(screen.getByText('b.md'));
+    });
+
+    // 确认框出现，文件尚未切换
+    expect(useEditorStore.getState().currentFile?.id).toBe('/disk/a.md');
+
+    // 点击"保存"按钮
+    const saveButton = screen.getByText('保存');
+    await act(async () => {
+      fireEvent.click(saveButton);
     });
 
     // 先落盘当前文件 A（含未保存编辑），再读盘 B

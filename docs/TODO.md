@@ -1,8 +1,38 @@
 # TODO
 
-> 最后更新：2026-08-31
+> 最后更新：2026-09-06
 
 ## 已完成
+
+### AI Agent 优化（2026-09-06，20/32 项完成）
+
+**P0 Bug 修复：**
+- ✅ 重试不重置累积状态（`llmClient.ts` onRetry 回调 + `agentLoop.ts` 重试清空）
+- ✅ 不完整对话历史污染（`cleanupIncompleteMessages` 移除孤立 user/tool 消息）
+- ✅ 精简系统提示词（~40% 缩减，整合写入规则和检索策略）
+
+**P1 性能优化：**
+- ✅ 减少 LLM 调用轮次（maxRounds 12→6）
+- ✅ 动态工具选择（`toolsForIntent` + `classifyIntent` 按意图过滤）
+- ✅ 优化重排触发条件（条件 4→2，阈值收紧 0.03→0.01 / 0.15→0.1）
+- ✅ editBlocks 并行化（加入 READ_ONLY_TOOLS）
+- ✅ 上下文窗口动态压缩（简单 0.85 / 复杂 0.65）
+- ✅ Schema 压缩（8 个工具描述精简 ~50%）
+- ✅ 批量 IPC 传输（100ms chunk 合并）
+
+**P1 前端体验：**
+- ✅ 顶部导航栏保存按钮（`TopBar.tsx` + Ctrl+S 快捷键）
+- ✅ 切换文档前保存提示（`ConfirmDialog.tsx` 三选一）
+- ✅ 退出应用前保存提示（`App.tsx` beforeunload）
+- ✅ 自动保存→手动保存（移除 MainPage.tsx debounce）
+
+**P2/P3 优化：**
+- ✅ 进度反馈优化（sendProgress thinking 阶段）
+- ✅ 增强 editBlocks preview 参数 + diff 生成
+- ✅ 预览阶段逻辑（写工具执行后发送 preview 事件）
+- ✅ 优化自动滚动（AgentTab isAtBottomRef + onScroll）
+
+**门禁**：tsc 0 | vitest 1530/1530 | lint 0 新增 error
 
 ### 性能优化 + Bug 修复（2026-08-31）
 
@@ -185,6 +215,11 @@
 - 🔲 真 MCP server 管理（context7/firecrawl）
 - 🔲 GitHub 自取 `writing-shape` 技能
 - 🔲 pdf/docx 知识库导入（需引入解析器）
+- 🔲 Web Worker JSON.parse（AgentWorkflowCard 大 JSON 异步解析）
+- 🔲 借鉴 Notus Skill 管理工具（list_skills / get_skill_details）
+- 🔲 Agentic RAG（Agent 驱动检索策略）
+- 🔲 HyDE 假设文档嵌入
+- 🔲 Embedding 架构设计（SearchProvider 抽象层 + FTS5/Vector/Hybrid 切换）
 
 ## 已知问题
 

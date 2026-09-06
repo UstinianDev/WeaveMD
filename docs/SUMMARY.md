@@ -1,6 +1,6 @@
 # WeaveMD 文档索引
 
-> 最后更新：2026-08-31
+> 最后更新：2026-09-06
 
 ## 核心文档
 
@@ -47,3 +47,11 @@
 | [spec-edit-ft3](./testing/spec-edit-ft3.tdd.md) | 叠加收敛 TDD |
 | [spec-edit-cbtp](./testing/spec-edit-cbtp.tdd.md) | 代码块尾随空行 TDD |
 | [spec-edit-dsf](./testing/spec-edit-dsf.tdd.md) | 拖选闪烁 TDD |
+
+## 实施计划
+
+| 文档 | 说明 |
+|------|------|
+| [ai-agent-optimize.plan](./plan/ai-agent-optimize.plan.md) | AI Agent 优化计划（32 项任务） |
+| [ai-agent-optimize.status](./plan/ai-agent-optimize.status.md) | AI Agent 优化实施状态（20/32 完成） |
+| [ai-perf-optimize-v2.status](./plan/ai-perf-optimize-v2.status.md) | AI 性能优化 v2 状态 |

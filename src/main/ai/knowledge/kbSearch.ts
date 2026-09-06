@@ -598,10 +598,8 @@ export function invalidateKbSearchCache(userId?: string): void {
 
 /**
  * 判断是否需要条件重排（满足任一条件）：
- * 1. top2 差距 < 0.03
- * 2. 意图 summary | comparison | follow_up
- * 3. 结果分散 3+ 文件
- * 4. 置信度低（top1 分数 < 0.15）
+ * 1. top2 差距 < 0.01
+ * 2. 置信度低（top1 分数 < 0.1）
  */
 export function shouldRerank(
   results: IKbSearchResult[],
@@ -609,19 +607,12 @@ export function shouldRerank(
 ): boolean {
   if (results.length < 2) return false;
 
-  // 条件 1: top2 差距 < 0.03
+  // 条件 1: top2 差距 < 0.01
   const top2Gap = results[0].score - results[1].score;
-  if (top2Gap < 0.03) return true;
+  if (top2Gap < 0.01) return true;
 
-  // 条件 2: 意图 summary | comparison | follow_up
-  if (intent === 'summary' || intent === 'comparison' || intent === 'follow_up') return true;
-
-  // 条件 3: 结果分散 3+ 文件
-  const uniqueFiles = new Set(results.map(r => r.docId));
-  if (uniqueFiles.size >= 3) return true;
-
-  // 条件 4: 置信度低
-  if (results[0].score < 0.15) return true;
+  // 条件 2: 置信度低
+  if (results[0].score < 0.1) return true;
 
   return false;
 }

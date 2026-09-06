@@ -4,7 +4,7 @@
 // 精简版：移除 FileMenu/HistoryMenu/MoreMenu/ExportMenu（已迁移到侧栏工具栏）。
 // 保留：HelpMenu、ViewMenu、Undo/Redo、Settings、WindowControls。
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import Icon from '@render/components/Common/Icon';
 import IconButton from '@render/components/Common/IconButton';
 import { useI18n } from '@render/i18n';
@@ -14,8 +14,9 @@ import ViewMenu from './ViewMenu';
 import WindowControls from './WindowControls';
 import { useNavbarActions } from '@render/hooks/useNavbarActions';
 import { useUIStore } from '@render/stores/uiStore';
+import { useEditorStore } from '@render/stores/editorStore';
 
-type ShortcutAction = 'new-file' | 'open-file' | 'undo' | 'redo' | null;
+type ShortcutAction = 'new-file' | 'open-file' | 'undo' | 'redo' | 'save' | null;
 
 export function shouldIgnoreGlobalShortcutTarget(target: EventTarget | null) {
   const element = target instanceof HTMLElement ? target : null;
@@ -38,6 +39,7 @@ const SHORTCUT_MAP: Record<string, ShortcutAction> = {
   o: 'open-file',
   z: 'undo',
   y: 'redo',
+  s: 'save',
 };
 
 export function getShortcutAction(event: {
@@ -79,6 +81,20 @@ const TopBar: React.FC = () => {
     handleOpenFile,
   } = useNavbarActions();
 
+  const isDirty = useEditorStore((s) => s.isDirty);
+  const saveFile = useEditorStore((s) => s.saveFile);
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = useCallback(async () => {
+    if (!isDirty || saving) return;
+    setSaving(true);
+    try {
+      await saveFile();
+    } finally {
+      setSaving(false);
+    }
+  }, [isDirty, saving, saveFile]);
+
   useEffect(() => {
     const handleGlobalKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || shouldIgnoreGlobalShortcutTarget(event.target)) {
@@ -100,6 +116,8 @@ const TopBar: React.FC = () => {
         void handleUndo();
       } else if (action === 'redo') {
         void handleRedo();
+      } else if (action === 'save') {
+        void handleSave();
       }
     };
 
@@ -107,7 +125,7 @@ const TopBar: React.FC = () => {
     return () => {
       document.removeEventListener('keydown', handleGlobalKeyDown);
     };
-  }, [handleOpenFile, handleRedo, handleUndo]);
+  }, [handleOpenFile, handleRedo, handleUndo, handleSave]);
 
   return (
     <header
@@ -208,6 +226,23 @@ const TopBar: React.FC = () => {
             <path d="M21 10H11a5 5 0 0 0 0 10h4" />
             <polyline points="17 6 21 10 17 14" />
           </svg>
+        </IconButton>
+
+        {/* Save — floppy disk icon */}
+        <IconButton
+          onClick={() => void handleSave()}
+          disabled={!isDirty || saving}
+          title={saving ? t('navbar.saving', '保存中...') : t('navbar.save', '保存 (Ctrl+S)')}
+        >
+          {saving ? (
+            <div className="w-4 h-4 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+              <polyline points="17 21 17 13 7 13 7 21" />
+              <polyline points="7 3 7 8 15 8" />
+            </svg>
+          )}
         </IconButton>
 
         <NavSeparator />

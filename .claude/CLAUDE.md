@@ -96,3 +96,22 @@
 ## 已知限制（详见 docs/specs/editor-v2-progress.md §13.x）
 
 - v2 Normal 无查找高亮；撤销/重做后光标回到重建树首块；段落级 MD Source 视图未迁移
+
+## 项目文档
+
+- [README](../docs/README.md) — 项目简介、技术栈、运行方式
+- [TODO](../docs/TODO.md) — 功能进度、已知问题
+- [SUMMARY](../docs/SUMMARY.md) — 文档索引
+- [REQUIREMENTS](../docs/REQUIREMENTS.md) — 功能需求文档
+- [modules/](../docs/modules/) — 各模块文档（11 个模块）
+- [specs/](../docs/specs/) — 编辑器/AI 面板规格文档
+- [testing/](../docs/testing/) — TDD 测试报告
+- [plan/](../docs/plan/) — 实施计划与状态
+
+### 查阅规则（渐进式披露）
+- 项目是什么、怎么跑 → README.md
+- 功能进度、已知问题 → TODO.md
+- 模块实现细节、架构 → docs/modules/{模块名}.md
+- 编辑器/AI 面板设计 → docs/specs/
+- 测试覆盖、验证证据 → docs/testing/
+- 实施计划、优化状态 → docs/plan/

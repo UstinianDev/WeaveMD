@@ -253,14 +253,14 @@ describe('runAgentFlow', () => {
       consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
     });
 
-    // 默认 maxRounds=12（DeadLoopDetector），FakeDeadLoopDetector 在 round=12 时 break
-    expect(llmMock.streamChatCompletion).toHaveBeenCalledTimes(12);
+    // 默认 maxRounds=6（DeadLoopDetector），FakeDeadLoopDetector 在 round=6 时 break
+    expect(llmMock.streamChatCompletion).toHaveBeenCalledTimes(6);
     // 收敛 assistant 落库（提示文案）
     const assistantCalls = dbMock.appendMessage.mock.calls.filter(
       (c) => c[0].role === 'assistant'
     );
     expect(assistantCalls.length).toBeGreaterThan(0);
-    expect(res.roundsUsed).toBe(12);
+    expect(res.roundsUsed).toBe(6);
   });
 
   it('degrades to direct answer + hint when a tool fails', async () => {
@@ -489,12 +489,12 @@ describe('runAgentFlow', () => {
       }
     );
 
-    // persistAndSend 应被调用（chunk + done）
+    // persistAndSend 应被调用（progress + chunk + done）
     expect(eventStoreMock.persistAndSend).toHaveBeenCalled();
-    // 首次调用应该是 chunk 事件
+    // 首次调用应该是 progress 事件（thinking），第二次是 chunk
     const firstCall = eventStoreMock.persistAndSend.mock.calls[0];
     expect(firstCall[2]).toBe('sess-1'); // sessionId
-    expect(firstCall[4]).toBe('chunk'); // eventType
+    expect(firstCall[4]).toBe('tool'); // eventType (progress via AI_STREAM_TOOL)
   });
 
   it('R5-1: falls back to sendStream when persistAndSend throws', async () => {

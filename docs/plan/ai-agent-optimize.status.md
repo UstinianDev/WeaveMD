@@ -1,0 +1,82 @@
+# AI Agent 优化 — 实施状态
+
+> 更新时间：2026-09-06
+
+## 已完成项
+
+### Phase 1: P0 Bug 修复 + 提示词优化
+
+| # | 任务 | 状态 | 文件 |
+|---|------|------|------|
+| 1 | 重试不重置累积状态 | ✅ | `llmClient.ts`（onRetry 回调）、`agentLoop.ts`（重试时清空状态） |
+| 2 | 不完整对话历史污染 | ✅ | `agentLoop.ts`（cleanupIncompleteMessages） |
+| 3 | 精简系统提示词 | ✅ | `agentLoop.ts`（~40% 缩减） |
+
+### Phase 2: P1 核心性能 + 前端体验
+
+| # | 任务 | 状态 | 文件 |
+|---|------|------|------|
+| 4 | 减少 LLM 调用轮次 | ✅ | `agentLoop.ts`（maxRounds 12→6） |
+| 5 | 动态工具选择 | ✅ 已有 | `toolsForIntent` + `classifyIntent` |
+| 6 | 优化重排触发条件 | ✅ | `kbSearch.ts`（条件 4→2，阈值收紧） |
+| 7 | editBlocks 并行化 | ✅ | `agentLoop.ts`（加入 READ_ONLY_TOOLS） |
+| 8 | 优化写入确认规则 | ✅ | `agentLoop.ts`（系统提示词） |
+| 9 | 进度反馈优化 | ✅ | `agentLoop.ts`（sendProgress：thinking 阶段） |
+| 10 | 顶部导航栏保存按钮 | ✅ | `TopBar.tsx`（保存按钮 + Ctrl+S） |
+| 11 | 切换文档前保存提示 | ✅ | `FileTreePanel.tsx` + `ConfirmDialog.tsx` |
+| 12 | 退出应用前保存提示 | ✅ | `App.tsx`（beforeunload） |
+| 13 | 增强 editBlocks（preview） | ✅ | `editBlocksHandler.ts` + `toolRegistry.ts` |
+| 14 | 添加预览阶段逻辑 | ✅ | `agentLoop.ts`（写工具执行后发送 preview 事件） |
+| 15 | 自动保存→手动保存 | ✅ | `MainPage.tsx`（移除 debounce auto-save） |
+
+### Phase 3: P2/P3 优化
+
+| # | 任务 | 状态 | 文件 |
+|---|------|------|------|
+| 16 | Schema 压缩 | ✅ | `toolRegistry.ts`（8 个描述精简 ~50%） |
+| 17 | 上下文窗口动态压缩 | ✅ | `agentLoop.ts`（简单 0.85 / 复杂 0.65） |
+| 18 | 知识库搜索缓存 | ✅ 已有 | `kbSearch.ts`（3min TTL，100 条上限） |
+| 19 | 优化自动滚动 | ✅ | `AgentTab.tsx`（isAtBottomRef + onScroll） |
+| 20 | 批量 IPC 传输 | ✅ | `agentLoop.ts`（100ms chunk 合并） |
+
+## 修改文件清单
+
+| 文件 | 修改类型 |
+|------|----------|
+| `src/main/ai/llm/llmClient.ts` | onRetry 回调 |
+| `src/main/ai/agent/agentLoop.ts` | Bug 修复 + 提示词 + 轮次 + 动态压缩 + 进度 + 预览 + IPC 批量 |
+| `src/main/ai/knowledge/kbSearch.ts` | 重排条件优化 |
+| `src/main/ai/toolRegistry.ts` | Schema 压缩 + preview 参数 |
+| `src/main/ai/tools/editBlocksHandler.ts` | preview 参数 + diff 生成 |
+| `src/render/components/Navbar/TopBar.tsx` | 保存按钮 + Ctrl+S |
+| `src/render/components/Editor/panels/FileTreePanel.tsx` | 切换确认对话框 |
+| `src/render/components/Common/ConfirmDialog.tsx` | 新组件 |
+| `src/render/components/AIAgent/AgentTab.tsx` | 滚动优化 |
+| `src/render/App.tsx` | beforeunload |
+| `src/render/pages/MainPage.tsx` | 移除 auto-save |
+| `tests/main/ai/agentLoop.test.ts` | 更新期望值 |
+| `tests/main/ai/toolRegistry.test.ts` | 更新 editBlocks 测试 |
+| `tests/components/TopBar.test.tsx` | 更新快捷键测试 |
+| `tests/components/FileTreePanel.test.tsx` | 更新确认对话框测试 |
+
+## 测试证据
+
+- TypeScript: 0 error（源码）
+- ESLint: 0 error（新增），1 pre-existing（db/index.ts）
+- Vitest: 1530/1530 passed，1 pre-existing failure（ipc.test.ts）
+
+## 未完成项
+
+| # | 任务 | 优先级 | 说明 |
+|---|------|--------|------|
+| 1 | Web Worker JSON.parse | P3 | 需新建 worker 文件，收益低 |
+| 2 | 借鉴 Notus Skill 管理 | P2 | 需新增 list_skills/get_skill_details 工具 |
+| 3 | Agentic RAG | P4 | 高复杂度，需独立规划 |
+| 4 | HyDE | P4 | 高复杂度，需独立规划 |
+| 5 | Embedding 架构设计 | P2 | 纯设计文档，无代码变更 |
+
+## 风险
+
+- maxRounds 12→6：简单任务足够，复杂多文件任务可能需用户拆分
+- 移除 auto-save：用户需习惯 Ctrl+S 保存，已有保存按钮和切换/退出提示兜底
+- beforeunload 在 Electron 中依赖 Chromium 版本

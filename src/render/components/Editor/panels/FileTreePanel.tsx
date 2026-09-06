@@ -7,6 +7,7 @@ import React, { useCallback, useState } from 'react';
 import type { IFile } from '@shared/types';
 import { useI18n } from '@render/i18n';
 import Icon from '@render/components/Common/Icon';
+import ConfirmDialog from '@render/components/Common/ConfirmDialog';
 import { saveCurrentDraftIfNeeded } from '@render/services/saveCurrentDraft';
 import { isWelcomeFile } from '@render/services/welcomeDocument';
 import { useEditorStore } from '@render/stores/editorStore';
@@ -42,9 +43,12 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
   const openFile = useEditorStore((s) => s.openFile);
   const closeFile = useEditorStore((s) => s.closeFile);
   const currentFileId = useEditorStore((s) => s.currentFile?.id ?? null);
+  const isDirty = useEditorStore((s) => s.isDirty);
+  const saveFile = useEditorStore((s) => s.saveFile);
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [pendingSwitch, setPendingSwitch] = useState<{ id: string; name: string; path: string; content?: string } | null>(null);
 
   // 搜索过滤
   const matchesSearch = useCallback(
@@ -66,19 +70,9 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
     [matchesSearch]
   );
 
-  // 单击切换：已打开 → 关闭，未打开 → 打开
-  const handleFileClick = useCallback(
+  // 实际执行文件切换（无确认逻辑）
+  const doSwitchFile = useCallback(
     async (node: { id: string; name: string; path: string; content?: string }) => {
-      // 点击当前已打开文件 → 关闭
-      if (currentFileId === node.id) {
-        await saveCurrentDraftIfNeeded();
-        closeFile();
-        return;
-      }
-      // 切换文件前先保存当前 dirty 草稿
-      if (currentFileId) {
-        await saveCurrentDraftIfNeeded();
-      }
       if (isWelcomeFile(node.id)) {
         const now = new Date().toISOString();
         openFile({
@@ -107,32 +101,56 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
       if (!content && node.content) {
         content = node.content;
       }
-      if (!content) {
-        try {
-          const dbResult = (await window.weaveMD.file.get(node.id, '')) as unknown as {
-            success: boolean;
-            data?: { content: string };
-          };
-          if (dbResult?.success && dbResult.data) {
-            content = dbResult.data.content;
-          }
-        } catch { /* ignore */ }
-      }
-      const now = new Date().toISOString();
-      const iFile: IFile = {
-        id: node.path,
+      touchRecent({ id: node.id, path: node.path, name: node.name });
+      openFile({
+        id: node.id,
         userId: '',
         name: node.name,
         content,
-        createdAt: now,
-        modifiedAt: now,
+        createdAt: '',
+        modifiedAt: '',
         deletedAt: null,
-      };
-      openFile(iFile);
-      touchRecent({ id: iFile.id, path: node.path, name: node.name });
+      });
     },
-    [currentFileId, openFile]
+    [openFile]
   );
+
+  // 单击切换：已打开 → 关闭，未打开 → 打开（有未保存修改时弹出确认框）
+  const handleFileClick = useCallback(
+    async (node: { id: string; name: string; path: string; content?: string }) => {
+      // 点击当前已打开文件 → 关闭
+      if (currentFileId === node.id) {
+        await saveCurrentDraftIfNeeded();
+        closeFile();
+        return;
+      }
+      // 切换文件前检查未保存修改
+      if (currentFileId && isDirty) {
+        setPendingSwitch(node);
+        return;
+      }
+      await doSwitchFile(node);
+    },
+    [currentFileId, isDirty, closeFile, doSwitchFile]
+  );
+
+  // 确认对话框回调
+  const handleConfirmSave = useCallback(async () => {
+    if (!pendingSwitch) return;
+    await saveFile();
+    await doSwitchFile(pendingSwitch);
+    setPendingSwitch(null);
+  }, [pendingSwitch, saveFile, doSwitchFile]);
+
+  const handleConfirmDontSave = useCallback(async () => {
+    if (!pendingSwitch) return;
+    await doSwitchFile(pendingSwitch);
+    setPendingSwitch(null);
+  }, [pendingSwitch, doSwitchFile]);
+
+  const handleConfirmCancel = useCallback(() => {
+    setPendingSwitch(null);
+  }, []);
 
   // 右键菜单
   const handleContextMenu = useCallback(
@@ -403,6 +421,19 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
           onClose={() => setContextMenu(null)}
         />
       )}
+
+      {/* 切换文档确认对话框 */}
+      <ConfirmDialog
+        isOpen={!!pendingSwitch}
+        title={t('dialog.unsavedChanges', '未保存的修改')}
+        message={t('dialog.saveBeforeSwitch', '当前文档有未保存的修改，是否保存？')}
+        confirmLabel={t('dialog.save', '保存')}
+        destructiveLabel={t('dialog.dontSave', '不保存')}
+        cancelLabel={t('dialog.cancel', '取消')}
+        onConfirm={() => void handleConfirmSave()}
+        onDestructive={() => void handleConfirmDontSave()}
+        onCancel={handleConfirmCancel}
+      />
     </div>
   );
 };

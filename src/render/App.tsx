@@ -5,6 +5,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAuthStore } from './stores/authStore';
 import { useUIStore } from './stores/uiStore';
+import { useEditorStore } from './stores/editorStore';
 import SplashLoader from './components/Auth/SplashLoader';
 import AuthPage from './pages/AuthPage';
 import MainPage from './pages/MainPage';
@@ -96,6 +97,19 @@ const App: React.FC = () => {
     // Apply current theme class
     html.classList.add(theme);
   }, [theme]);
+
+  // 退出应用前检查未保存修改
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      const { isDirty } = useEditorStore.getState();
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
 
   const handleSplashComplete = useCallback(() => {
     setPhase(isAuthenticated ? 'main' : 'auth');

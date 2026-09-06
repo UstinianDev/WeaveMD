@@ -165,10 +165,22 @@ const AgentTab: React.FC = () => {
     }
   }, [isStreaming]);
 
-  // 流式时自动滚动到底部
+  // 用户是否在底部（距底部 50px 内视为底部）
+  const isAtBottomRef = useRef(true);
+
+  // 滚动事件：检测用户是否在底部
+  const handleScroll = useCallback(() => {
+    const el = messageListRef.current;
+    if (!el) return;
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+  }, []);
+
+  // 流式时自动滚动到底部（仅当用户在底部时）
   useEffect(() => {
     const el = messageListRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && isAtBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [messages.length, streamingToolCalls.length, displayBuffer, isStreaming]);
 
   const isAgentMode = activeMode === 'agent';
@@ -198,7 +210,7 @@ const AgentTab: React.FC = () => {
   );
 
   return (
-    <div ref={messageListRef} className="chat-scroll flex-1 overflow-y-auto py-2 space-y-1">
+    <div ref={messageListRef} onScroll={handleScroll} className="chat-scroll flex-1 overflow-y-auto py-2 space-y-1">
       {messages.length === 0 && (
         <div className="flex flex-col items-center justify-center h-full text-center px-6 space-y-2">
           <p className="text-[15px] text-text-muted">{t('ai.empty.noMessage')}</p>

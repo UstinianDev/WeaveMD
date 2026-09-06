@@ -1,10 +1,10 @@
 # 03 — 顶部导航栏
 
-> 最后更新：2026-08-30
+> 最后更新：2026-09-06
 
 ## 做什么
 
-应用主界面顶部导航栏：应用 Logo、编辑器/AI 面板切换、帮助/视图菜单、撤销/重做、设置、窗口控制。
+应用主界面顶部导航栏：应用 Logo、编辑器/AI 面板切换、帮助/视图菜单、撤销/重做/保存、设置、窗口控制。
 
 ## 架构
 
@@ -26,16 +26,16 @@ src/render/components/Editor/panels/
 ### 3.1 布局结构
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│ 左侧区域 (drag-region)                       右侧区域 (no-drag)│
-│                                                              │
-│  📔 WeaveMD  @username  │  File ▼  Help ▼  History ▼  View ▼ │
-│                                                              │
-│                                     ↶ 撤销  ↷ 重做  ⬇ 导出  │
-│                                     ⋮ 更多  _ 最小化  □ 全屏 │
-│                                              ✕ 关闭          │
-└──────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│ 左侧区域 (no-drag)                     右侧区域 (no-drag)       │
+│                                                                 │
+│  📔 │ ⊟ │ 🤖 │ ❓ │ 👁         ↶ 撤销  ↷ 重做  💾 保存  ⚙ │ ─ □ ✕│
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+- 左侧：Logo、收起编辑器、AI 面板切换、帮助菜单、视图菜单
+- 右侧：撤销、重做、**保存（Ctrl+S）**、设置、窗口控制
 
 - 高度：`h-12`（48px），`flex-shrink-0`
 - 背景色：`--navbar-bg`（根据主题变化）
@@ -47,7 +47,7 @@ src/render/components/Editor/panels/
 
 ```typescript
 // 快捷键映射
-type ShortcutAction = 'new-file' | 'open-file' | 'undo' | 'redo' | null;
+type ShortcutAction = 'new-file' | 'open-file' | 'undo' | 'redo' | 'save' | null;
 
 function getShortcutAction(event: KeyboardEvent): ShortcutAction {
   const isCtrl = event.ctrlKey || event.metaKey;
@@ -56,6 +56,7 @@ function getShortcutAction(event: KeyboardEvent): ShortcutAction {
   if (isCtrl && event.key === 'z') return 'undo';
   if ((isCtrl && event.key === 'y') || (isCtrl && event.shiftKey && event.key === 'z'))
     return 'redo';
+  if (isCtrl && event.key === 's') return 'save';
   return null;
 }
 ```

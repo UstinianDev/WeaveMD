@@ -201,7 +201,9 @@ describe('toolRegistry.executeTool', () => {
     expect(res.status).toBe('ok');
     const parsed = JSON.parse(res.content);
     expect(parsed.applied).toBe(false);
-    expect(parsed.proposed).toEqual([{ block_id: 'b1', new_content: '## 新标题' }]);
+    expect(parsed.proposed).toEqual([
+      { block_id: 'b1', new_content: '## 新标题', diff: expect.any(String) },
+    ]);
     expect(parsed.documentSnapshotLength).toBe('## 原标题\n正文内容'.length);
     // 未落盘断言：写阅读工具均未被调用（proposal 只算不写）
     expect(filesMock.listFiles).not.toHaveBeenCalled();

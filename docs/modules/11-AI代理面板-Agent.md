@@ -1,6 +1,6 @@
 # AI 代理面板 (Agent) 功能总结
 
-> 模块编号：11 | 优先级：P1 | 最后更新：2026-08-29 | 状态：**第 1~7 期均已交付；后端收敛 remote-only；Notus Agent 克隆完成（21 项功能）；写控制与任务安全模块 R1~R7；知识库 Notus 对齐 R1~R12；AI 性能优化 v2；UI 美化完成；真 MCP / GitHub 继续延**
+> 模块编号：11 | 优先级：P1 | 最后更新：2026-09-06 | 状态：**第 1~7 期均已交付；后端收敛 remote-only；Notus Agent 克隆完成（21 项功能）；写控制与任务安全模块 R1~R7；知识库 Notus 对齐 R1~R12；AI 性能优化 v2；UI 美化完成；AI Agent 优化 20/32 项完成；真 MCP / GitHub 继续延**
 > 需求编号：AGT-01~19 / KB-01~05（docs/REQUIREMENTS.md 3.7 / 3.8）
 > 交付记录：第1期基建 + 第2期 Chat 闭环（2026-08-14）、第3期知识库 + 第4期 Agent 能力
 > （2026-08-15）；远程 DeepSeek 后端已真连验证通过；
@@ -35,14 +35,14 @@ src/main/ai/                  # AI 主进程服务（第1/2/3/4/5期已交付 + 
 ├── tokenizer.ts              # jieba-wasm 分词（cut_for_search+bigram回退）
 ├── imageIndexer.ts           # 图片索引（images_vec表+多模态embedding）
 ├── intentRouter.ts           # 意图识别（规则 6 类）+ 候选提问卡片
-├── contextManager.ts         # 上下文压缩（/4 估算 + 80% 阈值自动 + 手动）
+├── contextManager.ts         # 上下文压缩（/4 估算 + 动态阈值：简单 0.85 / 复杂 0.65）
 ├── skillLoader.ts            # skills 体系（3 内置 + userData/skills/ 用户扩展）
 ├── toolRegistry.ts           # 内置工具注册（listFiles/readFile/searchKB/runSkill/editBlocks/createFile/createFolder + preview_file_revision 等 20 工具）
 ├── tools/
 │   ├── createFileHandler.ts  # createFile：DB + 磁盘双写（userData/files/）
 │   ├── editBlocksHandler.ts  # editBlocks：仅产 proposal，确认后渲染侧写盘
 │   └── previewFileRevision.ts# preview_file_revision：返回 oldContent/newContent 供 diff 预览
-├── agentLoop.ts              # 函数调用循环（≤6 轮，后端恒 remote、无降级）
+├── agentLoop.ts              # 函数调用循环（≤6 轮，后端恒 remote、无降级）+ 进度反馈 + 预览通知 + IPC 批量传输
 ├── rewrite.ts                # 改写薄 LLM 代理（第5期：consent 'chat' 闸 + 调 LLM 返回 {text}，零 markdown 解析）
 ├── modelList.ts              # ai.listModels（面板模型下拉数据源）：remote /models（Bearer key 主进程）
 ├── consent.ts                # 知情同意（re-export needsConsent from @shared/ai + needsKbSendConsent）
@@ -87,7 +87,7 @@ IPC 通道 `ai:*`（白名单）+ `kb:*` + `agent:*` + 流式 `ai:stream:tool`�
 | 块级改写 | ✅ **第 5 期已交付**（2026-08-15）：选区触发（编辑器 FloatingToolbar「AI 改写」）+ 面板 @ 兜底（AgentTab composer `@ + 描述`）；定向块编辑协议内部统一 `EditBlockOp[] {blockId,newContent}`（选区=整段替换、面板=编号块 `[{block_index,new_content}]` 映射校验，定位失败 `locateFailed` 拒应用）；主进程只产 LLM 文本（薄代理 `rewrite.ts`），块级替换在渲染侧（`blockEdit.ts`，内核所在） |
 | 预览应用 | ✅ **第 5 期已交付**：diff 红删绿增（`rewriteDiff` 行级 LCS）→ 用户确认后才经 `updateContent(rewrittenMd)` 写入编辑器（入 undo 栈一次可撤销）；stale 校验（确认时 content===原文，不一致拒应用） |
 | 意图识别 | ✅ 规则启发式 6 类（创作/改写、知识库问答、技术资料、网页抓取、闲聊、其他）；模糊 → 候选提问卡片（IntentCard）；工具失败自动兜底降级 |
-| 上下文压缩 | ✅ token 估算 = 字符数/4（非精确计分器，仅作相对阈值）；达 80% 自动 + 手动；早期对话合并为「历史摘要」，保留最近 N 轮原文 |
+| 上下文压缩 | ✅ token 估算 = 字符数/4（非精确计分器，仅作相对阈值）；动态阈值（简单任务 0.85，复杂任务 0.65）自动触发 + 手动；早期对话合并为「历史摘要」，保留最近 N 轮原文 |
 | 工具权限 | ✅ 只读 4 工具（listFiles/readFile/searchKB/runSkill）+ `editBlocks`（仅产 proposal，确认后写盘）+ `createFile`（DB + 磁盘双写）+ `createFolder` 自动执行；
   ⚠️ `fetchContext7`/`fetchFirecrawl`（第 6 期 MCP）未注册 |
 | 文件持久化 | ✅ `createFile` 同时写 DB + 磁盘（`userData/files/`）；`editBlocks` 确认后 `file.write` 写盘；fileTreeStore.restore DB 回退（磁盘无文件时查 DB 保留）；重启后 AI 创建的文件不丢失 |

@@ -84,14 +84,22 @@ type AgentLlmMessage = LlmMessage & {
 // ---------------------------------------------------------------------------
 
 const CONTEXT_WINDOW = 64_000;
-const COMPRESS_THRESHOLD = 0.8;
 const KEEP_RECENT_ROUNDS = 6;
+
+/**
+ * 动态压缩阈值：简单任务晚压缩（0.85），复杂任务早压缩（0.65）。
+ * round 0~1 视为简单任务，round 2+ 视为复杂任务。
+ */
+function getCompressThreshold(round: number): number {
+  return round <= 1 ? 0.85 : 0.65;
+}
 
 /** 只读工具集合（无副作用，可并行执行）。 */
 const READ_ONLY_TOOLS = new Set([
   'listFiles', 'readFile', 'searchKB', 'readFileRevision',
   'listFileRevisions', 'getFileInfo', 'readLocalFile', 'listLocalDirectory',
   'analyze_folder', 'check_links', 'get_task_activity', 'web_search',
+  'editBlocks',
   'research_search',
 ]);
 
@@ -111,6 +119,19 @@ const CHANNEL_TO_EVENT_TYPE: Record<string, string> = {
 // ---------------------------------------------------------------------------
 // 纯函数 / 辅助函数
 // ---------------------------------------------------------------------------
+
+/** 发送进度事件（通过 AI_STREAM_TOOL 通道，status 为 progress）。 */
+function sendProgress(ctx: AgentContext, phase: string, message: string): void {
+  ctx.send(IPC_CHANNELS.AI_STREAM_TOOL, {
+    conversationId: ctx.convId,
+    toolCallId: `progress_${phase}`,
+    name: phase,
+    args: '',
+    status: 'progress',
+    result: message,
+    loopIndex: -1,
+  });
+}
 
 /**
  * KB 检索外发闸（笔记内容外发给远端模型）：
@@ -301,6 +322,27 @@ interface AgentContext {
 }
 
 /**
+ * 清理不完整对话历史：移除末尾无 assistant 回复的孤立 user 消息。
+ * 上一轮 Agent 超时/崩溃时，user 消息已持久化但 assistant 回复缺失，
+ * 不清理会导致 LLM 困惑（看到 user 消息却无对应 assistant 回复）。
+ */
+function cleanupIncompleteMessages(messages: LlmMessage[]): LlmMessage[] {
+  if (messages.length === 0) return messages;
+  // 从末尾向前扫描：如果最后一条是 user / tool（无 assistant 跟随），移除
+  let lastAssistantIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'assistant') { lastAssistantIdx = i; break; }
+  }
+  if (lastAssistantIdx === -1) {
+    // 整个历史无 assistant 回复，只保留第一条 user 消息（当前轮的 query）
+    const firstUserIdx = messages.findIndex((m) => m.role === 'user');
+    return firstUserIdx >= 0 ? [messages[firstUserIdx]] : [];
+  }
+  // 保留到最后一个 assistant 消息（含其 tool 消息），截断后续孤立 user 消息
+  return messages.slice(0, lastAssistantIdx + 1);
+}
+
+/**
  * 准备 Agent 运行上下文：consent 闸 + 校验 + 消息组装 + 工具选择。
  * consent 未授权即抛 consent_required。
  */
@@ -380,15 +422,17 @@ function prepareAgentContext(
 
   const summary = ownedConv?.summary || '';
 
-  const history: LlmMessage[] = getMessagesByConversation(convId, userId)
-    .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
-    .map((m): LlmMessage => ({
-      role: m.role,
-      content: m.content,
-      ...(m.toolCallId ? { tool_call_id: m.toolCallId } : {}),
-    }))
-    // 过滤掉空内容的消息，避免 LLM 困惑
-    .filter((m) => m.content && m.content.trim().length > 0);
+  const history: LlmMessage[] = cleanupIncompleteMessages(
+    getMessagesByConversation(convId, userId)
+      .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
+      .map((m): LlmMessage => ({
+        role: m.role,
+        content: m.content,
+        ...(m.toolCallId ? { tool_call_id: m.toolCallId } : {}),
+      }))
+      // 过滤掉空内容的消息，避免 LLM 困惑
+      .filter((m) => m.content && m.content.trim().length > 0)
+  );
 
   let llmMessages: AgentLlmMessage[] = summary
     ? buildCompressed(history, summary, KEEP_RECENT_ROUNDS)
@@ -431,29 +475,29 @@ function prepareAgentContext(
   }
 
   const agentSystemPrompt = [
-    '你是 WeaveMD 的 AI 写作助手。遵循以下规则：',
+    '你是 WeaveMD 的 AI 写作助手。',
     '',
-    '## 核心工作流（先了解再行动）',
-    '0. **简单问题直接回答**：数学计算、通用知识、闲聊等简单问题，直接回答，不要调用任何工具。',
-    '1. **理解需求**：分析用户意图，信息不足时用 ask_question_card 向用户提问澄清，不要猜测。',
-    '2. **检索资料**：创建或修改文件前，先用 readFile/searchKB/readLocalFile 检索相关资料。换不同角度检索，避免重复相同查询。',
-    '3. **规划步骤**：复杂任务（如多文件创建、长文写作）先在脑中拆分为有序步骤，逐步执行。',
-    '4. **执行操作**：调用工具完成任务。创建文件用 createFile，修改文件用 editBlocks/preview_file_revision，文件操作用 renameFile/moveFile/deleteFile。',
-    '5. **确认结果**：操作完成后简要告知用户结果。',
+    '## 工作流',
+    '1. 简单问题（计算/闲聊/通用知识）直接回答，不调工具。',
+    '2. 信息不足时用 ask_question_card 提问澄清，不猜测。',
+    '3. 创建/修改文件前先用 readFile/searchKB 检索资料。',
+    '4. 复杂任务先拆分步骤，逐步执行。',
     '',
-    '## 工具使用规则',
-    '- 创建/新建文件 → 必须调用 createFile 工具，不要直接在聊天中输出文件内容。',
-    '- 修改已有文件 → 使用 editBlocks（当前文档）或 preview_file_revision（任意文件）。',
-    '- 本地文件操作 → readLocalFile/editLocalFile/listLocalDirectory 支持相对路径和绝对路径，工具会自动解析。返回的 path 字段是绝对路径，后续操作请使用该绝对路径。',
-    '- 知识检索 → 使用 searchKB 检索知识库，首次用宽泛关键词，后续换不同角度。',
-    '- 不确定时提问 → 用 ask_question_card 向用户展示结构化提问卡片（支持文本输入/选择/确认），暂停等待用户回答后再继续。',
+    '## 工具规则',
+    '- 创建文件 → 必须调 createFile，不要在聊天中输出内容。',
+    '- 修改文件 → editBlocks（当前文档）/ preview_file_revision（任意文件）。',
+    '- 本地文件 → readLocalFile/editLocalFile/listLocalDirectory，返回绝对路径后续直接使用。',
+    '- 检索 → searchKB：首次宽泛关键词，后续换不同角度，避免重复相同查询。信息不足时如实说明。',
+    '- 提问 → ask_question_card（支持文本/选择/确认），暂停等待回答。',
     '',
-    '## 其他规则',
-    '- 回答时使用中文。',
-    '- 用户询问文件是否存在时，先根据文件列表确认；列表中没有再调用 listFiles 重新获取。',
-    '- 创建文件时如果用户已打开文件夹，文件会自动创建到该文件夹中。也可通过 parent_path 指定子目录。',
-    '- 创建文件夹时目录会在磁盘上真实创建，支持嵌套路径（如 "子目录/深层目录"）。',
-    '- 对于大型写作任务（如写一篇完整文章），按章节拆分为多个步骤执行，每步只处理一个文件。',
+    '## 写入规则',
+    '- 安全变更（新增内容、小段改写）：直接执行并告知结果。',
+    '- 高风险操作（删除、覆盖整个文件）：先说明变更内容，等待用户确认。',
+    '',
+    '## 要点',
+    '- 大型写作任务按章节拆分，每步处理一个文件。',
+    '- 用户问文件是否存在，先看文件列表，没有再调 listFiles。',
+    '- 文件夹支持嵌套路径（如 "子目录/深层目录"）。',
     fileListSnapshot,
     localFileTreeSnapshot,
   ].filter(Boolean).join('\n');
@@ -481,7 +525,7 @@ function prepareAgentContext(
     toolCtx,
     tools,
     llmMessages,
-    detector: new DeadLoopDetector({ maxRounds: deps.maxRounds ?? 12 }),
+    detector: new DeadLoopDetector({ maxRounds: deps.maxRounds ?? 6 }),
     toolCallsHistory: [],
     hasSessionPersist: !!(deps.sessionId && deps.db),
     roundsUsed: 0,
@@ -600,6 +644,20 @@ function handleToolResult(
   };
   ctx.send(IPC_CHANNELS.AI_STREAM_TOOL, { conversationId: ctx.convId, ...toolEvent });
   ctx.toolCallsHistory.push(toolEvent);
+
+  // 预览阶段：写工具执行成功后发送预览通知（渲染侧展示变更摘要）
+  const WRITE_TOOLS = new Set(['createFile', 'createFolder', 'renameFile', 'moveFile', 'deleteFile', 'editLocalFile']);
+  if (result.status === 'ok' && WRITE_TOOLS.has(tc.name)) {
+    ctx.send(IPC_CHANNELS.AI_STREAM_TOOL, {
+      conversationId: ctx.convId,
+      toolCallId: `preview_${toolCallId}`,
+      name: 'preview',
+      args: tc.arguments,
+      status: 'preview',
+      result: result.content,
+      loopIndex: round,
+    });
+  }
 
   // R3: 用户答案注入（复用 JSON.stringify 结果）
   const answeredJson = interactionAnswers
@@ -749,7 +807,7 @@ async function executeToolRound(
 // ---------------------------------------------------------------------------
 
 function finalizeAgentRun(ctx: AgentContext, deps: AgentLoopDeps): AgentRunResult {
-  const maxRounds = deps.maxRounds ?? 12;
+  const maxRounds = deps.maxRounds ?? 6;
   const convergence = appendMessage({
     conversationId: ctx.convId,
     userId: ctx.userId,
@@ -801,15 +859,14 @@ export async function runAgentFlow(
       if (ctx.detector.isNearRoundLimit()) {
         const convergenceMsg = {
           role: 'system' as const,
-          content: `你已接近工具调用轮次上限（${deps.maxRounds ?? 12} 轮），请尽快给出最终回答。`,
+          content: `你已接近工具调用轮次上限（${deps.maxRounds ?? 6} 轮），请尽快给出最终回答。`,
         };
         ctx.llmMessages.push(convergenceMsg);
         ctx.totalTokens += estimateTokens(convergenceMsg.content);
       }
 
-      // 上下文压缩（幂等）— 使用增量 token 统计
-      // 移除 summary 条件：首次超阈值也应触发压缩，否则上下文会无限膨胀
-      if (shouldCompress(ctx.totalTokens, CONTEXT_WINDOW, COMPRESS_THRESHOLD)) {
+      // 上下文压缩（幂等）— 使用增量 token 统计 + 动态阈值
+      if (shouldCompress(ctx.totalTokens, CONTEXT_WINDOW, getCompressThreshold(round))) {
         try {
           const newSummary = await summarizeViaLlm(ctx.llmMessages, ctx.skillContext);
           if (newSummary) {
@@ -824,7 +881,13 @@ export async function runAgentFlow(
         }
       }
 
+      // 进度：正在思考
+      sendProgress(ctx, 'thinking', round === 0 ? '正在分析你的问题...' : '正在思考下一步...');
+
       // LLM 流式调用
+      const accumulatedToolCalls: Array<{ index: number; name: string; arguments: string }> = [];
+      let assistantContent = '';
+
       const gen = streamChatCompletionWithRetry({
         baseUrl: ctx.baseUrl,
         model: ctx.model,
@@ -833,21 +896,35 @@ export async function runAgentFlow(
         ...(ctx.tools.length ? { tools: ctx.tools, toolChoice: 'auto' as const } : {}),
         timeoutMs: 180_000,
         signal: controller.signal,
+        // Bug fix: 重试时清空已累积的部分内容，避免与新流拼接导致答非所问
+        onRetry: () => { assistantContent = ''; accumulatedToolCalls.length = 0; },
       });
 
-      const accumulatedToolCalls: Array<{ index: number; name: string; arguments: string }> = [];
-      let assistantContent = '';
+      // 批量 IPC：每 100ms 合并一次 chunk 发送，减少 IPC 调用次数
+      let chunkBuffer = '';
+      let chunkFlushTimer: ReturnType<typeof setTimeout> | null = null;
+      const flushChunks = () => {
+        if (chunkBuffer) {
+          ctx.send(IPC_CHANNELS.AI_STREAM_CHUNK, { conversationId: ctx.convId, delta: chunkBuffer });
+          chunkBuffer = '';
+        }
+        if (chunkFlushTimer) { clearTimeout(chunkFlushTimer); chunkFlushTimer = null; }
+      };
 
       for await (const chunk of gen) {
         if (chunk.delta) {
           assistantContent += chunk.delta;
-          ctx.send(IPC_CHANNELS.AI_STREAM_CHUNK, { conversationId: ctx.convId, delta: chunk.delta });
+          chunkBuffer += chunk.delta;
+          if (!chunkFlushTimer) {
+            chunkFlushTimer = setTimeout(() => { flushChunks(); }, 100);
+          }
         }
         if (chunk.usage?.reasoningTokenCount != null) {
           ctx.reasoningTokenCount = chunk.usage.reasoningTokenCount;
         }
         if (chunk.toolCalls?.length) accumulatedToolCalls.push(...chunk.toolCalls);
       }
+      flushChunks(); // 流结束时刷新剩余 buffer
 
       // 无工具调用：assistant 完成
       if (accumulatedToolCalls.length === 0) {

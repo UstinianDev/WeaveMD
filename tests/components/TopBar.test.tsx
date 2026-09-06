@@ -54,6 +54,7 @@ describe('TopBar shortcut helpers', () => {
   });
 
   it('should ignore unsupported or modified shortcuts', () => {
+    // Ctrl+S is now a valid save shortcut
     expect(
       getShortcutAction({
         key: 's',
@@ -62,7 +63,7 @@ describe('TopBar shortcut helpers', () => {
         shiftKey: false,
         altKey: false,
       })
-    ).toBeNull();
+    ).toBe('save');
     expect(
       getShortcutAction({
         key: 'n',

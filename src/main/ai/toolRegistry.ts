@@ -79,7 +79,7 @@ const CORE_TOOLS: ToolDef[] = [
     type: 'function',
     function: {
       name: 'listFiles',
-      description: '列出当前用户账号内未删除的全部笔记文件（名称与修改时间）。',
+      description: '列出当前用户的全部笔记文件（名称与修改时间）。',
       parameters: {
         type: 'object',
         properties: {},
@@ -90,7 +90,7 @@ const CORE_TOOLS: ToolDef[] = [
     type: 'function',
     function: {
       name: 'readFile',
-      description: '按文件 id 读取某个笔记的完整内容（只读，不修改）。',
+      description: '按文件 id 读取笔记内容（只读）。',
       parameters: {
         type: 'object',
         properties: {
@@ -104,7 +104,7 @@ const CORE_TOOLS: ToolDef[] = [
     type: 'function',
     function: {
       name: 'searchKB',
-      description: '在账号知识库中检索与查询最相关的片段（多文档关键词/向量融合召回）。',
+      description: '在知识库中检索与查询相关的片段。',
       parameters: {
         type: 'object',
         properties: {
@@ -119,7 +119,7 @@ const CORE_TOOLS: ToolDef[] = [
     type: 'function',
     function: {
       name: 'runSkill',
-      description: '调用一个已注册技能（如润色/整理/问答引导）处理给定输入，返回加工结果。',
+      description: '调用已注册技能处理输入，返回结果。',
       parameters: {
         type: 'object',
         properties: {
@@ -135,8 +135,7 @@ const CORE_TOOLS: ToolDef[] = [
     type: 'function',
     function: {
       name: 'editBlocks',
-      description:
-        '针对当前文档的定向块改写建议。仅产 proposal（applied:false），不会落盘修改文档，请基于返回的建议文本与用户确认后再告知渲染侧应用。',
+      description: '对当前文档生成定向块改写建议（仅 proposal，不落盘）。',
       parameters: {
         type: 'object',
         properties: {
@@ -152,6 +151,7 @@ const CORE_TOOLS: ToolDef[] = [
               required: ['block_id', 'new_content'],
             },
           },
+          preview: { type: 'boolean', description: '是否生成 diff 预览（默认 true）' },
         },
         required: ['block_ops'],
       },
@@ -161,8 +161,7 @@ const CORE_TOOLS: ToolDef[] = [
     type: 'function',
     function: {
       name: 'createFile',
-      description:
-        '在工作区新建文件并写入内容。当用户要求创建、新建文件/笔记时，你必须调用此工具，不要直接在聊天中输出文件内容。',
+      description: '在工作区新建文件并写入内容。创建文件必须调用此工具。',
       parameters: {
         type: 'object',
         properties: {
@@ -203,7 +202,7 @@ const CORE_TOOLS: ToolDef[] = [
     type: 'function',
     function: {
       name: 'research_search',
-      description: '研究模式搜索：将查询拆分为多个子查询并执行多轮搜索，返回综合研究结果。',
+      description: '研究模式搜索：拆分子查询并多轮搜索，返回综合结果。',
       parameters: {
         type: 'object',
         properties: {
@@ -218,8 +217,7 @@ const CORE_TOOLS: ToolDef[] = [
     type: 'function',
     function: {
       name: 'readLocalFile',
-      description:
-        '读取本地文件系统中的文件内容（只读，限 1MB 以内）。用于读取用户电脑上的任意文件。',
+      description: '读取本地文件系统文件（只读，限 1MB）。',
       parameters: {
         type: 'object',
         properties: {
@@ -233,8 +231,7 @@ const CORE_TOOLS: ToolDef[] = [
     type: 'function',
     function: {
       name: 'listLocalDirectory',
-      description:
-        '列出本地文件系统目录的内容（文件和子目录）。用于浏览用户电脑上的任意目录。',
+      description: '列出本地目录内容。',
       parameters: {
         type: 'object',
         properties: {
@@ -248,9 +245,7 @@ const CORE_TOOLS: ToolDef[] = [
     type: 'function',
     function: {
       name: 'editLocalFile',
-      description:
-        '直接编辑（或创建）本地文件系统中的文件。接受绝对路径和新内容，写入磁盘。' +
-        '用于修改用户电脑上的任意文件，不限于工作区文件。文件不存在时自动创建。',
+      description: '编辑或创建本地文件。文件不存在时自动创建。',
       parameters: {
         type: 'object',
         properties: {

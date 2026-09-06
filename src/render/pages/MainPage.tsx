@@ -23,8 +23,6 @@ import { injectWelcomeDocument } from '@render/services/welcomeDocument';
 const MainPage: React.FC = () => {
   const { t } = useI18n();
   const currentFile = useEditorStore((s) => s.currentFile);
-  const isDirty = useEditorStore((s) => s.isDirty);
-  const saveFile = useEditorStore((s) => s.saveFile);
   const isSidebarOpen = useUIStore((s) => s.isSidebarOpen);
   const isOutlinePanelCollapsed = useUIStore((s) => s.isOutlinePanelCollapsed);
   const isEditorCollapsed = useUIStore((s) => s.isEditorCollapsed);
@@ -105,19 +103,7 @@ const MainPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  useEffect(() => {
-    if (!currentFile?.id || !isDirty) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      saveFile();
-    }, 1200);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [currentFile?.id, isDirty, saveFile]);
+  // 自动保存已移除：改为手动保存（Ctrl+S / 导航栏保存按钮 / 切换文档前保存）
 
   // Editor state
   const navigateToHeadingRef = useRef<((lineNumber: number, headingIndex: number) => void) | null>(
