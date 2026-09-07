@@ -21,6 +21,7 @@ import type {
   IIntent,
   IKbDocumentStatus,
   IKbSettings,
+  IPatchProposal,
   ISearchConfig,
   KbStatusResponse,
   WriteMode,
@@ -146,6 +147,18 @@ interface AgentStore {
   discardEditBlocksProposal: (index: number) => void;
   clearEditBlocksProposals: () => void;
 
+  // —— preview_patch_files 补丁提案 ——
+  patchProposals: IPatchProposal[];
+  addPatchProposal: (proposal: Omit<IPatchProposal, 'status'>) => void;
+  applyPatchProposal: (id: string, fileIndex?: number) => Promise<void>;
+  discardPatchProposal: (id: string, fileIndex?: number) => void;
+  clearPatchProposals: () => void;
+
+  // —— Agent 轮次配置 ——
+  /** 用户自定义最大轮次（null = 使用意图默认值）。 */
+  userMaxRounds: number | null;
+  setUserMaxRounds: (rounds: number | null) => void;
+
   // —— R3: 交互提问（ask_question_card 暂停等待用户回答） ——
   pendingInteraction: {
     sessionId: string;
@@ -224,6 +237,8 @@ const RESET_FIELDS: Pick<
   | 'writeMode'
   | 'fileOpProposals'
   | 'editBlocksProposals'
+  | 'patchProposals'
+  | 'userMaxRounds'
   | 'pendingInteraction'
   | 'lastSeq'
 > = {
@@ -255,6 +270,8 @@ const RESET_FIELDS: Pick<
   writeMode: 'auto',
   fileOpProposals: [],
   editBlocksProposals: [],
+  patchProposals: [],
+  userMaxRounds: null,
   pendingInteraction: null,
   lastSeq: 0,
 };
@@ -633,6 +650,26 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             processStatus: 'tool_calling',
           };
         });
+        // preview_patch_files → 存为补丁提案（不直接刷新文件树）
+        if (toolCall.name === 'preview_patch_files' && toolCall.status === 'ok') {
+          try {
+            const result = JSON.parse(toolCall.result ?? '{}') as Record<string, unknown>;
+            const preview = result.preview as Record<string, unknown> | undefined;
+            if (result.success && preview && Array.isArray(preview.files)) {
+              const files = (preview.files as Array<Record<string, unknown>>).map((f) => ({
+                filePath: String(f.filePath ?? ''),
+                oldContent: String(f.oldContent ?? ''),
+                newContent: String(f.newContent ?? ''),
+              }));
+              get().addPatchProposal({
+                id: `patch-${toolCall.toolCallId}`,
+                files,
+                contentHash: result.contentHash as string | string[] | undefined,
+              });
+            }
+          } catch { /* 非 JSON 结果忽略 */ }
+        }
+
         // 文件操作已在主进程直接执行，刷新文件树
         if (
           toolCall.name === 'createFile' ||
@@ -640,8 +677,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           toolCall.name === 'editLocalFile' ||
           toolCall.name === 'renameFile' ||
           toolCall.name === 'moveFile' ||
-          toolCall.name === 'deleteFile' ||
-          toolCall.name === 'preview_patch_files'
+          toolCall.name === 'deleteFile'
         ) {
           try {
             const result = JSON.parse(toolCall.result ?? '{}') as Record<string, unknown>;
@@ -1023,6 +1059,71 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   clearEditBlocksProposals: () => set({ editBlocksProposals: [] }),
 
+  // —— preview_patch_files 补丁提案 ——
+
+  patchProposals: [],
+
+  addPatchProposal: (proposal) =>
+    set((s) => ({
+      patchProposals: [...s.patchProposals, { ...proposal, status: 'pending' }],
+    })),
+
+  applyPatchProposal: async (id, fileIndex) => {
+    const { patchProposals } = get();
+    const proposal = patchProposals.find((p) => p.id === id);
+    if (!proposal || proposal.status !== 'pending') return;
+
+    const filesToApply = fileIndex !== undefined
+      ? [proposal.files[fileIndex]]
+      : proposal.files;
+
+    for (const file of filesToApply) {
+      if (!file) continue;
+      try {
+        await window.weaveMD.file.write(file.filePath, file.newContent);
+      } catch (err) {
+        console.warn('[agentStore] applyPatchProposal write failed:', file.filePath, err);
+      }
+    }
+
+    // 刷新文件树
+    try {
+      const { useFileTreeStore } = await import('@render/stores/fileTreeStore');
+      const treeStore = useFileTreeStore.getState();
+      const userId = get().userId;
+      if (userId) {
+        const files = await window.weaveMD.file.list(userId);
+        if (Array.isArray(files)) {
+          for (const f of treeStore.looseFiles) treeStore.removeFile(f.id);
+          for (const f of files) treeStore.addFile({ id: f.id, name: f.name, path: f.name });
+        }
+      }
+    } catch (err) {
+      console.warn('[agentStore] applyPatchProposal tree refresh failed:', err);
+    }
+
+    set((s) => ({
+      patchProposals: fileIndex !== undefined
+        ? s.patchProposals.map((p) => p.id === id ? { ...p, files: p.files.filter((_, i) => i !== fileIndex) } : p)
+        : s.patchProposals.map((p) => p.id === id ? { ...p, status: 'applied' as const } : p),
+    }));
+  },
+
+  discardPatchProposal: (id, fileIndex) =>
+    set((s) => ({
+      patchProposals: fileIndex !== undefined
+        ? s.patchProposals.map((p) => p.id === id ? { ...p, files: p.files.filter((_, i) => i !== fileIndex) } : p)
+        : s.patchProposals.map((p) => p.id === id ? { ...p, status: 'discarded' as const } : p),
+    })),
+
+  clearPatchProposals: () => set({ patchProposals: [] }),
+
+  // —— Agent 轮次配置 ——
+
+  userMaxRounds: null,
+
+  setUserMaxRounds: (rounds) => set({ userMaxRounds: rounds }),
+
   async setKbSettings(settings) {
     // 未登录（userId 空）仅更新内存态，不触发 IPC（防御）
     const userId = get().userId;
@@ -1202,7 +1303,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       if (!searchApi) return;
       const res = await (searchApi as { get: (uid: string) => Promise<{ success: boolean; data?: ISearchConfig | null }> }).get(userId);
       if (res?.success && res.data) {
-        set({ searchConfig: res.data });
+        set({
+          searchConfig: res.data,
+          searchConnectionOk: Boolean(res.data.enabled && res.data.hasApiKeys?.[res.data.provider]),
+        });
       }
     } catch { /* 静默 */ }
   },

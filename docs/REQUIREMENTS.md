@@ -1,6 +1,6 @@
 # WeaveMD 需求文档
 
-> 版本：v3.0 | 最后更新：2026-08-27
+> 版本：v3.1 | 最后更新：2026-09-07
 
 ---
 
@@ -160,6 +160,15 @@
 | KB-15 | 文档上下文 | P1 | top文档全文≤18K，总预算50K |
 | KB-16 | jieba分词 | P1 | cut_for_search+bigram回退，替换unicode61 |
 | KB-17 | 图片embedding | P2 | images_vec表+多模态embedding |
+| KB-18 | searchMode 搜索模式 | P1 | fts5（纯关键词）/ vector（纯向量）/ hybrid（混合，默认），设置持久化 |
+
+### 3.11 Agentic RAG 与 HyDE (P4)
+
+| 编号 | 需求 | 优先级 | 说明 |
+|------|------|--------|------|
+| AGT-20 | Agentic RAG — 自主检索 | P4 | 所有非 chat 意图（rewrite/create/tech/web）均可自主调用 searchKB，LLM 决定是否检索、检索几次、如何组合结果 |
+| AGT-21 | HyDE 假设性文档检索 | P4 | searchKB 工具支持 hyde 参数：LLM 先生成假设性文档 → embedding → 向量检索，提升语义匹配质量 |
+| AGT-22 | searchMode 工具参数 | P4 | searchKB 工具支持 searchMode 参数（fts5/vector/hybrid），LLM 可按查询特性选择搜索策略 |
 
 ## 4. 非功能需求
 
@@ -195,7 +204,7 @@
 | EDIT-05 | MD Source 切换       | ⚠️   | 工具栏入口未迁移（快捷键与源码模式可用），后续任务                                                        |
 | EDIT-06 | 段落操作             | ✅   | Enter 拆分/续行、Backspace 六条退出规则（SPEC-EDIT-EXIT）                                                 |
 | EDIT-07 | 撤销/重做            | ✅   | Ctrl+Z/Y + 按钮，经 editorStore 快照栈                                                                    |
-| EDIT-08 | 自动保存             | ✅   | 1200ms debounce + 切换/关闭前 flush                                                                       |
+| EDIT-08 | 手动保存             | ✅   | Ctrl+S / TopBar 保存按钮 + 切换/关闭前提示                                                                 |
 | EDIT-09 | 代码块               | ✅   | 语言下拉 + 复制按钮，独立编辑路径（不误判标题前缀）；尾随保护空行重载后经解析期补偿恢复（SPEC-EDIT-CBTP） |
 | EDIT-10 | 空块占位             | ✅   | 空内容块 `data-empty` + CSS `::before`；空文档始终可编辑                                                  |
 | EDIT-11 | 结构转换             | ✅   | 六种前缀即时转换（`#`/`-`/`1.`/`- [ ]`/`>`/` ``` `）；浮动工具栏下拉按 `canConvertBlock` 转换矩阵分发（SPEC-EDIT-FT） |

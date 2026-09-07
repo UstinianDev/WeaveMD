@@ -83,12 +83,9 @@ const SearchSettings: React.FC = () => {
         apiKey: apiKeys[provider].trim(),
         userId: user.id,
       });
-      const ok = res.success;
-      setTestResult(ok ? 'ok' : 'fail');
-      useAgentStore.setState({ searchConnectionOk: ok });
+      setTestResult(res.success ? 'ok' : 'fail');
     } catch {
       setTestResult('fail');
-      useAgentStore.setState({ searchConnectionOk: false });
     } finally {
       setTesting(false);
     }

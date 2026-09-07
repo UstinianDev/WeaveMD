@@ -5,7 +5,7 @@
 // 注：原铁律一/二已移除，AI 工具可直接写盘，联网/外发无需用户同意。
 
 import { BrowserWindow } from 'electron';
-import { IPC_CHANNELS } from '@shared/constants';
+import { DEFAULT_MAX_ROUNDS, IPC_CHANNELS } from '@shared/constants';
 import type {
   AgentRunResult,
   AIErrorCode,
@@ -94,6 +94,22 @@ const KEEP_RECENT_ROUNDS = 6;
  */
 function getCompressThreshold(round: number): number {
   return round <= 1 ? 0.85 : 0.65;
+}
+
+/**
+ * 基于意图动态分配 Agent 轮次上限。
+ * 简单对话用少轮次，复杂多工具任务用多轮次。
+ */
+function getRoundsForIntent(intent: string): number {
+  switch (intent) {
+    case 'chat':   return 6;   // 纯对话，不需要工具
+    case 'kbQa':   return 8;   // 知识库问答，单次检索+回答
+    case 'web':    return 10;  // 联网搜索，可能多轮搜索
+    case 'rewrite': return 10; // 改写，可能需要搜索+编辑
+    case 'create': return 12;  // 创建，可能需要多文件操作
+    case 'tech':   return 12;  // 技术任务，复杂多工具组合
+    default:       return DEFAULT_MAX_ROUNDS;
+  }
 }
 
 /** 只读工具集合（无副作用，可并行执行）。 */
@@ -649,7 +665,7 @@ function prepareAgentContext(
     toolCtx,
     tools,
     llmMessages,
-    detector: new DeadLoopDetector({ maxRounds: deps.maxRounds ?? 6 }),
+    detector: new DeadLoopDetector({ maxRounds: deps.maxRounds ?? getRoundsForIntent(intent.intent) }),
     toolCallsHistory: [],
     hasSessionPersist: !!(deps.sessionId && deps.db),
     roundsUsed: 0,
@@ -931,12 +947,23 @@ async function executeToolRound(
 // ---------------------------------------------------------------------------
 
 function finalizeAgentRun(ctx: AgentContext, deps: AgentLoopDeps): AgentRunResult {
-  const maxRounds = deps.maxRounds ?? 6;
+  const stats = ctx.detector.getStats();
+  let finalMessage: string;
+  if (stats.consecutiveFailureCount > 0) {
+    // 从最近的 toolCallsHistory 找到最后失败的工具名
+    const lastFailed = [...ctx.toolCallsHistory].reverse().find((tc) => tc.status === 'error');
+    const toolName = lastFailed?.name ?? '未知工具';
+    finalMessage = `工具「${toolName}」连续失败，已自动停止。`;
+  } else if (stats.sameResultCount > 0) {
+    finalMessage = '检测到重复操作，已自动停止。';
+  } else {
+    finalMessage = `已在 ${stats.maxRounds} 轮内达到上限，请将需求拆分后重试。`;
+  }
   const convergence = appendMessage({
     conversationId: ctx.convId,
     userId: ctx.userId,
     role: 'assistant',
-    content: `已在 ${maxRounds} 轮内达到 Agent 工具能力上限，请将需求拆分后重试。`,
+    content: finalMessage,
   });
   ctx.assistantId = convergence.id;
   ctx.send(IPC_CHANNELS.AI_STREAM_DONE, {
@@ -993,7 +1020,7 @@ export async function runAgentFlow(
       if (ctx.detector.isNearRoundLimit()) {
         const convergenceMsg = {
           role: 'system' as const,
-          content: `你已接近工具调用轮次上限（${deps.maxRounds ?? 6} 轮），请尽快给出最终回答。`,
+          content: `你已接近工具调用轮次上限（${ctx.detector.getStats().maxRounds} 轮），请尽快给出最终回答。`,
         };
         ctx.llmMessages.push(convergenceMsg);
         ctx.totalTokens += estimateTokens(convergenceMsg.content);

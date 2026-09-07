@@ -111,19 +111,23 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
 
   // —— 控制条状态 ——
   const [searchMenuOpen, setSearchMenuOpen] = useState(false);
-  const [selectedEngine, setSelectedEngine] = useState<WebSearchEngine | null>(() => {
-    if (searchConfig?.enabled && searchConfig.provider) {
-      const providerMap: Record<string, WebSearchEngine> = {
-        firecrawl: 'Firecrawl',
-        zhipu: 'Zhipu',
-        tavily: 'Tavily',
-        exa: 'Exa',
-      };
-      return providerMap[searchConfig.provider] ?? null;
-    }
-    return null;
-  });
+  const providerMap: Record<string, WebSearchEngine> = {
+    firecrawl: 'Firecrawl',
+    zhipu: 'Zhipu',
+    tavily: 'Tavily',
+    exa: 'Exa',
+  };
+  const [selectedEngine, setSelectedEngine] = useState<WebSearchEngine | null>(null);
   const searchMenuRef = useRef<HTMLDivElement>(null);
+
+  // 同步 searchConfig 到 selectedEngine（init 完成后或配置变更后）
+  useEffect(() => {
+    if (searchConfig?.enabled && searchConfig.provider) {
+      setSelectedEngine(providerMap[searchConfig.provider] ?? null);
+    } else {
+      setSelectedEngine(null);
+    }
+  }, [searchConfig?.enabled, searchConfig?.provider]);
 
   // 流式文本长度追踪
   const streamLenRef = useRef(0);

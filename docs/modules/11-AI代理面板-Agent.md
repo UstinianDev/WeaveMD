@@ -1,6 +1,6 @@
 # AI 代理面板 (Agent) 功能总结
 
-> 模块编号：11 | 优先级：P1 | 最后更新：2026-09-06 | 状态：**第 1~7 期均已交付；后端收敛 remote-only；Notus Agent 克隆完成（21 项功能）；写控制与任务安全模块 R1~R7；知识库 Notus 对齐 R1~R12；AI 性能优化 v2；UI 美化完成；AI Agent 优化 20/32 项完成；真 MCP / GitHub 继续延**
+> 模块编号：11 | 优先级：P1 | 最后更新：2026-09-07 | 状态：**第 1~7 期均已交付；Notus 克隆21项；写控制 R1~R7；知识库 Notus 对齐 R1~R12 + searchMode；AI Agent 优化 30/30 全部完成（含 Agentic RAG + HyDE）；真 MCP / GitHub 继续延**
 > 需求编号：AGT-01~19 / KB-01~05（docs/REQUIREMENTS.md 3.7 / 3.8）
 > 交付记录：第1期基建 + 第2期 Chat 闭环（2026-08-14）、第3期知识库 + 第4期 Agent 能力
 > （2026-08-15）；远程 DeepSeek 后端已真连验证通过；
@@ -355,3 +355,64 @@ src/render/components/AIAgent/AIPanelHome.tsx    — onSend 透传
 src/render/components/AIAgent/AIPanelComposer.tsx — writeMode 切换 UI
 src/render/utils/weaveMDBridge.ts          — 浏览器 mock bridge 补齐
 ```
+
+## 12. Agentic RAG 与 HyDE（2026-09-07）
+
+> 需求编号：AGT-20~22 / KB-18（docs/REQUIREMENTS.md 3.11）
+
+### Agentic RAG（AGT-20）
+
+**核心变化**：`searchKB` 工具从仅 `kbQa` 意图可用 → 所有非 chat 意图（rewrite/create/tech/web）均可自主调用。
+
+**决策链路**：
+1. 用户提问 → `classifyIntent` 判断意图（规则启发式，6 类）
+2. `toolsForIntent` 为所有非 chat 意图提供 `searchKB` 工具（gated on `useKnowledgeBase` + `kbEgressAuthorized`）
+3. LLM 根据问题内容自行判断是否需要检索知识库
+4. 系统提示引导：最多 2-3 次检索，换不同角度，避免重复查询
+
+**意图→工具映射**：
+
+| 意图 | searchKB 可用 | 说明 |
+|------|:---:|------|
+| chat | ❌ | 闲聊不提供工具，LLM 直接回答 |
+| kbQa | ✅ | 知识库问答（原有） |
+| rewrite | ✅ | 改写时可检索参考资料 |
+| create | ✅ | 创作时可检索素材 |
+| tech | ✅ | 技术问题可检索笔记 |
+| web | ✅ | 网页搜索时可同时检索本地知识库 |
+
+### HyDE 假设性文档检索（AGT-21）
+
+**原理**：用户提问通常简短模糊，与知识库文档的表述差距大。HyDE 先让 LLM 生成一段假设性文档（100-200字），再用该文档的 embedding 做向量检索，语义匹配更精准。
+
+**流程**：
+1. LLM 调用 `searchKB(query, hyde: true)`
+2. Handler 调用 `generateHydeVector(query)`
+3. → LLM 生成假设性文档（系统提示：写一段可能包含答案的文档片段）
+4. → `createEmbedding` 向量化假设性文档
+5. → 用向量做语义检索（`queryVector` 参数传入 `searchKB`）
+6. 结果与原有 FTS5/标题匹配结果 RRF 融合
+
+**触发条件**：仅在 LLM 主动传 `hyde: true` 时触发，不影响常规搜索。增加约 1-2s 延迟（一次 LLM 调用 + 一次 embedding 调用）。
+
+### searchMode 工具参数（AGT-22 / KB-18）
+
+`searchKB` 工具新增 `searchMode` 参数，LLM 可按查询特性选择搜索策略：
+
+| 模式 | 说明 | 适用场景 |
+|------|------|----------|
+| `hybrid` | FTS5 + 向量 + 标题三路 RRF 融合（默认） | 通用查询 |
+| `fts5` | 纯关键词检索 | 精确术语搜索 |
+| `vector` | 纯向量语义检索 | 模糊/改述查询 |
+
+### 变更文件
+
+| 文件 | 变更 |
+|------|------|
+| `src/main/ai/toolTypes.ts` | `SearchKbFn` 新增 `queryVector`/`searchMode`；`ToolCtx` 新增 `generateHydeVector` |
+| `src/main/ai/agent/agentLoop.ts` | `toolsForIntent` 扩展 searchKB 到所有非 chat 意图；注入 HyDE 函数；更新系统提示 |
+| `src/main/ai/tools/searchKBHandler.ts` | 新增 `hyde`/`searchMode` 参数处理 |
+| `src/main/ai/toolRegistry.ts` | searchKB schema 新增 `hyde`/`searchMode` 字段 |
+| `src/main/ai/agent/agentTaskWorker.ts` | searchKb wrapper 透传 `queryVector`/`searchMode` |
+
+**门禁**：tsc 0 | vitest 1530/1530 | lint 0 error

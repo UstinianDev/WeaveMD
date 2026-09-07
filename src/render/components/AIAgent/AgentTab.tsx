@@ -13,6 +13,7 @@ import { useAgentStore, onStreamDelta } from '@render/stores/agentStore';
 import AIMessageBubble from './message/AIMessageBubble';
 import AgentWorkflowCard from './cards/AgentWorkflowCard';
 import EditBlocksPreviewCard from './cards/EditBlocksPreviewCard';
+import PatchPreviewCard from './cards/PatchPreviewCard';
 import IntentCard from './cards/IntentCard';
 import RewritePreviewCard from './cards/RewritePreviewCard';
 import QuestionCard from './cards/QuestionCard';
@@ -136,6 +137,10 @@ const AgentTab: React.FC = () => {
   // R3: 交互提问状态
   const pendingInteraction = useAgentStore((s) => s.pendingInteraction);
   const resumeInteraction = useAgentStore((s) => s.resumeInteraction);
+  // preview_patch_files 补丁提案
+  const patchProposals = useAgentStore((s) => s.patchProposals);
+  const applyPatchProposal = useAgentStore((s) => s.applyPatchProposal);
+  const discardPatchProposal = useAgentStore((s) => s.discardPatchProposal);
 
   const messageListRef = useRef<HTMLDivElement>(null);
 
@@ -229,6 +234,15 @@ const AgentTab: React.FC = () => {
 
       {/* Bug 2 修复：editBlocks / preview_file_revision 修订提案 diff 预览 */}
       {isAgentMode && <EditBlocksPreviewCard />}
+
+      {/* preview_patch_files 多文件补丁预览 */}
+      {isAgentMode && (
+        <PatchPreviewCard
+          proposals={patchProposals}
+          onApply={(id, fileIndex) => void applyPatchProposal(id, fileIndex)}
+          onDiscard={(id, fileIndex) => discardPatchProposal(id, fileIndex)}
+        />
+      )}
 
       {/* R3: agent 模式：交互提问卡片（ask_question_card 暂停时显示） */}
       {isAgentMode && pendingInteraction && (

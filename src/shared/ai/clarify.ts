@@ -30,3 +30,11 @@ export interface IPatchPreview {
   status: 'pending' | 'applied' | 'discarded' | 'rolled_back';
   contentHash?: string;
 }
+
+/** 渲染侧补丁提案（由 preview_patch_files 工具结果转换）。 */
+export interface IPatchProposal {
+  id: string;
+  files: IPatchFile[];
+  status: 'pending' | 'applied' | 'discarded';
+  contentHash?: string | string[];
+}

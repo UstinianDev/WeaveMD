@@ -1,6 +1,6 @@
 # WeaveMD 文档索引
 
-> 最后更新：2026-09-06
+> 最后更新：2026-09-07
 
 ## 核心文档
 
@@ -21,11 +21,11 @@
 | [04-编辑主区](./modules/04-编辑主区-Editor.md) | v2 块树内核架构 |
 | [05-设置界面](./modules/05-设置界面-Settings.md) | UnifiedSettings 8 Tab + 主题系统 |
 | [06-窗口控制](./modules/06-窗口控制-Window.md) | Frameless 窗口 + 自动更新 |
-| [07-数据持久化层](./modules/07-数据持久化层-Database.md) | SQLite 16+ 表（核心 + AI/Agent/配置） |
-| [08-IPC通信机制](./modules/08-IPC通信机制.md) | 80+ 通道（9 组：Auth/File/Settings/AI/KB/Agent...） |
+| [07-数据持久化层](./modules/07-数据持久化层-Database.md) | SQLite 16+ 表 |
+| [08-IPC通信机制](./modules/08-IPC通信机制.md) | 80+ 通道（9 组） |
 | [09-国际化](./modules/09-国际化-i18n.md) | 中文简繁 + 英文 |
 | [10-导出功能](./modules/10-导出功能-Export.md) | 8 格式导出 |
-| [11-AI代理面板](./modules/11-AI代理面板-Agent.md) | Agent/知识库/改写/写控制 |
+| [11-AI代理面板](./modules/11-AI代理面板-Agent.md) | Agent/知识库/Agentic RAG/HyDE |
 
 ## 规格文档
 
@@ -52,6 +52,8 @@
 
 | 文档 | 说明 |
 |------|------|
-| [ai-agent-optimize.plan](./plan/ai-agent-optimize.plan.md) | AI Agent 优化计划（32 项任务） |
-| [ai-agent-optimize.status](./plan/ai-agent-optimize.status.md) | AI Agent 优化实施状态（20/32 完成） |
+| [agent-optimize-v3.status](./plan/agent-optimize-v3.status.md) | Agent 优化 v3（搜索持久化+动态轮次+多文件Diff） |
+| [ai-agent-optimize.status](./plan/ai-agent-optimize.status.md) | AI Agent 优化实施状态（30/30 全部完成） |
 | [ai-perf-optimize-v2.status](./plan/ai-perf-optimize-v2.status.md) | AI 性能优化 v2 状态 |
+| [embedding-architecture](./plan/embedding-architecture.md) | Embedding 架构设计（SearchProvider + 搜索模式） |
+| [indexing-compatibility](./plan/indexing-compatibility.md) | 索引流程兼容性设计 |

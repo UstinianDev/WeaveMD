@@ -95,6 +95,14 @@ const guardMock = vi.hoisted(() => {
     checkConsecutiveFailure(_toolName: string, _success: boolean) {
       return { detected: false };
     }
+    getStats() {
+      return {
+        roundsUsed: 0,
+        maxRounds: this.maxRounds,
+        sameResultCount: 0,
+        consecutiveFailureCount: 0,
+      };
+    }
   }
   return { DeadLoopDetector: FakeDeadLoopDetector };
 });
@@ -253,14 +261,14 @@ describe('runAgentFlow', () => {
       consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
     });
 
-    // 默认 maxRounds=6（DeadLoopDetector），FakeDeadLoopDetector 在 round=6 时 break
-    expect(llmMock.streamChatCompletion).toHaveBeenCalledTimes(6);
+    // 消息"写一个 react 组件"被分类为 create/tech intent，maxRounds=12
+    expect(llmMock.streamChatCompletion).toHaveBeenCalledTimes(12);
     // 收敛 assistant 落库（提示文案）
     const assistantCalls = dbMock.appendMessage.mock.calls.filter(
       (c) => c[0].role === 'assistant'
     );
     expect(assistantCalls.length).toBeGreaterThan(0);
-    expect(res.roundsUsed).toBe(6);
+    expect(res.roundsUsed).toBe(12);
   });
 
   it('degrades to direct answer + hint when a tool fails', async () => {

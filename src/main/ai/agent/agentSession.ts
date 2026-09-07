@@ -6,6 +6,7 @@
 // checkpoint / snapshot / rounds 代理调用 agentSessionDao。
 
 import type { Database as BetterSqlite3Database } from 'better-sqlite3';
+import { DEFAULT_MAX_ROUNDS } from '@shared/constants';
 import type { AgentSession, AgentSessionStatus } from '@shared/ai';
 import * as sessionDao from '../../db/agentSessionDao';
 
@@ -47,7 +48,7 @@ export class AgentSessionStateMachine {
   private currentStatus: AgentSessionStatus;
   /** 缓存轮次，-1 表示未初始化。 */
   private _roundsUsed = -1;
-  private _maxRounds = 20;
+  private _maxRounds = DEFAULT_MAX_ROUNDS;
 
   constructor(
     db: BetterSqlite3Database,

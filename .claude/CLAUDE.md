@@ -66,7 +66,8 @@
 - 铁律一：**AI 写入必经确认**——红删绿增预览 → 用户确认 → `updateContent` 入 undo 栈
 - 铁律二：**联网 / 笔记外发必须用户知情同意**；key 用 safeStorage 加密存 SQLite
 - Agent 能力：toolRegistry + agentLoop（≤6 轮）+ skillLoader + intentRouter + contextManager
-- 知识库：FTS5 BM25 召回 + 拒答 0.6 + 出处可跳转 + 置顶 ×1.5
+- 知识库：FTS5 BM25 召回 + 拒答 0.6 + 出处可跳转 + 置顶 ×1.5；searchMode 三模式（fts5/vector/hybrid）
+- Agentic RAG：所有非 chat 意图均可自主调用 searchKB（LLM 决定是否检索）；HyDE 支持假设性文档 embedding 检索
 - 写控制：writeMode auto/manual + MD5 staleness detection + Agent 交互暂停/恢复 + 事件持久化
 - 三视图重构：home（RECENT 最近3）/ session（会话）/ settings（设置侧栏）
 

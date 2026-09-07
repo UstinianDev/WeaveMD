@@ -8,6 +8,7 @@
 // 集成点：agentLoop.ts 工具执行后调用 check* 方法
 
 import { createHash } from 'crypto';
+import { DEFAULT_MAX_ROUNDS } from '@shared/constants';
 
 /** 死循环检测器配置 */
 export interface LoopGuardConfig {
@@ -50,7 +51,7 @@ export class DeadLoopDetector {
     this.config = {
       maxSameResultCount: config?.maxSameResultCount ?? 3,
       maxConsecutiveFailures: config?.maxConsecutiveFailures ?? 2,
-      maxRounds: config?.maxRounds ?? 20,
+      maxRounds: config?.maxRounds ?? DEFAULT_MAX_ROUNDS,
     };
   }
 
@@ -138,6 +139,11 @@ export class DeadLoopDetector {
     this.resultHistory.clear();
     this.failureHistory = null;
     this.roundsUsed = 0;
+  }
+
+  /** 动态更新最大轮次（运行时用户调整）。 */
+  updateMaxRounds(newMax: number): void {
+    this.config.maxRounds = Math.max(1, newMax);
   }
 
   /** 获取当前统计信息 */

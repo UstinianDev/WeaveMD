@@ -227,3 +227,11 @@ export const THEME_PRESETS = {
 } as const;
 
 // APP_VERSION 已移除：版本改由主进程 app.getVersion() 提供（IPC_CHANNELS.APP_GET_VERSION）
+
+// --- Agent Max Rounds ---
+/** Agent 默认最大轮次 */
+export const DEFAULT_MAX_ROUNDS = 10;
+/** Agent 最小轮次 */
+export const MIN_MAX_ROUNDS = 4;
+/** Agent 最大轮次上限 */
+export const MAX_MAX_ROUNDS = 20;
