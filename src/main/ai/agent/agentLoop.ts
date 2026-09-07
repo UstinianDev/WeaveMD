@@ -258,8 +258,13 @@ function toolsForIntent(
   names.add('analyze_folder');
   names.add('check_links');
   names.add('get_task_activity');
+  names.add('list_skills');
+  names.add('get_skill_details');
 
   switch (intent.intent) {
+    case 'chat':
+      // 闲聊意图：不提供任何工具，LLM 直接回答
+      return [];
     case 'kbQa':
       if (useKnowledgeBase && kbEgressAuthorized) {
         names.add('searchKB');
@@ -473,7 +478,10 @@ function prepareAgentContext(
 
   const summary = ownedConv?.summary || '';
 
-  const history: LlmMessage[] = cleanupIncompleteMessages(
+  // chat 意图：不加载历史对话和摘要，每次独立回答（避免历史错误答案污染）
+  const isChat = intent.intent === 'chat';
+
+  const allDbMessages = cleanupIncompleteMessages(
     getMessagesByConversation(convId, userId)
       .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
       .map((m): LlmMessage => ({
@@ -485,7 +493,12 @@ function prepareAgentContext(
       .filter((m) => m.content && m.content.trim().length > 0)
   );
 
-  let llmMessages: AgentLlmMessage[] = summary
+  // chat 意图：只保留当前用户消息（最后一条 user 消息），丢弃历史
+  const history: LlmMessage[] = isChat
+    ? allDbMessages.filter((m) => m.role === 'user').slice(-1)
+    : allDbMessages;
+
+  let llmMessages: AgentLlmMessage[] = (!isChat && summary)
     ? buildCompressed(history, summary, KEEP_RECENT_ROUNDS)
     : [...history];
 
@@ -525,39 +538,45 @@ function prepareAgentContext(
     }
   }
 
-  const agentSystemPrompt = [
-    '你是 WeaveMD 的 AI 写作助手。',
-    '',
-    '## 工作流',
-    '1. 简单问题（计算/闲聊/通用知识）直接回答，不调工具。',
-    '2. 信息不足时用 ask_question_card 提问澄清，不猜测。',
-    '3. 创建/修改文件前先用 readFile/searchKB 检索资料。',
-    '4. 复杂任务先拆分步骤，逐步执行。',
-    '',
-    '## 工具规则',
-    '- 创建文件 → 必须调 createFile，不要在聊天中输出内容。',
-    '- 修改文件 → editBlocks（当前文档）/ preview_file_revision（任意文件）。',
-    '- 本地文件 → readLocalFile/editLocalFile/listLocalDirectory，返回绝对路径后续直接使用。',
-    '- 检索 → searchKB：首次宽泛关键词，后续换不同角度，避免重复相同查询。信息不足时如实说明。',
-    '- 提问 → ask_question_card（支持文本/选择/确认），暂停等待回答。',
-    '',
-    '## 写入规则',
-    '- 安全变更（新增内容、小段改写）：直接执行并告知结果。',
-    '- 高风险操作（删除、覆盖整个文件）：先说明变更内容，等待用户确认。',
-    '',
-    '## 要点',
-    '- 大型写作任务按章节拆分，每步处理一个文件。',
-    '- 用户问文件是否存在，先看文件列表，没有再调 listFiles。',
-    '- 文件夹支持嵌套路径（如 "子目录/深层目录"）。',
-    fileListSnapshot,
-    localFileTreeSnapshot,
-  ].filter(Boolean).join('\n');
+  const isChatIntent = intent.intent === 'chat';
+
+  const agentSystemPrompt = isChatIntent
+    ? '你是 WeaveMD 的 AI 助手。直接、简洁地回答用户问题。不要提及工具、文件或文档。'
+    : [
+        '你是 WeaveMD 的 AI 写作助手。',
+        '',
+        '## 工作流',
+        '1. 简单问题（计算/闲聊/通用知识）直接回答，不调工具。',
+        '2. 信息不足时用 ask_question_card 提问澄清，不猜测。',
+        '3. 创建/修改文件前先用 readFile/searchKB 检索资料。',
+        '4. 复杂任务先拆分步骤，逐步执行。',
+        '',
+        '## 工具规则',
+        '- 创建文件 → 必须调 createFile，不要在聊天中输出内容。',
+        '- 修改文件 → editBlocks（当前文档）/ preview_file_revision（任意文件）。',
+        '- 本地文件 → readLocalFile/editLocalFile/listLocalDirectory，返回绝对路径后续直接使用。',
+        '- 检索 → searchKB：首次宽泛关键词，后续换不同角度，避免重复相同查询。信息不足时如实说明。',
+        '- 提问 → ask_question_card（支持文本/选择/确认），暂停等待回答。',
+        '',
+        '## 写入规则',
+        '- 安全变更（新增内容、小段改写）：直接执行并告知结果。',
+        '- 高风险操作（删除、覆盖整个文件）：先说明变更内容，等待用户确认。',
+        '',
+        '## 要点',
+        '- 大型写作任务按章节拆分，每步处理一个文件。',
+        '- 用户问文件是否存在，先看文件列表，没有再调 listFiles。',
+        '- 文件夹支持嵌套路径（如 "子目录/深层目录"）。',
+        fileListSnapshot,
+        localFileTreeSnapshot,
+      ].filter(Boolean).join('\n');
   llmMessages = [{ role: 'system', content: agentSystemPrompt }, ...llmMessages];
 
-  // 文档上下文注入（在 agent 系统指令之后、用户消息之前）
-  const documentContext = buildDocumentContext(payload.currentDocument);
-  if (documentContext) {
-    llmMessages = [{ role: 'system', content: documentContext }, ...llmMessages];
+  // 文档上下文注入（仅非 chat 意图：chat 意图不需要读取当前文档）
+  if (intent.intent !== 'chat') {
+    const documentContext = buildDocumentContext(payload.currentDocument);
+    if (documentContext) {
+      llmMessages = [{ role: 'system', content: documentContext }, ...llmMessages];
+    }
   }
 
   // 初始 token 统计

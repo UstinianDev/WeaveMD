@@ -87,7 +87,8 @@ const STEP_COLORS = [
 ];
 
 function getStepColor(roundIndex: number) {
-  return STEP_COLORS[roundIndex % STEP_COLORS.length];
+  const idx = ((roundIndex % STEP_COLORS.length) + STEP_COLORS.length) % STEP_COLORS.length;
+  return STEP_COLORS[idx];
 }
 
 // ---------------------------------------------------------------------------
@@ -377,6 +378,8 @@ function groupByRound(toolCalls: IAgentToolCall[]): GroupedStep[] {
   const groups = new Map<number, IAgentToolCall[]>();
 
   for (const call of toolCalls) {
+    // 过滤进度事件（loopIndex < 0 为 sendProgress 发送的占位事件）
+    if (call.loopIndex != null && call.loopIndex < 0) continue;
     const key = call.loopIndex ?? 0;
     const arr = groups.get(key);
     if (arr) {
