@@ -9,7 +9,23 @@ export async function handleSearchKB(args: Record<string, unknown>, ctx: ToolCtx
     return { content: '', status: 'error', errorDesc: 'searchKB: 缺少 query' };
   }
   const topK = typeof args.topK === 'number' ? args.topK : undefined;
-  const res = await ctx.searchKb(ctx.userId, query, { topK });
+  const searchMode = typeof args.searchMode === 'string'
+    ? args.searchMode as 'fts5' | 'vector' | 'hybrid'
+    : undefined;
+  const hyde = args.hyde === true;
+
+  // HyDE：先生成假设性文档 embedding，再用于向量检索
+  let queryVector: number[] | undefined;
+  if (hyde && ctx.generateHydeVector) {
+    const vec = await ctx.generateHydeVector(query);
+    if (vec) queryVector = vec;
+  }
+
+  const res = await ctx.searchKb(ctx.userId, query, {
+    topK,
+    queryVector,
+    searchMode,
+  });
   if (res.refused) {
     return {
       content: JSON.stringify({

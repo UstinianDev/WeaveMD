@@ -46,17 +46,22 @@
 | 26 | list_skills/get_skill_details | ✅ | `skillToolsHandler.ts` + `toolRegistry.ts` |
 | 27 | searchMode 搜索模式切换 | ✅ | `kb.ts` + `embeddingConfig.ts` + `kbSearch.ts` + `db/index.ts` |
 | 28 | Web Worker JSON.parse | ✅ | `jsonParser.worker.ts` + `useJsonParserWorker.ts` + `AgentWorkflowCard.tsx` |
+| 29 | Agentic RAG — 自主检索 | ✅ | `agentLoop.ts`（toolsForIntent 扩展 searchKB 到 rewrite/create/tech/web）、`searchKBHandler.ts`、`toolTypes.ts` |
+| 30 | HyDE — 假设性文档检索 | ✅ | `agentLoop.ts`（generateHydeVector）、`searchKBHandler.ts`（hyde 参数）、`toolRegistry.ts`（schema）、`agentTaskWorker.ts` |
 
 ## 修改文件清单
 
 | 文件 | 修改类型 |
 |------|----------|
 | `src/main/ai/llm/llmClient.ts` | onRetry 回调 |
-| `src/main/ai/agent/agentLoop.ts` | Bug 修复 + 提示词 + 轮次 + 动态压缩 + 进度 + 预览 + IPC 批量 + KB 预加载 |
+| `src/main/ai/agent/agentLoop.ts` | Bug 修复 + 提示词 + 轮次 + 动态压缩 + 进度 + 预览 + IPC 批量 + KB 预加载 + Agentic RAG + HyDE |
 | `src/main/ai/knowledge/kbSearch.ts` | 重排条件优化 + searchMode 切换 |
 | `src/main/ai/toolRegistry.ts` | Schema 压缩 + preview 参数 + skill 工具注册 |
 | `src/main/ai/tools/editBlocksHandler.ts` | preview 参数 + diff 生成 |
 | `src/main/ai/tools/skillToolsHandler.ts` | 新文件：list_skills/get_skill_details handler |
+| `src/main/ai/tools/searchKBHandler.ts` | HyDE 支持 + searchMode 参数 |
+| `src/main/ai/toolTypes.ts` | SearchKbFn 扩展 + generateHydeVector |
+| `src/main/ai/agent/agentTaskWorker.ts` | searchKb wrapper 透传 queryVector/searchMode |
 | `src/main/db/embeddingConfig.ts` | searchMode 字段 |
 | `src/shared/ai/kb.ts` | IEmbeddingProviderConfig.searchMode |
 | `src/render/components/Navbar/TopBar.tsx` | 保存按钮 + Ctrl+S |
@@ -83,13 +88,12 @@
 
 ## 未完成项
 
-| # | 任务 | 优先级 | 说明 |
-|---|------|--------|------|
-| 1 | Agentic RAG | P4 | 高复杂度，推后独立规划 |
-| 2 | HyDE | P4 | 高复杂度，推后独立规划 |
+（无，30/30 全部完成）
 
 ## 风险
 
 - maxRounds 12→6：简单任务足够，复杂多文件任务可能需用户拆分
 - 移除 auto-save：用户需习惯 Ctrl+S 保存，已有保存按钮和切换/退出提示兜底
 - beforeunload 在 Electron 中依赖 Chromium 版本
+- Agentic RAG：非 kbQa 意图也会提供 searchKB 工具，LLM 可能过度调用（已通过系统提示限制2-3次）
+- HyDE：每次 hyde=true 增加一次 LLM round-trip（~1-2s），仅在 LLM 主动传参时触发，不影响常规搜索

@@ -286,12 +286,14 @@ export class AgentTaskWorker {
         row?.apiKeyEnc ?? null,
         abortController,
         {
-          searchKb: (u: string, q: string) =>
+          searchKb: (u: string, q: string, opts?: { topK?: number; queryVector?: number[]; searchMode?: 'fts5' | 'vector' | 'hybrid' }) =>
             searchKB(u, q, {
-              topK: persisted.topK,
+              topK: opts?.topK ?? persisted.topK,
               fuse: persisted.fuse,
               pinnedWeight: persisted.pinnedWeight,
               threshold: persisted.threshold,
+              queryVector: opts?.queryVector,
+              searchMode: opts?.searchMode,
             }),
           consent,
           db: this.db,

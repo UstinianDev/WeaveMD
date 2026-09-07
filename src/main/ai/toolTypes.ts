@@ -24,6 +24,10 @@ export type SearchKbFn = (
     fuse?: number;
     pinnedWeight?: number;
     threshold?: number;
+    /** HyDE 查询向量（假设性文档 embedding）。 */
+    queryVector?: number[];
+    /** 搜索模式：fts5 / vector / hybrid。 */
+    searchMode?: 'fts5' | 'vector' | 'hybrid';
   }
 ) => Promise<{
   refused: boolean;
@@ -52,6 +56,11 @@ export interface ToolCtx {
   currentConversationId?: string;
   /** 文件树路径（用户打开/导入的文件和文件夹，供 createFile/createFolder/editLocalFile 定位写入目标）。 */
   fileTreePaths?: { files: string[]; folders: string[] };
+  /**
+   * HyDE 向量生成器（由 agentLoop 注入，searchKB handler 在 hyde=true 时调用）。
+   * 输入用户原始查询，输出假设性文档的 embedding 向量。
+   */
+  generateHydeVector?: (query: string) => Promise<number[] | null>;
 }
 
 /** 工具处理器签名。 */

@@ -107,12 +107,14 @@ const CORE_TOOLS: ToolDef[] = [
     type: 'function',
     function: {
       name: 'searchKB',
-      description: '在知识库中检索与查询相关的片段。',
+      description: '在知识库中检索与查询相关的片段。支持 HyDE（假设性文档检索）和多种搜索模式。',
       parameters: {
         type: 'object',
         properties: {
           query: { type: 'string', description: '检索查询短语' },
           topK: { type: 'number', description: '返回条数上限（默认 5）' },
+          hyde: { type: 'boolean', description: '启用 HyDE：先让 LLM 生成假设性文档，再用其 embedding 做语义检索（适合复杂/模糊查询，默认 false）' },
+          searchMode: { type: 'string', enum: ['fts5', 'vector', 'hybrid'], description: '搜索模式：fts5（纯关键词）、vector（纯向量）、hybrid（混合，默认）' },
         },
         required: ['query'],
       },

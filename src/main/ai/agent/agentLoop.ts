@@ -18,10 +18,12 @@ import type {
 } from '@shared/ai';
 import { appendMessage, getConversation, getMessagesByConversation, updateConversationSummary } from '../../db/ai';
 import { listFiles } from '../../db/files';
+import { getEmbeddingConfig } from '../../db/embeddingConfig';
 import { decryptApiKey } from '../secureConfig';
 import { classifyIntent } from '../intentRouter';
 import { buildCompressed, estimateTokens, shouldCompress, summarizeViaLlm, type LlmMessage } from '../contextManager';
 import { streamChatCompletionWithRetry } from '../llm/llmClient';
+import { createEmbedding } from '../knowledge/embeddingClient';
 import { defineCoreTools, executeTool, type SearchKbFn, type ToolCtx } from '../toolRegistry';
 import { loadSkills, type CoreSkill, type SkillRunnerCtx } from '../skills/skillLoader';
 import { persistAndSend } from './agentEventStore';
@@ -278,6 +280,10 @@ function toolsForIntent(
       if (currentDocument) {
         names.add('editBlocks');
       }
+      // Agentic RAG：rewrite 意图也可自主检索知识库
+      if (useKnowledgeBase && kbEgressAuthorized) {
+        names.add('searchKB');
+      }
       break;
     case 'create':
     case 'tech':
@@ -292,10 +298,18 @@ function toolsForIntent(
       if (currentDocument) {
         names.add('editBlocks');
       }
+      // Agentic RAG：create/tech 意图也可自主检索知识库
+      if (useKnowledgeBase && kbEgressAuthorized) {
+        names.add('searchKB');
+      }
       break;
     case 'web':
       names.add('web_search');
       names.add('research_search');
+      // Agentic RAG：web 意图也可自主检索知识库
+      if (useKnowledgeBase && kbEgressAuthorized) {
+        names.add('searchKB');
+      }
       break;
     default:
       break;
@@ -455,6 +469,45 @@ function prepareAgentContext(
     signal: controller.signal,
   };
   const skills: CoreSkill[] = loadSkills();
+
+  // HyDE 向量生成器：LLM 生成假设性文档 → embedding → 返回向量
+  const generateHydeVector = async (query: string): Promise<number[] | null> => {
+    try {
+      const encConfig = getEmbeddingConfig(userId);
+      if (!encConfig || !encConfig.apiKeyEnc) return null;
+      const embApiKey = decryptApiKey(encConfig.apiKeyEnc);
+      if (!embApiKey) return null;
+
+      // 1. LLM 生成假设性文档
+      let hypotheticalAnswer = '';
+      for await (const chunk of streamChatCompletionWithRetry({
+        messages: [
+          { role: 'system', content: '你是一个知识库检索助手。根据用户的问题，写一段可能包含答案的文档片段（100-200字）。直接输出文档内容，不要加任何前缀或解释。' },
+          { role: 'user', content: query },
+        ],
+        model,
+        baseUrl,
+        apiKey: apiKey ?? '',
+        signal: controller.signal,
+      })) {
+        if (chunk.delta) hypotheticalAnswer += chunk.delta;
+      }
+      hypotheticalAnswer = hypotheticalAnswer.trim();
+      if (!hypotheticalAnswer || hypotheticalAnswer.length < 10) return null;
+
+      // 2. Embedding 假设性文档
+      const embRes = await createEmbedding({
+        baseUrl: encConfig.baseUrl,
+        model: encConfig.model,
+        apiKey: embApiKey,
+        input: hypotheticalAnswer,
+      });
+      return embRes.embeddings[0] ?? null;
+    } catch {
+      return null;
+    }
+  };
+
   const toolCtx: ToolCtx = {
     userId,
     searchKb: deps.searchKb,
@@ -464,6 +517,7 @@ function prepareAgentContext(
     db: deps.db,
     currentConversationId: payload.conversationId,
     fileTreePaths: payload.fileTreePaths,
+    generateHydeVector,
   };
 
   // KB 检索外发授权
@@ -555,7 +609,7 @@ function prepareAgentContext(
         '- 创建文件 → 必须调 createFile，不要在聊天中输出内容。',
         '- 修改文件 → editBlocks（当前文档）/ preview_file_revision（任意文件）。',
         '- 本地文件 → readLocalFile/editLocalFile/listLocalDirectory，返回绝对路径后续直接使用。',
-        '- 检索 → searchKB：首次宽泛关键词，后续换不同角度，避免重复相同查询。信息不足时如实说明。',
+        '- 检索 → searchKB：当用户问题可能与笔记/文档相关时，主动检索知识库。首次用宽泛关键词，后续换不同角度，最多 2-3 次。信息不足时如实说明。传 hyde:true 可启用假设性文档检索（适合语义复杂的查询）。',
         '- 提问 → ask_question_card（支持文本/选择/确认），暂停等待回答。',
         '',
         '## 写入规则',
