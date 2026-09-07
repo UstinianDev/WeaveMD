@@ -31,6 +31,7 @@ import { handleReadLocalFile } from './tools/readLocalFile';
 import { handleListLocalDirectory } from './tools/listLocalDirectory';
 import { handleEditLocalFile } from './tools/editLocalFileHandler';
 import { executePreviewFileRevision, previewFileRevisionSchema } from './tools/previewFileRevision';
+import { handleListSkills, handleGetSkillDetails } from './tools/skillToolsHandler';
 
 // Schema 导入（defineCoreTools 需要）
 import { askQuestionCardSchema } from './tools/askQuestionCard';
@@ -67,6 +68,8 @@ const handlerMap = new Map<string, ToolHandler>([
   ['listLocalDirectory', handleListLocalDirectory],
   ['editLocalFile', handleEditLocalFile],
   ['preview_file_revision', executePreviewFileRevision],
+  ['list_skills', handleListSkills],
+  ['get_skill_details', handleGetSkillDetails],
 ]);
 
 // ---------------------------------------------------------------------------
@@ -253,6 +256,28 @@ const CORE_TOOLS: ToolDef[] = [
           new_content: { type: 'string', description: '文件的新完整内容' },
         },
         required: ['file_path', 'new_content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_skills',
+      description: '列出所有可用技能（名称、描述、启用状态）。',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_skill_details',
+      description: '查看指定技能的详细信息。',
+      parameters: {
+        type: 'object',
+        properties: {
+          skill_name: { type: 'string', description: '技能名称' },
+        },
+        required: ['skill_name'],
       },
     },
   },

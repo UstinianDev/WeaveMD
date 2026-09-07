@@ -28,6 +28,8 @@ export interface KbSearchOptions {
   threshold?: number;
   /** 查询向量（可选，由 embeddingClient 生成，用于向量余弦搜索）。 */
   queryVector?: number[];
+  /** 搜索模式：fts5（纯关键词）/ vector（纯向量）/ hybrid（混合，默认）。 */
+  searchMode?: 'fts5' | 'vector' | 'hybrid';
   // R2: RRF 融合参数
   rrfK?: number;
   candidateMultiplier?: number;
@@ -740,41 +742,44 @@ export async function searchKB(
 
   const db = getDatabase();
   const candidateLimit = Math.max(1, topK * candidateMultiplier);
+  const searchMode = opts.searchMode ?? 'hybrid';
 
-  // ---- 三路并行召回 ----
+  // ---- 条件召回（按 searchMode 选择路径） ----
 
-  // 路径 1: FTS5 BM25 召回
-  const ftsRows = db
-    .prepare(
-      `SELECT c.id AS chunkId, c.document_id AS documentId, c.content, c.seq,
-              c.source_ref AS sourceRef, c.heading_path AS headingPath,
-              d.title AS fileName, d.pinned,
-              bm25(kb_chunks_fts) AS bm
-         FROM kb_chunks_fts
-         JOIN kb_chunks c ON c.rowid = kb_chunks_fts.rowid
-         JOIN kb_documents d ON d.id = c.document_id
-        WHERE kb_chunks_fts MATCH ? AND d.user_id = ?
-        ORDER BY bm LIMIT ?`
-    )
-    .all(cleaned, userId, candidateLimit) as Array<{
-    chunkId: string;
-    documentId: string;
-    content: string;
-    seq: number;
-    sourceRef: string | null;
-    headingPath: string | null;
-    fileName: string;
-    pinned: number;
-    bm: number;
-  }>;
+  // 路径 1: FTS5 BM25 召回（fts5 和 hybrid 模式）
+  const ftsRows = (searchMode === 'fts5' || searchMode === 'hybrid')
+    ? db
+        .prepare(
+          `SELECT c.id AS chunkId, c.document_id AS documentId, c.content, c.seq,
+                  c.source_ref AS sourceRef, c.heading_path AS headingPath,
+                  d.title AS fileName, d.pinned,
+                  bm25(kb_chunks_fts) AS bm
+             FROM kb_chunks_fts
+             JOIN kb_chunks c ON c.rowid = kb_chunks_fts.rowid
+             JOIN kb_documents d ON d.id = c.document_id
+            WHERE kb_chunks_fts MATCH ? AND d.user_id = ?
+            ORDER BY bm LIMIT ?`
+        )
+        .all(cleaned, userId, candidateLimit) as Array<{
+        chunkId: string;
+        documentId: string;
+        content: string;
+        seq: number;
+        sourceRef: string | null;
+        headingPath: string | null;
+        fileName: string;
+        pinned: number;
+        bm: number;
+      }>
+    : [];
 
-  // 路径 2: 向量搜索（可选），候选 = topK × candidateMultiplier
+  // 路径 2: 向量搜索（vector 和 hybrid 模式，且 queryVector 存在）
   const vecLimit = topK * candidateMultiplier;
-  const vecScores = opts.queryVector
+  const vecScores = (searchMode === 'vector' || searchMode === 'hybrid') && opts.queryVector
     ? vectorSearch(db, userId, opts.queryVector, vecLimit, vecScoreThreshold)
     : new Map<string, number>();
 
-  // 路径 3: 标题匹配
+  // 路径 3: 标题匹配（所有模式）
   const titleScores = titleMatchSearch(db, userId, cleaned, candidateLimit);
 
   // ---- R5: 扩展查询合并 ----

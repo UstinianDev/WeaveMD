@@ -1,6 +1,6 @@
 # AI Agent 优化 — 实施状态
 
-> 更新时间：2026-09-06
+> 更新时间：2026-09-07
 
 ## 已完成项
 
@@ -38,22 +38,39 @@
 | 18 | 知识库搜索缓存 | ✅ 已有 | `kbSearch.ts`（3min TTL，100 条上限） |
 | 19 | 优化自动滚动 | ✅ | `AgentTab.tsx`（isAtBottomRef + onScroll） |
 | 20 | 批量 IPC 传输 | ✅ | `agentLoop.ts`（100ms chunk 合并） |
+| 21 | 异步预加载知识库 | ✅ | `agentLoop.ts`（createPreloadedSearchKb） |
+| 22 | StatusBar 移除 isDirty | ✅ | `StatusBar.tsx`（仅保留文件名） |
+| 23 | Notus 预览类工具 | ✅ 已有 | preview_file_revision + preview_patch_files + agentLoop 预览机制 |
+| 24 | Embedding 架构设计 | ✅ | `docs/plan/embedding-architecture.md` |
+| 25 | 索引流程兼容性设计 | ✅ | `docs/plan/indexing-compatibility.md` |
+| 26 | list_skills/get_skill_details | ✅ | `skillToolsHandler.ts` + `toolRegistry.ts` |
+| 27 | searchMode 搜索模式切换 | ✅ | `kb.ts` + `embeddingConfig.ts` + `kbSearch.ts` + `db/index.ts` |
+| 28 | Web Worker JSON.parse | ✅ | `jsonParser.worker.ts` + `useJsonParserWorker.ts` + `AgentWorkflowCard.tsx` |
 
 ## 修改文件清单
 
 | 文件 | 修改类型 |
 |------|----------|
 | `src/main/ai/llm/llmClient.ts` | onRetry 回调 |
-| `src/main/ai/agent/agentLoop.ts` | Bug 修复 + 提示词 + 轮次 + 动态压缩 + 进度 + 预览 + IPC 批量 |
-| `src/main/ai/knowledge/kbSearch.ts` | 重排条件优化 |
-| `src/main/ai/toolRegistry.ts` | Schema 压缩 + preview 参数 |
+| `src/main/ai/agent/agentLoop.ts` | Bug 修复 + 提示词 + 轮次 + 动态压缩 + 进度 + 预览 + IPC 批量 + KB 预加载 |
+| `src/main/ai/knowledge/kbSearch.ts` | 重排条件优化 + searchMode 切换 |
+| `src/main/ai/toolRegistry.ts` | Schema 压缩 + preview 参数 + skill 工具注册 |
 | `src/main/ai/tools/editBlocksHandler.ts` | preview 参数 + diff 生成 |
+| `src/main/ai/tools/skillToolsHandler.ts` | 新文件：list_skills/get_skill_details handler |
+| `src/main/db/embeddingConfig.ts` | searchMode 字段 |
+| `src/shared/ai/kb.ts` | IEmbeddingProviderConfig.searchMode |
 | `src/render/components/Navbar/TopBar.tsx` | 保存按钮 + Ctrl+S |
 | `src/render/components/Editor/panels/FileTreePanel.tsx` | 切换确认对话框 |
 | `src/render/components/Common/ConfirmDialog.tsx` | 新组件 |
+| `src/render/components/Common/StatusBar.tsx` | 移除 isDirty 指示器 |
 | `src/render/components/AIAgent/AgentTab.tsx` | 滚动优化 |
+| `src/render/components/AIAgent/cards/AgentWorkflowCard.tsx` | Web Worker JSON.parse |
+| `src/render/workers/jsonParser.worker.ts` | 新文件：JSON 解析 Worker |
+| `src/render/workers/useJsonParserWorker.ts` | 新文件：Worker Hook |
 | `src/render/App.tsx` | beforeunload |
 | `src/render/pages/MainPage.tsx` | 移除 auto-save |
+| `docs/plan/embedding-architecture.md` | 新文件：Embedding 架构设计 |
+| `docs/plan/indexing-compatibility.md` | 新文件：索引流程兼容性设计 |
 | `tests/main/ai/agentLoop.test.ts` | 更新期望值 |
 | `tests/main/ai/toolRegistry.test.ts` | 更新 editBlocks 测试 |
 | `tests/components/TopBar.test.tsx` | 更新快捷键测试 |
@@ -61,19 +78,15 @@
 
 ## 测试证据
 
-- TypeScript: 0 error（源码）
-- ESLint: 0 error（新增），1 pre-existing（db/index.ts）
+- TypeScript: 0 error（源码），3 pre-existing（ipc.test.ts）
 - Vitest: 1530/1530 passed，1 pre-existing failure（ipc.test.ts）
 
 ## 未完成项
 
 | # | 任务 | 优先级 | 说明 |
 |---|------|--------|------|
-| 1 | Web Worker JSON.parse | P3 | 需新建 worker 文件，收益低 |
-| 2 | 借鉴 Notus Skill 管理 | P2 | 需新增 list_skills/get_skill_details 工具 |
-| 3 | Agentic RAG | P4 | 高复杂度，需独立规划 |
-| 4 | HyDE | P4 | 高复杂度，需独立规划 |
-| 5 | Embedding 架构设计 | P2 | 纯设计文档，无代码变更 |
+| 1 | Agentic RAG | P4 | 高复杂度，推后独立规划 |
+| 2 | HyDE | P4 | 高复杂度，推后独立规划 |
 
 ## 风险
 

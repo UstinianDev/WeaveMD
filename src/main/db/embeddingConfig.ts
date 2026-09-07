@@ -12,6 +12,7 @@ export interface EmbeddingConfigRow {
   model: string;
   apiKeyEnc: string | null;
   multimodal: boolean;
+  searchMode: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -23,6 +24,7 @@ interface EmbeddingConfigDbRow {
   model: string;
   api_key_enc: string | null;
   multimodal: number;
+  search_mode: string;
   created_at: string;
   updated_at: string;
 }
@@ -35,6 +37,7 @@ function mapRow(row: EmbeddingConfigDbRow): EmbeddingConfigRow {
     model: row.model || '',
     apiKeyEnc: row.api_key_enc,
     multimodal: !!row.multimodal,
+    searchMode: row.search_mode || 'hybrid',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -55,6 +58,7 @@ export function upsertEmbeddingConfig(
     model?: string;
     apiKeyEnc?: string | null;
     multimodal?: boolean;
+    searchMode?: string;
   }
 ): EmbeddingConfigRow {
   const db = getDatabase();
@@ -63,7 +67,7 @@ export function upsertEmbeddingConfig(
   if (existing) {
     db.prepare(
       `UPDATE ai_embedding_config SET
-         base_url = ?, model = ?, api_key_enc = ?, multimodal = ?,
+         base_url = ?, model = ?, api_key_enc = ?, multimodal = ?, search_mode = ?,
          updated_at = datetime('now')
        WHERE user_id = ?`
     ).run(
@@ -71,14 +75,15 @@ export function upsertEmbeddingConfig(
       data.model ?? existing.model,
       data.apiKeyEnc !== undefined ? data.apiKeyEnc : existing.apiKeyEnc,
       data.multimodal !== undefined ? (data.multimodal ? 1 : 0) : (existing.multimodal ? 1 : 0),
+      data.searchMode ?? existing.searchMode,
       userId
     );
   } else {
     const id = randomUUID();
     const now = new Date().toISOString().replace('T', ' ').replace('Z', '');
     db.prepare(
-      `INSERT INTO ai_embedding_config (id, user_id, base_url, model, api_key_enc, multimodal, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO ai_embedding_config (id, user_id, base_url, model, api_key_enc, multimodal, search_mode, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       userId,
@@ -86,6 +91,7 @@ export function upsertEmbeddingConfig(
       data.model ?? 'text-embedding-v3',
       data.apiKeyEnc ?? null,
       data.multimodal ? 1 : 0,
+      data.searchMode ?? 'hybrid',
       now,
       now
     );

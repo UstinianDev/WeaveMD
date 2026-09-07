@@ -101,6 +101,7 @@ const READ_ONLY_TOOLS = new Set([
   'analyze_folder', 'check_links', 'get_task_activity', 'web_search',
   'editBlocks',
   'research_search',
+  'list_skills', 'get_skill_details',
 ]);
 
 /** 文档上下文注入：估算 >5000 tokens（约 2 万字符）时截断到 20000 字符 + 尾部标记。 */
@@ -115,6 +116,56 @@ const CHANNEL_TO_EVENT_TYPE: Record<string, string> = {
   [IPC_CHANNELS.AI_STREAM_DONE]: 'done',
   [IPC_CHANNELS.AI_STREAM_ERROR]: 'error',
 };
+
+// ---------------------------------------------------------------------------
+// 异步预加载知识库（KB preload cache）
+// ---------------------------------------------------------------------------
+
+/** 预加载缓存 TTL（30 秒）：首轮 searchKB 命中即清，过期自动失效。 */
+const KB_PRELOAD_TTL_MS = 30_000;
+
+interface KBCacheEntry {
+  query: string;
+  result: Awaited<ReturnType<SearchKbFn>>;
+  timestamp: number;
+}
+
+/**
+ * 创建带预加载缓存的 searchKb 包装函数。
+ * 在 agentLoop 启动时异步预检索用户消息关键词，首轮 searchKB 命中时直接返回缓存。
+ */
+function createPreloadedSearchKb(
+  original: SearchKbFn,
+  userId: string,
+  message: string
+): { searchKb: SearchKbFn; preloadPromise: Promise<void> } {
+  // 提取预加载查询：取用户消息前 100 字符（避免过长查询影响 FTS5 分词）
+  const preloadQuery = message.slice(0, 100).trim();
+  const cache = new Map<string, KBCacheEntry>();
+
+  // 异步预加载（fire-and-forget，不阻塞主流程）
+  const preloadPromise = (async () => {
+    if (!preloadQuery || preloadQuery.length < 2) return;
+    try {
+      const result = await original(userId, preloadQuery, { topK: 5 });
+      cache.set(preloadQuery, { query: preloadQuery, result, timestamp: Date.now() });
+    } catch {
+      // 预加载失败静默忽略
+    }
+  })();
+
+  const searchKb: SearchKbFn = async (uid, query, opts) => {
+    // 缓存命中检查（仅精确匹配 + 未过期）
+    const cached = cache.get(query);
+    if (cached && Date.now() - cached.timestamp < KB_PRELOAD_TTL_MS) {
+      cache.delete(query); // 一次性消费
+      return cached.result;
+    }
+    return original(uid, query, opts);
+  };
+
+  return { searchKb, preloadPromise };
+}
 
 // ---------------------------------------------------------------------------
 // 纯函数 / 辅助函数
@@ -848,6 +899,16 @@ export async function runAgentFlow(
 ): Promise<AgentRunResult> {
   // 阶段 1：准备上下文（consent + 校验 + 消息组装 + 工具选择）
   const ctx = prepareAgentContext(event, payload, config, apiKeyEnc, controller, deps);
+
+  // 异步预加载知识库：在 LLM 首轮思考期间后台预检索，首轮 searchKB 命中时跳过网络延迟
+  if (deps.searchKb && payload.useKnowledgeBase) {
+    const { searchKb: cachedSearchKb } = createPreloadedSearchKb(
+      deps.searchKb,
+      ctx.userId,
+      payload.message
+    );
+    ctx.toolCtx.searchKb = cachedSearchKb;
+  }
 
   try {
     for (let round = 0; ; round += 1) {

@@ -345,6 +345,7 @@ function addEmbeddingConfigTable(database: Database.Database): void {
       model           TEXT NOT NULL DEFAULT 'text-embedding-v3',
       api_key_enc     TEXT DEFAULT NULL,
       multimodal      INTEGER DEFAULT 0,
+      search_mode     TEXT DEFAULT 'hybrid',
       created_at      TEXT DEFAULT (datetime('now')),
       updated_at      TEXT DEFAULT (datetime('now'))
     );
@@ -353,6 +354,7 @@ function addEmbeddingConfigTable(database: Database.Database): void {
   addColumnIfMissing(database, 'ai_embedding_config', 'model', "model TEXT NOT NULL DEFAULT 'text-embedding-v3'");
   addColumnIfMissing(database, 'ai_embedding_config', 'api_key_enc', 'api_key_enc TEXT DEFAULT NULL');
   addColumnIfMissing(database, 'ai_embedding_config', 'multimodal', 'multimodal INTEGER DEFAULT 0');
+  addColumnIfMissing(database, 'ai_embedding_config', 'search_mode', "search_mode TEXT DEFAULT 'hybrid'");
   addColumnIfMissing(database, 'ai_embedding_config', 'created_at', "created_at TEXT DEFAULT (datetime('now'))");
   addColumnIfMissing(database, 'ai_embedding_config', 'updated_at', "updated_at TEXT DEFAULT (datetime('now'))");
 }

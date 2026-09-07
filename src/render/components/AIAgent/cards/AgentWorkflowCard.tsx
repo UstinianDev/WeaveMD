@@ -6,9 +6,10 @@
 // 每个模块显示：工具图标+名称、关键参数、执行结果的结构化摘要。
 // 模块间有明显的视觉分界（边框 + 左侧色条）。
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import type { IAgentToolCall } from '@shared/ai';
 import Icon from '../../Common/Icon';
+import { useJsonParserWorker } from '../../../workers/useJsonParserWorker';
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -90,11 +91,11 @@ function getStepColor(roundIndex: number) {
 }
 
 // ---------------------------------------------------------------------------
-// 工具摘要提取
+// 工具摘要提取（同步 fallback）
 // ---------------------------------------------------------------------------
 
-/** 从 args JSON 中提取关键参数的摘要。工具名与 toolRegistry 注册名一致（camelCase / 混合）。 */
-function extractToolSummary(call: IAgentToolCall): string {
+/** 从 args JSON 中提取关键参数的摘要（同步版本，Worker 不可用时使用）。 */
+function extractToolSummarySync(call: IAgentToolCall): string {
   const { name, args } = call;
 
   try {
@@ -207,8 +208,8 @@ function extractToolSummary(call: IAgentToolCall): string {
   }
 }
 
-/** 从 result 中提取结果摘要。 */
-function extractResultSummary(call: IAgentToolCall): string | null {
+/** 从 result 中提取结果摘要（同步版本，Worker 不可用时使用）。 */
+function extractResultSummarySync(call: IAgentToolCall): string | null {
   if (call.status === 'error') {
     const err = call.errorDesc ?? call.result ?? '';
     return err.length > 80 ? `${err.slice(0, 80)}…` : err || '执行失败';
@@ -243,6 +244,129 @@ function extractResultSummary(call: IAgentToolCall): string | null {
   }
 
   return null;
+}
+
+/** 异步版本：使用 parseJson（Web Worker）解析 args。 */
+async function extractToolSummaryAsync(
+  call: IAgentToolCall,
+  parseJson: (json: string) => Promise<unknown>
+): Promise<string> {
+  const { name, args } = call;
+  try {
+    const parsed = (args ? await parseJson(args) : {}) as Record<string, unknown>;
+    return extractSummaryFromParsed(name, parsed);
+  } catch {
+    if (args && args.length > 0) {
+      return args.length > 50 ? `${args.slice(0, 50)}…` : args;
+    }
+    return name;
+  }
+}
+
+/** 异步版本：使用 parseJson（Web Worker）解析 result。 */
+async function extractResultSummaryAsync(
+  call: IAgentToolCall,
+  parseJson: (json: string) => Promise<unknown>
+): Promise<string | null> {
+  if (call.status === 'error') {
+    const err = call.errorDesc ?? call.result ?? '';
+    return err.length > 80 ? `${err.slice(0, 80)}…` : err || '执行失败';
+  }
+  const result = call.result;
+  if (!result) return null;
+  try {
+    const parsed = (await parseJson(result)) as Record<string, unknown>;
+    if (Array.isArray(parsed.results)) return `找到 ${parsed.results.length} 条结果`;
+    if (Array.isArray(parsed.files)) return `${parsed.files.length} 个文件`;
+    if (parsed.skill_name || parsed.name) return `已加载: ${String(parsed.skill_name ?? parsed.name)}`;
+    if (typeof parsed.summary === 'string') return (parsed.summary as string).slice(0, 80);
+  } catch {
+    return result.length > 80 ? `${result.slice(0, 80)}…` : result;
+  }
+  return null;
+}
+
+/** 从已解析的对象中提取摘要（sync/async 共用逻辑）。 */
+function extractSummaryFromParsed(name: string, parsed: Record<string, unknown>): string {
+  switch (name) {
+    case 'searchKB':
+      return `查询: "${String(parsed.query ?? '').slice(0, 60)}"`;
+    case 'readFile': {
+      const fileId = String(parsed.file_id ?? '');
+      return fileId ? `读取: ${fileId.slice(0, 20)}` : '读取文件';
+    }
+    case 'readLocalFile': {
+      const path = String(parsed.path ?? parsed.file_path ?? '');
+      const shortPath = path.split('/').pop() ?? path;
+      return shortPath || '读取本地文件';
+    }
+    case 'listFiles':
+      return '列出文件';
+    case 'listLocalDirectory': {
+      const dir = String(parsed.path ?? parsed.dir_path ?? '');
+      return dir ? `目录: ${dir}` : '浏览目录';
+    }
+    case 'analyze_folder': {
+      const dir = String(parsed.path ?? parsed.dir_path ?? '');
+      return dir ? `分析: ${dir}` : '分析目录';
+    }
+    case 'createFile':
+      return String(parsed.file_name ?? parsed.name ?? '创建文件');
+    case 'createFolder':
+      return String(parsed.folder_name ?? parsed.name ?? '创建文件夹');
+    case 'renameFile':
+      return String(parsed.new_name ?? parsed.name ?? '重命名');
+    case 'moveFile':
+      return String(parsed.target_path ?? parsed.path ?? '移动文件');
+    case 'deleteFile':
+      return String(parsed.file_id ?? parsed.name ?? '删除文件');
+    case 'editLocalFile': {
+      const editPath = String(parsed.file_path ?? '');
+      const shortEditName = editPath.split('/').pop() ?? editPath;
+      return shortEditName ? `编辑: ${shortEditName}` : '编辑本地文件';
+    }
+    case 'editBlocks': {
+      const ops = parsed.block_ops;
+      if (Array.isArray(ops)) return `改写 ${ops.length} 个块`;
+      return '块级改写';
+    }
+    case 'preview_file_revision': {
+      const filePath = String(parsed.file_path ?? parsed.path ?? '');
+      const shortName = filePath.split('/').pop() ?? filePath;
+      return shortName ? `修订: ${shortName}` : '文件修订';
+    }
+    case 'preview_patch_files': {
+      const filePath = String(parsed.file_path ?? parsed.path ?? '');
+      const shortName = filePath.split('/').pop() ?? filePath;
+      return shortName ? `补丁: ${shortName}` : '文件补丁';
+    }
+    case 'runSkill':
+      return String(parsed.skill ?? parsed.name ?? '调用技能');
+    case 'ask_question_card': {
+      const questions = parsed.questions;
+      if (Array.isArray(questions)) return `生成 ${questions.length} 个提问`;
+      return '生成提问卡片';
+    }
+    case 'web_search':
+      return `搜索: "${String(parsed.query ?? '').slice(0, 40)}"`;
+    case 'research_search':
+      return `研究: "${String(parsed.query ?? '').slice(0, 40)}"`;
+    case 'check_links':
+      return '检查内部链接';
+    case 'get_task_activity':
+      return '读取任务活动';
+    case 'list_skills':
+      return '列出技能';
+    case 'get_skill_details':
+      return String(parsed.skill_name ?? '查看技能');
+    default: {
+      const firstStr = Object.values(parsed).find((v) => typeof v === 'string' && v.length > 0);
+      if (firstStr && typeof firstStr === 'string') {
+        return firstStr.length > 50 ? `${firstStr.slice(0, 50)}…` : firstStr;
+      }
+      return name;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -293,14 +417,32 @@ function formatDuration(ms: number): string {
 
 interface ToolCallRowProps {
   call: IAgentToolCall;
+  parseJson: (json: string) => Promise<unknown>;
 }
 
-const ToolCallRow: React.FC<ToolCallRowProps> = React.memo(({ call }) => {
+const ToolCallRow: React.FC<ToolCallRowProps> = React.memo(({ call, parseJson }) => {
   const isError = call.status === 'error';
   const icon = getToolIcon(call.name);
-  // 6c: extractToolSummary/extractResultSummary 用 useMemo
-  const summary = useMemo(() => extractToolSummary(call), [call]);
-  const resultSummary = useMemo(() => extractResultSummary(call), [call]);
+
+  // 异步解析 args/result（Worker 可用时走 Worker，否则同步 fallback）
+  const [summary, setSummary] = useState<string>(() => call.name);
+  const [resultSummary, setResultSummary] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    // 先用同步 fallback 立即显示，再异步更新
+    setSummary(extractToolSummarySync(call));
+    setResultSummary(extractResultSummarySync(call));
+
+    extractToolSummaryAsync(call, parseJson).then((s) => {
+      if (!cancelled) setSummary(s);
+    });
+    extractResultSummaryAsync(call, parseJson).then((r) => {
+      if (!cancelled) setResultSummary(r);
+    });
+
+    return () => { cancelled = true; };
+  }, [call, parseJson]);
 
   return (
     <div className="flex items-start gap-2.5 py-1.5">
@@ -355,9 +497,10 @@ interface StepCardProps {
   step: GroupedStep;
   expanded: boolean;
   onToggle: () => void;
+  parseJson: (json: string) => Promise<unknown>;
 }
 
-const StepCard: React.FC<StepCardProps> = React.memo(({ step, expanded, onToggle }) => {
+const StepCard: React.FC<StepCardProps> = React.memo(({ step, expanded, onToggle, parseJson }) => {
   const firstCall = step.calls[0];
   const hasError = step.calls.some((c) => c.status === 'error');
 
@@ -367,8 +510,8 @@ const StepCard: React.FC<StepCardProps> = React.memo(({ step, expanded, onToggle
       ? firstCall.name
       : `${firstCall.name} +${step.calls.length - 1}`;
 
-  // 主摘要
-  const mainSummary = extractToolSummary(firstCall);
+  // 主摘要（同步 fallback，折叠时显示）
+  const mainSummary = extractToolSummarySync(firstCall);
 
   // 每步不同色
   const color = getStepColor(step.roundIndex);
@@ -438,7 +581,7 @@ const StepCard: React.FC<StepCardProps> = React.memo(({ step, expanded, onToggle
       >
         <div className="px-3 pb-2.5 pt-1 border-t border-border/30 space-y-1">
           {step.calls.map((call) => (
-            <ToolCallRow key={call.toolCallId} call={call} />
+            <ToolCallRow key={call.toolCallId} call={call} parseJson={parseJson} />
           ))}
         </div>
       </div>
@@ -452,6 +595,9 @@ StepCard.displayName = 'StepCard';
 // ---------------------------------------------------------------------------
 
 const AgentWorkflowCard: React.FC<AgentWorkflowCardProps> = React.memo(({ toolCalls, duration }) => {
+  // Web Worker JSON 解析
+  const { parseJson } = useJsonParserWorker();
+
   // 整体折叠状态
   const [allCollapsed, setAllCollapsed] = useState(false);
 
@@ -563,6 +709,7 @@ const AgentWorkflowCard: React.FC<AgentWorkflowCardProps> = React.memo(({ toolCa
             step={step}
             expanded={expandedSteps.has(step.roundIndex)}
             onToggle={() => toggleStep(step.roundIndex)}
+            parseJson={parseJson}
           />
         ))}
       </div>

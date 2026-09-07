@@ -8,7 +8,6 @@ import { useEditorStore } from '@render/stores/editorStore';
 const StatusBar: React.FC = () => {
   const currentFile = useEditorStore((s) => s.currentFile);
   const content = useEditorStore((s) => s.content);
-  const isDirty = useEditorStore((s) => s.isDirty);
 
   const counts = useMemo(
     () => ({
@@ -30,15 +29,7 @@ const StatusBar: React.FC = () => {
     >
       <div className="flex items-center gap-3 text-xs">
         {currentFile ? (
-          <>
-            <span>{currentFile.name}</span>
-            <span className="flex items-center gap-1">
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${isDirty ? 'bg-yellow-500' : 'bg-green-500'}`}
-              />
-              {isDirty ? 'Unsaved' : 'Saved'}
-            </span>
-          </>
+          <span>{currentFile.name}</span>
         ) : (
           <span>No file open</span>
         )}

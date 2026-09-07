@@ -7,6 +7,9 @@
 /** Embedding 提供商类型。 */
 export type EmbeddingProviderType = 'openai' | 'qwen' | 'doubao' | 'zhipu' | 'custom';
 
+/** 搜索模式：FTS5-only / Vector-only / Hybrid（默认）。 */
+export type SearchMode = 'fts5' | 'vector' | 'hybrid';
+
 /** Embedding 提供商配置。 */
 export interface IEmbeddingProviderConfig {
   provider: EmbeddingProviderType;
@@ -19,15 +22,17 @@ export interface IEmbeddingProviderConfig {
   /** 多模态模型（图片 embedding）。 */
   multimodal?: boolean;
   multimodalModel?: string;
+  /** 搜索模式：fts5（纯关键词）/ vector（纯向量）/ hybrid（混合，默认）。 */
+  searchMode?: SearchMode;
 }
 
 /** Embedding 提供商默认配置。 */
 export const EMBEDDING_PROVIDER_DEFAULTS: Record<EmbeddingProviderType, Partial<IEmbeddingProviderConfig>> = {
-  openai: { baseUrl: 'https://api.openai.com', model: 'text-embedding-3-small', dimension: 1536, batchSize: 20 },
-  qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'text-embedding-v3', dimension: 1024, batchSize: 10 },
-  doubao: { baseUrl: 'https://ark.cn-beijing.volces.com', model: 'doubao-embedding', dimension: 2048, batchSize: 20 },
-  zhipu: { baseUrl: 'https://open.bigmodel.cn', model: 'embedding-3', dimension: 2048, batchSize: 20 },
-  custom: { baseUrl: '', model: '', dimension: 1536, batchSize: 20 },
+  openai: { baseUrl: 'https://api.openai.com', model: 'text-embedding-3-small', dimension: 1536, batchSize: 20, searchMode: 'hybrid' },
+  qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'text-embedding-v3', dimension: 1024, batchSize: 10, searchMode: 'hybrid' },
+  doubao: { baseUrl: 'https://ark.cn-beijing.volces.com', model: 'doubao-embedding', dimension: 2048, batchSize: 20, searchMode: 'hybrid' },
+  zhipu: { baseUrl: 'https://open.bigmodel.cn', model: 'embedding-3', dimension: 2048, batchSize: 20, searchMode: 'hybrid' },
+  custom: { baseUrl: '', model: '', dimension: 1536, batchSize: 20, searchMode: 'hybrid' },
 };
 
 // ---------------------------------------------------------------------------
