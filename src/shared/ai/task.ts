@@ -75,7 +75,7 @@ export interface AgentRunEvent {
   sessionId: string;
   conversationId: string;
   seq: number;
-  eventType: 'chunk' | 'tool' | 'done' | 'error' | 'checkpoint' | 'state_change';
+  eventType: 'chunk' | 'tool' | 'done' | 'error' | 'checkpoint' | 'state_change' | 'interaction';
   payloadJson: string;
   createdAt: string;
 }

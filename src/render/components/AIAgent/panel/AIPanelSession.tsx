@@ -12,6 +12,7 @@ import { useI18n } from '@render/i18n';
 import { useAgentStore } from '@render/stores/agentStore';
 import AgentTab from '../AgentTab';
 import AIPanelComposer from './AIPanelComposer';
+import QuestionCard from '../cards/QuestionCard';
 import Icon from '../../Common/Icon';
 
 interface AIPanelSessionProps {
@@ -34,6 +35,7 @@ const AIPanelSession: React.FC<AIPanelSessionProps> = ({ draft, setDraft, onSend
   const toolCalls = useAgentStore((s) => s.toolCalls);
   const rollbackSnapshot = useAgentStore((s) => s.rollbackSnapshot);
   const pendingInteraction = useAgentStore((s) => s.pendingInteraction);
+  const resumeInteraction = useAgentStore((s) => s.resumeInteraction);
 
   const isAgentMode = activeMode === 'agent';
   const title =
@@ -59,7 +61,7 @@ const AIPanelSession: React.FC<AIPanelSessionProps> = ({ draft, setDraft, onSend
   }, [activeConversationId, rollbackSnapshot, t]);
 
   return (
-    <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
+    <div className="relative flex flex-1 flex-col min-h-0 overflow-hidden">
       {/* 当前会话标题行（R14）：标题 + 回滚按钮 + 最右 × 关闭会话 → 回 home */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
         <span className="flex-1 min-w-0 truncate text-[15px] font-semibold text-text-primary" data-testid="session-title">
@@ -107,6 +109,14 @@ const AIPanelSession: React.FC<AIPanelSessionProps> = ({ draft, setDraft, onSend
         onChange={setDraft}
         onSend={onSend}
       />
+
+      {/* R3: 底部滑出提问面板（ask_question_card 暂停时覆盖 composer） */}
+      {isAgentMode && pendingInteraction && (
+        <QuestionCard
+          questions={pendingInteraction.questions}
+          onSubmit={resumeInteraction}
+        />
+      )}
     </div>
   );
 };

@@ -429,5 +429,9 @@
   "update.checkNow": "Check for Updates",
   "update.install": "Restart & Install",
   "update.skip": "Skip This Version",
-  "update.releaseNotes": "What's new"
+  "update.releaseNotes": "What's new",
+  "ai.question.slideTitle": "AI needs more information",
+  "ai.question.slideHint": "Please answer the following questions to continue",
+  "ai.notification.title": "WeaveMD Agent needs your answer",
+  "ai.notification.body": "AI is waiting for your answer — click to continue"
 }

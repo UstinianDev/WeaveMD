@@ -23,7 +23,7 @@ import { AgentTaskQueue } from './agentTaskQueue';
 import { AgentSessionStateMachine } from './agentSession';
 import { runAgentFlow } from './agentLoop';
 import { searchKB } from '../knowledge/kbSearch';
-import { persistAndSend } from './agentEventStore';
+import { persistAndSend, persistOnly } from './agentEventStore';
 import { createSnapshot } from './agentSnapshot';
 import {
   toIAIConfig,
@@ -306,14 +306,20 @@ export class AgentTaskWorker {
               session.transition('waiting_interaction');
             }
             // 推送问题卡片到渲染进程
+            // 注意：交互事件不走 persistAndSend（它会拼接 ai:stream: 前缀导致通道不匹配），
+            // 而是 persistOnly 持久化 + 直接发送到 preload 监听的原始通道名。
             if (mainWindow && !mainWindow.isDestroyed()) {
-              persistAndSend(
-                this.db,
-                mainWindow,
-                sessionId,
-                task.conversationId,
+              const interactionPayload = { sessionId, conversationId: task.conversationId, questions };
+              // 持久化到 DB（供断线重连回放），eventType 用 'interaction'（replayFromSeq 特殊处理）
+              try {
+                persistOnly(this.db, sessionId, task.conversationId, 'interaction', interactionPayload);
+              } catch {
+                /* 持久化失败不阻断主流程 */
+              }
+              // 直接发送到 preload 监听的通道（agent:interaction:question）
+              mainWindow.webContents.send(
                 IPC_CHANNELS.AGENT_INTERACTION_QUESTION,
-                { sessionId, conversationId: task.conversationId, questions },
+                interactionPayload,
               );
             }
           },

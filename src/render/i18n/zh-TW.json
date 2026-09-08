@@ -429,5 +429,9 @@
   "update.checkNow": "檢查更新",
   "update.install": "重啟並安裝",
   "update.skip": "跳過此版本",
-  "update.releaseNotes": "更新內容"
+  "update.releaseNotes": "更新內容",
+  "ai.question.slideTitle": "AI 需要更多資訊",
+  "ai.question.slideHint": "請回答以下問題後繼續",
+  "ai.notification.title": "WeaveMD 智慧體需要您的回答",
+  "ai.notification.body": "AI 正在等待您的回答 — 點擊繼續"
 }

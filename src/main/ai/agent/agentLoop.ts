@@ -273,6 +273,7 @@ function toolsForIntent(
   names.add('readLocalFile');
   names.add('listLocalDirectory');
   names.add('editLocalFile');
+  names.add('deleteLocalFile');
   names.add('analyze_folder');
   names.add('check_links');
   names.add('get_task_activity');
@@ -786,7 +787,7 @@ function handleToolResult(
   ctx.toolCallsHistory.push(toolEvent);
 
   // 预览阶段：写工具执行成功后发送预览通知（渲染侧展示变更摘要）
-  const WRITE_TOOLS = new Set(['createFile', 'createFolder', 'renameFile', 'moveFile', 'deleteFile', 'editLocalFile']);
+  const WRITE_TOOLS = new Set(['createFile', 'createFolder', 'renameFile', 'moveFile', 'deleteFile', 'editLocalFile', 'deleteLocalFile']);
   if (result.status === 'ok' && WRITE_TOOLS.has(tc.name)) {
     ctx.send(IPC_CHANNELS.AI_STREAM_TOOL, {
       conversationId: ctx.convId,

@@ -30,6 +30,7 @@ import { handleResearchSearch } from './tools/researchSearchHandler';
 import { handleReadLocalFile } from './tools/readLocalFile';
 import { handleListLocalDirectory } from './tools/listLocalDirectory';
 import { handleEditLocalFile } from './tools/editLocalFileHandler';
+import { handleDeleteLocalFile, deleteLocalFileSchema } from './tools/deleteLocalFile';
 import { executePreviewFileRevision, previewFileRevisionSchema } from './tools/previewFileRevision';
 import { handleListSkills, handleGetSkillDetails } from './tools/skillToolsHandler';
 
@@ -67,6 +68,7 @@ const handlerMap = new Map<string, ToolHandler>([
   ['readLocalFile', handleReadLocalFile],
   ['listLocalDirectory', handleListLocalDirectory],
   ['editLocalFile', handleEditLocalFile],
+  ['deleteLocalFile', handleDeleteLocalFile],
   ['preview_file_revision', executePreviewFileRevision],
   ['list_skills', handleListSkills],
   ['get_skill_details', handleGetSkillDetails],
@@ -261,6 +263,7 @@ const CORE_TOOLS: ToolDef[] = [
       },
     },
   },
+  deleteLocalFileSchema,
   {
     type: 'function',
     function: {

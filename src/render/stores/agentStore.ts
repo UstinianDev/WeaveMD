@@ -808,16 +808,18 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           isStreaming: false,
           processStatus: 'waiting_input',
         });
-        // 触发系统通知：AI 发送澄清问题时在右下角弹出 Windows 通知
-        const api = window.weaveMD;
-        if (api?.notification?.send) {
-          const firstQuestion = questions[0];
-          const body = firstQuestion
-            ? firstQuestion.text.length > 100
-              ? firstQuestion.text.slice(0, 100) + '...'
-              : firstQuestion.text
-            : '';
-          void api.notification.send('WeaveMD 智能体需要您的回答', body);
+        // 触发系统通知：仅在窗口未聚焦时发送（避免打扰正在看面板的用户）
+        if (!document.hasFocus()) {
+          const api = window.weaveMD;
+          if (api?.notification?.send) {
+            const firstQuestion = questions[0];
+            const body = firstQuestion
+              ? firstQuestion.text.length > 100
+                ? firstQuestion.text.slice(0, 100) + '...'
+                : firstQuestion.text
+              : '';
+            void api.notification.send('WeaveMD 智能体需要您的回答', body);
+          }
         }
       },
       finishAndPersist: appendAssistant,

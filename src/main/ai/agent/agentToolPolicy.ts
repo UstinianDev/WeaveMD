@@ -32,6 +32,7 @@ const DEFAULT_POLICY: ToolPolicy = {
     { toolName: 'renameFile', action: 'allow', description: '重命名文件（需确认）' },
     { toolName: 'moveFile', action: 'allow', description: '移动文件（需确认）' },
     { toolName: 'deleteFile', action: 'allow', description: '删除文件（需确认）' },
+    { toolName: 'deleteLocalFile', action: 'allow', description: '删除本地文件（永久删除，需确认）' },
     // 搜索工具限制调用次数
     { toolName: 'web_search', action: 'limit', maxCalls: 5, description: '联网搜索（限 5 次）' },
     { toolName: 'searchKB', action: 'limit', maxCalls: 10, description: '知识库检索（限 10 次）' },

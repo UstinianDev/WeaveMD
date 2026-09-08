@@ -59,6 +59,35 @@ export function persistAndSend(
   return event;
 }
 
+/**
+ * 仅持久化事件到 DB（不发送 IPC），用于交互事件等需要自定义通道的场景。
+ * 复用 persistAndSend 的 seq 计数器逻辑。
+ */
+export function persistOnly(
+  db: BetterSqlite3Database,
+  sessionId: string,
+  conversationId: string,
+  eventType: string,
+  payload: unknown
+): AgentRunEvent {
+  let seq = seqCounters.get(sessionId);
+  if (seq === undefined) {
+    seq = eventDao.getLatestSeq(db, sessionId);
+  }
+  const nextSeq = seq + 1;
+  seqCounters.set(sessionId, nextSeq);
+  const payloadJson = JSON.stringify(payload);
+
+  return eventDao.insertEvent(
+    db,
+    sessionId,
+    conversationId,
+    nextSeq,
+    eventType,
+    payloadJson
+  );
+}
+
 // ---------------------------------------------------------------------------
 // replayFromSeq — 回放指定序列号之后的事件（断线重连）
 // ---------------------------------------------------------------------------
@@ -73,7 +102,12 @@ export function replayFromSeq(
 
   for (const event of events) {
     const parsed = JSON.parse(event.payloadJson);
-    mainWindow.webContents.send(`ai:stream:${event.eventType}`, {
+    // interaction 事件发送到 preload 监听的原始通道（agent:interaction:question），
+    // 其他事件走 ai:stream:${eventType} 管道。
+    const channel = event.eventType === 'interaction'
+      ? 'agent:interaction:question'
+      : `ai:stream:${event.eventType}`;
+    mainWindow.webContents.send(channel, {
       sessionId,
       conversationId: event.conversationId,
       seq: event.seq,

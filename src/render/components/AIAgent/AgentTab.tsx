@@ -16,7 +16,6 @@ import EditBlocksPreviewCard from './cards/EditBlocksPreviewCard';
 import PatchPreviewCard from './cards/PatchPreviewCard';
 import IntentCard from './cards/IntentCard';
 import RewritePreviewCard from './cards/RewritePreviewCard';
-import QuestionCard from './cards/QuestionCard';
 
 /** 默认显示的最近消息数量 */
 const DEFAULT_VISIBLE_MESSAGES = 30;
@@ -134,9 +133,9 @@ const AgentTab: React.FC = () => {
   const intentCard = useAgentStore((s) => s.intentCard);
   const processStatus = useAgentStore((s) => s.processStatus);
   const sendAgentMessage = useAgentStore((s) => s.sendAgentMessage);
-  // R3: 交互提问状态
+  // R3: 交互状态（用于交互结束后自动滚动到底部）
   const pendingInteraction = useAgentStore((s) => s.pendingInteraction);
-  const resumeInteraction = useAgentStore((s) => s.resumeInteraction);
+  const prevPendingRef = useRef(pendingInteraction);
   // preview_patch_files 补丁提案
   const patchProposals = useAgentStore((s) => s.patchProposals);
   const applyPatchProposal = useAgentStore((s) => s.applyPatchProposal);
@@ -190,6 +189,21 @@ const AgentTab: React.FC = () => {
 
   const isAgentMode = activeMode === 'agent';
 
+  // R3: 交互结束（pendingInteraction 从非 null 变为 null）时自动滚动到底部
+  useEffect(() => {
+    if (!pendingInteraction && prevPendingRef.current) {
+      isAtBottomRef.current = true;
+      const el = messageListRef.current;
+      if (el) {
+        // 延迟一帧确保新消息已渲染
+        requestAnimationFrame(() => {
+          el.scrollTop = el.scrollHeight;
+        });
+      }
+    }
+    prevPendingRef.current = pendingInteraction;
+  }, [pendingInteraction]);
+
   // 2b: processStatusText 用 useMemo
   const processStatusText = useMemo<Record<string, string>>(
     () => ({
@@ -241,14 +255,6 @@ const AgentTab: React.FC = () => {
           proposals={patchProposals}
           onApply={(id, fileIndex) => void applyPatchProposal(id, fileIndex)}
           onDiscard={(id, fileIndex) => discardPatchProposal(id, fileIndex)}
-        />
-      )}
-
-      {/* R3: agent 模式：交互提问卡片（ask_question_card 暂停时显示） */}
-      {isAgentMode && pendingInteraction && (
-        <QuestionCard
-          questions={pendingInteraction.questions}
-          onSubmit={resumeInteraction}
         />
       )}
 
