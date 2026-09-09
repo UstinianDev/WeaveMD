@@ -25,6 +25,7 @@ import { buildCompressed, estimateTokens, shouldCompress, summarizeViaLlm, type 
 import { streamChatCompletionWithRetry } from '../llm/llmClient';
 import { createEmbedding } from '../knowledge/embeddingClient';
 import { defineCoreTools, executeTool, type SearchKbFn, type ToolCtx } from '../toolRegistry';
+import { resolveSearchConfig } from '../tools/webSearch';
 import { loadSkills, type CoreSkill, type SkillRunnerCtx } from '../skills/skillLoader';
 import { persistAndSend } from './agentEventStore';
 import { DeadLoopDetector, type LoopCheckResult } from './agentLoopGuard';
@@ -257,7 +258,8 @@ function toolsForIntent(
   useKnowledgeBase: boolean,
   kbEgressAuthorized: boolean,
   currentDocument?: string,
-  hasInteractionSupport = false
+  hasInteractionSupport = false,
+  hasSearchConfig = false
 ): ToolDef[] {
   const all = defineCoreTools();
   const names = new Set<string>();
@@ -279,6 +281,14 @@ function toolsForIntent(
   names.add('get_task_activity');
   names.add('list_skills');
   names.add('get_skill_details');
+
+  // Agentic RAG：web_search 对所有非 chat 意图可用（与 searchKB 模式对齐）
+  // 让 LLM 自主决定是否需要联网搜索，而非由意图路由硬性限制
+  // 仅在用户已配置搜索服务时注入，避免 LLM 调用注定失败的工具
+  if (hasSearchConfig) {
+    names.add('web_search');
+    names.add('research_search');
+  }
 
   switch (intent.intent) {
     case 'chat':
@@ -321,8 +331,7 @@ function toolsForIntent(
       }
       break;
     case 'web':
-      names.add('web_search');
-      names.add('research_search');
+      // web_search 和 research_search 已在基础工具集中
       // Agentic RAG：web 意图也可自主检索知识库
       if (useKnowledgeBase && kbEgressAuthorized) {
         names.add('searchKB');
@@ -539,12 +548,18 @@ function prepareAgentContext(
 
   // KB 检索外发授权
   const kbEgressAuthorized = !needsKbSendConsent(config, consent);
+  // 搜索配置检查：未配置时不注入 web_search，避免 LLM 调用注定失败的工具
+  let hasSearchConfig = false;
+  try {
+    hasSearchConfig = !!resolveSearchConfig(userId);
+  } catch { /* DB 未初始化时视为无搜索配置 */ }
   const tools = toolsForIntent(
     intent,
     !!payload.useKnowledgeBase,
     kbEgressAuthorized,
     payload.currentDocument,
-    !!deps.waitForInteraction
+    !!deps.waitForInteraction,
+    hasSearchConfig
   );
 
   const summary = ownedConv?.summary || '';

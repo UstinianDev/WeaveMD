@@ -76,15 +76,18 @@ const QuestionCard: React.FC<QuestionCardProps> = ({ questions, onSubmit }) => {
 
       {/* 底部滑出面板 */}
       <div
-        className="absolute bottom-0 left-0 right-0 z-50 rounded-t-card border border-border border-b-0 bg-bg-secondary shadow-lg transition-transform duration-300 ease-out"
+        className="absolute bottom-0 left-0 right-0 z-50 rounded-t-card border border-border border-b-0 bg-bg-secondary shadow-[0_-4px_24px_rgba(0,0,0,0.15),0_-1px_8px_rgba(0,0,0,0.1)] transition-transform duration-300 ease-out font-['Alibaba_PuHuiTi_2.0',Consolas,system-ui,sans-serif]"
         style={{
           transform: visible ? 'translateY(0)' : 'translateY(100%)',
           maxHeight: '70vh',
         }}
       >
+        {/* 顶部 accent 发光边线 */}
+        <div className="absolute top-0 left-4 right-4 h-[2px] bg-gradient-to-r from-transparent via-[var(--accent)] to-transparent opacity-60 rounded-full" />
+
         {/* 拖拽指示条 */}
-        <div className="flex justify-center py-2">
-          <div className="w-10 h-1 rounded-full bg-border" />
+        <div className="flex justify-center py-2.5 cursor-grab">
+          <div className="w-10 h-1 rounded-full bg-gradient-to-r from-transparent via-[var(--accent)] to-transparent opacity-50 hover:opacity-80 hover:w-14 transition-all duration-300" />
         </div>
 
         {/* 标题 */}
@@ -99,7 +102,7 @@ const QuestionCard: React.FC<QuestionCardProps> = ({ questions, onSubmit }) => {
         {/* 问题列表（可滚动） */}
         <div className="overflow-y-auto px-4 space-y-3" style={{ maxHeight: 'calc(70vh - 140px)' }}>
           {visibleQuestions.map((q) => (
-            <div key={q.id} className="space-y-1.5">
+            <div key={q.id} className="space-y-2 p-3 rounded-lg border border-border/50 bg-bg-tertiary/30 hover:border-[var(--accent)]/30 transition-colors">
               <label className="block text-[13px] text-text-primary" htmlFor={`q-${q.id}`}>
                 {q.text}
               </label>
@@ -117,21 +120,34 @@ const QuestionCard: React.FC<QuestionCardProps> = ({ questions, onSubmit }) => {
               )}
 
               {q.type === 'choice' && q.options && (
-                <select
-                  id={`q-${q.id}`}
-                  value={answers[q.id] ?? ''}
-                  onChange={(e) => handleChange(q.id, e.target.value)}
-                  className="w-full rounded-input border border-border bg-bg-tertiary px-3 py-1.5 text-[13px] text-text-primary focus:border-[var(--accent)] focus:outline-none transition-colors"
-                >
-                  <option value="" disabled>
-                    {t('ai.question.selectPlaceholder', '请选择...')}
-                  </option>
-                  {q.options.map((opt) => (
-                    <option key={opt} value={opt}>
-                      {opt}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex flex-wrap gap-2">
+                  {q.options.map((opt) => {
+                    const isSelected = answers[q.id] === opt;
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => handleChange(q.id, opt)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] border transition-all duration-200 ${
+                          isSelected
+                            ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)] shadow-sm'
+                            : 'border-border text-text-muted hover:border-[var(--accent)]/50 hover:text-text-primary'
+                        }`}
+                      >
+                        <span className={`inline-block w-3.5 h-3.5 rounded-full border-2 transition-colors ${
+                          isSelected
+                            ? 'border-[var(--accent)] bg-[var(--accent)]'
+                            : 'border-border'
+                        }`}>
+                          {isSelected && (
+                            <span className="block w-full h-full rounded-full bg-white scale-[0.4]" />
+                          )}
+                        </span>
+                        {opt}
+                      </button>
+                    );
+                  })}
+                </div>
               )}
 
               {q.type === 'confirm' && (
@@ -170,7 +186,7 @@ const QuestionCard: React.FC<QuestionCardProps> = ({ questions, onSubmit }) => {
             type="button"
             onClick={handleSubmit}
             disabled={!canSubmit}
-            className="w-full rounded-input bg-[var(--accent)] px-3 py-2 text-[13px] font-medium text-white transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-full rounded-lg bg-gradient-to-r from-[var(--accent)] to-[var(--accent-hover)] px-3 py-2.5 text-[13px] font-medium text-white transition-all duration-200 hover:scale-[1.02] hover:shadow-md active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
           >
             {t('ai.question.submit', '提交回答')}
           </button>

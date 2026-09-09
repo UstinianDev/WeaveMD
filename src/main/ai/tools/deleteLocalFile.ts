@@ -5,7 +5,7 @@
 // 安全限制：禁止删除系统关键路径；删除前校验路径合法性。
 
 import { existsSync, statSync, unlinkSync, rmdirSync } from 'fs';
-import { resolve, isAbsolute, normalize } from 'path';
+import { resolve, isAbsolute, normalize, dirname } from 'path';
 import type { ToolDef } from '@shared/ai';
 import type { ToolHandler, ToolResult } from '../toolTypes';
 
@@ -104,11 +104,13 @@ export const handleDeleteLocalFile: ToolHandler = (args): ToolResult => {
       unlinkSync(filePath);
     }
 
+    const parentDir = dirname(filePath);
     return {
       content: JSON.stringify({
         success: true,
         operation: 'deleteLocalFile',
         filePath,
+        parentDir,
         type: isDir ? 'directory' : 'file',
       }),
       status: 'ok',

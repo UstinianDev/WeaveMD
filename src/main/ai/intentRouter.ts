@@ -43,7 +43,13 @@ const RULES: IntentRule[] = [
   },
   {
     intent: 'web',
-    keywords: ['网页', '抓取', '爬取', '爬虫', '搜索网页', '在线资料', '联网查', '打开网页', '网站内容', 'url', 'http', '抓', 'scrape', 'crawl', 'web', 'online'],
+    keywords: [
+      '网页', '抓取', '爬取', '爬虫', '搜索网页', '在线资料', '联网查', '打开网页', '网站内容',
+      '网站', '浏览器', '链接', '教程', '学习资料', '从网上', '搜一下', '查一下网', '网上搜',
+      '帮我搜', '帮我查', '查找资料', '搜索一下', '查资料',
+      'url', 'http', 'https', 'fetch', 'browse', 'tutorial', 'scrape', 'crawl', 'web', 'online',
+      'search', 'look up', 'find online',
+    ],
   },
   {
     intent: 'create',
@@ -85,6 +91,18 @@ export function classifyIntent(input: string): IIntent {
       }
     }
     if (score > 0) scores.set(rule.intent, score);
+  }
+
+  // 强信号词加权：输入含 URL 或明确的联网意图词时，web 意图得分 x1.5
+  const hasUrl = /https?:\/\/[^\s]+/i.test(text);
+  const strongWebSignals = ['网站', '网址', '链接', '联网', '在线', '从网上', '搜一下', '帮我搜', '帮我查', '查找资料'];
+  const hasStrongWebSignal = strongWebSignals.some((s) => lower.includes(s));
+  if ((hasUrl || hasStrongWebSignal) && scores.has('web')) {
+    scores.set('web', Math.ceil((scores.get('web') ?? 1) * 1.5));
+  }
+  // URL 单独出现但无其他意图命中时，也强制归为 web
+  if (hasUrl && !scores.has('web')) {
+    scores.set('web', 2);
   }
 
   // 无人为关键词命中时，落在闲聊

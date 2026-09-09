@@ -677,7 +677,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           toolCall.name === 'editLocalFile' ||
           toolCall.name === 'renameFile' ||
           toolCall.name === 'moveFile' ||
-          toolCall.name === 'deleteFile'
+          toolCall.name === 'deleteFile' ||
+          toolCall.name === 'deleteLocalFile'
         ) {
           try {
             const result = JSON.parse(toolCall.result ?? '{}') as Record<string, unknown>;
@@ -733,8 +734,35 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                         break;
                       }
                     }
+                    // 同步编辑器：如果被修改的文件是当前打开的文件
+                    const editEditorState = useEditorStore.getState();
+                    if (editEditorState.currentFile?.id === editedPath) {
+                      try {
+                        const diskRes = await window.weaveMD.file.readDisk(editedPath) as { success?: boolean; data?: { content?: string } } | undefined;
+                        if (diskRes?.success && diskRes.data?.content !== undefined) {
+                          editEditorState.updateContent(diskRes.data.content);
+                        }
+                      } catch (err) {
+                        console.warn('[agentStore] editLocalFile 编辑器同步失败:', err);
+                      }
+                    }
                   } else if (toolCall.name === 'deleteFile' && result.fileId) {
                     treeStore.removeFile(result.fileId as string);
+                  } else if (toolCall.name === 'deleteLocalFile' && result.parentDir) {
+                    // 删除文件 → 刷新父目录所在的文件夹
+                    const deletedParentDir = result.parentDir as string;
+                    for (const folder of treeStore.folders) {
+                      if (deletedParentDir.startsWith(folder.path) || folder.path.startsWith(deletedParentDir)) {
+                        await treeStore.loadFolderContents(folder.path);
+                        break;
+                      }
+                    }
+                    // 检查是否删除了当前打开的文件
+                    const deletedPath = result.filePath as string;
+                    const editorState = useEditorStore.getState();
+                    if (editorState.currentFile?.id === deletedPath) {
+                      editorState.closeFile();
+                    }
                   } else {
                     // renameFile / moveFile / preview_patch_files → 刷新 DB 文件列表
                     const files = await window.weaveMD.file.list(userId);
@@ -1040,6 +1068,11 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         void import('@render/stores/fileTreeStore').then(({ useFileTreeStore }) => {
           void useFileTreeStore.getState().loadFolderContents?.('');
         });
+        // 同步编辑器：如果修改的是当前打开的文件
+        const editorState = useEditorStore.getState();
+        if (editorState.currentFile?.id === proposal.fileName) {
+          editorState.updateContent(proposal.newContent);
+        }
       }).catch((err) => {
         console.warn('[agentStore] applyEditBlocksProposal write failed:', err);
       });

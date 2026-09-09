@@ -1,8 +1,18 @@
 # TODO
 
-> 最后更新：2026-09-08
+> 最后更新：2026-09-09
 
 ## 已完成
+
+### Agent 优化 v4（2026-09-09）
+
+| 任务 | 类型 | 门禁 |
+|------|------|------|
+| P0: deleteLocalFile 文件树刷新（返回 parentDir + agentStore 条件匹配） | Bug 修复 | tsc 0 \| vitest 23/23 |
+| P0: editLocalFile/preview_file_revision 编辑器同步（readDisk/updateContent） | Bug 修复 | 同上 |
+| P1: web_search 意图路由优化（关键词扩展 + 强信号加权 + 基础工具提升） | 功能增强 | 同上 |
+| P1: web_search 配置检查（未配置时不注入，避免 LLM 调用失败） | Bug 修复 | 同上 |
+| P2: QuestionCard 底部面板美化（渐变/阴影/卡片/单选按钮组/字体） | UI 增强 | 同上 |
 
 ### AI 优化方案（2026-09-08）
 

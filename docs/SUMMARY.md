@@ -1,6 +1,6 @@
 # WeaveMD 文档索引
 
-> 最后更新：2026-09-08
+> 最后更新：2026-09-09
 
 ## 核心文档
 
@@ -10,6 +10,21 @@
 | [REQUIREMENTS](./REQUIREMENTS.md) | 功能需求文档 |
 | [TODO](./TODO.md) | 功能进度与已知问题 |
 | [packaging](./guide/packaging.md) | 打包与发布指南 |
+
+## 架构文档（按技术层）
+
+| 文档 | 说明 |
+|------|------|
+| [frontend](./architecture/frontend.md) | 前端渲染层架构（React/状态管理/CSS） |
+| [editor](./architecture/editor.md) | 编辑器内核（块树/转换/渲染/控制器） |
+| [backend](./architecture/backend.md) | 主进程架构（AI/IPC/工具系统） |
+| [ai-agent](./architecture/ai-agent.md) | AI/Agent 系统（循环/工具/意图/写控制） |
+| [knowledge](./architecture/knowledge.md) | 知识库系统（索引/搜索/HyDE） |
+| [database](./architecture/database.md) | 数据库架构（表结构/索引/DAO） |
+| [ipc](./architecture/ipc.md) | IPC 通信机制（80+ 通道/9 组） |
+| [security](./architecture/security.md) | 安全架构（认证/加密/权限） |
+| [testing](./architecture/testing.md) | 测试架构（策略/工具/覆盖率） |
+| [build](./architecture/build.md) | 构建与发布（Vite/Electron Builder） |
 
 ## 需求文档
 
@@ -32,7 +47,7 @@
 | [09-国际化](./modules/09-国际化-i18n.md) | 中文简繁 + 英文 |
 | [10-导出功能](./modules/10-导出功能-Export.md) | 8 格式导出 |
 | [11-AI代理面板](./modules/11-AI代理面板-Agent.md) | Agent/知识库/Agentic RAG/HyDE |
-| [13-AI优化方案总结](./modules/13-AI优化方案总结-2026-09-08.md) | deleteLocalFile + IPC修复 + QuestionCard底部面板 + 系统通知 |
+| [11-Agent-历史实施](./modules/11-Agent-历史实施.md) | 分期实施记录（§7-§13） |
 
 ## 规格文档
 

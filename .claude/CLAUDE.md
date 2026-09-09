@@ -110,6 +110,7 @@
 - [TODO](../docs/TODO.md) — 功能进度、已知问题
 - [SUMMARY](../docs/SUMMARY.md) — 文档索引
 - [REQUIREMENTS](../docs/REQUIREMENTS.md) — 功能需求文档
+- [architecture/](../docs/architecture/) — 按技术层分类（前端/后端/数据库）
 - [modules/](../docs/modules/) — 各模块文档（11 个模块）
 - [specs/](../docs/specs/) — 编辑器/AI 面板规格文档
 - [testing/](../docs/testing/) — TDD 测试报告
@@ -118,7 +119,17 @@
 ### 查阅规则（渐进式披露）
 - 项目是什么、怎么跑 → README.md
 - 功能进度、已知问题 → TODO.md
-- 模块实现细节、架构 → docs/modules/{模块名}.md
+- 前端渲染层、状态管理 → docs/architecture/frontend.md
+- 编辑器内核、块树、控制器 → docs/architecture/editor.md
+- 主进程、IPC、工具系统 → docs/architecture/backend.md
+- AI/Agent 循环、工具、意图 → docs/architecture/ai-agent.md
+- 知识库索引、搜索、HyDE → docs/architecture/knowledge.md
+- 数据库表结构、DAO → docs/architecture/database.md
+- IPC 通道、事件持久化 → docs/architecture/ipc.md
+- 认证、加密、权限 → docs/architecture/security.md
+- 测试策略、工具、覆盖率 → docs/architecture/testing.md
+- 构建、打包、发布 → docs/architecture/build.md
+- 模块实现细节 → docs/modules/{模块名}.md
 - 编辑器/AI 面板设计 → docs/specs/
 - 测试覆盖、验证证据 → docs/testing/
 - 实施计划、优化状态 → docs/plan/
