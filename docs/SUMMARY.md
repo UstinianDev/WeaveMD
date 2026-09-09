@@ -1,6 +1,6 @@
 # WeaveMD 文档索引
 
-> 最后更新：2026-09-07
+> 最后更新：2026-09-08
 
 ## 核心文档
 
@@ -10,6 +10,12 @@
 | [REQUIREMENTS](./REQUIREMENTS.md) | 功能需求文档 |
 | [TODO](./TODO.md) | 功能进度与已知问题 |
 | [packaging](./guide/packaging.md) | 打包与发布指南 |
+
+## 需求文档
+
+| 文档 | 说明 |
+|------|------|
+| [agent-optimize-v3.req](./requirements/agent-optimize-v3.req.md) | Agent 优化 v3 需求 |
 
 ## 模块文档
 
@@ -26,6 +32,7 @@
 | [09-国际化](./modules/09-国际化-i18n.md) | 中文简繁 + 英文 |
 | [10-导出功能](./modules/10-导出功能-Export.md) | 8 格式导出 |
 | [11-AI代理面板](./modules/11-AI代理面板-Agent.md) | Agent/知识库/Agentic RAG/HyDE |
+| [13-AI优化方案总结](./modules/13-AI优化方案总结-2026-09-08.md) | deleteLocalFile + IPC修复 + QuestionCard底部面板 + 系统通知 |
 
 ## 规格文档
 
@@ -34,9 +41,14 @@
 | [editor-v2-architecture](./specs/editor-v2-architecture.md) | v2 块树架构设计 |
 | [editor-v2-progress](./specs/editor-v2-progress.md) | v2 实施记录 |
 | [editor-v2-features](./specs/editor-v2-features.md) | v2 功能清单 |
+| [editor-v2-selection-undo](./specs/editor-v2-selection-undo.md) | v2 选区/撤销/集成 |
 | [ai-panel-features](./specs/ai-panel-features.md) | AI 面板功能清单 |
 | [markdown-block-exit-rules](./specs/markdown-block-exit-rules.md) | 六条退出规则 |
+| [floating-toolbar-refactor](./specs/floating-toolbar-refactor.md) | 浮动工具栏重构规范 |
 | [floating-toolbar-ux](./specs/floating-toolbar-ux-and-inline-format.md) | 浮动工具栏 UX |
+| [floating-toolbar-format-sticky](./specs/floating-toolbar-format-sticky.md) | 格式应用交互修正 |
+| [drag-selection-flicker](./specs/drag-selection-flicker.md) | 跨块拖选闪烁优化 |
+| [code-block-trailing-paragraph](./specs/code-block-trailing-paragraph.md) | 代码块尾随空行持久化 |
 
 ## 测试报告
 
@@ -52,8 +64,9 @@
 
 | 文档 | 说明 |
 |------|------|
-| [agent-optimize-v3.status](./plan/agent-optimize-v3.status.md) | Agent 优化 v3（搜索持久化+动态轮次+多文件Diff） |
-| [ai-agent-optimize.status](./plan/ai-agent-optimize.status.md) | AI Agent 优化实施状态（30/30 全部完成） |
+| [agent-optimize-v3.plan](./plan/agent-optimize-v3.plan.md) | Agent 优化 v3 实施计划 |
+| [agent-optimize-v3.status](./plan/agent-optimize-v3.status.md) | Agent 优化 v3 状态（搜索持久化+动态轮次+多文件Diff） |
+| [ai-agent-optimize.status](./plan/ai-agent-optimize.status.md) | AI Agent 优化状态（30/30 全部完成） |
 | [ai-perf-optimize-v2.status](./plan/ai-perf-optimize-v2.status.md) | AI 性能优化 v2 状态 |
-| [embedding-architecture](./plan/embedding-architecture.md) | Embedding 架构设计（SearchProvider + 搜索模式） |
+| [embedding-architecture](./plan/embedding-architecture.md) | Embedding 架构设计 |
 | [indexing-compatibility](./plan/indexing-compatibility.md) | 索引流程兼容性设计 |

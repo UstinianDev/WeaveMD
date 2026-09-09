@@ -72,7 +72,7 @@ npm run build
 - [SUMMARY](./SUMMARY.md) — 文档索引
 - [REQUIREMENTS](./REQUIREMENTS.md) — 功能需求文档
 - [TODO](./TODO.md) — 功能进度与已知问题
-- [modules/](./modules/) — 各模块详细文档（11 个模块）
+- [modules/](./modules/) — 各模块详细文档（12 个模块）
 - [specs/](./specs/) — 编辑主区 v2 规格与实施记录
 - [testing/](./testing/) — TDD 测试报告
 - [guide/packaging](./guide/packaging.md) — 打包与发布指南

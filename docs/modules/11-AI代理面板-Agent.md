@@ -1,6 +1,6 @@
 # AI 代理面板 (Agent) 功能总结
 
-> 模块编号：11 | 优先级：P1 | 最后更新：2026-09-07 | 状态：**第 1~7 期均已交付；Notus 克隆21项；写控制 R1~R7；知识库 Notus 对齐 R1~R12 + searchMode；AI Agent 优化 30/30 全部完成（含 Agentic RAG + HyDE）；真 MCP / GitHub 继续延**
+> 模块编号：11 | 优先级：P1 | 最后更新：2026-09-08 | 状态：**第 1~7 期均已交付；Notus 克隆21项；写控制 R1~R7；知识库 Notus 对齐 R1~R12 + searchMode；AI Agent 优化 30/30 全部完成（含 Agentic RAG + HyDE）；deleteLocalFile 工具 + IPC 通道修复 + QuestionCard 底部面板 + 系统通知；真 MCP / GitHub 继续延**
 > 需求编号：AGT-01~19 / KB-01~05（docs/REQUIREMENTS.md 3.7 / 3.8）
 > 交付记录：第1期基建 + 第2期 Chat 闭环（2026-08-14）、第3期知识库 + 第4期 Agent 能力
 > （2026-08-15）；远程 DeepSeek 后端已真连验证通过；
@@ -37,7 +37,7 @@ src/main/ai/                  # AI 主进程服务（第1/2/3/4/5期已交付 + 
 ├── intentRouter.ts           # 意图识别（规则 6 类）+ 候选提问卡片
 ├── contextManager.ts         # 上下文压缩（/4 估算 + 动态阈值：简单 0.85 / 复杂 0.65）
 ├── skillLoader.ts            # skills 体系（3 内置 + userData/skills/ 用户扩展）
-├── toolRegistry.ts           # 内置工具注册（listFiles/readFile/searchKB/runSkill/editBlocks/createFile/createFolder + preview_file_revision 等 20 工具）
+├── toolRegistry.ts           # 内置工具注册（24 工具：listFiles/readFile/searchKB/runSkill/editBlocks/createFile/createFolder/deleteLocalFile + preview_file_revision 等）
 ├── tools/
 │   ├── createFileHandler.ts  # createFile：DB + 磁盘双写（userData/files/）
 │   ├── editBlocksHandler.ts  # editBlocks：仅产 proposal，确认后渲染侧写盘
@@ -416,3 +416,57 @@ src/render/utils/weaveMDBridge.ts          — 浏览器 mock bridge 补齐
 | `src/main/ai/agent/agentTaskWorker.ts` | searchKb wrapper 透传 `queryVector`/`searchMode` |
 
 **门禁**：tsc 0 | vitest 1530/1530 | lint 0 error
+
+## 13. deleteLocalFile + IPC 修复 + QuestionCard 底部面板 + 系统通知（2026-09-08）
+
+> 详见 [优化方案总结](./13-AI优化方案总结-2026-09-08.md)
+
+### 13.1 P0 缺陷修复：IPC 通道名不匹配
+
+`ask_question_card` 工具执行后界面卡死的根因：`agentTaskWorker.ts` 调用 `persistAndSend` 时传入原始通道名 `'agent:interaction:question'`，`persistAndSend` 内部拼接为 `'ai:stream:agent:interaction:question'`，但 preload 监听的是 `'agent:interaction:question'`，通道不匹配导致事件丢失。
+
+**修复**：新增 `persistOnly()` 函数（仅持久化不发送），交互事件改用 `persistOnly` + 直接 `mainWindow.webContents.send()` 发送到正确通道。`replayFromSeq` 增加 `interaction` 事件类型的特殊通道映射。
+
+### 13.2 新增 deleteLocalFile 工具
+
+弥补 AI Agent 无法删除本地文件/文件夹的能力缺口，与 `editLocalFile` 形成读-写-删工具链。
+
+| 特性 | 说明 |
+|------|------|
+| 参数 | `file_path`（绝对路径，必填） |
+| 能力 | 删除文件或空文件夹（永久删除，不可恢复） |
+| 安全 | 系统关键路径黑名单（`/windows/system`、`/usr` 等） |
+| 错误处理 | ENOENT/EACCES/EPERM/ENOTEMPTY 友好提示 |
+| 写控制 | 加入 `WRITE_TOOLS`，走 auto/manual 确认流程 |
+| 工具策略 | `agentToolPolicy.ts` 新增 allow 条目 |
+
+### 13.3 QuestionCard 底部滑出面板
+
+`QuestionCard` 从 AgentTab 消息流内联卡片重构为 `AIPanelSession` 底部滑出面板（bottom sheet）：
+- `position: absolute; bottom: 0` 覆盖 composer 输入框
+- `translateY(100%)` → `translateY(0)` 滑入动画 + 半透明遮罩层
+- 提交后滑回消失，消息流自动滚动到最新回复
+
+### 13.4 系统通知
+
+`agentStore.onInteraction` 回调中增加 `document.hasFocus()` 判断：窗口未聚焦时发送 Windows 系统通知，点击通知恢复窗口。通知 IPC 通道（`notification:send`）已有实现，本次仅触发条件补全。
+
+### 变更文件
+
+| 文件 | 变更 |
+|------|------|
+| `src/main/ai/agent/agentTaskWorker.ts` | 交互事件改用 persistOnly + 直接 IPC 发送 |
+| `src/main/ai/agent/agentEventStore.ts` | 新增 persistOnly 函数 + replayFromSeq interaction 映射 |
+| `src/shared/ai/task.ts` | AgentRunEvent.eventType 新增 'interaction' |
+| `src/main/ai/tools/deleteLocalFile.ts` | 新建：deleteLocalFile handler + schema |
+| `src/main/ai/toolRegistry.ts` | 注册 deleteLocalFile（handlerMap + CORE_TOOLS） |
+| `src/main/ai/agent/agentLoop.ts` | WRITE_TOOLS + toolsForIntent 新增 deleteLocalFile |
+| `src/main/ai/agent/agentToolPolicy.ts` | 策略表新增 deleteLocalFile |
+| `src/render/components/AIAgent/cards/QuestionCard.tsx` | 重构为底部滑出面板 |
+| `src/render/components/AIAgent/AgentTab.tsx` | 移除 QuestionCard 内联渲染 + 交互结束自动滚动 |
+| `src/render/components/AIAgent/panel/AIPanelSession.tsx` | 集成 QuestionCard 底部面板 |
+| `src/render/stores/agentStore.ts` | 系统通知增加窗口焦点判断 |
+| `src/render/i18n/{en,zh-CN,zh-TW}.json` | 新增 4 个翻译键 |
+| `tests/main/ai/toolRegistry.test.ts` | 工具数量断言 23→24 |
+
+**门禁**：tsc 0 | vitest 1530/1530 | lint 0 error | vite build ok

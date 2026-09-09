@@ -83,6 +83,12 @@
 - `src/render/components/Editor/v2/FloatingToolbar.tsx` — 文本浮动工具栏
 - `src/render/components/Editor/v2/ImageResizeBox.tsx` + `resizeMath.ts` — 图片四角缩放
 - `src/render/components/Editor/EditorView.tsx` — 薄编排器（v2 唯一）
+- `src/main/ai/toolRegistry.ts` — Agent 工具注册（24 工具，含 deleteLocalFile）
+- `src/main/ai/agent/agentLoop.ts` — Agent 循环（WRITE_TOOLS + toolsForIntent + 确认流程）
+- `src/main/ai/agent/agentTaskWorker.ts` — 后台任务执行器（交互事件持久化 + IPC 发送）
+- `src/main/ai/agent/agentEventStore.ts` — 事件持久化（persistAndSend + persistOnly + replayFromSeq）
+- `src/render/components/AIAgent/cards/QuestionCard.tsx` — 底部滑出提问面板
+- `src/render/components/AIAgent/panel/AIPanelSession.tsx` — 会话视图（集成 QuestionCard）
 
 ## UI 美化
 
