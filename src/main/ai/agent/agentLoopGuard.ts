@@ -27,6 +27,8 @@ interface ResultEntry {
 
 interface FailureEntry {
   toolName: string;
+  /** 工具参数哈希（同工具+同参数连续失败才判死循环，不同参数重试属正常容错）。 */
+  argsHash: string;
   count: number;
 }
 
@@ -102,10 +104,12 @@ export class DeadLoopDetector {
   /**
    * 检查同一工具是否连续失败。
    * 不同工具的失败独立计数，成功则重置。
+   * 同工具但不同参数的失败也重置计数（LLM 换参数重试属正常容错，非死循环）。
    * @param toolName 工具名称
    * @param success 本次是否成功
+   * @param argsHash 工具参数哈希（可选，默认空串，向后兼容）
    */
-  checkConsecutiveFailure(toolName: string, success: boolean): LoopCheckResult {
+  checkConsecutiveFailure(toolName: string, success: boolean, argsHash = ''): LoopCheckResult {
     if (success) {
       // 成功则重置失败计数
       this.failureHistory = null;
@@ -113,16 +117,22 @@ export class DeadLoopDetector {
     }
 
     if (this.failureHistory && this.failureHistory.toolName === toolName) {
-      this.failureHistory.count++;
-      if (this.failureHistory.count >= this.config.maxConsecutiveFailures) {
-        return {
-          detected: true,
-          message: `Tool "${toolName}" failed ${this.failureHistory.count} times in a row`,
-        };
+      // 同工具+同参数：累加计数；同工具+不同参数：重置（LLM 换策略重试）
+      if (this.failureHistory.argsHash === argsHash) {
+        this.failureHistory.count++;
+        if (this.failureHistory.count >= this.config.maxConsecutiveFailures) {
+          return {
+            detected: true,
+            message: `Tool "${toolName}" failed ${this.failureHistory.count} times in a row`,
+          };
+        }
+      } else {
+        // 同工具但不同参数 → 重置计数（正常重试）
+        this.failureHistory = { toolName, argsHash, count: 1 };
       }
     } else {
       // 切换到新工具，重置计数
-      this.failureHistory = { toolName, count: 1 };
+      this.failureHistory = { toolName, argsHash, count: 1 };
     }
 
     return { detected: false };

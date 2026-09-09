@@ -782,26 +782,34 @@ export async function searchKB(
   // 路径 3: 标题匹配（所有模式）
   const titleScores = titleMatchSearch(db, userId, cleaned, candidateLimit);
 
-  // ---- R5: 扩展查询合并 ----
+  // ---- R5: 扩展查询合并（UNION ALL 单次查询） ----
   // expandedQueries 由外部（agentLoop）注入，每条扩展查询额外走 FTS5 召回
-  const extraFtsRows: typeof ftsRows = [];
+  // B8 优化：多条扩展查询合并为 UNION ALL 单次 SQL，减少 N 次 prepare+all 为 1 次
+  let extraFtsRows: typeof ftsRows = [];
   if (opts.expandedQueries && opts.expandedQueries.length > 0) {
+    const subQueries: string[] = [];
+    const subParams: Array<string | number> = [];
+    const perQueryLimit = Math.ceil(candidateLimit / 2);
     for (const eq of opts.expandedQueries) {
       const eqCleaned = sanitizeFtsQuery(eq);
       if (!eqCleaned) continue;
+      subQueries.push(`
+        SELECT c.id AS chunkId, c.document_id AS documentId, c.content, c.seq,
+               c.source_ref AS sourceRef, c.heading_path AS headingPath,
+               d.title AS fileName, d.pinned,
+               bm25(kb_chunks_fts) AS bm
+          FROM kb_chunks_fts
+          JOIN kb_chunks c ON c.rowid = kb_chunks_fts.rowid
+          JOIN kb_documents d ON d.id = c.document_id
+         WHERE kb_chunks_fts MATCH ? AND d.user_id = ?
+         ORDER BY bm LIMIT ?
+      `);
+      subParams.push(eqCleaned, userId, perQueryLimit);
+    }
+    if (subQueries.length > 0) {
       try {
-        const rows = db.prepare(`
-          SELECT c.id AS chunkId, c.document_id AS documentId, c.content, c.seq,
-                 c.source_ref AS sourceRef, c.heading_path AS headingPath,
-                 d.title AS fileName, d.pinned,
-                 bm25(kb_chunks_fts) AS bm
-            FROM kb_chunks_fts
-            JOIN kb_chunks c ON c.rowid = kb_chunks_fts.rowid
-            JOIN kb_documents d ON d.id = c.document_id
-           WHERE kb_chunks_fts MATCH ? AND d.user_id = ?
-           ORDER BY bm LIMIT ?
-        `).all(eqCleaned, userId, Math.ceil(candidateLimit / 2)) as typeof ftsRows;
-        extraFtsRows.push(...rows);
+        const unionSql = subQueries.join(' UNION ALL ');
+        extraFtsRows = db.prepare(unionSql).all(...subParams) as typeof ftsRows;
       } catch {
         // 扩展查询失败时静默跳过
       }
@@ -845,6 +853,7 @@ export async function searchKB(
   }
 
   // 也从向量结果中补充 chunkId → documentId 映射
+  // B9 优化：vecDocRows 查询同时获取 updated_at，合并到 updatedAtMap，减少 1 次 DB 查询
   const vecChunkIds = [...vecScores.keys()].filter(id => !seenFtsChunkIds.has(id));
   if (vecChunkIds.length > 0) {
     try {
@@ -852,7 +861,7 @@ export async function searchKB(
       const vecDocRows = db.prepare(`
         SELECT c.id AS chunkId, c.document_id AS documentId, c.content, c.seq,
                c.source_ref AS sourceRef, c.heading_path AS headingPath,
-               d.title AS fileName, d.pinned
+               d.title AS fileName, d.pinned, d.updated_at AS updatedAt
           FROM kb_chunks c
           JOIN kb_documents d ON d.id = c.document_id
          WHERE c.id IN (${placeholders})
@@ -865,10 +874,15 @@ export async function searchKB(
         headingPath: string | null;
         fileName: string;
         pinned: number;
+        updatedAt: string | null;
       }>;
       for (const r of vecDocRows) {
         allFtsRows.push({ ...r, bm: 0 }); // BM25 分为 0，纯向量命中
         docIds.add(r.documentId);
+        // 补充 updatedAtMap（B9: 合并查询，避免额外 SELECT）
+        if (r.updatedAt && !updatedAtMap.has(r.documentId)) {
+          updatedAtMap.set(r.documentId, new Date(r.updatedAt).getTime());
+        }
       }
     } catch {
       // 查询失败时静默跳过

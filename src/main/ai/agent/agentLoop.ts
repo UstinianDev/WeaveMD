@@ -849,10 +849,11 @@ function handleToolResult(
     return { deadLoopBreak: true };
   }
 
-  // R7a: 死循环检测 — 连续失败
+  // R7a: 死循环检测 — 连续失败（同工具+同参数才判死循环，不同参数重试属正常容错）
   const failureCheck: LoopCheckResult = ctx.detector.checkConsecutiveFailure(
     tc.name,
-    result.status === 'ok'
+    result.status === 'ok',
+    tc.arguments
   );
   if (failureCheck.detected) {
     ctx.send(IPC_CHANNELS.AI_STREAM_ERROR, {

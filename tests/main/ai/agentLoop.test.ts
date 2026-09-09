@@ -92,7 +92,7 @@ const guardMock = vi.hoisted(() => {
     checkSameResult(_result: unknown) {
       return { detected: false };
     }
-    checkConsecutiveFailure(_toolName: string, _success: boolean) {
+    checkConsecutiveFailure(_toolName: string, _success: boolean, _argsHash?: string) {
       return { detected: false };
     }
     getStats() {
