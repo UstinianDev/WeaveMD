@@ -5,7 +5,7 @@
 // 配置从 ai_search_config 表读取（provider + apiKey），解密后传给 searchClient。
 // 铁律：搜索结果只读返回给 LLM，不做任何落盘操作。
 
-import type { SearchProvider, ToolDef } from '@shared/ai';
+import type { SearchProvider, SearchErrorCode, ToolDef } from '@shared/ai';
 import { search, type SearchResponse } from '../searchClient';
 import { getSearchConfig } from '../../db/searchConfig';
 import { decryptApiKey } from '../secureConfig';
@@ -52,6 +52,8 @@ export interface WebSearchResponse {
   results: WebSearchResult[];
   provider?: SearchProvider;
   error?: string;
+  /** 机器可读错误码，用于 guard 检测和前端展示。 */
+  errorDesc?: SearchErrorCode;
 }
 
 // ---------------------------------------------------------------------------
@@ -109,6 +111,7 @@ export async function executeWebSearch(
       success: false,
       results: [],
       error: 'Web search not configured. Please enable search and set API key in Settings > Search.',
+      errorDesc: 'SEARCH_NOT_CONFIGURED',
     };
   }
 
@@ -130,6 +133,15 @@ export async function executeWebSearch(
     return { success: true, results, provider: response.provider };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return { success: false, results: [], error: `Search failed: ${message}` };
+
+    // 区分错误类型：认证失败 / 超时 / 其他
+    let errorDesc: SearchErrorCode = 'SEARCH_FAILED';
+    if (/HTTP 40[13]/.test(message)) {
+      errorDesc = 'SEARCH_API_KEY_INVALID';
+    } else if (/timeout|AbortError/i.test(message)) {
+      errorDesc = 'SEARCH_TIMEOUT';
+    }
+
+    return { success: false, results: [], error: `Search failed: ${message}`, errorDesc };
   }
 }

@@ -36,6 +36,8 @@ interface FileTreeActions {
   addFolder: (folder: IFolderNode) => void;
   removeFolder: (folderId: string) => void;
   addFile: (file: IFileNode) => void;
+  /** 将文件插入到指定文件夹的 children 中（Agent 创建文件后按磁盘路径定位）。 */
+  addFileToFolder: (folderId: string, file: IFileNode) => void;
   removeFile: (fileId: string) => void;
   removeFileFromEverywhere: (fileId: string) => void;
   removeNodeFromTree: (folderId: string, nodeId: string) => void;
@@ -144,6 +146,28 @@ export const useFileTreeStore = create<FileTreeState & FileTreeActions>()(
   addFile: (file) =>
     set((state) => ({
       looseFiles: sortLooseFiles([...state.looseFiles, file]),
+    })),
+
+  addFileToFolder: (folderId, file) =>
+    set((state) => ({
+      folders: state.folders.map((folder) => {
+        if (folder.id === folderId) {
+          // 避免重复插入
+          const exists = folder.children.some((c) => c.id === file.id);
+          if (exists) return folder;
+          const fileNode: IFolderNode = {
+            id: file.id,
+            name: file.name,
+            path: file.path,
+            isDirectory: false,
+            children: [],
+            expanded: false,
+            isRoot: false,
+          };
+          return { ...folder, children: [...folder.children, fileNode] };
+        }
+        return folder;
+      }),
     })),
 
   removeFile: (fileId) =>

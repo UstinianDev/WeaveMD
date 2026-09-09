@@ -81,7 +81,19 @@ export class DeadLoopDetector {
    * @param result 工具执行结果（任意可序列化值）
    */
   checkSameResult(result: unknown): LoopCheckResult {
-    const hash = this.hashResult(result);
+    // 跳过空/null 结果 — 无意义的 same-result 检测
+    if (result === null || result === undefined || result === '') {
+      return { detected: false };
+    }
+
+    const str = typeof result === 'string' ? result : JSON.stringify(result);
+
+    // 跳过"搜索无结果"场景 — 这是合法的用户面对结果，不是死循环
+    if (this.isEmptySearchResult(str)) {
+      return { detected: false };
+    }
+
+    const hash = this.hashResult(str);
     const existing = this.resultHistory.get(hash);
 
     if (existing) {
@@ -99,6 +111,22 @@ export class DeadLoopDetector {
     }
 
     return { detected: false };
+  }
+
+  /**
+   * 判断是否为"搜索无结果"的合法场景。
+   * 匹配 `{results:[]}` 且无 `error` 字段的 JSON（搜索服务正常但无结果）。
+   */
+  private isEmptySearchResult(str: string): boolean {
+    try {
+      const parsed = JSON.parse(str);
+      if (parsed && Array.isArray(parsed.results) && parsed.results.length === 0 && !parsed.error) {
+        return true;
+      }
+    } catch {
+      // 非 JSON，不是搜索结果
+    }
+    return false;
   }
 
   /**

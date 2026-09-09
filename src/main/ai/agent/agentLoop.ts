@@ -820,15 +820,18 @@ function handleToolResult(
     ? JSON.stringify({ answers: interactionAnswers, phase: 'answered' })
     : null;
   const toolResultContent = answeredJson ?? result.content;
+  // 改进：errorDesc 存在且 content 有值时，传完整 content（含 message 字段），让 LLM 获得更丰富上下文
   const toolResultForLlm = answeredJson
-    ?? (result.errorDesc ? `[工具 ${tc.name} 失败] ${result.errorDesc}` : result.content);
+    ?? (result.errorDesc
+      ? (result.content ? result.content : `[工具 ${tc.name} 失败] ${result.errorDesc}`)
+      : result.content);
 
   appendMessage({
     conversationId: ctx.convId,
     userId: ctx.userId,
     role: 'tool',
     content: result.errorDesc && !interactionAnswers
-      ? `[工具 ${tc.name} 失败] ${result.errorDesc}`
+      ? (result.content ? result.content : `[工具 ${tc.name} 失败] ${result.errorDesc}`)
       : toolResultContent,
     toolCallId,
   });

@@ -643,6 +643,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     const mgr = createStreamManager({
       conversationId,
       onTool: (toolCall) => {
+        console.log('[agentStore] onTool event:', toolCall.name, toolCall.status, toolCall.toolCallId, 'result?', !!toolCall.result);
         set((s) => {
           const rest = s.toolCalls.filter((c) => c.toolCallId !== toolCall.toolCallId);
           return {
@@ -697,13 +698,35 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                     // 优先使用 diskPath（主进程写入磁盘后的完整路径），
                     // 回退 fileName（仅 DB 场景）
                     const filePath = (result.diskPath as string) || (result.fileName as string);
-                    treeStore.addFile({
+                    const fileNode = {
                       id: filePath,
                       name: result.fileName as string,
                       path: filePath,
                       content: fileContent || undefined,
-                    });
+                    };
+                    // 按 diskPath 父目录插入到正确的文件夹 children 中
+                    let insertedInFolder = false;
+                    if (result.diskPath) {
+                      const parentDir = (result.diskPath as string).replace(/[/\\][^/\\]+$/, '');
+                      for (const folder of treeStore.folders) {
+                        if (parentDir === folder.path || parentDir.startsWith(folder.path + '/') || parentDir.startsWith(folder.path + '\\')) {
+                          // 文件夹内容已加载 → 直接插入 children
+                          if (folder.children.length > 0) {
+                            treeStore.addFileToFolder(folder.id, fileNode);
+                          } else {
+                            // 文件夹内容未加载 → 触发加载（加载后自然包含新文件）
+                            void treeStore.loadFolderContents(folder.path);
+                          }
+                          insertedInFolder = true;
+                          break;
+                        }
+                      }
+                    }
+                    if (!insertedInFolder) {
+                      treeStore.addFile(fileNode);
+                    }
                     // createFile 完成后触发 diff 预览卡片（FileOpPreviewCard）
+                    console.log('[agentStore] createFile proposal:', !!fileContent, result.fileName);
                     if (fileContent) {
                       get().addEditBlocksProposal({
                         toolName: 'createFile',
