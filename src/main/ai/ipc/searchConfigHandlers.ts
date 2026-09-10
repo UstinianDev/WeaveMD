@@ -85,10 +85,13 @@ export function registerSearchConfigHandlers(): void {
         const keyUpdates: Record<string, string | null | undefined> = {};
         if (payload.config.apiKeys) {
           for (const [prov, key] of Object.entries(payload.config.apiKeys)) {
-            // DAO 期望 camelCase 字段名（firecrawlKeyEnc 等）
-            const propName = `${prov}KeyEnc`;
-            keyUpdates[propName] = key ? encryptApiKey(key).enc : null;
-            console.log(`[searchConfigHandlers] set: ${propName} =`, keyUpdates[propName] ? `${String(keyUpdates[propName]).slice(0, 20)}...` : null);
+            // 仅更新非空 key，空 key 不写入（保留数据库中已有的值）
+            // 这样用户切换 provider 时不会丢失之前保存的 key
+            if (key && key.trim()) {
+              const propName = `${prov}KeyEnc`;
+              keyUpdates[propName] = encryptApiKey(key.trim()).enc;
+              console.log(`[searchConfigHandlers] set: ${propName} =`, `${String(keyUpdates[propName]).slice(0, 20)}...`);
+            }
           }
         }
         const row = upsertSearchConfig(payload.userId, {
