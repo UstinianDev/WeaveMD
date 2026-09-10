@@ -24,7 +24,7 @@ const SearchSettings: React.FC = () => {
 
   const [enabled, setEnabled] = useState(false);
   const [provider, setProvider] = useState<SearchProvider>('firecrawl');
-  const [callMode, setCallMode] = useState('scrape_and_search');
+  const [callMode, setCallMode] = useState('search_only');
   const [maxResults, setMaxResults] = useState(10);
   const [apiKeys, setApiKeys] = useState<Record<SearchProvider, string>>({
     firecrawl: '',
@@ -186,18 +186,41 @@ const SearchSettings: React.FC = () => {
         />
       </div>
 
-      {/* 调用模式 */}
-      <div>
-        <label className="text-[14px] text-[var(--text-primary)] font-medium mb-1.5 block">
-          调用模式
-        </label>
-        <div className="px-3 py-2 rounded-input border border-[var(--border-color)] bg-[var(--input-bg)]">
-          <span className="text-[14px] text-[var(--text-primary)]">{callMode}</span>
-          <p className="text-[12px] text-[var(--text-muted)] mt-0.5">
-            scrape & search — 使用 Firecrawl 默认抓取和搜索组合
+      {/* 调用模式（仅 Firecrawl 有效） */}
+      {provider === 'firecrawl' && (
+        <div>
+          <label className="text-[14px] text-[var(--text-primary)] font-medium mb-1.5 block">
+            调用模式
+          </label>
+          <div className="flex gap-1 p-1 rounded-input bg-[var(--bg-tertiary)]">
+            <button
+              type="button"
+              onClick={() => setCallMode('search_only')}
+              className={`flex-1 px-2 py-1.5 text-[13px] rounded-input transition-colors ${
+                callMode === 'search_only'
+                  ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-sm border border-[var(--border-color)]'
+                  : 'text-[var(--text-sub)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              仅搜索
+            </button>
+            <button
+              type="button"
+              onClick={() => setCallMode('search_and_scrape')}
+              className={`flex-1 px-2 py-1.5 text-[13px] rounded-input transition-colors ${
+                callMode === 'search_and_scrape'
+                  ? 'bg-[var(--bg-primary)] text-[var(--text-primary)] shadow-sm border border-[var(--border-color)]'
+                  : 'text-[var(--text-sub)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              搜索+抓取
+            </button>
+          </div>
+          <p className="text-[12px] text-[var(--text-muted)] mt-1">
+            仅搜索：返回标题和摘要，速度快。搜索+抓取：额外获取页面全文，较慢。
           </p>
         </div>
-      </div>
+      )}
 
       {/* 每次返回结果数 */}
       <div>

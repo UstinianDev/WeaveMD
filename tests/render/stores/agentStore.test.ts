@@ -43,7 +43,7 @@ const mockEmbeddingConfig = {
 const mockSearchConfig = {
   enabled: true,
   provider: 'firecrawl' as const,
-  callMode: 'auto',
+  callMode: 'search_only' as const,
   maxResults: 10,
   hasApiKeys: { firecrawl: true, zhipu: false, tavily: false, exa: false },
 };

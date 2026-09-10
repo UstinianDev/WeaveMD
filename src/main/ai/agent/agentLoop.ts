@@ -652,6 +652,11 @@ function prepareAgentContext(
         '- 大型写作任务按章节拆分，每步处理一个文件。',
         '- 用户问文件是否存在，先看文件列表，没有再调 listFiles。',
         '- 文件夹支持嵌套路径（如 "子目录/深层目录"）。',
+        '',
+        '## 回答格式',
+        '- 使用 Markdown 格式组织回答，善用标题（#/##/###）、列表、代码块、粗体等。',
+        '- 长回答用标题分段，短回答直接输出。',
+        '- 代码示例使用 fenced code block（```语言名）。',
         fileListSnapshot,
         localFileTreeSnapshot,
       ].filter(Boolean).join('\n');

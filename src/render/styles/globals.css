@@ -3040,6 +3040,43 @@ span.comment-marker {
   margin: 0.4em 0;
 }
 
+/* AI 消息标题字号（对齐 CLAUDE.md 规范：H1 26/700, H2 22/600, H3 18/600, H4 16/500） */
+.ai-markdown h1 {
+  font-size: 1.625em;   /* 26px */
+  font-weight: 700;
+  margin: 0.4em 0 0.2em;
+  line-height: 1.3;
+}
+.ai-markdown h2 {
+  font-size: 1.375em;   /* 22px */
+  font-weight: 600;
+  margin: 0.35em 0 0.15em;
+  line-height: 1.35;
+}
+.ai-markdown h3 {
+  font-size: 1.125em;   /* 18px */
+  font-weight: 600;
+  margin: 0.3em 0 0.1em;
+  line-height: 1.4;
+}
+.ai-markdown h4 {
+  font-size: 1em;       /* 16px */
+  font-weight: 500;
+  margin: 0.25em 0 0.1em;
+  line-height: 1.45;
+}
+.ai-markdown h5 {
+  font-size: 0.875em;   /* 14px */
+  font-weight: 500;
+  margin: 0.2em 0 0.1em;
+}
+.ai-markdown h6 {
+  font-size: 0.875em;   /* 14px */
+  font-weight: 500;
+  margin: 0.2em 0 0.1em;
+  color: var(--text-secondary);
+}
+
 /* ============================================ */
 /* Composer Input Tags（/skill @doc 高亮标签）  */
 /* ============================================ */

@@ -10,11 +10,14 @@ export type SearchErrorCode =
   | 'SEARCH_TIMEOUT'
   | 'SEARCH_API_KEY_INVALID';
 
+/** 搜索调用模式：仅搜索 vs 搜索+全页面抓取。 */
+export type SearchCallMode = 'search_only' | 'search_and_scrape';
+
 /** 搜索引擎配置。 */
 export interface ISearchConfig {
   enabled: boolean;
   provider: SearchProvider;
-  callMode: string;
+  callMode: SearchCallMode;
   maxResults: number;
   hasApiKeys: Record<SearchProvider, boolean>;
 }

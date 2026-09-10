@@ -5,7 +5,7 @@
 
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@shared/constants';
-import type { ISearchConfig, SearchProvider } from '@shared/ai';
+import type { ISearchConfig, SearchCallMode, SearchProvider } from '@shared/ai';
 import { getSearchConfig, upsertSearchConfig } from '../../db/searchConfig';
 import { encryptApiKey } from '../secureConfig';
 
@@ -22,7 +22,7 @@ function toISearchConfig(row: {
   return {
     enabled: row.enabled,
     provider: row.provider,
-    callMode: row.callMode,
+    callMode: (row.callMode as SearchCallMode) ?? 'search_only',
     maxResults: row.maxResults,
     hasApiKeys: {
       firecrawl: !!row.firecrawlKeyEnc,

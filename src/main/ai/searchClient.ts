@@ -11,6 +11,8 @@ export interface SearchRequest {
   apiKey: string;
   query: string;
   maxResults?: number;
+  /** 搜索调用模式：search_only（轻量搜索）/ search_and_scrape（搜索+全页面抓取，仅 Firecrawl 有效）。 */
+  callMode?: 'search_only' | 'search_and_scrape';
 }
 
 export interface SearchResult {
@@ -24,7 +26,7 @@ export interface SearchResponse {
   provider: SearchProvider;
 }
 
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 25_000;
 const DEFAULT_MAX_RESULTS = 5;
 
 function makeError(code: string, message: string): Error & { code: string } {
@@ -33,35 +35,50 @@ function makeError(code: string, message: string): Error & { code: string } {
   return err;
 }
 
+/** 判断是否为可重试的瞬态错误（复用 llmClient 的判断逻辑）。 */
+function isTransientError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code = (err as { code?: string }).code;
+  if (!code) return false;
+  if (code === 'network' || code === 'timeout') return true;
+  if (code.startsWith('http_')) {
+    const status = parseInt(code.replace('http_', ''), 10);
+    return status === 429 || status >= 500;
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // 各引擎实现
 // ---------------------------------------------------------------------------
 
-/** Firecrawl: https://api.firecrawl.dev/v1/search */
-async function searchFirecrawl(apiKey: string, query: string, maxResults: number): Promise<SearchResult[]> {
+/** Firecrawl: https://api.firecrawl.dev/v1/search （默认轻量搜索；callMode='search_and_scrape' 时触发全页面抓取） */
+async function searchFirecrawl(apiKey: string, query: string, maxResults: number, callMode?: string): Promise<SearchResult[]> {
+  const body: Record<string, unknown> = { query, limit: maxResults };
+  // 仅在用户明确选择 search_and_scrape 模式时才传 scrapeOptions
+  if (callMode === 'search_and_scrape') {
+    body.scrapeOptions = { formats: ['markdown'] };
+  }
+
   const response = await fetch('https://api.firecrawl.dev/v1/search', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      query,
-      limit: maxResults,
-      scrapeOptions: { formats: ['markdown'] },
-    }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
-    throw makeError(`http_${response.status}`, `Firecrawl HTTP ${response.status}: ${body.slice(0, 200)}`);
+    throw makeError(`http_${response.status}`, `Firecrawl HTTP ${response.status}: ${body.slice(0, 500)}`);
   }
 
   interface FirecrawlResult {
     title?: string;
     url?: string;
-    markdown?: string;
+    description?: string;
     snippet?: string;
   }
   interface FirecrawlResponse {
@@ -77,7 +94,7 @@ async function searchFirecrawl(apiKey: string, query: string, maxResults: number
   return json.data.map((item) => ({
     title: item.title ?? '',
     url: item.url ?? '',
-    snippet: item.snippet ?? item.markdown?.slice(0, 300) ?? '',
+    snippet: item.snippet ?? item.description?.slice(0, 800) ?? '',
   }));
 }
 
@@ -98,7 +115,7 @@ async function searchZhipu(apiKey: string, query: string, maxResults: number): P
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
-    throw makeError(`http_${response.status}`, `Zhipu HTTP ${response.status}: ${body.slice(0, 200)}`);
+    throw makeError(`http_${response.status}`, `Zhipu HTTP ${response.status}: ${body.slice(0, 500)}`);
   }
 
   interface ZhipuSearchItem {
@@ -119,7 +136,7 @@ async function searchZhipu(apiKey: string, query: string, maxResults: number): P
   return json.search_result.map((item) => ({
     title: item.title ?? '',
     url: item.link ?? '',
-    snippet: item.snippet ?? item.content?.slice(0, 300) ?? '',
+    snippet: item.snippet ?? item.content?.slice(0, 800) ?? '',
   }));
 }
 
@@ -141,7 +158,7 @@ async function searchTavily(apiKey: string, query: string, maxResults: number): 
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
-    throw makeError(`http_${response.status}`, `Tavily HTTP ${response.status}: ${body.slice(0, 200)}`);
+    throw makeError(`http_${response.status}`, `Tavily HTTP ${response.status}: ${body.slice(0, 500)}`);
   }
 
   interface TavilyResult {
@@ -161,7 +178,7 @@ async function searchTavily(apiKey: string, query: string, maxResults: number): 
   return json.results.map((item) => ({
     title: item.title ?? '',
     url: item.url ?? '',
-    snippet: item.content?.slice(0, 300) ?? '',
+    snippet: item.content?.slice(0, 800) ?? '',
   }));
 }
 
@@ -176,9 +193,9 @@ async function searchExa(apiKey: string, query: string, maxResults: number): Pro
     body: JSON.stringify({
       query,
       numResults: maxResults,
-      type: 'neural',
+      type: 'auto',
       contents: {
-        text: { maxCharacters: 500 },
+        text: { maxCharacters: 800 },
       },
     }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -186,7 +203,7 @@ async function searchExa(apiKey: string, query: string, maxResults: number): Pro
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
-    throw makeError(`http_${response.status}`, `Exa HTTP ${response.status}: ${body.slice(0, 200)}`);
+    throw makeError(`http_${response.status}`, `Exa HTTP ${response.status}: ${body.slice(0, 500)}`);
   }
 
   interface ExaResult {
@@ -207,7 +224,7 @@ async function searchExa(apiKey: string, query: string, maxResults: number): Pro
   return json.results.map((item) => ({
     title: item.title ?? '',
     url: item.url ?? '',
-    snippet: item.snippet ?? item.text?.slice(0, 300) ?? '',
+    snippet: item.snippet ?? item.text?.slice(0, 800) ?? '',
   }));
 }
 
@@ -215,7 +232,7 @@ async function searchExa(apiKey: string, query: string, maxResults: number): Pro
 // 统一入口
 // ---------------------------------------------------------------------------
 
-const SEARCH_HANDLERS: Record<SearchProvider, (apiKey: string, query: string, maxResults: number) => Promise<SearchResult[]>> = {
+const SEARCH_HANDLERS: Record<SearchProvider, (apiKey: string, query: string, maxResults: number, callMode?: string) => Promise<SearchResult[]>> = {
   firecrawl: searchFirecrawl,
   zhipu: searchZhipu,
   tavily: searchTavily,
@@ -243,7 +260,7 @@ export async function search(req: SearchRequest): Promise<SearchResponse> {
   // 统一超时/网络错误包装（handler 内部已有 AbortSignal.timeout，此处兜底）
   let results: SearchResult[];
   try {
-    results = await handler(req.apiKey, req.query.trim(), maxResults);
+    results = await handler(req.apiKey, req.query.trim(), maxResults, req.callMode);
   } catch (err) {
     // handler 已经抛出结构化错误，直接 re-throw
     if (err instanceof Error && 'code' in err) throw err;
@@ -251,4 +268,32 @@ export async function search(req: SearchRequest): Promise<SearchResponse> {
   }
 
   return { results, provider: req.provider };
+}
+
+// ---------------------------------------------------------------------------
+// 带重试的搜索包装器（指数退避，仅对可恢复错误生效）
+// ---------------------------------------------------------------------------
+
+/** 指数退避延迟序列（毫秒）：2次重试，共3次尝试。 */
+const SEARCH_RETRY_DELAYS = [3000, 6000];
+
+/**
+ * 带重试的搜索入口。
+ * 对可恢复错误（网络抖动、429 限流、5xx 服务端错误、超时）进行指数退避重试。
+ * 非可恢复错误（配置错误、认证失败等）直接抛出。
+ */
+export async function searchWithRetry(req: SearchRequest): Promise<SearchResponse> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= SEARCH_RETRY_DELAYS.length; attempt++) {
+    try {
+      return await search(req);
+    } catch (err) {
+      lastError = err;
+      if (!isTransientError(err) || attempt >= SEARCH_RETRY_DELAYS.length) throw err;
+      const delay = SEARCH_RETRY_DELAYS[attempt];
+      console.warn(`[Search] Transient error, retrying in ${delay}ms (attempt ${attempt + 1}/${SEARCH_RETRY_DELAYS.length})...`);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  throw lastError;
 }

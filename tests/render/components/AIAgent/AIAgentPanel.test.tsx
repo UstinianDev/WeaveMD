@@ -153,7 +153,7 @@ describe('AIAgentPanel（三视图外壳）', () => {
       activeModelConfigId: 'cfg-1',
       embeddingConfig: { provider: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'text-embedding-3-small', hasApiKey: true, multimodal: false },
       embeddingConnectionOk: true,
-      searchConfig: { enabled: true, provider: 'firecrawl', callMode: 'auto', maxResults: 10, hasApiKeys: { firecrawl: true, zhipu: false, tavily: false, exa: false } },
+      searchConfig: { enabled: true, provider: 'firecrawl', callMode: 'search_only' as const, maxResults: 10, hasApiKeys: { firecrawl: true, zhipu: false, tavily: false, exa: false } },
       searchConnectionOk: true,
     });
     useAuthStore.setState({

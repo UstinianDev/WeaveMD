@@ -241,6 +241,11 @@ function buildProps(node: Element): Record<string, string> {
     }
   }
 
+  // 标题层级标记（CSS 选择器辅助，便于精细控制字号/样式）
+  if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(node.tagName)) {
+    props.className = `ai-heading-${node.tagName.charAt(1)}`;
+  }
+
   return props;
 }
 

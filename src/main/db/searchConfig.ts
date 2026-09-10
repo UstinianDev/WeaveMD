@@ -37,12 +37,15 @@ interface SearchConfigDbRow {
 }
 
 function mapRow(row: SearchConfigDbRow): SearchConfigRow {
+  // 向后兼容：旧值 'scrape_and_search' 映射为新枚举 'search_and_scrape'
+  const rawCallMode = row.call_mode || 'search_only';
+  const callMode = rawCallMode === 'scrape_and_search' ? 'search_and_scrape' : rawCallMode;
   return {
     id: row.id,
     userId: row.user_id,
     enabled: !!row.enabled,
     provider: (row.provider as SearchProvider) || 'firecrawl',
-    callMode: row.call_mode || 'scrape_and_search',
+    callMode,
     maxResults: row.max_results || 10,
     firecrawlKeyEnc: row.firecrawl_key_enc,
     zhipuKeyEnc: row.zhipu_key_enc,
@@ -107,7 +110,7 @@ export function upsertSearchConfig(
       userId,
       data.enabled ? 1 : 0,
       data.provider ?? 'firecrawl',
-      data.callMode ?? 'scrape_and_search',
+      data.callMode ?? 'search_only',
       data.maxResults ?? 10,
       data.firecrawlKeyEnc ?? null,
       data.zhipuKeyEnc ?? null,

@@ -6,7 +6,7 @@
 // 铁律：搜索结果只读返回给 LLM，不做任何落盘操作。
 
 import type { SearchProvider, SearchErrorCode, ToolDef } from '@shared/ai';
-import { search, type SearchResponse } from '../searchClient';
+import { searchWithRetry, type SearchResponse } from '../searchClient';
 import { getSearchConfig } from '../../db/searchConfig';
 import { decryptApiKey } from '../secureConfig';
 
@@ -60,10 +60,11 @@ export interface WebSearchResponse {
 // Config Resolution
 // ---------------------------------------------------------------------------
 
-/** 从 ai_search_config 表解析搜索配置（provider + 明文 apiKey）。 */
+/** 从 ai_search_config 表解析搜索配置（provider + 明文 apiKey + callMode）。 */
 export function resolveSearchConfig(userId: string): {
   provider: SearchProvider;
   apiKey: string;
+  callMode: 'search_only' | 'search_and_scrape';
 } | null {
   const row = getSearchConfig(userId);
   if (!row || !row.enabled) return null;
@@ -77,7 +78,8 @@ export function resolveSearchConfig(userId: string): {
   try {
     const apiKey = decryptApiKey(enc);
     if (!apiKey) return null;
-    return { provider, apiKey };
+    const callMode = row.callMode === 'search_and_scrape' ? 'search_and_scrape' : 'search_only';
+    return { provider, apiKey, callMode };
   } catch {
     return null;
   }
@@ -115,13 +117,14 @@ export async function executeWebSearch(
     };
   }
 
-  // 调用 searchClient
+  // 调用 searchClient（带重试 + callMode 控制抓取模式）
   try {
-    const response: SearchResponse = await search({
+    const response: SearchResponse = await searchWithRetry({
       provider: config.provider,
       apiKey: config.apiKey,
       query,
       maxResults,
+      callMode: config.callMode,
     });
 
     const results: WebSearchResult[] = response.results.map((r) => ({
