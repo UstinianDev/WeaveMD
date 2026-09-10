@@ -642,6 +642,7 @@ function prepareAgentContext(
         '- 修改文件 → editBlocks（当前文档）/ preview_file_revision（任意文件）。',
         '- 本地文件 → readLocalFile/editLocalFile/listLocalDirectory，返回绝对路径后续直接使用。',
         '- 检索 → searchKB：当用户问题可能与笔记/文档相关时，主动检索知识库。首次用宽泛关键词，后续换不同角度，最多 2-3 次。信息不足时如实说明。传 hyde:true 可启用假设性文档检索（适合语义复杂的查询）。',
+        '- 联网搜索 → web_search：搜索互联网获取最新信息。搜索结果包含 title、url、snippet（摘要）。**必须基于搜索结果回答问题**，不得声称"没有找到信息"。如果结果中有相关内容，直接引用并注明来源 URL；如果结果确实不相关，尝试换关键词重新搜索。',
         '- 提问 → ask_question_card（支持文本/选择/确认），暂停等待回答。',
         '',
         '## 写入规则',

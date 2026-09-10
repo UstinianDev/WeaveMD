@@ -45,6 +45,15 @@ export async function handleWebSearch(args: Record<string, unknown>, ctx: ToolCt
 
   if (searchResult.results.length === 0) {
     payload.suggestion = '搜索未返回结果。请尝试：1) 简化关键词；2) 换用同义词；3) 拆分为多个子查询。如果多次搜索无结果，请如实告知用户未找到相关信息。';
+  } else {
+    // 检查是否有有效 snippet
+    const hasUsefulSnippet = searchResult.results.some((r) => r.snippet && r.snippet.trim().length > 20);
+    if (!hasUsefulSnippet) {
+      // 所有结果的 snippet 都很短或为空，可能是搜索引擎未返回详细内容
+      payload.note = '搜索结果已返回，但摘要内容较短。请根据标题和 URL 判断结果是否与用户问题相关。如果相关，可以告知用户找到了相关页面并提供链接；如果不相关，尝试换关键词重新搜索。';
+    }
+    // REMINDER：引导 LLM 基于搜索结果回答（参考 Claude Code 的引用强制机制）
+    payload.reminder = '请基于以上搜索结果回答用户问题。引用结果中的信息时注明来源 URL。如果搜索结果包含用户查询的答案，直接回答，不要声称"没有找到信息"。';
   }
 
   return {

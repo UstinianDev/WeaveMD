@@ -80,6 +80,7 @@ async function searchFirecrawl(apiKey: string, query: string, maxResults: number
     url?: string;
     description?: string;
     snippet?: string;
+    markdown?: string;
   }
   interface FirecrawlResponse {
     success?: boolean;
@@ -91,11 +92,22 @@ async function searchFirecrawl(apiKey: string, query: string, maxResults: number
     throw makeError('parse', 'Firecrawl response missing data');
   }
 
-  return json.data.map((item) => ({
-    title: item.title ?? '',
-    url: item.url ?? '',
-    snippet: item.snippet ?? item.description?.slice(0, 800) ?? '',
-  }));
+  return json.data.map((item) => {
+    // 优先级：snippet > description > markdown（截取前 800 字符）
+    let snippet = item.snippet ?? '';
+    if (!snippet && item.description) {
+      snippet = item.description.slice(0, 800);
+    }
+    if (!snippet && item.markdown) {
+      // markdown 是全页面内容，截取前 800 字符作为摘要
+      snippet = item.markdown.slice(0, 800);
+    }
+    return {
+      title: item.title ?? '',
+      url: item.url ?? '',
+      snippet,
+    };
+  });
 }
 
 /** 智谱: https://open.bigmodel.cn/api/paas/v4/web/search */
