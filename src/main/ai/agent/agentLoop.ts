@@ -96,7 +96,7 @@ type AgentLlmMessage = LlmMessage & {
 // ---------------------------------------------------------------------------
 
 const CONTEXT_WINDOW = 64_000;
-const KEEP_RECENT_ROUNDS = 6;
+const KEEP_RECENT_ROUNDS = 3; // 从 6 减少到 3，减少前轮内容对当前轮的影响
 
 /**
  * 动态压缩阈值：简单任务晚压缩（0.85），复杂任务早压缩（0.65）。
@@ -401,26 +401,60 @@ function prepareAgentContext(
   // chat 意图：不加载历史对话和摘要，每次独立回答（避免历史错误答案污染）
   const isChat = intent.intent === 'chat';
 
-  const allDbMessages = cleanupIncompleteMessages(
-    getMessagesByConversation(convId, userId)
-      .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
-      .map((m): LlmMessage => ({
-        role: m.role,
-        content: m.content,
-        ...(m.toolCallId ? { tool_call_id: m.toolCallId } : {}),
-      }))
-      // 过滤掉空内容的消息，避免 LLM 困惑
-      .filter((m) => m.content && m.content.trim().length > 0)
-  );
+  // 从 DB 加载所有消息（当前 user 消息已由 appendMessage 保存）
+  const rawDbMessages = getMessagesByConversation(convId, userId)
+    .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
+    .map((m): LlmMessage => ({
+      role: m.role,
+      content: m.content,
+      ...(m.toolCallId ? { tool_call_id: m.toolCallId } : {}),
+    }))
+    .filter((m) => m.content && m.content.trim().length > 0);
+
+  // 关键修复：cleanupIncompleteMessages 会移除末尾无 assistant 跟随的 user 消息，
+  // 但当前 user 消息（刚由 appendMessage 保存）还没有 assistant 回复，
+  // 会被当作"孤立消息"移除。因此需要先提取当前 user 消息，清理后重新添加。
+  const currentUserMsg: LlmMessage = { role: 'user', content: message };
+  const historyMsgs = rawDbMessages.length > 0 && rawDbMessages[rawDbMessages.length - 1].role === 'user'
+    ? cleanupIncompleteMessages(rawDbMessages.slice(0, -1))  // 移除最后一条（当前 user），清理后再加回
+    : cleanupIncompleteMessages(rawDbMessages);
+  const allDbMessages = [...historyMsgs, currentUserMsg];
 
   // chat 意图：只保留当前用户消息（最后一条 user 消息），丢弃历史
   const history: LlmMessage[] = isChat
-    ? allDbMessages.filter((m) => m.role === 'user').slice(-1)
+    ? [currentUserMsg]
     : allDbMessages;
 
   let llmMessages: AgentLlmMessage[] = (!isChat && summary)
     ? buildCompressed(history, summary, KEEP_RECENT_ROUNDS)
     : [...history];
+
+  // Attention Anchoring 技术（来自 OpenAI/LangChain 最佳实践）：
+  // 1. 在最后一条 user 消息前注入分隔标记（recency bias：最近的 token 权重更高）
+  // 2. 在最后一条 user 消息后注入强调指令（Place key instructions at the END）
+  // 这样可以最大程度确保 LLM 关注当前问题，避免 "lost in the middle" 问题
+
+  // 查找最后一条 user 消息的位置
+  let lastUserIdx = -1;
+  for (let i = llmMessages.length - 1; i >= 0; i--) {
+    if (llmMessages[i].role === 'user') {
+      lastUserIdx = i;
+      break;
+    }
+  }
+
+  if (lastUserIdx > 0) {
+    // 在最后一条 user 消息前插入分隔标记
+    llmMessages.splice(lastUserIdx, 0, {
+      role: 'system',
+      content: '=== 当前用户问题（必须回答此问题）===',
+    });
+    // 在最后一条 user 消息后插入强调指令（recency bias：最后的指令权重最高）
+    llmMessages.splice(lastUserIdx + 2, 0, {
+      role: 'system',
+      content: '【重要】请只回答上面的用户问题。忽略之前的所有对话内容和历史摘要。这是全新的独立问题。',
+    });
+  }
 
   // 注入当前文档上下文（只读）
   // 注入 Agent 系统指令（指导 LLM 正确使用工具）
