@@ -3,6 +3,7 @@
 // ============================================
 // 从 agentLoop.ts 提取：系统提示组装 + 文档上下文构建。
 // 纯函数，不依赖 IPC / 数据库（listFiles 由调用方注入快照）。
+// 性能优化：文件列表缓存（避免每次 Agent 调用都查询 DB）。
 
 import { estimateTokens } from '../utils/tokenEstimator';
 
@@ -18,6 +19,22 @@ const DOC_CONTEXT_CUT_MARKER = '\n\n[文档过长已截断…]';
 /** 文件列表截断限制。 */
 const MAX_FILE_LIST = 50;
 const MAX_LOCAL_TREE = 30;
+
+// ---------------------------------------------------------------------------
+// 文件列表缓存（性能优化）
+// ---------------------------------------------------------------------------
+
+/** 文件列表缓存条目。 */
+interface FileListCacheEntry {
+  snapshot: string;
+  timestamp: number;
+}
+
+/** 文件列表缓存：会话级缓存，5 分钟 TTL。 */
+const fileListCache = new Map<string, FileListCacheEntry>();
+
+/** 缓存 TTL（5 分钟）。 */
+const FILE_LIST_CACHE_TTL = 5 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // 文档上下文构建
@@ -61,6 +78,35 @@ export function buildFileListSnapshot(files: FileEntry[]): string {
     ? `\n- ...（还有 ${files.length - MAX_FILE_LIST} 个文件，用 listFiles 工具查看完整列表）`
     : '';
   return `\n\n以下是你可访问的工作区文件列表（数据库）：\n${fileList}${suffix}`;
+}
+
+/**
+ * 构建数据库文件列表快照（带缓存，性能优化）。
+ * 同一用户在缓存有效期内（5 分钟）复用缓存结果。
+ * @param userId 用户 ID（缓存键）
+ * @param files 文件列表（由调用方从 DB 查询后传入）
+ * @returns 文件列表快照字符串
+ */
+export function buildFileListSnapshotCached(
+  userId: string,
+  files: FileEntry[]
+): string {
+  const cached = fileListCache.get(userId);
+  if (cached && Date.now() - cached.timestamp < FILE_LIST_CACHE_TTL) {
+    return cached.snapshot;
+  }
+
+  const snapshot = buildFileListSnapshot(files);
+  fileListCache.set(userId, { snapshot, timestamp: Date.now() });
+  return snapshot;
+}
+
+/**
+ * 清除文件列表缓存（文件创建/删除/重命名时调用）。
+ * @param userId 用户 ID
+ */
+export function invalidateFileListCache(userId: string): void {
+  fileListCache.delete(userId);
 }
 
 /**

@@ -3,9 +3,10 @@
 // ============================================
 // jieba-wasm cut_for_search + bigram 回退。
 // 供 kbSearch sanitizeFtsQuery 调用，提升 CJK 查询命中率。
+// 性能优化：异步加载（应用启动时后台加载，不阻塞主线程）。
 
 // ---------------------------------------------------------------------------
-// jieba-wasm 加载（同步 require，惰性初始化）
+// jieba-wasm 加载（异步 + 同步降级）
 // ---------------------------------------------------------------------------
 
 /** jieba cut_for_search 函数引用（null = 尚未加载）。 */
@@ -14,33 +15,53 @@ let cutForSearch: ((text: string, hmm?: boolean | null) => string[]) | null = nu
 /** jieba 加载状态：'idle' | 'ok' | 'fail' */
 let jiebaStatus: 'idle' | 'ok' | 'fail' = 'idle';
 
+/** jieba 异步加载 Promise（避免重复加载）。 */
+let jiebaLoadPromise: Promise<boolean> | null = null;
+
 /**
- * 同步加载 jieba-wasm（nodejs 环境下 WASM 同步初始化）。
- * 首次调用时尝试 require，失败则降级到 bigram。
+ * 异步加载 jieba-wasm（应用启动时后台加载，不阻塞主线程）。
+ * 返回 Promise<boolean>，true 表示加载成功，false 表示降级到 bigram。
  */
-function ensureJiebaSync(): boolean {
-  if (jiebaStatus === 'ok') return true;
-  if (jiebaStatus === 'fail') return false;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const mod = require('jieba-wasm') as Record<string, unknown>;
-    if (typeof mod.cut_for_search === 'function') {
-      cutForSearch = mod.cut_for_search as (text: string, hmm?: boolean | null) => string[];
-      jiebaStatus = 'ok';
-      return true;
-    }
-    // 回退到普通 cut
-    if (typeof mod.cut === 'function') {
-      cutForSearch = mod.cut as (text: string, hmm?: boolean | null) => string[];
-      jiebaStatus = 'ok';
-      return true;
-    }
-    jiebaStatus = 'fail';
-    return false;
-  } catch {
-    jiebaStatus = 'fail';
-    return false;
-  }
+export function initJiebaAsync(): Promise<boolean> {
+  if (jiebaStatus === 'ok') return Promise.resolve(true);
+  if (jiebaStatus === 'fail') return Promise.resolve(false);
+  if (jiebaLoadPromise) return jiebaLoadPromise;
+
+  jiebaLoadPromise = new Promise<boolean>((resolve) => {
+    // 使用 setTimeout(0) 将加载推迟到下一个事件循环，不阻塞当前执行
+    setTimeout(() => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const mod = require('jieba-wasm') as Record<string, unknown>;
+        if (typeof mod.cut_for_search === 'function') {
+          cutForSearch = mod.cut_for_search as (text: string, hmm?: boolean | null) => string[];
+          jiebaStatus = 'ok';
+          resolve(true);
+        } else if (typeof mod.cut === 'function') {
+          // 回退到普通 cut
+          cutForSearch = mod.cut as (text: string, hmm?: boolean | null) => string[];
+          jiebaStatus = 'ok';
+          resolve(true);
+        } else {
+          jiebaStatus = 'fail';
+          resolve(false);
+        }
+      } catch {
+        jiebaStatus = 'fail';
+        resolve(false);
+      }
+    }, 0);
+  });
+
+  return jiebaLoadPromise;
+}
+
+/**
+ * 同步检查 jieba-wasm 是否已加载（用于快速路径判断）。
+ * 不触发加载，仅检查状态。
+ */
+function isJiebaReady(): boolean {
+  return jiebaStatus === 'ok' && cutForSearch !== null;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,19 +140,35 @@ function bigramFallback(text: string): string[] {
 // ---------------------------------------------------------------------------
 
 /**
- * 初始化 jieba-wasm（同步 require）。
+ * 初始化 jieba-wasm（同步 require，向后兼容）。
  * 返回 true 表示 jieba 可用，false 表示降级到 bigram。
+ * @deprecated 使用 initJiebaAsync() 代替，避免阻塞主线程。
  */
 export function initJieba(): boolean {
-  return ensureJiebaSync();
+  if (isJiebaReady()) return true;
+  // 同步降级：如果异步加载尚未完成，使用 bigram
+  return false;
 }
 
 /**
  * 分词：优先 jieba cut_for_search，回退 bigram + 正则。
- * 首次调用自动尝试加载 jieba-wasm。
+ * 同步版本，如果 jieba 未加载完成则使用 bigram 降级。
  */
 export function tokenize(text: string): string[] {
-  if (ensureJiebaSync() && cutForSearch) {
+  if (isJiebaReady() && cutForSearch) {
+    return cutForSearch(text, true);
+  }
+  return bigramFallback(text);
+}
+
+/**
+ * 异步分词：等待 jieba 加载完成后分词。
+ * 如果 jieba 加载失败，自动降级到 bigram。
+ * 适用于可以等待的场景（如 KB 搜索）。
+ */
+export async function tokenizeAsync(text: string): Promise<string[]> {
+  await initJiebaAsync();
+  if (cutForSearch) {
     return cutForSearch(text, true);
   }
   return bigramFallback(text);

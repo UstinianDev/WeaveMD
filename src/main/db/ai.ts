@@ -557,6 +557,33 @@ export function getMessagesByConversation(
   return rows.map(mapMessageRow);
 }
 
+/**
+ * 分页加载消息（性能优化）。
+ * 只加载最近 N 条消息，避免长对话时全表扫描。
+ * @param conversationId 会话 ID
+ * @param userId 用户 ID
+ * @param limit 最大条数（默认 20）
+ * @param offset 偏移量（默认 0，从最新消息开始倒序）
+ * @returns 消息列表（按时间正序）
+ */
+export function getMessagesByConversationPaginated(
+  conversationId: string,
+  userId: string,
+  limit: number = 20,
+  offset: number = 0
+): IAIMessage[] {
+  const db = getDatabase();
+  // 倒序加载最近 N 条，然后反转为正序
+  const rows = cachedPrepare(db,
+      `SELECT * FROM ai_messages
+        WHERE conversation_id = ? AND user_id = ?
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?`
+    )
+    .all(conversationId, userId, limit, offset) as AiMessageDbRow[];
+  return rows.reverse().map(mapMessageRow);
+}
+
 /** 校验会话归属后追加用户消息（供 IPC App 组装消息） */
 export function assertConversationOwned(conversationId: string, userId: string): boolean {
   return getConversation(conversationId, userId) !== null;

@@ -209,8 +209,8 @@ function vectorSearch(
 }
 
 /**
- * 标题/路径 LIKE 匹配（补充召回）。
- * 单条查询 + OR 条件（替代逐关键词 N 次查询）。
+ * 标题/路径 FTS5 匹配（性能优化）。
+ * 使用 FTS5 全文索引替代 LIKE 查询，加速标题匹配检索。
  * 返回 documentId → 匹配分数（0-1）。
  */
 function titleMatchSearch(
@@ -220,37 +220,43 @@ function titleMatchSearch(
   limit: number
 ): Map<string, number> {
   const result = new Map<string, number>();
-  const keywords = query.split(/\s+/).filter(k => k.length > 1).slice(0, 3);
+
+  // 清理查询：移除 FTS5 特殊字符
+  const FTS_SPECIAL_RE = /[!"()*:^~+\-&|<>[\]{}]/g;
+  const cleaned = query.replace(FTS_SPECIAL_RE, ' ').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return result;
+
+  // 构建 FTS5 查询：分词后 OR 连接
+  const keywords = cleaned.split(/\s+/).filter(k => k.length > 1).slice(0, 5);
   if (keywords.length === 0) return result;
 
-  // 构建 OR 条件：每个关键词对应 (title LIKE ? OR file_path LIKE ?)
-  const orClauses = keywords.map(() => '(title LIKE ? OR file_path LIKE ?)').join(' OR ');
-  const params: unknown[] = [userId];
-  for (const kw of keywords) {
-    params.push(`%${kw}%`, `%${kw}%`);
-  }
-  params.push(limit);
+  // FTS5 查询：每个关键词加 * 前缀匹配
+  const ftsQuery = keywords.map(kw => `${kw}*`).join(' OR ');
 
   try {
     const rows = db.prepare(`
-      SELECT id AS docId, title
-        FROM kb_documents
-       WHERE user_id = ?
-         AND (${orClauses})
+      SELECT d.id AS docId, d.title,
+             bm25(kb_documents_fts) AS bm
+        FROM kb_documents_fts
+        JOIN kb_documents d ON d.rowid = kb_documents_fts.rowid
+       WHERE kb_documents_fts MATCH ?
+         AND kb_documents_fts.user_id = ?
+       ORDER BY bm
        LIMIT ?
-    `).all(...params) as Array<{ docId: string; title: string }>;
+    `).all(ftsQuery, userId, limit) as Array<{
+      docId: string;
+      title: string;
+      bm: number;
+    }>;
 
     for (const row of rows) {
       if (!row.docId || !row.title) continue;
-      let score = 0;
-      for (const kw of keywords) {
-        const match = row.title.toLowerCase().includes(kw.toLowerCase()) ? 0.3 : 0.1;
-        score += match;
-      }
+      // BM25 分数转换为 0-1 范围（bm 越小越好，取绝对值后归一化）
+      const score = Math.max(0, 1 - Math.abs(row.bm) / 10);
       result.set(row.docId, Math.min(1, score));
     }
   } catch {
-    // 表不存在或查询失败时静默跳过
+    // FTS5 查询失败时静默跳过（可能索引未建立）
   }
   return result;
 }

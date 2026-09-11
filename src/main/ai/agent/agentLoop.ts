@@ -16,7 +16,7 @@ import type {
   IIntent,
   ToolDef,
 } from '@shared/ai';
-import { appendMessage, getConversation, getMessagesByConversation, updateConversationSummary } from '../../db/ai';
+import { appendMessage, getConversation, getMessagesByConversation, getMessagesByConversationPaginated, updateConversationSummary } from '../../db/ai';
 import { listFiles } from '../../db/files';
 import { getEmbeddingConfig } from '../../db/embeddingConfig';
 import { decryptApiKey } from '../secureConfig';
@@ -29,7 +29,7 @@ import { resolveSearchConfig } from '../tools/webSearch';
 import { loadSkills, type CoreSkill, type SkillRunnerCtx } from '../skills/skillLoader';
 import { persistAndSend } from './agentEventStore';
 import { DeadLoopDetector, type LoopCheckResult } from './agentLoopGuard';
-import { saveCheckpoint, type CheckpointData } from './agentCheckpoint';
+import { saveCheckpoint, saveCheckpointIncremental, type CheckpointData } from './agentCheckpoint';
 import { createSegment, completeSegment, type ExecutionSegment } from './agentExecutionSegments';
 import {
   buildDocumentContext,
@@ -401,8 +401,9 @@ function prepareAgentContext(
   // chat 意图：不加载历史对话和摘要，每次独立回答（避免历史错误答案污染）
   const isChat = intent.intent === 'chat';
 
-  // 从 DB 加载所有消息（当前 user 消息已由 appendMessage 保存）
-  const rawDbMessages = getMessagesByConversation(convId, userId)
+  // 从 DB 加载消息（性能优化：分页加载最近 20 条，避免长对话时全表扫描）
+  // 当前 user 消息已由 appendMessage 保存，会出现在查询结果中
+  const rawDbMessages = getMessagesByConversationPaginated(convId, userId, 20, 0)
     .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
     .map((m): LlmMessage => ({
       role: m.role,
@@ -867,12 +868,26 @@ export async function runAgentFlow(
       // 上下文压缩（幂等）— 使用增量 token 统计 + 动态阈值
       if (shouldCompress(ctx.totalTokens, CONTEXT_WINDOW, getCompressThreshold(round))) {
         try {
+          // 压缩前记录旧消息数（用于增量计算）
+          const oldMessageCount = ctx.llmMessages.length;
+
           const newSummary = await summarizeViaLlm(ctx.llmMessages, ctx.skillContext);
           if (newSummary) {
             updateConversationSummary(ctx.convId, ctx.userId, newSummary);
             ctx.llmMessages = buildCompressed(ctx.llmMessages, newSummary, KEEP_RECENT_ROUNDS);
-            // 压缩后重算 token 统计
+
+            // 增量计算：只计算压缩后新增的消息（通常只有 summary + 分隔标记）
+            // 压缩后的消息数通常远少于原始消息数
+            const newMessages = ctx.llmMessages.slice(oldMessageCount);
+            const newTokenCount = newMessages.reduce((s, m) => s + estimateTokens(m.content), 0);
+
+            // 压缩后 token 数 = 原始 token 数 - 被移除消息的 token 数 + 新增消息的 token 数
+            // 简化：直接使用压缩后消息的 token 总数（因为压缩会显著减少 token 数）
             ctx.totalTokens = ctx.llmMessages.reduce((s, m) => s + estimateTokens(m.content), 0);
+
+            // 可选：记录压缩比（用于调试）
+            const compressionRatio = ctx.totalTokens / (ctx.totalTokens + newTokenCount);
+            console.log(`[Agent] Context compression ratio: ${compressionRatio.toFixed(2)}, messages: ${oldMessageCount} -> ${ctx.llmMessages.length}`);
           }
         } catch (compressErr) {
           // 压缩失败不应阻断主流程，记录日志后继续
@@ -962,22 +977,23 @@ export async function runAgentFlow(
         ctx.totalTokens += estimateTokens(m.content);
       }
 
-      // R7b: checkpoint（1d: 增量 — 只记录本轮新增消息）
+      // R7b: checkpoint（增量写入 — 只序列化本轮新增消息，避免全量序列化）
       if (ctx.hasSessionPersist) {
         try {
-          const cpData: CheckpointData = {
-            roundIndex: round,
-            llmMessages: toolTurn.map((m) => ({
+          // 增量写入：只传入本轮新增的 toolTurn 消息，与现有 checkpoint 合并
+          saveCheckpointIncremental(
+            deps.db!,
+            deps.sessionId!,
+            toolTurn.map((m) => ({
               role: m.role as 'system' | 'user' | 'assistant' | 'tool',
               content: m.content,
               ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
             })),
-            toolCallsHistory: ctx.toolCallsHistory,
-            roundsUsed: ctx.roundsUsed,
-            reasoningTokenCount: ctx.reasoningTokenCount,
-            intent: ctx.intent,
-          };
-          saveCheckpoint(deps.db!, deps.sessionId!, cpData);
+            ctx.toolCallsHistory,
+            ctx.roundsUsed,
+            ctx.reasoningTokenCount,
+            ctx.intent,
+          );
         } catch {
           // checkpoint 写入失败不影响主流程
         }

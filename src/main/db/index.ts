@@ -260,6 +260,9 @@ function runMigrations(database: Database.Database): void {
   addFileRevisionsTable(database);
   addKnowledgeCacheTable(database);
   addParsedAttachmentsTable(database);
+
+  // 性能优化：kb_documents 标题 FTS5 索引（加速标题匹配检索）
+  addKbDocumentsFtsIndex(database);
 }
 
 /**
@@ -546,4 +549,57 @@ function addParsedAttachmentsTable(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_parsed_attachments_user ON parsed_attachments(user_id);
   `);
+}
+
+/** 性能优化：kb_documents 标题 FTS5 索引（加速标题匹配检索）。 */
+function addKbDocumentsFtsIndex(database: Database.Database): void {
+  // FTS5 虚拟表：索引 title 和 file_path 列
+  database.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS kb_documents_fts USING fts5(
+      title,
+      file_path,
+      user_id UNINDEXED,
+      tokenize = 'unicode61 remove_diacritics 2'
+    );
+  `);
+
+  // 触发器：INSERT 时同步到 FTS5
+  database.exec(`
+    DROP TRIGGER IF EXISTS kb_documents_fts_ai;
+    CREATE TRIGGER kb_documents_fts_ai AFTER INSERT ON kb_documents BEGIN
+      INSERT INTO kb_documents_fts(rowid, title, file_path, user_id)
+      VALUES (new.rowid, new.title, new.file_path, new.user_id);
+    END;
+  `);
+
+  // 触发器：DELETE 时同步到 FTS5
+  database.exec(`
+    DROP TRIGGER IF EXISTS kb_documents_fts_ad;
+    CREATE TRIGGER kb_documents_fts_ad AFTER DELETE ON kb_documents BEGIN
+      INSERT INTO kb_documents_fts(kb_documents_fts, rowid, title, file_path, user_id)
+      VALUES ('delete', old.rowid, old.title, old.file_path, old.user_id);
+    END;
+  `);
+
+  // 触发器：UPDATE 时同步到 FTS5
+  database.exec(`
+    DROP TRIGGER IF EXISTS kb_documents_fts_au;
+    CREATE TRIGGER kb_documents_fts_au AFTER UPDATE ON kb_documents BEGIN
+      INSERT INTO kb_documents_fts(kb_documents_fts, rowid, title, file_path, user_id)
+      VALUES ('delete', old.rowid, old.title, old.file_path, old.user_id);
+      INSERT INTO kb_documents_fts(rowid, title, file_path, user_id)
+      VALUES (new.rowid, new.title, new.file_path, new.user_id);
+    END;
+  `);
+
+  // 重建索引：将现有数据导入 FTS5（幂等，重复执行无副作用）
+  try {
+    database.exec(`
+      INSERT INTO kb_documents_fts(rowid, title, file_path, user_id)
+      SELECT rowid, title, file_path, user_id FROM kb_documents
+      WHERE rowid NOT IN (SELECT rowid FROM kb_documents_fts);
+    `);
+  } catch {
+    // 重建失败时静默跳过（索引可能已存在）
+  }
 }

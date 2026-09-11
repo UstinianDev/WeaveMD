@@ -16,6 +16,7 @@ const dbMock = vi.hoisted(() => ({
   appendMessage: vi.fn(),
   getConversation: vi.fn(),
   getMessagesByConversation: vi.fn(() => []),
+  getMessagesByConversationPaginated: vi.fn(() => []),
   updateConversationSummary: vi.fn(),
 }));
 vi.mock('@main/db/ai', () => dbMock);
@@ -111,6 +112,7 @@ vi.mock('@main/ai/agent/agentLoopGuard', () => guardMock);
 // --- agentCheckpoint mock (R7b) ---
 const checkpointMock = vi.hoisted(() => ({
   saveCheckpoint: vi.fn(),
+  saveCheckpointIncremental: vi.fn(),
 }));
 vi.mock('@main/ai/agent/agentCheckpoint', () => checkpointMock);
 
@@ -580,17 +582,20 @@ describe('runAgentFlow', () => {
       }
     );
 
-    // 工具执行那轮结束后应保存 checkpoint
-    expect(checkpointMock.saveCheckpoint).toHaveBeenCalledWith(
+    // 工具执行那轮结束后应保存 checkpoint（使用增量写入）
+    expect(checkpointMock.saveCheckpointIncremental).toHaveBeenCalledWith(
       fakeDb,
       'sess-1',
-      expect.objectContaining({
-        roundIndex: 0,
-        roundsUsed: 1,
-        toolCallsHistory: expect.arrayContaining([
-          expect.objectContaining({ name: 'readFile' }),
-        ]),
-      })
+      expect.arrayContaining([
+        expect.objectContaining({ role: 'assistant' }),
+        expect.objectContaining({ role: 'tool' }),
+      ]),  // newMessages (assistant + tool)
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'readFile', status: 'ok' }),
+      ]),  // toolCallsHistory
+      1,  // roundsUsed
+      null,  // reasoningTokenCount
+      expect.objectContaining({ intent: 'create' }),  // intent
     );
   });
 });

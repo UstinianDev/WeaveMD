@@ -3,7 +3,9 @@
 // ============================================
 // 持久化 SSE 事件到 agent_run_events，并通过 IPC 推送到渲染进程。
 // 支持断线重连时从指定序列号回放。
+// 性能优化：批量写入（累积事件后批量 INSERT，减少 DB 写入次数）。
 
+import { randomUUID } from 'crypto';
 import type { BrowserWindow } from 'electron';
 import type { Database as BetterSqlite3Database } from 'better-sqlite3';
 import type { AgentRunEvent } from '@shared/ai';
@@ -21,7 +23,90 @@ export function resetSeqCounter(sessionId: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// persistAndSend — 持久化事件并通过 IPC 推送
+// 批量写入队列（性能优化）
+// ---------------------------------------------------------------------------
+
+interface BatchEventItem {
+  db: BetterSqlite3Database;
+  sessionId: string;
+  conversationId: string;
+  seq: number;
+  eventType: string;
+  payloadJson: string;
+  mainWindow: BrowserWindow;
+}
+
+/** 批量写入队列。 */
+const eventBatchQueue: BatchEventItem[] = [];
+
+/** 批量刷新定时器。 */
+let batchFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** 批量刷新间隔（毫秒）。 */
+const BATCH_FLUSH_INTERVAL = 100;
+
+/**
+ * 刷新批量队列：将队列中的事件批量写入 DB 并发送 IPC。
+ * 使用事务包裹，减少 auto-commit 开销。
+ */
+function flushEventBatch(): void {
+  if (eventBatchQueue.length === 0) return;
+
+  const batch = [...eventBatchQueue];
+  eventBatchQueue.length = 0;
+
+  if (batchFlushTimer) {
+    clearTimeout(batchFlushTimer);
+    batchFlushTimer = null;
+  }
+
+  // 按 DB 实例分组（理论上只有一个 DB，但防御性编程）
+  const dbGroups = new Map<BetterSqlite3Database, BatchEventItem[]>();
+  for (const item of batch) {
+    const group = dbGroups.get(item.db) ?? [];
+    group.push(item);
+    dbGroups.set(item.db, group);
+  }
+
+  // 批量 INSERT（事务包裹）
+  for (const [db, items] of dbGroups) {
+    try {
+      const insertStmt = db.prepare(`
+        INSERT INTO agent_run_events (id, session_id, conversation_id, seq, event_type, payload_json)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+
+      const insertMany = db.transaction((batchItems: BatchEventItem[]) => {
+        for (const item of batchItems) {
+          const id = randomUUID();
+          insertStmt.run(id, item.sessionId, item.conversationId, item.seq, item.eventType, item.payloadJson);
+        }
+      });
+
+      insertMany(items);
+    } catch {
+      // 批量写入失败时静默跳过（不阻断主流程）
+    }
+  }
+
+  // 批量 IPC 发送
+  for (const item of batch) {
+    try {
+      const payload = JSON.parse(item.payloadJson);
+      item.mainWindow.webContents.send(`ai:stream:${item.eventType}`, {
+        sessionId: item.sessionId,
+        conversationId: item.conversationId,
+        seq: item.seq,
+        ...(typeof payload === 'object' && payload !== null ? payload : { data: payload }),
+      });
+    } catch {
+      // IPC 发送失败时静默跳过
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// persistAndSend — 持久化事件并通过 IPC 推送（批量版本）
 // ---------------------------------------------------------------------------
 
 export function persistAndSend(
@@ -40,23 +125,34 @@ export function persistAndSend(
   seqCounters.set(sessionId, nextSeq);
   const payloadJson = JSON.stringify(payload);
 
-  const event = eventDao.insertEvent(
+  // 加入批量队列
+  eventBatchQueue.push({
     db,
     sessionId,
     conversationId,
-    nextSeq,
+    seq: nextSeq,
     eventType,
-    payloadJson
-  );
+    payloadJson,
+    mainWindow,
+  });
 
-  mainWindow.webContents.send(`ai:stream:${eventType}`, {
+  // 启动批量刷新定时器（如果尚未启动）
+  if (!batchFlushTimer) {
+    batchFlushTimer = setTimeout(() => {
+      flushEventBatch();
+    }, BATCH_FLUSH_INTERVAL);
+  }
+
+  // 返回事件对象（本地构造，不等待 DB 写入）
+  return {
+    id: randomUUID(),
     sessionId,
     conversationId,
     seq: nextSeq,
-    ...(typeof payload === 'object' && payload !== null ? payload : { data: payload }),
-  });
-
-  return event;
+    eventType: eventType as AgentRunEvent['eventType'],
+    payloadJson,
+    createdAt: new Date().toISOString(),
+  };
 }
 
 /**

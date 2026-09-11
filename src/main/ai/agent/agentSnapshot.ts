@@ -3,12 +3,13 @@
 // ============================================
 // 操作前备份用户所有 .md 文件，失败后可回滚。
 // 块级替换在渲染侧执行，主进程仅提供快照读写能力。
+// 性能优化：增量更新（只备份自上次快照后修改的文件）。
 
 import type { Database as BetterSqlite3Database } from 'better-sqlite3';
 import * as snapshotDao from '../../db/agentSnapshotDao';
 
 // ---------------------------------------------------------------------------
-// 创建快照（备份用户所有 .md 文件）
+// 创建快照（备份用户所有 .md 文件）— 全量版本（向后兼容）
 // ---------------------------------------------------------------------------
 
 export async function createSnapshot(
@@ -35,6 +36,59 @@ export async function createSnapshot(
   );
 
   console.log(`[agentSnapshot] Created snapshot for ${files.length} files`);
+}
+
+// ---------------------------------------------------------------------------
+// 创建增量快照（性能优化）— 只备份自上次快照后修改的文件
+// ---------------------------------------------------------------------------
+
+/**
+ * 创建增量快照。
+ * 只备份自上次快照后修改的文件，减少快照创建延迟。
+ * @param db 数据库实例
+ * @param sessionId 会话 ID
+ * @param userId 用户 ID
+ * @returns 快照文件数
+ */
+export async function createSnapshotIncremental(
+  db: BetterSqlite3Database,
+  sessionId: string,
+  userId: string,
+): Promise<number> {
+  // 1. 获取上次快照时间
+  const lastSnapshot = db.prepare(`
+    SELECT created_at FROM agent_file_snapshots
+    WHERE session_id = ? AND user_id = ?
+    ORDER BY created_at DESC
+    LIMIT 1
+  `).get(sessionId, userId) as { created_at: string } | undefined;
+
+  const since = lastSnapshot?.created_at || '1970-01-01';
+
+  // 2. 查询自上次快照后修改的文件
+  const files = db.prepare(`
+    SELECT id, name, content FROM files
+    WHERE user_id = ?
+      AND deleted_at IS NULL
+      AND name LIKE '%.md'
+      AND modified_at > ?
+  `).all(userId, since) as Array<{ id: string; name: string; content: string }>;
+
+  if (files.length === 0) {
+    console.log('[agentSnapshot] No modified .md files to snapshot');
+    return 0;
+  }
+
+  // 3. 保存增量快照
+  snapshotDao.saveSnapshot(
+    db,
+    sessionId,
+    userId,
+    files.map((f) => ({ fileId: f.id, fileName: f.name, content: f.content })),
+  );
+
+  console.log(`[agentSnapshot] Created incremental snapshot for ${files.length} files`);
+  return files.length;
 }
 
 // ---------------------------------------------------------------------------
