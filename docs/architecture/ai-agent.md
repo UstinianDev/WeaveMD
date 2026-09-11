@@ -16,7 +16,7 @@ AI/Agent 系统是 WeaveMD 的智能创作辅助模块，基于远程 OpenAI 兼
 
 ## Agent 循环
 
-`agentLoop.ts` 核心流程：
+`agentLoop.ts` 核心流程（2026-09-10 重构拆分为子模块）：
 
 ```
 用户消息 → 意图识别 → 工具集确定 → 系统提示组装
@@ -37,6 +37,14 @@ LLM 流式调用（带 tools 定义）
 | maxRounds | 12 | 最大轮次 |
 | TOOL_EXEC_TIMEOUT_MS | 30000 | 单工具超时 |
 | maxConsecutiveFailures | 2 | 连续失败终止 |
+
+### 子模块（2026-09-10 重构提取）
+
+| 子模块 | 文件 | 职责 |
+|--------|------|------|
+| Prompt 构建 | `agentPromptBuilder.ts` | 系统提示组装 + 文档上下文 + 文件列表快照 |
+| 工具选择 | `agentToolSelector.ts` | 按意图决定可用工具子集 + READ_ONLY/WRITE_TOOLS 常量 |
+| KB 预加载 | `agentKbPreloader.ts` | 异步预检索 + 一次性缓存（30s TTL） |
 
 ## 意图路由
 

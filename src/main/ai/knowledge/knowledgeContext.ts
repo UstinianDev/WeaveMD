@@ -192,6 +192,82 @@ function estimateTokens(text: string): number {
   return Math.ceil(cjkCount / 1.5 + otherCount / 4);
 }
 
+/** 合并匹配段落（按 seq 排序）。 */
+function mergeMatchedParagraphs(docResults: IKbSearchResult[]): string {
+  return docResults
+    .sort((a, b) => a.seq - b.seq)
+    .map((r) => r.content)
+    .join('\n\n');
+}
+
+/**
+ * 构建短文档上下文（全文注入）。
+ * @returns 消耗的 token 数
+ */
+function buildShortDocContext(
+  title: string,
+  fullContent: string,
+  parts: string[]
+): number {
+  parts.push(`## 文档：${title}\n\n${fullContent}`);
+  return estimateTokens(fullContent);
+}
+
+/**
+ * 构建长文档上下文（outline + 匹配段落，可能截断）。
+ * @returns 消耗的 token 数
+ */
+function buildLongDocContext(
+  title: string,
+  fullContent: string,
+  docResults: IKbSearchResult[],
+  docBudget: number,
+  parts: string[]
+): number {
+  const headings = extractHeadings(fullContent);
+  const matchedParagraphs = mergeMatchedParagraphs(docResults);
+
+  const outlineText = headings.length > 0
+    ? `### 大纲\n${headings.join('\n')}`
+    : '';
+
+  const paraTokens = estimateTokens(matchedParagraphs);
+  const outlineTokens = estimateTokens(outlineText);
+  const availableForPara = docBudget - outlineTokens;
+
+  if (paraTokens <= availableForPara) {
+    parts.push(`## 文档：${title}\n\n${outlineText}\n\n### 匹配段落\n\n${matchedParagraphs}`);
+    return outlineTokens + paraTokens;
+  } else {
+    const truncated = truncateToTokenBudget(matchedParagraphs, availableForPara);
+    parts.push(`## 文档：${title}\n\n${outlineText}\n\n### 匹配段落\n\n${truncated}`);
+    return outlineTokens + estimateTokens(truncated);
+  }
+}
+
+/**
+ * 构建无全文文档上下文（仅匹配段落，可能截断）。
+ * @returns 消耗的 token 数
+ */
+function buildNoContentDocContext(
+  title: string,
+  docResults: IKbSearchResult[],
+  remainingBudget: number,
+  parts: string[]
+): number {
+  const matchedParagraphs = mergeMatchedParagraphs(docResults);
+  const paraTokens = estimateTokens(matchedParagraphs);
+
+  if (paraTokens <= remainingBudget) {
+    parts.push(`## 文档：${title}\n\n${matchedParagraphs}`);
+    return paraTokens;
+  } else {
+    const truncated = truncateToTokenBudget(matchedParagraphs, remainingBudget);
+    parts.push(`## 文档：${title}\n\n${truncated}`);
+    return estimateTokens(truncated);
+  }
+}
+
 /**
  * 构建文档级上下文。
  * - 短文档（≤ perDocBudget token）：全文注入
@@ -237,52 +313,12 @@ function buildDocumentContext(
       const docBudget = Math.min(perDocBudget, remainingBudget);
 
       if (docTokens <= docBudget) {
-        // 短文档：全文注入
-        parts.push(`## 文档：${title}\n\n${fullContent}`);
-        usedTokens += docTokens;
+        usedTokens += buildShortDocContext(title, fullContent, parts);
       } else {
-        // 长文档：outline + 匹配段落
-        const headings = extractHeadings(fullContent);
-        const matchedParagraphs = docResults
-          .sort((a, b) => a.seq - b.seq)
-          .map((r) => r.content)
-          .join('\n\n');
-
-        const outlineText = headings.length > 0
-          ? `### 大纲\n${headings.join('\n')}`
-          : '';
-
-        const paraTokens = estimateTokens(matchedParagraphs);
-        const outlineTokens = estimateTokens(outlineText);
-        const availableForPara = docBudget - outlineTokens;
-
-        if (paraTokens <= availableForPara) {
-          parts.push(`## 文档：${title}\n\n${outlineText}\n\n### 匹配段落\n\n${matchedParagraphs}`);
-          usedTokens += outlineTokens + paraTokens;
-        } else {
-          // 截断匹配段落
-          const truncated = truncateToTokenBudget(matchedParagraphs, availableForPara);
-          parts.push(`## 文档：${title}\n\n${outlineText}\n\n### 匹配段落\n\n${truncated}`);
-          usedTokens += outlineTokens + estimateTokens(truncated);
-        }
+        usedTokens += buildLongDocContext(title, fullContent, docResults, docBudget, parts);
       }
     } else {
-      // 无全文：仅输出匹配段落
-      const matchedParagraphs = docResults
-        .sort((a, b) => a.seq - b.seq)
-        .map((r) => r.content)
-        .join('\n\n');
-      const paraTokens = estimateTokens(matchedParagraphs);
-      const remainingBudget = totalBudget - usedTokens;
-
-      if (paraTokens <= remainingBudget) {
-        parts.push(`## 文档：${title}\n\n${matchedParagraphs}`);
-        usedTokens += paraTokens;
-      } else {
-        const truncated = truncateToTokenBudget(matchedParagraphs, remainingBudget);
-        parts.push(`## 文档：${title}\n\n${truncated}`);
-        usedTokens += estimateTokens(truncated);
-      }
+      usedTokens += buildNoContentDocContext(title, docResults, totalBudget - usedTokens, parts);
     }
   }
 

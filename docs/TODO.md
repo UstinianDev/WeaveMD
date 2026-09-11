@@ -1,8 +1,20 @@
 # TODO
 
-> 最后更新：2026-09-09
+> 最后更新：2026-09-10
 
 ## 已完成
+
+### Agent/KB 代码重构（2026-09-10）
+
+详见 [重构报告](./refactor/agent-kb-refactor.refactor.md)。
+
+| 任务 | 类型 | 门禁 |
+|------|------|------|
+| agentLoop.ts 拆分（agentPromptBuilder/agentToolSelector/agentKbPreloader） | 重构 | tsc 0 \| vitest 1530/1530 |
+| kbSearch.ts 缓存提取（searchCache.ts） | 重构 | 同上 |
+| agentTaskWorker.processTask 分解（4 个子方法） | 重构 | 同上 |
+| knowledgeContext.buildDocumentContext 分解（4 个子函数） | 重构 | 同上 |
+| 共享 tokenEstimator 提取 | 重构 | 同上 |
 
 ### Agent 优化 v4（2026-09-09）
 
@@ -15,8 +27,6 @@
 | P2: QuestionCard 底部面板美化（渐变/阴影/卡片/单选按钮组/字体） | UI 增强 | 同上 |
 
 ### AI 优化方案（2026-09-08）
-
-详见 [优化方案总结](./modules/13-AI优化方案总结-2026-09-08.md)。
 
 | 任务 | 类型 | 门禁 |
 |------|------|------|

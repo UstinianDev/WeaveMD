@@ -1,6 +1,6 @@
 # WeaveMD 文档索引
 
-> 最后更新：2026-09-09
+> 最后更新：2026-09-10
 
 ## 核心文档
 
@@ -26,12 +26,6 @@
 | [testing](./architecture/testing.md) | 测试架构（策略/工具/覆盖率） |
 | [build](./architecture/build.md) | 构建与发布（Vite/Electron Builder） |
 
-## 需求文档
-
-| 文档 | 说明 |
-|------|------|
-| [agent-optimize-v3.req](./requirements/agent-optimize-v3.req.md) | Agent 优化 v3 需求 |
-
 ## 模块文档
 
 | 文档 | 说明 |
@@ -47,7 +41,6 @@
 | [09-国际化](./modules/09-国际化-i18n.md) | 中文简繁 + 英文 |
 | [10-导出功能](./modules/10-导出功能-Export.md) | 8 格式导出 |
 | [11-AI代理面板](./modules/11-AI代理面板-Agent.md) | Agent/知识库/Agentic RAG/HyDE |
-| [11-Agent-历史实施](./modules/11-Agent-历史实施.md) | 分期实施记录（§7-§13） |
 
 ## 规格文档
 
@@ -65,6 +58,29 @@
 | [drag-selection-flicker](./specs/drag-selection-flicker.md) | 跨块拖选闪烁优化 |
 | [code-block-trailing-paragraph](./specs/code-block-trailing-paragraph.md) | 代码块尾随空行持久化 |
 
+## 需求文档
+
+| 文档 | 说明 |
+|------|------|
+| [agent-optimize-v3.req](./requirements/agent-optimize-v3.req.md) | Agent 优化 v3 需求 |
+| [agent-kb-refactor.req](./requirements/agent-kb-refactor.req.md) | Agent/KB 重构需求 |
+| [fix-web-search-loop.req](./requirements/fix-web-search-loop.req.md) | web_search 死循环修复需求 |
+
+## 实施计划
+
+| 文档 | 说明 |
+|------|------|
+| [agent-optimize-v3.plan](./plan/agent-optimize-v3.plan.md) | Agent 优化 v3 实施计划 |
+| [agent-optimize-v3.status](./plan/agent-optimize-v3.status.md) | Agent 优化 v3 状态 |
+| [ai-agent-optimize.status](./plan/ai-agent-optimize.status.md) | AI Agent 优化状态（30/30 完成） |
+| [ai-perf-optimize-v2.status](./plan/ai-perf-optimize-v2.status.md) | AI 性能优化 v2 状态 |
+| [ai-perf-2026-09-09.status](./plan/ai-perf-2026-09-09.status.md) | AI 性能优化 2026-09-09 状态 |
+| [agent-kb-refactor.plan](./plan/agent-kb-refactor.plan.md) | Agent/KB 重构计划 |
+| [agent-kb-refactor.status](./plan/agent-kb-refactor.status.md) | Agent/KB 重构状态（✅ 完成） |
+| [fix-web-search-loop.plan](./plan/fix-web-search-loop.plan.md) | web_search 死循环修复计划 |
+| [embedding-architecture](./plan/embedding-architecture.md) | Embedding 架构设计 |
+| [indexing-compatibility](./plan/indexing-compatibility.md) | 索引流程兼容性设计 |
+
 ## 测试报告
 
 | 文档 | 说明 |
@@ -72,16 +88,12 @@
 | [spec-edit-ft](./testing/spec-edit-ft.tdd.md) | 浮动工具栏 TDD |
 | [spec-edit-ft2](./testing/spec-edit-ft2.tdd.md) | 行内格式 TDD |
 | [spec-edit-ft3](./testing/spec-edit-ft3.tdd.md) | 叠加收敛 TDD |
+| [spec-edit-ft4](./testing/spec-edit-ft4.tdd.md) | 格式应用交互修正 TDD |
 | [spec-edit-cbtp](./testing/spec-edit-cbtp.tdd.md) | 代码块尾随空行 TDD |
 | [spec-edit-dsf](./testing/spec-edit-dsf.tdd.md) | 拖选闪烁 TDD |
 
-## 实施计划
+## 重构报告
 
 | 文档 | 说明 |
 |------|------|
-| [agent-optimize-v3.plan](./plan/agent-optimize-v3.plan.md) | Agent 优化 v3 实施计划 |
-| [agent-optimize-v3.status](./plan/agent-optimize-v3.status.md) | Agent 优化 v3 状态（搜索持久化+动态轮次+多文件Diff） |
-| [ai-agent-optimize.status](./plan/ai-agent-optimize.status.md) | AI Agent 优化状态（30/30 全部完成） |
-| [ai-perf-optimize-v2.status](./plan/ai-perf-optimize-v2.status.md) | AI 性能优化 v2 状态 |
-| [embedding-architecture](./plan/embedding-architecture.md) | Embedding 架构设计 |
-| [indexing-compatibility](./plan/indexing-compatibility.md) | 索引流程兼容性设计 |
+| [agent-kb-refactor](./refactor/agent-kb-refactor.refactor.md) | Agent/KB/工具重构报告（2026-09-10） |

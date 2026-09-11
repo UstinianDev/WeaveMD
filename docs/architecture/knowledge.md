@@ -42,6 +42,7 @@ pending → done → error
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | 关键词召回 | `kbSearch.ts` | FTS5 BM25 检索 |
+| 检索缓存 | `searchCache.ts` | 搜索结果缓存（3min TTL）+ 重排缓存（5min TTL） |
 | 查询理解 | `queryPlanner.ts` | 5 类意图 + 指代消解 + 查询扩展 |
 | 知识澄清 | `knowledgeClarify.ts` | 歧义检测 → 澄清卡片 |
 | 证据分级 | `knowledgeRuntime.ts` | 4 级：grounded/weak/conflicting/no_evidence |

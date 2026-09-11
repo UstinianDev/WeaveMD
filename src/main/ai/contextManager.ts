@@ -5,39 +5,15 @@
 // 估算 len/4 为相对阈值（误差 ≤2x 不影响「是否该压缩」判定）；压缩为幂等安全动作。
 
 import { streamChatCompletionWithRetry } from './llm/llmClient';
+import { estimateTokens } from './utils/tokenEstimator';
+
+// Re-export 保持向后兼容（agentLoop 等模块从 contextManager 导入 estimateTokens）
+export { estimateTokens } from './utils/tokenEstimator';
 
 export interface LlmMessage {
   role: string;
   content: string;
   tool_call_id?: string;
-}
-
-/**
- * token 估算：无 tokenizer，按字符类型加权。
- * - CJK 字符：1 字 ≈ 1~2 token，取 0.75 token/字
- * - Latin/其他：1 token ≈ 4 字符，取 0.25 token/char
- * 比统一 length/2 更准确，避免英文被高估 8 倍导致过早压缩。
- */
-export function estimateTokens(text: string): number {
-  const t = text || '';
-  let cjk = 0;
-  let other = 0;
-  for (let i = 0; i < t.length; i++) {
-    const code = t.charCodeAt(i);
-    // CJK 统一表意文字 + 扩展 A/B + 兼容 + 韩文 + 日文假名
-    if (
-      (code >= 0x4e00 && code <= 0x9fff) ||
-      (code >= 0x3400 && code <= 0x4dbf) ||
-      (code >= 0xf900 && code <= 0xfaff) ||
-      (code >= 0xac00 && code <= 0xd7af) ||
-      (code >= 0x3040 && code <= 0x30ff)
-    ) {
-      cjk++;
-    } else {
-      other++;
-    }
-  }
-  return Math.ceil(cjk * 0.75 + other * 0.25);
 }
 
 /** 是否应触发压缩：tokens 达到 contextWindow 的 threshold（默认 0.8）。 */

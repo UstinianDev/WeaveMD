@@ -248,30 +248,15 @@ export class AgentTaskWorker {
         } as unknown as Electron.WebContents),
       } as Electron.IpcMainInvokeEvent;
 
-      // 6.5. 解析 payloadJson 中的额外字段（currentDocument / useKnowledgeBase / fileTreePaths 等）
-      let currentDocument: string | undefined;
-      let useKnowledgeBase: boolean | undefined;
-      let fileTreePaths: { files: string[]; folders: string[] } | undefined;
-      try {
-        if (task.payloadJson) {
-          const extra = JSON.parse(task.payloadJson) as Record<string, unknown>;
-          if (typeof extra.currentDocument === 'string') currentDocument = extra.currentDocument;
-          if (typeof extra.useKnowledgeBase === 'boolean') useKnowledgeBase = extra.useKnowledgeBase;
-          if (extra.fileTreePaths && typeof extra.fileTreePaths === 'object') {
-            const ftp = extra.fileTreePaths as Record<string, unknown>;
-            if (Array.isArray(ftp.files) && Array.isArray(ftp.folders)) {
-              fileTreePaths = {
-                files: ftp.files.filter((f): f is string => typeof f === 'string'),
-                folders: ftp.folders.filter((f): f is string => typeof f === 'string'),
-              };
-            }
-          }
-        }
-      } catch {
-        /* payloadJson 解析失败不阻断主流程 */
-      }
+      // 6.5. 解析 payloadJson 中的额外字段
+      const { currentDocument, useKnowledgeBase, fileTreePaths } = this.readTaskPayload(task);
 
-      // 7. 执行 Agent 流程（传入 sessionId + mainWindow 以启用持久化事件推送）
+      // 7. 构造 AgentLoopDeps
+      const deps = this.buildAgentDeps(
+        session, sessionId, task, persisted, consent, mainWindow
+      );
+
+      // 8. 执行 Agent 流程（传入 sessionId + mainWindow 以启用持久化事件推送）
       const result: AgentRunResult = await runAgentFlow(
         syntheticEvent,
         {
@@ -285,72 +270,11 @@ export class AgentTaskWorker {
         config,
         row?.apiKeyEnc ?? null,
         abortController,
-        {
-          searchKb: (u: string, q: string, opts?: { topK?: number; queryVector?: number[]; searchMode?: 'fts5' | 'vector' | 'hybrid' }) =>
-            searchKB(u, q, {
-              topK: opts?.topK ?? persisted.topK,
-              fuse: persisted.fuse,
-              pinnedWeight: persisted.pinnedWeight,
-              threshold: persisted.threshold,
-              queryVector: opts?.queryVector,
-              searchMode: opts?.searchMode,
-            }),
-          consent,
-          db: this.db,
-          sessionId,
-          mainWindow: mainWindow ?? undefined,
-          // R3: ask_question_card 暂停/恢复回调
-          onInteractionRequired: (questions: IClarifyQuestion[]) => {
-            // 转换会话状态 running -> waiting_interaction
-            if (session && session.canTransitionTo('waiting_interaction')) {
-              session.transition('waiting_interaction');
-            }
-            // 推送问题卡片到渲染进程
-            // 注意：交互事件不走 persistAndSend（它会拼接 ai:stream: 前缀导致通道不匹配），
-            // 而是 persistOnly 持久化 + 直接发送到 preload 监听的原始通道名。
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              const interactionPayload = { sessionId, conversationId: task.conversationId, questions };
-              // 持久化到 DB（供断线重连回放），eventType 用 'interaction'（replayFromSeq 特殊处理）
-              try {
-                persistOnly(this.db, sessionId, task.conversationId, 'interaction', interactionPayload);
-              } catch {
-                /* 持久化失败不阻断主流程 */
-              }
-              // 直接发送到 preload 监听的通道（agent:interaction:question）
-              mainWindow.webContents.send(
-                IPC_CHANNELS.AGENT_INTERACTION_QUESTION,
-                interactionPayload,
-              );
-            }
-          },
-          waitForInteraction: () =>
-            new Promise<Record<string, string>>((resolve, reject) => {
-              this.pendingInteractions.set(sessionId, { resolve, reject, session: session! });
-            }),
-        },
+        deps,
       );
 
-      // 8. 更新任务状态为 completed
-      this.queue.updateStatus(task.id, 'completed');
-      session.transition('completed');
-
-      // 9. 推送完成事件（持久化 + IPC）
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        persistAndSend(
-          this.db,
-          mainWindow,
-          sessionId,
-          task.conversationId,
-          IPC_CHANNELS.AI_STREAM_DONE,
-          {
-            conversationId: task.conversationId,
-            taskId: task.id,
-            sessionId,
-            success: true,
-            result,
-          },
-        );
-      }
+      // 9. 成功后续处理
+      this.handleTaskSuccess(task, session, sessionId, mainWindow, result);
     } catch (error) {
       // AbortError：任务被取消
       if (abortController.signal.aborted) {
@@ -361,35 +285,8 @@ export class AgentTaskWorker {
         return;
       }
 
-      console.error('[AgentTaskWorker] Task failed:', task.id, error);
-
-      // 更新任务为 failed
-      const code: AIErrorCode =
-        ((error as { code?: string }).code as AIErrorCode) ?? 'network';
-      const message = error instanceof Error ? error.message : String(error);
-      this.queue.updateStatus(task.id, 'failed', code, message);
-
-      // 更新会话为 failed
-      if (session && session.canTransitionTo('failed')) {
-        session.transition('failed');
-      }
-
-      // 推送错误事件（持久化 + IPC）
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        persistAndSend(
-          this.db,
-          mainWindow,
-          session?.getSessionId() ?? '',
-          task.conversationId,
-          IPC_CHANNELS.AI_STREAM_ERROR,
-          {
-            conversationId: task.conversationId,
-            taskId: task.id,
-            code,
-            message,
-          },
-        );
-      }
+      // 错误处理
+      this.handleTaskError(task, session, mainWindow, error);
     } finally {
       // R3: 清理该会话可能残留的交互等待（任务结束时）
       if (session) {
@@ -415,6 +312,153 @@ export class AgentTaskWorker {
     }
   }
 
+  // -----------------------------------------------------------------------
+  // Private — Task Helpers
+  // -----------------------------------------------------------------------
+
+  /** 解析 payloadJson 中的额外字段（currentDocument / useKnowledgeBase / fileTreePaths 等）。 */
+  private readTaskPayload(task: AgentTask): {
+    currentDocument: string | undefined;
+    useKnowledgeBase: boolean | undefined;
+    fileTreePaths: { files: string[]; folders: string[] } | undefined;
+  } {
+    let currentDocument: string | undefined;
+    let useKnowledgeBase: boolean | undefined;
+    let fileTreePaths: { files: string[]; folders: string[] } | undefined;
+    try {
+      if (task.payloadJson) {
+        const extra = JSON.parse(task.payloadJson) as Record<string, unknown>;
+        if (typeof extra.currentDocument === 'string') currentDocument = extra.currentDocument;
+        if (typeof extra.useKnowledgeBase === 'boolean') useKnowledgeBase = extra.useKnowledgeBase;
+        if (extra.fileTreePaths && typeof extra.fileTreePaths === 'object') {
+          const ftp = extra.fileTreePaths as Record<string, unknown>;
+          if (Array.isArray(ftp.files) && Array.isArray(ftp.folders)) {
+            fileTreePaths = {
+              files: ftp.files.filter((f): f is string => typeof f === 'string'),
+              folders: ftp.folders.filter((f): f is string => typeof f === 'string'),
+            };
+          }
+        }
+      }
+    } catch {
+      /* payloadJson 解析失败不阻断主流程 */
+    }
+    return { currentDocument, useKnowledgeBase, fileTreePaths };
+  }
+
+  /** 构造 AgentLoopDeps（含 searchKb + consent + 交互回调）。 */
+  private buildAgentDeps(
+    session: AgentSessionStateMachine,
+    sessionId: string,
+    task: AgentTask,
+    persisted: { topK: number; fuse: number; pinnedWeight: number; threshold: number },
+    consent: IAIConsent,
+    mainWindow: BrowserWindow | null,
+  ): import('./agentLoop').AgentLoopDeps {
+    return {
+      searchKb: (u: string, q: string, opts?: { topK?: number; queryVector?: number[]; searchMode?: 'fts5' | 'vector' | 'hybrid' }) =>
+        searchKB(u, q, {
+          topK: opts?.topK ?? persisted.topK,
+          fuse: persisted.fuse,
+          pinnedWeight: persisted.pinnedWeight,
+          threshold: persisted.threshold,
+          queryVector: opts?.queryVector,
+          searchMode: opts?.searchMode,
+        }),
+      consent,
+      db: this.db,
+      sessionId,
+      mainWindow: mainWindow ?? undefined,
+      // R3: ask_question_card 暂停/恢复回调
+      onInteractionRequired: (questions: IClarifyQuestion[]) => {
+        // 转换会话状态 running -> waiting_interaction
+        if (session && session.canTransitionTo('waiting_interaction')) {
+          session.transition('waiting_interaction');
+        }
+        // 推送问题卡片到渲染进程
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          const interactionPayload = { sessionId, conversationId: task.conversationId, questions };
+          try {
+            persistOnly(this.db, sessionId, task.conversationId, 'interaction', interactionPayload);
+          } catch {
+            /* 持久化失败不阻断主流程 */
+          }
+          mainWindow.webContents.send(
+            IPC_CHANNELS.AGENT_INTERACTION_QUESTION,
+            interactionPayload,
+          );
+        }
+      },
+      waitForInteraction: () =>
+        new Promise<Record<string, string>>((resolve, reject) => {
+          this.pendingInteractions.set(sessionId, { resolve, reject, session: session! });
+        }),
+    };
+  }
+
+  /** 任务成功后续处理：更新状态 + 推送完成事件。 */
+  private handleTaskSuccess(
+    task: AgentTask,
+    session: AgentSessionStateMachine,
+    sessionId: string,
+    mainWindow: BrowserWindow | null,
+    result: AgentRunResult,
+  ): void {
+    this.queue.updateStatus(task.id, 'completed');
+    session.transition('completed');
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      persistAndSend(
+        this.db,
+        mainWindow,
+        sessionId,
+        task.conversationId,
+        IPC_CHANNELS.AI_STREAM_DONE,
+        {
+          conversationId: task.conversationId,
+          taskId: task.id,
+          sessionId,
+          success: true,
+          result,
+        },
+      );
+    }
+  }
+
+  /** 任务错误处理：更新状态 + 推送错误事件。 */
+  private handleTaskError(
+    task: AgentTask,
+    session: AgentSessionStateMachine | null,
+    mainWindow: BrowserWindow | null,
+    error: unknown,
+  ): void {
+    console.error('[AgentTaskWorker] Task failed:', task.id, error);
+
+    const code: AIErrorCode =
+      ((error as { code?: string }).code as AIErrorCode) ?? 'network';
+    const message = error instanceof Error ? error.message : String(error);
+    this.queue.updateStatus(task.id, 'failed', code, message);
+
+    if (session && session.canTransitionTo('failed')) {
+      session.transition('failed');
+    }
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      persistAndSend(
+        this.db,
+        mainWindow,
+        session?.getSessionId() ?? '',
+        task.conversationId,
+        IPC_CHANNELS.AI_STREAM_ERROR,
+        {
+          conversationId: task.conversationId,
+          taskId: task.id,
+          code,
+          message,
+        },
+      );
+    }
+  }
 }
 
 export default AgentTaskWorker;

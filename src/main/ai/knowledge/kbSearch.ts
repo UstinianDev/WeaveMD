@@ -15,6 +15,16 @@ import type {
   IKbSearchDetailedResponse,
   QueryIntentType,
 } from '@shared/ai';
+import {
+  getSearchCacheKey,
+  getCachedSearchResult,
+  setCachedSearchResult,
+  getCachedRerank,
+  setCachedRerank,
+} from './searchCache';
+
+// Re-export 保持向后兼容（kbIndexer 等模块从 kbSearch 导入 invalidateKbSearchCache）
+export { invalidateKbSearchCache } from './searchCache';
 
 // ---------------------------------------------------------------------------
 // 接口定义
@@ -525,79 +535,6 @@ export function aggregateAndExpand(
 // R6: 条件重排
 // ---------------------------------------------------------------------------
 
-/** R6 重排缓存：5 分钟 TTL。 */
-interface RerankCacheEntry {
-  results: IKbSearchResult[];
-  timestamp: number;
-}
-const rerankCache = new Map<string, RerankCacheEntry>();
-const RERANK_CACHE_TTL_MS = 5 * 60 * 1000;
-/** 4c: 惰性清理 — 每 N 次写入才遍历清理一次过期条目。 */
-let rerankWriteCount = 0;
-const RERANK_CLEANUP_INTERVAL = 50;
-
-// ---------------------------------------------------------------------------
-// 搜索结果缓存（优化：避免重复查询）
-// ---------------------------------------------------------------------------
-
-/** 搜索结果缓存条目。 */
-interface SearchResultCacheEntry {
-  response: IKbSearchDetailedResponse;
-  timestamp: number;
-}
-
-/** 搜索结果缓存：3 分钟 TTL，最大 100 条目。 */
-const searchResultCache = new Map<string, SearchResultCacheEntry>();
-const SEARCH_CACHE_TTL_MS = 3 * 60 * 1000;
-const SEARCH_CACHE_MAX_SIZE = 100;
-/** 惰性清理计数器。 */
-let searchCacheWriteCount = 0;
-const SEARCH_CACHE_CLEANUP_INTERVAL = 20;
-
-/**
- * 生成搜索缓存键。
- * 排除 expandedQueries（LLM 动态生成，不参与缓存键）。
- */
-function getSearchCacheKey(userId: string, query: string, opts: KbSearchOptions): string {
-  return `${userId}::${query}::${opts.topK ?? 5}::${opts.currentFileId ?? ''}::${opts.threshold ?? 0.6}`;
-}
-
-/**
- * 清除过期的搜索缓存条目。
- */
-function cleanupSearchCache(): void {
-  const now = Date.now();
-  for (const [key, entry] of searchResultCache) {
-    if (now - entry.timestamp > SEARCH_CACHE_TTL_MS) {
-      searchResultCache.delete(key);
-    }
-  }
-  // 如果超过最大容量，删除最旧的条目
-  if (searchResultCache.size > SEARCH_CACHE_MAX_SIZE) {
-    const entries = [...searchResultCache.entries()].sort((a, b) => a[1].timestamp - b[1].timestamp);
-    const toDelete = entries.slice(0, entries.length - SEARCH_CACHE_MAX_SIZE);
-    for (const [key] of toDelete) {
-      searchResultCache.delete(key);
-    }
-  }
-}
-
-/**
- * 使搜索缓存失效（KB 文档索引/删除/更新后调用）。
- */
-export function invalidateKbSearchCache(userId?: string): void {
-  if (userId) {
-    // 精确失效：仅清除该用户的缓存
-    for (const key of searchResultCache.keys()) {
-      if (key.startsWith(`${userId}::`)) {
-        searchResultCache.delete(key);
-      }
-    }
-  } else {
-    searchResultCache.clear();
-  }
-}
-
 /**
  * 判断是否需要条件重排（满足任一条件）：
  * 1. top2 差距 < 0.01
@@ -655,12 +592,9 @@ export async function conditionalRerank(
 
   // 检查缓存（4c: 读取时检查 TTL，过期即删）
   const cacheKey = `${query}::${results.map(r => r.chunkId).join(',')}`;
-  const cached = rerankCache.get(cacheKey);
-  if (cached) {
-    if (Date.now() - cached.timestamp < RERANK_CACHE_TTL_MS) {
-      return cached.results;
-    }
-    rerankCache.delete(cacheKey);
+  const cachedRerank = getCachedRerank(cacheKey);
+  if (cachedRerank) {
+    return cachedRerank;
   }
 
   try {
@@ -674,19 +608,7 @@ export async function conditionalRerank(
     const final = [...reranked, ...remaining];
 
     // 写入缓存
-    rerankCache.set(cacheKey, { results: final, timestamp: Date.now() });
-
-    // 4c: 惰性清理 — 每 RERANK_CLEANUP_INTERVAL 次写入才遍历清理一次
-    rerankWriteCount += 1;
-    if (rerankWriteCount >= RERANK_CLEANUP_INTERVAL) {
-      rerankWriteCount = 0;
-      const now = Date.now();
-      for (const [key, entry] of rerankCache) {
-        if (now - entry.timestamp > RERANK_CACHE_TTL_MS) {
-          rerankCache.delete(key);
-        }
-      }
-    }
+    setCachedRerank(cacheKey, final);
 
     return final;
   } catch {
@@ -728,15 +650,9 @@ export async function searchKB(
   const hasExpandedQueries = opts.expandedQueries && opts.expandedQueries.length > 0;
   if (!hasExpandedQueries) {
     const cacheKey = getSearchCacheKey(userId, query, opts);
-    const cached = searchResultCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < SEARCH_CACHE_TTL_MS) {
-      return cached.response;
-    }
-    // 清理过期缓存（惰性清理）
-    searchCacheWriteCount += 1;
-    if (searchCacheWriteCount >= SEARCH_CACHE_CLEANUP_INTERVAL) {
-      searchCacheWriteCount = 0;
-      cleanupSearchCache();
+    const cachedResult = getCachedSearchResult(cacheKey);
+    if (cachedResult) {
+      return cachedResult;
     }
   }
 
@@ -954,7 +870,7 @@ export async function searchKB(
   // 写入缓存（跳过 expandedQueries 场景）
   if (!hasExpandedQueries) {
     const cacheKey = getSearchCacheKey(userId, query, opts);
-    searchResultCache.set(cacheKey, { response, timestamp: Date.now() });
+    setCachedSearchResult(cacheKey, response);
   }
 
   return response;
