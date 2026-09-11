@@ -10,6 +10,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { IntentName } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 import { useAgentStore, onStreamDelta } from '@render/stores/agentStore';
+import { useAuthStore } from '@render/stores/authStore';
 import AIMessageBubble from './message/AIMessageBubble';
 import AgentWorkflowCard from './cards/AgentWorkflowCard';
 import EditBlocksPreviewCard from './cards/EditBlocksPreviewCard';
@@ -35,6 +36,7 @@ interface MessageListProps {
 const MessageList: React.FC<MessageListProps> = React.memo(({ messages, isAgentMode, sendAgentMessage }) => {
   const { t } = useI18n();
   const [visibleCount, setVisibleCount] = useState(DEFAULT_VISIBLE_MESSAGES);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // 计算实际显示的消息（跳过 tool 角色消息）
   const visibleMessages = useMemo(() => {
@@ -64,6 +66,34 @@ const MessageList: React.FC<MessageListProps> = React.memo(({ messages, isAgentM
     [messages, sendAgentMessage],
   );
 
+  const handleEdit = useCallback((messageId: string) => {
+    setEditingId(messageId);
+    useAgentStore.getState().setProcessStatus('idle');
+  }, []);
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingId(null);
+  }, []);
+
+  const handleSaveEdit = useCallback(
+    async (messageId: string, newContent: string) => {
+      const conversationId = useAgentStore.getState().activeConversationId;
+      if (!conversationId) return;
+
+      const userId = useAuthStore.getState().user?.id ?? '';
+      const result = await window.weaveMD.ai.editMessage(userId, conversationId, messageId, newContent);
+
+      if (result.success) {
+        setEditingId(null);
+        // 重新加载对话消息
+        await useAgentStore.getState().loadConversation(conversationId);
+        // 重新发送编辑后的消息
+        await sendAgentMessage(newContent);
+      }
+    },
+    [sendAgentMessage],
+  );
+
   return (
     <>
       {hasMoreMessages && (
@@ -87,7 +117,7 @@ const MessageList: React.FC<MessageListProps> = React.memo(({ messages, isAgentM
             {/* 在 assistant 消息之前渲染该轮的工作流卡片（执行过程在上，最终结果在下） */}
             {m.role === 'assistant' && hasToolCalls && (
               <div className="px-1 mb-1">
-                <AgentWorkflowCard toolCalls={msgToolCalls} />
+                <AgentWorkflowCard toolCalls={msgToolCalls} isStreaming={false} />
               </div>
             )}
             <AIMessageBubble
@@ -99,11 +129,20 @@ const MessageList: React.FC<MessageListProps> = React.memo(({ messages, isAgentM
               onCopy={() => handleCopy(m.content)}
               onEdit={
                 m.role === 'user'
-                  ? () => {
-                      useAgentStore.getState().setProcessStatus('idle');
-                    }
+                  ? () => handleEdit(m.id)
                   : undefined
               }
+              onSaveEdit={
+                m.role === 'user'
+                  ? (newContent) => void handleSaveEdit(m.id, newContent)
+                  : undefined
+              }
+              onCancelEdit={
+                m.role === 'user'
+                  ? handleCancelEdit
+                  : undefined
+              }
+              isEditing={m.role === 'user' && editingId === m.id}
               onRetry={
                 m.role === 'assistant' && idx >= 2
                   ? () => handleRetry(idx)
@@ -161,9 +200,9 @@ const AgentTab: React.FC = () => {
     return unsubscribe;
   }, []);
 
-  // 流式开始时重置本地 buffer
+  // 流式开始时重置本地 buffer（防御性清空，防止竞态条件）
   useEffect(() => {
-    if (isStreaming && streamBufferRef.current) {
+    if (isStreaming) {
       streamBufferRef.current = '';
       setDisplayBuffer('');
     }
@@ -264,7 +303,7 @@ const AgentTab: React.FC = () => {
           {/* 流式期间：如果已有 toolCalls，在流式气泡前显示工作流卡片 */}
           {isAgentMode && streamingToolCalls.length > 0 && (
             <div className="px-1 mb-1">
-              <AgentWorkflowCard toolCalls={streamingToolCalls} />
+              <AgentWorkflowCard toolCalls={streamingToolCalls} isStreaming={true} />
             </div>
           )}
           {/* AI 处理流程状态指示器 */}

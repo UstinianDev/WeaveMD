@@ -34,7 +34,7 @@ describe('contextManager.buildCompressed', () => {
 
   it('returns only summary system when no keep rounds', () => {
     const out = buildCompressed([], 'S', 0);
-    expect(out).toEqual([{ role: 'system', content: '以下为历史摘要：S' }]);
+    expect(out).toEqual([{ role: 'system', content: '以下为历史摘要（仅供参考，不要延续之前的问题回答）：S' }]);
   });
 
   it('keeps recent N rounds of user/assistant original text below summary', () => {

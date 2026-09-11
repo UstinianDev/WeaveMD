@@ -29,6 +29,7 @@ export function shouldCompress(
  * 压缩后消息组装：
  * summary 置顶为 system「以下为历史摘要」+ 保留最近 keepRecentRounds 轮原文。
  * 若某个 assistant 轮夹带 tool 消息，一并保留（tool 属该轮上下文）。
+ * 最后添加分隔标记，确保最新 user 消息获得最高注意力权重。
  */
 export function buildCompressed(
   messages: LlmMessage[],
@@ -37,7 +38,10 @@ export function buildCompressed(
 ): LlmMessage[] {
   const tail = keepRecentTail(messages, keepRecentRounds);
   const head: LlmMessage[] = summary
-    ? [{ role: 'system', content: `以下为历史摘要：${summary}` }]
+    ? [{
+        role: 'system',
+        content: `以下为历史摘要（仅供参考，不要延续之前的问题回答）：${summary}`,
+      }]
     : [];
   return [...head, ...tail];
 }
@@ -99,7 +103,7 @@ export async function summarizeViaLlm(
       {
         role: 'system',
         content:
-          '你是对话摘要助手。将以下对话压缩为一段简洁的中文摘要，保留关键决策、结论与用户明确表达的需求。不要遗漏要点，控制在 200 字以内。',
+          '你是对话摘要助手。将以下对话压缩为一段简洁的中文摘要。要求：1) 只保留讨论的主题和关键结论，不要包含具体的问题和答案；2) 不要保留具体的计算结果、代码片段或详细数据；3) 控制在 150 字以内。目的：让后续对话知道之前讨论过什么话题，但不会被之前的答案干扰。',
       },
       ...messages,
     ],

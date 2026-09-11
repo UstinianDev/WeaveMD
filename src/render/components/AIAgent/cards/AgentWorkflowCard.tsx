@@ -20,6 +20,8 @@ interface AgentWorkflowCardProps {
   toolCalls: IAgentToolCall[];
   /** 处理耗时（毫秒）。 */
   duration?: number;
+  /** 是否处于流式状态（流式时自动展开，结束后自动折叠）。 */
+  isStreaming?: boolean;
 }
 
 /** 分组后的单轮步骤。 */
@@ -79,11 +81,11 @@ function getToolIcon(name: string): string {
 
 /** 步骤卡片背景色循环（5 种深色系，带左侧色条）。 */
 const STEP_COLORS = [
-  { bg: 'rgba(37, 99, 235, 0.08)', border: '#2563eb', bar: '#2563eb' },    // 蓝
-  { bg: 'rgba(5, 150, 105, 0.08)', border: '#059669', bar: '#059669' },    // 绿
-  { bg: 'rgba(217, 119, 6, 0.08)',  border: '#d97706', bar: '#d97706' },    // 橙
-  { bg: 'rgba(124, 58, 237, 0.08)', border: '#7c3aed', bar: '#7c3aed' },   // 紫
-  { bg: 'rgba(6, 182, 212, 0.08)',  border: '#06b6d4', bar: '#06b6d4' },    // 青
+  { bg: 'rgba(37, 99, 235, 0.04)', border: '#2563eb', bar: '#2563eb' },    // 蓝
+  { bg: 'rgba(5, 150, 105, 0.04)', border: '#059669', bar: '#059669' },    // 绿
+  { bg: 'rgba(217, 119, 6, 0.04)',  border: '#d97706', bar: '#d97706' },    // 橙
+  { bg: 'rgba(124, 58, 237, 0.04)', border: '#7c3aed', bar: '#7c3aed' },   // 紫
+  { bg: 'rgba(6, 182, 212, 0.04)',  border: '#06b6d4', bar: '#06b6d4' },    // 青
 ];
 
 function getStepColor(roundIndex: number) {
@@ -525,9 +527,9 @@ const StepCard: React.FC<StepCardProps> = React.memo(({ step, expanded, onToggle
       className="rounded-lg overflow-hidden transition-all duration-300"
       style={{
         backgroundColor: hasError ? 'rgba(239, 68, 68, 0.06)' : color.bg,
-        borderLeft: `4px solid ${barColor}`,
+        borderLeft: `3px solid ${barColor}`,
         border: `1px solid ${hasError ? 'rgba(239, 68, 68, 0.2)' : color.border}20`,
-        borderLeftWidth: '4px',
+        borderLeftWidth: '3px',
         borderLeftColor: barColor,
       }}
     >
@@ -535,7 +537,7 @@ const StepCard: React.FC<StepCardProps> = React.memo(({ step, expanded, onToggle
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:opacity-80 transition-all duration-300"
+        className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-bg-tertiary/30 transition-all duration-300"
         style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}
       >
         {/* 折叠箭头 */}
@@ -597,7 +599,7 @@ StepCard.displayName = 'StepCard';
 // 主组件：AgentWorkflowCard
 // ---------------------------------------------------------------------------
 
-const AgentWorkflowCard: React.FC<AgentWorkflowCardProps> = React.memo(({ toolCalls, duration }) => {
+const AgentWorkflowCard: React.FC<AgentWorkflowCardProps> = React.memo(({ toolCalls, duration, isStreaming = false }) => {
   // Web Worker JSON 解析
   const { parseJson } = useJsonParserWorker();
 
@@ -613,7 +615,22 @@ const AgentWorkflowCard: React.FC<AgentWorkflowCardProps> = React.memo(({ toolCa
   // 初始化展开状态：新步骤默认展开
   const knownRounds = useMemo(() => new Set(steps.map((s) => s.roundIndex)), [steps]);
 
-  // 确保新步骤默认展开
+  // 流式状态变化时自动展开/折叠
+  const prevStreamingRef = React.useRef(isStreaming);
+  React.useEffect(() => {
+    if (isStreaming && !prevStreamingRef.current) {
+      // 流式开始：自动展开所有步骤
+      setExpandedSteps(new Set(knownRounds));
+      setAllCollapsed(false);
+    } else if (!isStreaming && prevStreamingRef.current) {
+      // 流式结束：自动折叠
+      setExpandedSteps(new Set());
+      setAllCollapsed(true);
+    }
+    prevStreamingRef.current = isStreaming;
+  }, [isStreaming, knownRounds]);
+
+  // 确保新步骤默认展开（非折叠状态下）
   React.useEffect(() => {
     if (allCollapsed) return;
     setExpandedSteps((prev) => {
@@ -671,9 +688,9 @@ const AgentWorkflowCard: React.FC<AgentWorkflowCardProps> = React.memo(({ toolCa
   const totalCalls = toolCalls.length;
 
   return (
-    <div className="rounded-xl border border-border bg-bg-secondary/60 overflow-hidden glow-card" style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}>
+    <div className="rounded-xl border border-border bg-bg-secondary/40 overflow-hidden glow-card" style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}>
       {/* 顶部 Header */}
-      <div className="flex items-center gap-2.5 px-3.5 py-2.5 bg-bg-tertiary/50 border-b border-border">
+      <div className="flex items-center gap-2.5 px-3.5 py-2.5 bg-bg-tertiary/30 border-b border-border">
         {/* 整体折叠按钮 */}
         <button
           type="button"
@@ -704,18 +721,20 @@ const AgentWorkflowCard: React.FC<AgentWorkflowCardProps> = React.memo(({ toolCa
         </div>
       </div>
 
-      {/* 步骤列表 */}
-      <div className="p-2.5 space-y-2">
-        {steps.map((step) => (
-          <StepCard
-            key={step.roundIndex}
-            step={step}
-            expanded={expandedSteps.has(step.roundIndex)}
-            onToggle={() => toggleStep(step.roundIndex)}
-            parseJson={parseJson}
-          />
-        ))}
-      </div>
+      {/* 步骤列表（折叠时隐藏） */}
+      {!allCollapsed && (
+        <div className="p-2.5 space-y-2">
+          {steps.map((step) => (
+            <StepCard
+              key={step.roundIndex}
+              step={step}
+              expanded={expandedSteps.has(step.roundIndex)}
+              onToggle={() => toggleStep(step.roundIndex)}
+              parseJson={parseJson}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 });

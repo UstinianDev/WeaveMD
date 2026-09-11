@@ -33,6 +33,12 @@ interface AIMessageBubbleProps {
   onCopy?: () => void;
   /** 编辑消息回调（仅 user 消息） */
   onEdit?: () => void;
+  /** 保存编辑回调（仅 user 消息，传入新内容） */
+  onSaveEdit?: (newContent: string) => void;
+  /** 取消编辑回调 */
+  onCancelEdit?: () => void;
+  /** 是否处于编辑状态 */
+  isEditing?: boolean;
   /** 重试回调（仅 assistant 消息） */
   onRetry?: () => void;
 }
@@ -163,11 +169,16 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
   createdAt,
   onCopy,
   onEdit,
+  onSaveEdit,
+  onCancelEdit,
+  isEditing = false,
   onRetry,
 }) => {
   const { t } = useI18n();
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [editContent, setEditContent] = useState(content);
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
   const handleCopy = useCallback(() => {
     if (!onCopy) return;
@@ -175,6 +186,53 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
     setCopied(true);
     setTimeout(() => setCopied(false), 3000);
   }, [onCopy]);
+
+  // 编辑相关处理函数
+  const handleEditStart = useCallback(() => {
+    setEditContent(content);
+    if (onEdit) onEdit();
+  }, [content, onEdit]);
+
+  const handleEditSave = useCallback(() => {
+    if (onSaveEdit && editContent.trim()) {
+      onSaveEdit(editContent.trim());
+    }
+  }, [editContent, onSaveEdit]);
+
+  const handleEditCancel = useCallback(() => {
+    setEditContent(content);
+    if (onCancelEdit) onCancelEdit();
+  }, [content, onCancelEdit]);
+
+  const handleEditKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleEditSave();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        handleEditCancel();
+      }
+    },
+    [handleEditSave, handleEditCancel],
+  );
+
+  // textarea 自动调整高度
+  const adjustTextareaHeight = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  }, []);
+
+  // 编辑状态激活时自动聚焦和调整高度
+  React.useEffect(() => {
+    if (isEditing && textareaRef.current) {
+      textareaRef.current.focus();
+      adjustTextareaHeight();
+    }
+  }, [isEditing, adjustTextareaHeight]);
 
   // 3b: parseRefsJson 用 useMemo
   const sources = useMemo(
@@ -207,37 +265,79 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
-        <div
-          className="max-w-[85%] rounded-2xl rounded-tr-md px-3.5 py-2 text-[15px] leading-relaxed bg-[#2563eb] text-white shadow-sm"
-          style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}
-        >
-          <div className="whitespace-pre-wrap break-words">{content}</div>
-        </div>
-        {/* 操作栏 + 时间戳：始终可见 */}
-        <div className={`flex items-center gap-2 mt-1.5 transition-opacity ${hovered ? 'opacity-100' : 'opacity-70'}`}>
-          {onCopy && (
-            <IconButton label={copied ? '✓' : t('ai.msg.copy')} onClick={handleCopy} active={copied}>
-              {copied ? <IconifyIcon icon="check" size={15} /> : <IconifyIcon icon="copy" size={15} />}
-            </IconButton>
-          )}
-          {onEdit && (
-            <IconButton label={t('ai.msg.edit')} onClick={onEdit}>
-              <IconifyIcon icon="edit" size={15} />
-            </IconButton>
-          )}
-          {/* 时间戳 */}
-          {createdAt && (
-            <span className="text-[12px] text-text-muted ml-0.5">
-              {formatMessageTimestamp(createdAt)}
-            </span>
-          )}
-          {/* 响应时间 */}
-          {responseTime !== undefined && responseTime > 0 && (
-            <span className="text-[12px] text-text-muted">
-              {formatResponseTime(responseTime)}
-            </span>
-          )}
-        </div>
+        {isEditing ? (
+          /* 编辑模式：textarea */
+          <div className="max-w-[85%] w-full">
+            <textarea
+              ref={textareaRef}
+              value={editContent}
+              onChange={(e) => {
+                setEditContent(e.target.value);
+                adjustTextareaHeight();
+              }}
+              onKeyDown={handleEditKeyDown}
+              className="w-full rounded-2xl rounded-tr-md px-3.5 py-2 text-[15px] leading-relaxed bg-white border-2 border-[var(--accent)] shadow-sm resize-none overflow-hidden focus:outline-none"
+              style={{
+                fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif",
+                minHeight: '40px',
+              }}
+            />
+            <div className="flex items-center gap-2 mt-1.5">
+              <button
+                type="button"
+                onClick={handleEditSave}
+                className="px-3 py-1 text-[13px] bg-[var(--accent)] text-white rounded-md hover:opacity-90 transition-opacity"
+              >
+                {t('ai.msg.save', '保存')}
+              </button>
+              <button
+                type="button"
+                onClick={handleEditCancel}
+                className="px-3 py-1 text-[13px] text-text-muted hover:text-text-primary bg-bg-tertiary rounded-md transition-colors"
+              >
+                {t('ai.msg.cancel', '取消')}
+              </button>
+              <span className="text-[12px] text-text-muted ml-1">
+                {t('ai.msg.editHint', 'Enter 保存 · Shift+Enter 换行 · Esc 取消')}
+              </span>
+            </div>
+          </div>
+        ) : (
+          /* 正常模式：气泡 */
+          <>
+            <div
+              className="max-w-[85%] rounded-2xl rounded-tr-md px-3.5 py-2 text-[15px] leading-relaxed bg-[#2563eb] text-white shadow-sm"
+              style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}
+            >
+              <div className="whitespace-pre-wrap break-words">{content}</div>
+            </div>
+            {/* 操作栏 + 时间戳：始终可见 */}
+            <div className={`flex items-center gap-2 mt-1.5 transition-opacity ${hovered ? 'opacity-100' : 'opacity-70'}`}>
+              {onCopy && (
+                <IconButton label={copied ? '✓' : t('ai.msg.copy')} onClick={handleCopy} active={copied}>
+                  {copied ? <IconifyIcon icon="check" size={15} /> : <IconifyIcon icon="copy" size={15} />}
+                </IconButton>
+              )}
+              {onEdit && (
+                <IconButton label={t('ai.msg.edit')} onClick={handleEditStart}>
+                  <IconifyIcon icon="edit" size={15} />
+                </IconButton>
+              )}
+              {/* 时间戳 */}
+              {createdAt && (
+                <span className="text-[12px] text-text-muted ml-0.5">
+                  {formatMessageTimestamp(createdAt)}
+                </span>
+              )}
+              {/* 响应时间 */}
+              {responseTime !== undefined && responseTime > 0 && (
+                <span className="text-[12px] text-text-muted">
+                  {formatResponseTime(responseTime)}
+                </span>
+              )}
+            </div>
+          </>
+        )}
       </div>
     );
   }
