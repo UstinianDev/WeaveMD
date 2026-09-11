@@ -116,6 +116,70 @@ vi.mock('@render/i18n', () => ({
   },
 }));
 
+// ---- TipTap 模拟（Composer 改为 TipTap 后，测试需要 mock） ----
+let mockEditorText = '';
+const mockOnChangeRef = { current: ((_v: string) => {}) as (v: string) => void };
+
+class MockTextNode {
+  isText = true;
+  type = { name: 'text' } as const;
+  text: string;
+  attrs: Record<string, unknown> = {};
+  constructor(text: string) { this.text = text; }
+}
+class MockDocNode {
+  isText = false;
+  type = { name: 'doc' } as const;
+  attrs: Record<string, unknown> = {};
+  private textContent: string;
+  constructor(text: string) { this.textContent = text; }
+  descendants(cb: (node: MockTextNode | MockDocNode, pos: number, parent: unknown) => void): void {
+    if (this.textContent) cb(new MockTextNode(this.textContent), 0, null);
+  }
+}
+const mockEditorSingleton = {
+  get isEmpty() { return !mockEditorText; },
+  get state() { return { doc: new MockDocNode(mockEditorText) }; },
+  commands: {
+    clearContent: () => { mockEditorText = ''; },
+    setContent: (newContent: string) => { mockEditorText = newContent; },
+  },
+  view: { dom: document.createElement('div') },
+  on: vi.fn(),
+  off: vi.fn(),
+  registerPlugin: vi.fn(),
+};
+vi.mock('@tiptap/react', () => ({
+  useEditor: ({ content, onUpdate }: { content?: string; onUpdate?: (p: { editor: { state: { doc: MockDocNode } } }) => void }) => {
+    if (typeof content === 'string' && !mockEditorText) mockEditorText = content;
+    if (onUpdate) mockOnChangeRef.current = (_v: string) => onUpdate({ editor: mockEditorSingleton });
+    return mockEditorSingleton;
+  },
+  EditorContent: () => (
+    <textarea
+      data-testid="tiptap-mock-textarea"
+      value={mockEditorText}
+      onChange={(e) => { mockEditorText = e.target.value; mockOnChangeRef.current(mockEditorText); }}
+      placeholder="输入你的问题..."
+      rows={3}
+    />
+  ),
+  NodeViewWrapper: ({ children, ...props }: { children?: React.ReactNode; [k: string]: unknown }) => React.createElement('span', props, children),
+}));
+vi.mock('@tiptap/starter-kit', () => ({ default: { configure: () => ({}) } }));
+vi.mock('@tiptap/core', () => ({}));
+vi.mock('@tiptap/suggestion', () => ({ default: () => null }));
+vi.mock('@render/components/AIAgent/composer/extensions/SkillTag', () => ({ SkillTag: {} }));
+vi.mock('@render/components/AIAgent/composer/extensions/MentionTag', () => ({ MentionTag: {} }));
+vi.mock('@render/components/AIAgent/composer/extensions/skillSuggestion', () => ({
+  setCachedSkills: vi.fn(),
+  createSkillSuggestionExtension: vi.fn(() => ({ configure: () => ({}) })),
+}));
+vi.mock('@render/components/AIAgent/composer/extensions/mentionSuggestion', () => ({
+  setMentionItemsGetter: vi.fn(),
+  createMentionSuggestionExtension: vi.fn(() => ({ configure: () => ({}) })),
+}));
+
 vi.mock('@render/components/AIAgent/composer/ModelDropdown', () => ({
   default: () => <span data-testid="mock-model">Model</span>,
 }));

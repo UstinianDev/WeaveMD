@@ -10,7 +10,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { EditorInstance } from '@render/editor/editorInstance';
 import type { BlockTreeV2 } from '@render/editor/kernel';
-import { extractHeadingOutlineCached, type OutlineCache } from '@render/editor/kernel/outline';
+import { extractHeadingOutlineCached, type OutlineCache, type OutlineItemV2 } from '@render/editor/kernel/outline';
 import { isStandaloneImageText, parseImageBlockText } from '@render/editor/kernel';
 import { setImageWidth } from '@render/editor/controllers/imageWidthCtrl';
 import { setCursorAtOffset } from '@render/editor/kernel/selection';
@@ -32,6 +32,7 @@ interface EditorV2Props {
   onContentChange: (content: string) => void;
   onNavigateReady?: (navFn: (lineNumber: number, headingIndex: number) => void) => void;
   onActiveHeadingChange?: (headingIndex: number | null) => void;
+  onOutlineChange?: (outline: OutlineItemV2[]) => void;
 }
 
 const EditorV2: React.FC<EditorV2Props> = ({
@@ -39,6 +40,7 @@ const EditorV2: React.FC<EditorV2Props> = ({
   onContentChange,
   onNavigateReady,
   onActiveHeadingChange,
+  onOutlineChange,
 }) => {
   const instanceRef = useRef<EditorInstance | null>(null);
   if (!instanceRef.current) {
@@ -76,6 +78,11 @@ const EditorV2: React.FC<EditorV2Props> = ({
     outlineCacheRef.current = result.cache;
     return result.outline;
   }, [tree]);
+
+  // 将 v2 outline 传递给父组件（MainPage 状态提升）
+  useEffect(() => {
+    onOutlineChange?.(outline);
+  }, [outline, onOutlineChange]);
 
   // K4：当前选中的图片（点击 img 后由 handleContainerClick 计算；动作执行后清空）
   const [imageSelection, setImageSelection] = useState<ImageSelection | null>(null);

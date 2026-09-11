@@ -19,6 +19,12 @@ export interface SendContext {
   createConversation: (userId: string) => Promise<string | null>;
   /** 更新 agentStore 状态。 */
   setAgentState: (patch: Record<string, unknown>) => void;
+  /**
+   * TipTap 编辑器中第一个 skillTag 节点的 name 属性。
+   * 由 AIPanelComposer 从 editor state 遍历提取后注入。
+   * 为空字符串表示无 skillTag。
+   */
+  skillTagName?: string;
 }
 
 /** 引用前缀常量。 */
@@ -52,8 +58,19 @@ export function routeSelectionRewrite(text: string, ctx: SendContext): boolean {
   return true;
 }
 
-/** 路由 2：`/技能名 ` → 剥前缀后走 agent 对话。 */
+/** 路由 2：`/技能名 ` → 剥前缀后走 agent 对话。
+ *  优先检查 ctx.skillTagName（TipTap 编辑器中 skillTag 节点的 name 属性），
+ *  回退到纯文本正则匹配。 */
 export function routeSlashSkill(text: string, ctx: SendContext): boolean {
+  // TipTap 标签模式：editor state 中有 skillTag 节点
+  if (ctx.skillTagName) {
+    // 剥掉文本开头的 /skillname 前缀（保留剩余指令）
+    const skillPrefixRe = new RegExp(`^/${ctx.skillTagName}\\s*`);
+    const instruction = text.replace(skillPrefixRe, '').trim();
+    if (instruction) ctx.sendAgentMessage(instruction);
+    return true;
+  }
+  // 回退：纯文本正则匹配
   if (!SLASH_SKILL_RE.test(text)) return false;
   const instruction = text.replace(SLASH_SKILL_RE, '').trim();
   if (instruction) ctx.sendAgentMessage(instruction);

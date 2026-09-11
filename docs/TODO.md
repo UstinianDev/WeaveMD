@@ -1,8 +1,33 @@
 # TODO
 
-> 最后更新：2026-09-10
+> 最后更新：2026-09-11
 
 ## 已完成
+
+### 编辑主区 + AI 面板优化（2026-09-11）
+
+详见 [实施状态](./plan/optimize-outline-aiheading-composer.status.md)。
+
+| 任务 | 类型 | 门禁 |
+|------|------|------|
+| Outline 数据源统一为 v2 块树（EditorV2 → MainPage → OutlinePanel） | 功能优化 | tsc 0 \| vitest 1529/1529 |
+| Agent 输出标题自动编号（h1中文/h2阿拉伯/h3层级/h4带圈） | 新功能 | 同上 |
+| Composer /@ 标签化（TipTap contentEditable + chip + 自动补全） | 重构 | 同上 |
+| Suggestion 插件注册修复（Extension 模式 + 独立 pluginKey） | Bug 修复 | 同上 |
+
+### Agent 优化（2026-09-11）
+
+详见 [实施状态](./plan/agent-optimization.status.md)。
+
+| 任务 | 类型 | 门禁 |
+|------|------|------|
+| 一.1 执行过程折叠重构（isStreaming prop + 折叠逻辑优化） | UI 优化 | tsc 0 \| vitest 1530/1530 |
+| 一.2 Hover 颜色调淡（STEP_COLORS opacity + 色条宽度 + 背景色） | UI 优化 | 同上 |
+| 三.1 消息内联编辑（textarea + 键盘事件 + editMessage IPC） | 新功能 | 同上 |
+| 二.2 流式缓冲竞态修复（防御性清空 buffer） | Bug 修复 | 同上 |
+| 二.1 上下文延续修复（cleanupIncompleteMessages 时序 + Attention Anchoring） | Bug 修复 | 同上 |
+
+**根因定位**：`cleanupIncompleteMessages` 会移除末尾无 assistant 跟随的 user 消息，但 `appendMessage` 在 `getMessagesByConversation` 之前调用，当前 user 消息被当作"孤立消息"移除。
 
 ### Agent/KB 代码重构（2026-09-10）
 

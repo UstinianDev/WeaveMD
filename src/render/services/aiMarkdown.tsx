@@ -300,7 +300,14 @@ export function hastToReact(node: Element | Text | Root | null | undefined): Rea
     React.createElement(React.Fragment, { key: `${tag}-${keyTag(node)}-${index}` }, hastToReact(child as Element | Text))
   );
 
-  return React.createElement(tag, { key: `el-${keyTag(node)}`, ...(Object.keys(props).length ? props : null) }, children);
+  // 标题自动编号（h1-h4）
+  const tagKey = `el-${keyTag(node)}`;
+  const isHeading = ['h1', 'h2', 'h3', 'h4'].includes(tag);
+  const finalChildren = isHeading
+    ? addHeadingNumbering(children, parseInt(tag.charAt(1), 10), headingCounter, tagKey)
+    : children;
+
+  return React.createElement(tag, { key: tagKey, ...(Object.keys(props).length ? props : null) }, finalChildren);
 }
 
 /** 稳定的子 key 前缀：优先用解析位置偏移，否则退回 index 哈希（模块级计数，避免随机 remount）。 */
@@ -312,9 +319,112 @@ function keyTag(node: Element): string {
   return `auto-${keyCounter}`;
 }
 
-/** HAST Root → React（供解析成功路径调用）。 */
+// ── 标题自动编号 ──
+
+const CHINESE_NUMBERS = [
+  '', '一', '二', '三', '四', '五', '六', '七', '八', '九',
+  '十', '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九',
+  '二十',
+];
+
+const CIRCLED_NUMBERS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'];
+
+/** 数字转中文（1-20 直接映射，超出用阿拉伯数字）。 */
+function toChineseNumber(n: number): string {
+  if (n >= 1 && n <= 20) return CHINESE_NUMBERS[n];
+  return String(n);
+}
+
+/** 数字转带圈数字（1-10 直接映射，超出用阿拉伯数字）。 */
+function toCircledNumber(n: number): string {
+  if (n >= 1 && n <= 10) return CIRCLED_NUMBERS[n - 1];
+  return String(n);
+}
+
+/** 已有编号检测正则。 */
+const EXISTING_NUMBERING_RE = [
+  /^[一二三四五六七八九十百千]+、/,   // 中文数字+顿号
+  /^\d+[.\s]/,                         // 阿拉伯数字+点/空格
+  /^[①②③④⑤⑥⑦⑧⑨⑩]+/,              // 带圈数字
+];
+
+/** 检测标题文本是否已有编号前缀。 */
+function hasExistingNumbering(text: string): boolean {
+  const trimmed = text.trimStart();
+  return EXISTING_NUMBERING_RE.some((re) => re.test(trimmed));
+}
+
+/** 标题编号计数器（h1-h4 四级，h5/h6 不编号）。 */
+class HeadingCounter {
+  private counters = [0, 0, 0, 0]; // h1, h2, h3, h4
+
+  increment(level: number): void {
+    this.counters[level - 1]++;
+    for (let i = level; i < 4; i++) {
+      this.counters[i] = 0;
+    }
+  }
+
+  getNumber(level: number): string {
+    switch (level) {
+      case 1: return toChineseNumber(this.counters[0]) + '、';
+      case 2: return this.counters[1] + '. ';
+      case 3: return `${this.counters[1]}.${this.counters[2]} `;
+      case 4: return toCircledNumber(this.counters[3]) + ' ';
+      default: return '';
+    }
+  }
+}
+
+/** 模块级计数器实例，每次 renderAIMarkdownRoot 调用时重置。 */
+let headingCounter = new HeadingCounter();
+
+/** 从 React children 中提取纯文本（用于已有编号检测）。 */
+function extractTextFromChildren(children: React.ReactNode[]): string {
+  let text = '';
+  for (const child of children) {
+    if (typeof child === 'string') {
+      text += child;
+    } else if (typeof child === 'number') {
+      text += String(child);
+    } else if (React.isValidElement(child)) {
+      const props = child.props as { children?: React.ReactNode };
+      if (Array.isArray(props.children)) {
+        text += extractTextFromChildren(props.children);
+      } else if (typeof props.children === 'string') {
+        text += props.children;
+      }
+    }
+  }
+  return text;
+}
+
+/** 在 heading children 前插入编号 span（仅 h1-h4，跳过已有编号）。 */
+function addHeadingNumbering(
+  children: React.ReactNode[],
+  level: number,
+  counter: HeadingCounter,
+  key: string,
+): React.ReactNode[] {
+  if (level < 1 || level > 4) return children;
+
+  const text = extractTextFromChildren(children);
+  if (hasExistingNumbering(text)) return children;
+
+  counter.increment(level);
+  const prefix = counter.getNumber(level);
+  const numberSpan = React.createElement(
+    'span',
+    { key: `${key}-num`, className: 'ai-heading-number' },
+    prefix,
+  );
+  return [numberSpan, ...children];
+}
+
+/** HAST Root → React（供解析成功路径调用）。每次调用重置标题计数器。 */
 export function renderAIMarkdownRoot(root: Root | null): React.ReactNode {
   if (!root) return null;
+  headingCounter = new HeadingCounter();
   return hastToReact(root as Element | Text | Root);
 }
 

@@ -13,7 +13,8 @@ describe('aiMarkdown 安全渲染器', () => {
   it('渲染 h1/h2 与段落标题', () => {
     const node = renderAIMarkdownSafe('# 标题\n\n正文内容');
     const { container } = render(<div>{node}</div>);
-    expect(container.querySelector('h1')?.textContent).toBe('标题');
+    // h1 自动添加中文数字编号（一、标题）
+    expect(container.querySelector('h1')?.textContent).toContain('标题');
     expect(container.textContent).toContain('正文内容');
   });
 

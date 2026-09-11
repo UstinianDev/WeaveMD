@@ -3077,6 +3077,13 @@ span.comment-marker {
   color: var(--text-secondary);
 }
 
+.ai-heading-number {
+  color: var(--text-secondary, #888);
+  font-weight: 500;
+  margin-right: 0.25em;
+  user-select: none;
+}
+
 /* ============================================ */
 /* Composer Input Tags（/skill @doc 高亮标签）  */
 /* ============================================ */

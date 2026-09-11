@@ -26,7 +26,9 @@
   `files/`（conversationExport/documentParser）+ `skills/` + `tools/`（18+ handler）+
   `ipc/` 按域拆分（7 个 handler 模块）
 - `src/render/components/AIAgent/` — AI 面板三视图外壳（home/session/settings）+
-  AIPanelComposer + AgentTab 消息流 + settings/{ModelForm,EmbeddingSettings,SearchSettings,...}
+  AIPanelComposer（TipTap contentEditable + /@标签 chip）+ AgentTab 消息流 +
+  composer/extensions/（SkillTag/MentionTag/skillSuggestion/mentionSuggestion）+
+  settings/{ModelForm,EmbeddingSettings,SearchSettings,...}
 - `README.md` — GitHub 项目主页（功能介绍、下载安装、开发指南）
 - `docs/` — REQUIREMENTS / SUMMARY / modules/ / specs/ / guide/
 
@@ -70,6 +72,9 @@
 - Agentic RAG：所有非 chat 意图均可自主调用 searchKB（LLM 决定是否检索）；HyDE 支持假设性文档 embedding 检索
 - 写控制：writeMode auto/manual + MD5 staleness detection + Agent 交互暂停/恢复 + 事件持久化
 - 三视图重构：home（RECENT 最近3）/ session（会话）/ settings（设置侧栏）
+- Composer 标签化：TipTap contentEditable + SkillTag/MentionTag 自定义 Node（atom/inline）+
+  @tiptap/suggestion 补全 + Codex 风格 chip（蓝/绿/琥珀色）
+- AI 标题自动编号：h1→中文数字、h2→阿拉伯、h3→层级、h4→带圈（渲染层自动编号，不依赖 LLM）
 
 ## 关键文件
 
@@ -89,6 +94,9 @@
 - `src/main/ai/agent/agentEventStore.ts` — 事件持久化（persistAndSend + persistOnly + replayFromSeq）
 - `src/render/components/AIAgent/cards/QuestionCard.tsx` — 底部滑出提问面板
 - `src/render/components/AIAgent/panel/AIPanelSession.tsx` — 会话视图（集成 QuestionCard）
+- `src/render/components/AIAgent/panel/AIPanelComposer.tsx` — TipTap Composer（/@标签 + 补全）
+- `src/render/components/AIAgent/composer/extensions/` — SkillTag/MentionTag/skillSuggestion/mentionSuggestion
+- `src/render/services/aiMarkdown.tsx` — AI Markdown 渲染（HeadingCounter + 自动编号）
 
 ## UI 美化
 

@@ -1,6 +1,6 @@
 # AI 代理面板 (Agent) 功能总结
 
-> 模块编号：11 | 优先级：P1 | 最后更新：2026-09-09
+> 模块编号：11 | 优先级：P1 | 最后更新：2026-09-11
 > 需求编号：AGT-01~19 / KB-01~05（docs/REQUIREMENTS.md 3.7 / 3.8）
 
 **子文档（渐进式披露，按需加载）：**
@@ -19,7 +19,8 @@
 
 - **Agent**：辅助创作——24+ 工具（只读/写入/交互/搜索）+ 3 内置 skills + 用户扩展 + 意图识别/提问卡片/上下文压缩/工具调用轨迹 + 知识库召回（FTS5）与出处
 - **块级改写**：编辑器选区触发 → AI 面板 composer 描述 → 红删绿增预览 → 确认 `updateContent` 入 undo 栈
-- **Composer 标签**：`/skill` 和 `@doc` 在输入框内部显示
+- **Composer 标签**：TipTap contentEditable 实现，`/skill`（蓝色 chip）和 `@file`（绿色 chip）以可视化标签渲染，支持整体选中/删除，@tiptap/suggestion 自动补全
+- **AI 标题自动编号**：渲染层自动为 h1-h4 添加编号（h1→中文数字、h2→阿拉伯、h3→层级、h4→带圈），已有编号检测跳过
 - **Agentic RAG**：所有非 chat 意图均可自主调用 searchKB（LLM 决定是否检索）
 - **HyDE**：假设性文档 embedding 检索（语义匹配更精准）
 

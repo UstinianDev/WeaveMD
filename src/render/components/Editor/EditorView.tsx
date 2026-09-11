@@ -8,6 +8,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { OutlineItemV2 } from '@render/editor/kernel/outline';
 import { extractOutline, type OutlineItem } from '@render/services/markdown';
 import { useEditorStore } from '@render/stores/editorStore';
 import { useUIStore } from '@render/stores/uiStore';
@@ -20,9 +21,11 @@ interface EditorViewProps {
   /** 导航就绪：提供 navigateToHeading 函数（Source 模式滚动到行；Normal 由 EditorV2 注册） */
   onNavigateReady?: (navFn: (lineNumber: number, headingIndex: number) => void) => void;
   onActiveHeadingChange?: (headingIndex: number | null) => void;
+  /** v2 outline 变化回调（EditorV2 Normal 模式产出） */
+  onOutlineChange?: (outline: OutlineItemV2[]) => void;
 }
 
-const EditorView: React.FC<EditorViewProps> = ({ onNavigateReady, onActiveHeadingChange }) => {
+const EditorView: React.FC<EditorViewProps> = ({ onNavigateReady, onActiveHeadingChange, onOutlineChange }) => {
   const themesDefinedRef = useRef(false);
   const sourceEditorHandleRef = useRef<SourceCodeEditorHandle | null>(null);
   const [themesLoading, setThemesLoading] = useState(true);
@@ -260,6 +263,7 @@ const EditorView: React.FC<EditorViewProps> = ({ onNavigateReady, onActiveHeadin
             onContentChange={setContent}
             onNavigateReady={onNavigateReady}
             onActiveHeadingChange={onActiveHeadingChange}
+            onOutlineChange={onOutlineChange}
           />
         )}
       </div>

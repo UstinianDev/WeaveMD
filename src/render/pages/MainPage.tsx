@@ -19,6 +19,7 @@ import { useRecentStore } from '@render/stores/recentStore';
 import { useUIStore } from '@render/stores/uiStore';
 import { createDiskFile } from '@render/services/fileOps';
 import { injectWelcomeDocument } from '@render/services/welcomeDocument';
+import type { OutlineItemV2 } from '@render/editor/kernel/outline';
 
 const MainPage: React.FC = () => {
   const { t } = useI18n();
@@ -110,6 +111,7 @@ const MainPage: React.FC = () => {
     null
   );
   const [activeHeadingIndex, setActiveHeadingIndex] = useState<number | null>(null);
+  const [outline, setOutline] = useState<OutlineItemV2[]>([]);
 
   const handleNavigateReady = useCallback(
     (navFn: (lineNumber: number, headingIndex: number) => void) => {
@@ -135,6 +137,10 @@ const MainPage: React.FC = () => {
 
     setActiveHeadingIndex(null);
   }, [currentFile]);
+
+  const handleOutlineChange = useCallback((items: OutlineItemV2[]) => {
+    setOutline(items);
+  }, []);
 
   return (
     <div className="flex flex-col h-screen bg-bg-primary">
@@ -162,6 +168,7 @@ const MainPage: React.FC = () => {
             {isOutlinePanelCollapsed ? (
               <div className="w-8 flex-shrink-0">
                 <OutlinePanel
+                  outline={outline}
                   onNavigateToHeading={handleNavigateToHeading}
                   activeHeadingIndex={activeHeadingIndex}
                 />
@@ -172,6 +179,7 @@ const MainPage: React.FC = () => {
                 style={{ width: '20%' }}
               >
                 <OutlinePanel
+                  outline={outline}
                   onNavigateToHeading={handleNavigateToHeading}
                   activeHeadingIndex={activeHeadingIndex}
                 />
@@ -190,6 +198,7 @@ const MainPage: React.FC = () => {
                 <EditorView
                   onNavigateReady={handleNavigateReady}
                   onActiveHeadingChange={setActiveHeadingIndex}
+                  onOutlineChange={handleOutlineChange}
                 />
               ) : (
                 <div className="flex items-center justify-center h-full">

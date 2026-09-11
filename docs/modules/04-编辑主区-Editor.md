@@ -1,6 +1,6 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 版本：v2.9 | 最后更新：2026-08-14
+> 模块编号：04 | 优先级：P0 | 版本：v2.10 | 最后更新：2026-09-11
 > 设计规范：[specs/editor-v2-architecture.md](../specs/editor-v2-architecture.md)
 > 退出规则：[specs/markdown-block-exit-rules.md](../specs/markdown-block-exit-rules.md)
 > 浮动工具栏/跨块拖选：[specs/floating-toolbar-refactor.md](../specs/floating-toolbar-refactor.md)
@@ -121,7 +121,7 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
 | ---- | -------- |
 | editorStore | 每次编辑经 `stateToMarkdown` 同步 content；撤销/重做走 content 快照栈 |
 | uiStore | `isSourceCodeMode` 切换（Normal→Source 先 flush）；查找栏、大纲宽度不变 |
-| OutlinePanel | `extractHeadingOutline`（块树 DFS + 序列化行号）→ 导航滚动；滚动高亮（视口顶部 +10px） |
+| OutlinePanel | v2 `extractHeadingOutlineCached`（块树 DFS + 序列化行号）→ MainPage state → OutlinePanel props → `buildTree` 树形渲染 → 导航滚动（`scrollToBlock`）；滚动高亮（视口顶部 +10px） |
 | Find & Replace | 复用 inline bar（content 文本层），替换后重建块树 |
 | 代码块 | 语言下拉（别名归一化）+ 复制按钮 |
 | 链接 | Ctrl/Cmd+Click → `window.weaveMD.link.openExternal`（IPC 白名单） |

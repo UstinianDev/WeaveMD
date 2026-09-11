@@ -12,7 +12,7 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用。核心定�
 | 前端 | React 18 + TypeScript ^5.4 + TailwindCSS ^3.4（自定义色板，非默认色） |
 | 状态管理 | Zustand v4 |
 | 数据存储 | SQLite（better-sqlite3 ^11，FTS5 全文检索） |
-| 编辑器 | 自研块树内核（v2）+ Monaco（Source 模式） |
+| 编辑器 | 自研块树内核（v2）+ Monaco（Source 模式）+ TipTap（Composer 富文本） |
 | AI | 远程 OpenAI 兼容 API（remote-only）+ jieba-wasm 分词 + FTS5 关键词召回 |
 | 测试 | Vitest + Playwright（真实 Chromium E2E） |
 | 图标 | react-icons/md（Material Design Icons） |

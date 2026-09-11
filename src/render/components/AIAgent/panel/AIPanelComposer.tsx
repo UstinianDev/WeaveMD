@@ -1,15 +1,15 @@
 // ============================================
 // WeaveMD — AI 面板共享 Composer（三视图复用）
 // ============================================
-// 1:1 复刻 Notus InputBar 的 @mention 方案：
-// - 纯 textarea，无 overlay，无透明文字
-// - cursorIndex 状态追踪（onChange/onClick/onKeyUp/onSelect/onCompositionEnd）
-// - activeMention regex 检测：支持 @{filename with spaces} 语法
-// - dismissedMentionKey 关闭补全菜单
-// - applyMention 插入纯文本 token
+// TipTap contentEditable 实现，支持 /skill 和 @file 标签的可视化 chip。
+// - useEditor 初始化 TipTap 编辑器（StarterKit + SkillTag + MentionTag + suggestions）
+// - 标签节点（skillTag / mentionTag）以 atom 节点形式渲染为 chip
+// - handleSend 从 editor state 遍历提取标签信息，构建纯文本 + 标签元数据
+// - Enter 发送，Shift+Enter 换行（通过 keymap 配置）
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AgentSkillInfo } from '@shared/ai';
+import { useEditor, EditorContent } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
 import { useAgentStore } from '@render/stores/agentStore';
@@ -17,7 +17,6 @@ import { useEditorStore } from '@render/stores/editorStore';
 import { useRewriteStore } from '@render/stores/rewriteStore';
 import { useFileTreeStore, type IFolderNode } from '@render/stores/fileTreeStore';
 import { onStreamDelta } from '@render/stores/agentStore';
-import CompletionMenu, { type CompletionMenuItem } from '../composer/CompletionMenu';
 import ContextRing from '../composer/ContextRing';
 import ModelDropdown from '../composer/ModelDropdown';
 import {
@@ -25,6 +24,11 @@ import {
   type SendContext,
 } from '../composer/sendRoutes';
 import Icon from '../../Common/Icon';
+import { SkillTag } from '../composer/extensions/SkillTag';
+import { MentionTag } from '../composer/extensions/MentionTag';
+import { setCachedSkills, createSkillSuggestionExtension } from '../composer/extensions/skillSuggestion';
+import { setMentionItemsGetter, createMentionSuggestionExtension } from '../composer/extensions/mentionSuggestion';
+import type { MentionOption } from '../composer/extensions/mentionSuggestion';
 
 /** 上下文 token 估算上限（128k）。 */
 const MAX_CONTEXT_TOKENS = 128000;
@@ -42,22 +46,13 @@ interface Attachment {
 const WEB_SEARCH_ENGINES = ['Firecrawl', 'Zhipu', 'Tavily', 'Exa'] as const;
 type WebSearchEngine = (typeof WEB_SEARCH_ENGINES)[number];
 
-/** @mention 活跃状态（参考 Notus activeMention）。 */
-interface ActiveMention {
-  start: number;
-  end: number;
-  key: string;
-  query: string;
-}
-
-/** mention 选项（文件/目录/技能）。 */
-interface MentionOption {
-  type: 'file' | 'folder';
-  id: string;
-  name: string;
-  path?: string;
-  description?: string;
-}
+/** 搜索配置 provider key → 显示名映射。 */
+const PROVIDER_DISPLAY_MAP: Record<string, WebSearchEngine> = {
+  firecrawl: 'Firecrawl',
+  zhipu: 'Zhipu',
+  tavily: 'Tavily',
+  exa: 'Exa',
+};
 
 /** 递归扁平化文件夹树为 MentionOption[]。 */
 function flattenFolders(nodes: IFolderNode[]): MentionOption[] {
@@ -86,6 +81,36 @@ interface AIPanelComposerProps {
   onCompose?: () => void;
 }
 
+/** 从 TipTap editor state 中提取纯文本和标签信息。 */
+function extractEditorContent(editor: import('@tiptap/core').Editor): {
+  text: string;
+  skillTagName: string;
+  mentionTags: Array<{ type: string; id: string; name: string; path: string }>;
+} {
+  let text = '';
+  let skillTagName = '';
+  const mentionTags: Array<{ type: string; id: string; name: string; path: string }> = [];
+
+  editor.state.doc.descendants((node) => {
+    if (node.type.name === 'skillTag') {
+      const name = (node.attrs.name as string) ?? '';
+      text += `/${name}`;
+      if (!skillTagName) skillTagName = name;
+    } else if (node.type.name === 'mentionTag') {
+      const name = (node.attrs.name as string) ?? '';
+      const type = (node.attrs.type as string) ?? 'file';
+      const id = (node.attrs.id as string) ?? '';
+      const path = (node.attrs.path as string) ?? '';
+      text += name.includes(' ') ? `@{${name}}` : `@${name}`;
+      mentionTags.push({ type, id, name, path });
+    } else if (node.isText) {
+      text += node.text ?? '';
+    }
+  });
+
+  return { text, skillTagName, mentionTags };
+}
+
 const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange, onSend, onCompose }) => {
   const { t } = useI18n();
   const user = useAuthStore((s) => s.user);
@@ -111,19 +136,13 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
 
   // —— 控制条状态 ——
   const [searchMenuOpen, setSearchMenuOpen] = useState(false);
-  const providerMap: Record<string, WebSearchEngine> = {
-    firecrawl: 'Firecrawl',
-    zhipu: 'Zhipu',
-    tavily: 'Tavily',
-    exa: 'Exa',
-  };
   const [selectedEngine, setSelectedEngine] = useState<WebSearchEngine | null>(null);
   const searchMenuRef = useRef<HTMLDivElement>(null);
 
   // 同步 searchConfig 到 selectedEngine（init 完成后或配置变更后）
   useEffect(() => {
     if (searchConfig?.enabled && searchConfig.provider) {
-      setSelectedEngine(providerMap[searchConfig.provider] ?? null);
+      setSelectedEngine(PROVIDER_DISPLAY_MAP[searchConfig.provider] ?? null);
     } else {
       setSelectedEngine(null);
     }
@@ -139,16 +158,6 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
     return unsubscribe;
   }, [isStreaming]);
 
-  // 光标位置 state（参考 Notus 的方式）
-  const [cursorIndex, setCursorIndex] = useState(0);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // @mention 补全状态（参考 Notus）
-  const [dismissedMentionKey, setDismissedMentionKey] = useState('');
-  const [activeMentionIndex, setActiveMentionIndex] = useState(0);
-  const mentionListRef = useRef<HTMLDivElement>(null);
-  const mentionOptionRefs = useRef<(HTMLButtonElement | null)[]>([]);
-
   // R5: 上下文 token 估算
   const contextEstimate = useMemo(() => {
     const totalChars = messages.reduce((acc, m) => acc + m.content.length, 0) + streamLenRef.current;
@@ -157,27 +166,51 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
     return { usedTokens, ratio };
   }, [messages]);
 
-  // —— 第 7 期 B1：/ 自动补全 ——
-  const [skills, setSkills] = useState<AgentSkillInfo[]>([]);
-  const [completionOpen, setCompletionOpen] = useState(false);
-  const [completionTrigger, setCompletionTrigger] = useState<'/' | '@'>('/');
-  const [completionItems, setCompletionItems] = useState<CompletionMenuItem[]>([]);
-  const [completionActive, setCompletionActive] = useState(0);
-  const [completionInsertAt, setCompletionInsertAt] = useState(0);
-
   // —— 附件状态 ——
   const [attachments, setAttachments] = useState<Attachment[]>([]);
 
-  // 文件树数据（用于 @mention 下拉）
+  // 文件树数据（用于 @mention）
   const looseFiles = useFileTreeStore((s) => s.looseFiles);
   const folders = useFileTreeStore((s) => s.folders);
+
+  // 构建 mention 选项列表（用于 suggestion 插件的 items getter）
+  const mentionOptions = useMemo<MentionOption[]>(() => {
+    const fileItems: MentionOption[] = looseFiles
+      .filter((f) => !f.id.startsWith('welcome://'))
+      .map((f) => ({
+        type: 'file' as const,
+        id: f.id,
+        name: f.name,
+        path: f.path,
+        description: `文件: ${f.name}`,
+      }));
+    const folderItems = flattenFolders(folders);
+    return [...fileItems, ...folderItems];
+  }, [looseFiles, folders]);
+
+  // 注册 mention items getter（让 suggestion 插件可以查询文件树）
+  useEffect(() => {
+    setMentionItemsGetter((query: string) => {
+      const q = query.toLowerCase();
+      if (!q) return mentionOptions.slice(0, 8);
+      return mentionOptions
+        .filter((opt) =>
+          opt.name.toLowerCase().includes(q) ||
+          (opt.description ?? '').toLowerCase().includes(q) ||
+          (opt.path ?? '').toLowerCase().includes(q),
+        )
+        .slice(0, 8);
+    });
+  }, [mentionOptions]);
 
   // 挂载时加载技能清单
   useEffect(() => {
     const load = async (): Promise<void> => {
       try {
         const res = await window.weaveMD?.ai.listSkills(user?.id ?? '');
-        if (res?.success && res.data) setSkills(res.data);
+        if (res?.success && res.data) {
+          setCachedSkills(res.data);
+        }
       } catch {
         /* 静默 */
       }
@@ -199,201 +232,80 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [searchMenuOpen]);
 
-  // 预计算技能列表
-  const skillItems = useMemo<CompletionMenuItem[]>(
-    () =>
-      skills.map((s) => ({
-        value: s.name,
-        label: s.name,
-        description: s.description,
-        insertText: `/${s.name} `,
-      })),
-    [skills],
-  );
-
-  /** 构建补全菜单项（仅 / 触发） */
-  const buildCompletionItems = (query: string): CompletionMenuItem[] => {
-    if (!query) return skillItems;
-    const q = query.toLowerCase();
-    return skillItems.filter((it) =>
-      it.insertText.slice(1).toLowerCase().includes(q)
-    );
-  };
-
-  // —— @mention 选项列表（参考 Notus mentionOptions） ——
-  const mentionOptions = useMemo<MentionOption[]>(() => {
-    const fileItems: MentionOption[] = looseFiles
-      .filter((f) => !f.id.startsWith('welcome://'))
-      .map((f) => ({
-        type: 'file' as const,
-        id: f.id,
-        name: f.name,
-        path: f.path,
-        description: `文件: ${f.name}`,
-      }));
-    const folderItems = flattenFolders(folders);
-    return [...fileItems, ...folderItems];
-  }, [looseFiles, folders]);
-
-  // —— @mention 活跃检测（参考 Notus activeMention） ——
-  // regex: 支持 @{filename with spaces} 和 @filename 两种语法
-  const activeMention = useMemo<ActiveMention | null>(() => {
-    if (!mentionOptions.length) return null;
-    const beforeCursor = value.slice(0, cursorIndex);
-    const match = beforeCursor.match(/(?:^|\s)@(?:\{([^}]*)|([^\s@]*))$/);
-    if (!match) return null;
-
-    const mentionStart = beforeCursor.lastIndexOf('@');
-    const mentionKey = `${mentionStart}:${beforeCursor.slice(mentionStart, cursorIndex)}`;
-    if (dismissedMentionKey === mentionKey) return null;
-
-    const query = String(match[1] ?? match[2] ?? '').trim();
-    return {
-      start: mentionStart,
-      end: cursorIndex,
-      key: mentionKey,
-      query,
-    };
-  }, [cursorIndex, dismissedMentionKey, mentionOptions.length, value]);
-
-  // 按 query 过滤 mention 选项
-  const filteredMentionOptions = useMemo(() => {
-    if (!activeMention) return [];
-    const q = activeMention.query.toLowerCase();
-    if (!q) return mentionOptions.slice(0, 8);
-    return mentionOptions
-      .filter((opt) =>
-        opt.name.toLowerCase().includes(q) ||
-        (opt.description ?? '').toLowerCase().includes(q) ||
-        (opt.path ?? '').toLowerCase().includes(q)
-      )
-      .slice(0, 8);
-  }, [activeMention, mentionOptions]);
-
-  // 重置 activeMentionIndex
-  useEffect(() => {
-    if (!activeMention) {
-      setActiveMentionIndex(0);
-      return;
-    }
-    setActiveMentionIndex((prev) => Math.min(Math.max(prev, 0), Math.max(0, filteredMentionOptions.length - 1)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeMention?.key, filteredMentionOptions.length]);
-
-  // 滚动到可见区域
-  useEffect(() => {
-    if (!filteredMentionOptions.length) return;
-    const list = mentionListRef.current;
-    const option = mentionOptionRefs.current[activeMentionIndex];
-    if (!list || !option) return;
-
-    const optionTop = option.offsetTop;
-    const optionBottom = optionTop + option.offsetHeight;
-    const visibleTop = list.scrollTop;
-    const visibleBottom = visibleTop + list.clientHeight;
-
-    if (optionTop < visibleTop) {
-      list.scrollTo({ top: optionTop - 4, behavior: 'smooth' });
-    } else if (optionBottom > visibleBottom) {
-      list.scrollTo({ top: optionBottom - list.clientHeight + 4, behavior: 'smooth' });
-    }
-  }, [activeMentionIndex, filteredMentionOptions.length]);
-
   const contextTooltip = t(
     'ai.context.tooltip',
-    `Token 使用：${contextEstimate.usedTokens} / ${MAX_CONTEXT_TOKENS}`
+    `Token 使用：${contextEstimate.usedTokens} / ${MAX_CONTEXT_TOKENS}`,
   )
     .replace('{used}', String(contextEstimate.usedTokens))
     .replace('{total}', String(MAX_CONTEXT_TOKENS));
 
-  // 变更 input 时检测光标处 token 是否以 / 开头，从而开/关补全菜单。
-  // @mention 由 activeMention useMemo 自动检测，无需手动刷新。
-  const refreshCompletion = (val: string, cursor: number) => {
-    const textBeforeCursor = val.slice(0, cursor);
+  // —— TipTap 编辑器初始化 ——
+  // 使用 ref 追踪 onChange 回调，避免 editor 重建
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
-    // 仅处理 / 触发（技能补全）
-    const match = /(^|\s)\/([a-zA-Z0-9_-]*)$/.exec(textBeforeCursor);
-    if (!match) {
-      setCompletionOpen(false);
-      return;
-    }
-    const query = match[2] ?? '';
-    const items = buildCompletionItems(query);
-    if (items.length === 0) {
-      setCompletionOpen(false);
-      return;
-    }
-    setCompletionTrigger('/');
-    setCompletionItems(items);
-    setCompletionActive(0);
-    setCompletionInsertAt(cursor - query.length - 1);
-    setCompletionOpen(true);
-  };
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        // 禁用不需要的块级扩展，保持 composer 轻量
+        heading: false,
+        codeBlock: false,
+        blockquote: false,
+        horizontalRule: false,
+        bulletList: false,
+        orderedList: false,
+      }),
+      SkillTag,
+      MentionTag,
+      createSkillSuggestionExtension(),
+      createMentionSuggestionExtension(),
+    ],
+    content: '',
+    editorProps: {
+      attributes: {
+        class: 'composer-tiptap-editor w-full bg-bg-primary border border-border rounded-[var(--radius-input)] px-2.5 py-1.5 text-[15px] outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/30 transition-colors min-h-[72px] max-h-[160px] overflow-y-auto',
+        style: "font-family: 'Consolas', 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif; line-height: 24px;",
+        'data-placeholder': selectionContext
+          ? t('ai.rewrite.selectionHint')
+          : t('ai.placeholder'),
+      },
+    },
+    onUpdate: ({ editor: ed }) => {
+      const { text } = extractEditorContent(ed);
+      onChangeRef.current(text);
+    },
+  });
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const v = e.target.value;
-    onChange(v);
-    setCursorIndex(e.target.selectionStart || 0);
-    setDismissedMentionKey(''); // 输入时重置 dismissed，参考 Notus
-    refreshCompletion(v, e.target.selectionStart || 0);
-  };
+  // Suggestion 插件已通过 extensions 数组注册（createSkillSuggestionExtension / createMentionSuggestionExtension）
 
-  // 光标位置变化时更新 cursorIndex（参考 Notus）
-  const handleSelect = useCallback(() => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    setCursorIndex(textarea.selectionStart || 0);
-  }, []);
-
-  // @mention 选中处理（参考 Notus applyMention）
-  const applyMention = useCallback((option: MentionOption) => {
-    if (!activeMention) return;
-    // 支持 @{filename with spaces} 语法
-    const token = option.name.includes(' ') ? `@{${option.name}}` : `@${option.name}`;
-    const nextValue = `${value.slice(0, activeMention.start)}${token} ${value.slice(activeMention.end)}`;
-    const nextCursor = activeMention.start + token.length + 1;
-    onChange(nextValue);
-    setCursorIndex(nextCursor);
-    setDismissedMentionKey('');
-    setActiveMentionIndex(0);
-    setCompletionOpen(false);
-
-    requestAnimationFrame(() => {
-      const textarea = textareaRef.current;
-      if (!textarea) return;
-      textarea.focus();
-      textarea.setSelectionRange(nextCursor, nextCursor);
-    });
-  }, [activeMention, onChange, value]);
-
-  const handleCompletionSelect = (item: CompletionMenuItem) => {
-    onChange(value.slice(0, completionInsertAt) + item.insertText);
-    setCompletionOpen(false);
-    requestAnimationFrame(() => {
-      const textarea = textareaRef.current;
-      if (!textarea) return;
-      const newPos = completionInsertAt + item.insertText.length;
-      textarea.focus();
-      textarea.setSelectionRange(newPos, newPos);
-      setCursorIndex(newPos);
-    });
-  };
-
-  const handleCompletionMove = (dir: 1 | -1) => {
-    setCompletionActive((prev) => {
-      if (completionItems.length === 0) return prev;
-      return (prev + dir + completionItems.length) % completionItems.length;
-    });
-  };
-
-  // 技能就绪后重估当前 `/` 补全
+  // 同步外部 value → editor content（仅在值真正变化时）
+  const prevValueRef = useRef(value);
   useEffect(() => {
-    if (skills.length > 0) refreshCompletion(value, cursorIndex);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skills]);
+    if (!editor) return;
+    // 仅当外部 value 变化且与 editor 文本不同时同步（避免循环）
+    const editorText = extractEditorContent(editor).text;
+    if (value !== prevValueRef.current && value !== editorText) {
+      prevValueRef.current = value;
+      // 将纯文本设置为编辑器内容
+      editor.commands.setContent(value || '');
+    }
+  }, [value, editor]);
+
+  // placeholder 显示/隐藏（通过 CSS 控制）
+  useEffect(() => {
+    if (!editor) return;
+    const el = editor.view.dom;
+    const updatePlaceholder = (): void => {
+      const isEmpty = editor.isEmpty;
+      el.setAttribute('data-empty', String(isEmpty));
+    };
+    editor.on('update', updatePlaceholder);
+    updatePlaceholder();
+    return () => { editor.off('update', updatePlaceholder); };
+  }, [editor]);
 
   /** agent 模式发送分流 */
-  const handleSendAgent = (text: string): void => {
+  const handleSendAgent = (text: string, skillTagName: string): void => {
     const store = useAgentStore.getState();
     const ctx: SendContext = {
       userId: user?.id,
@@ -404,7 +316,7 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
       startDocumentRewrite: (content, instruction) => {
         useRewriteStore.getState().startDocumentRewrite(content, instruction);
       },
-      runFullDocumentRewrite: (t) => { void useRewriteStore.getState().runFullDocumentRewrite(t); },
+      runFullDocumentRewrite: (txt) => { void useRewriteStore.getState().runFullDocumentRewrite(txt); },
       runSelectionRewrite: (instruction) => { void useRewriteStore.getState().runSelectionRewrite(instruction); },
       editorContent: useEditorStore.getState().content,
       createConversation: async (userId) => {
@@ -413,6 +325,7 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
         return (res?.success && res.data) ? res.data.id : null;
       },
       setAgentState: (patch) => { useAgentStore.setState(patch); },
+      skillTagName,
     };
     for (const route of SEND_ROUTES) {
       const handled = route(text, ctx);
@@ -421,13 +334,14 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
   };
 
   const handleSend = () => {
-    const text = value.trim();
-    if (!text || isStreaming || !isConfigured) return;
-    setCompletionOpen(false);
+    if (!editor) return;
+    const { text, skillTagName } = extractEditorContent(editor);
+    const trimmed = text.trim();
+    if (!trimmed || isStreaming || !isConfigured) return;
 
-    let fullText = text;
+    let fullText = trimmed;
     if (attachments.length > 0) {
-      const parts: string[] = [text];
+      const parts: string[] = [trimmed];
       for (const att of attachments) {
         if (att.type === 'file' && att.content) {
           parts.push(`[文件: ${att.name}]\n\`\`\`\n${att.content}\n\`\`\``);
@@ -439,7 +353,10 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
       setAttachments([]);
     }
 
-    void handleSendAgent(fullText);
+    void handleSendAgent(fullText, skillTagName);
+    // 清空编辑器
+    editor.commands.clearContent();
+    onChange('');
     onSend?.();
     onCompose?.();
   };
@@ -484,105 +401,44 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
   const handleToggleEngine = useCallback((engine: WebSearchEngine) => {
     setSelectedEngine((prev) => (prev === engine ? null : engine));
     setSearchMenuOpen(false);
-    const providerMap: Record<WebSearchEngine, string> = {
+    const providerMapLocal: Record<WebSearchEngine, string> = {
       Firecrawl: 'firecrawl',
       Zhipu: 'zhipu',
       Tavily: 'tavily',
       Exa: 'exa',
     };
-    const provider = providerMap[engine];
+    const provider = providerMapLocal[engine];
     if (provider && user?.id) {
       void window.weaveMD?.ai.searchConfig.set(user.id, { provider: provider as 'firecrawl' | 'zhipu' | 'tavily' | 'exa' });
       void useAgentStore.getState().refreshSearchConfig();
     }
   }, [user?.id]);
 
-  // 类型图标
-  const getTypeIconify = (type: MentionOption['type']): string => {
-    return type === 'folder' ? 'folder-outline' : 'file-outline';
-  };
+  // —— 键盘事件处理（Enter 发送） ——
+  // TipTap 的 keymap 在 StarterKit 中已配置，此处仅处理 Enter 发送
+  const handleSendRef = useRef(handleSend);
+  handleSendRef.current = handleSend;
+  useEffect(() => {
+    if (!editor) return;
 
-  const getTypeBg = (type: MentionOption['type']): string => {
-    return type === 'folder' ? 'bg-amber-500/10 text-amber-500' : 'bg-[#2563eb]/10 text-[#2563eb]';
-  };
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      // Enter 发送（非 Shift+Enter）
+      if (event.key === 'Enter' && !event.shiftKey) {
+        // 不在 suggestion 弹出时拦截（suggestion 的 onKeyDown 优先）
+        event.preventDefault();
+        handleSendRef.current();
+      }
+    };
 
-  const getTypeColor = (type: MentionOption['type']): string => {
-    return type === 'folder' ? 'text-amber-500' : 'text-[#2563eb]';
-  };
+    editor.view.dom.addEventListener('keydown', handleKeyDown);
+    return () => { editor.view.dom.removeEventListener('keydown', handleKeyDown); };
+  }, [editor]);
 
-  // —— 键盘事件处理（参考 Notus handleKeyDown） ——
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // @mention 导航（参考 Notus）
-    if (activeMention && filteredMentionOptions.length > 0) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setActiveMentionIndex((prev) => (prev + 1) % filteredMentionOptions.length);
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setActiveMentionIndex((prev) => (prev - 1 + filteredMentionOptions.length) % filteredMentionOptions.length);
-        return;
-      }
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        applyMention(filteredMentionOptions[activeMentionIndex] || filteredMentionOptions[0]);
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setDismissedMentionKey(activeMention.key);
-        setActiveMentionIndex(0);
-        return;
-      }
-    }
-
-    // /skill 补全菜单导航
-    if (completionOpen) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        handleCompletionMove(1);
-        return;
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        handleCompletionMove(-1);
-        return;
-      }
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        const active = completionItems[completionActive];
-        if (active) handleCompletionSelect(active);
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setCompletionOpen(false);
-        return;
-      }
-    }
-
-    // Enter 发送
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
+  const editorEmpty = editor?.isEmpty ?? true;
 
   return (
     <div className="border-t border-border px-2.5 pt-2 pb-2.5 space-y-1.5">
       <div className="relative">
-        {/* B1 `/` 技能补全菜单 */}
-        <CompletionMenu
-          open={completionOpen}
-          trigger={completionTrigger}
-          title={t('ai.completion.skillsTitle')}
-          items={completionItems}
-          activeIndex={completionActive}
-          onMove={handleCompletionMove}
-          onSelect={handleCompletionSelect}
-          onClose={() => setCompletionOpen(false)}
-        />
         {/* 附件预览条 */}
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-1.5">
@@ -609,78 +465,18 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
           </div>
         )}
         <div className="relative">
-          {/* @mention 下拉列表（参考 Notus activeMention dropdown） */}
-          {activeMention && filteredMentionOptions.length > 0 && (
+          <EditorContent editor={editor} />
+          {/* Placeholder：当编辑器为空时显示 */}
+          {editorEmpty && (
             <div
-              ref={mentionListRef}
-              className="absolute left-0 right-0 bottom-full mb-1 z-50 max-h-60 overflow-y-auto rounded-card border border-border bg-bg-secondary shadow-dropdown"
-              role="listbox"
-              aria-label={t('ai.mention.title', '@ 引用')}
-              style={{ overscrollBehavior: 'contain' }}
+              className="absolute top-0 left-0 right-0 px-2.5 py-1.5 text-[15px] text-text-muted pointer-events-none"
+              style={{ lineHeight: '24px' }}
             >
-              <div className="px-3 pt-2 pb-1 text-[11px] text-text-muted font-medium">
-                {t('ai.mention.title', '@ 引用')}
-              </div>
-              {filteredMentionOptions.map((option, index) => (
-                <button
-                  key={`${option.type}-${option.id}`}
-                  ref={(node) => { mentionOptionRefs.current[index] = node; }}
-                  type="button"
-                  role="option"
-                  aria-selected={index === activeMentionIndex}
-                  onClick={() => applyMention(option)}
-                  onMouseEnter={() => setActiveMentionIndex(index)}
-                  className={`flex items-center gap-2.5 w-full text-left px-3 py-2 text-[13px] transition-colors ${
-                    index === activeMentionIndex
-                      ? 'bg-[var(--accent)]/10 text-text-primary'
-                      : 'text-text-sub hover:bg-bg-tertiary'
-                  }`}
-                >
-                  <span className={`shrink-0 w-6 h-6 rounded-md flex items-center justify-center ${getTypeBg(option.type)}`}>
-                    <Icon icon={getTypeIconify(option.type)} size={14} />
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="truncate font-medium">{option.name}</div>
-                    {option.description && (
-                      <div className="truncate text-[11px] text-text-muted">
-                        {option.description}
-                      </div>
-                    )}
-                  </div>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${getTypeColor(option.type)} bg-bg-tertiary`}>
-                    {option.type === 'folder' ? '目录' : '文件'}
-                  </span>
-                </button>
-              ))}
+              {selectionContext
+                ? t('ai.rewrite.selectionHint')
+                : t('ai.placeholder')}
             </div>
           )}
-          <textarea
-            ref={textareaRef}
-            value={value}
-            onChange={handleInputChange}
-            onSelect={handleSelect}
-            onClick={(e) => {
-              setCursorIndex(e.currentTarget.selectionStart || 0);
-            }}
-            onKeyUp={(e) => {
-              setCursorIndex(e.currentTarget.selectionStart || 0);
-            }}
-            onCompositionEnd={(e) => {
-              setCursorIndex(e.currentTarget.selectionStart || 0);
-            }}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              selectionContext
-                ? t('ai.rewrite.selectionHint')
-                : t('ai.placeholder')
-            }
-            rows={3}
-            className="composer-textarea w-full resize-none bg-bg-primary border border-border rounded-input px-2.5 py-1.5 text-[15px] placeholder-text-muted outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/30 transition-colors"
-            style={{
-              fontFamily: "'Consolas', 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif",
-              lineHeight: '24px',
-            }}
-          />
         </div>
       </div>
       {/* 底部控制条 */}
@@ -830,7 +626,7 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
           <button
             type="button"
             onClick={handleSend}
-            disabled={!value.trim() || !isConfigured}
+            disabled={editorEmpty || !isConfigured}
             title={!isConfigured ? t('ai.configRequired', '请先在设置中配置 API Key') : undefined}
             data-testid="ai-composer-send"
             className="px-3.5 py-1 text-[15px] rounded-input bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity btn-shimmer"

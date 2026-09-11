@@ -11,7 +11,8 @@ describe('MarkdownMessage', () => {
     const { container } = render(
       <MarkdownMessage content={'# 你好\n\n- 一项\n- 二项\n\n`code` 内联'} />
     );
-    expect(container.querySelector('h1')?.textContent).toBe('你好');
+    // h1 自动添加中文数字编号（一、你好）
+    expect(container.querySelector('h1')?.textContent).toContain('你好');
     expect(container.querySelectorAll('li').length).toBe(2);
     expect(container.querySelector('code')?.textContent).toBe('code');
   });
