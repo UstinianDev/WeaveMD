@@ -235,8 +235,7 @@ async function renderToFile(
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
-      // 关键：offscreen 允许隐藏窗口绘制内容，否则 capturePage 返回空白
-      offscreen: true,
+      offscreen: true, // 必须：隐藏窗口渲染依赖此选项
     },
   });
   const tmpPath = path.join(
@@ -246,14 +245,12 @@ async function renderToFile(
 
   try {
     fs.writeFileSync(tmpPath, fullHtml, 'utf-8');
+    await win.loadFile(tmpPath);
 
-    // 等待页面加载完成
-    await new Promise<void>((resolve, reject) => {
-      win.webContents.on('did-finish-load', () => resolve());
-      win.webContents.on('did-fail-load', (_e, code, desc) => reject(new Error(`Load failed: ${code} ${desc}`)));
-      win.loadFile(tmpPath).catch(reject);
-    });
+    // 设置2x 缩放提高清晰度（HiDPI 适配）
+    win.webContents.setZoomFactor(2);
 
+    // 等待图片和字体加载完成
     const contentHeight = (await win.webContents.executeJavaScript(WAIT_AND_MEASURE_SCRIPT)) as number;
     console.log(`[Export] Content height: ${contentHeight}px, format: ${format}`);
 
@@ -276,30 +273,23 @@ async function renderToFile(
 
     win.setContentSize(EXPORT_IMAGE_WIDTH, height);
 
-    // 设置缩放因子以获得高分辨率输出（3x = 3600px 设备像素宽）
-    win.webContents.setZoomFactor(EXPORT_SCALE_FACTOR);
-
-    // 等待内容回流：至少两个 rAF 确保 Chromium 完成布局和绘制
+    // 等待内容回流
     await win.webContents.executeJavaScript(
       'new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))',
     );
 
-    // 额外等待确保渲染完成
-    await new Promise(r => setTimeout(r, 300));
-
-    // capturePage 不传 rect，让 Electron 自动处理设备像素比
+    // capturePage（zoomFactor=2 已自动捕获2x 分辨率）
     const image = await win.webContents.capturePage();
 
-    // toPNG/toJPEG 的 scaleFactor 参数：告诉输出图像的缩放因子
-    // 这样图像查看器会知道这是 3x 分辨率的图像
+    // toPNG/toJPEG（不再额外 scaleFactor，zoomFactor 已处理）
     const buffer = format === 'png'
-      ? image.toPNG({ scaleFactor: EXPORT_SCALE_FACTOR })
+      ? image.toPNG()
       : image.toJPEG(EXPORT_JPEG_QUALITY);
-    console.log(`[Export] Image buffer size: ${buffer.byteLength} bytes, scaleFactor: ${EXPORT_SCALE_FACTOR}x`);
+    console.log(`[Export] Image buffer size: ${buffer.byteLength} bytes, scaleFactor: 2`);
 
-    // 验证 buffer 有效性（PNG 魔术字节：89 50 4E 47，JPEG：FF D8 FF）
-    if (buffer.byteLength < 100) {
-      throw new Error(`Image buffer too small: ${buffer.byteLength} bytes`);
+    // 验证 buffer 有效性
+    if (buffer.byteLength === 0) {
+      throw new Error('Image buffer is empty');
     }
 
     fs.writeFileSync(filePath, buffer);

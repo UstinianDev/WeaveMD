@@ -18,9 +18,11 @@ const electronMock = vi.hoisted(() => {
     setContentSize: vi.fn(),
     destroy: vi.fn(),
     webContents: {
+      on: vi.fn(),
       executeJavaScript: vi.fn(),
       capturePage: vi.fn(),
       printToPDF: vi.fn(),
+      setZoomFactor: vi.fn(),
     },
   };
   const BrowserWindowCtor = vi.fn(() => hiddenWin);
@@ -278,6 +280,8 @@ describe('exportFile — 隐藏窗口渲染（pdf/png/jpg）', () => {
     const result = await exportFile({ ...BASE_REQ, format: 'png' }, fakeParent);
     expect(result.success).toBe(true);
     expect(fs.readFileSync(p).subarray(0, 4)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    // capturePage 不传 rect，自动处理 HiDPI
+    expect(electronMock.hiddenWin.webContents.capturePage).toHaveBeenCalledWith();
   });
 
   it('jpg：capturePage → toJPEG(92) 输出 JPEG 魔数', async () => {
@@ -316,10 +320,8 @@ describe('exportFile — 取消与截断', () => {
       EXPORT_IMAGE_WIDTH,
       EXPORT_MAX_HEIGHT,
     );
-    expect(electronMock.hiddenWin.webContents.capturePage).toHaveBeenCalledWith(
-      { x: 0, y: 0, width: EXPORT_IMAGE_WIDTH, height: EXPORT_MAX_HEIGHT },
-      { stayHidden: true },
-    );
+    // capturePage 不传 rect，自动处理 HiDPI
+    expect(electronMock.hiddenWin.webContents.capturePage).toHaveBeenCalledWith();
   });
 
   it('无父窗口时 showSaveDialog 走 options 单参形式', async () => {

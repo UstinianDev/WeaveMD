@@ -94,12 +94,14 @@ const rewriteMock = vi.hoisted(() => ({
 }));
 vi.mock('@main/ai/rewrite', () => rewriteMock);
 
+import type { CoreSkill } from '@main/ai/skills/skillLoader';
+
 const skillLoaderMock = vi.hoisted(() => ({
   listSkillsForUi: vi.fn(() => [
     { name: 'polish_rewrite', description: '润色' },
     { name: 'tech_organize', description: '整理' },
   ]),
-  loadUserSkillsFromDirs: vi.fn(() => []),
+  loadUserSkillsFromDirs: vi.fn((): CoreSkill[] => []),
 }));
 vi.mock('@main/ai/skills/skillLoader', () => skillLoaderMock);
 
