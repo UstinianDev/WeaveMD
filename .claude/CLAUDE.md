@@ -123,6 +123,7 @@
 - [specs/](../docs/specs/) — 编辑器/AI 面板规格文档
 - [testing/](../docs/testing/) — TDD 测试报告
 - [plan/](../docs/plan/) — 实施计划与状态
+- [plan/archive/](../docs/plan/archive/) — 已完成的实施状态归档
 
 ### 查阅规则（渐进式披露）
 - 项目是什么、怎么跑 → README.md
@@ -137,6 +138,10 @@
 - 认证、加密、权限 → docs/architecture/security.md
 - 测试策略、工具、覆盖率 → docs/architecture/testing.md
 - 构建、打包、发布 → docs/architecture/build.md
+- 模块实现细节 → docs/modules/{模块名}.md
+- 编辑器/AI 面板设计 → docs/specs/
+- 测试覆盖、验证证据 → docs/testing/
+- 实施计划、优化状态 → docs/plan/
 - 模块实现细节 → docs/modules/{模块名}.md
 - 编辑器/AI 面板设计 → docs/specs/
 - 测试覆盖、验证证据 → docs/testing/

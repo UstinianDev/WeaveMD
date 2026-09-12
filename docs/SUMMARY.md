@@ -9,6 +9,7 @@
 | [README](../README.md) | GitHub 项目主页（功能介绍、下载安装、开发指南） |
 | [REQUIREMENTS](./REQUIREMENTS.md) | 功能需求文档（完整版） |
 | [TODO](./TODO.md) | 功能进度与已知问题 |
+| [CONTRIBUTING](./CONTRIBUTING.md) | 文档编写规范（渐进式披露、命名规范、更新流程） |
 | [packaging](./guide/packaging.md) | 打包与发布指南（Electron Builder） |
 
 ## 架构文档（按技术层）
@@ -86,15 +87,21 @@
 | [optimize-outline-aiheading-composer.status](./plan/optimize-outline-aiheading-composer.status.md) | **编辑主区+AI面板优化（2026-09-11）**：Outline统一 + 标题编号 + Composer标签化 |
 | [agent-optimization.status](./plan/agent-optimization.status.md) | **Agent 优化（2026-09-11）**：折叠重构 + Hover 调淡 + 消息编辑 + 上下文修复 |
 | [agent-optimize-v3.plan](./plan/agent-optimize-v3.plan.md) | Agent 优化 v3 实施计划（搜索持久化/动态轮次/多文件Diff） |
-| [agent-optimize-v3.status](./plan/agent-optimize-v3.status.md) | Agent 优化 v3 状态（✅ 完成） |
-| [ai-agent-optimize.status](./plan/ai-agent-optimize.status.md) | AI Agent 优化状态（30/30 ✅ 完成） |
-| [ai-perf-optimize-v2.status](./plan/ai-perf-optimize-v2.status.md) | AI 性能优化 v2 状态（✅ 完成） |
-| [ai-perf-2026-09-09.status](./plan/ai-perf-2026-09-09.status.md) | AI 性能优化 2026-09-09 状态（✅ 完成） |
 | [agent-kb-refactor.plan](./plan/agent-kb-refactor.plan.md) | Agent/KB 重构计划（模块拆分/缓存提取） |
-| [agent-kb-refactor.status](./plan/agent-kb-refactor.status.md) | Agent/KB 重构状态（✅ 完成） |
 | [fix-web-search-loop.plan](./plan/fix-web-search-loop.plan.md) | web_search 死循环修复计划（✅ 完成） |
 | [embedding-architecture](./plan/embedding-architecture.md) | Embedding 多提供商架构设计 |
 | [indexing-compatibility](./plan/indexing-compatibility.md) | 索引流程兼容性设计（多提供商适配） |
+
+### 归档（已完成）
+
+已完成的实施状态文档已归档至 `docs/plan/archive/` 目录，包括：
+- agent-optimize-v3.status.md
+- ai-agent-optimize.status.md
+- ai-perf-optimize-v2.status.md
+- ai-perf-2026-09-09.status.md
+- agent-kb-refactor.status.md
+- perf-agent-kb-writecontrol.status.md
+- optimize-tasks.status.md
 
 ## 测试报告
 

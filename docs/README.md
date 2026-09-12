@@ -72,9 +72,11 @@ npm run build
 - [SUMMARY](./SUMMARY.md) — 文档索引
 - [REQUIREMENTS](./REQUIREMENTS.md) — 功能需求文档
 - [TODO](./TODO.md) — 功能进度与已知问题
-- [modules/](./modules/) — 各模块详细文档（12 个模块）
+- [CONTRIBUTING](./CONTRIBUTING.md) — 文档编写规范（渐进式披露、命名规范、更新流程）
+- [modules/](./modules/) — 各模块详细文档（11 个模块）
 - [specs/](./specs/) — 编辑主区 v2 规格与实施记录
 - [testing/](./testing/) — TDD 测试报告
+- [plan/](./plan/) — 实施计划与状态
 - [guide/packaging](./guide/packaging.md) — 打包与发布指南
 
 ### 查阅规则
@@ -83,7 +85,9 @@ npm run build
 - 开发环境、技术栈、目录结构 → docs/README.md
 - 功能需求、验收标准 → REQUIREMENTS.md
 - 功能进度、已知问题 → TODO.md
+- 文档编写规范 → CONTRIBUTING.md
 - 模块实现细节 → docs/modules/{模块名}.md
 - 编辑主区规格 → docs/specs/
 - 测试证据 → docs/testing/
+- 实施计划 → docs/plan/
 - 打包发布 → docs/guide/packaging.md
