@@ -3271,3 +3271,24 @@ span.comment-marker {
   background-size: 200% 100%;
   animation: shimmer 3s linear infinite;
 }
+
+/* --- TipTap Composer Link Styles --- */
+.composer-tiptap-editor a,
+.tiptap a {
+  color: var(--accent, #2563eb);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.composer-tiptap-editor a:hover,
+.tiptap a:hover {
+  color: var(--accent-hover, #1d4ed8);
+  text-decoration-thickness: 2px;
+}
+
+.composer-tiptap-editor a:visited,
+.tiptap a:visited {
+  color: var(--accent-secondary, #3b82f6);
+}

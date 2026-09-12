@@ -10,7 +10,6 @@ import IconButton from '@render/components/Common/IconButton';
 import { useI18n } from '@render/i18n';
 import FeedbackModal from '@render/components/Feedback/FeedbackModal';
 import HelpMenu from './HelpMenu';
-import ViewMenu from './ViewMenu';
 import WindowControls from './WindowControls';
 import { useNavbarActions } from '@render/hooks/useNavbarActions';
 import { useUIStore } from '@render/stores/uiStore';
@@ -84,6 +83,7 @@ const TopBar: React.FC = () => {
   const isDirty = useEditorStore((s) => s.isDirty);
   const saveFile = useEditorStore((s) => s.saveFile);
   const [saving, setSaving] = useState(false);
+  const isSourceCodeMode = useUIStore((s) => s.isSourceCodeMode);
 
   const handleSave = useCallback(async () => {
     if (!isDirty || saving) return;
@@ -173,15 +173,36 @@ const TopBar: React.FC = () => {
           </svg>
         </IconButton>
 
+        {/* Toggle Source Code Mode — code/document icon */}
+        <IconButton
+          onClick={() => useUIStore.getState().toggleSourceCodeMode()}
+          title={isSourceCodeMode ? t('navbar.richTextMode') : t('navbar.sourceCodeMode')}
+          active={isSourceCodeMode}
+        >
+          {isSourceCodeMode ? (
+            // 源代码模式：显示文档图标
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+              <polyline points="10 9 9 9 8 9" />
+            </svg>
+          ) : (
+            // 富文本模式：显示代码图标
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="16 18 22 12 16 6" />
+              <polyline points="8 6 2 12 8 18" />
+            </svg>
+          )}
+        </IconButton>
+
         <NavSeparator />
 
         {/* Help menu */}
         <HelpMenu
           onOpenFeedback={() => setFeedbackOpen(true)}
         />
-
-        {/* View menu */}
-        <ViewMenu />
       </div>
 
       {/* Loading indicator */}

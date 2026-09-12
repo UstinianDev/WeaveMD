@@ -85,7 +85,7 @@ export function escapeHtml(text: string): string {
     .replace(/'/g, '&#39;');
 }
 
-const SAFE_URL_RE = /^(https?:|mailto:|file:|data:image\/(png|jpe?g|gif|webp);base64,|#|\/|\.\/|\.\.\/)/i;
+const SAFE_URL_RE = /^(https?:|mailto:|file:|data:image\/(png|jpe?g|gif|webp|svg\+xml|avif);base64,|#|\/|\.\/|\.\.\/)/i;
 
 /**
  * 无协议裸域名（至少含一个点）：`www.baidu.com` / `example.com:8080/x` / `a.io#anch`。

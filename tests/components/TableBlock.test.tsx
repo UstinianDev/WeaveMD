@@ -47,6 +47,8 @@ function makeHandlers(onTableEdit: BlockHandlers['onTableEdit'] = vi.fn()): Bloc
     onInsertTable: vi.fn(),
     onRemoveTable: vi.fn(),
     onRemoveThematicBreak: vi.fn(),
+    onArrowUp: vi.fn(),
+    onArrowDown: vi.fn(),
   };
 }
 

@@ -50,6 +50,9 @@ interface ContentBlockProps {
   getPendingRange?: () => { start: number; end: number } | null;
   onUndo: () => void;
   onRedo: () => void;
+  /** 上下键跨块导航：光标在块首/块末时跳转到相邻块 */
+  onArrowUp: (blockId: string) => void;
+  onArrowDown: (blockId: string) => void;
   registerDom: (blockId: string, el: HTMLElement) => void;
   unregisterDom: (blockId: string) => void;
   /** R1：该块的行内图会话宽度 map（applyRuntimeWidths 注入 style.width，G5） */
@@ -73,6 +76,8 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
   getPendingRange,
   onUndo,
   onRedo,
+  onArrowUp,
+  onArrowDown,
   registerDom,
   unregisterDom,
   blockWidthMap,
@@ -379,6 +384,32 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
 
   const handleArrowKeySnap = useCallback(
     (e: React.KeyboardEvent<HTMLSpanElement>) => {
+      // 上下键跨块导航：光标在块首按上键跳到前一块，光标在块末按下键跳到后一块
+      if (
+        (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !e.shiftKey &&
+        !composingRef.current
+      ) {
+        const { start, end } = getCursorOffsets(e.currentTarget);
+        if (start === end) {
+          // ArrowUp：光标在块首（offset=0）时跳到前一块
+          if (e.key === 'ArrowUp' && start === 0) {
+            e.preventDefault();
+            onArrowUp(blockId);
+            return true;
+          }
+          // ArrowDown：光标在块末时跳到后一块
+          if (e.key === 'ArrowDown' && start === text.length) {
+            e.preventDefault();
+            onArrowDown(blockId);
+            return true;
+          }
+        }
+      }
+
       // FT4（AGT-D / DSG-R3b）：方向键导航目标落入标记内部时吸附到内容边界，
       // 阻止 Chromium 原生把光标移入 `.md-syntax` 标记中间（否则键入分裂标记）。
       if (
@@ -405,7 +436,7 @@ const ContentBlock: React.FC<ContentBlockProps> = ({
       }
       return false;
     },
-    [raw, text]
+    [raw, text, blockId, onArrowUp, onArrowDown]
   );
 
   const handleKeyDown = useCallback(

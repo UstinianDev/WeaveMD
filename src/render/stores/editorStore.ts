@@ -54,23 +54,33 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   saveFile: async (): Promise<boolean> => {
     const { currentFile, content } = get();
-    if (!currentFile) return false;
+    console.log('[saveFile] 开始保存，currentFile:', currentFile?.id, 'content length:', content?.length);
+
+    if (!currentFile) {
+      console.log('[saveFile] 没有打开的文件，返回 false');
+      return false;
+    }
 
     // 欢迎文档为内存只读项：不写盘 / 不写 DB，短路放最前（id 含 `/`，否则会误判为磁盘文件）
     if (isWelcomeFile(currentFile.id)) {
+      console.log('[saveFile] 欢迎文档，跳过保存');
       set({ isDirty: false });
       return true;
     }
 
     try {
-      // If file is a disk file (id contains path separator), write directly to disk
-      const isDiskFile = currentFile.id && (currentFile.id.includes('/') || currentFile.id.includes('\\'));
+      // 判断文件类型：检查 id 是否包含路径分隔符（磁盘文件）
+      const hasPathSeparator = currentFile.id && (currentFile.id.includes('/') || currentFile.id.includes('\\'));
+      console.log('[saveFile] 文件 id:', currentFile.id, '包含路径分隔符:', hasPathSeparator);
 
-      if (isDiskFile) {
-        // Real-time filesystem sync: write to disk
+      // 策略1：如果 id 包含路径分隔符，作为磁盘文件保存
+      if (hasPathSeparator) {
+        console.log('[saveFile] 作为磁盘文件保存，路径:', currentFile.id);
         const writeResult = (await window.weaveMD.file.write(currentFile.id, content)) as unknown as {
           success?: boolean;
         };
+        console.log('[saveFile] 磁盘写入结果:', writeResult);
+
         if (!writeResult || writeResult.success === false) {
           console.error('Failed to save file: disk write returned failure');
           return false;
@@ -79,10 +89,12 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
           isDirty: false,
           currentFile: { ...currentFile, content, modifiedAt: new Date().toISOString() },
         });
+        console.log('[saveFile] 磁盘文件保存成功');
         return true;
       }
 
-      // DB-based file (legacy)
+      // 策略2：尝试 DB 保存（id 是 UUID 或文件名）
+      console.log('[saveFile] 尝试 DB 保存，fileId:', currentFile.id);
       const result = (await window.weaveMD.file.save(
         currentFile.id,
         content,
@@ -91,6 +103,8 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         success: boolean;
         data?: { id: string; name: string; content: string; createdAt: string; modifiedAt: string };
       };
+      console.log('[saveFile] DB保存结果:', result);
+
       if (result.success) {
         set({
           isDirty: false,
@@ -102,8 +116,30 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
               }
             : { ...currentFile, content, modifiedAt: new Date().toISOString() },
         });
+        console.log('[saveFile] DB文件保存成功');
         return true;
       }
+
+      // 策略3：DB 保存失败，尝试将文件写入磁盘（兜底方案）
+      // 这种情况可能是 AI 创建的文件，id 是文件名而不是路径
+      console.log('[saveFile] DB 保存失败，尝试将文件写入磁盘（兜底方案）');
+      const diskPath = currentFile.name;
+      const writeResult = (await window.weaveMD.file.write(diskPath, content)) as unknown as {
+        success?: boolean;
+      };
+      console.log('[saveFile] 兜底磁盘写入结果:', writeResult);
+
+      if (writeResult && writeResult.success !== false) {
+        // 更新文件 id 为磁盘路径
+        set({
+          isDirty: false,
+          currentFile: { ...currentFile, id: diskPath, content, modifiedAt: new Date().toISOString() },
+        });
+        console.log('[saveFile] 兜底磁盘保存成功，新 id:', diskPath);
+        return true;
+      }
+
+      console.log('[saveFile] 所有保存策略都失败');
       return false;
     } catch (error) {
       console.error('Failed to save file:', error);

@@ -16,6 +16,7 @@ import { formatMessageTimestamp } from '@render/utils/messageTimestamp';
 import MarkdownMessage from './MarkdownMessage';
 import ToolCallTrace from './ToolCallTrace';
 import Icon from '../../Common/Icon';
+import UrlSearchPrompt from '../cards/UrlSearchPrompt';
 
 interface AIMessageBubbleProps {
   role: AIMessageRole;
@@ -41,6 +42,8 @@ interface AIMessageBubbleProps {
   isEditing?: boolean;
   /** 重试回调（仅 assistant 消息） */
   onRetry?: () => void;
+  /** URL 搜索回调 */
+  onUrlSearch?: (url: string) => void;
 }
 
 interface ParsedSource {
@@ -173,10 +176,12 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
   onCancelEdit,
   isEditing = false,
   onRetry,
+  onUrlSearch,
 }) => {
   const { t } = useI18n();
   const [hovered, setHovered] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [urlSearchIgnored, setUrlSearchIgnored] = useState(false);
   const [editContent, setEditContent] = useState(content);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
@@ -239,6 +244,16 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
     () => (role === 'assistant' ? parseRefsJson(refsJson) : []),
     [role, refsJson],
   );
+
+  // URL 检测：从消息内容中提取 URL
+  const detectedUrls = useMemo(() => {
+    if (role !== 'assistant' || !content || urlSearchIgnored) return [];
+    const urlRegex = /https?:\/\/[^\s<>"{}|\\^`[\]]+/gi;
+    const matches = content.match(urlRegex);
+    if (!matches) return [];
+    // 去重
+    return [...new Set(matches)];
+  }, [role, content, urlSearchIgnored]);
 
   // 3c: handleOpenSource 用 useCallback
   const handleOpenSource = useCallback((source: ParsedSource) => {
@@ -412,6 +427,15 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
               );
             })}
           </div>
+        )}
+
+        {/* URL 搜索提示 */}
+        {detectedUrls.length > 0 && onUrlSearch && (
+          <UrlSearchPrompt
+            urls={detectedUrls}
+            onSearch={onUrlSearch}
+            onIgnore={() => setUrlSearchIgnored(true)}
+          />
         )}
       </div>
       {/* 操作栏：assistant 消息始终可见（左对齐） */}

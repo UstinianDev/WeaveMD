@@ -179,6 +179,9 @@ export interface BlockHandlers {
   onRemoveTable: (blockId: string) => void;
   /** 删除分隔线块（点击选中 → Backspace/Delete） */
   onRemoveThematicBreak: (blockId: string) => void;
+  /** 上下键跨块导航：光标在块首/块末时跳转到相邻块 */
+  onArrowUp: (blockId: string) => void;
+  onArrowDown: (blockId: string) => void;
 }
 
 export interface BlockRendererProps {

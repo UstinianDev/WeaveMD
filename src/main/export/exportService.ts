@@ -18,6 +18,7 @@ import {
   EXPORT_IMAGE_WIDTH,
   EXPORT_JPEG_QUALITY,
   EXPORT_MAX_HEIGHT,
+  EXPORT_SCALE_FACTOR,
   type ExportFormat,
   type ExportRequest,
   type ExportResult,
@@ -230,7 +231,13 @@ async function renderToFile(
     show: false,
     width: EXPORT_IMAGE_WIDTH,
     height: 600,
-    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: false },
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: false,
+      // 关键：offscreen 允许隐藏窗口绘制内容，否则 capturePage 返回空白
+      offscreen: true,
+    },
   });
   const tmpPath = path.join(
     os.tmpdir(),
@@ -239,8 +246,16 @@ async function renderToFile(
 
   try {
     fs.writeFileSync(tmpPath, fullHtml, 'utf-8');
-    await win.loadFile(tmpPath);
+
+    // 等待页面加载完成
+    await new Promise<void>((resolve, reject) => {
+      win.webContents.on('did-finish-load', () => resolve());
+      win.webContents.on('did-fail-load', (_e, code, desc) => reject(new Error(`Load failed: ${code} ${desc}`)));
+      win.loadFile(tmpPath).catch(reject);
+    });
+
     const contentHeight = (await win.webContents.executeJavaScript(WAIT_AND_MEASURE_SCRIPT)) as number;
+    console.log(`[Export] Content height: ${contentHeight}px, format: ${format}`);
 
     if (format === 'pdf') {
       win.setContentSize(A4_PX_WIDTH, Math.max(600, contentHeight));
@@ -257,12 +272,36 @@ async function renderToFile(
     // png / jpg / jpeg
     const truncated = contentHeight > EXPORT_MAX_HEIGHT;
     const height = truncated ? EXPORT_MAX_HEIGHT : Math.max(1, contentHeight);
+    console.log(`[Export] Window size: ${EXPORT_IMAGE_WIDTH}x${height}, truncated: ${truncated}`);
+
     win.setContentSize(EXPORT_IMAGE_WIDTH, height);
-    const image = await win.webContents.capturePage(
-      { x: 0, y: 0, width: EXPORT_IMAGE_WIDTH, height },
-      { stayHidden: true },
+
+    // 设置缩放因子以获得高分辨率输出（3x = 3600px 设备像素宽）
+    win.webContents.setZoomFactor(EXPORT_SCALE_FACTOR);
+
+    // 等待内容回流：至少两个 rAF 确保 Chromium 完成布局和绘制
+    await win.webContents.executeJavaScript(
+      'new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))',
     );
-    const buffer = format === 'png' ? image.toPNG() : image.toJPEG(EXPORT_JPEG_QUALITY);
+
+    // 额外等待确保渲染完成
+    await new Promise(r => setTimeout(r, 300));
+
+    // capturePage 不传 rect，让 Electron 自动处理设备像素比
+    const image = await win.webContents.capturePage();
+
+    // toPNG/toJPEG 的 scaleFactor 参数：告诉输出图像的缩放因子
+    // 这样图像查看器会知道这是 3x 分辨率的图像
+    const buffer = format === 'png'
+      ? image.toPNG({ scaleFactor: EXPORT_SCALE_FACTOR })
+      : image.toJPEG(EXPORT_JPEG_QUALITY);
+    console.log(`[Export] Image buffer size: ${buffer.byteLength} bytes, scaleFactor: ${EXPORT_SCALE_FACTOR}x`);
+
+    // 验证 buffer 有效性（PNG 魔术字节：89 50 4E 47，JPEG：FF D8 FF）
+    if (buffer.byteLength < 100) {
+      throw new Error(`Image buffer too small: ${buffer.byteLength} bytes`);
+    }
+
     fs.writeFileSync(filePath, buffer);
     return { truncatedPx: truncated ? EXPORT_MAX_HEIGHT : undefined };
   } finally {

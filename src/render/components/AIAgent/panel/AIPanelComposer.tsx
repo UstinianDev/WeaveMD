@@ -254,6 +254,13 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
         horizontalRule: false,
         bulletList: false,
         orderedList: false,
+        // 配置 Link 扩展：启用自动链接和粘贴链接
+        link: {
+          autolink: true,
+          openOnClick: true,
+          linkOnPaste: true,
+          defaultProtocol: 'https',
+        },
       }),
       SkillTag,
       MentionTag,
@@ -268,6 +275,40 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
         'data-placeholder': selectionContext
           ? t('ai.rewrite.selectionHint')
           : t('ai.placeholder'),
+      },
+      handlePaste: (view, event) => {
+        const clipboardData = event.clipboardData;
+        if (!clipboardData) return false;
+
+        // 优先检测 Edge 的 text/link-preview 格式，提取原始 URL
+        const linkPreview = clipboardData.getData('text/link-preview');
+        if (linkPreview) {
+          try {
+            const preview = JSON.parse(linkPreview);
+            if (preview.url) {
+              // 插入原始 URL 文本，而非 HTML 标题
+              const { state } = view;
+              const { tr } = state;
+              tr.insertText(preview.url);
+              view.dispatch(tr);
+              return true;
+            }
+          } catch {
+            // JSON 解析失败，继续其他处理
+          }
+        }
+
+        // 检测纯文本是否为 URL
+        const plainText = clipboardData.getData('text/plain');
+        if (plainText && /^https?:\/\/\S+$/i.test(plainText.trim())) {
+          const { state } = view;
+          const { tr } = state;
+          tr.insertText(plainText.trim());
+          view.dispatch(tr);
+          return true;
+        }
+
+        return false;
       },
     },
     onUpdate: ({ editor: ed }) => {

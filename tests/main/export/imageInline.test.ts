@@ -135,6 +135,52 @@ describe('inlineMediaImages', () => {
     expect(oversizedCount).toBe(0);
   });
 
+  it('Windows 绝对路径（盘符）内联为 base64 data URI', async () => {
+    readFileMock.mockResolvedValue(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const html = '<img src="D:\\photos\\image.png" alt="test">';
+    const { html: out, oversizedCount } = await inlineMediaImages(html, { readFile: readFileMock });
+
+    expect(readFileMock).toHaveBeenCalledWith('D:\\photos\\image.png');
+    expect(out).toContain(`src="data:image/png;base64,${bytesToB64([0x89, 0x50, 0x4e, 0x47])}"`);
+    expect(out).not.toContain('D:\\photos\\image.png');
+    expect(oversizedCount).toBe(0);
+  });
+
+  it('Windows 绝对路径（URL 编码）内联为 base64 data URI', async () => {
+    readFileMock.mockResolvedValue(Buffer.from([0xff, 0xd8, 0xff]));
+    // D:\photos\image.jpg URL 编码为 D%3A%5Cphotos%5Cimage.jpg
+    const html = '<img src="D%3A%5Cphotos%5Cimage.jpg">';
+    const { html: out } = await inlineMediaImages(html, { readFile: readFileMock });
+
+    expect(readFileMock).toHaveBeenCalledWith('D:\\photos\\image.jpg');
+    expect(out).toContain('data:image/jpeg;base64,');
+  });
+
+  it('Windows 绝对路径（正斜杠）内联为 base64 data URI', async () => {
+    readFileMock.mockResolvedValue(Buffer.from([0x47, 0x49, 0x46]));
+    const html = '<img src="D:/photos/image.gif">';
+    const { html: out } = await inlineMediaImages(html, { readFile: readFileMock });
+
+    expect(readFileMock).toHaveBeenCalledWith('D:\\photos\\image.gif');
+    expect(out).toContain('data:image/gif;base64,');
+  });
+
+  it('Windows UNC 路径内联为 base64 data URI', async () => {
+    readFileMock.mockResolvedValue(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const html = '<img src="\\\\server\\share\\image.png">';
+    const { html: out } = await inlineMediaImages(html, { readFile: readFileMock });
+
+    expect(readFileMock).toHaveBeenCalledWith('\\\\server\\share\\image.png');
+    expect(out).toContain('data:image/png;base64,');
+  });
+
+  it('Windows 绝对路径读取失败保留原 src 不报错', async () => {
+    readFileMock.mockRejectedValue(new Error('ENOENT'));
+    const html = '<img src="D:\\photos\\missing.png">';
+    const { html: out } = await inlineMediaImages(html, { readFile: readFileMock });
+    expect(out).toContain('D:\\photos\\missing.png');
+  });
+
   it('无图片 HTML 原样保留', async () => {
     const html = '<p>no images</p>';
     const { html: out, oversizedCount } = await inlineMediaImages(html, { readFile: readFileMock });

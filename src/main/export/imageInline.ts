@@ -134,6 +134,51 @@ function extensionOf(src: string): string {
 }
 
 /**
+ * 检测 src 是否为 Windows 绝对路径（盘符或 UNC）。
+ * 支持原始形式（D:\photos\image.png）和 URL 编码形式（D%3A/photos/image.png）。
+ */
+function isWindowsAbsolutePath(src: string): boolean {
+  // 先尝试解码 URL 编码的路径
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(src);
+  } catch {
+    decoded = src;
+  }
+  // 归一化为正斜杠
+  const normalized = decoded.replace(/\\/g, '/');
+  // 盘符路径：C:/photos/image.png
+  if (/^[a-zA-Z]:\//.test(normalized)) return true;
+  // UNC 路径：//server/share/image.png
+  if (/^\/\//.test(normalized)) return true;
+  return false;
+}
+
+/**
+ * 将 Windows 绝对路径（可能 URL 编码）转换为本地文件系统路径。
+ * 返回 null 表示不是有效的 Windows 路径。
+ */
+function decodeWindowsPath(src: string): string | null {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(src);
+  } catch {
+    decoded = src;
+  }
+  // 归一化为正斜杠
+  const normalized = decoded.replace(/\\/g, '/');
+  // 盘符路径：C:/photos/image.png → C:\photos\image.png
+  if (/^[a-zA-Z]:\//.test(normalized)) {
+    return normalized.replace(/\//g, '\\');
+  }
+  // UNC 路径：//server/share/image.png → \\server\share\image.png
+  if (/^\/\//.test(normalized)) {
+    return normalized.replace(/\//g, '\\');
+  }
+  return null;
+}
+
+/**
  * 将 HTML 中 media:// 与 http(s):// 图片内联为 base64 data URI。
  *
  * - media://：decodeMediaUrl → fs.readFile → base64 data URI 回填；缺失/解码失败保留原 src。
@@ -182,6 +227,16 @@ export async function inlineMediaImages(
       }
     } else if (/^https?:\/\//i.test(src)) {
       buffer = await fetchRemote(src);
+    } else if (isWindowsAbsolutePath(src)) {
+      // 处理 Windows 绝对路径（盘符或 UNC），可能 URL 编码
+      const filePath = decodeWindowsPath(src);
+      if (filePath) {
+        try {
+          buffer = await readFile(filePath);
+        } catch {
+          buffer = null;
+        }
+      }
     }
 
     if (!buffer) continue;

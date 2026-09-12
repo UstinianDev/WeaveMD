@@ -32,8 +32,11 @@ export interface ExportResult {
 /** png/jpg 渲染窗口最大内容高度（Chromium 窗口高度上限保守值），超出则截断 */
 export const EXPORT_MAX_HEIGHT = 15000;
 
-/** png/jpg 内容宽度 */
-export const EXPORT_IMAGE_WIDTH = 800;
+/** png/jpg 内容宽度（CSS 像素） */
+export const EXPORT_IMAGE_WIDTH = 1200;
+
+/** 导出缩放因子（3x = 3600px 设备像素宽，确保高清晰度） */
+export const EXPORT_SCALE_FACTOR = 3;
 
 /** 大图 base64 内联体积阈值（字节），超过则降采样 */
 export const EXPORT_LARGE_IMAGE_BYTES = 8 * 1024 * 1024;

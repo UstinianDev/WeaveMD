@@ -30,6 +30,8 @@ function makeProps(overrides: Record<string, unknown> = {}) {
     onRemoveImage: vi.fn(),
     onUndo: vi.fn(),
     onRedo: vi.fn(),
+    onArrowUp: vi.fn(),
+    onArrowDown: vi.fn(),
     registerDom: vi.fn(),
     unregisterDom: vi.fn(),
     ...overrides,

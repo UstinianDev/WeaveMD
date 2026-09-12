@@ -467,6 +467,39 @@ export function useEditorActions({
     },
     [applyBlockAction]
   );
+
+  // 上下键跨块导航：光标在块首按上键跳到前一块末尾，光标在块末按下键跳到后一块开头
+  // 注意：上下键不修改树结构，需要直接设置焦点，不能依赖 setPendingFocus（它等待树变化）
+  const onArrowUp = useCallback(
+    (blockId: string) => {
+      const instance = instanceRef.current;
+      if (!instance) return;
+      const focus = adjacentLeafFocus(instance.tree, blockId, 'prev');
+      if (focus) {
+        const el = getBlockEl(focus.blockId);
+        if (el) {
+          setCursorAtOffset(el, focus.offset);
+        }
+      }
+    },
+    [instanceRef, getBlockEl]
+  );
+
+  const onArrowDown = useCallback(
+    (blockId: string) => {
+      const instance = instanceRef.current;
+      if (!instance) return;
+      const focus = adjacentLeafFocus(instance.tree, blockId, 'next');
+      if (focus) {
+        const el = getBlockEl(focus.blockId);
+        if (el) {
+          setCursorAtOffset(el, focus.offset);
+        }
+      }
+    },
+    [instanceRef, getBlockEl]
+  );
+
   // 删除表格块（工具栏"删表"按钮）
   const onRemoveTable = useCallback(
     (blockId: string) => {
@@ -513,6 +546,8 @@ export function useEditorActions({
       onInsertTable,
       onRemoveTable,
       onRemoveThematicBreak,
+      onArrowUp,
+      onArrowDown,
       registerDom,
       unregisterDom,
     }),
@@ -541,6 +576,8 @@ export function useEditorActions({
       onInsertTable,
       onRemoveTable,
       onRemoveThematicBreak,
+      onArrowUp,
+      onArrowDown,
       registerDom,
       unregisterDom,
     ]

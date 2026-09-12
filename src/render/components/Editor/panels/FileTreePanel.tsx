@@ -101,9 +101,11 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
       if (!content && node.content) {
         content = node.content;
       }
-      touchRecent({ id: node.id, path: node.path, name: node.name });
+      // 使用 path 作为文件 id，确保 saveFile 能正确识别磁盘文件
+      const fileId = node.path || node.id;
+      touchRecent({ id: fileId, path: node.path, name: node.name });
       openFile({
-        id: node.id,
+        id: fileId,
         userId: '',
         name: node.name,
         content,

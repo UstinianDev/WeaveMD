@@ -1,6 +1,6 @@
 # WeaveMD 文档索引
 
-> 最后更新：2026-09-11
+> 最后更新：2026-09-12
 
 ## 核心文档
 
@@ -68,6 +68,18 @@
 | [fix-web-search-loop.req](./requirements/fix-web-search-loop.req.md) | web_search 死循环修复需求（✅ 已修复） |
 
 ## 实施计划
+
+### 最近修复（2026-09-12）
+
+| 文档 | 说明 |
+|------|------|
+| [export-image-fix.status](./plan/export-image-fix.status.md) | **导出图片修复**：offscreen渲染 + 3x缩放因子 + 高清晰度导出 |
+| [url-query-fix.status](./plan/url-query-fix.status.md) | **URL查询修复**：Agent系统提示词优化，强制调用web_search工具 |
+| [view-toggle-fix.status](./plan/view-toggle-fix.status.md) | **视图切换修复**：删除冗余ViewMenu + scrollTop滚动位置保持 |
+| [arrow-key-navigation.status](./plan/arrow-key-navigation.status.md) | **上下键跨块导航**：实现ArrowUp/ArrowDown跨语法类型跳转 |
+| [save-function-fix.status](./plan/save-function-fix.status.md) | **保存功能修复**：文件树刷新 + 编辑器同步 |
+
+### 历史计划
 
 | 文档 | 说明 |
 |------|------|
