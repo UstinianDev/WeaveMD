@@ -56,7 +56,7 @@
 - 可编辑表格块：`tableCodec.ts` 纯函数 + `TableBlock.tsx` 每格 `contenteditable="plaintext-only"` + `TableToolbar.tsx`
 - 跨块拖选：rAF 节流 + 反向交换端点 + `useCrossBlockDragSelection.ts`
 - 跨块选区替换：`beforeinput`/`onPaste` 拦截 → `replaceLeafRange` 块树级删除+插入
-- 性能优化：cloneTree 精准化 + tokenizeInline LRU 缓存（256 条）+ outline 脏标记 + React.memo 补全 + Prism/KaTeX code splitting
+- 性能优化：setBlockText/setInlineHtml 精准单块克隆 + tokenizeInline LRU 缓存（256 条）+ outline 脏标记（数据结构就绪，增量路径待接线）+ React.memo 补全 + Prism/KaTeX code splitting
 
 ## AI 代理面板与知识库
 
