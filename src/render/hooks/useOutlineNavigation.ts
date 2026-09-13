@@ -40,18 +40,32 @@ export function useOutlineNavigation({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onNavigateReady, outline]);
 
-  // 滚动高亮：视口顶部 + 10px 检测当前标题
+  // 滚动高亮：单次 querySelectorAll + 早退（文档序单调）+ bail-out 未变值
+  const lastEmittedIndexRef = useRef<number | null>(null);
   return useCallback(
     (_scrollTop: number, containerEl: HTMLElement) => {
       const detectLine = containerEl.getBoundingClientRect().top + 10;
       let activeIndex: number | null = null;
-      outline.forEach((item, index) => {
-        const el = containerEl.querySelector(`[data-block-id="${item.id}"]`);
-        if (el && el.getBoundingClientRect().top <= detectLine) {
-          activeIndex = index;
+      // 单次收集所有 [data-block-id] 元素，按 id 建 Map（替代每标题独立 querySelector）
+      const elMap = new Map<string, HTMLElement>();
+      for (const el of containerEl.querySelectorAll<HTMLElement>('[data-block-id]')) {
+        const id = el.getAttribute('data-block-id');
+        if (id && !elMap.has(id)) elMap.set(id, el);
+      }
+      for (let i = 0; i < outline.length; i++) {
+        const el = elMap.get(outline[i].id) ?? null;
+        if (!el) continue;
+        if (el.getBoundingClientRect().top <= detectLine) {
+          activeIndex = i;
+        } else {
+          break; // outline 按文档序、布局 top 非递减 → 后续均在线下，无需继续
         }
-      });
-      onActiveHeadingChangeRef.current?.(activeIndex);
+      }
+      // 值未变则跳过回调，消除无效 render pass
+      if (lastEmittedIndexRef.current !== activeIndex) {
+        lastEmittedIndexRef.current = activeIndex;
+        onActiveHeadingChangeRef.current?.(activeIndex);
+      }
     },
     [outline]
   );

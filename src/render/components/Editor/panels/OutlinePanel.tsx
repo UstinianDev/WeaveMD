@@ -158,7 +158,7 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
   onNavigateToHeading,
   activeHeadingIndex = null,
 }) => {
-  const content = useEditorStore((s) => s.content);
+  const isContentEmpty = useEditorStore((s) => s.content === '');
   const isOutlinePanelCollapsed = useUIStore((s) => s.isOutlinePanelCollapsed);
   const toggleOutlinePanel = useUIStore((s) => s.toggleOutlinePanel);
   const isEditorCollapsed = useUIStore((s) => s.isEditorCollapsed);
@@ -174,6 +174,11 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [importOpen, setImportOpen] = useState(false);
   const [createPanelType, setCreatePanelType] = useState<'file' | 'folder' | null>(null);
+
+  const handleNavigate = useCallback(
+    (lineNumber: number, headingIndex: number) => onNavigateToHeading?.(lineNumber, headingIndex),
+    [onNavigateToHeading]
+  );
 
   const treeOutline = useMemo(
     () => buildTree(outlineProp ?? []),
@@ -304,7 +309,7 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
             {treeOutline.length === 0 ? (
               <div className="px-3 py-4 text-center">
                 <p className="text-sm text-text-muted">
-                  {content ? 'No headings found' : 'Open a file to see outline'}
+                  {isContentEmpty ? 'Open a file to see outline' : 'No headings found'}
                 </p>
               </div>
             ) : (
@@ -315,9 +320,7 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
                   headingIndex={indexMap.get(item.id) ?? 0}
                   activeHeadingIndex={activeHeadingIndex}
                   indexMap={indexMap}
-                  onNavigate={(lineNumber, headingIndex) =>
-                    onNavigateToHeading?.(lineNumber, headingIndex)
-                  }
+                  onNavigate={handleNavigate}
                   depth={1}
                 />
               ))
@@ -343,4 +346,4 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
   );
 };
 
-export default OutlinePanel;
+export default React.memo(OutlinePanel);

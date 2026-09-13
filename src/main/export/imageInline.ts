@@ -188,6 +188,62 @@ function decodeWindowsPath(src: string): string | null {
  *
  * 返回替换后的 HTML 与超阈值图片计数。
  */
+
+/** 图片加载最大并发数（防止文件句柄/连接峰值） */
+const IMAGE_CONCURRENCY = 8;
+
+/** 并发池：以 limit 并发度并行执行 fn，返回按原始索引排列的结果 */
+async function resolveAllConcurrent<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<{ src: string; data: string; oversized: boolean } | null>,
+): Promise<({ src: string; data: string; oversized: boolean } | null)[]> {
+  const results: ({ src: string; data: string; oversized: boolean } | null)[] = new Array(items.length).fill(null);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const i = cursor++;
+      results[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+/** 单 src 解析（IO + 降采样），除结构化返回外与原循环体逐行一致 */
+async function resolveImageSrc(
+  src: string,
+  readFile: (fp: string) => Promise<Buffer>,
+  largeImageBytes: number,
+  maxImageWidth: number,
+  applyDownsample: (buf: Buffer, mw: number, pa?: boolean) => Promise<DownsampleResult | null> | DownsampleResult | null,
+): Promise<{ src: string; data: string; oversized: boolean } | null> {
+  let buffer: Buffer | null = null;
+  if (src.startsWith(MEDIA_PREFIX)) {
+    const filePath = decodeMediaUrl(src);
+    if (filePath) {
+      try { buffer = await readFile(filePath); } catch { buffer = null; }
+    }
+  } else if (/^https?:\/\//i.test(src)) {
+    buffer = await fetchRemote(src);
+  } else if (isWindowsAbsolutePath(src)) {
+    const filePath = decodeWindowsPath(src);
+    if (filePath) {
+      try { buffer = await readFile(filePath); } catch { buffer = null; }
+    }
+  }
+  if (!buffer) return null;
+  let mime = resolveMediaMime(extensionOf(src));
+  let oversized = false;
+  if (shouldDownsampleImage(buffer.byteLength, largeImageBytes)) {
+    oversized = true;
+    const down = await applyDownsample(buffer, maxImageWidth, imageNeedsAlpha(extensionOf(src)));
+    if (down) { buffer = down.buffer; mime = down.mime; }
+  }
+  const data = `${DATA_IMAGE_PREFIX}/${mime.replace(/^image\//, '')};base64,${buffer.toString('base64')}`;
+  return { src, data, oversized };
+}
+
 export async function inlineMediaImages(
   html: string,
   deps: ImageInlineDeps = {},
@@ -210,52 +266,21 @@ export async function inlineMediaImages(
     return { html, oversizedCount: 0 };
   }
 
+  // 并发解析所有 src（cap=IMAGE_CONCURRENCY），结果保持原始出现顺序
+  const results = await resolveAllConcurrent(
+    imgSrcs,
+    IMAGE_CONCURRENCY,
+    (src) => resolveImageSrc(src, readFile, largeImageBytes, maxImageWidth, applyDownsample),
+  );
+
+  // 按原始出现顺序累加（替换与计数，输出序列与逐一遍历完全一致）
   let oversizedCount = 0;
   const replacements: { src: string; data: string }[] = [];
-
-  for (const src of imgSrcs) {
-    let buffer: Buffer | null = null;
-
-    if (src.startsWith(MEDIA_PREFIX)) {
-      const filePath = decodeMediaUrl(src);
-      if (filePath) {
-        try {
-          buffer = await readFile(filePath);
-        } catch {
-          buffer = null;
-        }
-      }
-    } else if (/^https?:\/\//i.test(src)) {
-      buffer = await fetchRemote(src);
-    } else if (isWindowsAbsolutePath(src)) {
-      // 处理 Windows 绝对路径（盘符或 UNC），可能 URL 编码
-      const filePath = decodeWindowsPath(src);
-      if (filePath) {
-        try {
-          buffer = await readFile(filePath);
-        } catch {
-          buffer = null;
-        }
-      }
+  for (const r of results) {
+    if (r !== null) {
+      replacements.push({ src: r.src, data: r.data });
+      if (r.oversized) oversizedCount += 1;
     }
-
-    if (!buffer) continue;
-
-    let mime = resolveMediaMime(extensionOf(src));
-    if (shouldDownsampleImage(buffer.byteLength, largeImageBytes)) {
-      oversizedCount += 1;
-      // 超阈值：尝试降采样（nativeImage），失败则回退原图内联
-      const down = await applyDownsample(buffer, maxImageWidth, imageNeedsAlpha(extensionOf(src)));
-      if (down) {
-        buffer = down.buffer;
-        mime = down.mime;
-      }
-    }
-
-    const data = `${DATA_IMAGE_PREFIX}/${mime.replace(/^image\//, '')};base64,${buffer.toString(
-      'base64',
-    )}`;
-    replacements.push({ src, data });
   }
 
   return { html: applyReplacements(html, replacements), oversizedCount };

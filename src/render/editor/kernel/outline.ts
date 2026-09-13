@@ -130,6 +130,17 @@ function fullBuild(tree: BlockTreeV2): { outline: OutlineItemV2[]; cache: Outlin
   };
 }
 
+/** 等价于 `serializeBlock(...).join('\\n').split('\\n').length`，避免一次 join + split 分配 */
 function blockLineCount(tree: BlockTreeV2, block: BlockNodeV2): number {
-  return serializeBlock(block, tree).join('\n').split('\n').length;
+  const lines = serializeBlock(block, tree);
+  if (lines.length === 0) return 1; // ''.split('\n') → ['']
+  let n = 0;
+  for (const s of lines) {
+    // 每个元素内 '\n' 出现次数 + 1（元素自身占一行）
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === '\n') n++;
+    }
+    n++;
+  }
+  return n;
 }

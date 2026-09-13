@@ -72,14 +72,17 @@ export async function exportFile(
     }
     const filePath = result.filePath;
 
+    // md 导出无需图片内联 —— 直接落盘原始内容，跳过全部 IO
+    if (req.format === 'md') {
+      fs.writeFileSync(filePath, req.content, 'utf-8');
+      return { success: true, data: { filePath } };
+    }
+
     // 图片 base64 内联（media:// 与远程 http(s)），构建一次完整文档复用于各格式
     const { html: inlinedHtml } = await inlineMediaImages(req.html);
     const fullHtml = buildExportHtml({ body: inlinedHtml, title: req.filename });
 
     switch (req.format) {
-      case 'md':
-        fs.writeFileSync(filePath, req.content, 'utf-8');
-        break;
       case 'html':
       case 'doc':
         // doc 为 Word 兼容 HTML（.doc 扩展名），与 html 同模板

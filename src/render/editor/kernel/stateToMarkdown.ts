@@ -73,10 +73,11 @@ function serializeCodeBlock(block: BlockNodeV2, ctx: Ctx): string[] {
   const lang = block.meta?.fenceLanguage ?? '';
   const text = block.text ?? '';
   // 若内容包含与标记同类的围栏行，自动加长围栏保证闭合
+  const fenceRunRe = new RegExp(`^${markerChar === '`' ? '`' : '~'}{3,}`);
   const maxRun = text
     .split('\n')
     .reduce((max, line) => {
-      const m = line.match(new RegExp(`^${markerChar === '`' ? '`' : '~'}{3,}`));
+      const m = line.match(fenceRunRe);
       return m ? Math.max(max, m[0].length) : max;
     }, 0);
   const marker = markerChar.repeat(Math.max(3, maxRun + 1));

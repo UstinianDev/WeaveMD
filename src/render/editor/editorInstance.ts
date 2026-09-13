@@ -46,13 +46,18 @@ export class EditorInstance {
   }
 
   getMarkdown(): string {
-    // 空文档（唯一空段落）→ ''
-    const leafBlocks = Object.values(this.tree.blocks).filter((b) => b.text !== null);
-    if (
-      leafBlocks.length === 1 &&
-      leafBlocks[0].type === 'paragraph' &&
-      leafBlocks[0].text === ''
-    ) {
+    // 早退遍历：遇第 2 个叶块即停止（替代 Object.values+filter 全量分配）
+    let leafCount = 0;
+    let soleLeaf: BlockNodeV2 | null = null;
+    for (const id of Object.keys(this.tree.blocks)) {
+      const block = this.tree.blocks[id];
+      if (block.text !== null) {
+        leafCount++;
+        soleLeaf = block;
+        if (leafCount > 1) break;
+      }
+    }
+    if (leafCount === 1 && soleLeaf?.type === 'paragraph' && soleLeaf.text === '') {
       return '';
     }
     return stateToMarkdown(this.tree);
