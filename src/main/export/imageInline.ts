@@ -12,6 +12,10 @@ import {
   EXPORT_LARGE_IMAGE_BYTES,
   EXPORT_MAX_IMAGE_WIDTH,
 } from './types';
+import { resolveMediaMime, imageNeedsAlpha } from '../mediaMime';
+
+// Re-export for backward compatibility (consumers importing from imageInline)
+export { resolveMediaMime, imageNeedsAlpha };
 
 /** 降采样结果（buffer + 输出 MIME） */
 export interface DownsampleResult {
@@ -36,33 +40,13 @@ export interface ImageInlineDeps {
   maxImageWidth?: number;
 }
 
-const MIME_BY_EXT: Record<string, string> = {
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  gif: 'image/gif',
-  svg: 'image/svg+xml',
-  webp: 'image/webp',
-  bmp: 'image/bmp',
-  ico: 'image/x-icon',
-  avif: 'image/avif',
-  tiff: 'image/tiff',
-  tif: 'image/tiff',
-};
-
 /** data URI 前缀 */
 const DATA_IMAGE_PREFIX = 'data:image';
 /** 协议前缀 */
 const MEDIA_PREFIX = 'media://';
 
-/**
- * 根据扩展名解析 MIME 类型；未知回退 application/octet-stream。
- * 纯函数 —— 单测直接覆盖。
- */
-export function resolveMediaMime(ext: string): string {
-  const normalized = ext.replace(/^\./, '').toLowerCase();
-  return MIME_BY_EXT[normalized] ?? 'application/octet-stream';
-}
+/** <img> src 提取正则（模块级去重，L256+L307 共享） */
+const IMG_SRC_RE = /<img\b([^>]*?)\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
 
 /**
  * 判断 buffer 是否超过大图内联体积阈值，需要降采样。
@@ -74,9 +58,6 @@ export function shouldDownsampleImage(
 ): boolean {
   return bufferLength > threshold;
 }
-
-/** 可能需要透明通道的扩展名（降采样输出 PNG 保留透明） */
-const ALPHA_EXTENSIONS = new Set(['png', 'gif', 'webp', 'svg', 'avif', 'ico', 'tiff', 'tif']);
 
 /**
  * 用 Electron 内置 nativeImage 对超阈值大图降采样：长边 > maxWidth 时按比例缩放，
@@ -117,11 +98,6 @@ export async function downsampleImage(
   }
 }
 
-/** 源扩展名是否可能需要透明通道（决定降采样输出格式） */
-export function imageNeedsAlpha(ext: string): boolean {
-  return ALPHA_EXTENSIONS.has(ext.replace(/^\./, '').toLowerCase());
-}
-
 /**
  * 从 <img src> 提取扩展名（剥离查询串/片段），用于 MIME 判定。
  */
@@ -134,38 +110,17 @@ function extensionOf(src: string): string {
 }
 
 /**
- * 检测 src 是否为 Windows 绝对路径（盘符或 UNC）。
- * 支持原始形式（D:\photos\image.png）和 URL 编码形式（D%3A/photos/image.png）。
+ * 将 src（可能 URL 编码的 Windows 绝对路径）转换为本地文件系统路径。
+ * 支持盘符路径（D:\photos\image.png / D%3A/photos/image.png）和 UNC。
+ * 返回 null 表示非 Windows 路径或解码失败。
  */
-function isWindowsAbsolutePath(src: string): boolean {
-  // 先尝试解码 URL 编码的路径
+function toLocalFilePath(src: string): string | null {
   let decoded: string;
   try {
     decoded = decodeURIComponent(src);
   } catch {
     decoded = src;
   }
-  // 归一化为正斜杠
-  const normalized = decoded.replace(/\\/g, '/');
-  // 盘符路径：C:/photos/image.png
-  if (/^[a-zA-Z]:\//.test(normalized)) return true;
-  // UNC 路径：//server/share/image.png
-  if (/^\/\//.test(normalized)) return true;
-  return false;
-}
-
-/**
- * 将 Windows 绝对路径（可能 URL 编码）转换为本地文件系统路径。
- * 返回 null 表示不是有效的 Windows 路径。
- */
-function decodeWindowsPath(src: string): string | null {
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(src);
-  } catch {
-    decoded = src;
-  }
-  // 归一化为正斜杠
   const normalized = decoded.replace(/\\/g, '/');
   // 盘符路径：C:/photos/image.png → C:\photos\image.png
   if (/^[a-zA-Z]:\//.test(normalized)) {
@@ -226,8 +181,8 @@ async function resolveImageSrc(
     }
   } else if (/^https?:\/\//i.test(src)) {
     buffer = await fetchRemote(src);
-  } else if (isWindowsAbsolutePath(src)) {
-    const filePath = decodeWindowsPath(src);
+  } else {
+    const filePath = toLocalFilePath(src);
     if (filePath) {
       try { buffer = await readFile(filePath); } catch { buffer = null; }
     }
@@ -252,8 +207,6 @@ export async function inlineMediaImages(
   const largeImageBytes = deps.largeImageBytes ?? EXPORT_LARGE_IMAGE_BYTES;
   const maxImageWidth = deps.maxImageWidth ?? EXPORT_MAX_IMAGE_WIDTH;
   const applyDownsample = deps.downsampleImage ?? downsampleImage;
-  // 匹配 <img ... src="..."> 的 src 值（覆盖双引号、单引号、无引号）
-  const IMG_SRC_RE = /<img\b([^>]*?)\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
   const imgSrcs: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = IMG_SRC_RE.exec(html)) !== null) {
@@ -304,7 +257,6 @@ async function fetchRemote(src: string): Promise<Buffer | null> {
  * 逐个 img 处理：在每个 <img> 标签内、原始引号风格下替换 src。
  */
 function applyReplacements(html: string, replacements: { src: string; data: string }[]): string {
-  const IMG_SRC_RE = /<img\b([^>]*?)\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
   const replaceMap = new Map(replacements.map((r) => [r.src, r.data]));
   return html.replace(IMG_SRC_RE, (_full, prefix: string, dbl?: string, sgl?: string, bare?: string) => {
     const old = dbl ?? sgl ?? bare ?? '';

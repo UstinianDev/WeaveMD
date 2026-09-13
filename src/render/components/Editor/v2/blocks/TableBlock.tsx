@@ -10,6 +10,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { BlockNodeV2, ColumnAlign } from '@render/editor/kernel';
+import { SEL_EDITOR_SCROLL_CONTAINER } from '@render/utils/domSelectors';
 import type { BlockHandlers, InlineWidthMap } from '@render/components/Editor/v2/types';
 
 import { byIndex } from './tableHelpers';
@@ -44,7 +45,7 @@ const TableBlock: React.FC<TableBlockProps> = ({ block, handlers, blockWidthMap 
   // 滚动时更新 anchorRect，使工具栏跟随表格
   useEffect(() => {
     if (!toolbarVisible) return;
-    const container = wrapperRef.current?.closest('.editor-scroll-container');
+    const container = wrapperRef.current?.closest(SEL_EDITOR_SCROLL_CONTAINER);
     if (!container) return;
     const handleScroll = () => {
       if (wrapperRef.current) {

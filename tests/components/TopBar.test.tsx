@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   getShortcutAction,
   shouldIgnoreGlobalShortcutTarget,
-} from '@render/components/Navbar/TopBar';
+} from '@render/hooks/useGlobalShortcuts';
 
 describe('TopBar shortcut helpers', () => {
   it('should resolve supported global shortcuts', () => {
+    // Ctrl+N (new-file) — removed, entry migrated to sidebar toolbar
     expect(
       getShortcutAction({
         key: 'n',
@@ -14,7 +15,7 @@ describe('TopBar shortcut helpers', () => {
         shiftKey: false,
         altKey: false,
       })
-    ).toBe('new-file');
+    ).toBe(null);
     expect(
       getShortcutAction({
         key: 'O',

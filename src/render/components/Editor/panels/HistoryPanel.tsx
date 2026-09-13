@@ -8,6 +8,7 @@ import { useAuthStore } from '@render/stores/authStore';
 import { useEditorStore } from '@render/stores/editorStore';
 import { useHistoryStore } from '@render/stores/historyStore';
 import { useUIStore } from '@render/stores/uiStore';
+import { flushEditorDraft } from '@render/hooks/useDraftFlusher';
 
 interface HistoryPanelProps {
   isOpen: boolean;
@@ -23,7 +24,6 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose }) => {
   const user = useAuthStore((s) => s.user);
   const openFile = useEditorStore((s) => s.openFile);
   const saveFile = useEditorStore((s) => s.saveFile);
-  const flushEditorDraft = useUIStore((s) => s.flushEditorDraft);
   const historyPanelWidth = useUIStore((s) => s.historyPanelWidth);
   const setHistoryPanelWidth = useUIStore((s) => s.setHistoryPanelWidth);
 

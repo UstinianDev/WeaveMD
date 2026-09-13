@@ -73,6 +73,87 @@ function toggleInTree(nodes: IFolderNode[], targetId: string): IFolderNode[] {
   });
 }
 
+/** 将扁平磁盘条目构建为 IFolderNode 路径树 */
+function buildPathTree(
+  items: Array<{ name: string; path: string; isDirectory: boolean }>,
+  rootPath: string,
+): IFolderNode {
+  const pathToNode = new Map<string, IFolderNode>();
+  const rootName = rootPath.split(/[\\/]/).pop() || rootPath;
+  const rootFolder: IFolderNode = {
+    id: rootPath,
+    name: rootName,
+    path: rootPath,
+    isDirectory: true,
+    children: [],
+    expanded: true,
+    isRoot: true,
+  };
+  pathToNode.set(rootPath, rootFolder);
+
+  const sortedItems = [...items].sort((a, b) => a.path.length - b.path.length);
+
+  for (const item of sortedItems) {
+    const node: IFolderNode = {
+      id: item.path,
+      name: item.name,
+      path: item.path,
+      isDirectory: item.isDirectory,
+      children: [],
+      expanded: false,
+      isRoot: false,
+    };
+    pathToNode.set(item.path, node);
+
+    const parentPath = item.path.substring(0, item.path.lastIndexOf('/'));
+    const parent = pathToNode.get(parentPath) || pathToNode.get(rootPath);
+    if (parent) {
+      parent.children.push(node);
+    } else {
+      rootFolder.children.push(node);
+    }
+  }
+
+  rootFolder.children = sortNodes(rootFolder.children);
+  return rootFolder;
+}
+
+/** 尝试从磁盘或 DB 恢复一个 looseFile 的内容（restore 用） */
+async function readDiskOrNull(
+  file: IFileNode,
+): Promise<{ kept: boolean; node?: IFileNode }> {
+  try {
+    const r = (await window.weaveMD.file.readDisk(file.path)) as unknown as {
+      success: boolean;
+    };
+    if (r.success) return { kept: true, node: file };
+
+    // 磁盘无文件，回退 DB
+    const dbResult = (await window.weaveMD.file.get(file.id, '')) as unknown as {
+      success: boolean;
+      data?: { content: string };
+    };
+    if (dbResult?.success && dbResult.data) {
+      return { kept: true, node: { ...file, content: dbResult.data.content } };
+    }
+    return { kept: false };
+  } catch {
+    // readDisk 异常，同样回退 DB
+    try {
+      const dbResult = (await window.weaveMD.file.get(file.id, '')) as unknown as {
+        success: boolean;
+        data?: { content: string };
+      };
+      if (dbResult?.success && dbResult.data) {
+        return { kept: true, node: { ...file, content: dbResult.data.content } };
+      }
+    } catch {
+      // both fail
+    }
+    return { kept: false };
+  }
+}
+
 function sortNodes(nodes: IFolderNode[]): IFolderNode[] {
   return [...(nodes ?? [])]
     .sort((a, b) => {
@@ -220,47 +301,10 @@ export const useFileTreeStore = create<FileTreeState & FileTreeActions>()(
       }
 
       const normalizedPath = path.replace(/\\/g, '/');
-
-      const pathToNode = new Map<string, IFolderNode>();
-
-      const rootName = normalizedPath.split(/[\\/]/).pop() || normalizedPath;
-      const rootFolder: IFolderNode = {
-        id: normalizedPath,
-        name: rootName,
-        path: normalizedPath,
-        isDirectory: true,
-        children: [],
-        expanded: true,
-        isRoot: true,
-      };
-      pathToNode.set(normalizedPath, rootFolder);
-
-      const sortedItems = [...result.data].sort((a, b) => a.path.length - b.path.length);
-
-      for (const item of sortedItems) {
-        const node: IFolderNode = {
-          id: item.path,
-          name: item.name,
-          path: item.path,
-          isDirectory: item.isDirectory,
-          children: [],
-          expanded: false,
-          isRoot: false,
-        };
-        pathToNode.set(item.path, node);
-
-        const parentPath = item.path.substring(0, item.path.lastIndexOf('/'));
-        const parent = pathToNode.get(parentPath) || pathToNode.get(path);
-        if (parent) {
-          parent.children.push(node);
-        } else {
-          rootFolder.children.push(node);
-        }
-      }
+      const rootFolder = buildPathTree(result.data, normalizedPath);
 
       set((state) => {
         const existingFolders = state.folders.filter((f) => f.path !== normalizedPath);
-        rootFolder.children = sortNodes(rootFolder.children);
         return {
           folders: sortNodes([...existingFolders, rootFolder]),
           isLoading: false,
@@ -349,40 +393,11 @@ export const useFileTreeStore = create<FileTreeState & FileTreeActions>()(
     // welcome:// 遗留节点一并剔除（由注入重建，不入盘）
     for (const file of looseFiles) {
       if (file.id.startsWith('welcome://')) continue;
-      try {
-        const r = (await window.weaveMD.file.readDisk(file.path)) as unknown as {
-          success: boolean;
-        };
-        if (r.success) {
-          remainingLoose.push(file);
-        } else {
-          // 磁盘无文件，回退 DB 查询（AI 创建的文件可能仅存在于 DB）
-          const dbResult = (await window.weaveMD.file.get(file.id, '')) as unknown as {
-            success: boolean;
-            data?: { content: string };
-          };
-          if (dbResult?.success && dbResult.data) {
-            // DB 有该文件：保留并补全 content 缓存
-            remainingLoose.push({ ...file, content: dbResult.data.content });
-          } else {
-            removed.push(file.path);
-          }
-        }
-      } catch {
-        // readDisk 异常，同样回退 DB
-        try {
-          const dbResult = (await window.weaveMD.file.get(file.id, '')) as unknown as {
-            success: boolean;
-            data?: { content: string };
-          };
-          if (dbResult?.success && dbResult.data) {
-            remainingLoose.push({ ...file, content: dbResult.data.content });
-          } else {
-            removed.push(file.path);
-          }
-        } catch {
-          removed.push(file.path);
-        }
+      const { kept, node } = await readDiskOrNull(file);
+      if (kept && node) {
+        remainingLoose.push(node);
+      } else {
+        removed.push(file.path);
       }
     }
 

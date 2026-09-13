@@ -5,7 +5,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   extractOutline,
-  headingToId,
   parseMarkdownToAST,
   prepareMarkdownForRendering,
   renderMarkdownToHtml,
@@ -77,20 +76,6 @@ describe('extractOutline', () => {
 ## Real Sub`;
     const outline = extractOutline(content);
     expect(outline).toHaveLength(1);
-  });
-});
-
-describe('headingToId', () => {
-  it('should convert heading to valid ID', () => {
-    expect(headingToId('Hello World')).toBe('hello-world');
-  });
-
-  it('should handle special characters', () => {
-    expect(headingToId("What's New?")).toBe('what-s-new');
-  });
-
-  it('should handle Chinese characters', () => {
-    expect(headingToId('简介说明')).toBe('简介说明');
   });
 });
 

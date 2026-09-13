@@ -4,6 +4,7 @@
 // 文件/文件夹重命名的 inline 输入框，Enter 确认 / Escape 取消。
 
 import React, { useEffect, useRef, useState } from 'react';
+import { EDITOR_FONT_FAMILY } from '@render/utils/fontConstants';
 
 interface RenameInputProps {
   /** 当前文件名（含扩展名） */
@@ -58,7 +59,7 @@ const RenameInput: React.FC<RenameInputProps> = ({ currentName, onConfirm, onCan
         }
       }}
       className="flex-1 min-w-0 bg-bg-tertiary text-text-primary text-sm px-1 py-0.5 rounded border border-accent outline-none"
-      style={{ fontFamily: 'Consolas, KaiTi, 楷体, STKaiti, system-ui' }}
+      style={{ fontFamily: EDITOR_FONT_FAMILY }}
       onClick={(e) => e.stopPropagation()}
     />
   );

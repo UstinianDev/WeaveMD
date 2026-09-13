@@ -6,6 +6,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useI18n } from '@render/i18n';
 import Icon from '@render/components/Common/Icon';
+import { EDITOR_FONT_FAMILY } from '@render/utils/fontConstants';
 
 interface FileSearchBarProps {
   value: string;
@@ -34,7 +35,7 @@ const FileSearchBar: React.FC<FileSearchBarProps> = ({ value, onChange, onClose 
         onChange={(e) => onChange(e.target.value)}
         placeholder={t('sidebar.search')}
         className="flex-1 bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted"
-        style={{ fontFamily: 'Consolas, KaiTi, 楷体, STKaiti, system-ui' }}
+        style={{ fontFamily: EDITOR_FONT_FAMILY }}
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
             onClose();

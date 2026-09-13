@@ -118,13 +118,17 @@ describe('uiStore', () => {
   });
 
   it('should flush the registered editor draft callback', async () => {
+    // draft flusher has been moved to module-level ref in useDraftFlusher.ts
+    const { setDraftFlusher, flushEditorDraft } = await import(
+      '@render/hooks/useDraftFlusher'
+    );
     const flusher = vi.fn();
 
-    useUIStore.getState().setEditorDraftFlusher(flusher);
-    await useUIStore.getState().flushEditorDraft();
-
+    setDraftFlusher(flusher);
+    await flushEditorDraft();
     expect(flusher).toHaveBeenCalledTimes(1);
-    useUIStore.getState().setEditorDraftFlusher(null);
-    await expect(useUIStore.getState().flushEditorDraft()).resolves.toBeUndefined();
+
+    setDraftFlusher(null);
+    await expect(flushEditorDraft()).resolves.toBeUndefined();
   });
 });

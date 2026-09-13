@@ -18,6 +18,7 @@ import {
   SMTP_TIMEOUT_MS,
 } from './config';
 import { validateImages } from './validateImages';
+import { resolveMediaMime } from '../mediaMime';
 
 export type MailErrorCode =
   | 'not_configured'
@@ -42,16 +43,6 @@ export interface SendMailInput {
 export type SendMailResult =
   | { success: true; messageId?: string }
   | { success: false; error: MailError };
-
-const IMAGE_CONTENT_TYPES: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.bmp': 'image/bmp',
-  '.svg': 'image/svg+xml',
-};
 
 /** 创建 SMTP transport（smtp.qq.com:465 SSL）。调用方必须在用完（send）后 close。 */
 export function createTransporter(authCode: string): nodemailer.Transporter {
@@ -116,11 +107,12 @@ export async function sendMail(input: SendMailInput): Promise<SendMailResult> {
   const attachments: Array<{ filename: string; content: Buffer; contentType?: string }> =
     input.imagePaths.map((p) => {
       const content = fs.readFileSync(p);
-      const ext = path.extname(p).toLowerCase();
+      const ext = path.extname(p);
+      const mime = resolveMediaMime(ext);
       return {
         filename: path.basename(p),
         content,
-        ...(IMAGE_CONTENT_TYPES[ext] ? { contentType: IMAGE_CONTENT_TYPES[ext] } : {}),
+        ...(mime !== 'application/octet-stream' ? { contentType: mime } : {}),
       };
     });
 

@@ -3,8 +3,10 @@
 // ============================================
 // 精简版：移除 FileMenu/HistoryMenu/MoreMenu/ExportMenu（已迁移到侧栏工具栏）。
 // 保留：HelpMenu、ViewMenu、Undo/Redo、Settings、WindowControls。
+//
+// 全局快捷键（Ctrl+O/S/Z/Y）已迁移至 useGlobalShortcuts 单例 hook。
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import Icon from '@render/components/Common/Icon';
 import IconButton from '@render/components/Common/IconButton';
 import { useI18n } from '@render/i18n';
@@ -12,53 +14,9 @@ import FeedbackModal from '@render/components/Feedback/FeedbackModal';
 import HelpMenu from './HelpMenu';
 import WindowControls from './WindowControls';
 import { useNavbarActions } from '@render/hooks/useNavbarActions';
+import { useGlobalShortcuts } from '@render/hooks/useGlobalShortcuts';
 import { useUIStore } from '@render/stores/uiStore';
 import { useEditorStore } from '@render/stores/editorStore';
-
-type ShortcutAction = 'new-file' | 'open-file' | 'undo' | 'redo' | 'save' | null;
-
-export function shouldIgnoreGlobalShortcutTarget(target: EventTarget | null) {
-  const element = target instanceof HTMLElement ? target : null;
-  if (!element) {
-    return false;
-  }
-
-  const tagName = element.tagName;
-  return (
-    element.isContentEditable ||
-    element.getAttribute('contenteditable') === 'true' ||
-    tagName === 'INPUT' ||
-    tagName === 'TEXTAREA' ||
-    tagName === 'SELECT'
-  );
-}
-
-const SHORTCUT_MAP: Record<string, ShortcutAction> = {
-  n: 'new-file',
-  o: 'open-file',
-  z: 'undo',
-  y: 'redo',
-  s: 'save',
-};
-
-export function getShortcutAction(event: {
-  key: string;
-  ctrlKey: boolean;
-  metaKey: boolean;
-  shiftKey: boolean;
-  altKey: boolean;
-}): ShortcutAction {
-  if (!(event.ctrlKey || event.metaKey) || event.altKey) {
-    return null;
-  }
-
-  const key = event.key.toLowerCase();
-  // Ctrl/Cmd+Shift+Z = redo
-  if (key === 'z' && event.shiftKey) {
-    return 'redo';
-  }
-  return SHORTCUT_MAP[key] ?? null;
-}
 
 /** 导航栏分隔竖线 */
 const NavSeparator = () => (
@@ -95,37 +53,8 @@ const TopBar: React.FC = () => {
     }
   }, [isDirty, saving, saveFile]);
 
-  useEffect(() => {
-    const handleGlobalKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || shouldIgnoreGlobalShortcutTarget(event.target)) {
-        return;
-      }
-
-      const action = getShortcutAction(event);
-      if (!action) {
-        return;
-      }
-
-      event.preventDefault();
-      if (action === 'new-file') {
-        // 新建文件快捷键仍可用，但入口迁移到侧栏
-        // 这里保留 Ctrl+N 快捷键功能
-      } else if (action === 'open-file') {
-        void handleOpenFile();
-      } else if (action === 'undo') {
-        void handleUndo();
-      } else if (action === 'redo') {
-        void handleRedo();
-      } else if (action === 'save') {
-        void handleSave();
-      }
-    };
-
-    document.addEventListener('keydown', handleGlobalKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleGlobalKeyDown);
-    };
-  }, [handleOpenFile, handleRedo, handleUndo, handleSave]);
+  // 全局快捷键（模块级单例，与 EditorView 共享同一 listener）
+  useGlobalShortcuts({ onSave: handleSave, onOpenFile: handleOpenFile });
 
   return (
     <header

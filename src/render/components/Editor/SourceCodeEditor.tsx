@@ -64,8 +64,6 @@ function getNearestHeadingLineNumber(content: string, currentLine: number): numb
 interface SourceCodeEditorProps {
   content: string;
   onContentChange: (newContent: string) => void;
-  /** Called when the Monaco editor instance is mounted */
-  onEditorRef?: (editor: editor.IStandaloneCodeEditor) => void;
   /** Called when the active heading changes during navigation, passes lineNumber */
   onActiveHeadingChange?: (lineNumber: number | null) => void;
 }
@@ -75,9 +73,8 @@ interface SourceCodeEditorProps {
 // ============================================
 
 const SourceCodeEditor = forwardRef<SourceCodeEditorHandle, SourceCodeEditorProps>(
-  ({ content, onContentChange, onEditorRef, onActiveHeadingChange }, ref) => {
+  ({ content, onContentChange, onActiveHeadingChange }, ref) => {
     const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
-    const monacoRef = useRef<typeof import('monaco-editor') | null>(null);
     const isUpdatingRef = useRef(false);
     const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isNavigatingRef = useRef(false);
@@ -208,10 +205,6 @@ const SourceCodeEditor = forwardRef<SourceCodeEditorHandle, SourceCodeEditorProp
     const handleEditorMount: OnMount = useCallback(
       (editor, monaco) => {
         editorRef.current = editor;
-        monacoRef.current = monaco;
-
-        // Notify parent of editor instance
-        onEditorRef?.(editor);
 
         // Auto-focus the editor on mount
         editor.focus();

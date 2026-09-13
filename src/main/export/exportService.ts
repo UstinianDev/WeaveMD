@@ -14,15 +14,20 @@ import HTMLtoDOCX from 'html-to-docx';
 import JSZip from 'jszip';
 import { buildExportHtml } from './exportTemplate';
 import { inlineMediaImages } from './imageInline';
+import { EXT_TO_MIME } from '../mediaMime';
 import {
+  EXPORT_DEFAULT_WIN_HEIGHT,
   EXPORT_IMAGE_WIDTH,
   EXPORT_JPEG_QUALITY,
   EXPORT_MAX_HEIGHT,
-  EXPORT_SCALE_FACTOR,
+  EXPORT_ZOOM_FACTOR,
   type ExportFormat,
   type ExportRequest,
   type ExportResult,
 } from './types';
+
+/** DOCX 页边距 (twips)，1 inch = 1440 twips */
+const DOCX_MARGIN_TWIPS = 1440;
 
 interface FormatSpec {
   extension: string;
@@ -94,7 +99,7 @@ export async function exportFile(
         // 2) 生成 OOXML
         const docxBuffer = await HTMLtoDOCX(htmlForDocx, undefined, {
           orientation: 'portrait',
-          margins: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+          margins: { top: DOCX_MARGIN_TWIPS, right: DOCX_MARGIN_TWIPS, bottom: DOCX_MARGIN_TWIPS, left: DOCX_MARGIN_TWIPS },
           title: req.filename,
         });
         // 3) 修补 [Content_Types].xml 补 gif/svg 等 content type（否则 Word 打开报错）
@@ -117,20 +122,6 @@ export async function exportFile(
     return { success: false, error: 'failed' };
   }
 }
-
-/** 扩展名 → MIME content type 映射，覆盖 html-to-docx 可能写盘到 word/media 的图片类型 */
-const EXTENSION_CONTENT_TYPES: Record<string, string> = {
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  gif: 'image/gif',
-  svg: 'image/svg+xml',
-  'svg+xml': 'image/svg+xml',
-  webp: 'image/webp',
-  bmp: 'image/bmp',
-  tiff: 'image/tiff',
-  ico: 'image/x-icon',
-};
 
 /**
  * 移除 html-to-docx 无法解析尺寸的图片（AVIF）。html-to-docx 内置 image-size
@@ -190,7 +181,7 @@ export async function fixDocxContentTypes(docxBuffer: Buffer): Promise<Buffer> {
   const orderedExts = Array.from(missingExtensions).sort((a, b) => a.localeCompare(b));
   const defaultsXml = orderedExts
     .map((ext) => {
-      const mime = EXTENSION_CONTENT_TYPES[ext];
+      const mime = EXT_TO_MIME[ext];
       if (!mime) {
         return null;
       }
@@ -233,7 +224,7 @@ async function renderToFile(
   const win = new BrowserWindow({
     show: false,
     width: EXPORT_IMAGE_WIDTH,
-    height: 600,
+    height: EXPORT_DEFAULT_WIN_HEIGHT,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -251,7 +242,7 @@ async function renderToFile(
     await win.loadFile(tmpPath);
 
     // 设置2x 缩放提高清晰度（HiDPI 适配）
-    win.webContents.setZoomFactor(2);
+    win.webContents.setZoomFactor(EXPORT_ZOOM_FACTOR);
 
     // 等待图片和字体加载完成
     const contentHeight = (await win.webContents.executeJavaScript(WAIT_AND_MEASURE_SCRIPT)) as number;

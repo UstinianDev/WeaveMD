@@ -5,14 +5,20 @@
 // - Normal Mode：EditorV2（块树 WYSIWYG，自注册大纲导航）
 // - Source Code Mode：Monaco（SourceCodeEditor）
 // 共享：Monaco 主题、快捷键、Find & Replace、大纲导航、草稿刷新。
+//
+// 副作用已抽取为 hooks：
+//   useMonacoTheme / useGlobalShortcuts / useModeScrollPersistence / useDraftFlusher
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 
 import type { OutlineItemV2 } from '@render/editor/kernel/outline';
 import { extractOutline, type OutlineItem } from '@render/services/markdown';
 import { useEditorStore } from '@render/stores/editorStore';
 import { useUIStore } from '@render/stores/uiStore';
-import { defineWeaveThemes } from '@render/utils/monacoSetup';
+import { useMonacoTheme } from '@render/hooks/useMonacoTheme';
+import { useGlobalShortcuts } from '@render/hooks/useGlobalShortcuts';
+import { useModeScrollPersistence } from '@render/hooks/useModeScrollPersistence';
+import { useDraftFlusher } from '@render/hooks/useDraftFlusher';
 import FindReplaceBar from './panels/FindReplaceBar';
 import SourceCodeEditor, { type SourceCodeEditorHandle } from './SourceCodeEditor';
 import EditorV2 from './v2/EditorV2';
@@ -26,105 +32,24 @@ interface EditorViewProps {
 }
 
 const EditorView: React.FC<EditorViewProps> = ({ onNavigateReady, onActiveHeadingChange, onOutlineChange }) => {
-  const themesDefinedRef = useRef(false);
   const sourceEditorHandleRef = useRef<SourceCodeEditorHandle | null>(null);
-  const [themesLoading, setThemesLoading] = useState(true);
-
-  // --- 滚动位置保持：模式切换时保存/恢复 ---
-  /** 保存的 Normal 模式 scrollTop（.editor-scroll-container 的 scrollTop） */
-  const savedNormalScrollRef = useRef<number>(0);
-  /** 保存的 Source 模式 scrollTop（Monaco 的 scrollTop） */
-  const savedSourceScrollRef = useRef<number>(0);
 
   const content = useEditorStore((s) => s.content);
   const setContent = useEditorStore((s) => s.updateContent);
-  const setEditorDraftFlusher = useUIStore((s) => s.setEditorDraftFlusher);
-  const setBeforeToggleSourceMode = useUIStore((s) => s.setBeforeToggleSourceMode);
   const isSourceCodeMode = useUIStore((s) => s.isSourceCodeMode);
   const isFindReplaceOpen = useUIStore((s) => s.isFindReplaceOpen);
 
-  // ============================================
-  // Monaco 主题定义（Source Code Mode）
-  // ============================================
-  useEffect(() => {
-    if (themesDefinedRef.current) {
-      setThemesLoading(false);
-      return;
-    }
+  // ---- hooks ----
 
-    import('monaco-editor')
-      .then((monaco) => {
-        defineWeaveThemes(monaco.editor);
+  const { themesLoading } = useMonacoTheme();
+  useGlobalShortcuts();
+  useModeScrollPersistence(sourceEditorHandleRef, isSourceCodeMode);
+  useDraftFlusher(sourceEditorHandleRef, isSourceCodeMode);
 
-        themesDefinedRef.current = true;
-        setThemesLoading(false);
-      })
-      .catch((err) => {
-        console.error('Failed to define Monaco themes:', err);
-        setThemesLoading(false);
-      });
-  }, []);
+  // ---- callbacks ----
 
   // 外部内容变更（Source 模式输入 / Find & Replace 替换）共用单回调
   const handleExternalContentChange = (newContent: string) => setContent(newContent);
-
-  // ============================================
-  // 全局快捷键（Ctrl+S / Ctrl+Z / Ctrl+Y / Ctrl+F / Ctrl+`）
-  // ============================================
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const ctrl = e.ctrlKey || e.metaKey;
-
-      if (ctrl && e.key === 'f') {
-        e.preventDefault();
-        useUIStore.getState().toggleFindReplace();
-        return;
-      }
-
-      if (ctrl && e.key === '`') {
-        e.preventDefault();
-        useUIStore.getState().toggleSourceCodeMode();
-        return;
-      }
-
-      const target = e.target as HTMLElement | null;
-      if (target) {
-        const tagName = target.tagName.toLowerCase();
-        if (
-          tagName === 'input' ||
-          tagName === 'textarea' ||
-          tagName === 'select' ||
-          target.isContentEditable
-        ) {
-          const isFindReplaceInput = target.closest('.find-replace-bar') !== null;
-          const isMonacoInternal =
-            target.closest('.monaco-editor') !== null ||
-            target.classList.contains('ime-text-area') ||
-            target.classList.contains('inputarea');
-          if (!isMonacoInternal && !isFindReplaceInput) {
-            return;
-          }
-        }
-      }
-
-      if (ctrl && e.key === 's') {
-        e.preventDefault();
-        useEditorStore.getState().saveFile();
-      }
-      if (ctrl && e.key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        useEditorStore.getState().undo();
-      }
-      if ((ctrl && e.key === 'y') || (ctrl && e.shiftKey && e.key === 'z')) {
-        e.preventDefault();
-        useEditorStore.getState().redo();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Source Code Mode：lineNumber → headingIndex（OutlinePanel 高亮）
   const getHeadingIndexForLineNumber = useCallback(
@@ -165,62 +90,7 @@ const EditorView: React.FC<EditorViewProps> = ({ onNavigateReady, onActiveHeadin
     }
   }, [isSourceCodeMode, onNavigateReady, themesLoading]);
 
-  // 注册 beforeToggleSourceMode：切换前保存当前编辑器的滚动位置
-  useEffect(() => {
-    setBeforeToggleSourceMode(() => {
-      if (isSourceCodeMode) {
-        // 当前 Source → 切到 Normal：保存 Monaco 的 scrollTop（用 API，不用 DOM）
-        savedSourceScrollRef.current = sourceEditorHandleRef.current?.getScrollTop?.() ?? 0;
-      } else {
-        // 当前 Normal → 切到 Source：保存 EditorV2 scrollTop
-        const container = document.querySelector('.editor-scroll-container');
-        if (container) {
-          savedNormalScrollRef.current = container.scrollTop;
-        }
-      }
-    });
-    return () => setBeforeToggleSourceMode(null);
-  }, [isSourceCodeMode, setBeforeToggleSourceMode]);
-
-  // 恢复滚动位置：模式切换后，新编辑器挂载时恢复
-  useEffect(() => {
-    // 使用 setTimeout 确保新编辑器完全挂载后再恢复滚动位置
-    const timer = setTimeout(() => {
-      if (isSourceCodeMode) {
-        // 切到了 Source → 恢复 Monaco 的 scrollTop
-        if (savedNormalScrollRef.current > 0) {
-          sourceEditorHandleRef.current?.setScrollTop?.(savedNormalScrollRef.current);
-        }
-      } else {
-        // 切到了 Normal → 恢复 EditorV2 的 scrollTop
-        if (savedSourceScrollRef.current > 0) {
-          const container = document.querySelector('.editor-scroll-container');
-          if (container) {
-            container.scrollTop = savedSourceScrollRef.current;
-          }
-        }
-      }
-    }, 100); // 100ms 延迟确保编辑器完全挂载
-
-    return () => clearTimeout(timer);
-  }, [isSourceCodeMode]);
-
-  // 草稿刷新器：Source 模式强制 flush Monaco 150ms 防抖内容，避免切换文件丢失；
-  // Normal 模式 EditorV2 每 keystroke 已同步 store，无需 flush（no-op）。
-  useEffect(() => {
-    if (isSourceCodeMode) {
-      setEditorDraftFlusher(() => {
-        sourceEditorHandleRef.current?.flushContent();
-      });
-    } else {
-      setEditorDraftFlusher(() => {
-        // no-op：Normal 模式下编辑内容随每次输入同步到 store
-      });
-    }
-    return () => {
-      setEditorDraftFlusher(null);
-    };
-  }, [isSourceCodeMode, setEditorDraftFlusher]);
+  // ---- render ----
 
   if (themesLoading) {
     return (

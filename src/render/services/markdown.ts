@@ -119,16 +119,6 @@ function extractTextFromNode(node: Heading): string {
   return texts.join('').trim();
 }
 
-/**
- * Generate a unique ID from heading text.
- */
-export function headingToId(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9一-鿿]+/g, '-')
-    .replace(/^-|-$/g, '');
-}
-
 type MdastNode = {
   type: string;
   value?: string;

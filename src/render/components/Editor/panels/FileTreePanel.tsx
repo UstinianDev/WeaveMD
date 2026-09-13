@@ -13,6 +13,7 @@ import { isWelcomeFile } from '@render/services/welcomeDocument';
 import { useEditorStore } from '@render/stores/editorStore';
 import { useFileTreeStore, type IFileNode, type IFolderNode } from '@render/stores/fileTreeStore';
 import { touchRecent } from '@render/stores/recentStore';
+import { EDITOR_FONT_FAMILY } from '@render/utils/fontConstants';
 import ContextMenu from './ContextMenu';
 import RenameInput from './RenameInput';
 
@@ -29,6 +30,89 @@ interface ContextMenuState {
   nodePath: string;
   isDirectory: boolean;
 }
+
+// ============================================
+// FileTreeRow — 统一的文件/文件夹行组件
+// ============================================
+
+interface FileTreeRowProps {
+  item: IFolderNode;
+  depth: number;
+  isActive: boolean;
+  isSelected: boolean;
+  isRenaming: boolean;
+  indentPx: number;
+  onRowClick: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+  onRenameConfirm: (newName: string) => void;
+  onRenameCancel: () => void;
+}
+
+const FileTreeRow: React.FC<FileTreeRowProps> = ({
+  item,
+  depth,
+  isActive,
+  isSelected,
+  isRenaming,
+  indentPx,
+  onRowClick,
+  onContextMenu,
+  onRenameConfirm,
+  onRenameCancel,
+}) => {
+  const isFolder = item.isDirectory;
+  const hasChildren = (item.children?.length ?? 0) > 0;
+
+  return (
+    <div
+      key={item.id}
+      className={`flex items-center gap-2 py-2.5 px-2 rounded hover:bg-white/5 cursor-pointer group ${
+        isActive ? 'current-file-active' : ''
+      } ${isSelected && !isActive ? 'bg-accent/20' : ''}`}
+      style={{ paddingLeft: `${indentPx + 8}px` }}
+      onClick={() => {
+        if (isRenaming) return;
+        onRowClick();
+      }}
+      onContextMenu={onContextMenu}
+    >
+      {isFolder ? (
+        <span className="w-4 text-xs select-none text-text-muted">
+          {item.expanded ? '▼' : '▶'}
+        </span>
+      ) : (
+        <span className="w-4" />
+      )}
+
+      <span className="select-none text-text-muted">
+        {isFolder ? (
+          <Icon icon={item.expanded ? 'folder-open' : 'folder-outline'} size={16} />
+        ) : (
+          <Icon icon="file-outline" size={16} />
+        )}
+      </span>
+
+      {isRenaming ? (
+        <RenameInput
+          currentName={item.name}
+          onConfirm={onRenameConfirm}
+          onCancel={onRenameCancel}
+        />
+      ) : (
+        <span
+          className="flex-1 text-base text-text-primary truncate select-none font-semibold"
+          style={{ fontFamily: EDITOR_FONT_FAMILY }}
+        >
+          {item.name}
+        </span>
+      )}
+    </div>
+  );
+};
+
+// ============================================
+// FileTreePanel
+// ============================================
 
 const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
   const { t } = useI18n();
@@ -101,7 +185,6 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
       if (!content && node.content) {
         content = node.content;
       }
-      // 使用 path 作为文件 id，确保 saveFile 能正确识别磁盘文件
       const fileId = node.path || node.id;
       touchRecent({ id: fileId, path: node.path, name: node.name });
       openFile({
@@ -117,16 +200,14 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
     [openFile]
   );
 
-  // 单击切换：已打开 → 关闭，未打开 → 打开（有未保存修改时弹出确认框）
+  // 单击切换
   const handleFileClick = useCallback(
     async (node: { id: string; name: string; path: string; content?: string }) => {
-      // 点击当前已打开文件 → 关闭
       if (currentFileId === node.id) {
         await saveCurrentDraftIfNeeded();
         closeFile();
         return;
       }
-      // 切换文件前检查未保存修改
       if (currentFileId && isDirty) {
         setPendingSwitch(node);
         return;
@@ -136,7 +217,6 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
     [currentFileId, isDirty, closeFile, doSwitchFile]
   );
 
-  // 确认对话框回调
   const handleConfirmSave = useCallback(async () => {
     if (!pendingSwitch) return;
     await saveFile();
@@ -181,10 +261,7 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
           message?: string;
         };
         if (result.success && result.data) {
-          // 更新 store
           renameNode(oldPath, newName);
-
-          // 如果是当前打开的文件，更新 editorStore
           if (!isDirectory && currentFileId === oldPath) {
             const now = new Date().toISOString();
             const readResult = (await window.weaveMD.file.readDisk(result.data.newPath)) as unknown as {
@@ -212,7 +289,6 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
     [renameNode, currentFileId, openFile]
   );
 
-  // 删除（右键菜单）
   const handleContextMenuDelete = useCallback(
     async (nodeId: string, nodePath: string, isDirectory: boolean) => {
       const confirmMsg = isDirectory
@@ -224,7 +300,6 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
         if (isDirectory) {
           await window.weaveMD.folder.deleteFolder(nodePath);
           removeFolder(nodeId);
-          // 如果当前文件在该文件夹内，关闭
           if (currentFileId && currentFileId.startsWith(nodePath)) {
             await saveCurrentDraftIfNeeded();
             closeFile();
@@ -244,15 +319,12 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
     [removeFolder, removeFileFromEverywhere, currentFileId, closeFile, t]
   );
 
-  // 渲染节点（递归）
+  // 渲染文件夹节点（递归）
   const renderNode = useCallback(
     (node: IFolderNode, depth: number) => {
-      const indent = depth * 16;
       const isFolder = node.isDirectory;
-      const isSelected = selectedIds.includes(node.id);
       const isActive = !isFolder && node.id === currentFileId;
       const hasChildren = (node.children?.length ?? 0) > 0;
-      const isRenaming = renamingId === node.id;
 
       // 搜索过滤
       if (searchQuery) {
@@ -265,13 +337,14 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
 
       return (
         <div key={node.id}>
-          <div
-            className={`flex items-center gap-2 py-2.5 px-2 rounded hover:bg-white/5 cursor-pointer group ${
-              isActive ? 'current-file-active' : ''
-            } ${isSelected && !isActive ? 'bg-accent/20' : ''}`}
-            style={{ paddingLeft: `${indent + 8}px` }}
-            onClick={() => {
-              if (isRenaming) return;
+          <FileTreeRow
+            item={node}
+            depth={depth}
+            isActive={isActive}
+            isSelected={selectedIds.includes(node.id)}
+            isRenaming={renamingId === node.id}
+            indentPx={depth * 16}
+            onRowClick={() => {
               toggleSelect(node.id);
               if (isFolder) {
                 toggleExpand(node.id);
@@ -282,38 +355,9 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
             onContextMenu={(e) =>
               handleContextMenu(e, node.id, node.name, node.path, isFolder)
             }
-          >
-            {isFolder ? (
-              <span className="w-4 text-xs select-none text-text-muted">
-                {node.expanded ? '▼' : '▶'}
-              </span>
-            ) : (
-              <span className="w-4" />
-            )}
-
-            <span className="select-none text-text-muted">
-              {isFolder ? (
-                <Icon icon={node.expanded ? 'folder-open' : 'folder-outline'} size={16} />
-              ) : (
-                <Icon icon="file-outline" size={16} />
-              )}
-            </span>
-
-            {isRenaming ? (
-              <RenameInput
-                currentName={node.name}
-                onConfirm={(newName) => handleRename(node.path, newName, isFolder)}
-                onCancel={() => setRenamingId(null)}
-              />
-            ) : (
-              <span
-                className="flex-1 text-base text-text-primary truncate select-none font-semibold"
-                style={{ fontFamily: 'Consolas, KaiTi, 楷体, STKaiti, system-ui' }}
-              >
-                {node.name}
-              </span>
-            )}
-          </div>
+            onRenameConfirm={(newName) => handleRename(node.path, newName, isFolder)}
+            onRenameCancel={() => setRenamingId(null)}
+          />
 
           {isFolder && node.expanded && hasChildren && (
             <div>{(node.children ?? []).map((child) => renderNode(child, depth + 1))}</div>
@@ -324,50 +368,41 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
     [selectedIds, currentFileId, toggleExpand, toggleSelect, handleFileClick, handleContextMenu, renamingId, handleRename, searchQuery, folderHasMatch, matchesSearch]
   );
 
-  // 渲染独立文件
+  // 渲染独立文件（使用统一的 FileTreeRow）
   const renderLooseFile = useCallback(
     (file: IFileNode) => {
-      const isSelected = selectedIds.includes(file.id);
-      const isActive = file.id === currentFileId;
-      const isRenaming = renamingId === file.id;
-
-      // 搜索过滤
       if (searchQuery && !matchesSearch(file.name)) return null;
 
+      // 适配 IFileNode → IFolderNode 形状（isDirectory: false）
+      const node: IFolderNode = {
+        id: file.id,
+        name: file.name,
+        path: file.path,
+        isDirectory: false,
+        children: [],
+        expanded: false,
+        isRoot: false,
+      };
+
       return (
-        <div
+        <FileTreeRow
           key={file.id}
-          className={`flex items-center gap-2 py-2.5 px-2 rounded hover:bg-white/5 cursor-pointer group ${
-            isActive ? 'current-file-active' : ''
-          } ${isSelected && !isActive ? 'bg-accent/20' : ''}`}
-          onClick={() => {
-            if (isRenaming) return;
+          item={node}
+          depth={0}
+          isActive={file.id === currentFileId}
+          isSelected={selectedIds.includes(file.id)}
+          isRenaming={renamingId === file.id}
+          indentPx={0}
+          onRowClick={() => {
             toggleSelect(file.id);
             void handleFileClick(file);
           }}
           onContextMenu={(e) =>
             handleContextMenu(e, file.id, file.name, file.path, false)
           }
-        >
-          <span className="w-4" />
-          <span className="select-none text-text-muted">
-            <Icon icon="file-outline" size={16} />
-          </span>
-          {isRenaming ? (
-            <RenameInput
-              currentName={file.name}
-              onConfirm={(newName) => handleRename(file.path, newName, false)}
-              onCancel={() => setRenamingId(null)}
-            />
-          ) : (
-            <span
-              className="flex-1 text-base text-text-primary truncate select-none font-semibold"
-              style={{ fontFamily: 'Consolas, KaiTi, 楷体, STKaiti, system-ui' }}
-            >
-              {file.name}
-            </span>
-          )}
-        </div>
+          onRenameConfirm={(newName) => handleRename(file.path, newName, false)}
+          onRenameCancel={() => setRenamingId(null)}
+        />
       );
     },
     [selectedIds, currentFileId, toggleSelect, handleFileClick, handleContextMenu, renamingId, handleRename, searchQuery, matchesSearch]

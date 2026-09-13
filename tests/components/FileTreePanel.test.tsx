@@ -11,6 +11,7 @@ import FileTreePanel from '@render/components/Editor/panels/FileTreePanel';
 import { useEditorStore } from '@render/stores/editorStore';
 import { useFileTreeStore } from '@render/stores/fileTreeStore';
 import { useUIStore } from '@render/stores/uiStore';
+import { setDraftFlusher } from '@render/hooks/useDraftFlusher';
 import type { IFile } from '@shared/types';
 
 const Wrapper = ({ children }: { children: React.ReactNode }) => (
@@ -37,7 +38,7 @@ beforeEach(() => {
     redoStack: [],
   });
   useFileTreeStore.setState({ folders: [], looseFiles: [], selectedIds: [] });
-  useUIStore.setState({ editorDraftFlusher: null });
+  setDraftFlusher(null);
   vi.mocked(window.weaveMD.file.readDisk).mockResolvedValue({
     success: true,
     data: { content: '# B disk content' },

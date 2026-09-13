@@ -27,6 +27,30 @@ interface SidebarToolbarProps {
   onNewFolder: () => void;
 }
 
+/** 工具栏图标按钮（消除 8 个按钮的重复模板） */
+const ToolbarIconButton: React.FC<{
+  onClick: () => void;
+  title: string;
+  disabled?: boolean;
+  active?: boolean;
+  children: React.ReactNode;
+}> = ({ onClick, title, disabled = false, active = false, children }) => (
+  <button
+    onClick={onClick}
+    disabled={disabled}
+    className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
+      disabled
+        ? 'opacity-30 cursor-not-allowed text-text-muted'
+        : active
+          ? 'bg-accent/20 text-text-primary'
+          : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
+    }`}
+    title={title}
+  >
+    {children}
+  </button>
+);
+
 const SidebarToolbar: React.FC<SidebarToolbarProps> = ({
   isEditorCollapsed,
   searchOpen,
@@ -61,78 +85,53 @@ const SidebarToolbar: React.FC<SidebarToolbarProps> = ({
       className="flex items-center border-b px-1.5 py-1 gap-0.5"
       style={{ borderColor: 'var(--border-color)' }}
     >
-      {/* Outline tab */}
-      <button
+      <ToolbarIconButton
         onClick={() => {
           if (!isEditorCollapsed) setActiveTab('outline');
         }}
         disabled={isEditorCollapsed}
-        className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-          isEditorCollapsed
-            ? 'opacity-30 cursor-not-allowed text-text-muted'
-            : effectiveTab === 'outline'
-              ? 'bg-accent/20 text-text-primary'
-              : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
-        }`}
+        active={effectiveTab === 'outline'}
         title={t('sidebar.outline')}
       >
         <Icon icon="file-edit" size={15} />
-      </button>
+      </ToolbarIconButton>
 
-      {/* Files tab */}
-      <button
+      <ToolbarIconButton
         onClick={() => setActiveTab('files')}
-        className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-          effectiveTab === 'files'
-            ? 'bg-accent/20 text-text-primary'
-            : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
-        }`}
+        active={effectiveTab === 'files'}
         title={t('sidebar.files')}
       >
         <Icon icon="folder" size={15} />
-      </button>
+      </ToolbarIconButton>
 
-      {/* 折叠按钮 */}
-      <button
+      <ToolbarIconButton
         onClick={toggleOutlinePanel}
-        className="w-7 h-7 flex items-center justify-center rounded text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
         title={t('sidebar.collapse')}
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <polyline points="15 18 9 12 15 6" />
         </svg>
-      </button>
+      </ToolbarIconButton>
 
       {/* 分隔线 */}
       <div className="w-px h-4 mx-0.5" style={{ backgroundColor: 'var(--border-color)' }} />
 
-      {/* 搜索 */}
-      <button
+      <ToolbarIconButton
         onClick={onToggleSearch}
-        className={`w-7 h-7 flex items-center justify-center rounded transition-colors ${
-          searchOpen
-            ? 'bg-accent/20 text-text-primary'
-            : 'text-text-muted hover:text-text-primary hover:bg-bg-tertiary'
-        }`}
+        active={searchOpen}
         title={t('sidebar.searchTooltip')}
       >
         <Icon icon="search" size={15} />
-      </button>
+      </ToolbarIconButton>
 
-      {/* 导入 */}
-      <button
-        onClick={onImport}
-        className="w-7 h-7 flex items-center justify-center rounded text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
-        title={t('sidebar.import')}
-      >
+      <ToolbarIconButton onClick={onImport} title={t('sidebar.import')}>
         <Icon icon="file-upload" size={15} />
-      </button>
+      </ToolbarIconButton>
 
       {/* 导出 */}
       <div className="relative">
-        <button
+        <ToolbarIconButton
           onClick={handleExportClick}
-          className="w-7 h-7 flex items-center justify-center rounded text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
           title={t('sidebar.export')}
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -140,7 +139,7 @@ const SidebarToolbar: React.FC<SidebarToolbarProps> = ({
             <polyline points="7 10 12 15 17 10" />
             <line x1="12" y1="15" x2="12" y2="3" />
           </svg>
-        </button>
+        </ToolbarIconButton>
         {exportOpen && (
           <div
             className="absolute top-full left-0 mt-1 py-1 rounded-lg shadow-xl border z-50"
@@ -165,23 +164,13 @@ const SidebarToolbar: React.FC<SidebarToolbarProps> = ({
         )}
       </div>
 
-      {/* 新建文件 */}
-      <button
-        onClick={onNewFile}
-        className="w-7 h-7 flex items-center justify-center rounded text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
-        title={t('sidebar.newFile')}
-      >
+      <ToolbarIconButton onClick={onNewFile} title={t('sidebar.newFile')}>
         <Icon icon="file-add" size={15} />
-      </button>
+      </ToolbarIconButton>
 
-      {/* 新建文件夹 */}
-      <button
-        onClick={onNewFolder}
-        className="w-7 h-7 flex items-center justify-center rounded text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
-        title={t('sidebar.newFolder')}
-      >
+      <ToolbarIconButton onClick={onNewFolder} title={t('sidebar.newFolder')}>
         <Icon icon="folder-new" size={15} />
-      </button>
+      </ToolbarIconButton>
     </div>
   );
 };

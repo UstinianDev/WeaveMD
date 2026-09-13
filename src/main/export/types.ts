@@ -35,8 +35,11 @@ export const EXPORT_MAX_HEIGHT = 15000;
 /** png/jpg 内容宽度（CSS 像素） */
 export const EXPORT_IMAGE_WIDTH = 1200;
 
-/** 导出缩放因子（3x = 3600px 设备像素宽，确保高清晰度） */
-export const EXPORT_SCALE_FACTOR = 3;
+/** 导出位图缩放因子（zoomFactor，替代废弃的 scaleFactor 3x） */
+export const EXPORT_ZOOM_FACTOR = 2;
+
+/** 隐藏窗口默认高度（加载后 resize 为实际内容高） */
+export const EXPORT_DEFAULT_WIN_HEIGHT = 600;
 
 /** 大图 base64 内联体积阈值（字节），超过则降采样 */
 export const EXPORT_LARGE_IMAGE_BYTES = 8 * 1024 * 1024;

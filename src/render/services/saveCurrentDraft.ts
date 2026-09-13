@@ -9,11 +9,11 @@
 // 避免文件树路径跳过保存导致未保存修改丢失。
 
 import { useEditorStore } from '@render/stores/editorStore';
-import { useUIStore } from '@render/stores/uiStore';
+import { flushEditorDraft } from '@render/hooks/useDraftFlusher';
 
 /** 保存当前 dirty 草稿。返回：无内容可保存时 true；有保存需求且保存成功 true；保存失败 false。 */
 export async function saveCurrentDraftIfNeeded(): Promise<boolean> {
-  await useUIStore.getState().flushEditorDraft();
+  await flushEditorDraft();
   const { currentFile, isDirty } = useEditorStore.getState();
   if (currentFile?.id && isDirty) {
     return await useEditorStore.getState().saveFile();

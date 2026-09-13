@@ -5,7 +5,12 @@
 // 搜索框在工具栏下方展开，FileTreePanel 支持搜索过滤。
 
 import React, { useCallback, useMemo, useState } from 'react';
-import type { OutlineItemV2 } from '@render/editor/kernel/outline';
+import {
+  type OutlineItemV2,
+  type TreeNode,
+  buildHeadingTree,
+  buildHeadingIndexMap,
+} from '@render/editor/kernel/outline';
 import { useEditorStore } from '@render/stores/editorStore';
 import { useFileTreeStore } from '@render/stores/fileTreeStore';
 import { useUIStore } from '@render/stores/uiStore';
@@ -27,63 +32,11 @@ const FONT_CLASSES = [
   'text-base font-medium',
 ] as const;
 
-/** 树形节点：OutlineItemV2 扩展 children 用于递归渲染 */
-interface TreeNode extends OutlineItemV2 {
-  children: TreeNode[];
-}
-
 interface OutlinePanelProps {
   /** v2 扁平大纲（EditorV2 块树产出） */
   outline?: OutlineItemV2[];
   onNavigateToHeading?: (lineNumber: number, headingIndex: number) => void;
   activeHeadingIndex?: number | null;
-}
-
-/**
- * 将扁平 OutlineItemV2[] 转为树形 TreeNode[]。
- * 算法：用栈维护当前祖先链，level 严格递增时挂子节点，否则回溯到合适的父级。
- */
-function buildTree(flat: OutlineItemV2[]): TreeNode[] {
-  const root: TreeNode[] = [];
-  // 栈：每个元素是 [node, level]
-  const stack: [TreeNode, number][] = [];
-
-  for (const item of flat) {
-    const node: TreeNode = { ...item, children: [] };
-
-    // 弹出栈中 level >= 当前节点的（兄弟或更深的已完成分支）
-    while (stack.length > 0 && stack[stack.length - 1][1] >= node.level) {
-      stack.pop();
-    }
-
-    if (stack.length === 0) {
-      // 顶级节点
-      root.push(node);
-    } else {
-      // 挂到最近的祖先下
-      stack[stack.length - 1][0].children.push(node);
-    }
-
-    stack.push([node, node.level]);
-  }
-
-  return root;
-}
-
-function buildHeadingIndexMap(items: TreeNode[]): Map<string, number> {
-  const map = new Map<string, number>();
-  let index = 0;
-  function walk(item: TreeNode): void {
-    map.set(item.id, index);
-    index += 1;
-    for (const child of item.children) {
-      walk(child);
-    }
-  }
-  for (const item of items) {
-    walk(item);
-  }
-  return map;
 }
 
 const OutlineItemRow: React.FC<{
@@ -181,7 +134,7 @@ const OutlinePanel: React.FC<OutlinePanelProps> = ({
   );
 
   const treeOutline = useMemo(
-    () => buildTree(outlineProp ?? []),
+    () => buildHeadingTree(outlineProp ?? []),
     [outlineProp]
   );
 

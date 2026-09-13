@@ -4,6 +4,8 @@
 
 import { create } from 'zustand';
 import type { LanguageType, PageWidth, ThemeType } from '@shared/types';
+import { SEL_MONACO_HIDDEN_TEXTAREA, SEL_MONACO_EDITOR_ROOT } from '@render/utils/domSelectors';
+import { invokeBeforeToggleSourceMode } from '@render/hooks/useModeScrollPersistence';
 
 interface UIStore {
   theme: ThemeType;
@@ -23,8 +25,6 @@ interface UIStore {
   isAIPanelOpen: boolean;
   isSettingsOpen: boolean;
   aiPanelWidth: number;
-  editorDraftFlusher: (() => void | Promise<void>) | null;
-  beforeToggleSourceMode: (() => void) | null;
 
   setTheme: (theme: ThemeType) => void;
   setLanguage: (language: LanguageType) => void;
@@ -46,9 +46,6 @@ interface UIStore {
   toggleAIPanel: () => void;
   toggleSourceCodeMode: () => void;
   toggleFindReplace: () => void;
-  setBeforeToggleSourceMode: (callback: (() => void) | null) => void;
-  setEditorDraftFlusher: (flusher: (() => void | Promise<void>) | null) => void;
-  flushEditorDraft: () => Promise<void>;
   persistSettings: () => void;
   loadSettings: () => void;
 }
@@ -71,8 +68,6 @@ export const useUIStore = create<UIStore>((set, get) => ({
   isAIPanelOpen: false,
   isSettingsOpen: false,
   aiPanelWidth: 480,
-  editorDraftFlusher: null,
-  beforeToggleSourceMode: null,
 
   setTheme: (theme) => {
     set({ theme });
@@ -134,8 +129,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
     // This guard runs SYNCHRONOUSLY before set({ activeModal }) — ensuring
     // that any modal's autoFocus input won't compete with a ghost textarea.
     if (typeof document !== 'undefined') {
-      document.querySelectorAll('textarea.ime-text-area, textarea.inputarea').forEach((el) => {
-        const monacoRoot = el.closest('.monaco-editor');
+      document.querySelectorAll(SEL_MONACO_HIDDEN_TEXTAREA).forEach((el) => {
+        const monacoRoot = el.closest(SEL_MONACO_EDITOR_ROOT);
         if (!monacoRoot || !document.body.contains(monacoRoot)) {
           (el as HTMLTextAreaElement).blur();
           el.remove();
@@ -156,19 +151,11 @@ export const useUIStore = create<UIStore>((set, get) => ({
   toggleAIPanel: () => set((s) => ({ isAIPanelOpen: !s.isAIPanelOpen })),
 
   toggleSourceCodeMode: () => {
-    get().beforeToggleSourceMode?.();
+    invokeBeforeToggleSourceMode();
     set((s) => ({ isSourceCodeMode: !s.isSourceCodeMode }));
   },
 
-  setBeforeToggleSourceMode: (callback) => set({ beforeToggleSourceMode: callback }),
-
   toggleFindReplace: () => set((s) => ({ isFindReplaceOpen: !s.isFindReplaceOpen })),
-
-  setEditorDraftFlusher: (editorDraftFlusher) => set({ editorDraftFlusher }),
-
-  flushEditorDraft: async () => {
-    await get().editorDraftFlusher?.();
-  },
 
   persistSettings: () => {
     const { theme, language, sidebarWidth, historyPanelWidth, isAIPanelOpen, aiPanelWidth } =

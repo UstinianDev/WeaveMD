@@ -6,23 +6,15 @@
 
 import { renderBlockHtml } from './inlineRenderer';
 import {
-  ATX_HEADING_RE,
-  BQ_CONV_RE,
-  FENCE_CONV_CORE_RE,
-  FENCE_OPEN_CORE_RE,
-  OL_ITEM_RE,
-  TASK_ITEM_RE,
-  THEMATIC_BREAK_RE,
-  UL_ITEM_RE,
-} from './markdownSyntax';
-import {
-  type BlockConversionV2,
   type BlockMetaV2,
   type BlockNodeV2,
   type BlockTreeV2,
   type BlockTypeV2,
   isLeafBlockType,
 } from './types';
+
+// Re-export from blockDetection for backward compatibility
+export { detectFenceLine, detectBlockConversion } from './blockDetection';
 
 // ============================================
 // ID 生成（稳定、文档内唯一）
@@ -772,94 +764,3 @@ export function replaceLeafRange(
   };
 }
 
-// ============================================
-// 块转换检测（前缀 → 目标类型）
-// ============================================
-// 与 SPEC-EDIT-EXIT 及 v1 lineMarkdown 对齐：
-// 分隔符支持普通空格 / Tab / 非断行空格（U+00A0，中文输入法）。
-
-/** 判断整行是否为围栏语法行（如 ```java），供回车提交代码块使用 */
-export function detectFenceLine(text: string): {
-  marker: string;
-  lang: string;
-  prefixLength: number;
-} | null {
-  const fence = text.match(FENCE_OPEN_CORE_RE);
-  if (!fence) return null;
-  return {
-    marker: fence[1],
-    lang: fence[2].trim(),
-    prefixLength: text.length,
-  };
-}
-
-/** 块转换规则表：正则命中后构造转换结果（数组顺序即匹配优先级） */
-const CONVERSION_RULES: Array<{
-  re: RegExp;
-  build: (m: RegExpMatchArray, text: string) => BlockConversionV2;
-}> = [
-  {
-    re: ATX_HEADING_RE,
-    build: (m, text) => ({
-      type: 'heading',
-      meta: { headingLevel: m[1].length as 1 | 2 | 3 | 4 | 5 | 6 },
-      prefixLength: text.length - m[2].length,
-    }),
-  },
-  {
-    re: TASK_ITEM_RE,
-    build: (m, text) => ({
-      type: 'task-list',
-      meta: { taskChecked: m[3].toLowerCase() === 'x', listMarker: '-' },
-      prefixLength: text.length - m[5].length,
-    }),
-  },
-  {
-    re: UL_ITEM_RE,
-    build: (m, text) => ({
-      type: 'bullet-list',
-      meta: { listMarker: m[1] as '-' | '*' | '+' },
-      prefixLength: text.length - m[3].length,
-    }),
-  },
-  {
-    re: OL_ITEM_RE,
-    build: (m, text) => ({
-      type: 'ordered-list',
-      meta: { orderedStart: parseInt(m[1], 10), orderedDelimiter: m[2] as '.' | ')' },
-      prefixLength: text.length - m[4].length,
-    }),
-  },
-  {
-    re: BQ_CONV_RE,
-    build: (m, text) => ({
-      type: 'blockquote',
-      prefixLength: text.length - m[1].length,
-    }),
-  },
-  {
-    re: FENCE_CONV_CORE_RE,
-    build: (m, text) => ({
-      type: 'code-block',
-      meta: {
-        fenceLanguage: m[2].trim() || undefined,
-        fenceMarker: m[1],
-      },
-      // 围栏转换消费整行
-      prefixLength: text.length,
-    }),
-  },
-];
-
-export function detectBlockConversion(text: string): BlockConversionV2 | null {
-  for (const rule of CONVERSION_RULES) {
-    const match = text.match(rule.re);
-    if (match) return rule.build(match, text);
-  }
-
-  if (THEMATIC_BREAK_RE.test(text)) {
-    return { type: 'thematic-break', prefixLength: text.length };
-  }
-
-  return null;
-}

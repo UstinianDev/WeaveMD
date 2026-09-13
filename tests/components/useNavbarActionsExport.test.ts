@@ -6,6 +6,7 @@ import { I18nProvider } from '@render/i18n';
 import { useNavbarActions } from '@render/hooks/useNavbarActions';
 import { useEditorStore } from '@render/stores/editorStore';
 import { useUIStore } from '@render/stores/uiStore';
+import { setDraftFlusher } from '@render/hooks/useDraftFlusher';
 import type { IFile } from '@shared/types';
 import type { ExportResult } from '@main/export/types';
 
@@ -37,7 +38,7 @@ beforeEach(() => {
   exportFileMock.mockResolvedValue({ success: true, data: {} } satisfies ExportResult);
 
   useEditorStore.setState({ currentFile: null, content: '', isDirty: false });
-  useUIStore.setState({ editorDraftFlusher: null });
+  setDraftFlusher(null);
 });
 
 afterEach(() => {
@@ -63,7 +64,7 @@ describe('useNavbarActions.handleExport', () => {
 
   it('flushes draft, uses latest content, and calls export.file with derived basename', async () => {
     const flushSpy = vi.fn(async () => {});
-    useUIStore.setState({ editorDraftFlusher: flushSpy });
+    setDraftFlusher(flushSpy);
     useEditorStore.setState({ currentFile: MOCK_FILE, content: '# Fresh' });
 
     const { result } = renderHookWithI18n();

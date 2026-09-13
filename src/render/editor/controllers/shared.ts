@@ -5,6 +5,7 @@
 // 仅 import kernel 类型，不依赖任何控制器/组件（避免循环依赖）。
 
 import type { BlockNodeV2, BlockTreeV2 } from '@render/editor/kernel';
+import type { EditorInstance, EditorActionResult } from '@render/editor/editorInstance';
 
 /** 数值夹取到 [min, max] */
 export function clamp(value: number, min: number, max: number): number {
@@ -41,4 +42,21 @@ export function getQuoteContext(tree: BlockTreeV2, blockId: string): BlockNodeV2
   const quote = block.parentId ? tree.blocks[block.parentId] : undefined;
   if (!quote) return null;
   return quote;
+}
+
+/**
+ * 统一控制器管线：对块执行操作并写入 instance.tree。
+ *
+ * 签名设计：fn 接收当前 tree，返回 { tree: 新树, result: 焦点信息 }；
+ * applyBlockAction 负责写入 instance.tree 并返回 result。
+ *
+ * 适用于 imageFormatCtrl / convertCtrl 中"修改 tree → 写回 instance"的统一模式。
+ */
+export function applyBlockAction(
+  instance: EditorInstance,
+  fn: (tree: BlockTreeV2) => { tree: BlockTreeV2; result: EditorActionResult },
+): EditorActionResult {
+  const { tree, result } = fn(instance.tree);
+  instance.tree = tree;
+  return result;
 }

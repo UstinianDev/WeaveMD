@@ -18,6 +18,7 @@ import { useFileTreeStore } from '@render/stores/fileTreeStore';
 import { useHistoryStore } from '@render/stores/historyStore';
 import { removeRecent, touchRecent } from '@render/stores/recentStore';
 import { useUIStore } from '@render/stores/uiStore';
+import { flushEditorDraft } from '@render/hooks/useDraftFlusher';
 
 interface DialogPathResult {
   success: boolean;
@@ -47,7 +48,6 @@ export function useNavbarActions() {
   const openModal = useUIStore((s) => s.openModal);
   const toggleHistoryPanel = useUIStore((s) => s.toggleHistoryPanel);
   const toggleAIPanel = useUIStore((s) => s.toggleAIPanel);
-  const flushEditorDraft = useUIStore((s) => s.flushEditorDraft);
 
   const setActiveTab = useFileTreeStore((s) => s.setActiveTab);
   const loadFolderContents = useFileTreeStore((s) => s.loadFolderContents);
