@@ -169,11 +169,8 @@ const EditorView: React.FC<EditorViewProps> = ({ onNavigateReady, onActiveHeadin
   useEffect(() => {
     setBeforeToggleSourceMode(() => {
       if (isSourceCodeMode) {
-        // 当前 Source → 切到 Normal：保存 Monaco 的 scrollTop
-        const monacoScrollDom = document.querySelector('.monaco-editor .overflow-guard');
-        if (monacoScrollDom) {
-          savedSourceScrollRef.current = monacoScrollDom.scrollTop as number;
-        }
+        // 当前 Source → 切到 Normal：保存 Monaco 的 scrollTop（用 API，不用 DOM）
+        savedSourceScrollRef.current = sourceEditorHandleRef.current?.getScrollTop?.() ?? 0;
       } else {
         // 当前 Normal → 切到 Source：保存 EditorV2 scrollTop
         const container = document.querySelector('.editor-scroll-container');
@@ -192,15 +189,7 @@ const EditorView: React.FC<EditorViewProps> = ({ onNavigateReady, onActiveHeadin
       if (isSourceCodeMode) {
         // 切到了 Source → 恢复 Monaco 的 scrollTop
         if (savedNormalScrollRef.current > 0) {
-          // 延迟一帧再恢复，确保 Monaco 完全初始化
-          requestAnimationFrame(() => {
-            const monacoScrollDom = document.querySelector('.monaco-editor .overflow-guard');
-            if (monacoScrollDom) {
-              // 将 Normal 模式的 scrollTop 转换为 Monaco 的大致位置
-              // Normal 模式和 Monaco 的行高可能不同，但可以近似
-              monacoScrollDom.scrollTop = savedNormalScrollRef.current;
-            }
-          });
+          sourceEditorHandleRef.current?.setScrollTop?.(savedNormalScrollRef.current);
         }
       } else {
         // 切到了 Normal → 恢复 EditorV2 的 scrollTop

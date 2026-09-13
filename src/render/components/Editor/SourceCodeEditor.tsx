@@ -33,6 +33,10 @@ export interface SourceCodeEditorHandle {
   scrollToLine: (lineNumber: number) => void;
   /** 立即把防抖窗口内的编辑内容同步给宿主（切换文件/关闭前强制 flush） */
   flushContent: () => void;
+  /** 获取 Monaco 编辑器当前 scrollTop（逻辑像素，非 DOM 属性） */
+  getScrollTop: () => number;
+  /** 设置 Monaco 编辑器 scrollTop（逻辑像素） */
+  setScrollTop: (top: number) => void;
 }
 
 // ============================================
@@ -125,6 +129,12 @@ const SourceCodeEditor = forwardRef<SourceCodeEditorHandle, SourceCodeEditorProp
           }, 600);
         },
         flushContent: flushPendingContent,
+        getScrollTop: () => {
+          return editorRef.current?.getScrollTop() ?? 0;
+        },
+        setScrollTop: (top: number) => {
+          editorRef.current?.setScrollTop(top);
+        },
       }),
       [flushPendingContent]
     );
