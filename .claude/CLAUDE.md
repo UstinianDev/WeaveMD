@@ -14,13 +14,16 @@
 ## 目录结构（要点）
 
 - `src/main/` — Electron 主进程：window、ipc-handlers、db（better-sqlite3）
-- `src/render/editor/` — **编辑主区 v2 内核（React-free）**：`kernel/`（块树、双向转换、
-  行内渲染、选区）+ `controllers/`（七类交互）
+- `src/render/editor/` — **编辑主区 v2 内核（React-free）**：`kernel/`（blockTree、blockDetection、
+  双向转换、行内渲染、选区、outline）+ `controllers/`（七类交互 + imageFormatCtrl + shared）
+- `src/render/hooks/` — 编辑器 hooks：useMonacoTheme / useGlobalShortcuts / useModeScrollPersistence / useDraftFlusher
+- `src/render/utils/` — DOM 选择器常量（domSelectors.ts）+ 字体常量（fontConstants.ts）
 - `src/render/components/Editor/v2/` — v2 渲染层：EditorV2（宿主）、`blocks/`
-  （ContentBlock 是唯一 contentEditable）、FloatingToolbar（文本工具栏）+
+  （ContentBlock 是唯一 contentEditable）、`toolbar/FloatingToolbar`（文本工具栏）+
   ImageToolbar（图片工具栏）+ toolbarState（纯函数）
 - `src/render/components/Editor/` — EditorView 薄编排器（v2 唯一）
 - `src/render/stores/ services/ styles/` — Zustand / markdown 服务 / globals.css
+- `src/main/export/` — 导出模块：exportService / imageInline / types + mediaMime（MIME 映射）
 - `src/main/ai/` — AI 主进程服务（remote-only）：`llm/`（llmClient/modelList）+
   `agent/`（agentLoop/agentSession/agentTaskQueue）+ `knowledge/`（kbIndexer/kbSearch）+
   `files/`（conversationExport/documentParser）+ `skills/` + `tools/`（18+ handler）+
@@ -78,16 +81,25 @@
 
 ## 关键文件
 
-- `src/render/editor/kernel/` — blockTree / markdownToState / stateToMarkdown / inlineRenderer / selection
+- `src/render/editor/kernel/` — blockTree / blockDetection / markdownToState / stateToMarkdown / inlineRenderer / outline / selection
 - `src/main/media-protocol.ts` — media:// 本地图协议（非 standard scheme）
 - `src/render/services/saveCurrentDraft.ts` — 切换/关闭前统一保存前置
-- `src/render/editor/controllers/` — input / enter / backspace / convert / click / list / format
+- `src/render/editor/controllers/` — input / enter / backspace / convert / click / list / formatCtrl / imageFormatCtrl / shared
 - `src/render/editor/editorInstance.ts` — 内核宿主（内容加载、markdown 同步）
 - `src/render/components/Editor/v2/EditorV2.tsx` — v2 入口（状态、事件路由、焦点恢复、撤销）
 - `src/render/components/Editor/v2/blocks/ContentBlock.tsx` — 唯一 contentEditable 表面
-- `src/render/components/Editor/v2/FloatingToolbar.tsx` — 文本浮动工具栏
+- `src/render/components/Editor/v2/toolbar/FloatingToolbar.tsx` — 文本浮动工具栏
 - `src/render/components/Editor/v2/ImageResizeBox.tsx` + `resizeMath.ts` — 图片四角缩放
-- `src/render/components/Editor/EditorView.tsx` — 薄编排器（v2 唯一）
+- `src/render/components/Editor/EditorView.tsx` — 薄编排器（v2 唯一，副作用抽入 hooks/）
+- `src/render/hooks/useMonacoTheme.ts` — Monaco 主题异步加载
+- `src/render/hooks/useGlobalShortcuts.ts` — 全局快捷键单例（Ctrl+F/S/Z/Y/`/O）
+- `src/render/hooks/useModeScrollPersistence.ts` — 模式切换滚动保存/恢复
+- `src/render/hooks/useDraftFlusher.ts` — 草稿刷新模块级 ref（替代 store 字段）
+- `src/render/utils/domSelectors.ts` — DOM 选择器常量集中
+- `src/render/utils/fontConstants.ts` — 字体常量集中
+- `src/main/export/imageInline.ts` — 图片 base64 内联（media:// / http(s) / 本地路径）
+- `src/main/export/exportService.ts` — 8 格式分发器（md/html/doc/docx/pdf/png/jpg/jpeg）
+- `src/main/mediaMime.ts` — 项目唯一 MIME 映射表（合并 3 处重复定义）
 - `src/main/ai/toolRegistry.ts` — Agent 工具注册（24 工具，含 deleteLocalFile）
 - `src/main/ai/agent/agentLoop.ts` — Agent 循环（WRITE_TOOLS + toolsForIntent + 确认流程）
 - `src/main/ai/agent/agentTaskWorker.ts` — 后台任务执行器（交互事件持久化 + IPC 发送）
@@ -114,19 +126,22 @@
 
 ## 项目文档
 
-- [README](../docs/README.md) — 项目简介、技术栈、运行方式
+- [README](../README.md) — GitHub 项目主页（功能介绍、下载安装、开发指南）
+- [docs/README.md](../docs/README.md) — 开发参考（技术栈、目录结构、命令、质量门禁）
 - [TODO](../docs/TODO.md) — 功能进度、已知问题
-- [SUMMARY](../docs/SUMMARY.md) — 文档索引
+- [SUMMARY](../docs/SUMMARY.md) — 文档索引（含渐进式披露规则）
 - [REQUIREMENTS](../docs/REQUIREMENTS.md) — 功能需求文档
-- [architecture/](../docs/architecture/) — 按技术层分类（前端/后端/数据库）
+- [CONTRIBUTING](../docs/CONTRIBUTING.md) — 文档编写规范
+- [architecture/](../docs/architecture/) — 按技术层分类（10 篇：前端/编辑器/后端/AI/知识库/数据库/IPC/安全/测试/构建）
 - [modules/](../docs/modules/) — 各模块文档（11 个模块）
-- [specs/](../docs/specs/) — 编辑器/AI 面板规格文档
-- [testing/](../docs/testing/) — TDD 测试报告
-- [plan/](../docs/plan/) — 实施计划与状态
+- [specs/](../docs/specs/) — 编辑器/AI 面板规格文档（11 篇）
+- [testing/](../docs/testing/) — TDD 测试报告（6 篇）
+- [plan/](../docs/plan/) — 实施计划与状态（含重构 4 篇）
 - [plan/archive/](../docs/plan/archive/) — 已完成的实施状态归档
 
 ### 查阅规则（渐进式披露）
-- 项目是什么、怎么跑 → README.md
+- 项目是什么、怎么跑 → README.md（根目录）
+- 技术栈、目录结构、命令 → docs/README.md
 - 功能进度、已知问题 → TODO.md
 - 前端渲染层、状态管理 → docs/architecture/frontend.md
 - 编辑器内核、块树、控制器 → docs/architecture/editor.md
@@ -142,7 +157,4 @@
 - 编辑器/AI 面板设计 → docs/specs/
 - 测试覆盖、验证证据 → docs/testing/
 - 实施计划、优化状态 → docs/plan/
-- 模块实现细节 → docs/modules/{模块名}.md
-- 编辑器/AI 面板设计 → docs/specs/
-- 测试覆盖、验证证据 → docs/testing/
-- 实施计划、优化状态 → docs/plan/
+- 导出/MIME/打包指南 → docs/guide/

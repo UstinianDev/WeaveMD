@@ -1,8 +1,20 @@
 # TODO
 
-> 最后更新：2026-09-12
+> 最后更新：2026-09-13
 
 ## 已完成
+
+### 四模块全局重构（2026-09-13）
+
+详见 [重构进度文档](./plan/refactor-export-editor-outline-navbar.status.md)（L 级重型重构，8 阶段全部完成）。
+
+| 阶段 | 范围 | 核心 | 门禁 |
+|------|------|------|------|
+| P0 | 模式切换 | 4 hooks 抽取 + 快捷键合并 + store 净化 + 死代码清理 | tsc 0 \| vitest 1538 |
+| P1 | 目录区 | headingFromBlock / buildHeadingTree 迁入 kernel；FileTreeRow / ToolbarIconButton 去重；markdown 死代码清理 | tsc 0 \| vitest 1535 |
+| P2 | 编辑主区 | blockTree 裂解 (blockDetection.ts) + formatCtrl 裂解 (imageFormatCtrl.ts) + applyBlockAction 模板 | tsc 0 \| vitest 1535 |
+| P3 | 导出 | 3 个 MIME 映射 → mediaMime.ts；魔法值常量化；img src 正则去重；路径解析合并 | tsc 0 \| vitest 1535 |
+| Gate | 审查/连通性/门禁 | code-review 0 critical + 19/19 链路 + eslint/lint/tsc | ✅ |
 
 ### Bug 修复与优化（2026-09-12）
 

@@ -1,6 +1,6 @@
 # WeaveMD 文档索引
 
-> 最后更新：2026-09-12
+> 最后更新：2026-09-13
 
 ## 核心文档
 
@@ -67,6 +67,7 @@
 | [agent-optimize-v3.req](./requirements/agent-optimize-v3.req.md) | Agent 优化 v3 需求（搜索持久化/动态轮次/多文件Diff） |
 | [agent-kb-refactor.req](./requirements/agent-kb-refactor.req.md) | Agent/KB 重构需求（模块拆分/缓存提取） |
 | [fix-web-search-loop.req](./requirements/fix-web-search-loop.req.md) | web_search 死循环修复需求（✅ 已修复） |
+| [refactor-export-editor-outline-navbar.req](./requirements/refactor-export-editor-outline-navbar.req.md) | **全局重构需求（2026-09-13）**：导出/编辑/大纲/导航四模块，L 级重型重构 |
 
 ## 实施计划
 
@@ -119,3 +120,6 @@
 | 文档 | 说明 |
 |------|------|
 | [agent-kb-refactor](./refactor/agent-kb-refactor.refactor.md) | Agent/KB/工具重构报告（2026-09-10 ✅ 完成） |
+| [refactor-export-editor-outline-navbar.plan](./plan/refactor-export-editor-outline-navbar.plan.md) | **全局重构实施计划（2026-09-13）**：47+ 文件白名单，5 阶段（P0~P3），导出/编辑/大纲/导航四模块 |
+| [refactor-export-editor-outline-navbar.status](./plan/refactor-export-editor-outline-navbar.status.md) | **重构进度文档**：L 级重型重构，8 阶段全部完成 ✅ |
+| [refactor-export-editor-outline-navbar.connectivity](./plan/refactor-export-editor-outline-navbar.connectivity.md) | **模块连通性验证报告**：19 条调用链全部通畅 ✅ |
