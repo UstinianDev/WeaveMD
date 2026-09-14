@@ -460,6 +460,7 @@ const api: WeaveMDApi = {
         })
       );
       // R3: 交互提问事件（ask_question_card 暂停时推送）
+      // R5: variant 用于区分 delete_confirm 等特殊确认卡片样式
       subscribe(
         IPC_CHANNELS.AGENT_INTERACTION_QUESTION,
         (p: AgentInteractionPayload) => ({
@@ -467,6 +468,9 @@ const api: WeaveMDApi = {
           conversationId: p.conversationId,
           sessionId: p.sessionId,
           questions: p.questions,
+          variant: p.variant,
+          round: p.round,
+          totalRounds: p.totalRounds,
         })
       );
       return () => {

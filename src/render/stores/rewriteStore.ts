@@ -20,7 +20,7 @@ import type { RewriteProposal, SelectionRef } from '@shared/ai';
  * 浏览器兼容的简单字符串哈希（djb2 变体，32-bit → hex）。
  * 用于 rewriteStore 的 contentHash 比对，非密码学用途。
  */
-function simpleHash(str: string): string {
+export function simpleHash(str: string): string {
   let hash = 5381;
   for (let i = 0; i < str.length; i++) {
     hash = ((hash << 5) + hash + str.charCodeAt(i)) >>> 0;

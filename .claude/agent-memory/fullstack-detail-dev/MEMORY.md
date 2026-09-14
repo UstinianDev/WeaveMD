@@ -18,4 +18,5 @@
 - [M5 整块渐变高亮+取消胶囊](m5-fullblock-highlight-capsule.md) — buildHighlightRanges 整块[0,len]/EditorV2 span 整行 rect/.rewrite-cancel-capsule 常驻取消；Edit 工具对 U+200B 源码编辑坑须用 node 脚本替换
 - [任务③最近打开+文件树恢复](editor-opt-history-filetree-notes.md) — recentStore/restore 要点；zh-CN 导航「历史」label；persist hydration 后 children 可能 undefined；setup 补 folder/readDisk mock
 - [R1 写模式切换实现](write-mode-r1-implementation.md) — autoApplyRewrite→writeMode 全栈模式：ai_config 持久化+IPC+store+UI，auto 分流 updateContent/file.write
+- [R4 知识库澄清 Agent 联动](kb-clarify-agent-linkage-r4.md) — buildClarificationContext 分轮策略 + searchKBHandler 注入 + 向后兼容数组/对象格式
 

@@ -370,14 +370,15 @@ export class AgentTaskWorker {
       sessionId,
       mainWindow: mainWindow ?? undefined,
       // R3: ask_question_card 暂停/恢复回调
-      onInteractionRequired: (questions: IClarifyQuestion[]) => {
+      // R5: variant 用于区分 delete_confirm 等特殊确认卡片样式
+      onInteractionRequired: (questions: IClarifyQuestion[], variant?: string, round?: number, totalRounds?: number) => {
         // 转换会话状态 running -> waiting_interaction
         if (session && session.canTransitionTo('waiting_interaction')) {
           session.transition('waiting_interaction');
         }
         // 推送问题卡片到渲染进程
         if (mainWindow && !mainWindow.isDestroyed()) {
-          const interactionPayload = { sessionId, conversationId: task.conversationId, questions };
+          const interactionPayload = { sessionId, conversationId: task.conversationId, questions, variant, round, totalRounds };
           try {
             persistOnly(this.db, sessionId, task.conversationId, 'interaction', interactionPayload);
           } catch {

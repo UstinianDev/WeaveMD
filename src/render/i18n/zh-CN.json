@@ -437,6 +437,9 @@
   "update.releaseNotes": "更新内容",
   "ai.question.slideTitle": "AI 需要更多信息",
   "ai.question.slideHint": "请回答以下问题后继续",
+  "ai.question.next": "下一题",
+  "ai.question.prev": "上一题",
+  "ai.question.other": "其它",
   "ai.notification.title": "WeaveMD 智能体需要您的回答",
   "ai.notification.body": "AI 正在等待您的回答 — 点击继续"
 }

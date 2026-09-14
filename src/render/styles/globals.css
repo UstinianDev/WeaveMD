@@ -3292,3 +3292,31 @@ span.comment-marker {
 .tiptap a:visited {
   color: var(--accent-secondary, #3b82f6);
 }
+
+/* ============================================ */
+/* R1：DiffSummaryCard 视图层动画                 */
+/* ============================================ */
+
+/* 水平抖动（错误/警告状态横幅） */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90% { transform: translateX(-3px); }
+  20%, 40%, 60%, 80% { transform: translateX(3px); }
+}
+
+/* 水平滑入（卡片从右侧渐入） */
+@keyframes slide-horizontal-in {
+  0% { opacity: 0; transform: translateX(16px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+/* 水平滑出（卡片向右侧渐出） */
+@keyframes slide-horizontal-out {
+  0% { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateX(16px); }
+}
+
+/* R2：QuestionCard 未回答提交摇动反馈 */
+.question-card-shake {
+  animation: shake 0.4s ease-in-out;
+}

@@ -27,6 +27,12 @@ export const WRITE_TOOLS = new Set([
   'deleteFile', 'editLocalFile', 'deleteLocalFile',
 ]);
 
+/** 强制确认工具集合（硬编码拦截，不依赖 LLM 自觉，删除操作不可恢复）。 */
+export const FORCE_CONFIRM_TOOLS = new Set([
+  'deleteFile',
+  'deleteLocalFile',
+]);
+
 // ---------------------------------------------------------------------------
 // 工具选择
 // ---------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 // ============================================
 // WeaveMD — RewritePreviewCard 组件测试（TDD strict）
+// R1 更新：匹配 DiffSummaryCard 统一卡片 UI
 // ============================================
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -14,6 +15,7 @@ vi.mock('@render/services/aiMarkdown', () => ({
 vi.mock('@render/i18n', () => ({
   useI18n: () => {
     const dict: Record<string, string> = {
+      // 旧 key（thin shell 仍使用）
       'ai.rewrite.previewTitle': '改写预览',
       'ai.rewrite.previewConfirm': '应用',
       'ai.rewrite.previewCancel': '取消',
@@ -29,6 +31,23 @@ vi.mock('@render/i18n', () => ({
       'ai.rewrite.aiComment': 'AI 的改动说明',
       'ai.rewrite.collapse': '收起',
       'ai.rewrite.expand': '展开',
+      'ai.rewrite.rewriting': '正在改写...',
+      // 新 key（DiffSummaryCard 使用）
+      'ai.diff.preview': '变更预览',
+      'ai.diff.collapse': '折叠',
+      'ai.diff.expand': '展开',
+      'ai.diff.showAll': '显示全部',
+      'ai.diff.truncated': '... 共 {count} 行，已截断',
+      'ai.diff.noChanges': '无变更',
+      'ai.diff.applied': '已应用',
+      'ai.diff.cancelled': '已取消',
+      'ai.diff.dismiss': '关闭',
+      'ai.diff.discardAll': '全部废弃',
+      'ai.diff.applyAll': '全部应用',
+      'ai.diff.viewDetails': '查看详情',
+      'ai.diff.multiFiles': '{count} 个文件修订',
+      'ai.diff.andMore': '等 {count} 个文件',
+      'ai.diff.aiComment': 'AI 改动说明',
     };
     return {
       t: (key: string, fallback?: string) => dict[key] ?? fallback ?? `[${key}]`,
@@ -56,9 +75,15 @@ describe('RewritePreviewCard', () => {
   it('渲染红删绿增 diff + AI 改动说明', () => {
     useRewriteStore.setState({ pendingRewrite: proposal });
     const { container } = render(<RewritePreviewCard />);
-    expect(screen.getByText('改写预览')).toBeInTheDocument();
+
+    // 单文件标题：文档改写 + (−1 / +1)
+    expect(screen.getByText(/文档改写/)).toBeInTheDocument();
+    // 标题和 diff 区域各有一次 −1/+1 统计
+    expect(screen.getAllByText(/−1\s+\/\s+\+1/).length).toBeGreaterThanOrEqual(1);
 
     // 按 data-type 定位 diff 行：del（红）/ ins（绿）/ same（灰）
+    // diff 默认折叠，需要先展开
+    fireEvent.click(screen.getByText('展开'));
     const delEl = container.querySelector('[data-type="del"]');
     const insEl = container.querySelector('[data-type="ins"]');
     const sameEls = container.querySelectorAll('[data-type="same"]');
@@ -73,7 +98,7 @@ describe('RewritePreviewCard', () => {
     expect((delEl as HTMLElement).className).toMatch(/text-red-500/);
     expect((insEl as HTMLElement).className).toMatch(/text-green-600/);
 
-    // R7: AI 改动说明（替代原整段输出）
+    // AI 改动说明（回退到行级统计）
     expect(screen.getByText(/删除了 1 行，新增了 1 行内容/)).toBeInTheDocument();
     // 无危险注入
     expect(container.innerHTML).not.toContain('dangerouslySetInnerHTML');
@@ -83,7 +108,8 @@ describe('RewritePreviewCard', () => {
     useRewriteStore.setState({ pendingRewrite: proposal });
     const applySpy = vi.spyOn(useRewriteStore.getState(), 'applyRewrite');
     render(<RewritePreviewCard />);
-    fireEvent.click(screen.getByText('应用'));
+    // R1: 统一卡片用"全部应用"替代原"应用"
+    fireEvent.click(screen.getByText('全部应用'));
     expect(applySpy).toHaveBeenCalled();
   });
 
@@ -91,7 +117,8 @@ describe('RewritePreviewCard', () => {
     useRewriteStore.setState({ pendingRewrite: proposal });
     const clearSpy = vi.spyOn(useRewriteStore.getState(), 'clearRewrite');
     render(<RewritePreviewCard />);
-    fireEvent.click(screen.getByText('取消'));
+    // R1: 统一卡片用"全部废弃"替代原"取消"
+    fireEvent.click(screen.getByText('全部废弃'));
     expect(clearSpy).toHaveBeenCalled();
   });
 
@@ -134,16 +161,18 @@ describe('RewritePreviewCard', () => {
     useRewriteStore.setState({ rewriteResult: 'applied', pendingRewrite: proposal });
     render(<RewritePreviewCard />);
     expect(screen.getByText(/已应用/)).toBeInTheDocument();
-    // 预览卡片内容仍然可见
-    expect(screen.getByText('改写预览')).toBeInTheDocument();
+    // R1: 卡片内仍显示文件名 + 关闭按钮
+    expect(screen.getByText(/文档改写/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '关闭' })).toBeInTheDocument();
   });
 
   it('rewriteResult=cancelled → 显示已取消反馈（在预览卡片内）', () => {
     useRewriteStore.setState({ rewriteResult: 'cancelled', pendingRewrite: proposal });
     render(<RewritePreviewCard />);
-    expect(screen.getByText('已取消改写')).toBeInTheDocument();
-    // 预览卡片内容仍然可见
-    expect(screen.getByText('改写预览')).toBeInTheDocument();
+    expect(screen.getByText(/已取消/)).toBeInTheDocument();
+    // R1: 卡片内仍显示文件名 + 关闭按钮
+    expect(screen.getByText(/文档改写/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '关闭' })).toBeInTheDocument();
   });
 
   it('proposal 含 aiComment → 显示 LLM 改写说明', () => {
@@ -183,12 +212,16 @@ describe('RewritePreviewCard', () => {
     expect(dismissSpy).toHaveBeenCalled();
   });
 
-  it('R16: 有提案卡内 stale 提示不加重叠 ✕（头部已有取消/应用）', () => {
+  it('R16: 有提案卡内 stale 提示不加重叠 ✕（头部已有全部废弃/全部应用）', () => {
     useRewriteStore.setState({ staleRejected: true, pendingRewrite: proposal });
     render(<RewritePreviewCard />);
-    // 有提案时不渲染无提案的 ✕ 关闭按钮；头部取消/应用仍在
-    expect(screen.queryByRole('button', { name: '关闭' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '取消' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '应用' })).toBeInTheDocument();
+    // 有提案时卡片处于 pending 状态，显示"全部废弃"/"全部应用"而非"关闭"
+    // 无提案提示条的 ✕ 关闭按钮不应出现
+    // 注：卡片内 stale 横幅文本可见，但"关闭"按钮仅在 result 态出现
+    const closeButtons = screen.queryAllByRole('button', { name: '关闭' });
+    // R16 无提案 banner 不渲染（有 pendingRewrite），所以无 ✕ 关闭按钮
+    expect(closeButtons.length).toBe(0);
+    expect(screen.getByRole('button', { name: '全部废弃' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '全部应用' })).toBeInTheDocument();
   });
 });

@@ -48,6 +48,15 @@ export const askQuestionCardSchema: ToolDef = {
             required: ['id', 'text', 'type'],
           },
         },
+        round: {
+          type: 'number',
+          description:
+            '当前澄清轮次编号（1-based），用于分轮提问。不填表示单轮提问。',
+        },
+        totalRounds: {
+          type: 'number',
+          description: '预计总轮次数。不填表示不确定。',
+        },
       },
       required: ['questions'],
     },
@@ -67,8 +76,10 @@ export interface AskQuestionCardResult {
  */
 export function executeAskQuestionCard(args: {
   questions: IClarifyQuestion[];
+  round?: number;
+  totalRounds?: number;
 }): AskQuestionCardResult {
-  const { questions } = args;
+  const { questions, round, totalRounds } = args;
 
   // 验证问题数量
   if (questions.length === 0 || questions.length > 5) {
@@ -103,6 +114,8 @@ export function executeAskQuestionCard(args: {
     questions,
     answers: {},
     phase: 'asking',
+    ...(round !== undefined && { round }),
+    ...(totalRounds !== undefined && { totalRounds }),
   };
 
   return { success: true, session };

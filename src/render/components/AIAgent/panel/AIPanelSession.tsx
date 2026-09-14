@@ -111,10 +111,14 @@ const AIPanelSession: React.FC<AIPanelSessionProps> = ({ draft, setDraft, onSend
       />
 
       {/* R3: 底部滑出提问面板（ask_question_card 暂停时覆盖 composer） */}
+      {/* R5: variant 用于区分 delete_confirm 等特殊确认卡片样式 */}
       {isAgentMode && pendingInteraction && (
         <QuestionCard
           questions={pendingInteraction.questions}
           onSubmit={resumeInteraction}
+          variant={pendingInteraction.variant === 'delete_confirm' ? 'delete_confirm' : 'default'}
+          round={pendingInteraction.round}
+          totalRounds={pendingInteraction.totalRounds}
         />
       )}
     </div>

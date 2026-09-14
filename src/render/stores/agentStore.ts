@@ -160,10 +160,14 @@ interface AgentStore {
   setUserMaxRounds: (rounds: number | null) => void;
 
   // —— R3: 交互提问（ask_question_card 暂停等待用户回答） ——
+  // R5: variant 用于区分 delete_confirm 等特殊确认卡片样式
   pendingInteraction: {
     sessionId: string;
     conversationId: string;
     questions: IClarifyQuestion[];
+    variant?: string;
+    round?: number;
+    totalRounds?: number;
   } | null;
   resumeInteraction: (answers: Record<string, string>) => Promise<void>;
   /** R4: 重试失败任务。 */
@@ -346,7 +350,7 @@ function extractErrorMessage(payload: unknown): string {
 interface StreamManagerOptions {
   conversationId: string;
   onTool?: (evt: IAgentToolCall) => void;
-  onInteraction?: (sessionId: string, questions: IClarifyQuestion[]) => void;
+  onInteraction?: (sessionId: string, questions: IClarifyQuestion[], variant?: string, round?: number, totalRounds?: number) => void;
   finishAndPersist: () => void;
 }
 
@@ -393,8 +397,9 @@ function createStreamManager(
         return;
       }
       // R3: 交互提问事件（ask_question_card 暂停时推送）
+      // R5: variant 用于区分 delete_confirm 等特殊确认卡片样式
       if (evt.type === 'interaction' && opts.onInteraction) {
-        opts.onInteraction(evt.sessionId, evt.questions);
+        opts.onInteraction(evt.sessionId, evt.questions, evt.variant, (evt as { round?: number; totalRounds?: number }).round, (evt as { round?: number; totalRounds?: number }).totalRounds);
         return;
       }
       if (evt.type === 'done') {
@@ -849,12 +854,16 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         }
       },
       // R3: 交互提问事件处理（ask_question_card 暂停时设置 pendingInteraction）
-      onInteraction: (sessionId, questions) => {
+      // R5: variant 用于区分 delete_confirm 等特殊确认卡片样式
+      onInteraction: (sessionId, questions, variant, round, totalRounds) => {
         set({
           pendingInteraction: {
             sessionId,
             conversationId: conversationId ?? '',
             questions,
+            variant,
+            round,
+            totalRounds,
           },
           isStreaming: false,
           processStatus: 'waiting_input',

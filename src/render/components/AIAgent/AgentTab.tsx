@@ -175,10 +175,6 @@ const AgentTab: React.FC = () => {
   // R3: 交互状态（用于交互结束后自动滚动到底部）
   const pendingInteraction = useAgentStore((s) => s.pendingInteraction);
   const prevPendingRef = useRef(pendingInteraction);
-  // preview_patch_files 补丁提案
-  const patchProposals = useAgentStore((s) => s.patchProposals);
-  const applyPatchProposal = useAgentStore((s) => s.applyPatchProposal);
-  const discardPatchProposal = useAgentStore((s) => s.discardPatchProposal);
 
   const messageListRef = useRef<HTMLDivElement>(null);
 
@@ -288,14 +284,8 @@ const AgentTab: React.FC = () => {
       {/* Bug 2 修复：editBlocks / preview_file_revision 修订提案 diff 预览 */}
       {isAgentMode && <EditBlocksPreviewCard />}
 
-      {/* preview_patch_files 多文件补丁预览 */}
-      {isAgentMode && (
-        <PatchPreviewCard
-          proposals={patchProposals}
-          onApply={(id, fileIndex) => void applyPatchProposal(id, fileIndex)}
-          onDiscard={(id, fileIndex) => discardPatchProposal(id, fileIndex)}
-        />
-      )}
+      {/* preview_patch_files 多文件补丁预览（R6：store-connected，无需外部 props） */}
+      {isAgentMode && <PatchPreviewCard />}
 
       {/* 流式增量打字指示 */}
       {isStreaming && (

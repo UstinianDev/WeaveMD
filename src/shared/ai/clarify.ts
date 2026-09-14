@@ -15,6 +15,8 @@ export interface IClarifySession {
   questions: IClarifyQuestion[];
   answers: Record<string, string>;
   phase: 'asking' | 'answered' | 'expired';
+  round?: number;
+  totalRounds?: number;
 }
 
 /** 补丁预览单文件。 */

@@ -60,6 +60,9 @@ export interface AgentInteractionPayload {
   sessionId: string;
   conversationId: string;
   questions: import('./clarify').IClarifyQuestion[];
+  variant?: string;
+  round?: number;
+  totalRounds?: number;
 }
 
 /** 工具调用流式推送事件。 */
@@ -82,6 +85,9 @@ export interface IAgentStreamInteractionEvent {
   conversationId: string;
   sessionId: string;
   questions: import('./clarify').IClarifyQuestion[];
+  variant?: string;
+  round?: number;
+  totalRounds?: number;
 }
 
 /** AI 流式事件扩展。 */

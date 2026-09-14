@@ -97,3 +97,68 @@ export function refineQuery(
 
   return refined.trim();
 }
+
+// ---------------------------------------------------------------------------
+// 澄清上下文构建（R4：知识库澄清 → Agent ask_question_card 联动）
+// ---------------------------------------------------------------------------
+
+/**
+ * 构建可注入 Agent 工具结果的澄清上下文字符串。
+ * 包含问题列表和分轮策略建议，供 LLM 在下一轮调用 ask_question_card。
+ *
+ * 分轮策略：
+ * - 第 1 轮：核心歧义消解（pronoun_reference、missing_subject → 文本提问）
+ * - 第 2 轮（如需要）：范围细化（broad_scope → choice 提问）
+ *
+ * @returns 格式化后的澄清上下文字符串，无需澄清时返回 null。
+ */
+export function buildClarificationContext(
+  understanding: IQueryUnderstanding,
+  searchRefused: boolean
+): string | null {
+  if (!needsClarification(understanding, searchRefused)) return null;
+
+  const questions = generateClarifyQuestions(understanding);
+  if (questions.length === 0) return null;
+
+  // 按类型分组，实施分轮策略
+  const textQuestions = questions.filter((q) => q.type === 'text');
+  const choiceQuestions = questions.filter((q) => q.type === 'choice');
+  const hasText = textQuestions.length > 0;
+  const hasChoice = choiceQuestions.length > 0;
+
+  let context = '';
+  let idx = 1;
+
+  if (hasText) {
+    context += '第1轮（核心歧义消解）：\n';
+    for (const q of textQuestions.slice(0, 2)) {
+      context += `${idx}. [${q.type}] ${q.text}\n`;
+      idx++;
+    }
+  }
+
+  if (hasChoice) {
+    const roundLabel = hasText ? '第2轮' : '第1轮';
+    context += `${hasText ? '\n' : ''}${roundLabel}（范围细化）：\n`;
+    for (const q of choiceQuestions.slice(0, 2)) {
+      const options = q.options && q.options.length > 0
+        ? `（${q.options.join('/')}）`
+        : '';
+      context += `${idx}. [${q.type}] ${q.text}${options}\n`;
+      idx++;
+    }
+  }
+
+  // 兜底：仅有 confirm 等非 text/choice 类型
+  if (idx === 1) {
+    context += '第1轮：\n';
+    for (const q of questions.slice(0, 2)) {
+      context += `${idx}. [${q.type}] ${q.text}\n`;
+      idx++;
+    }
+  }
+
+  const header = `[知识库检索发现歧义，以下是可能的澄清问题。如果需要用户澄清，请调用 ask_question_card 分轮提问（最多2轮，每轮最多2个问题）：]\n`;
+  return (header + context).trim();
+}

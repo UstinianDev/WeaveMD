@@ -38,7 +38,7 @@ import {
   buildAgentSystemPrompt,
   CHAT_SYSTEM_PROMPT,
 } from './agentPromptBuilder';
-import { READ_ONLY_TOOLS, WRITE_TOOLS, toolsForIntent } from './agentToolSelector';
+import { READ_ONLY_TOOLS, WRITE_TOOLS, FORCE_CONFIRM_TOOLS, toolsForIntent } from './agentToolSelector';
 import { createPreloadedSearchKb } from './agentKbPreloader';
 
 // Re-export ToolCtx 保持向后兼容
@@ -62,13 +62,14 @@ export interface AgentLoopDeps {
   /** 最大轮次（DeadLoopDetector 可配置，默认 12）。 */
   maxRounds?: number;
   /**
-   * ask_question_card 暂停通知：工具成功后调用，通知调用方需要用户交互。
+   * 交互暂停通知：工具调用前/后调用，通知调用方需要用户交互（回答提问或确认危险操作）。
+   * variant 可选值：'delete_confirm'（删除确认卡片，红色警告样式）。
    * 缺失时 ask_question_card 不暂停（向后兼容）。
    */
-  onInteractionRequired?: (questions: IClarifyQuestion[]) => void;
+  onInteractionRequired?: (questions: IClarifyQuestion[], variant?: string, round?: number, totalRounds?: number) => void;
   /**
-   * ask_question_card 等待用户答案：调用后返回 Promise，resolve 时传入用户答案。
-   * 与 onInteractionRequired 配对使用；缺失时 ask_question_card 不暂停。
+   * 交互等待用户答案：调用后返回 Promise，resolve 时传入用户答案。
+   * 与 onInteractionRequired 配对使用；缺失时不暂停。
    */
   waitForInteraction?: () => Promise<Record<string, string>>;
 }
@@ -598,9 +599,9 @@ function handleToolResult(
     deps.waitForInteraction
   ) {
     try {
-      const parsed = JSON.parse(result.content) as { success?: boolean; session?: { questions?: IClarifyQuestion[] } };
+      const parsed = JSON.parse(result.content) as { success?: boolean; session?: { questions?: IClarifyQuestion[]; round?: number; totalRounds?: number } };
       if (parsed.success && parsed.session?.questions?.length) {
-        deps.onInteractionRequired(parsed.session.questions);
+        deps.onInteractionRequired(parsed.session.questions, undefined, parsed.session.round, parsed.session.totalRounds);
         // 注意：ask_question_card 是有副作用工具，走串行路径，此处 await 不会阻塞并行工具
         interactionAnswers = null; // waitForInteraction 在外部串行处理
       }
@@ -735,6 +736,69 @@ async function executeToolRound(
   // 串行执行有副作用工具
   const writableResults: ToolExecResult[] = [];
   for (const tc of writableTcs) {
+    // R5: 删除操作强制确认（双层防线——不依赖 LLM 自觉，硬编码拦截）
+    if (FORCE_CONFIRM_TOOLS.has(tc.name)) {
+      const toolCallId = `call_${round}_${tc.index}`;
+      // 解析工具参数获取文件信息（用于确认提示）
+      let fileInfo = '';
+      try {
+        const parsed = JSON.parse(tc.arguments) as Record<string, unknown>;
+        fileInfo = (typeof parsed.file_path === 'string' ? parsed.file_path : '')
+          || (typeof parsed.file_id === 'string' ? parsed.file_id : '');
+      } catch { /* args 解析失败不影响拦截逻辑 */ }
+
+      const confirmQuestion: IClarifyQuestion = {
+        id: toolCallId,
+        text: `确认删除${fileInfo ? ` ${fileInfo}` : ''}？此操作不可恢复。`,
+        type: 'confirm',
+      };
+
+      if (deps.onInteractionRequired && deps.waitForInteraction) {
+        deps.onInteractionRequired([confirmQuestion], 'delete_confirm');
+        let answer: Record<string, string>;
+        try {
+          answer = await deps.waitForInteraction();
+        } catch {
+          // 用户取消或超时：注入 cancelled 结果（安全优先，拒绝执行）
+          writableResults.push({
+            tc: { index: tc.index, name: tc.name, arguments: tc.arguments },
+            toolCallId,
+            result: {
+              content: JSON.stringify({ cancelled: true }),
+              status: 'error',
+              errorDesc: '用户取消了删除操作',
+            },
+          });
+          continue;
+        }
+        if (answer[toolCallId] === 'yes') {
+          writableResults.push(await executeOneTool(tc, round, ctx));
+        } else {
+          writableResults.push({
+            tc: { index: tc.index, name: tc.name, arguments: tc.arguments },
+            toolCallId,
+            result: {
+              content: JSON.stringify({ cancelled: true }),
+              status: 'error',
+              errorDesc: '用户取消了删除操作',
+            },
+          });
+        }
+      } else {
+        // 无 interaction 支持：安全优先，拒绝执行（防止静默删除）
+        writableResults.push({
+          tc: { index: tc.index, name: tc.name, arguments: tc.arguments },
+          toolCallId,
+          result: {
+            content: '',
+            status: 'error',
+            errorDesc: '删除操作需要用户确认，但当前环境不支持交互。已拒绝执行。',
+          },
+        });
+      }
+      continue;
+    }
+
     writableResults.push(await executeOneTool(tc, round, ctx));
   }
 
