@@ -30,11 +30,7 @@ const EditBlocksPreviewCard: React.FC = () => {
     <>
       <DiffSummaryCard
         source={source}
-        onViewDetails={
-          pendingProposals.length > 1
-            ? () => setShowDetailModal(true)
-            : undefined
-        }
+        onViewDetails={() => setShowDetailModal(true)}
       />
 
       {/* 多文件详情面板 */}

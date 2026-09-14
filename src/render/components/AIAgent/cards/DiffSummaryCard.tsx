@@ -56,7 +56,7 @@ export interface DiffSummaryCardProps {
   onDiscardAll?: () => void;
   /** 结果态关闭回调（可选：不传则由内部 hook 直接调 store）。 */
   onDismiss?: () => void;
-  /** 查看详情回调（仅多文件时显示按钮）。 */
+  /** 查看详情回调（按钮始终可见，不限文件数）。 */
   onViewDetails?: () => void;
 }
 
@@ -139,112 +139,6 @@ function normalizeSource(source: DiffSummarySource): NormalizedDiffFile[] {
     }
   }
 }
-
-// ============================================
-// Sub-components
-// ============================================
-
-/** 单行 diff 渲染。 */
-const DiffLineRow: React.FC<{ ln: DiffLine }> = ({ ln }) => {
-  const prefix = ln.type === 'del' ? '− ' : ln.type === 'ins' ? '+ ' : '  ';
-  return (
-    <div
-      data-type={ln.type}
-      className={[
-        'whitespace-pre-wrap px-1 rounded-sm',
-        ln.type === 'del' ? 'text-red-500 bg-red-500/10' : '',
-        ln.type === 'ins' ? 'text-green-600 bg-green-500/10' : '',
-        ln.type === 'same' ? 'text-text-muted' : '',
-      ].join(' ')}
-    >
-      {prefix}
-      {ln.line}
-    </div>
-  );
-};
-
-/** 单文件 diff 区域：可折叠 + 截断 200 行 + "显示全部"。 */
-const InlineDiff: React.FC<{
-  lines: DiffLine[];
-  delCount: number;
-  insCount: number;
-}> = ({ lines, delCount, insCount }) => {
-  const { t } = useI18n();
-  const [expanded, setExpanded] = useState(false);
-  const [showAll, setShowAll] = useState(false);
-
-  if (lines.length === 0) {
-    return (
-      <div className="border-b border-border">
-        <div className="flex items-center justify-between px-3 py-1.5 bg-bg-primary/40">
-          <span className="text-[13px] font-medium text-text-sub">
-            {t('ai.diff.preview', '变更预览')}（−{delCount} / +{insCount}）
-          </span>
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            className="text-[12px] px-2 py-0.5 rounded-input text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
-          >
-            {expanded
-              ? t('ai.diff.collapse', '折叠')
-              : t('ai.diff.expand', '展开')}
-          </button>
-        </div>
-        {expanded && (
-          <div className="px-3 py-3 text-[14px] text-text-muted text-center bg-bg-primary/60">
-            {t('ai.diff.noChanges', '无变更')}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  const displayLines = showAll ? lines : lines.slice(0, 200);
-  const truncated = !showAll && lines.length > 200;
-
-  return (
-    <div className="border-b border-border">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-bg-primary/40">
-        <span className="text-[13px] font-medium text-text-sub">
-          {t('ai.diff.preview', '变更预览')}（−{delCount} / +{insCount}）
-        </span>
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="text-[12px] px-2 py-0.5 rounded-input text-text-muted hover:text-text-primary hover:bg-bg-tertiary transition-colors"
-        >
-          {expanded
-            ? t('ai.diff.collapse', '折叠')
-            : t('ai.diff.expand', '展开')}
-        </button>
-      </div>
-      {expanded && (
-        <div className="px-3 py-2 font-mono text-[15px] space-y-0.5 max-h-60 overflow-y-auto bg-bg-primary/60">
-          {displayLines.map((ln, i) => (
-            <DiffLineRow key={i} ln={ln} />
-          ))}
-          {truncated && (
-            <div className="text-text-muted text-[12px] py-1 flex items-center justify-between">
-              <span>
-                {t('ai.diff.truncated', '... 共 {count} 行，已截断').replace(
-                  '{count}',
-                  String(lines.length),
-                )}
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowAll(true)}
-                className="text-[12px] px-2 py-0.5 rounded-input text-accent hover:bg-bg-tertiary transition-colors"
-              >
-                {t('ai.diff.showAll', '显示全部')}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
 
 // ============================================
 // useDiffSummaryHandlers hook（R6 新增）
@@ -584,7 +478,7 @@ const DiffSummaryCard: React.FC<DiffSummaryCardProps> = ({
             </button>
           ) : (
             <>
-              {isMulti && onViewDetails && (
+              {onViewDetails && (
                 <button
                   type="button"
                   onClick={onViewDetails}
@@ -647,14 +541,7 @@ const DiffSummaryCard: React.FC<DiffSummaryCardProps> = ({
         </div>
       )}
 
-      {/* 单文件：内联 diff */}
-      {!isMulti && (
-        <InlineDiff
-          lines={singleDiff.lines}
-          delCount={singleDiff.del}
-          insCount={singleDiff.ins}
-        />
-      )}
+      {/* 单文件：不再展开内联 diff，摘要信息已在标题行显示 */}
 
       {/* AI 改动说明（仅 rewrite 场景） */}
       {comment && (

@@ -72,31 +72,17 @@ describe('RewritePreviewCard', () => {
     cleanup();
   });
 
-  it('渲染红删绿增 diff + AI 改动说明', () => {
+  it('渲染摘要卡片 + AI 改动说明 + 查看详情按钮', () => {
     useRewriteStore.setState({ pendingRewrite: proposal });
     const { container } = render(<RewritePreviewCard />);
 
     // 单文件标题：文档改写 + (−1 / +1)
     expect(screen.getByText(/文档改写/)).toBeInTheDocument();
-    // 标题和 diff 区域各有一次 −1/+1 统计
-    expect(screen.getAllByText(/−1\s+\/\s+\+1/).length).toBeGreaterThanOrEqual(1);
+    // 标题行有一个 −1/+1 统计（内联 diff 已移除，仅标题行显示）
+    expect(screen.getByText(/−1\s+\/\s+\+1/)).toBeInTheDocument();
 
-    // 按 data-type 定位 diff 行：del（红）/ ins（绿）/ same（灰）
-    // diff 默认折叠，需要先展开
-    fireEvent.click(screen.getByText('展开'));
-    const delEl = container.querySelector('[data-type="del"]');
-    const insEl = container.querySelector('[data-type="ins"]');
-    const sameEls = container.querySelectorAll('[data-type="same"]');
-    expect(delEl).not.toBeNull();
-    expect(insEl).not.toBeNull();
-    expect(sameEls.length).toBe(2); // line1 + line3
-
-    // 内容
-    expect(delEl?.textContent).toContain('old');
-    expect(insEl?.textContent).toContain('new');
-    // 样式：del 红 / ins 绿
-    expect((delEl as HTMLElement).className).toMatch(/text-red-500/);
-    expect((insEl as HTMLElement).className).toMatch(/text-green-600/);
+    // 摘要模式下不再展示内联 diff 行，但"查看详情"按钮始终可见
+    expect(screen.getByRole('button', { name: '查看详情' })).toBeInTheDocument();
 
     // AI 改动说明（回退到行级统计）
     expect(screen.getByText(/删除了 1 行，新增了 1 行内容/)).toBeInTheDocument();

@@ -27,14 +27,6 @@ const PatchPreviewCard: React.FC = () => {
     [proposals],
   );
 
-  // 判断是否为"多文件"（多提案或单提案含多文件）
-  const isMultiple = useMemo(
-    () =>
-      pendingProposals.length > 1 ||
-      (pendingProposals.length === 1 && pendingProposals[0].files.length > 1),
-    [pendingProposals],
-  );
-
   if (pendingProposals.length === 0) return null;
 
   const source: DiffSummarySource = { kind: 'patch', data: pendingProposals };
@@ -43,9 +35,7 @@ const PatchPreviewCard: React.FC = () => {
     <>
       <DiffSummaryCard
         source={source}
-        onViewDetails={
-          isMultiple ? () => setShowDetailModal(true) : undefined
-        }
+        onViewDetails={() => setShowDetailModal(true)}
       />
 
       {showDetailModal && (

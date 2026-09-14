@@ -1037,11 +1037,11 @@ export async function runAgentFlow(
           ctx.llmMessages.push({
             role: 'system',
             content:
-              '⚠️ 你的上一条回复包含问题但未使用 ask_question_card 工具。这是违规的。' +
+              '【注意】你的上一条回复包含问题但未使用 ask_question_card 工具。这是违规的。' +
               '请立即使用 ask_question_card 工具重新提问，不要再次在文本中直接输出问题。',
           } as AgentLlmMessage);
           ctx.totalTokens += estimateTokens(assistantContent) + estimateTokens(
-            '⚠️ 你的上一条回复包含问题但未使用 ask_question_card 工具。这是违规的。请立即使用 ask_question_card 工具重新提问，不要再次在文本中直接输出问题。'
+            '【注意】你的上一条回复包含问题但未使用 ask_question_card 工具。这是违规的。请立即使用 ask_question_card 工具重新提问，不要再次在文本中直接输出问题。'
           );
           // 不保存 assistant 消息到 DB（等最终结果），不发送 done，继续循环
           continue;

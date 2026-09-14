@@ -24,8 +24,10 @@ export interface EditBlocksDetailModalProps {
 function getProposalTitle(proposal: EditBlocksProposal, t: (key: string, fallback?: string) => string): string {
   const isFileRevision = proposal.toolName === 'preview_file_revision';
   const isCreateFile = proposal.toolName === 'createFile';
+  const isEditLocalFile = proposal.toolName === 'editLocalFile';
   if (isCreateFile) return `${t('ai.editBlocks.createFile', '创建文件')}: ${proposal.fileName ?? ''}`;
-  if (isFileRevision) return proposal.fileName ?? proposal.fileId ?? t('ai.editBlocks.fileRevision', '文件修订');
+  if (isFileRevision || isEditLocalFile)
+    return proposal.fileName ?? proposal.fileId ?? t('ai.editBlocks.fileRevision', '文件修订');
   return t('ai.editBlocks.docRevision', '文档修订');
 }
 

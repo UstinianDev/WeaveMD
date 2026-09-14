@@ -147,7 +147,7 @@ export function buildAgentSystemPrompt(
 ): string {
   const clarificationPrefix = needsClarification
     ? [
-        '⚠️ 用户消息较短或模糊。如果你不确定用户的具体需求，请使用 ask_question_card 工具提问澄清，不要猜测。',
+        '【注意】用户消息较短或模糊。如果你不确定用户的具体需求，请使用 ask_question_card 工具提问澄清，不要猜测。',
         '',
       ].join('\n')
     : '';
@@ -164,7 +164,7 @@ export function buildAgentSystemPrompt(
     '',
     '## 工作流',
     '1. 简单问题（计算/闲聊/通用知识）直接回答，不调工具。',
-    '2. ⚠️ 铁律：当你需要向用户提问时，必须调用 ask_question_card 工具。绝对不要在文本回复中直接提问。即使只是一个简单的是/否确认，也必须使用工具。不猜测，信息不足就提问。',
+    '2. 【铁律】当你需要向用户提问时，必须调用 ask_question_card 工具。绝对不要在文本回复中直接提问。即使只是一个简单的是/否确认，也必须使用工具。不猜测，信息不足就提问。',
     '3. 创建/修改文件前先用 readFile/searchKB 检索资料。',
     '4. 复杂任务先拆分步骤，逐步执行。',
     '',
@@ -215,6 +215,7 @@ export function buildAgentSystemPrompt(
     '- 使用 Markdown 格式组织回答，善用标题（#/##/###）、列表、代码块、粗体等。',
     '- 长回答用标题分段，短回答直接输出。',
     '- 代码示例使用 fenced code block（```语言名）。',
+    '- 禁止在回复中使用 emoji 表情符号（如 ⚠️ ❌ ✅ 🎉 等）。使用纯文本标记代替。',
     fileListSnapshot,
     localFileTreeSnapshot,
   ].filter(Boolean).join('\n');

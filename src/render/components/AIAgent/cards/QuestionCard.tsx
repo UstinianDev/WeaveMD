@@ -290,7 +290,7 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
               {currentIndex + 1}/{visibleQuestions.length}
             </span>
           )}
-          <label className="text-[15px] text-text-primary font-medium leading-relaxed">
+          <label className="text-[15px] text-[var(--accent)] font-bold leading-relaxed">
             {q.text}
           </label>
         </div>
@@ -312,29 +312,28 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
         {q.type === 'choice' && q.options && (
           <>
             <div className="flex flex-wrap gap-2">
-              {q.options.map((opt) => {
+              {q.options.map((opt, idx) => {
                 const isSelected = answer === opt;
+                const letter = String.fromCharCode(65 + idx);
                 return (
                   <button
                     key={opt}
                     type="button"
                     onClick={() => handleChoiceSelect(q.id, opt)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-[14px] border transition-all duration-200 ${
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-[14px] border transition-all duration-200 ${
                       isSelected
                         ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)] shadow-sm'
                         : 'border-border text-text-muted hover:border-[var(--accent)]/50 hover:text-text-primary'
                     }`}
                   >
                     <span
-                      className={`inline-block w-3.5 h-3.5 rounded-full border-2 transition-colors ${
+                      className={`shrink-0 w-6 h-6 flex items-center justify-center rounded text-[13px] font-semibold ${
                         isSelected
-                          ? 'border-[var(--accent)] bg-[var(--accent)]'
-                          : 'border-border'
+                          ? 'bg-[var(--accent)] text-white'
+                          : 'border border-border text-text-muted'
                       }`}
                     >
-                      {isSelected && (
-                        <span className="block w-full h-full rounded-full bg-white scale-[0.4]" />
-                      )}
+                      {letter}
                     </span>
                     {opt}
                   </button>
@@ -507,13 +506,6 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
 
         {/* 标题 */}
         {titleContent}
-
-        {/* 提示文字 */}
-        <p className="px-4 pb-3 text-[12px] text-text-muted">
-          {isDeleteConfirm
-            ? t('ai.question.deleteHint', '删除后无法恢复，请确认是否继续')
-            : t('ai.question.slideHint', '请回答以下问题后继续')}
-        </p>
 
         {/* 进度圆点 */}
         {progressDots}

@@ -11,7 +11,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { useI18n } from '@render/i18n';
-import { useRewriteStore } from '@render/stores/rewriteStore';
+import { useRewriteStore, type RewriteFileProposal } from '@render/stores/rewriteStore';
 import { diffLines } from '@render/filters/rewriteDiff';
 import DiffSummaryCard, { type DiffSummarySource } from './DiffSummaryCard';
 import RewriteDetailModal from './RewriteDetailModal';
@@ -120,22 +120,50 @@ const RewritePreviewCard: React.FC = () => {
         source={source}
         staleBanner={staleRejected ? t('ai.rewrite.staleRejected') : null}
         comment={comment}
-        onViewDetails={
-          pendingMultiRewrite && pendingMultiRewrite.length > 1
-            ? () => setShowDetailModal(true)
-            : undefined
-        }
+        onViewDetails={() => setShowDetailModal(true)}
       />
 
-      {/* 多文件详情面板 */}
-      {showDetailModal && pendingMultiRewrite && (
+      {/* 详情面板：单文件 / 多文件均支持 */}
+      {showDetailModal && (pendingMultiRewrite || pendingRewrite) && (
         <RewriteDetailModal
-          files={pendingMultiRewrite}
+          files={
+            pendingMultiRewrite
+              ?? (pendingRewrite
+                ? ([{
+                    fileName: '当前文档',
+                    originalMd: pendingRewrite.originalMd,
+                    rewrittenMd: pendingRewrite.rewrittenMd,
+                    status: 'pending' as const,
+                    contentHash: pendingRewrite.contentHash,
+                  }] as RewriteFileProposal[])
+                : [])
+          }
           onClose={() => setShowDetailModal(false)}
-          onApply={(fn) => applyFileRewrite(fn)}
-          onDiscard={(fn) => discardFileRewrite(fn)}
-          onApplyAll={() => applyAllRewrites()}
-          onDiscardAll={() => discardAllRewrites()}
+          onApply={(fn) => {
+            if (pendingMultiRewrite) {
+              applyFileRewrite(fn);
+            }
+          }}
+          onDiscard={(fn) => {
+            if (pendingMultiRewrite) {
+              discardFileRewrite(fn);
+            }
+          }}
+          onApplyAll={() => {
+            if (pendingMultiRewrite) {
+              applyAllRewrites();
+            } else {
+              // 单文件：直接调 applyRewrite（DiffSummaryCard 内部 hook 处理）
+              useRewriteStore.getState().applyRewrite();
+            }
+          }}
+          onDiscardAll={() => {
+            if (pendingMultiRewrite) {
+              discardAllRewrites();
+            } else {
+              useRewriteStore.getState().clearRewrite();
+            }
+          }}
         />
       )}
     </>
