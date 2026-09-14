@@ -112,6 +112,7 @@ export function classifyIntent(input: string): IIntent {
       confidence: 0.7,
       candidates: ['chat'],
       reason: hitReasons.join(',') || 'chat fallback',
+      needsClarification: text.length < 10,
     };
   }
 
@@ -136,10 +137,14 @@ export function classifyIntent(input: string): IIntent {
     confidence = 0.9;
   }
 
+  const needsClarification =
+    confidence < 0.7 || text.length < 6 || (confidence < 0.85 && text.length < 10);
+
   return {
     intent: top[0],
     confidence: Math.max(0, Math.min(1, confidence)),
     ...(candidates ? { candidates } : {}),
     reason: hitReasons.join(','),
+    ...(needsClarification ? { needsClarification } : {}),
   };
 }

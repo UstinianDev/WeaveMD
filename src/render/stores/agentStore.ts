@@ -58,10 +58,10 @@ export interface FileOpProposal {
   status: 'pending' | 'applied' | 'discarded';
 }
 
-/** editBlocks / preview_file_revision 待确认修订提案。 */
+/** editBlocks / preview_file_revision / editLocalFile 待确认修订提案。 */
 export interface EditBlocksProposal {
   /** 来源工具名。 */
-  toolName: 'editBlocks' | 'preview_file_revision' | 'createFile';
+  toolName: 'editBlocks' | 'preview_file_revision' | 'createFile' | 'editLocalFile';
   /** 关联的文件 ID（preview_file_revision 有，editBlocks 为空）。 */
   fileId?: string;
   /** 关联的文件名（preview_file_revision 有）。 */
@@ -762,6 +762,15 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
                         break;
                       }
                     }
+                    // diff 预览：当有 oldContent 时创建 diff 卡片
+                    if (typeof result.oldContent === 'string' && typeof result.newContent === 'string') {
+                      get().addEditBlocksProposal({
+                        toolName: 'editLocalFile' as EditBlocksProposal['toolName'],
+                        fileName: editedPath,
+                        originalContent: result.oldContent,
+                        newContent: result.newContent,
+                      });
+                    }
                     // 同步编辑器：如果被修改的文件是当前打开的文件
                     const editEditorState = useEditorStore.getState();
                     if (editEditorState.currentFile?.id === editedPath) {
@@ -1108,6 +1117,19 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       }).catch((err) => {
         console.warn('[agentStore] applyEditBlocksProposal write failed:', err);
       });
+    } else if (proposal.toolName === 'editLocalFile' && proposal.fileName) {
+      // editLocalFile：文件已由主进程写入磁盘，"应用"表示保留变更。刷新编辑器。
+      const editorState2 = useEditorStore.getState();
+      if (editorState2.currentFile?.id === proposal.fileName) {
+        editorState2.updateContent(proposal.newContent);
+      }
+      void import('@render/stores/fileTreeStore').then(({ useFileTreeStore }) => {
+        // 刷新文件所在目录
+        const parentDir = proposal.fileName?.replace(/[/\\][^/\\]+$/, '') ?? '';
+        if (parentDir) {
+          void useFileTreeStore.getState().loadFolderContents(parentDir);
+        }
+      });
     }
 
     set((s) => ({
@@ -1117,12 +1139,37 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     }));
   },
 
-  discardEditBlocksProposal: (index) =>
+  discardEditBlocksProposal: (index) => {
+    const { editBlocksProposals } = get();
+    const proposal = editBlocksProposals[index];
+    if (!proposal || proposal.status !== 'pending') return;
+
+    // editLocalFile：文件已写盘，"放弃"需回滚到旧内容
+    if (proposal.toolName === 'editLocalFile' && proposal.fileName && proposal.originalContent !== undefined) {
+      void window.weaveMD.file.write(proposal.fileName, proposal.originalContent).then(() => {
+        // 刷新编辑器
+        const editorState = useEditorStore.getState();
+        if (editorState.currentFile?.id === proposal.fileName) {
+          editorState.updateContent(proposal.originalContent);
+        }
+        void import('@render/stores/fileTreeStore').then(({ useFileTreeStore }) => {
+            // 刷新文件所在目录
+            const parentDir2 = proposal.fileName?.replace(/[/\\][^/\\]+$/, '') ?? '';
+            if (parentDir2) {
+              void useFileTreeStore.getState().loadFolderContents(parentDir2);
+            }
+          });
+      }).catch((err) => {
+        console.warn('[agentStore] discardEditBlocksProposal revert failed:', err);
+      });
+    }
+
     set((s) => ({
       editBlocksProposals: s.editBlocksProposals.map((p, i) =>
         i === index ? { ...p, status: 'discarded' as const } : p
       ),
-    })),
+    }));
+  },
 
   clearEditBlocksProposals: () => set({ editBlocksProposals: [] }),
 

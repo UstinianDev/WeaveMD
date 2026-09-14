@@ -100,6 +100,23 @@ const CONTEXT_WINDOW = 64_000;
 const KEEP_RECENT_ROUNDS = 3; // 从 6 减少到 3，减少前轮内容对当前轮的影响
 
 /**
+ * 检测 LLM 文本回复是否包含提问（用于触发 ask_question_card 工具调用兜底）。
+ * 匹配问号、提问关键词、编号问题等模式。
+ */
+function detectTextQuestions(content: string): boolean {
+  if (!content || content.length < 3) return false;
+  // 问号检测
+  if (/[?？]/.test(content)) return true;
+  // 中文提问关键词
+  if (/(请问|请告诉|你想要|你需要|你希望|确认一下|你能|你是否|你知道|你想|你需要我|请选择|请提供|请说明|告诉我|说说看)/.test(content)) return true;
+  // 编号问题 Q1: / 1. / 1)
+  if (/\b[Qq]\d+[：:]/.test(content) || /^\d+[.)]\s/.test(content)) return true;
+  // 选项列表（A. / 1. / - 后面跟选项描述）
+  if (/[（(][AaBbCcDd][）)]/.test(content)) return true;
+  return false;
+}
+
+/**
  * 动态压缩阈值：简单任务晚压缩（0.85），复杂任务早压缩（0.65）。
  * round 0~1 视为简单任务，round 2+ 视为复杂任务。
  */
@@ -472,14 +489,17 @@ function prepareAgentContext(
   const localFileTreeSnapshot = buildLocalTreeSnapshot(payload.fileTreePaths);
 
   const isChatIntent = intent.intent === 'chat';
+  // 模糊输入需要澄清时：即使意图判为 chat，也用 Agent 提示 + 提供 ask_question_card
+  const needsClarification = intent.needsClarification === true;
+  const useAgentPrompt = !isChatIntent || needsClarification;
 
-  const agentSystemPrompt = isChatIntent
-    ? CHAT_SYSTEM_PROMPT
-    : buildAgentSystemPrompt(fileListSnapshot, localFileTreeSnapshot);
+  const agentSystemPrompt = useAgentPrompt
+    ? buildAgentSystemPrompt(fileListSnapshot, localFileTreeSnapshot, needsClarification)
+    : CHAT_SYSTEM_PROMPT;
   llmMessages = [{ role: 'system', content: agentSystemPrompt }, ...llmMessages];
 
   // 文档上下文注入（仅非 chat 意图：chat 意图不需要读取当前文档）
-  if (intent.intent !== 'chat') {
+  if (useAgentPrompt) {
     const documentContext = buildDocumentContext(payload.currentDocument);
     if (documentContext) {
       llmMessages = [{ role: 'system', content: documentContext }, ...llmMessages];
@@ -1004,8 +1024,29 @@ export async function runAgentFlow(
       }
       flushChunks(); // 流结束时刷新剩余 buffer
 
-      // 无工具调用：assistant 完成
+      // 无工具调用：检查是否在文本中直接提问（兜底机制）
       if (accumulatedToolCalls.length === 0) {
+        // 检测 LLM 是否在文本中直接提问而非使用 ask_question_card
+        const hasAskTool = ctx.tools.some((t) => t.function.name === 'ask_question_card');
+        if (hasAskTool && detectTextQuestions(assistantContent)) {
+          // 注入系统指令，强制下一轮使用 ask_question_card
+          ctx.llmMessages.push({
+            role: 'assistant',
+            content: assistantContent,
+          } as AgentLlmMessage);
+          ctx.llmMessages.push({
+            role: 'system',
+            content:
+              '⚠️ 你的上一条回复包含问题但未使用 ask_question_card 工具。这是违规的。' +
+              '请立即使用 ask_question_card 工具重新提问，不要再次在文本中直接输出问题。',
+          } as AgentLlmMessage);
+          ctx.totalTokens += estimateTokens(assistantContent) + estimateTokens(
+            '⚠️ 你的上一条回复包含问题但未使用 ask_question_card 工具。这是违规的。请立即使用 ask_question_card 工具重新提问，不要再次在文本中直接输出问题。'
+          );
+          // 不保存 assistant 消息到 DB（等最终结果），不发送 done，继续循环
+          continue;
+        }
+        // 正常路径：无工具调用且无文本问题 → 结束
         const assistantMsg = appendMessage({
           conversationId: ctx.convId,
           userId: ctx.userId,

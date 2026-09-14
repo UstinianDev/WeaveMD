@@ -84,8 +84,12 @@ export function toolsForIntent(
 
   switch (intent.intent) {
     case 'chat':
-      // 闲聊意图：不提供任何工具，LLM 直接回答
-      return [];
+      // 闲聊意图：仅在有交互支持时提供 ask_question_card（模糊输入可能需要澄清）
+      // 若无交互支持则不给任何工具，LLM 直接回答
+      if (hasInteractionSupport) {
+        names.add('ask_question_card');
+      }
+      return all.filter((t) => names.has(t.function.name));
     case 'kbQa':
       if (useKnowledgeBase && kbEgressAuthorized) {
         names.add('searchKB');

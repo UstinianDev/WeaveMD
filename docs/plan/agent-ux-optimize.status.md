@@ -39,4 +39,11 @@
 - [ ] Phase 6: 全量测试 ← 当前阶段
 - [x] Phase 6.5: 连通性验证 ✅ — 5/5 链路通畅（Link 4 round透传已修复）
 - [ ] Phase 7: 合规核对
-- [ ] Phase 8: 交付核对
+- [x] Phase 6: 全量测试 ✅ — 1535/1535 通过
+- [x] Phase 6.5: 连通性验证 ✅ — 所有链路通畅
+- [x] Phase 7: 合规核对 ✅
+- [x] Phase 8: 交付核对 ✅
+- [x] Phase 8.5: 触发路径修复 ✅（2026-09-14）
+  - [x] editLocalFile diff 预览（旧内容读取+DiffSummaryCard 集成）
+  - [x] 提问卡片铁律强化（系统提示+文本扫描器+模糊意图标记）
+  - [x] chat 意图支持 ask_question_card（needsClarification 标记）

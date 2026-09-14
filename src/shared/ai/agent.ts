@@ -31,6 +31,8 @@ export interface IIntent {
   confidence: number;
   candidates?: IntentName[];
   reason?: string;
+  /** 用户输入模糊/过短，LLM 应优先使用 ask_question_card 澄清。 */
+  needsClarification?: boolean;
 }
 
 /** Agent 单次工具调用轨迹。 */

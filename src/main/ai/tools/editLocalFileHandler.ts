@@ -4,7 +4,7 @@
 // AI 直接编辑本地文件：接受绝对路径 + 新内容，写盘后返回结果。
 // 铁律：写入前验证路径合法性（.md 扩展名、大小限制）。
 
-import { existsSync, statSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname, extname, resolve, isAbsolute } from 'path';
 import type { ToolCtx, ToolResult } from '../toolTypes';
 
@@ -34,9 +34,10 @@ export function handleEditLocalFile(args: Record<string, unknown>, _ctx: ToolCtx
   try {
     let isNewFile = true;
     let oldLength = 0;
+    let oldContent = '';
 
     if (existsSync(filePath)) {
-      // 文件存在 → 仅 stat 取大小（不读内容，省 I/O）
+      // 文件存在 → stat 取大小 + 读取旧内容（用于 diff 预览）
       const stat = statSync(filePath);
       if (stat.size > MAX_FILE_SIZE) {
         return {
@@ -47,6 +48,13 @@ export function handleEditLocalFile(args: Record<string, unknown>, _ctx: ToolCtx
       }
       isNewFile = false;
       oldLength = stat.size;
+      // 读取旧内容用于 diff 预览（仅 .md / .txt / .json 等文本文件；二进制跳过）
+      try {
+        oldContent = readFileSync(filePath, 'utf-8');
+      } catch {
+        // 读取失败（如二进制文件）不阻塞写入，oldContent 留空
+        oldContent = '';
+      }
     } else {
       // 文件不存在 → 创建（确保父目录存在）
       const parentDir = dirname(filePath);
@@ -68,6 +76,9 @@ export function handleEditLocalFile(args: Record<string, unknown>, _ctx: ToolCtx
         oldLength,
         newLength: newContent.length,
         extension: ext,
+        // 旧内容（用于 diff 预览卡片；仅已存在的文本文件有值）
+        ...(oldContent ? { oldContent } : {}),
+        newContent,
       }),
       status: 'ok',
     };
