@@ -1,6 +1,6 @@
 # WeaveMD 文档索引
 
-> 最后更新：2026-09-13
+> 最后更新：2026-09-14
 
 ## 核心文档
 
@@ -68,41 +68,35 @@
 | [agent-kb-refactor.req](./requirements/agent-kb-refactor.req.md) | Agent/KB 重构需求（模块拆分/缓存提取） |
 | [fix-web-search-loop.req](./requirements/fix-web-search-loop.req.md) | web_search 死循环修复需求（✅ 已修复） |
 | [refactor-export-editor-outline-navbar.req](./requirements/refactor-export-editor-outline-navbar.req.md) | **全局重构需求（2026-09-13）**：导出/编辑/大纲/导航四模块，L 级重型重构 |
+| [agent-ux-optimize.req](./requirements/agent-ux-optimize.req.md) | **Agent UX 优化需求（2026-09-14）**：Diff/提问/写控制/澄清 7 项优化 |
 
 ## 实施计划
 
-### 最近修复（2026-09-12）
+### 当前（2026-09-14）
 
 | 文档 | 说明 |
 |------|------|
-| [export-image-fix.status](./plan/export-image-fix.status.md) | **导出图片修复**：offscreen渲染 + 3x缩放因子 + 高清晰度导出 |
-| [url-query-fix.status](./plan/url-query-fix.status.md) | **URL查询修复**：Agent系统提示词优化，强制调用web_search工具 |
-| [view-toggle-fix.status](./plan/view-toggle-fix.status.md) | **视图切换修复**：删除冗余ViewMenu + scrollTop滚动位置保持 |
-| [arrow-key-navigation.status](./plan/arrow-key-navigation.status.md) | **上下键跨块导航**：实现ArrowUp/ArrowDown跨语法类型跳转 |
-| [save-function-fix.status](./plan/save-function-fix.status.md) | **保存功能修复**：文件树刷新 + 编辑器同步 |
+| [agent-ux-optimize.plan](./plan/agent-ux-optimize.plan.md) | **Agent UX 优化计划**：7 子任务实现方案 + 变更清单 |
+| [agent-ux-optimize.status](./plan/agent-ux-optimize.status.md) | **Agent UX 优化状态**：Phase 0-8 全流程 + 触发修复 + UI 美化 |
+| [agent-ux-optimize.connectivity](./plan/agent-ux-optimize.connectivity.md) | **连通性验证报告**：10 层 round/totalRounds IPC 透传 |
+| [perf-export-editor-outline.plan](./plan/perf-export-editor-outline.plan.md) | 性能优化计划（导出/编辑/大纲） |
+| [refactor-export-editor-outline-navbar.plan](./plan/refactor-export-editor-outline-navbar.plan.md) | 四模块重构计划 |
+| [refactor-export-editor-outline-navbar.connectivity](./plan/refactor-export-editor-outline-navbar.connectivity.md) | 连通性报告（19/19 链路） |
 
 ### 历史计划
 
 | 文档 | 说明 |
 |------|------|
-| [optimize-outline-aiheading-composer.status](./plan/optimize-outline-aiheading-composer.status.md) | **编辑主区+AI面板优化（2026-09-11）**：Outline统一 + 标题编号 + Composer标签化 |
-| [agent-optimization.status](./plan/agent-optimization.status.md) | **Agent 优化（2026-09-11）**：折叠重构 + Hover 调淡 + 消息编辑 + 上下文修复 |
-| [agent-optimize-v3.plan](./plan/agent-optimize-v3.plan.md) | Agent 优化 v3 实施计划（搜索持久化/动态轮次/多文件Diff） |
-| [agent-kb-refactor.plan](./plan/agent-kb-refactor.plan.md) | Agent/KB 重构计划（模块拆分/缓存提取） |
-| [fix-web-search-loop.plan](./plan/fix-web-search-loop.plan.md) | web_search 死循环修复计划（✅ 完成） |
+| [agent-optimize-v3.plan](./plan/agent-optimize-v3.plan.md) | Agent 优化 v3 实施计划 |
+| [agent-kb-refactor.plan](./plan/agent-kb-refactor.plan.md) | Agent/KB 重构计划 |
+| [fix-web-search-loop.plan](./plan/fix-web-search-loop.plan.md) | web_search 死循环修复计划 |
+| [perf-agent-kb-writecontrol.plan](./plan/perf-agent-kb-writecontrol.plan.md) | 性能+写控制优化计划 |
 | [embedding-architecture](./plan/embedding-architecture.md) | Embedding 多提供商架构设计 |
-| [indexing-compatibility](./plan/indexing-compatibility.md) | 索引流程兼容性设计（多提供商适配） |
+| [indexing-compatibility](./plan/indexing-compatibility.md) | 索引流程兼容性设计 |
 
-### 归档（已完成）
+### 归档（`docs/plan/archive/`）
 
-已完成的实施状态文档已归档至 `docs/plan/archive/` 目录，包括：
-- agent-optimize-v3.status.md
-- ai-agent-optimize.status.md
-- ai-perf-optimize-v2.status.md
-- ai-perf-2026-09-09.status.md
-- agent-kb-refactor.status.md
-- perf-agent-kb-writecontrol.status.md
-- optimize-tasks.status.md
+所有已完成任务的状态文件已归档，包括 agent-ux-optimize 之前的全部 devflow 产出。
 
 ## 测试报告
 

@@ -228,9 +228,14 @@ function useDiffSummaryHandlers(source: DiffSummarySource): DiffSummaryHandlers 
         const currentContent = useEditorStore.getState().content ?? '';
         const allProposals = astore.editBlocksProposals;
 
-        // staleness：首个 pending proposal 的 originalContent 与当前内容对比
+        // staleness：仅对预览类工具（editBlocks / preview_file_revision）检查，
+        // editLocalFile / createFile 是直接写盘工具，文件已变更，无需比对 originalContent
         const firstPending = allProposals.find((p) => p.status === 'pending');
-        if (firstPending && firstPending.originalContent !== currentContent) {
+        const needsStalenessCheck =
+          firstPending &&
+          firstPending.toolName !== 'editLocalFile' &&
+          firstPending.toolName !== 'createFile';
+        if (needsStalenessCheck && firstPending.originalContent !== currentContent) {
           setLocalStaleError('文档已被外部修改，请重新生成');
           return;
         }

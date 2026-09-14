@@ -1,147 +1,80 @@
 # TODO
 
-> 最后更新：2026-09-13
+> 最后更新：2026-09-14
 
 ## 已完成
 
+### agent-ux-optimize（2026-09-14）
+
+L 级 UX 优化，7 子任务 + 触发路径修复 + UI 美化，全量交付。
+
+| 类别 | 任务 | 说明 |
+|------|------|------|
+| 核心 | DiffSummaryCard 统一 diff 卡片 | 三种来源 discriminated union type，单卡片承载所有 diff 场景 |
+| 核心 | QuestionCard 向导式重构 | 单题向导 + 进度圆点 + ABCD 选项 + shake 错误动画 |
+| 核心 | Clarification Rules 注入 | 澄清规则注入 Agent 系统提示，规范 Agent 提问行为 |
+| 核心 | 技术文档索引 | react / tailwindcss / zustand 最新文档注入 Agent 上下文 |
+| 核心 | KB 澄清与 Agent 联动 | buildClarificationContext 分轮策略 + searchKBHandler 注入 |
+| 核心 | Delete 强制确认 | 双层防线：前端 confirm + Agent 二次确认 |
+| 核心 | DiffSummaryCard 写控制集成 | 写模式 auto/manual 适配 + MD5 staleness 检测 |
+| 路径修复 | editLocalFile diff 预览 | 触发路径修复，确保编辑后正确弹出 diff 预览 |
+| 路径修复 | ask_question_card 铁律强化 | 文本扫描器 + needsClarification 判断 + 铁律加固 |
+| 路径修复 | chat 意图 ask_question_card | chat 意图下正确触发提问卡片 |
+| 路径修复 | ask_question_card 去重 | 跨轮 + 同轮两层去重，防止重复提问 |
+| UI | Diff 卡片摘要化 + DetailModal | Portal 全应用居中挂载 + 尺寸扩大 + 同名文件合并 |
+| UI | QuestionCard 美化 | 加粗蓝色标题 + ABCD 标签 + 去除提示文字 |
+| UI | Agent 回复去 emoji | 系统提示词禁止 emoji，回复更专业 |
+| UI | Diff 卡片持久化 | 应用/废弃后卡片保留 + 流式期间延迟显示 |
+| UI | Staleness 修复 | editLocalFile / createFile 豁免 staleness 检测 |
+
 ### 四模块全局重构（2026-09-13）
 
-详见 [重构进度文档](./plan/refactor-export-editor-outline-navbar.status.md)（L 级重型重构，8 阶段全部完成）。
+L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/refactor-export-editor-outline-navbar.status.md)。
 
-| 阶段 | 范围 | 核心 | 门禁 |
-|------|------|------|------|
-| P0 | 模式切换 | 4 hooks 抽取 + 快捷键合并 + store 净化 + 死代码清理 | tsc 0 \| vitest 1538 |
-| P1 | 目录区 | headingFromBlock / buildHeadingTree 迁入 kernel；FileTreeRow / ToolbarIconButton 去重；markdown 死代码清理 | tsc 0 \| vitest 1535 |
-| P2 | 编辑主区 | blockTree 裂解 (blockDetection.ts) + formatCtrl 裂解 (imageFormatCtrl.ts) + applyBlockAction 模板 | tsc 0 \| vitest 1535 |
-| P3 | 导出 | 3 个 MIME 映射 → mediaMime.ts；魔法值常量化；img src 正则去重；路径解析合并 | tsc 0 \| vitest 1535 |
-| Gate | 审查/连通性/门禁 | code-review 0 critical + 19/19 链路 + eslint/lint/tsc | ✅ |
-
-### Bug 修复与优化（2026-09-12）
-
-详见各修复状态文档。
-
-| 任务 | 类型 | 门禁 |
+| 阶段 | 范围 | 核心 |
 |------|------|------|
-| 导出图片修复（offscreen渲染 + 3x缩放因子 + 高清晰度导出） | Bug 修复 | tsc ✅ |
-| URL查询修复（Agent系统提示词优化，强制调用web_search工具） | Bug 修复 | tsc ✅ |
-| 视图切换修复（删除冗余ViewMenu + scrollTop滚动位置保持） | Bug 修复 | tsc ✅ |
-| 上下键跨块导航（实现ArrowUp/ArrowDown跨语法类型跳转） | 功能缺失修复 | tsc ✅ |
-| 保存功能修复（文件树刷新 + 编辑器同步） | Bug 修复 | tsc ✅ |
+| P0 | 模式切换 | 4 hooks 抽取 + 快捷键合并 + store 净化 + 死代码清理 |
+| P1 | 目录区 | headingFromBlock / buildHeadingTree 迁入 kernel；FileTreeRow / ToolbarIconButton 去重 |
+| P2 | 编辑主区 | blockTree 裂解 (blockDetection.ts) + formatCtrl 裂解 (imageFormatCtrl.ts) |
+| P3 | 导出 | 3 个 MIME 映射合并为 mediaMime.ts；魔法值常量化；路径解析合并 |
+| Gate | 审查/连通性 | code-review 0 critical + 19/19 链路 + eslint/lint/tsc 全绿 |
 
-### 编辑主区 + AI 面板优化（2026-09-11）
+### Bug 修复与体验优化（2026-09-11 ~ 2026-09-12）
 
-详见 [实施状态](./plan/optimize-outline-aiheading-composer.status.md)。
-
-| 任务 | 类型 | 门禁 |
+| 日期 | 任务 | 类型 |
 |------|------|------|
-| Outline 数据源统一为 v2 块树（EditorV2 → MainPage → OutlinePanel） | 功能优化 | tsc 0 \| vitest 1529/1529 |
-| Agent 输出标题自动编号（h1中文/h2阿拉伯/h3层级/h4带圈） | 新功能 | 同上 |
-| Composer /@ 标签化（TipTap contentEditable + chip + 自动补全） | 重构 | 同上 |
-| Suggestion 插件注册修复（Extension 模式 + 独立 pluginKey） | Bug 修复 | 同上 |
+| 09-12 | 导出图片修复（offscreen 渲染 + 3x 缩放 + 高清导出） | Bug 修复 |
+| 09-12 | URL 查询修复（Agent 系统提示词优化，强制调用 web_search） | Bug 修复 |
+| 09-12 | 视图切换修复（删除冗余 ViewMenu + scrollTop 保持） | Bug 修复 |
+| 09-12 | 上下键跨块导航（ArrowUp/ArrowDown 跨语法类型跳转） | 功能修复 |
+| 09-12 | 保存功能修复（文件树刷新 + 编辑器同步） | Bug 修复 |
+| 09-11 | Outline 数据源统一为 v2 块树 | 功能优化 |
+| 09-11 | Agent 输出标题自动编号（h1 中文/h2 阿拉伯/h3 层级/h4 带圈） | 新功能 |
+| 09-11 | Composer /@ 标签化（TipTap + chip + 自动补全） | 重构 |
+| 09-11 | 执行过程折叠重构 + 消息内联编辑 + 流式缓冲竞态修复 + 上下文延续修复 | Agent 优化 |
 
-### Agent 优化（2026-09-11）
+### Agent/KB 架构演进（2026-09-07 ~ 2026-09-10）
 
-详见 [实施状态](./plan/agent-optimization.status.md)。
-
-| 任务 | 类型 | 门禁 |
+| 日期 | 里程碑 | 要点 |
 |------|------|------|
-| 一.1 执行过程折叠重构（isStreaming prop + 折叠逻辑优化） | UI 优化 | tsc 0 \| vitest 1530/1530 |
-| 一.2 Hover 颜色调淡（STEP_COLORS opacity + 色条宽度 + 背景色） | UI 优化 | 同上 |
-| 三.1 消息内联编辑（textarea + 键盘事件 + editMessage IPC） | 新功能 | 同上 |
-| 二.2 流式缓冲竞态修复（防御性清空 buffer） | Bug 修复 | 同上 |
-| 二.1 上下文延续修复（cleanupIncompleteMessages 时序 + Attention Anchoring） | Bug 修复 | 同上 |
+| 09-10 | Agent/KB 代码重构 | agentLoop 拆分 (agentPromptBuilder/agentToolSelector/agentKbPreloader) + kbSearch 缓存提取 + tokenEstimator 共享 |
+| 09-09 | Agent 优化 v4 | deleteLocalFile 文件树刷新 + editLocalFile 编辑器同步 + web_search 意图路由优化 + QuestionCard 美化 |
+| 09-08 | AI 优化方案 | IPC 通道名修复 + deleteLocalFile 工具 + QuestionCard 底部面板 + 系统通知 + i18n |
+| 09-07 | Agent 优化 v3 | 搜索持久化 + 动态轮次 + 多文件 Diff (IPatchProposal + PatchPreviewCard) |
+| 09-07 | AI Agent 优化 30/30 | 重试状态重置/历史污染/提示词精简 + 轮次压缩/动态工具 + Schema 压缩/上下文压缩/KB 缓存 + Agentic RAG/HyDE |
 
-**根因定位**：`cleanupIncompleteMessages` 会移除末尾无 assistant 跟随的 user 消息，但 `appendMessage` 在 `getMessagesByConversation` 之前调用，当前 user 消息被当作"孤立消息"移除。
+### 历史里程碑（2026-08-06 ~ 2026-08-31）
 
-### Agent/KB 代码重构（2026-09-10）
-
-详见 [重构报告](./refactor/agent-kb-refactor.refactor.md)。
-
-| 任务 | 类型 | 门禁 |
-|------|------|------|
-| agentLoop.ts 拆分（agentPromptBuilder/agentToolSelector/agentKbPreloader） | 重构 | tsc 0 \| vitest 1530/1530 |
-| kbSearch.ts 缓存提取（searchCache.ts） | 重构 | 同上 |
-| agentTaskWorker.processTask 分解（4 个子方法） | 重构 | 同上 |
-| knowledgeContext.buildDocumentContext 分解（4 个子函数） | 重构 | 同上 |
-| 共享 tokenEstimator 提取 | 重构 | 同上 |
-
-### Agent 优化 v4（2026-09-09）
-
-| 任务 | 类型 | 门禁 |
-|------|------|------|
-| P0: deleteLocalFile 文件树刷新（返回 parentDir + agentStore 条件匹配） | Bug 修复 | tsc 0 \| vitest 23/23 |
-| P0: editLocalFile/preview_file_revision 编辑器同步（readDisk/updateContent） | Bug 修复 | 同上 |
-| P1: web_search 意图路由优化（关键词扩展 + 强信号加权 + 基础工具提升） | 功能增强 | 同上 |
-| P1: web_search 配置检查（未配置时不注入，避免 LLM 调用失败） | Bug 修复 | 同上 |
-| P2: QuestionCard 底部面板美化（渐变/阴影/卡片/单选按钮组/字体） | UI 增强 | 同上 |
-
-### AI 优化方案（2026-09-08）
-
-| 任务 | 类型 | 门禁 |
-|------|------|------|
-| P0: IPC 通道名不匹配修复（ask_question_card 交互链路断路） | Bug 修复 | tsc 0 \| vitest 1530/1530 |
-| P0: 新增 deleteLocalFile 工具（本地文件删除能力） | 新功能 | 同上 |
-| P0: QuestionCard 底部滑出面板重构 | UI 重构 | 同上 |
-| P0: 系统通知（窗口未聚焦时右下角提示） | 新功能 | 同上 |
-| P1: i18n 新增 4 个翻译键 | 国际化 | 同上 |
-| P1: QuestionCard 提交后自动滚动 | 体验优化 | 同上 |
-
-### Agent 优化 v3（2026-09-07）
-
-详见 [实施状态](./plan/agent-optimize-v3.status.md)。
-
-| 需求 | 任务 | 门禁 |
-|------|------|------|
-| R1 搜索持久化 | refreshSearchConfig 联动 + handleTest 去乐观置位 | tsc 0 \| vitest 1530/1530 \| lint 0 |
-| R2 动态轮次 | DEFAULT_MAX_ROUNDS 统一 + agentLoop/guard/session 同步 + 死循环消息透传 + 意图动态轮次 + userMaxRounds | 同上 |
-| R3 多文件 Diff | IPatchProposal + agentStore 拦截 + PatchPreviewCard + PatchDetailModal + AgentTab 集成 | 同上 |
-
-### AI Agent 优化（2026-09-07，30/30 全部完成）
-
-详见 [实施状态](./plan/ai-agent-optimize.status.md)。
-
-| 阶段 | 任务 | 门禁 |
-|------|------|------|
-| P0 | 重试状态重置、历史污染、提示词精简 | tsc 0 \| vitest 1530/1530 |
-| P1 | 轮次压缩、动态工具、重排优化、进度反馈、保存按钮/提示、手动保存 | 同上 |
-| P2/P3 | Schema压缩、上下文压缩、KB缓存、滚动优化、IPC批量、KB预加载、searchMode、Web Worker | 同上 |
-| P4 | Agentic RAG（全意图自主检索）、HyDE（假设性文档检索） | 同上 |
-
-### 性能优化 + Bug 修复（2026-08-31）
-
-- Agent 执行流程 DB 优化（8 项）：seq 缓存、timestamp 客户端生成、冗余 JOIN 移除等
-- 知识库搜索优化（5 项）：N+1→聚合查询、writeChunks 事务、复合索引等
-- 写控制 + 前端优化（4 项）：editLocalFile statSync、React.memo、unified 复用、DAO 省回读
-- Bug 修复：编辑器模式切换滚动保持、检查更新卡住、启动自动检查更新
-
-### UI 美化 + AI 性能 v2（2026-08-29）
-
-- 字体统一、工具栏毛玻璃、按钮悬停动效、Composer 标签、Material Design Icons
-- 前端 4 组件 memo + 后端 5 项 DB 查询优化
-
-### 知识库 Notus 对齐（2026-08-25 ~ 2026-08-27，R1~R12）
-
-12 项需求全部完成：Embedding 多提供商、RRF 混合检索、加权策略、段聚合、查询理解、条件重排、知识澄清、证据分级、研究循环、文档上下文、jieba 分词、图片 embedding。
-
-### 写控制与任务安全（2026-08-24 ~ 2026-08-25，R1~R7）
-
-7 项需求全部完成：写模式切换、版本对比、交互暂停/恢复、待处理 UI、事件持久化、草稿恢复、模块集成。
-
-### Notus Agent 克隆（2026-08-24，Phase 1-5）
-
-21 项功能全部实现：Session 状态机、Checkpoint/Resume、结构化提问、任务队列、preview_patch_files、文件快照、SSE 持久化、死循环检测、联网搜索等。
-
-### 编辑主区 v2（2026-08-06 ~ 2026-08-19）
-
-块树内核、前缀即时转换、退出规则、浮动工具栏、行内格式、跨块拖选、图片工具栏、media:// 协议、可编辑表格块。
-
-### AI 代理面板（2026-08-14 ~ 2026-08-16）
-
-7 期全部交付：基建 + Chat 闭环 + 知识库 + Agent + 块级改写 + KB 参数 + 体验重构。
-
-### 其他
-
-认证系统、文件管理、导出（8 格式）、国际化（三语言）、深色主题、Frameless 窗口。
+| 日期 | 里程碑 |
+|------|------|
+| 08-31 | 性能优化：Agent 执行流程 DB 优化 8 项 + KB 搜索优化 5 项 + 写控制/前端优化 4 项 |
+| 08-29 | UI 美化：字体统一、工具栏毛玻璃、Composer 标签、Material Design Icons + AI 性能 v2 |
+| 08-25~27 | 知识库 Notus 对齐 R1~R12：Embedding 多提供商、RRF 混合检索、查询理解、jieba 分词等 |
+| 08-24~25 | 写控制与任务安全 R1~R7：写模式切换、版本对比、交互暂停/恢复、事件持久化、草稿恢复 |
+| 08-24 | Notus Agent 克隆 Phase 1-5：Session 状态机、Checkpoint/Resume、任务队列、死循环检测 |
+| 08-14~16 | AI 代理面板 7 期交付：基建 + Chat + 知识库 + Agent + 块级改写 + KB 参数 + 体验重构 |
+| 08-06~19 | 编辑主区 v2：块树内核、前缀即时转换、浮动工具栏、跨块拖选、可编辑表格块、media:// 协议 |
+| 更早 | 认证系统、文件管理、8 格式导出、三语言国际化、深色主题、Frameless 窗口 |
 
 ## 进行中
 
@@ -149,15 +82,20 @@
 
 ## 待开发
 
-- 🔲 v2 Normal 查找高亮
-- 🔲 撤销/重做后光标定位优化
-- 🔲 段落级 MD Source 视图迁移
-- 🔲 真 MCP server 管理
-- 🔲 pdf/docx 知识库导入
-- 🔲 Web Worker JSON.parse（AgentWorkflowCard 大 JSON 异步解析，已实现 worker 基础设施）
+| 优先级 | 任务 | 说明 |
+|------|------|------|
+| 🔲 | v2 Normal 查找高亮 | 编辑模式查找结果高亮，替代 Monaco 查找 |
+| 🔲 | 撤销/重做后光标定位优化 | 当前光标回到重建树首块，需恢复到操作位置 |
+| 🔲 | 段落级 MD Source 视图迁移 | v2 编辑器迁移 Monaco Source 视图 |
+| 🔲 | 真 MCP server 管理 | 外部 MCP server 注册与生命周期管理 |
+| 🔲 | pdf/docx 知识库导入 | 非 Markdown 格式文档直接导入知识库 |
+| 🔲 | Web Worker JSON.parse | AgentWorkflowCard 大 JSON 异步解析（worker 基础设施已就绪） |
 
 ## 已知问题
 
-- v2 Normal 模式无查找高亮
-- 撤销/重做后光标回到重建树首块
-- 5 个既有 E2E 红（drag-selection-markers.spec.ts）
+| 问题 | 影响范围 |
+|------|------|
+| v2 Normal 模式无查找高亮 | 编辑主区（Normal 模式） |
+| 撤销/重做后光标回到重建树首块 | 编辑主区（撤销/重做操作） |
+| 5 个既有 E2E 红（drag-selection-markers.spec.ts） | E2E 测试套件 |
+| 段落级 MD Source 视图未迁移 | 编辑主区（Source 模式） |
