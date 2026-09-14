@@ -16,20 +16,17 @@ import PatchDetailModal from './PatchDetailModal';
 
 const PatchPreviewCard: React.FC = () => {
   const proposals = useAgentStore((s) => s.patchProposals);
+  const isStreaming = useAgentStore((s) => s.isStreaming);
   const applyPatchProposal = useAgentStore((s) => s.applyPatchProposal);
   const discardPatchProposal = useAgentStore((s) => s.discardPatchProposal);
 
   const [showDetailModal, setShowDetailModal] = useState(false);
 
-  // 只显示 pending 状态的提案
-  const pendingProposals = useMemo(
-    () => proposals.filter((p) => p.status === 'pending'),
-    [proposals],
-  );
+  // 流式传输期间不显示卡片
+  if (isStreaming) return null;
+  if (proposals.length === 0) return null;
 
-  if (pendingProposals.length === 0) return null;
-
-  const source: DiffSummarySource = { kind: 'patch', data: pendingProposals };
+  const source: DiffSummarySource = { kind: 'patch', data: proposals };
 
   return (
     <>

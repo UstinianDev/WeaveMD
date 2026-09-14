@@ -9,9 +9,11 @@
 // apply/discard/dismiss + staleness 检测，薄壳不再传递这些回调。
 // staleBanner 仍由薄壳显式传递（保证 staleRejected 时初始渲染正确显示）。
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { useI18n } from '@render/i18n';
 import { useRewriteStore, type RewriteFileProposal } from '@render/stores/rewriteStore';
+import type { RewriteProposal } from '@shared/ai';
+import { useAgentStore } from '@render/stores/agentStore';
 import { diffLines } from '@render/filters/rewriteDiff';
 import DiffSummaryCard, { type DiffSummarySource } from './DiffSummaryCard';
 import RewriteDetailModal from './RewriteDetailModal';
@@ -21,6 +23,7 @@ const RewritePreviewCard: React.FC = () => {
   const { t } = useI18n();
   const pendingRewrite = useRewriteStore((s) => s.pendingRewrite);
   const pendingMultiRewrite = useRewriteStore((s) => s.pendingMultiRewrite);
+  const rewriteResult = useRewriteStore((s) => s.rewriteResult);
   const rewriting = useRewriteStore((s) => s.rewriting);
   const rewriteError = useRewriteStore((s) => s.rewriteError);
   const staleRejected = useRewriteStore((s) => s.staleRejected);
@@ -29,14 +32,25 @@ const RewritePreviewCard: React.FC = () => {
   const discardFileRewrite = useRewriteStore((s) => s.discardFileRewrite);
   const applyAllRewrites = useRewriteStore((s) => s.applyAllRewrites);
   const discardAllRewrites = useRewriteStore((s) => s.discardAllRewrites);
+  const isStreaming = useAgentStore((s) => s.isStreaming);
+
+  // 缓存最后一次有效的提案数据，apply/discard 后仍保留以供卡片显示
+  const cachedRewrite = useRef<RewriteProposal | null>(null);
+  const cachedMultiRewrite = useRef<RewriteFileProposal[] | null>(null);
+  if (pendingRewrite) cachedRewrite.current = pendingRewrite;
+  if (pendingMultiRewrite) cachedMultiRewrite.current = pendingMultiRewrite;
 
   const [showDetailModal, setShowDetailModal] = useState(false);
 
+  // 使用 pending 数据或缓存数据（apply/discard 后保留显示）
+  const activeRewrite = pendingRewrite ?? (rewriteResult ? cachedRewrite.current : null);
+  const activeMultiRewrite = pendingMultiRewrite ?? (rewriteResult ? cachedMultiRewrite.current : null);
+
   // AI 改动说明：有 aiComment 直接用，否则根据 diff 统计自动生成回退文案
   const comment = useMemo(() => {
-    if (pendingRewrite?.aiComment) return pendingRewrite.aiComment;
-    if (!pendingRewrite) return undefined;
-    const { originalMd, rewrittenMd } = pendingRewrite;
+    if (activeRewrite?.aiComment) return activeRewrite.aiComment;
+    if (!activeRewrite) return undefined;
+    const { originalMd, rewrittenMd } = activeRewrite;
     const lines = diffLines(originalMd, rewrittenMd);
     const delCount = lines.filter((l) => l.type === 'del').length;
     const insCount = lines.filter((l) => l.type === 'ins').length;
@@ -50,7 +64,7 @@ const RewritePreviewCard: React.FC = () => {
       return `新增了 ${insCount} 行内容。`;
     }
     return undefined;
-  }, [pendingRewrite]);
+  }, [activeRewrite]);
 
   // ── 改写进行中 ──
   if (rewriting) {
@@ -78,7 +92,10 @@ const RewritePreviewCard: React.FC = () => {
     </div>
   );
 
-  if (!pendingRewrite && !pendingMultiRewrite) {
+  // 流式传输期间不显示卡片，避免误触影响未完成的回答
+  if (isStreaming) return null;
+
+  if (!activeRewrite && !activeMultiRewrite) {
     if (staleRejected) {
       return banner(
         t('ai.rewrite.staleRejected'),
@@ -110,9 +127,9 @@ const RewritePreviewCard: React.FC = () => {
   }
 
   // ── 构建 DiffSummarySource ──
-  const source: DiffSummarySource = pendingMultiRewrite
-    ? { kind: 'rewrite', data: pendingMultiRewrite }
-    : { kind: 'rewrite', data: pendingRewrite! };
+  const source: DiffSummarySource = activeMultiRewrite
+    ? { kind: 'rewrite', data: activeMultiRewrite }
+    : { kind: 'rewrite', data: activeRewrite! };
 
   return (
     <>
@@ -124,33 +141,33 @@ const RewritePreviewCard: React.FC = () => {
       />
 
       {/* 详情面板：单文件 / 多文件均支持 */}
-      {showDetailModal && (pendingMultiRewrite || pendingRewrite) && (
+      {showDetailModal && (activeMultiRewrite || activeRewrite) && (
         <RewriteDetailModal
           files={
-            pendingMultiRewrite
-              ?? (pendingRewrite
+            activeMultiRewrite
+              ?? (activeRewrite
                 ? ([{
                     fileName: '当前文档',
-                    originalMd: pendingRewrite.originalMd,
-                    rewrittenMd: pendingRewrite.rewrittenMd,
+                    originalMd: activeRewrite.originalMd,
+                    rewrittenMd: activeRewrite.rewrittenMd,
                     status: 'pending' as const,
-                    contentHash: pendingRewrite.contentHash,
+                    contentHash: activeRewrite.contentHash,
                   }] as RewriteFileProposal[])
                 : [])
           }
           onClose={() => setShowDetailModal(false)}
           onApply={(fn) => {
-            if (pendingMultiRewrite) {
+            if (activeMultiRewrite) {
               applyFileRewrite(fn);
             }
           }}
           onDiscard={(fn) => {
-            if (pendingMultiRewrite) {
+            if (activeMultiRewrite) {
               discardFileRewrite(fn);
             }
           }}
           onApplyAll={() => {
-            if (pendingMultiRewrite) {
+            if (activeMultiRewrite) {
               applyAllRewrites();
             } else {
               // 单文件：直接调 applyRewrite（DiffSummaryCard 内部 hook 处理）
@@ -158,7 +175,7 @@ const RewritePreviewCard: React.FC = () => {
             }
           }}
           onDiscardAll={() => {
-            if (pendingMultiRewrite) {
+            if (activeMultiRewrite) {
               discardAllRewrites();
             } else {
               useRewriteStore.getState().clearRewrite();

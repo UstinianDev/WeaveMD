@@ -15,16 +15,18 @@ import EditBlocksDetailModal from './EditBlocksDetailModal';
 
 const EditBlocksPreviewCard: React.FC = () => {
   const proposals = useAgentStore((s) => s.editBlocksProposals);
+  const isStreaming = useAgentStore((s) => s.isStreaming);
   const applyProposal = useAgentStore((s) => s.applyEditBlocksProposal);
   const discardProposal = useAgentStore((s) => s.discardEditBlocksProposal);
 
   const [showDetailModal, setShowDetailModal] = useState(false);
 
-  // 只显示 pending 状态的提案
-  const pendingProposals = proposals.filter((p) => p.status === 'pending');
-  if (pendingProposals.length === 0) return null;
+  // 流式传输期间不显示卡片，避免用户在回答未完成时误触
+  if (isStreaming) return null;
+  // 无提案时不显示
+  if (proposals.length === 0) return null;
 
-  const source: DiffSummarySource = { kind: 'editBlocks', data: pendingProposals };
+  const source: DiffSummarySource = { kind: 'editBlocks', data: proposals };
 
   return (
     <>
