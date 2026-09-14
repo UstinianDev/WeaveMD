@@ -2800,10 +2800,10 @@ span.comment-marker {
 /* ============================================ */
 
 .rewrite-detail-modal {
-  width: 800px;
-  height: 600px;
-  max-width: 90vw;
-  max-height: 85vh;
+  width: 960px;
+  height: 680px;
+  max-width: 94vw;
+  max-height: 90vh;
   display: flex;
   flex-direction: column;
 }

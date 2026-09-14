@@ -720,11 +720,33 @@ async function executeToolRound(
   round: number,
   deps: AgentLoopDeps
 ): Promise<ToolRoundResult> {
+  // 去重 ask_question_card：DeepSeek 流式输出有时会先输出不完整的 tool call
+  // （空 questions 数组），然后再输出完整的调用。只保留最后一个，丢弃前面的空参数调用。
+  const dedupedToolCalls = accumulatedToolCalls.filter((tc, idx, arr) => {
+    if (tc.name !== 'ask_question_card') return true;
+    try {
+      const parsed = JSON.parse(tc.arguments);
+      if (!parsed.questions || !Array.isArray(parsed.questions) || parsed.questions.length === 0) {
+        // 空 questions — 丢弃，除非这是唯一的 ask_question_card 调用
+        const lastAskIdx = arr
+          .map((t, i) => (t.name === 'ask_question_card' ? i : -1))
+          .filter((i) => i >= 0)
+          .pop();
+        if (lastAskIdx !== idx) return false;
+      }
+    } catch {
+      // JSON 解析失败 — 可能是流式截断，如果后面还有同名调用则丢弃
+      const hasLater = arr.slice(idx + 1).some((t) => t.name === 'ask_question_card');
+      if (hasLater) return false;
+    }
+    return true;
+  });
+
   const toolTurn: AgentLlmMessage[] = [];
   toolTurn.push({
     role: 'assistant',
     content: '',
-    tool_calls: accumulatedToolCalls.map((tc) => ({
+    tool_calls: dedupedToolCalls.map((tc) => ({
       id: `call_${round}_${tc.index}`,
       type: 'function' as const,
       function: { name: tc.name, arguments: tc.arguments },
@@ -740,7 +762,7 @@ async function executeToolRound(
   // 1a: 分区只读/有副作用工具
   const readOnlyTcs: typeof accumulatedToolCalls = [];
   const writableTcs: typeof accumulatedToolCalls = [];
-  for (const tc of accumulatedToolCalls) {
+  for (const tc of dedupedToolCalls) {
     if (READ_ONLY_TOOLS.has(tc.name)) {
       readOnlyTcs.push(tc);
     } else {
@@ -756,6 +778,21 @@ async function executeToolRound(
   // 串行执行有副作用工具
   const writableResults: ToolExecResult[] = [];
   for (const tc of writableTcs) {
+    // R3: ask_question_card 预验证 — 无效参数时直接跳过，避免 LLM 看到错误后跨轮重试
+    if (tc.name === 'ask_question_card') {
+      try {
+        const parsed = JSON.parse(tc.arguments) as Record<string, unknown>;
+        const qs = parsed.questions as unknown;
+        if (!Array.isArray(qs) || qs.length === 0) {
+          // 无效调用：不执行，不反馈错误给 LLM，静默跳过
+          continue;
+        }
+      } catch {
+        // JSON 解析失败，静默跳过（后续轮次 LLM 会修正）
+        continue;
+      }
+    }
+
     // R5: 删除操作强制确认（双层防线——不依赖 LLM 自觉，硬编码拦截）
     if (FORCE_CONFIRM_TOOLS.has(tc.name)) {
       const toolCallId = `call_${round}_${tc.index}`;
@@ -827,7 +864,7 @@ async function executeToolRound(
   for (const r of readOnlyResults) resultMap.set(r.tc.index, r);
   for (const r of writableResults) resultMap.set(r.tc.index, r);
 
-  for (const tc of accumulatedToolCalls) {
+  for (const tc of dedupedToolCalls) {
     const entry = resultMap.get(tc.index);
     if (!entry) continue;
     const check = handleToolResult(entry, ctx, round, thinkingText, deps, toolTurn, executionSegments);
@@ -838,7 +875,7 @@ async function executeToolRound(
   // handleToolResult 已调用 onInteractionRequired 推送 UI 通知，
   // 此处 await waitForInteraction 阻塞直到用户提交答案，然后注入答案到 tool result
   if (deps.waitForInteraction) {
-    for (const tc of accumulatedToolCalls) {
+    for (const tc of dedupedToolCalls) {
       if (tc.name !== 'ask_question_card') continue;
       const callId = `call_${round}_${tc.index}`;
       const askResult = toolTurn.find(

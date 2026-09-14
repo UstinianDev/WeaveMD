@@ -7,6 +7,7 @@
 // 无 dangerouslySetInnerHTML、无 any。
 
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useI18n } from '@render/i18n';
 import { diffLines } from '@render/filters/rewriteDiff';
 import type { IPatchProposal, IPatchFile } from '@shared/ai/clarify';
@@ -105,7 +106,7 @@ const PatchDetailModal: React.FC<PatchDetailModalProps> = ({
     return t('ai.patch.modifyFile', '修改');
   };
 
-  return (
+  return createPortal(
     <div
       className="insert-url-modal-overlay"
       role="dialog"
@@ -139,7 +140,7 @@ const PatchDetailModal: React.FC<PatchDetailModalProps> = ({
         {/* 主体：左侧文件列表 + 右侧 diff */}
         <div className="flex flex-1 min-h-0 mt-3 gap-0">
           {/* 左侧文件列表（200px） */}
-          <div className="w-[200px] shrink-0 border-r border-[var(--border-color)] overflow-y-auto">
+          <div className="w-[240px] shrink-0 border-r border-[var(--border-color)] overflow-y-auto">
             {flatFiles.map((item, idx) => {
               const isSelected = idx === selectedIndex;
               const changeType = getFileChangeType(item.file);
@@ -251,7 +252,8 @@ const PatchDetailModal: React.FC<PatchDetailModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
