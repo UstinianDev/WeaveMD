@@ -69,19 +69,18 @@
 | [fix-web-search-loop.req](./requirements/fix-web-search-loop.req.md) | web_search 死循环修复需求（✅ 已修复） |
 | [refactor-export-editor-outline-navbar.req](./requirements/refactor-export-editor-outline-navbar.req.md) | **全局重构需求（2026-09-13）**：导出/编辑/大纲/导航四模块，L 级重型重构 |
 | [agent-ux-optimize.req](./requirements/agent-ux-optimize.req.md) | **Agent UX 优化需求（2026-09-14）**：Diff/提问/写控制/澄清 7 项优化 |
+| [perf-agent-arch.req](./requirements/perf-agent-arch.req.md) | **Agent 架构级性能优化需求（2026-09-15）**：工具调用前置/Checkpoint/代码清理 |
 
 ## 实施计划
 
-### 当前（2026-09-14）
+### 当前（2026-09-15）
 
 | 文档 | 说明 |
 |------|------|
-| [agent-ux-optimize.plan](./plan/agent-ux-optimize.plan.md) | **Agent UX 优化计划**：7 子任务实现方案 + 变更清单 |
-| [agent-ux-optimize.status](./plan/agent-ux-optimize.status.md) | **Agent UX 优化状态**：Phase 0-8 全流程 + 触发修复 + UI 美化 |
-| [agent-ux-optimize.connectivity](./plan/agent-ux-optimize.connectivity.md) | **连通性验证报告**：10 层 round/totalRounds IPC 透传 |
-| [perf-export-editor-outline.plan](./plan/perf-export-editor-outline.plan.md) | 性能优化计划（导出/编辑/大纲） |
-| [refactor-export-editor-outline-navbar.plan](./plan/refactor-export-editor-outline-navbar.plan.md) | 四模块重构计划 |
-| [refactor-export-editor-outline-navbar.connectivity](./plan/refactor-export-editor-outline-navbar.connectivity.md) | 连通性报告（19/19 链路） |
+| [perf-agent-arch.plan](./plan/perf-agent-arch.plan.md) | **Agent 架构优化计划**：工具调用前置 + Checkpoint 真增量 + 3 项代码清理 |
+| [agent-ux-optimize.plan](./plan/agent-ux-optimize.plan.md) | Agent UX 优化计划：7 子任务实现方案 + 变更清单 |
+| [agent-ux-optimize.status](./plan/agent-ux-optimize.status.md) | Agent UX 优化状态：Phase 0-8 全流程 |
+| [agent-ux-optimize.connectivity](./plan/agent-ux-optimize.connectivity.md) | 连通性验证报告 |
 
 ### 历史计划
 

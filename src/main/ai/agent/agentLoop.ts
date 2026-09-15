@@ -960,9 +960,6 @@ export async function runAgentFlow(
   // 阶段 1：准备上下文（consent + 校验 + 消息组装 + 工具选择）
   const ctx = prepareAgentContext(event, payload, config, apiKeyEnc, controller, deps);
 
-  // PERF: 端到端计时
-  const perfStartE2E = performance.now();
-
   // 异步预加载知识库：在 LLM 首轮思考期间后台预检索，首轮 searchKB 命中时跳过网络延迟
   if (deps.searchKb && payload.useKnowledgeBase) {
     const { searchKb: cachedSearchKb } = createPreloadedSearchKb(
@@ -978,8 +975,6 @@ export async function runAgentFlow(
       // R7a: 轮次限制检查
       if (ctx.detector.checkRoundLimit(round)) break;
       ctx.roundsUsed = round + 1;
-      // PERF: 单轮计时
-      const perfStartRound = performance.now();
 
       // R7a: 接近限制时注入收敛提示
       if (ctx.detector.isNearRoundLimit()) {
@@ -1088,8 +1083,6 @@ export async function runAgentFlow(
           roundsUsed: ctx.roundsUsed,
           intent: ctx.intent,
         });
-        // PERF: 端到端日志
-        console.log(`[PERF] Agent E2E: ${(performance.now() - perfStartE2E).toFixed(1)}ms, rounds: ${ctx.roundsUsed}`);
         return makeAgentResult({
           conversationId: ctx.convId,
           assistantId: ctx.assistantId,
@@ -1134,8 +1127,6 @@ export async function runAgentFlow(
           // checkpoint 写入失败不影响主流程
         }
       }
-      // PERF: 单轮耗时日志
-      console.log(`[PERF] Round ${round}: ${(performance.now() - perfStartRound).toFixed(1)}ms`);
     }
 
     // 阶段 3：到达轮数上限

@@ -46,6 +46,8 @@ interface FileTreeRowProps {
   onContextMenu: (e: React.MouseEvent) => void;
   onRenameConfirm: (newName: string) => void;
   onRenameCancel: () => void;
+  /** 仅根文件夹：点击垃圾桶从文件树中移除（不删磁盘文件） */
+  onRemoveRootFolder?: () => void;
 }
 
 const FileTreeRow: React.FC<FileTreeRowProps> = ({
@@ -59,6 +61,7 @@ const FileTreeRow: React.FC<FileTreeRowProps> = ({
   onContextMenu,
   onRenameConfirm,
   onRenameCancel,
+  onRemoveRootFolder,
 }) => {
   const isFolder = item.isDirectory;
   const hasChildren = (item.children?.length ?? 0) > 0;
@@ -99,12 +102,28 @@ const FileTreeRow: React.FC<FileTreeRowProps> = ({
           onCancel={onRenameCancel}
         />
       ) : (
-        <span
-          className="flex-1 text-base text-text-primary truncate select-none font-semibold"
-          style={{ fontFamily: EDITOR_FONT_FAMILY }}
-        >
-          {item.name}
-        </span>
+        <>
+          <span
+            className="flex-1 text-base text-text-primary truncate select-none font-semibold"
+            style={{ fontFamily: EDITOR_FONT_FAMILY }}
+          >
+            {item.name}
+          </span>
+          {/* 根文件夹垃圾桶：仅从文件树移除，不删磁盘文件 */}
+          {item.isRoot && isFolder && onRemoveRootFolder && (
+            <button
+              type="button"
+              className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-text-muted hover:text-red-400 p-0.5 rounded"
+              title={item.name + ' — 从文件树中移除'}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemoveRootFolder();
+              }}
+            >
+              <Icon icon="delete" size={14} />
+            </button>
+          )}
+        </>
       )}
     </div>
   );
@@ -357,6 +376,9 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
             }
             onRenameConfirm={(newName) => handleRename(node.path, newName, isFolder)}
             onRenameCancel={() => setRenamingId(null)}
+            onRemoveRootFolder={
+              node.isRoot ? () => removeFolder(node.id) : undefined
+            }
           />
 
           {isFolder && node.expanded && hasChildren && (
@@ -365,7 +387,7 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
         </div>
       );
     },
-    [selectedIds, currentFileId, toggleExpand, toggleSelect, handleFileClick, handleContextMenu, renamingId, handleRename, searchQuery, folderHasMatch, matchesSearch]
+    [selectedIds, currentFileId, toggleExpand, toggleSelect, handleFileClick, handleContextMenu, renamingId, handleRename, searchQuery, folderHasMatch, matchesSearch, removeFolder]
   );
 
   // 渲染独立文件（使用统一的 FileTreeRow）

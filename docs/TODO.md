@@ -1,8 +1,19 @@
 # TODO
 
-> 最后更新：2026-09-14
+> 最后更新：2026-09-15
 
 ## 已完成
+
+### perf-agent-arch（2026-09-15）
+
+| 类别 | 任务 | 说明 |
+|------|------|------|
+| 架构 | 工具调用时机前置 | 系统提示增加"先调工具→拿到结果→再输出文本"规则 |
+| 架构 | Checkpoint 真增量写入 | 跳过每轮 DB read+JSON.parse，用内存已有消息直接构建 |
+| 清理 | 动态 import 静态化 | agentStore 8 处 await import(fileTreeStore) 改静态 import |
+| 清理 | 压缩路径死代码删除 | 删除 oldMessageCount/newTokenCount/compressionRatio |
+| 清理 | JSON 往返消除 | agentEventStore BatchEventItem 同时存 payload 对象引用 |
+| 功能 | 文件树根文件夹垃圾桶 | 仅从文件树移除导入文件夹，不删磁盘文件 |
 
 ### agent-ux-optimize（2026-09-14）
 
