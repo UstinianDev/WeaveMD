@@ -6,6 +6,7 @@
 
 import { app, BrowserWindow } from 'electron';
 import { autoUpdater } from 'electron-updater';
+import type { UpdateInfo } from 'electron-updater';
 import { IPC_CHANNELS } from '@shared/constants';
 
 /** Update event states pushed to renderer via UPDATE_EVENT. */
@@ -53,7 +54,7 @@ export function initAutoUpdater(): void {
     sendEvent({ state: 'checking' });
   });
 
-  autoUpdater.on('update-available', (info: { version?: string; releaseNotes?: string }) => {
+  autoUpdater.on('update-available', (info: UpdateInfo) => {
     console.log('[autoUpdater] update available:', info.version);
     sendEvent({
       state: 'available',
@@ -77,12 +78,12 @@ export function initAutoUpdater(): void {
 
   autoUpdater.on(
     'update-downloaded',
-    (info: { version?: string; releaseNotes?: string }) => {
+    (event: { version?: string; releaseNotes?: string | unknown[] | null }) => {
       sendEvent({
         state: 'downloaded',
-        version: info.version,
+        version: event.version,
         releaseNotes:
-          typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined,
+          typeof event.releaseNotes === 'string' ? event.releaseNotes : undefined,
       });
     }
   );
