@@ -49,13 +49,16 @@ export function initAutoUpdater(): void {
 
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = false;
+    autoUpdater.logger = console;
+    autoUpdater.allowPrerelease = true;
 
     autoUpdater.on('checking-for-update', () => {
+      console.log('[autoUpdater] checking...');
       sendEvent({ state: 'checking' });
     });
 
     autoUpdater.on('update-available', (info: { version?: string; releaseNotes?: string }) => {
-      sendEvent({
+      console.log('[autoUpdater] update available:', info.version);
         state: 'available',
         version: info.version,
         releaseNotes:
@@ -63,7 +66,8 @@ export function initAutoUpdater(): void {
       });
     });
 
-    autoUpdater.on('update-not-available', () => {
+    autoUpdater.on('update-not-available', (info: unknown) => {
+      console.log('[autoUpdater] update NOT available:', JSON.stringify(info));
       sendEvent({ state: 'not-available' });
     });
 
