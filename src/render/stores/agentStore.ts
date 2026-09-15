@@ -33,6 +33,7 @@ import type { WeaveMDApi } from '@main/preload';
 export { needsConsent } from '@shared/ai';
 import { useAuthStore } from './authStore';
 import { useEditorStore } from '@render/stores/editorStore';
+import { useFileTreeStore } from '@render/stores/fileTreeStore';
 
 /** 运行时入口：类型来自 preload 的 WeaveMDApi.ai 契约。 */
 type AiApi = WeaveMDApi['ai'];
@@ -691,7 +692,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             if (result.success) {
               const refreshAsync = async (): Promise<void> => {
                 try {
-                  const { useFileTreeStore } = await import('@render/stores/fileTreeStore');
                   const treeStore = useFileTreeStore.getState();
                   if (toolCall.name === 'createFile' && result.fileId && result.fileName) {
                     // 从工具参数中提取 content，供 FileTreePanel 读取
@@ -900,7 +900,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       // 收集文件树路径（用户打开/导入的文件 + 文件夹），让 AI 可发现本地文件
       let fileTreePaths: { files: string[]; folders: string[] } | undefined;
       try {
-        const { useFileTreeStore } = await import('@render/stores/fileTreeStore');
         const tree = useFileTreeStore.getState();
         const files = tree.looseFiles.map((f) => f.path).filter(Boolean);
         const folders = tree.folders.map((f) => f.path).filter(Boolean);
@@ -1045,7 +1044,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         await window.weaveMD.folder.createFolder(parentPath, proposal.folderName);
       }
       // 刷新文件树（如果 loadFolderContents 可用）
-      const { useFileTreeStore } = await import('@render/stores/fileTreeStore');
       const treeState = useFileTreeStore.getState();
       const parentToRefresh = proposal.parentPath;
       if (parentToRefresh && treeState.loadFolderContents) {
@@ -1096,9 +1094,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     } else if (proposal.toolName === 'createFile' && proposal.fileName) {
       // createFile：文件已由主进程写入磁盘，此处打开文件并刷新文件树
       void window.weaveMD.file.readDisk(proposal.fileName).then(() => {
-        void import('@render/stores/fileTreeStore').then(({ useFileTreeStore }) => {
-          void useFileTreeStore.getState().loadFolderContents?.('');
-        });
+        void useFileTreeStore.getState().loadFolderContents?.('');
       }).catch((err) => {
         console.warn('[agentStore] applyEditBlocksProposal createFile refresh failed:', err);
       });
@@ -1106,9 +1102,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       // preview_file_revision：写入磁盘（file.write 参数是文件路径，不是 ID）
       void window.weaveMD.file.write(proposal.fileName, proposal.newContent).then(() => {
         // 刷新文件树
-        void import('@render/stores/fileTreeStore').then(({ useFileTreeStore }) => {
-          void useFileTreeStore.getState().loadFolderContents?.('');
-        });
+        void useFileTreeStore.getState().loadFolderContents?.('');
         // 同步编辑器：如果修改的是当前打开的文件
         const editorState = useEditorStore.getState();
         if (editorState.currentFile?.id === proposal.fileName) {
@@ -1123,13 +1117,11 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       if (editorState2.currentFile?.id === proposal.fileName) {
         editorState2.updateContent(proposal.newContent);
       }
-      void import('@render/stores/fileTreeStore').then(({ useFileTreeStore }) => {
-        // 刷新文件所在目录
+      // 刷新文件所在目录
         const parentDir = proposal.fileName?.replace(/[/\\][^/\\]+$/, '') ?? '';
         if (parentDir) {
           void useFileTreeStore.getState().loadFolderContents(parentDir);
-        }
-      });
+        };
     }
 
     set((s) => ({
@@ -1152,13 +1144,11 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         if (editorState.currentFile?.id === proposal.fileName) {
           editorState.updateContent(proposal.originalContent);
         }
-        void import('@render/stores/fileTreeStore').then(({ useFileTreeStore }) => {
-            // 刷新文件所在目录
+        // 刷新文件所在目录
             const parentDir2 = proposal.fileName?.replace(/[/\\][^/\\]+$/, '') ?? '';
             if (parentDir2) {
               void useFileTreeStore.getState().loadFolderContents(parentDir2);
-            }
-          });
+            };
       }).catch((err) => {
         console.warn('[agentStore] discardEditBlocksProposal revert failed:', err);
       });
@@ -1202,7 +1192,6 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
     // 刷新文件树
     try {
-      const { useFileTreeStore } = await import('@render/stores/fileTreeStore');
       const treeStore = useFileTreeStore.getState();
       const userId = get().userId;
       if (userId) {

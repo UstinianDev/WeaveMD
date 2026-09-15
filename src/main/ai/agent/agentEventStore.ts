@@ -33,6 +33,7 @@ interface BatchEventItem {
   seq: number;
   eventType: string;
   payloadJson: string;
+  payload: unknown;
   mainWindow: BrowserWindow;
 }
 
@@ -92,7 +93,7 @@ function flushEventBatch(): void {
   // 批量 IPC 发送
   for (const item of batch) {
     try {
-      const payload = JSON.parse(item.payloadJson);
+      const payload = item.payload;
       item.mainWindow.webContents.send(`ai:stream:${item.eventType}`, {
         sessionId: item.sessionId,
         conversationId: item.conversationId,
@@ -133,6 +134,7 @@ export function persistAndSend(
     seq: nextSeq,
     eventType,
     payloadJson,
+    payload,
     mainWindow,
   });
 

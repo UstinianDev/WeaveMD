@@ -596,6 +596,8 @@ describe('runAgentFlow', () => {
       1,  // roundsUsed
       null,  // reasoningTokenCount
       expect.objectContaining({ intent: 'create' }),  // intent
+      expect.any(Array),  // existingMessages (memory path)
+      expect.any(Number),  // roundIndex
     );
   });
 });

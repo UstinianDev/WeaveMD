@@ -55,6 +55,8 @@ export function saveCheckpoint(
  * @param roundsUsed 已用轮次
  * @param reasoningTokenCount 推理 token 数
  * @param intent 意图
+ * @param existingMessages 内存中已有的完整消息历史（如果传入则跳过 DB read，避免 JSON.parse 开销）
+ * @param roundIndex 当前轮次索引（如果传入则直接使用，不从 DB 读取的 existing 推算）
  */
 export function saveCheckpointIncremental(
   db: Database,
@@ -64,18 +66,28 @@ export function saveCheckpointIncremental(
   roundsUsed: number,
   reasoningTokenCount: number | null,
   intent: IIntent | null,
+  existingMessages?: Array<{ role: string; content: string; tool_call_id?: string }>,
+  roundIndex?: number,
 ): void {
-  // 1. 读取现有 checkpoint
-  const existing = loadCheckpoint(db, sessionId);
+  let mergedMessages: AgentLlmMessage[];
+  let nextRoundIndex: number;
 
-  // 2. 合并新消息（增量追加）
-  const mergedMessages: AgentLlmMessage[] = existing
-    ? [...existing.llmMessages, ...newMessages]
-    : [...newMessages];
+  if (existingMessages !== undefined) {
+    // 优化路径：使用内存中已有的消息历史，跳过 DB read + JSON.parse
+    mergedMessages = [...existingMessages as AgentLlmMessage[], ...newMessages];
+    nextRoundIndex = roundIndex ?? 0;
+  } else {
+    // 向后兼容路径：从 DB 读取现有 checkpoint 合并
+    const existing = loadCheckpoint(db, sessionId);
+    mergedMessages = existing
+      ? [...existing.llmMessages, ...newMessages]
+      : [...newMessages];
+    nextRoundIndex = existing ? existing.roundIndex + 1 : 0;
+  }
 
-  // 3. 构建增量 checkpoint（toolCallsHistory 已是完整历史，直接替换）
+  // 构建增量 checkpoint（toolCallsHistory 已是完整历史，直接替换）
   const checkpointData: CheckpointData = {
-    roundIndex: existing ? existing.roundIndex + 1 : 0,
+    roundIndex: nextRoundIndex,
     llmMessages: mergedMessages,
     toolCallsHistory,
     roundsUsed,
@@ -83,7 +95,7 @@ export function saveCheckpointIncremental(
     intent,
   };
 
-  // 4. 序列化并写入
+  // 序列化并写入
   const checkpointJson = JSON.stringify(checkpointData);
   sessionDao.saveCheckpoint(db, sessionId, checkpointJson);
 }

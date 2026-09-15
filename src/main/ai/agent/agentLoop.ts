@@ -960,6 +960,9 @@ export async function runAgentFlow(
   // 阶段 1：准备上下文（consent + 校验 + 消息组装 + 工具选择）
   const ctx = prepareAgentContext(event, payload, config, apiKeyEnc, controller, deps);
 
+  // PERF: 端到端计时
+  const perfStartE2E = performance.now();
+
   // 异步预加载知识库：在 LLM 首轮思考期间后台预检索，首轮 searchKB 命中时跳过网络延迟
   if (deps.searchKb && payload.useKnowledgeBase) {
     const { searchKb: cachedSearchKb } = createPreloadedSearchKb(
@@ -975,6 +978,8 @@ export async function runAgentFlow(
       // R7a: 轮次限制检查
       if (ctx.detector.checkRoundLimit(round)) break;
       ctx.roundsUsed = round + 1;
+      // PERF: 单轮计时
+      const perfStartRound = performance.now();
 
       // R7a: 接近限制时注入收敛提示
       if (ctx.detector.isNearRoundLimit()) {
@@ -989,26 +994,12 @@ export async function runAgentFlow(
       // 上下文压缩（幂等）— 使用增量 token 统计 + 动态阈值
       if (shouldCompress(ctx.totalTokens, CONTEXT_WINDOW, getCompressThreshold(round))) {
         try {
-          // 压缩前记录旧消息数（用于增量计算）
-          const oldMessageCount = ctx.llmMessages.length;
-
           const newSummary = await summarizeViaLlm(ctx.llmMessages, ctx.skillContext);
           if (newSummary) {
             updateConversationSummary(ctx.convId, ctx.userId, newSummary);
             ctx.llmMessages = buildCompressed(ctx.llmMessages, newSummary, KEEP_RECENT_ROUNDS);
 
-            // 增量计算：只计算压缩后新增的消息（通常只有 summary + 分隔标记）
-            // 压缩后的消息数通常远少于原始消息数
-            const newMessages = ctx.llmMessages.slice(oldMessageCount);
-            const newTokenCount = newMessages.reduce((s, m) => s + estimateTokens(m.content), 0);
-
-            // 压缩后 token 数 = 原始 token 数 - 被移除消息的 token 数 + 新增消息的 token 数
-            // 简化：直接使用压缩后消息的 token 总数（因为压缩会显著减少 token 数）
             ctx.totalTokens = ctx.llmMessages.reduce((s, m) => s + estimateTokens(m.content), 0);
-
-            // 可选：记录压缩比（用于调试）
-            const compressionRatio = ctx.totalTokens / (ctx.totalTokens + newTokenCount);
-            console.log(`[Agent] Context compression ratio: ${compressionRatio.toFixed(2)}, messages: ${oldMessageCount} -> ${ctx.llmMessages.length}`);
           }
         } catch (compressErr) {
           // 压缩失败不应阻断主流程，记录日志后继续
@@ -1097,6 +1088,8 @@ export async function runAgentFlow(
           roundsUsed: ctx.roundsUsed,
           intent: ctx.intent,
         });
+        // PERF: 端到端日志
+        console.log(`[PERF] Agent E2E: ${(performance.now() - perfStartE2E).toFixed(1)}ms, rounds: ${ctx.roundsUsed}`);
         return makeAgentResult({
           conversationId: ctx.convId,
           assistantId: ctx.assistantId,
@@ -1119,10 +1112,9 @@ export async function runAgentFlow(
         ctx.totalTokens += estimateTokens(m.content);
       }
 
-      // R7b: checkpoint（增量写入 — 只序列化本轮新增消息，避免全量序列化）
+      // R7b: checkpoint（真增量 — 传入内存既有消息，跳过 DB read）
       if (ctx.hasSessionPersist) {
         try {
-          // 增量写入：只传入本轮新增的 toolTurn 消息，与现有 checkpoint 合并
           saveCheckpointIncremental(
             deps.db!,
             deps.sessionId!,
@@ -1135,11 +1127,15 @@ export async function runAgentFlow(
             ctx.roundsUsed,
             ctx.reasoningTokenCount,
             ctx.intent,
+            ctx.llmMessages,  // 内存中已有消息（不含本轮 toolTurn）
+            round,            // 当前轮次号
           );
         } catch {
           // checkpoint 写入失败不影响主流程
         }
       }
+      // PERF: 单轮耗时日志
+      console.log(`[PERF] Round ${round}: ${(performance.now() - perfStartRound).toFixed(1)}ms`);
     }
 
     // 阶段 3：到达轮数上限
