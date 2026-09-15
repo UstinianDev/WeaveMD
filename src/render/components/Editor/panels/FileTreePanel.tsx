@@ -48,6 +48,8 @@ interface FileTreeRowProps {
   onRenameCancel: () => void;
   /** 仅根文件夹：点击垃圾桶从文件树中移除（不删磁盘文件） */
   onRemoveRootFolder?: () => void;
+  /** 仅独立文件：点击垃圾桶从文件树中移除（不删磁盘文件） */
+  onRemoveFile?: () => void;
 }
 
 const FileTreeRow: React.FC<FileTreeRowProps> = ({
@@ -62,6 +64,7 @@ const FileTreeRow: React.FC<FileTreeRowProps> = ({
   onRenameConfirm,
   onRenameCancel,
   onRemoveRootFolder,
+  onRemoveFile,
 }) => {
   const isFolder = item.isDirectory;
   const hasChildren = (item.children?.length ?? 0) > 0;
@@ -123,6 +126,20 @@ const FileTreeRow: React.FC<FileTreeRowProps> = ({
               <Icon icon="delete" size={14} />
             </button>
           )}
+          {/* 独立文件垃圾桶：仅从文件树移除，不删磁盘文件 */}
+          {!isFolder && onRemoveFile && (
+            <button
+              type="button"
+              className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-text-muted hover:text-red-400 p-0.5 rounded"
+              title={item.name + ' — 从文件树中移除'}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemoveFile();
+              }}
+            >
+              <Icon icon="delete" size={14} />
+            </button>
+          )}
         </>
       )}
     </div>
@@ -141,6 +158,7 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
   const toggleExpand = useFileTreeStore((s) => s.toggleExpand);
   const toggleSelect = useFileTreeStore((s) => s.toggleSelect);
   const removeFolder = useFileTreeStore((s) => s.removeFolder);
+  const removeFile = useFileTreeStore((s) => s.removeFile);
   const removeFileFromEverywhere = useFileTreeStore((s) => s.removeFileFromEverywhere);
   const renameNode = useFileTreeStore((s) => s.renameNode);
   const openFile = useEditorStore((s) => s.openFile);
@@ -424,10 +442,11 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
           }
           onRenameConfirm={(newName) => handleRename(file.path, newName, false)}
           onRenameCancel={() => setRenamingId(null)}
+          onRemoveFile={() => removeFile(file.id)}
         />
       );
     },
-    [selectedIds, currentFileId, toggleSelect, handleFileClick, handleContextMenu, renamingId, handleRename, searchQuery, matchesSearch]
+    [selectedIds, currentFileId, toggleSelect, handleFileClick, handleContextMenu, renamingId, handleRename, searchQuery, matchesSearch, removeFile]
   );
 
   // 检查是否有可见内容
