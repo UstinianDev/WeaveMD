@@ -1,13 +1,11 @@
 // ============================================
 // WeaveMD — Auto-Updater State Machine
 // ============================================
-// Wraps electron-updater autoUpdater:
-// - autoDownload = false (user confirms before download)
-// - autoInstallOnAppQuit = false
-// - Dev mode guard (!app.isPackaged → no-op)
-// - Main→renderer event bridge via webContents.send(UPDATE_EVENT, payload)
+// Wraps electron-updater autoUpdater.
+// Static import: electron-updater is a JS-only module (no native deps).
 
 import { app, BrowserWindow } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import { IPC_CHANNELS } from '@shared/constants';
 
 /** Update event states pushed to renderer via UPDATE_EVENT. */
@@ -27,8 +25,6 @@ export interface UpdateEvent {
   error?: string;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let autoUpdater: any = null;
 let initialized = false;
 
 /**
@@ -40,73 +36,78 @@ export function initAutoUpdater(): void {
   initialized = true;
 
   // Dev mode guard — electron-updater only works in packaged builds
-  if (!app.isPackaged) return;
+  if (!app.isPackaged) {
+    console.log('[autoUpdater] skipped: not packaged (dev mode)');
+    return;
+  }
 
-  // Dynamic import to avoid loading native modules in dev/test
-  void import('electron-updater').then((mod) => {
-    autoUpdater = mod.autoUpdater;
-    if (!autoUpdater) return;
+  console.log('[autoUpdater] initializing...');
 
-    autoUpdater.autoDownload = false;
-    autoUpdater.autoInstallOnAppQuit = false;
-    autoUpdater.logger = console;
-    autoUpdater.allowPrerelease = true;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.logger = console;
+  autoUpdater.allowPrerelease = true;
 
-    autoUpdater.on('checking-for-update', () => {
-      console.log('[autoUpdater] checking...');
-      sendEvent({ state: 'checking' });
+  autoUpdater.on('checking-for-update', () => {
+    console.log('[autoUpdater] checking...');
+    sendEvent({ state: 'checking' });
+  });
+
+  autoUpdater.on('update-available', (info: { version?: string; releaseNotes?: string }) => {
+    console.log('[autoUpdater] update available:', info.version);
+    sendEvent({
+      state: 'available',
+      version: info.version,
+      releaseNotes:
+        typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined,
     });
+  });
 
-    autoUpdater.on('update-available', (info: { version?: string; releaseNotes?: string }) => {
-      console.log('[autoUpdater] update available:', info.version);
-        state: 'available',
+  autoUpdater.on('update-not-available', (info: unknown) => {
+    console.log('[autoUpdater] update NOT available:', JSON.stringify(info));
+    sendEvent({ state: 'not-available' });
+  });
+
+  autoUpdater.on(
+    'download-progress',
+    (progress: { percent: number; transferred: number; total: number }) => {
+      sendEvent({ state: 'downloading', progress });
+    }
+  );
+
+  autoUpdater.on(
+    'update-downloaded',
+    (info: { version?: string; releaseNotes?: string }) => {
+      sendEvent({
+        state: 'downloaded',
         version: info.version,
         releaseNotes:
           typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined,
       });
-    });
+    }
+  );
 
-    autoUpdater.on('update-not-available', (info: unknown) => {
-      console.log('[autoUpdater] update NOT available:', JSON.stringify(info));
-      sendEvent({ state: 'not-available' });
-    });
-
-    autoUpdater.on(
-      'download-progress',
-      (progress: { percent: number; transferred: number; total: number }) => {
-        sendEvent({ state: 'downloading', progress });
-      }
-    );
-
-    autoUpdater.on(
-      'update-downloaded',
-      (info: { version?: string; releaseNotes?: string }) => {
-        sendEvent({
-          state: 'downloaded',
-          version: info.version,
-          releaseNotes:
-            typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined,
-        });
-      }
-    );
-
-    autoUpdater.on('error', (err: Error) => {
-      sendEvent({ state: 'error', error: err.message ?? 'Unknown update error' });
-    });
+  autoUpdater.on('error', (err: Error) => {
+    console.error('[autoUpdater] error:', err.message, err.stack);
+    sendEvent({ state: 'error', error: err.message ?? 'Unknown update error' });
   });
+
+  console.log('[autoUpdater] initialized OK');
 }
 
 /** Check for updates. Returns current state. Includes 30s timeout. */
 export async function checkForUpdates(): Promise<UpdateEvent> {
-  if (!app.isPackaged || !autoUpdater) {
+  if (!app.isPackaged) {
+    console.log('[autoUpdater] check skipped: not packaged');
     return { state: 'not-available' };
   }
   try {
-    // 30s timeout — prevents indefinite "checking" if GitHub is unreachable
+    console.log('[autoUpdater] checkForUpdates() starting...');
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error('Update check timed out (30s)')), 30_000);
     });
     const result = await Promise.race([autoUpdater.checkForUpdates(), timeoutPromise]);
+    console.log('[autoUpdater] checkForUpdates() result:', JSON.stringify(result?.updateInfo ?? null));
     if (!result) return { state: 'not-available' };
     return {
       state: 'available',
@@ -117,6 +118,7 @@ export async function checkForUpdates(): Promise<UpdateEvent> {
           : undefined,
     };
   } catch (err) {
+    console.error('[autoUpdater] checkForUpdates() error:', err);
     return {
       state: 'error',
       error: err instanceof Error ? err.message : 'Check failed',
@@ -126,8 +128,6 @@ export async function checkForUpdates(): Promise<UpdateEvent> {
 
 /**
  * Check for updates and broadcast result via push event.
- * This is the primary entry point for IPC — always sends UPDATE_EVENT
- * so the renderer UI never gets stuck in 'checking' state.
  */
 export async function checkForUpdatesAndNotify(): Promise<UpdateEvent> {
   const result = await checkForUpdates();
@@ -137,13 +137,16 @@ export async function checkForUpdatesAndNotify(): Promise<UpdateEvent> {
 
 /** Download the pending update. */
 export async function downloadUpdate(): Promise<{ success: boolean; error?: string }> {
-  if (!app.isPackaged || !autoUpdater) {
+  if (!app.isPackaged) {
     return { success: false, error: 'Updater not available' };
   }
   try {
+    console.log('[autoUpdater] downloadUpdate() starting...');
     await autoUpdater.downloadUpdate();
+    console.log('[autoUpdater] downloadUpdate() complete');
     return { success: true };
   } catch (err) {
+    console.error('[autoUpdater] downloadUpdate() error:', err);
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Download failed',
@@ -153,7 +156,8 @@ export async function downloadUpdate(): Promise<{ success: boolean; error?: stri
 
 /** Quit and install the downloaded update. */
 export function quitAndInstall(): void {
-  if (!app.isPackaged || !autoUpdater) return;
+  if (!app.isPackaged) return;
+  console.log('[autoUpdater] quitAndInstall()');
   autoUpdater.quitAndInstall(false, true);
 }
 
