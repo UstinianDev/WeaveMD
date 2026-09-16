@@ -2,6 +2,7 @@ import type { ToolCtx, ToolResult } from '../toolTypes';
 import type { IQueryUnderstanding } from '@shared/ai/kb';
 import { detectAmbiguities, classifyIntent } from '../knowledge/queryPlanner';
 import { buildClarificationContext } from '../knowledge/knowledgeClarify';
+import { getCachedHydeResult, setCachedHydeResult } from '../knowledge/searchCache';
 
 // ---------------------------------------------------------------------------
 // 辅助函数
@@ -22,7 +23,8 @@ function buildMinimalUnderstanding(
   }
 ): IQueryUnderstanding {
   const ambiguities = detectAmbiguities(query);
-  const intent = classifyIntent(query);
+  const intents = classifyIntent(query);
+  const primaryIntent = intents[0] ?? 'fact';
 
   // confidence 从最佳搜索得分推断
   let confidence = 0.2; // 默认低置信（无结果）
@@ -33,7 +35,8 @@ function buildMinimalUnderstanding(
   }
 
   return {
-    intent,
+    intent: primaryIntent,
+    intents,
     standalone: query,
     expanded: [query],
     ambiguities,
@@ -62,8 +65,17 @@ export async function handleSearchKB(args: Record<string, unknown>, ctx: ToolCtx
   // HyDE：先生成假设性文档 embedding，再用于向量检索
   let queryVector: number[] | undefined;
   if (hyde && ctx.generateHydeVector) {
-    const vec = await ctx.generateHydeVector(query);
-    if (vec) queryVector = vec;
+    // S9: HyDE 结果缓存（10 分钟 TTL），缓存键 = userId + query
+    const cached = getCachedHydeResult(ctx.userId, query);
+    if (cached) {
+      queryVector = cached;
+    } else {
+      const vec = await ctx.generateHydeVector(query);
+      if (vec) {
+        queryVector = vec;
+        setCachedHydeResult(ctx.userId, query, vec);
+      }
+    }
   }
 
   const res = await ctx.searchKb(ctx.userId, query, {

@@ -1121,7 +1121,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         const parentDir = proposal.fileName?.replace(/[/\\][^/\\]+$/, '') ?? '';
         if (parentDir) {
           void useFileTreeStore.getState().loadFolderContents(parentDir);
-        };
+        }
     }
 
     set((s) => ({
@@ -1148,7 +1148,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             const parentDir2 = proposal.fileName?.replace(/[/\\][^/\\]+$/, '') ?? '';
             if (parentDir2) {
               void useFileTreeStore.getState().loadFolderContents(parentDir2);
-            };
+            }
       }).catch((err) => {
         console.warn('[agentStore] discardEditBlocksProposal revert failed:', err);
       });

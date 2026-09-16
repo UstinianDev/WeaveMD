@@ -5,11 +5,13 @@
 // 测试: getSearchCacheKey（含 searchMode）、invalidateKbSearchCache（三级范围）、
 // chunkId→cacheKey 索引维护、向后兼容。
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getSearchCacheKey,
   getCachedSearchResult,
   setCachedSearchResult,
+  getCachedHydeResult,
+  setCachedHydeResult,
   invalidateKbSearchCache,
 } from '@main/ai/knowledge/searchCache';
 import type { IKbSearchDetailedResponse, IKbSearchResult } from '@shared/ai';
@@ -277,5 +279,94 @@ describe('chunkId → cacheKey 索引清理', () => {
 
     // 缓存应已清空
     expect(getCachedSearchResult(key)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S9: HyDE 结果缓存测试
+// ---------------------------------------------------------------------------
+
+describe('getCachedHydeResult / setCachedHydeResult', () => {
+  // 每次测试后清理 HyDE 缓存，保证隔离。
+  // （HyDE 缓存也受 invalidateKbSearchCache() 全量清除控制）
+  beforeEach(() => {
+    invalidateKbSearchCache();
+  });
+
+  it('HyDE 缓存命中应返回正确的向量', () => {
+    const vector = [0.12, 0.34, 0.56, 0.78];
+    setCachedHydeResult('user-1', '什么是知识库', vector);
+
+    const cached = getCachedHydeResult('user-1', '什么是知识库');
+    expect(cached).not.toBeNull();
+    expect(cached).toEqual(vector);
+    expect(cached).toHaveLength(4);
+  });
+
+  it('HyDE 缓存未命中应返回 null', () => {
+    expect(getCachedHydeResult('user-1', '不存在的查询')).toBeNull();
+  });
+
+  it('HyDE 缓存 TTL 过期后应失效', () => {
+    vi.useFakeTimers();
+    const vector = [0.1, 0.2, 0.3];
+    setCachedHydeResult('user-1', 'test query', vector);
+
+    // TTL 内应命中
+    expect(getCachedHydeResult('user-1', 'test query')).toEqual(vector);
+
+    // 推进时间超过 TTL（10 分钟 + 100ms 缓冲）
+    vi.advanceTimersByTime(10 * 60 * 1000 + 100);
+
+    // 过期后应返回 null
+    expect(getCachedHydeResult('user-1', 'test query')).toBeNull();
+
+    vi.useRealTimers();
+  });
+
+  it('不同 userId 的 HyDE 缓存应相互隔离', () => {
+    const vector1 = [0.11, 0.22];
+    const vector2 = [0.33, 0.44];
+
+    setCachedHydeResult('user-1', 'same query', vector1);
+    setCachedHydeResult('user-2', 'same query', vector2);
+
+    // 各自的查询应返回各自的向量
+    expect(getCachedHydeResult('user-1', 'same query')).toEqual(vector1);
+    expect(getCachedHydeResult('user-2', 'same query')).toEqual(vector2);
+
+    // 不存在的 user 应返回 null
+    expect(getCachedHydeResult('user-3', 'same query')).toBeNull();
+  });
+
+  it('同一 userId 下不同 query 的 HyDE 缓存各自独立', () => {
+    const vectorA = [0.1, 0.2];
+    const vectorB = [0.3, 0.4];
+
+    setCachedHydeResult('user-1', 'query A', vectorA);
+    setCachedHydeResult('user-1', 'query B', vectorB);
+
+    expect(getCachedHydeResult('user-1', 'query A')).toEqual(vectorA);
+    expect(getCachedHydeResult('user-1', 'query B')).toEqual(vectorB);
+  });
+
+  it('HyDE 缓存覆盖写入后应返回最新向量', () => {
+    const oldVector = [0.1, 0.2];
+    const newVector = [0.9, 0.8, 0.7];
+
+    setCachedHydeResult('user-1', 'repeat query', oldVector);
+    setCachedHydeResult('user-1', 'repeat query', newVector);
+
+    expect(getCachedHydeResult('user-1', 'repeat query')).toEqual(newVector);
+  });
+
+  it('全量 invalidateKbSearchCache 应同时清除 HyDE 缓存', () => {
+    const vector = [0.1, 0.2, 0.3];
+    setCachedHydeResult('user-1', 'some query', vector);
+    expect(getCachedHydeResult('user-1', 'some query')).not.toBeNull();
+
+    invalidateKbSearchCache();
+
+    expect(getCachedHydeResult('user-1', 'some query')).toBeNull();
   });
 });

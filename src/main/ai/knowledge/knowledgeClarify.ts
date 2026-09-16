@@ -39,6 +39,12 @@ function questionsForAmbiguity(ambiguity: AmbiguityType, query: string): IClarif
         text: '请描述更详细一些，你想查找什么信息？',
         type: 'text',
       }];
+    case 'semantic_ambiguity':
+      return [{
+        id: `clarify-semantic-${Date.now()}`,
+        text: `你提到的「${query}」可能有多种理解，能否说明你具体指的是哪个方面？`,
+        type: 'text',
+      }];
   }
 }
 

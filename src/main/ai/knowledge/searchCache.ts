@@ -146,6 +146,7 @@ export function invalidateKbSearchCache(scope?: string | InvalidateScope): void 
     // 无参：全量清除
     searchResultCache.clear();
     chunkIdToCacheKeys.clear();
+    hydeResultCache.clear();
     return;
   }
 
@@ -153,6 +154,7 @@ export function invalidateKbSearchCache(scope?: string | InvalidateScope): void 
   if (typeof scope === 'string') {
     searchResultCache.clear();
     chunkIdToCacheKeys.clear();
+    hydeResultCache.clear();
     return;
   }
 
@@ -161,6 +163,7 @@ export function invalidateKbSearchCache(scope?: string | InvalidateScope): void 
     case 'all':
       searchResultCache.clear();
       chunkIdToCacheKeys.clear();
+      hydeResultCache.clear();
       break;
 
     case 'user':
@@ -168,6 +171,7 @@ export function invalidateKbSearchCache(scope?: string | InvalidateScope): void 
       // 实际影响有限：单用户桌面应用，缓存条目天然按用户隔离。
       searchResultCache.clear();
       chunkIdToCacheKeys.clear();
+      hydeResultCache.clear();
       break;
 
     case 'chunk': {
@@ -179,6 +183,7 @@ export function invalidateKbSearchCache(scope?: string | InvalidateScope): void 
         }
         chunkIdToCacheKeys.delete(scope.chunkId);
       }
+      // HyDE 缓存不维护 chunk 索引，chunk 级失效不清除 HyDE
       break;
     }
   }
@@ -244,4 +249,44 @@ export function getCachedRerank(key: string): IKbSearchResult[] | null {
 export function setCachedRerank(key: string, results: IKbSearchResult[]): void {
   rerankCache.set(key, { results, timestamp: Date.now() });
   // LRU 缓存自动淘汰，无需手动清理
+}
+
+// ---------------------------------------------------------------------------
+// HyDE 结果缓存（S9）
+// ---------------------------------------------------------------------------
+
+/** HyDE 缓存条目。 */
+interface HydeCacheEntry {
+  vector: number[];
+  timestamp: number;
+}
+
+/** HyDE 结果缓存：LRU + TTL，最大 50 条目。 */
+const hydeResultCache = new LRUCache<string, HydeCacheEntry>(50);
+/** HyDE 缓存 TTL：10 分钟（相同 query 的假设性文档短期内不变）。 */
+const HYDE_CACHE_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * 获取 HyDE 向量缓存。
+ * 缓存键：`${userId}::${query}`，匹配则返回缓存的 embedding 向量。
+ * TTL 过期自动删除并返回 null。
+ */
+export function getCachedHydeResult(userId: string, query: string): number[] | null {
+  const key = `${userId}::${query}`;
+  const cached = hydeResultCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - cached.timestamp > HYDE_CACHE_TTL_MS) {
+    hydeResultCache.delete(key);
+    return null;
+  }
+  return cached.vector;
+}
+
+/**
+ * 设置 HyDE 向量缓存。
+ * 缓存键：`${userId}::${query}`，LRU 自动淘汰最旧条目。
+ */
+export function setCachedHydeResult(userId: string, query: string, vector: number[]): void {
+  const key = `${userId}::${query}`;
+  hydeResultCache.set(key, { vector, timestamp: Date.now() });
 }

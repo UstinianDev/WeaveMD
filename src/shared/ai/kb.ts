@@ -43,11 +43,14 @@ export const EMBEDDING_PROVIDER_DEFAULTS: Record<EmbeddingProviderType, Partial<
 export type QueryIntentType = 'fact' | 'summary' | 'comparison' | 'follow_up' | 'procedure';
 
 /** 模糊检测类型。 */
-export type AmbiguityType = 'pronoun_reference' | 'missing_subject' | 'broad_scope' | 'too_short';
+export type AmbiguityType = 'pronoun_reference' | 'missing_subject' | 'broad_scope' | 'too_short' | 'semantic_ambiguity';
 
 /** 查询理解结果。 */
 export interface IQueryUnderstanding {
+  /** 主要意图（向后兼容，取 intents[0]）。 */
   intent: QueryIntentType;
+  /** S12: 多意图列表（复合查询可返回多个意图）。 */
+  intents: QueryIntentType[];
   standalone: string;
   expanded: string[];
   ambiguities: AmbiguityType[];

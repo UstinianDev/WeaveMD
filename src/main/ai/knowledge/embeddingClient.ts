@@ -4,6 +4,8 @@
 // 调用 OpenAI 兼容 /embeddings 端点，支持单文本和批量文本。
 // 纯函数：除 node fetch 外不 import Electron，可单测（mock global fetch）。
 
+import { xxHash64Sync } from '@shared/utils/hashUtil';
+
 // ---------------------------------------------------------------------------
 // 基础类型（向后兼容）
 // ---------------------------------------------------------------------------
@@ -82,6 +84,62 @@ interface OpenAIEmbeddingResponse {
 }
 
 // ---------------------------------------------------------------------------
+// S10: 文本 Embedding 缓存（LRU + TTL）
+// ---------------------------------------------------------------------------
+
+const EMBEDDING_CACHE_MAX = 500;
+const EMBEDDING_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+interface EmbeddingCacheEntry {
+  vector: number[];
+  ts: number;
+}
+
+const embeddingCache = new Map<string, EmbeddingCacheEntry>();
+
+/** 查询文本 embedding 缓存，命中返回向量，未命中/过期返回 null。 */
+export function getCachedEmbedding(text: string): number[] | null {
+  const hash = xxHash64Sync(text);
+  const entry = embeddingCache.get(hash);
+  if (!entry) return null;
+
+  // TTL 检查
+  if (Date.now() - entry.ts > EMBEDDING_CACHE_TTL_MS) {
+    embeddingCache.delete(hash);
+    return null;
+  }
+
+  // LRU: 移动到末尾（最近使用）
+  embeddingCache.delete(hash);
+  embeddingCache.set(hash, entry);
+
+  return entry.vector;
+}
+
+/** 写入文本 embedding 缓存。若超过容量上限，驱逐最旧条目。 */
+export function setCachedEmbedding(text: string, vector: number[]): void {
+  const hash = xxHash64Sync(text);
+
+  // 删除旧条目以更新 LRU 位置
+  embeddingCache.delete(hash);
+
+  // 容量控制：驱逐最旧条目（Map 迭代顺序 = 插入顺序）
+  if (embeddingCache.size >= EMBEDDING_CACHE_MAX) {
+    const oldest = embeddingCache.keys().next().value;
+    if (oldest !== undefined) {
+      embeddingCache.delete(oldest);
+    }
+  }
+
+  embeddingCache.set(hash, { vector, ts: Date.now() });
+}
+
+/** 清空 embedding 缓存（供测试使用）。 */
+export function invalidateEmbeddingCache(): void {
+  embeddingCache.clear();
+}
+
+// ---------------------------------------------------------------------------
 // 基础 createEmbedding（向后兼容，签名不变）
 // ---------------------------------------------------------------------------
 
@@ -94,6 +152,34 @@ export async function createEmbedding(req: EmbeddingRequest): Promise<EmbeddingR
     throw makeError('config_incomplete', 'Embedding API key is required');
   }
 
+  const inputs = Array.isArray(req.input) ? req.input : [req.input];
+
+  // ---- S10: 检查缓存 ----
+  const cachedVectors = new Map<number, number[]>();
+  const uncachedIndices: number[] = [];
+  const uncachedTexts: string[] = [];
+
+  for (let i = 0; i < inputs.length; i++) {
+    const cached = getCachedEmbedding(inputs[i]);
+    if (cached) {
+      cachedVectors.set(i, cached);
+    } else {
+      uncachedIndices.push(i);
+      uncachedTexts.push(inputs[i]);
+    }
+  }
+
+  // 全部命中缓存
+  if (uncachedTexts.length === 0) {
+    const embeddings = inputs.map((_, i) => cachedVectors.get(i)!);
+    return {
+      embeddings,
+      model: req.model,
+      usage: { promptTokens: 0 },
+    };
+  }
+
+  // ---- 部分/全部未命中：调用 API ----
   const url = `${normalizeUrl(req.baseUrl)}/v1/embeddings`;
 
   let response: Response;
@@ -106,7 +192,7 @@ export async function createEmbedding(req: EmbeddingRequest): Promise<EmbeddingR
       },
       body: JSON.stringify({
         model: req.model,
-        input: req.input,
+        input: uncachedTexts,
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
@@ -142,12 +228,29 @@ export async function createEmbedding(req: EmbeddingRequest): Promise<EmbeddingR
 
   // 按 index 排序确保顺序一致
   const sorted = [...json.data].sort((a, b) => a.index - b.index);
-  const embeddings = sorted.map((d) => {
+  const apiVectors = sorted.map((d) => {
     if (!Array.isArray(d.embedding)) {
       throw makeError('parse', `Embedding item at index ${d.index} has invalid embedding`);
     }
     return d.embedding;
   });
+
+  // ---- S10: 写入缓存 ----
+  for (let i = 0; i < uncachedTexts.length; i++) {
+    setCachedEmbedding(uncachedTexts[i], apiVectors[i]);
+  }
+
+  // ---- 合并结果（保持原始顺序） ----
+  const embeddings: number[][] = [];
+  let apiIdx = 0;
+  for (let i = 0; i < inputs.length; i++) {
+    if (cachedVectors.has(i)) {
+      embeddings.push(cachedVectors.get(i)!);
+    } else {
+      embeddings.push(apiVectors[apiIdx]);
+      apiIdx++;
+    }
+  }
 
   return {
     embeddings,
@@ -173,6 +276,7 @@ function sleep(ms: number): Promise<void> {
  * - 失败时自动缩小 batch：20→10→5→2→1
  * - 成功后恢复原始 batchSize
  * - 每批之间 100ms 间隔防限流
+ * - S10: 集成 LRU+TTL 缓存，仅对未命中缓存的文本发起 API 调用
  */
 export async function createEmbeddingBatch(
   config: EmbeddingProviderConfig,
@@ -186,17 +290,38 @@ export async function createEmbeddingBatch(
     return { embeddings: [], model: config.model, usage: { promptTokens: 0 } };
   }
 
+  // ---- S10: 预检缓存 ----
+  const cachedVectors = new Map<number, number[]>();
+  const uncachedIndices: number[] = [];
+  const uncachedTexts: string[] = [];
+
+  for (let i = 0; i < texts.length; i++) {
+    const cached = getCachedEmbedding(texts[i]);
+    if (cached) {
+      cachedVectors.set(i, cached);
+    } else {
+      uncachedIndices.push(i);
+      uncachedTexts.push(texts[i]);
+    }
+  }
+
+  // 全部命中：无需 API 调用
+  if (uncachedTexts.length === 0) {
+    const embeddings = texts.map((_, i) => cachedVectors.get(i)!);
+    return { embeddings, model: config.model, usage: { promptTokens: 0 } };
+  }
+
   const url = `${normalizeUrl(config.baseUrl)}/v1/embeddings`;
   const maxRetries = opts?.maxRetries ?? 2;
   const baseBatchSize = config.batchSize ?? DEFAULT_BATCH_SIZE;
 
-  const allEmbeddings: number[][] = [];
+  const apiEmbeddings: number[][] = [];
   let totalPromptTokens = 0;
   let resolvedModel = config.model;
 
   let i = 0;
-  while (i < texts.length) {
-    let currentBatchSize = Math.min(baseBatchSize, texts.length - i);
+  while (i < uncachedTexts.length) {
+    let currentBatchSize = Math.min(baseBatchSize, uncachedTexts.length - i);
     let success = false;
 
     // 尝试当前 batch size，失败则缩小
@@ -204,13 +329,13 @@ export async function createEmbeddingBatch(
 
     for (const size of sizesToTry) {
       if (size <= 0) continue;
-      const batch = texts.slice(i, i + size);
+      const batch = uncachedTexts.slice(i, i + size);
       let attempt = 0;
 
       while (attempt <= maxRetries) {
         try {
           const resp = await callEmbeddingApi(url, config.apiKey, config.model, batch);
-          allEmbeddings.push(...resp.embeddings);
+          apiEmbeddings.push(...resp.embeddings);
           totalPromptTokens += resp.usage.promptTokens;
           resolvedModel = resp.model;
           currentBatchSize = size;
@@ -242,8 +367,25 @@ export async function createEmbeddingBatch(
     i += currentBatchSize;
 
     // 每批之间 100ms 间隔防限流
-    if (i < texts.length) {
+    if (i < uncachedTexts.length) {
       await sleep(BATCH_INTERVAL_MS);
+    }
+  }
+
+  // ---- S10: 写入缓存 ----
+  for (let j = 0; j < uncachedTexts.length; j++) {
+    setCachedEmbedding(uncachedTexts[j], apiEmbeddings[j]);
+  }
+
+  // ---- 合并结果（保持原始 texts 顺序） ----
+  const allEmbeddings: number[][] = [];
+  let apiIdx = 0;
+  for (let k = 0; k < texts.length; k++) {
+    if (cachedVectors.has(k)) {
+      allEmbeddings.push(cachedVectors.get(k)!);
+    } else {
+      allEmbeddings.push(apiEmbeddings[apiIdx]);
+      apiIdx++;
     }
   }
 
