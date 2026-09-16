@@ -27,6 +27,7 @@ const HelpMenu: React.FC<HelpMenuProps> = ({ onOpenFeedback }) => {
   const [updateState, setUpdateState] = useState<string>('idle');
   const [updateVersion, setUpdateVersion] = useState<string | undefined>(undefined);
   const [downloadPercent, setDownloadPercent] = useState(0);
+  const [updateError, setUpdateError] = useState<string | undefined>(undefined);
   const [hasUnreadUpdate, setHasUnreadUpdate] = useState(false); // 红点提示
 
   // Fetch current app version
@@ -43,6 +44,7 @@ const HelpMenu: React.FC<HelpMenuProps> = ({ onOpenFeedback }) => {
       const event = evt as UpdateEvent;
       setUpdateState(event.state);
       if (event.version) setUpdateVersion(event.version);
+      if (event.error) setUpdateError(event.error); else setUpdateError(undefined);
       if (event.progress?.percent !== undefined) {
         setDownloadPercent(Math.round(event.progress.percent));
       }
@@ -101,7 +103,7 @@ const HelpMenu: React.FC<HelpMenuProps> = ({ onOpenFeedback }) => {
       case 'downloaded':
         return t('update.downloaded');
       case 'error':
-        return t('update.error');
+        return updateError ? `${t('update.error')}: ${updateError}` : t('update.error');
       default:
         return '';
     }
