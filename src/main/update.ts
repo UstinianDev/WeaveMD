@@ -111,10 +111,8 @@ export async function checkForUpdates(): Promise<UpdateEvent> {
     console.log('[autoUpdater] checkForUpdates() result:', JSON.stringify(result?.updateInfo ?? null));
     if (!result) return { state: 'not-available' };
     // Guard: if installed version >= latest, no update available
-    const currentVersion = app.getVersion();
-    const latestVersion = result.updateInfo?.version;
-    if (latestVersion && currentVersion === latestVersion) {
-      console.log('[autoUpdater] already latest:', currentVersion);
+    if (isLatestVersion(app.getVersion(), result.updateInfo?.version)) {
+      console.log('[autoUpdater] already latest:', app.getVersion());
       return { state: 'not-available' };
     }
     return {
@@ -176,4 +174,14 @@ export function sendEvent(event: UpdateEvent): void {
       win.webContents.send(IPC_CHANNELS.UPDATE_EVENT, event);
     }
   }
+}
+
+/**
+ * Compare installed version against latest release version.
+ * Returns true if no update is needed (installed >= latest).
+ * Pure function, testable.
+ */
+export function isLatestVersion(installed: string, latest: string | null | undefined): boolean {
+  if (!latest) return true; // No latest = not an update
+  return installed === latest;
 }
