@@ -7,6 +7,9 @@
 import type { IIntent, ToolDef } from '@shared/ai';
 import { defineCoreTools } from '../toolRegistry';
 
+// Re-export per-invocation concurrency safety (step toward S2 granular partition)
+export { isToolConcurrencySafe } from './concurrencyDefs';
+
 // ---------------------------------------------------------------------------
 // 常量
 // ---------------------------------------------------------------------------

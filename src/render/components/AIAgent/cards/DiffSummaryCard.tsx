@@ -15,7 +15,8 @@ import { useI18n } from '@render/i18n';
 import { diffLines, type DiffLine } from '@render/filters/rewriteDiff';
 import type { RewriteProposal } from '@shared/ai';
 import type { RewriteFileProposal } from '@render/stores/rewriteStore';
-import { useRewriteStore, simpleHash } from '@render/stores/rewriteStore';
+import { xxHash64Sync } from '@shared/utils/hashUtil';
+import { useRewriteStore } from '@render/stores/rewriteStore';
 import type { EditBlocksProposal } from '@render/stores/agentStore';
 import { useAgentStore } from '@render/stores/agentStore';
 import { useEditorStore } from '@render/stores/editorStore';
@@ -255,7 +256,7 @@ function useDiffSummaryHandlers(source: DiffSummarySource): DiffSummaryHandlers 
         for (const p of source.data) {
           if (p.status !== 'pending') continue;
           if (p.contentHash) {
-            const currentHash = simpleHash(currentContent);
+            const currentHash = xxHash64Sync(currentContent);
             const hashes = Array.isArray(p.contentHash)
               ? p.contentHash
               : [p.contentHash];

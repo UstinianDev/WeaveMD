@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { xxHash64Sync } from '@shared/utils/hashUtil';
 import type { ToolCtx, ToolResult } from '../toolTypes';
 
 /** 为单个块生成简短 diff 预览（旧行 → 新行，最多 3 行）。 */
@@ -44,7 +44,7 @@ export function handleEditBlocks(args: Record<string, unknown>, ctx: ToolCtx): T
     }
     proposed.push(entry);
   }
-  const contentHash = createHash('md5').update(ctx.currentDocument).digest('hex');
+  const contentHash = xxHash64Sync(ctx.currentDocument);
   return {
     content: JSON.stringify({
       applied: false,

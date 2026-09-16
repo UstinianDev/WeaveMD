@@ -19,4 +19,6 @@
 - [任务③最近打开+文件树恢复](editor-opt-history-filetree-notes.md) — recentStore/restore 要点；zh-CN 导航「历史」label；persist hydration 后 children 可能 undefined；setup 补 folder/readDisk mock
 - [R1 写模式切换实现](write-mode-r1-implementation.md) — autoApplyRewrite→writeMode 全栈模式：ai_config 持久化+IPC+store+UI，auto 分流 updateContent/file.write
 - [R4 知识库澄清 Agent 联动](kb-clarify-agent-linkage-r4.md) — buildClarificationContext 分轮策略 + searchKBHandler 注入 + 向后兼容数组/对象格式
+- [S4 MD5→xxHash 迁移](s4-md5-xxhash-migration.md) — hashUtil 接口设计/替换 6 文件/agentLoopGuard 不动/djb2 fallback 永不抛异常
+- [S1 流式推测执行架构](s1-streaming-tool-executor.md) — StreamingToolExecutor 状态机/agentLoop 双路径集成/processStreamingToolRound 后处理/循环依赖规避
 

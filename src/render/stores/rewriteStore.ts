@@ -15,18 +15,15 @@
 
 import { create } from 'zustand';
 import type { RewriteProposal, SelectionRef } from '@shared/ai';
+import { xxHash64Sync } from '@shared/utils/hashUtil';
 
 /**
- * 浏览器兼容的简单字符串哈希（djb2 变体，32-bit → hex）。
+ * 向后兼容别名：xxHash64Sync（原 simpleHash / djb2）。
  * 用于 rewriteStore 的 contentHash 比对，非密码学用途。
+ *
+ * @deprecated 建议直接使用 xxHash64Sync；保留此导出以兼容外部 import。
  */
-export function simpleHash(str: string): string {
-  let hash = 5381;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) + hash + str.charCodeAt(i)) >>> 0;
-  }
-  return hash.toString(16).padStart(8, '0');
-}
+export const simpleHash = xxHash64Sync;
 import { exportSelectionMarkdown } from '@render/editor/rewrite/selectionExport';
 import {
   buildNumberedBlockList,
@@ -49,7 +46,7 @@ export interface RewriteFileProposal {
   originalMd: string;
   rewrittenMd: string;
   status: 'pending' | 'applied' | 'discarded';
-  /** 内容哈希（MD5），用于 stale 校验——确认时比对快照是否一致。 */
+  /** 内容哈希（xxHash64），用于 stale 校验——确认时比对快照是否一致。 */
   contentHash?: string;
 }
 
@@ -263,9 +260,9 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
       return;
     }
 
-    // contentHash 二次校验：若 proposal 携带 contentHash，用 MD5 比对（双保险）
+    // contentHash 二次校验：若 proposal 携带 contentHash，用 xxHash64 比对（双保险）
     if (pendingRewrite.contentHash) {
-      const currentHash = simpleHash(currentContent);
+      const currentHash = xxHash64Sync(currentContent);
       if (currentHash !== pendingRewrite.contentHash) {
         set({ staleRejected: true });
         return;
@@ -290,7 +287,7 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
       return;
     }
     if (file.contentHash) {
-      const currentHash = simpleHash(currentContent);
+      const currentHash = xxHash64Sync(currentContent);
       if (currentHash !== file.contentHash) {
         set({ staleRejected: true });
         return;
@@ -326,7 +323,7 @@ export const useRewriteStore = create<RewriteStore>((set, get) => ({
       return;
     }
     if (firstPending.contentHash) {
-      const currentHash = simpleHash(currentContent);
+      const currentHash = xxHash64Sync(currentContent);
       if (currentHash !== firstPending.contentHash) {
         set({ staleRejected: true });
         return;

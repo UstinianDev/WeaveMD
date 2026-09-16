@@ -17,14 +17,17 @@ import { appendMessage, updateConversationSummary } from '../../db/ai';
 import { buildCompressed, estimateTokens, shouldCompress, summarizeViaLlm, type LlmMessage } from '../contextManager';
 import { streamChatCompletionWithRetry } from '../llm/llmClient';
 import { type SearchKbFn } from '../toolRegistry';
-import { saveCheckpointIncremental } from './agentCheckpoint';
+import { type ExecutionSegment } from './agentExecutionSegments';
 import { createPreloadedSearchKb } from './agentKbPreloader';
+import { saveCheckpointIncremental } from './agentCheckpoint';
 
 // 从拆分模块导入
 import { makeAgentResult, sendProgress, detectTextQuestions, getCompressThreshold, KEEP_RECENT_ROUNDS, CONTEXT_WINDOW } from './agentHelpers';
 import { prepareAgentContext } from './agentContext';
 import type { AgentContext } from './agentContext';
-import { executeToolRound } from './agentToolExecutor';
+import { executeToolRound, executeOneTool, handleToolResult, type ToolExecResult } from './agentToolExecutor';
+import { FORCE_CONFIRM_TOOLS } from './agentToolSelector';
+import { StreamingToolExecutor, STREAMING_TOOL_EXEC_ENABLED, type StreamingToolCall } from './StreamingToolExecutor';
 
 // Re-export ToolCtx 保持向后兼容
 export type { ToolCtx } from '../toolRegistry';
@@ -180,9 +183,10 @@ export async function runAgentFlow(
       // 进度：正在思考
       sendProgress(ctx, 'thinking', round === 0 ? '正在分析你的问题...' : '正在思考下一步...');
 
-      // LLM 流式调用
-      const accumulatedToolCalls: Array<{ index: number; name: string; arguments: string }> = [];
+      // LLM 流式调用（S1: StreamingToolExecutor 集成）
+      const accumulatedToolCalls: StreamingToolCall[] = [];
       let assistantContent = '';
+      const executor = STREAMING_TOOL_EXEC_ENABLED ? new StreamingToolExecutor(ctx, round) : null;
 
       const gen = streamChatCompletionWithRetry({
         baseUrl: ctx.baseUrl,
@@ -207,6 +211,9 @@ export async function runAgentFlow(
         if (chunkFlushTimer) { clearTimeout(chunkFlushTimer); chunkFlushTimer = null; }
       };
 
+      // PERF: 记录流开始时间
+      const streamStartTime = performance.now();
+
       for await (const chunk of gen) {
         if (chunk.delta) {
           assistantContent += chunk.delta;
@@ -218,9 +225,25 @@ export async function runAgentFlow(
         if (chunk.usage?.reasoningTokenCount != null) {
           ctx.reasoningTokenCount = chunk.usage.reasoningTokenCount;
         }
-        if (chunk.toolCalls?.length) accumulatedToolCalls.push(...chunk.toolCalls);
+        if (chunk.toolCalls?.length) {
+          // PERF: 首个 tool_use 块到达
+          if (accumulatedToolCalls.length === 0 && executor) {
+            console.log('[PERF] First tool_use block arrived at', performance.now() - streamStartTime, 'ms');
+          }
+          accumulatedToolCalls.push(...chunk.toolCalls);
+          if (executor) {
+            for (const tc of chunk.toolCalls) {
+              executor.onToolCall(tc);
+            }
+          }
+        }
       }
       flushChunks(); // 流结束时刷新剩余 buffer
+
+      // PERF: 流结束
+      if (executor) {
+        console.log('[PERF] Stream ended at', performance.now() - streamStartTime, 'ms');
+      }
 
       // 无工具调用：检查是否在文本中直接提问（兜底机制）
       if (accumulatedToolCalls.length === 0) {
@@ -267,39 +290,80 @@ export async function runAgentFlow(
         });
       }
 
-      // 阶段 2：执行工具调用
-      const { toolTurn, deadLoopBreak } = await executeToolRound(
-        ctx, accumulatedToolCalls, assistantContent, round, deps
-      );
-      if (deadLoopBreak) break;
+      // 阶段 2：执行工具调用（S1: 流路径 / 兜底路径）
+      if (STREAMING_TOOL_EXEC_ENABLED && executor) {
+        const waitStart = performance.now();
+        const streamingResult = await processStreamingToolRound(
+          ctx, executor, accumulatedToolCalls, assistantContent, round, deps
+        );
+        console.log('[PERF] All tools done, wait time:', performance.now() - waitStart, 'ms');
 
-      // 1c: 原地 push（避免 spread 重新分配整个数组）
-      ctx.llmMessages.push(...toolTurn);
-      // 1b: 增量 token 统计
-      for (const m of toolTurn) {
-        ctx.totalTokens += estimateTokens(m.content);
-      }
+        if (streamingResult.deadLoopBreak) break;
 
-      // R7b: checkpoint（真增量 — 传入内存既有消息，跳过 DB read）
-      if (ctx.hasSessionPersist) {
-        try {
-          saveCheckpointIncremental(
-            deps.db!,
-            deps.sessionId!,
-            toolTurn.map((m) => ({
-              role: m.role as 'system' | 'user' | 'assistant' | 'tool',
-              content: m.content,
-              ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
-            })),
-            ctx.toolCallsHistory,
-            ctx.roundsUsed,
-            ctx.reasoningTokenCount,
-            ctx.intent,
-            ctx.llmMessages,  // 内存中已有消息（不含本轮 toolTurn）
-            round,            // 当前轮次号
-          );
-        } catch {
-          // checkpoint 写入失败不影响主流程
+        // 1c: 原地 push（避免 spread 重新分配整个数组）
+        ctx.llmMessages.push(...streamingResult.toolTurn);
+        // 1b: 增量 token 统计
+        for (const m of streamingResult.toolTurn) {
+          ctx.totalTokens += estimateTokens(m.content);
+        }
+
+        // R7b: checkpoint
+        if (ctx.hasSessionPersist) {
+          try {
+            saveCheckpointIncremental(
+              deps.db!,
+              deps.sessionId!,
+              streamingResult.toolTurn.map((m) => ({
+                role: m.role as 'system' | 'user' | 'assistant' | 'tool',
+                content: m.content,
+                ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
+              })),
+              ctx.toolCallsHistory,
+              ctx.roundsUsed,
+              ctx.reasoningTokenCount,
+              ctx.intent,
+              ctx.llmMessages,
+              round,
+            );
+          } catch {
+            // checkpoint 写入失败不影响主流程
+          }
+        }
+      } else {
+        // 兜底路径：原有 executeToolRound 全量执行
+        const { toolTurn, deadLoopBreak } = await executeToolRound(
+          ctx, accumulatedToolCalls, assistantContent, round, deps
+        );
+        if (deadLoopBreak) break;
+
+        // 1c: 原地 push（避免 spread 重新分配整个数组）
+        ctx.llmMessages.push(...toolTurn);
+        // 1b: 增量 token 统计
+        for (const m of toolTurn) {
+          ctx.totalTokens += estimateTokens(m.content);
+        }
+
+        // R7b: checkpoint
+        if (ctx.hasSessionPersist) {
+          try {
+            saveCheckpointIncremental(
+              deps.db!,
+              deps.sessionId!,
+              toolTurn.map((m) => ({
+                role: m.role as 'system' | 'user' | 'assistant' | 'tool',
+                content: m.content,
+                ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
+              })),
+              ctx.toolCallsHistory,
+              ctx.roundsUsed,
+              ctx.reasoningTokenCount,
+              ctx.intent,
+              ctx.llmMessages,
+              round,
+            );
+          } catch {
+            // checkpoint 写入失败不影响主流程
+          }
         }
       }
     }
@@ -325,4 +389,189 @@ export async function runAgentFlow(
     });
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// S1: 流式工具轮处理（StreamingToolExecutor 后处理）
+// ---------------------------------------------------------------------------
+
+/**
+ * 处理 StreamingToolExecutor 收集的结果：
+ * 1. 去重 ask_question_card
+ * 2. 等待安全工具结果 + 串行执行非安全工具（含 force_confirm/ask_question_card 特殊处理）
+ * 3. 按 handleToolResult 管道处理所有结果（DB 写入、IPC 事件、死循环检测）
+ * 4. ask_question_card 交互暂停
+ *
+ * 产物格式与 executeToolRound 一致，确保 contextManager 向后兼容。
+ */
+async function processStreamingToolRound(
+  ctx: AgentContext,
+  executor: StreamingToolExecutor,
+  accumulatedToolCalls: StreamingToolCall[],
+  assistantContent: string,
+  round: number,
+  deps: AgentLoopDeps
+): Promise<{ toolTurn: AgentLlmMessage[]; deadLoopBreak: boolean }> {
+  // 1. 去重 ask_question_card（与 executeToolRound 逻辑一致）
+  const dedupedToolCalls = accumulatedToolCalls.filter((tc, idx, arr) => {
+    if (tc.name !== 'ask_question_card') return true;
+    try {
+      const parsed = JSON.parse(tc.arguments);
+      if (!parsed.questions || !Array.isArray(parsed.questions) || parsed.questions.length === 0) {
+        const lastAskIdx = arr
+          .map((t, i) => (t.name === 'ask_question_card' ? i : -1))
+          .filter((i) => i >= 0)
+          .pop();
+        if (lastAskIdx !== idx) return false;
+      }
+    } catch {
+      const hasLater = arr.slice(idx + 1).some((t) => t.name === 'ask_question_card');
+      if (hasLater) return false;
+    }
+    return true;
+  });
+
+  const toolTurn: AgentLlmMessage[] = [];
+  toolTurn.push({
+    role: 'assistant',
+    content: '',
+    tool_calls: dedupedToolCalls.map((tc) => ({
+      id: `call_${round}_${tc.index}`,
+      type: 'function' as const,
+      function: { name: tc.name, arguments: tc.arguments },
+    })),
+  });
+
+  // 2. 提取 thinking 文本
+  const thinkingMatch = assistantContent.match(/<thinking>([\s\S]*?)<\/thinking>/i);
+  const thinkingText = thinkingMatch ? thinkingMatch[1].trim() : undefined;
+
+  // 3. 等待安全工具完成 + 收集执行结果
+  const executionSegments: ExecutionSegment[] = [];
+
+  // 3a. 从 executor 获取已完成的安全工具结果（waitForAll 内部等待 + 串行执行非安全工具，跳过 FORCE_CONFIRM_TOOLS）
+  const executorResults = await executor.waitForAll(FORCE_CONFIRM_TOOLS);
+
+  // 3b. 区分已执行和未执行的工具
+  const executedIndices = new Set(executorResults.map((r) => r.tc.index));
+  const needExecution = dedupedToolCalls.filter((tc) => !executedIndices.has(tc.index));
+
+  // 3c. 执行尚未执行的非安全工具（带 force_confirm / ask_question_card 逻辑）
+  const manualResults: ToolExecResult[] = [];
+  for (const tc of needExecution) {
+    // ask_question_card 预验证
+    if (tc.name === 'ask_question_card') {
+      try {
+        const parsed = JSON.parse(tc.arguments) as Record<string, unknown>;
+        const qs = parsed.questions as unknown;
+        if (!Array.isArray(qs) || qs.length === 0) {
+          continue; // 无效调用，静默跳过
+        }
+      } catch {
+        continue; // JSON 解析失败，静默跳过
+      }
+    }
+
+    // R5: 删除操作强制确认
+    if (FORCE_CONFIRM_TOOLS.has(tc.name)) {
+      const toolCallId = `call_${round}_${tc.index}`;
+      let fileInfo = '';
+      try {
+        const parsed = JSON.parse(tc.arguments) as Record<string, unknown>;
+        fileInfo = (typeof parsed.file_path === 'string' ? parsed.file_path : '')
+          || (typeof parsed.file_id === 'string' ? parsed.file_id : '');
+      } catch { /* args 解析失败不影响拦截逻辑 */ }
+
+      const confirmQuestion: IClarifyQuestion = {
+        id: toolCallId,
+        text: `确认删除${fileInfo ? ` ${fileInfo}` : ''}？此操作不可恢复。`,
+        type: 'confirm',
+      };
+
+      if (deps.onInteractionRequired && deps.waitForInteraction) {
+        deps.onInteractionRequired([confirmQuestion], 'delete_confirm');
+        let answer: Record<string, string>;
+        try {
+          answer = await deps.waitForInteraction();
+        } catch {
+          manualResults.push({
+            tc,
+            toolCallId,
+            result: {
+              content: JSON.stringify({ cancelled: true }),
+              status: 'error',
+              errorDesc: '用户取消了删除操作',
+            },
+          });
+          continue;
+        }
+        if (answer[toolCallId] === 'yes') {
+          manualResults.push(await executeOneTool(tc, round, ctx));
+        } else {
+          manualResults.push({
+            tc,
+            toolCallId,
+            result: {
+              content: JSON.stringify({ cancelled: true }),
+              status: 'error',
+              errorDesc: '用户取消了删除操作',
+            },
+          });
+        }
+      } else {
+        manualResults.push({
+          tc,
+          toolCallId,
+          result: {
+            content: '',
+            status: 'error',
+            errorDesc: '删除操作需要用户确认，但当前环境不支持交互。已拒绝执行。',
+          },
+        });
+      }
+      continue;
+    }
+
+    // 普通非安全工具：串行执行
+    manualResults.push(await executeOneTool(tc, round, ctx));
+  }
+
+  // 4. 合并结果（executor 安全结果 + 手动执行的非安全结果），按 index 顺序
+  const resultMap = new Map<number, ToolExecResult>();
+  for (const r of executorResults) resultMap.set(r.tc.index, r);
+  for (const r of manualResults) resultMap.set(r.tc.index, r);
+
+  for (const tc of dedupedToolCalls) {
+    const entry = resultMap.get(tc.index);
+    if (!entry) continue;
+    const check = handleToolResult(entry, ctx, round, thinkingText, deps, toolTurn, executionSegments);
+    if (check.deadLoopBreak) return { toolTurn, deadLoopBreak: true };
+  }
+
+  // 5. ask_question_card 交互暂停（与 executeToolRound 逻辑一致）
+  if (deps.waitForInteraction) {
+    for (const tc of dedupedToolCalls) {
+      if (tc.name !== 'ask_question_card') continue;
+      const callId = `call_${round}_${tc.index}`;
+      const askResult = toolTurn.find(
+        (m) => m.role === 'tool' && m.tool_call_id === callId,
+      );
+      if (!askResult) continue;
+      try {
+        const parsed = JSON.parse(askResult.content) as { success?: boolean };
+        if (parsed.success) {
+          const answers = await deps.waitForInteraction();
+          toolTurn.push({
+            role: 'tool',
+            content: JSON.stringify({ type: 'user_answers', answers }),
+            tool_call_id: callId,
+          });
+        }
+      } catch {
+        // waitForInteraction 被 reject（用户取消等），不注入答案
+      }
+    }
+  }
+
+  return { toolTurn, deadLoopBreak: false };
 }

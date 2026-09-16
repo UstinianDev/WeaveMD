@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { xxHash64Sync } from '@shared/utils/hashUtil';
 import type { ToolResult } from '../toolTypes';
 import { executePreviewPatchFiles } from './previewPatchFiles';
 
@@ -23,8 +23,8 @@ export function handlePreviewPatchFiles(args: Record<string, unknown>): ToolResu
     patches.push({ filePath, oldContent, newContent });
   }
   const result = executePreviewPatchFiles({ patches });
-  // 对每个 patch 的 oldContent 计算 MD5，供渲染侧 stale 校验
-  const contentHashes = patches.map((p) => createHash('md5').update(p.oldContent).digest('hex'));
+  // 对每个 patch 的 oldContent 计算 xxHash64，供渲染侧 stale 校验
+  const contentHashes = patches.map((p) => xxHash64Sync(p.oldContent));
   const response = { ...result, contentHash: contentHashes.length === 1 ? contentHashes[0] : contentHashes };
   return {
     content: JSON.stringify(response),

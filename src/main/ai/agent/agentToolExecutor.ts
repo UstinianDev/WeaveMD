@@ -6,7 +6,8 @@ import { IPC_CHANNELS } from '@shared/constants';
 import type { IAgentToolCall, IClarifyQuestion } from '@shared/ai';
 import { appendMessage } from '../../db/ai';
 import { executeTool } from '../toolRegistry';
-import { WRITE_TOOLS, READ_ONLY_TOOLS, FORCE_CONFIRM_TOOLS } from './agentToolSelector';
+import { WRITE_TOOLS, FORCE_CONFIRM_TOOLS } from './agentToolSelector';
+import { isToolConcurrencySafe, safeParseArgs } from './concurrencyDefs';
 import { createSegment, completeSegment, type ExecutionSegment } from './agentExecutionSegments';
 import { type LoopCheckResult } from './agentLoopGuard';
 import { TOOL_EXEC_TIMEOUT_MS } from './agentHelpers';
@@ -249,11 +250,11 @@ export async function executeToolRound(
 
   const executionSegments: ExecutionSegment[] = [];
 
-  // 1a: 分区只读/有副作用工具
+  // 1a: 分区只读/有副作用工具（S2: 使用 per-invocation isToolConcurrencySafe 替代静态 READ_ONLY_TOOLS）
   const readOnlyTcs: typeof accumulatedToolCalls = [];
   const writableTcs: typeof accumulatedToolCalls = [];
   for (const tc of dedupedToolCalls) {
-    if (READ_ONLY_TOOLS.has(tc.name)) {
+    if (isToolConcurrencySafe(tc.name, safeParseArgs(tc.arguments))) {
       readOnlyTcs.push(tc);
     } else {
       writableTcs.push(tc);

@@ -5,7 +5,7 @@
 // 返回 oldContent / newContent 供前端 diff 预览，不直接写盘。
 // 用户在前端确认后，由 agentStore 调用 file.write 写入。
 
-import { createHash } from 'crypto';
+import { xxHash64Sync } from '@shared/utils/hashUtil';
 import type { ToolDef } from '@shared/ai';
 import { getFile } from '../../db/files';
 import type { ToolCtx, ToolResult } from '../toolTypes';
@@ -67,8 +67,8 @@ export async function executePreviewFileRevision(
     };
   }
 
-  // MD5 哈希
-  const contentHash = createHash('md5').update(oldContent).digest('hex');
+  // xxHash64 哈希
+  const contentHash = xxHash64Sync(oldContent);
 
   // Bug 3 修复：不写盘，返回 oldContent / newContent 供前端 diff 预览
   return {

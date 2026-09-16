@@ -27,8 +27,10 @@ vi.mock('electron', () => ({
 }));
 
 // --- Fake better-sqlite3 ---
-class FakeDatabase {}
-vi.mock('better-sqlite3', () => ({ default: FakeDatabase }));
+vi.mock('better-sqlite3', () => {
+  class FakeDatabase {}
+  return { default: FakeDatabase };
+});
 
 // --- 受控 DB / AI 服务 mock ---
 const dbMock = vi.hoisted(() => ({

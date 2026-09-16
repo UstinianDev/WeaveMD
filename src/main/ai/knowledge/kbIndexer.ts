@@ -8,6 +8,7 @@
 import {
   deleteChunksByDoc,
   deleteKbDocumentByFile,
+  getChunksByDoc,
   insertChunksBatch,
   setKbDocStatus,
   upsertKbDocument,
@@ -206,10 +207,16 @@ export async function indexFile(
     });
     docId = doc.id;
     title = doc.title;
+    // S3: 获取旧 chunk ID 列表，用于精确失效缓存
+    const oldChunks = getChunksByDoc(docId);
+    const oldChunkIds = oldChunks.map((c) => c.id);
     deleteChunksByDoc(docId);
     const chunkCount = await writeChunks(docId, file.content, file.name, opts.embedding);
     setKbDocStatus(userId, docId, 'done');
-    // 索引完成后清除搜索缓存
+    // 索引完成后清除搜索缓存（分级失效：先按旧 chunk 精确清除，再全量兜底）
+    for (const chunkId of oldChunkIds) {
+      invalidateKbSearchCache({ type: 'chunk', chunkId });
+    }
     invalidateKbSearchCache(userId);
     return {
       docId,
@@ -256,10 +263,16 @@ export async function indexImportedText(
       status: 'importing',
     });
     docId = doc.id;
+    // S3: 获取旧 chunk ID 列表，用于精确失效缓存
+    const oldChunks = getChunksByDoc(docId);
+    const oldChunkIds = oldChunks.map((c) => c.id);
     deleteChunksByDoc(docId);
     const chunkCount = await writeChunks(docId, text, title, opts.embedding);
     setKbDocStatus(userId, docId, 'done');
-    // 导入完成后清除搜索缓存
+    // 导入完成后清除搜索缓存（分级失效：先按旧 chunk 精确清除，再全量兜底）
+    for (const chunkId of oldChunkIds) {
+      invalidateKbSearchCache({ type: 'chunk', chunkId });
+    }
     invalidateKbSearchCache(userId);
     return { docId, title, chunks: chunkCount, status: 'done' };
   } catch {
