@@ -36,6 +36,7 @@ import { needsKbSendConsent, getRoundsForIntent, KEEP_RECENT_ROUNDS } from './ag
 import type { AgentLoopDeps } from './agentLoop';
 import type { AgentReqPayload } from './agentLoop';
 import type { AgentLlmMessage } from './agentLoop';
+import type { ContentReplacementState } from './toolResultStorage';
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -62,6 +63,8 @@ export interface AgentContext {
   assistantId: string;
   /** 增量 token 统计（避免每轮全量重算）。 */
   totalTokens: number;
+  /** S6: 大结果替换状态（确保跨轮确定性）。 */
+  replacementState?: ContentReplacementState;
 }
 
 // ---------------------------------------------------------------------------

@@ -16,7 +16,7 @@ import type {
 import { appendMessage, updateConversationSummary } from '../../db/ai';
 import { buildCompressed, estimateTokens, shouldCompress, summarizeViaLlm, type LlmMessage } from '../contextManager';
 import { streamChatCompletionWithRetry } from '../llm/llmClient';
-import { type SearchKbFn } from '../toolRegistry';
+import { type SearchKbFn, isDeferredTool, getDeferredToolSchema } from '../toolRegistry';
 import { type ExecutionSegment } from './agentExecutionSegments';
 import { createPreloadedSearchKb } from './agentKbPreloader';
 import { saveCheckpointIncremental } from './agentCheckpoint';
@@ -28,6 +28,7 @@ import type { AgentContext } from './agentContext';
 import { executeToolRound, executeOneTool, handleToolResult, type ToolExecResult } from './agentToolExecutor';
 import { FORCE_CONFIRM_TOOLS } from './agentToolSelector';
 import { StreamingToolExecutor, STREAMING_TOOL_EXEC_ENABLED, type StreamingToolCall } from './StreamingToolExecutor';
+import { ContentReplacementState, applyAggregateBudget } from './toolResultStorage';
 
 // Re-export ToolCtx 保持向后兼容
 export type { ToolCtx } from '../toolRegistry';
@@ -138,6 +139,10 @@ export async function runAgentFlow(
   // 阶段 1：准备上下文（consent + 校验 + 消息组装 + 工具选择）
   const ctx = prepareAgentContext(event, payload, config, apiKeyEnc, controller, deps);
 
+  // S6: 大结果替换状态——整个 Agent 运行周期共享，确保同一 toolCallId 在所有轮次中返回相同替换
+  const replacementState = new ContentReplacementState();
+  ctx.replacementState = replacementState;
+
   // 异步预加载知识库：在 LLM 首轮思考期间后台预检索，首轮 searchKB 命中时跳过网络延迟
   if (deps.searchKb && payload.useKnowledgeBase) {
     const { searchKb: cachedSearchKb } = createPreloadedSearchKb(
@@ -167,7 +172,7 @@ export async function runAgentFlow(
       // 上下文压缩（幂等）— 使用增量 token 统计 + 动态阈值
       if (shouldCompress(ctx.totalTokens, CONTEXT_WINDOW, getCompressThreshold(round))) {
         try {
-          const newSummary = await summarizeViaLlm(ctx.llmMessages, ctx.skillContext);
+          const newSummary = await summarizeViaLlm(ctx.llmMessages, ctx.skillContext, ctx.tools);
           if (newSummary) {
             updateConversationSummary(ctx.convId, ctx.userId, newSummary);
             ctx.llmMessages = buildCompressed(ctx.llmMessages, newSummary, KEEP_RECENT_ROUNDS);
@@ -184,65 +189,107 @@ export async function runAgentFlow(
       sendProgress(ctx, 'thinking', round === 0 ? '正在分析你的问题...' : '正在思考下一步...');
 
       // LLM 流式调用（S1: StreamingToolExecutor 集成）
-      const accumulatedToolCalls: StreamingToolCall[] = [];
+      // S5: 延迟工具加载 — 如果 LLM 调用了延迟工具（仅 stub，无完整 schema），
+      // 拦截 → 补充完整 schema → 重新发送请求，确保 LLM 有完整参数信息。
+      // 最大重发 3 次，防止死循环。
+      let accumulatedToolCalls: StreamingToolCall[] = [];
       let assistantContent = '';
-      const executor = STREAMING_TOOL_EXEC_ENABLED ? new StreamingToolExecutor(ctx, round) : null;
+      let executor: StreamingToolExecutor | null = null;
+      let deferredRetryCount = 0;
 
-      const gen = streamChatCompletionWithRetry({
-        baseUrl: ctx.baseUrl,
-        model: ctx.model,
-        apiKey: ctx.apiKey,
-        messages: ctx.llmMessages as Array<{ role: string; content: string }>,
-        ...(ctx.tools.length ? { tools: ctx.tools, toolChoice: 'auto' as const } : {}),
-        timeoutMs: 180_000,
-        signal: controller.signal,
-        // Bug fix: 重试时清空已累积的部分内容，避免与新流拼接导致答非所问
-        onRetry: () => { assistantContent = ''; accumulatedToolCalls.length = 0; },
-      });
+      // PERF: 记录流开始时间（每次重试都会重置）
+      let streamStartTime = 0;
 
-      // 批量 IPC：每 100ms 合并一次 chunk 发送，减少 IPC 调用次数
-      let chunkBuffer = '';
-      let chunkFlushTimer: ReturnType<typeof setTimeout> | null = null;
-      const flushChunks = () => {
-        if (chunkBuffer) {
-          ctx.send(IPC_CHANNELS.AI_STREAM_CHUNK, { conversationId: ctx.convId, delta: chunkBuffer });
-          chunkBuffer = '';
-        }
-        if (chunkFlushTimer) { clearTimeout(chunkFlushTimer); chunkFlushTimer = null; }
-      };
+      while (deferredRetryCount <= 3) {
+        // 重置每次尝试的状态
+        accumulatedToolCalls = [];
+        assistantContent = '';
+        executor = STREAMING_TOOL_EXEC_ENABLED ? new StreamingToolExecutor(ctx, round, replacementState) : null;
 
-      // PERF: 记录流开始时间
-      const streamStartTime = performance.now();
+        const gen = streamChatCompletionWithRetry({
+          baseUrl: ctx.baseUrl,
+          model: ctx.model,
+          apiKey: ctx.apiKey,
+          messages: ctx.llmMessages as Array<{ role: string; content: string }>,
+          ...(ctx.tools.length ? { tools: ctx.tools, toolChoice: 'auto' as const } : {}),
+          timeoutMs: 180_000,
+          signal: controller.signal,
+          // Bug fix: 重试时清空已累积的部分内容，避免与新流拼接导致答非所问
+          onRetry: () => { assistantContent = ''; accumulatedToolCalls.length = 0; },
+        });
 
-      for await (const chunk of gen) {
-        if (chunk.delta) {
-          assistantContent += chunk.delta;
-          chunkBuffer += chunk.delta;
-          if (!chunkFlushTimer) {
-            chunkFlushTimer = setTimeout(() => { flushChunks(); }, 100);
+        // 批量 IPC：每 100ms 合并一次 chunk 发送，减少 IPC 调用次数
+        let chunkBuffer = '';
+        let chunkFlushTimer: ReturnType<typeof setTimeout> | null = null;
+        const flushChunks = () => {
+          if (chunkBuffer) {
+            ctx.send(IPC_CHANNELS.AI_STREAM_CHUNK, { conversationId: ctx.convId, delta: chunkBuffer });
+            chunkBuffer = '';
           }
-        }
-        if (chunk.usage?.reasoningTokenCount != null) {
-          ctx.reasoningTokenCount = chunk.usage.reasoningTokenCount;
-        }
-        if (chunk.toolCalls?.length) {
-          // PERF: 首个 tool_use 块到达
-          if (accumulatedToolCalls.length === 0 && executor) {
-            console.log('[PERF] First tool_use block arrived at', performance.now() - streamStartTime, 'ms');
+          if (chunkFlushTimer) { clearTimeout(chunkFlushTimer); chunkFlushTimer = null; }
+        };
+
+        // PERF: 记录流开始时间
+        streamStartTime = performance.now();
+
+        for await (const chunk of gen) {
+          if (chunk.delta) {
+            assistantContent += chunk.delta;
+            chunkBuffer += chunk.delta;
+            if (!chunkFlushTimer) {
+              chunkFlushTimer = setTimeout(() => { flushChunks(); }, 100);
+            }
           }
-          accumulatedToolCalls.push(...chunk.toolCalls);
-          if (executor) {
-            for (const tc of chunk.toolCalls) {
-              executor.onToolCall(tc);
+          if (chunk.usage?.reasoningTokenCount != null) {
+            ctx.reasoningTokenCount = chunk.usage.reasoningTokenCount;
+          }
+          if (chunk.toolCalls?.length) {
+            // PERF: 首个 tool_use 块到达
+            if (accumulatedToolCalls.length === 0 && executor) {
+              console.log('[PERF] First tool_use block arrived at', performance.now() - streamStartTime, 'ms');
+            }
+            accumulatedToolCalls.push(...chunk.toolCalls);
+            if (executor) {
+              for (const tc of chunk.toolCalls) {
+                executor.onToolCall(tc);
+              }
             }
           }
         }
-      }
-      flushChunks(); // 流结束时刷新剩余 buffer
+        flushChunks(); // 流结束时刷新剩余 buffer
 
-      // PERF: 流结束
-      if (executor) {
-        console.log('[PERF] Stream ended at', performance.now() - streamStartTime, 'ms');
+        // PERF: 流结束
+        if (executor) {
+          console.log('[PERF] Stream ended at', performance.now() - streamStartTime, 'ms');
+        }
+
+        // 无工具调用 → 无需检查延迟工具，直接跳出
+        if (accumulatedToolCalls.length === 0) break;
+
+        // S5: 检测是否有延迟工具调用，少于 3 次重试时拦截重发
+        if (deferredRetryCount < 3) {
+          const deferredNamesThisRound = new Set<string>();
+          for (const tc of accumulatedToolCalls) {
+            if (isDeferredTool(tc.name)) {
+              deferredNamesThisRound.add(tc.name);
+            }
+          }
+          if (deferredNamesThisRound.size > 0) {
+            // 将延迟工具的 stub 替换为完整 JSON Schema
+            for (const name of deferredNamesThisRound) {
+              const fullSchema = getDeferredToolSchema(name);
+              if (fullSchema) {
+                const idx = ctx.tools.findIndex((t) => t.function.name === name);
+                if (idx >= 0) ctx.tools[idx] = fullSchema;
+              }
+            }
+            deferredRetryCount++;
+            continue; // 重新发送 LLM 请求（此时延迟工具已有完整 schema）
+          }
+        }
+
+        // 无延迟工具调用（或已达最大重试次数）→ 跳出循环，正常执行
+        break;
       }
 
       // 无工具调用：检查是否在文本中直接提问（兜底机制）
@@ -294,7 +341,7 @@ export async function runAgentFlow(
       if (STREAMING_TOOL_EXEC_ENABLED && executor) {
         const waitStart = performance.now();
         const streamingResult = await processStreamingToolRound(
-          ctx, executor, accumulatedToolCalls, assistantContent, round, deps
+          ctx, executor, accumulatedToolCalls, assistantContent, round, deps, replacementState
         );
         console.log('[PERF] All tools done, wait time:', performance.now() - waitStart, 'ms');
 
@@ -332,7 +379,7 @@ export async function runAgentFlow(
       } else {
         // 兜底路径：原有 executeToolRound 全量执行
         const { toolTurn, deadLoopBreak } = await executeToolRound(
-          ctx, accumulatedToolCalls, assistantContent, round, deps
+          ctx, accumulatedToolCalls, assistantContent, round, deps, replacementState
         );
         if (deadLoopBreak) break;
 
@@ -410,7 +457,8 @@ async function processStreamingToolRound(
   accumulatedToolCalls: StreamingToolCall[],
   assistantContent: string,
   round: number,
-  deps: AgentLoopDeps
+  deps: AgentLoopDeps,
+  replacementState?: ContentReplacementState,
 ): Promise<{ toolTurn: AgentLlmMessage[]; deadLoopBreak: boolean }> {
   // 1. 去重 ask_question_card（与 executeToolRound 逻辑一致）
   const dedupedToolCalls = accumulatedToolCalls.filter((tc, idx, arr) => {
@@ -506,7 +554,7 @@ async function processStreamingToolRound(
           continue;
         }
         if (answer[toolCallId] === 'yes') {
-          manualResults.push(await executeOneTool(tc, round, ctx));
+          manualResults.push(await executeOneTool(tc, round, ctx, replacementState));
         } else {
           manualResults.push({
             tc,
@@ -533,13 +581,21 @@ async function processStreamingToolRound(
     }
 
     // 普通非安全工具：串行执行
-    manualResults.push(await executeOneTool(tc, round, ctx));
+    manualResults.push(await executeOneTool(tc, round, ctx, replacementState));
   }
 
   // 4. 合并结果（executor 安全结果 + 手动执行的非安全结果），按 index 顺序
   const resultMap = new Map<number, ToolExecResult>();
   for (const r of executorResults) resultMap.set(r.tc.index, r);
   for (const r of manualResults) resultMap.set(r.tc.index, r);
+
+  // S6: 聚合预算控制——单轮所有结果总和超出上限时压缩最大结果
+  const budgetedResults = await applyAggregateBudget(
+    [...resultMap.values()],
+    replacementState ?? ctx.replacementState,
+  );
+  resultMap.clear();
+  for (const r of budgetedResults) resultMap.set(r.tc.index, r);
 
   for (const tc of dedupedToolCalls) {
     const entry = resultMap.get(tc.index);

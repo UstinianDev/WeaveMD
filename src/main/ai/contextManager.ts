@@ -5,7 +5,7 @@
 // 估算 len/4 为相对阈值（误差 ≤2x 不影响「是否该压缩」判定）；压缩为幂等安全动作。
 
 import { streamChatCompletionWithRetry } from './llm/llmClient';
-import { estimateTokens } from './utils/tokenEstimator';
+import type { ToolDef } from '@shared/ai';
 
 // Re-export 保持向后兼容（agentLoop 等模块从 contextManager 导入 estimateTokens）
 export { estimateTokens } from './utils/tokenEstimator';
@@ -90,11 +90,45 @@ export interface SummarizeCtx {
 /**
  * 用 llmClient 一次生成历史摘要（非流式/流式皆可，内部累积）。
  * 不做 token 精确裁剪；仅产出摘要文本。失败 throw 结构化错误由调用方兜底。
+ *
+ * cache-safe fork：当 parentTools 传入时，复用父会话的消息前缀（含 system prompt）
+ * + 工具定义，末尾追加压缩指令 user message。API 看到相同的前缀 → 缓存命中，
+ * 避免压缩调用独立支付完整 token 成本。
  */
 export async function summarizeViaLlm(
   messages: LlmMessage[],
-  ctx: SummarizeCtx
+  ctx: SummarizeCtx,
+  parentTools?: ToolDef[],
 ): Promise<string> {
+  if (parentTools) {
+    // ============================================
+    // Cache-safe fork 模式：复用父会话前缀 + 工具
+    // ============================================
+    // messages 已包含父 system prompt 为首条 → API 前缀缓存命中。
+    // 压缩指令作为 user message 追加在末尾（recency bias = 更高注意力权重）。
+    const compactionMsg: LlmMessage = {
+      role: 'user',
+      content: '请将以上对话压缩为不超过150字的中文摘要，只保留主题和关键结论。',
+    };
+    const gen = streamChatCompletionWithRetry({
+      baseUrl: ctx.baseUrl,
+      model: ctx.model,
+      apiKey: ctx.apiKey,
+      tools: parentTools,
+      messages: [...messages, compactionMsg],
+      timeoutMs: ctx.timeoutMs,
+      signal: ctx.signal,
+    });
+    let acc = '';
+    for await (const chunk of gen) {
+      acc += chunk.delta;
+    }
+    return acc.trim();
+  }
+
+  // ============================================
+  // 回退模式：独立 system prompt（向后兼容）
+  // ============================================
   const gen = streamChatCompletionWithRetry({
     baseUrl: ctx.baseUrl,
     model: ctx.model,

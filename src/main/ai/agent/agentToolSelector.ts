@@ -5,7 +5,7 @@
 // 纯函数，不依赖 IPC / 数据库。
 
 import type { IIntent, ToolDef } from '@shared/ai';
-import { defineCoreTools } from '../toolRegistry';
+import { defineCoreTools, buildToolListForPrompt } from '../toolRegistry';
 
 // Re-export per-invocation concurrency safety (step toward S2 granular partition)
 export { isToolConcurrencySafe } from './concurrencyDefs';
@@ -92,7 +92,7 @@ export function toolsForIntent(
       if (hasInteractionSupport) {
         names.add('ask_question_card');
       }
-      return all.filter((t) => names.has(t.function.name));
+      return buildToolListForPrompt(all.filter((t) => names.has(t.function.name)));
     case 'kbQa':
       if (useKnowledgeBase && kbEgressAuthorized) {
         names.add('searchKB');
@@ -140,5 +140,5 @@ export function toolsForIntent(
       break;
   }
 
-  return all.filter((t) => names.has(t.function.name));
+  return buildToolListForPrompt(all.filter((t) => names.has(t.function.name)));
 }

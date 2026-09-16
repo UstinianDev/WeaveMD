@@ -68,6 +68,9 @@ const toolMock = vi.hoisted(() => ({
     { type: 'function', function: { name: 'readFile', description: 'x', parameters: {} } },
     { type: 'function', function: { name: 'searchKB', description: 'x', parameters: {} } },
   ]),
+  buildToolListForPrompt: vi.fn((tools: unknown[]) => tools),
+  isDeferredTool: vi.fn(() => false),
+  getDeferredToolSchema: vi.fn(() => undefined),
 }));
 vi.mock('@main/ai/toolRegistry', () => toolMock);
 

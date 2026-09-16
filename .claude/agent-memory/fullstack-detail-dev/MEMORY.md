@@ -21,4 +21,6 @@
 - [R4 知识库澄清 Agent 联动](kb-clarify-agent-linkage-r4.md) — buildClarificationContext 分轮策略 + searchKBHandler 注入 + 向后兼容数组/对象格式
 - [S4 MD5→xxHash 迁移](s4-md5-xxhash-migration.md) — hashUtil 接口设计/替换 6 文件/agentLoopGuard 不动/djb2 fallback 永不抛异常
 - [S1 流式推测执行架构](s1-streaming-tool-executor.md) — StreamingToolExecutor 状态机/agentLoop 双路径集成/processStreamingToolRound 后处理/循环依赖规避
+- [S6 大结果持久化](s6-tool-result-storage.md) — 单工具30k阈值/聚合120k预算/ContentReplacementState确定性替换/tool-results子目录
+- [S5 工具延迟加载](s5-tool-defer-loading.md) — defer_loading 标记/stub-full schema 切换/agentLoop 拦截重发(≤3次)/defineCoreTools 字母序 sort
 

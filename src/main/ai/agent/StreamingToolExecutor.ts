@@ -18,6 +18,7 @@
 import type { AgentContext } from './agentContext';
 import { executeOneTool, type ToolExecResult } from './agentToolExecutor';
 import { isToolConcurrencySafe, safeParseArgs } from './concurrencyDefs';
+import type { ContentReplacementState } from './toolResultStorage';
 
 // ---------------------------------------------------------------------------
 // 编译时常量开关
@@ -67,6 +68,7 @@ export class StreamingToolExecutor {
   constructor(
     private ctx: AgentContext,
     private round: number,
+    private replacementState?: ContentReplacementState,
   ) {}
 
   // -----------------------------------------------------------------------
@@ -202,7 +204,7 @@ export class StreamingToolExecutor {
     if (this.aborted) return;
 
     tool.status = 'executing';
-    const promise = executeOneTool(tool.tc, this.round, this.ctx)
+    const promise = executeOneTool(tool.tc, this.round, this.ctx, this.replacementState)
       .then((result) => {
         tool.result = result;
         tool.status = 'completed';

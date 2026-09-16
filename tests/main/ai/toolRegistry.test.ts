@@ -33,9 +33,9 @@ function makeCtx(over: Partial<ToolCtx> = {}): ToolCtx {
 }
 
 describe('toolRegistry.defineCoreTools', () => {
-  it('defines exactly the 24 tools (listFiles/readFile/searchKB/runSkill/editBlocks/createFile/createFolder/ask_question_card/preview_patch_files/web_search/analyze_folder/check_links/get_task_activity/renameFile/moveFile/deleteFile/preview_file_revision/research_search/readLocalFile/listLocalDirectory/editLocalFile/deleteLocalFile/list_skills/get_skill_details)', () => {
+  it('defines exactly the 24 tools (alphabetically sorted by function.name)', () => {
     const names = defineCoreTools().map((t) => t.function.name);
-    expect(names).toEqual(['listFiles', 'readFile', 'searchKB', 'runSkill', 'editBlocks', 'createFile', 'createFolder', 'ask_question_card', 'preview_patch_files', 'web_search', 'analyze_folder', 'check_links', 'get_task_activity', 'renameFile', 'moveFile', 'deleteFile', 'preview_file_revision', 'research_search', 'readLocalFile', 'listLocalDirectory', 'editLocalFile', 'deleteLocalFile', 'list_skills', 'get_skill_details']);
+    expect(names).toEqual(['analyze_folder', 'ask_question_card', 'check_links', 'createFile', 'createFolder', 'deleteFile', 'deleteLocalFile', 'editBlocks', 'editLocalFile', 'get_skill_details', 'get_task_activity', 'list_skills', 'listFiles', 'listLocalDirectory', 'moveFile', 'preview_file_revision', 'preview_patch_files', 'readFile', 'readLocalFile', 'renameFile', 'research_search', 'runSkill', 'searchKB', 'web_search']);
   });
 
   it('has valid OpenAI function schema for every tool', () => {

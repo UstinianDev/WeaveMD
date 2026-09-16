@@ -118,7 +118,7 @@ describe('StreamingToolExecutor', () => {
 
     // Should have been called immediately
     expect(toolExecMock.executeOneTool).toHaveBeenCalledTimes(1);
-    expect(toolExecMock.executeOneTool).toHaveBeenCalledWith(tc, 1, expect.anything());
+    expect(toolExecMock.executeOneTool).toHaveBeenCalledWith(tc, 1, expect.anything(), undefined);
 
     // Wait for completion
     const results = await executor.waitForAll();

@@ -4,6 +4,12 @@
 // 内置工具：listFiles / readFile / searchKB / runSkill / editBlocks / createFile / createFolder 等。
 // 写工具直接执行（原铁律一已移除）。
 // 数据访问全部按 ctx.userId 隔离（SECURITY：即使工具参数含 user_id，也只以 ctx.userId 为准）。
+//
+// S5 工具延迟加载：
+// - 核心工具（5 个）：始终发送完整 JSON Schema → 缓存前缀稳定
+// - 延迟工具（19 个）：仅发送名称 stub + defer_loading: true 标记
+// - 当 LLM 选择调用延迟工具时，拦截 → 补充完整 schema → 重发请求
+// - 重发上限 3 次，防止死循环
 
 import type { ToolDef } from '@shared/ai';
 import type { ToolCtx, ToolHandler, ToolResult } from './toolTypes';
@@ -137,6 +143,7 @@ const CORE_TOOLS: ToolDef[] = [
         required: ['skill', 'input'],
       },
     },
+    defer_loading: true,
   },
   {
     type: 'function',
@@ -179,6 +186,7 @@ const CORE_TOOLS: ToolDef[] = [
         required: ['file_name', 'content'],
       },
     },
+    defer_loading: true,
   },
   {
     type: 'function',
@@ -194,17 +202,18 @@ const CORE_TOOLS: ToolDef[] = [
         required: ['folder_name'],
       },
     },
+    defer_loading: true,
   },
   askQuestionCardSchema,
-  previewPatchFilesSchema,
-  webSearchSchema,
-  analyzeFolderSchema,
-  checkLinksSchema,
-  getTaskActivitySchema,
-  renameFileSchema,
-  moveFileSchema,
-  deleteFileSchema,
-  previewFileRevisionSchema,
+  { ...previewPatchFilesSchema, defer_loading: true },
+  { ...webSearchSchema, defer_loading: true },
+  { ...analyzeFolderSchema, defer_loading: true },
+  { ...checkLinksSchema, defer_loading: true },
+  { ...getTaskActivitySchema, defer_loading: true },
+  { ...renameFileSchema, defer_loading: true },
+  { ...moveFileSchema, defer_loading: true },
+  { ...deleteFileSchema, defer_loading: true },
+  { ...previewFileRevisionSchema, defer_loading: true },
   {
     type: 'function',
     function: {
@@ -219,6 +228,7 @@ const CORE_TOOLS: ToolDef[] = [
         required: ['query'],
       },
     },
+  defer_loading: true,
   },
   {
     type: 'function',
@@ -233,6 +243,7 @@ const CORE_TOOLS: ToolDef[] = [
         required: ['file_path'],
       },
     },
+  defer_loading: true,
   },
   {
     type: 'function',
@@ -247,6 +258,7 @@ const CORE_TOOLS: ToolDef[] = [
         required: ['directory_path'],
       },
     },
+  defer_loading: true,
   },
   {
     type: 'function',
@@ -262,8 +274,9 @@ const CORE_TOOLS: ToolDef[] = [
         required: ['file_path', 'new_content'],
       },
     },
+    defer_loading: true,
   },
-  deleteLocalFileSchema,
+  { ...deleteLocalFileSchema, defer_loading: true },
   {
     type: 'function',
     function: {
@@ -271,6 +284,7 @@ const CORE_TOOLS: ToolDef[] = [
       description: '列出所有可用技能（名称、描述、启用状态）。',
       parameters: { type: 'object', properties: {} },
     },
+    defer_loading: true,
   },
   {
     type: 'function',
@@ -285,12 +299,78 @@ const CORE_TOOLS: ToolDef[] = [
         required: ['skill_name'],
       },
     },
+    defer_loading: true,
   },
 ];
 
-/** 定义只读核心工具（OpenAI function JSON Schema）。含 editBlocks（仅产改写建议，不落盘）。 */
+// ---------------------------------------------------------------------------
+// S5: 工具延迟加载（defer_loading）—— 辅助函数
+// ---------------------------------------------------------------------------
+
+/** 预构建的延迟工具名 → 完整 ToolDef 映射（模块级常量，O(1) 查找）。 */
+const deferredSchemaMap = new Map<string, ToolDef>(
+  CORE_TOOLS.filter((t) => t.defer_loading).map((t) => [t.function.name, t])
+);
+
+/** 预构建的延迟工具名集合（模块级常量，O(1) 查找）。 */
+const deferredToolNames: ReadonlySet<string> = new Set(deferredSchemaMap.keys());
+
+/**
+ * 判断工具是否为延迟加载工具。
+ * 延迟工具在 prompt 中仅发送轻量 stub，完整 schema 由 getDeferredToolSchema 按需获取。
+ */
+export function isDeferredTool(name: string): boolean {
+  return deferredToolNames.has(name);
+}
+
+/**
+ * 获取延迟工具的完整 JSON Schema。
+ * 非延迟工具 / 不存在的工具返回 undefined。
+ */
+export function getDeferredToolSchema(name: string): ToolDef | undefined {
+  return deferredSchemaMap.get(name);
+}
+
+/**
+ * 获取工具的轻量 stub（仅名称 + 描述，不含完整 parameters schema）。
+ * stub 在 prompt 中代替完整 schema，减少缓存前缀体积。
+ * 非延迟工具返回 undefined（不应为其生成 stub）。
+ */
+export function getToolStub(name: string): ToolDef | undefined {
+  const full = deferredSchemaMap.get(name);
+  if (!full) return undefined;
+  return {
+    type: 'function',
+    function: {
+      name: full.function.name,
+      description: full.function.description,
+      parameters: { type: 'object', properties: {} },
+    },
+    defer_loading: true,
+  };
+}
+
+/**
+ * 构建发往 LLM prompt 的工具列表：
+ * - 核心工具（defer_loading 非 true）：保留完整 JSON Schema
+ * - 延迟工具（defer_loading: true）：替换为轻量 stub
+ * - 保持原有顺序不变（字母序由 defineCoreTools 保证）
+ */
+export function buildToolListForPrompt(tools: ToolDef[]): ToolDef[] {
+  return tools.map((t) => {
+    if (t.defer_loading) {
+      return getToolStub(t.function.name) ?? t;
+    }
+    return t;
+  });
+}
+
+/** 定义只读核心工具（OpenAI function JSON Schema）。含 editBlocks（仅产改写建议，不落盘）。
+ *  返回按 function.name 字母序排序的副本，确保每次缓存前缀一致（S5/S7）。 */
 export function defineCoreTools(): ToolDef[] {
-  return CORE_TOOLS;
+  return [...CORE_TOOLS].sort((a, b) =>
+    a.function.name.localeCompare(b.function.name)
+  );
 }
 
 // ---------------------------------------------------------------------------

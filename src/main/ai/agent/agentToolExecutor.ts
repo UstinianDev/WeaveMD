@@ -11,6 +11,7 @@ import { isToolConcurrencySafe, safeParseArgs } from './concurrencyDefs';
 import { createSegment, completeSegment, type ExecutionSegment } from './agentExecutionSegments';
 import { type LoopCheckResult } from './agentLoopGuard';
 import { TOOL_EXEC_TIMEOUT_MS } from './agentHelpers';
+import { persistLargeResult, applyAggregateBudget, type ContentReplacementState } from './toolResultStorage';
 import type { AgentContext } from './agentContext';
 import type { AgentLlmMessage, AgentLoopDeps } from './agentLoop';
 
@@ -37,12 +38,13 @@ export interface ToolExecResult {
 // ---------------------------------------------------------------------------
 
 /**
- * 执行单个工具并返回结构化结果（含错误兜底 + 超时保护）。
+ * 执行单个工具并返回结构化结果（含错误兜底 + 超时保护 + S6 大结果持久化）。
  */
 export async function executeOneTool(
   tc: { index: number; name: string; arguments: string },
   round: number,
-  ctx: AgentContext
+  ctx: AgentContext,
+  replacementState?: ContentReplacementState,
 ): Promise<ToolExecResult> {
   const toolCallId = `call_${round}_${tc.index}`;
   let result: { content: string; status: 'ok' | 'error'; errorDesc?: string };
@@ -62,6 +64,16 @@ export async function executeOneTool(
       errorDesc: err instanceof Error ? err.message : String(err),
     };
   }
+
+  // S6: 大结果持久化——成功结果超出单工具阈值时写入文件、返回预览
+  if (result.status === 'ok' && result.content) {
+    const state = replacementState ?? ctx.replacementState;
+    const persisted = await persistLargeResult(tc.name, result.content, toolCallId, state);
+    if (persisted.persisted) {
+      result = { ...result, content: persisted.displayContent };
+    }
+  }
+
   return { tc, toolCallId, result };
 }
 
@@ -203,13 +215,15 @@ export function handleToolResult(
 
 /**
  * 执行一轮工具调用：只读工具并行 + 有副作用工具串行 + 死循环检测 + 落库。
+ * S6: 集成大结果持久化 + 聚合预算控制。
  */
 export async function executeToolRound(
   ctx: AgentContext,
   accumulatedToolCalls: Array<{ index: number; name: string; arguments: string }>,
   assistantContent: string,
   round: number,
-  deps: AgentLoopDeps
+  deps: AgentLoopDeps,
+  replacementState?: ContentReplacementState,
 ): Promise<ToolRoundResult> {
   // 去重 ask_question_card：DeepSeek 流式输出有时会先输出不完整的 tool call
   // （空 questions 数组），然后再输出完整的调用。只保留最后一个，丢弃前面的空参数调用。
@@ -262,8 +276,9 @@ export async function executeToolRound(
   }
 
   // 并行执行只读工具
+  const state = replacementState ?? ctx.replacementState;
   const readOnlyResults: ToolExecResult[] = readOnlyTcs.length > 0
-    ? await Promise.all(readOnlyTcs.map((tc) => executeOneTool(tc, round, ctx)))
+    ? await Promise.all(readOnlyTcs.map((tc) => executeOneTool(tc, round, ctx, state)))
     : [];
 
   // 串行执行有副作用工具
@@ -320,7 +335,7 @@ export async function executeToolRound(
           continue;
         }
         if (answer[toolCallId] === 'yes') {
-          writableResults.push(await executeOneTool(tc, round, ctx));
+          writableResults.push(await executeOneTool(tc, round, ctx, state));
         } else {
           writableResults.push({
             tc: { index: tc.index, name: tc.name, arguments: tc.arguments },
@@ -347,13 +362,21 @@ export async function executeToolRound(
       continue;
     }
 
-    writableResults.push(await executeOneTool(tc, round, ctx));
+    writableResults.push(await executeOneTool(tc, round, ctx, state));
   }
 
   // 合并结果，按 accumulatedToolCalls 原始顺序排列（index 关联）
   const resultMap = new Map<number, ToolExecResult>();
   for (const r of readOnlyResults) resultMap.set(r.tc.index, r);
   for (const r of writableResults) resultMap.set(r.tc.index, r);
+
+  // S6: 聚合预算控制——单轮所有结果总和超出上限时压缩最大结果
+  const budgetedResults = await applyAggregateBudget(
+    [...resultMap.values()],
+    state,
+  );
+  resultMap.clear();
+  for (const r of budgetedResults) resultMap.set(r.tc.index, r);
 
   for (const tc of dedupedToolCalls) {
     const entry = resultMap.get(tc.index);

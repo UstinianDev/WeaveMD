@@ -21,6 +21,9 @@ export interface ToolFunctionDef {
 export interface ToolDef {
   type: 'function';
   function: ToolFunctionDef;
+  /** 内部标记：true 表示该工具在 prompt 中仅发送轻量 stub，完整 schema 按需加载。
+   *  不影响 OpenAI API 兼容性（API 忽略未知字段）。 */
+  defer_loading?: boolean;
 }
 
 /** 意图分类结果。 */
