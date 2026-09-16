@@ -134,9 +134,9 @@
 - [CONTRIBUTING](../docs/CONTRIBUTING.md) — 文档编写规范
 - [architecture/](../docs/architecture/) — 按技术层分类（10 篇：前端/编辑器/后端/AI/知识库/数据库/IPC/安全/测试/构建）
 - [modules/](../docs/modules/) — 各模块文档（11 个模块）
-- [specs/](../docs/specs/) — 编辑器/AI 面板规格文档（11 篇）
+- [specs/](../docs/specs/) — 编辑器/AI 面板/自动更新规格文档（14 篇）
 - [testing/](../docs/testing/) — TDD 测试报告（6 篇）
-- [plan/](../docs/plan/) — 实施计划与状态（含重构 4 篇）
+- [plan/](../docs/plan/) — 实施计划与状态
 - [plan/archive/](../docs/plan/archive/) — 已完成的实施状态归档
 
 ### 查阅规则（渐进式披露）
@@ -153,6 +153,7 @@
 - 认证、加密、权限 → docs/architecture/security.md
 - 测试策略、工具、覆盖率 → docs/architecture/testing.md
 - 构建、打包、发布 → docs/architecture/build.md
+- 自动更新、版本检测 → docs/specs/auto-update-spec.md
 - 模块实现细节 → docs/modules/{模块名}.md
 - 编辑器/AI 面板设计 → docs/specs/
 - 测试覆盖、验证证据 → docs/testing/

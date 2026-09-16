@@ -1,6 +1,6 @@
 # WeaveMD 文档索引
 
-> 最后更新：2026-09-14
+> 最后更新：2026-09-16
 
 ## 核心文档
 
@@ -52,50 +52,43 @@
 | [editor-v2-features](./specs/editor-v2-features.md) | v2 功能清单（编辑器 UI 规范 + 工具栏 + 图片 + 表格） |
 | [editor-v2-selection-undo](./specs/editor-v2-selection-undo.md) | v2 选区/撤销/集成设计（跨块选区 + undo栈） |
 | [ai-panel-features](./specs/ai-panel-features.md) | AI 面板历史交付记录（7 期 + 写控制 + Agentic RAG） |
+| [auto-update-spec](./specs/auto-update-spec.md) | 自动更新规范（架构/数据流/IPC/发布流程/故障排查） |
 | [markdown-block-exit-rules](./specs/markdown-block-exit-rules.md) | 退格退出规则（六条：列表/引用/任务/代码块） |
 | [floating-toolbar-refactor](./specs/floating-toolbar-refactor.md) | 浮动工具栏重构规范（SPEC-EDIT-FT：选区触发 + 块类型下拉） |
 | [floating-toolbar-ux](./specs/floating-toolbar-ux-and-inline-format.md) | 浮动工具栏 UX + 行内格式（加粗/斜体/删除线/高亮/代码/链接） |
 | [floating-toolbar-format-sticky](./specs/floating-toolbar-format-sticky.md) | 格式应用交互修正（SPEC-EDIT-FT4：选区保持 + 格式粘性） |
 | [drag-selection-flicker](./specs/drag-selection-flicker.md) | 跨块拖选闪烁优化（SPEC-EDIT-DSF：端点检测 + rAF合并） |
 | [code-block-trailing-paragraph](./specs/code-block-trailing-paragraph.md) | 代码块/图片块尾随空行持久化（SPEC-EDIT-CBTP） |
+| [embedding-architecture](./specs/embedding-architecture.md) | Embedding 多提供商架构设计 |
+| [indexing-compatibility](./specs/indexing-compatibility.md) | 索引流程兼容性设计 |
 
 ## 需求文档
 
+### 当前
+
 | 文档 | 说明 |
 |------|------|
-| [optimize-outline-aiheading-composer.req](./requirements/optimize-outline-aiheading-composer.req.md) | Outline统一 + 标题编号 + Composer标签化 |
-| [agent-optimize-v3.req](./requirements/agent-optimize-v3.req.md) | Agent 优化 v3 需求（搜索持久化/动态轮次/多文件Diff） |
-| [agent-kb-refactor.req](./requirements/agent-kb-refactor.req.md) | Agent/KB 重构需求（模块拆分/缓存提取） |
-| [fix-web-search-loop.req](./requirements/fix-web-search-loop.req.md) | web_search 死循环修复需求（✅ 已修复） |
-| [refactor-export-editor-outline-navbar.req](./requirements/refactor-export-editor-outline-navbar.req.md) | **全局重构需求（2026-09-13）**：导出/编辑/大纲/导航四模块，L 级重型重构 |
-| [agent-ux-optimize.req](./requirements/agent-ux-optimize.req.md) | **Agent UX 优化需求（2026-09-14）**：Diff/提问/写控制/澄清 7 项优化 |
-| [perf-agent-arch.req](./requirements/perf-agent-arch.req.md) | **Agent 架构级性能优化需求（2026-09-15）**：工具调用前置/Checkpoint/代码清理 |
+| [agent-ux-optimize.req](./requirements/agent-ux-optimize.req.md) | Agent UX 优化需求（R1-R7：Diff/提问/写控制/澄清） |
+| [perf-agent-arch.req](./requirements/perf-agent-arch.req.md) | Agent 架构级性能优化需求（工具调用前置/Checkpoint/代码清理） |
+
+### 历史（`docs/requirements/archive/`）
+
+已完成任务的 10 篇需求文档已归档。
 
 ## 实施计划
 
-### 当前（2026-09-15）
+### 当前
 
 | 文档 | 说明 |
 |------|------|
-| [perf-agent-arch.plan](./plan/perf-agent-arch.plan.md) | **Agent 架构优化计划**：工具调用前置 + Checkpoint 真增量 + 3 项代码清理 |
-| [agent-ux-optimize.plan](./plan/agent-ux-optimize.plan.md) | Agent UX 优化计划：7 子任务实现方案 + 变更清单 |
-| [agent-ux-optimize.status](./plan/agent-ux-optimize.status.md) | Agent UX 优化状态：Phase 0-8 全流程 |
+| [perf-agent-arch.plan](./plan/perf-agent-arch.plan.md) | Agent 架构优化计划 |
+| [agent-ux-optimize.plan](./plan/agent-ux-optimize.plan.md) | Agent UX 优化计划（7 子任务实现方案 + 变更清单） |
+| [agent-ux-optimize.status](./plan/agent-ux-optimize.status.md) | Agent UX 优化状态（Phase 0-8 全流程） |
 | [agent-ux-optimize.connectivity](./plan/agent-ux-optimize.connectivity.md) | 连通性验证报告 |
-
-### 历史计划
-
-| 文档 | 说明 |
-|------|------|
-| [agent-optimize-v3.plan](./plan/agent-optimize-v3.plan.md) | Agent 优化 v3 实施计划 |
-| [agent-kb-refactor.plan](./plan/agent-kb-refactor.plan.md) | Agent/KB 重构计划 |
-| [fix-web-search-loop.plan](./plan/fix-web-search-loop.plan.md) | web_search 死循环修复计划 |
-| [perf-agent-kb-writecontrol.plan](./plan/perf-agent-kb-writecontrol.plan.md) | 性能+写控制优化计划 |
-| [embedding-architecture](./plan/embedding-architecture.md) | Embedding 多提供商架构设计 |
-| [indexing-compatibility](./plan/indexing-compatibility.md) | 索引流程兼容性设计 |
 
 ### 归档（`docs/plan/archive/`）
 
-所有已完成任务的状态文件已归档，包括 agent-ux-optimize 之前的全部 devflow 产出。
+20+ 篇已完成任务的计划/状态/瓶颈分析/连通性/重构报告文件已归档。
 
 ## 测试报告
 
@@ -108,11 +101,24 @@
 | [spec-edit-cbtp](./testing/spec-edit-cbtp.tdd.md) | 代码块尾随空行 TDD（SPEC-EDIT-CBTP） |
 | [spec-edit-dsf](./testing/spec-edit-dsf.tdd.md) | 拖选闪烁 TDD（SPEC-EDIT-DSF） |
 
-## 重构报告
+## 查阅规则（渐进式披露）
 
-| 文档 | 说明 |
-|------|------|
-| [agent-kb-refactor](./refactor/agent-kb-refactor.refactor.md) | Agent/KB/工具重构报告（2026-09-10 ✅ 完成） |
-| [refactor-export-editor-outline-navbar.plan](./plan/refactor-export-editor-outline-navbar.plan.md) | **全局重构实施计划（2026-09-13）**：47+ 文件白名单，5 阶段（P0~P3），导出/编辑/大纲/导航四模块 |
-| [refactor-export-editor-outline-navbar.status](./plan/refactor-export-editor-outline-navbar.status.md) | **重构进度文档**：L 级重型重构，8 阶段全部完成 ✅ |
-| [refactor-export-editor-outline-navbar.connectivity](./plan/refactor-export-editor-outline-navbar.connectivity.md) | **模块连通性验证报告**：19 条调用链全部通畅 ✅ |
+- 项目是什么、怎么跑 → [README](../README.md)
+- 技术栈、目录结构、命令 → [docs/README](./README.md)
+- 功能进度、已知问题 → [TODO](./TODO.md)
+- 前端渲染层、状态管理 → [frontend](./architecture/frontend.md)
+- 编辑器内核、块树、控制器 → [editor](./architecture/editor.md)
+- 主进程、IPC、工具系统 → [backend](./architecture/backend.md)
+- AI/Agent 循环、工具、意图 → [ai-agent](./architecture/ai-agent.md)
+- 知识库索引、搜索、HyDE → [knowledge](./architecture/knowledge.md)
+- 数据库表结构、DAO → [database](./architecture/database.md)
+- IPC 通道、事件持久化 → [ipc](./architecture/ipc.md)
+- 认证、加密、权限 → [security](./architecture/security.md)
+- 测试策略、工具、覆盖率 → [testing](./architecture/testing.md)
+- 构建、打包、发布 → [build](./architecture/build.md)
+- 自动更新规范 → [auto-update-spec](./specs/auto-update-spec.md)
+- 模块实现细节 → [modules/](./modules/)
+- 编辑器/AI 面板设计 → [specs/](./specs/)
+- 测试覆盖、验证证据 → [testing/](./testing/)
+- 实施计划、优化状态 → [plan/](./plan/)
+- 导出/MIME/打包指南 → [guide/](./guide/)
