@@ -1,6 +1,6 @@
 # WeaveMD 文档索引
 
-> 最后更新：2026-09-16
+> 最后更新：2026-09-17
 
 ## 核心文档
 
@@ -68,12 +68,11 @@
 
 | 文档 | 说明 |
 |------|------|
-| [agent-ux-optimize.req](./requirements/agent-ux-optimize.req.md) | Agent UX 优化需求（R1-R7：Diff/提问/写控制/澄清） |
-| [perf-agent-arch.req](./requirements/perf-agent-arch.req.md) | Agent 架构级性能优化需求（工具调用前置/Checkpoint/代码清理） |
+| [agent-perf-optimize.req](./requirements/agent-perf-optimize.req.md) | Agent 性能优化需求（17 子任务：流式推测执行 / 工具延迟 / Prompt 缓存 / KB 缓存 / 监控） |
 
 ### 历史（`docs/requirements/archive/`）
 
-已完成任务的 10 篇需求文档已归档。
+12 篇已完成任务的需求文档已归档。
 
 ## 实施计划
 
@@ -81,14 +80,14 @@
 
 | 文档 | 说明 |
 |------|------|
-| [perf-agent-arch.plan](./plan/perf-agent-arch.plan.md) | Agent 架构优化计划 |
-| [agent-ux-optimize.plan](./plan/agent-ux-optimize.plan.md) | Agent UX 优化计划（7 子任务实现方案 + 变更清单） |
-| [agent-ux-optimize.status](./plan/agent-ux-optimize.status.md) | Agent UX 优化状态（Phase 0-8 全流程） |
-| [agent-ux-optimize.connectivity](./plan/agent-ux-optimize.connectivity.md) | 连通性验证报告 |
+| [agent-perf-optimize.plan](./plan/agent-perf-optimize.plan.md) | Agent 性能优化计划（阶段 1-4） |
+| [agent-perf-optimize.phase2.plan](./plan/agent-perf-optimize.phase2.plan.md) | Agent 性能优化阶段 2 计划 |
+| [agent-perf-optimize.status](./plan/agent-perf-optimize.status.md) | Agent 性能优化状态（全阶段追踪） |
+| [agent-perf-optimize.connectivity](./plan/agent-perf-optimize.connectivity.md) | 连通性验证报告 |
 
 ### 归档（`docs/plan/archive/`）
 
-20+ 篇已完成任务的计划/状态/瓶颈分析/连通性/重构报告文件已归档。
+32 篇已完成任务的计划/状态/瓶颈分析/连通性/重构报告文件已归档。
 
 ## 测试报告
 

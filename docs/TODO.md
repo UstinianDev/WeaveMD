@@ -1,8 +1,21 @@
 # TODO
 
-> 最后更新：2026-09-15
+> 最后更新：2026-09-17
 
 ## 已完成
+
+### agent-perf-optimize（2026-09-16 ~ 2026-09-17）
+
+L 级 Agent 性能优化，4 阶段 17 子任务，283 新增测试，全量交付。
+
+| 阶段 | 优化项 | 核心交付 |
+|------|--------|---------|
+| 1: Agent 核心 | 流式推测执行 / 并发精细化 / 缓存键 / xxHash | StreamingToolExecutor（430 行）+ concurrencyDefs + hashUtil |
+| 2: 架构级 | Prompt 分层 / 工具 defer_loading / 大结果持久化 / 压缩 cache-safe fork | 工具延迟加载（5 核心 + 19 延迟）+ ContentReplacementState |
+| 3: 知识库 | HyDE 缓存 / Embedding 缓存 / 预加载模糊匹配 / 查询理解增强 | 5 层缓存命中率体系 + 多意图分类 + 指代消解 |
+| 4: 监控 | 性能基准 / A/B 测试 / 缓存监控 / 成本追踪 | cacheMonitor + costTracker + AB test runner + 基准套件 |
+
+> 详见 [agent-perf-optimize 状态](../docs/plan/agent-perf-optimize.status.md)
 
 ### perf-agent-arch（2026-09-15）
 
@@ -100,7 +113,8 @@ L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/re
 | 🔲 | 段落级 MD Source 视图迁移 | v2 编辑器迁移 Monaco Source 视图 |
 | 🔲 | 真 MCP server 管理 | 外部 MCP server 注册与生命周期管理 |
 | 🔲 | pdf/docx 知识库导入 | 非 Markdown 格式文档直接导入知识库 |
-| 🔲 | Web Worker JSON.parse | AgentWorkflowCard 大 JSON 异步解析（worker 基础设施已就绪） |
+| 🔲 | `classifyIntent` 接入 searchKB 主管线 | queryPlanner 意图分类未接入 kbSearch 搜索管线 |
+| 🔲 | `ipc.test.ts` 12 个预存测试修复 | handler 实现变更（consent 移除 / taskQueue 异步入队）导致测试不同步 |
 
 ## 已知问题
 
@@ -110,3 +124,5 @@ L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/re
 | 撤销/重做后光标回到重建树首块 | 编辑主区（撤销/重做操作） |
 | 5 个既有 E2E 红（drag-selection-markers.spec.ts） | E2E 测试套件 |
 | 段落级 MD Source 视图未迁移 | 编辑主区（Source 模式） |
+| `ipc.test.ts` 12 个预存测试失败 | CI 容忍，handler 变更（consent 移除 / taskQueue）导致不同步 |
+| `classifyIntent` 未接入 searchKB 主管线 | queryPlanner 意图分类与 kbSearch 独立运行 |
