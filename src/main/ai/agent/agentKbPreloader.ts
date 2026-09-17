@@ -6,6 +6,7 @@
 // S11: 模糊匹配（子串 + token 交集）+ 核心查询词提取 + TTL 延长至 5 分钟。
 
 import type { SearchKbFn } from '../toolTypes';
+import { getCacheMonitor } from '../knowledge/cacheMonitor';
 
 // ---------------------------------------------------------------------------
 // 常量
@@ -166,9 +167,11 @@ export function createPreloadedSearchKb(
     for (const [key, entry] of cache) {
       if (Date.now() - entry.timestamp < KB_PRELOAD_TTL_MS && isFuzzyMatch(query, key)) {
         // S11: 命中后不删除（TTL 控制过期，允许同一会话多次命中）
+        getCacheMonitor().recordHit('kbPreload');
         return entry.result;
       }
     }
+    getCacheMonitor().recordMiss('kbPreload');
     return original(uid, query, opts);
   };
 

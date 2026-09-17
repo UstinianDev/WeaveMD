@@ -208,15 +208,6 @@ export class StreamingToolExecutor {
       .then((result) => {
         tool.result = result;
         tool.status = 'completed';
-        // PERF: 记录工具完成时间
-        console.log(
-          '[PERF] Tool completed:',
-          tool.tc.name,
-          'status:',
-          result.result.status,
-          'at',
-          performance.now(),
-        );
       })
       .catch((err) => {
         tool.result = {
@@ -229,8 +220,6 @@ export class StreamingToolExecutor {
           },
         };
         tool.status = 'completed';
-        // PERF: 记录工具失败
-        console.log('[PERF] Tool failed:', tool.tc.name, 'at', performance.now());
       });
     tool.promise = promise;
     return promise;

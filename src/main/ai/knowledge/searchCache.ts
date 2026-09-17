@@ -7,6 +7,7 @@
 // S3 优化：缓存键含 searchMode + 分级失效（all/user/chunk）。
 
 import type { IKbSearchResult, IKbSearchDetailedResponse } from '@shared/ai';
+import { getCacheMonitor } from './cacheMonitor';
 
 // ---------------------------------------------------------------------------
 // LRU 缓存实现（性能优化）
@@ -193,14 +194,19 @@ export function invalidateKbSearchCache(scope?: string | InvalidateScope): void 
 // 缓存读写
 // ---------------------------------------------------------------------------
 
-/** 获取搜索结果缓存（LRU + TTL）。 */
+/** 获取搜索结果缓存（LRU + TTL）。S15: 记录缓存命中/未命中统计。 */
 export function getCachedSearchResult(key: string): IKbSearchDetailedResponse | null {
   const cached = searchResultCache.get(key);
-  if (!cached) return null;
-  if (Date.now() - cached.timestamp > SEARCH_CACHE_TTL_MS) {
-    searchResultCache.delete(key);
+  if (!cached) {
+    getCacheMonitor().recordMiss('searchResult');
     return null;
   }
+  if (Date.now() - cached.timestamp > SEARCH_CACHE_TTL_MS) {
+    searchResultCache.delete(key);
+    getCacheMonitor().recordMiss('searchResult');
+    return null;
+  }
+  getCacheMonitor().recordHit('searchResult');
   return cached.response;
 }
 
@@ -234,14 +240,19 @@ interface RerankCacheEntry {
 const rerankCache = new LRUCache<string, RerankCacheEntry>(50);
 const RERANK_CACHE_TTL_MS = 5 * 60 * 1000;
 
-/** 获取重排缓存（LRU + TTL）。 */
+/** 获取重排缓存（LRU + TTL）。S15: 记录缓存命中/未命中统计。 */
 export function getCachedRerank(key: string): IKbSearchResult[] | null {
   const cached = rerankCache.get(key);
-  if (!cached) return null;
-  if (Date.now() - cached.timestamp > RERANK_CACHE_TTL_MS) {
-    rerankCache.delete(key);
+  if (!cached) {
+    getCacheMonitor().recordMiss('rerank');
     return null;
   }
+  if (Date.now() - cached.timestamp > RERANK_CACHE_TTL_MS) {
+    rerankCache.delete(key);
+    getCacheMonitor().recordMiss('rerank');
+    return null;
+  }
+  getCacheMonitor().recordHit('rerank');
   return cached.results;
 }
 
@@ -270,15 +281,21 @@ const HYDE_CACHE_TTL_MS = 10 * 60 * 1000;
  * 获取 HyDE 向量缓存。
  * 缓存键：`${userId}::${query}`，匹配则返回缓存的 embedding 向量。
  * TTL 过期自动删除并返回 null。
+ * S15: 记录缓存命中/未命中统计。
  */
 export function getCachedHydeResult(userId: string, query: string): number[] | null {
   const key = `${userId}::${query}`;
   const cached = hydeResultCache.get(key);
-  if (!cached) return null;
-  if (Date.now() - cached.timestamp > HYDE_CACHE_TTL_MS) {
-    hydeResultCache.delete(key);
+  if (!cached) {
+    getCacheMonitor().recordMiss('hyde');
     return null;
   }
+  if (Date.now() - cached.timestamp > HYDE_CACHE_TTL_MS) {
+    hydeResultCache.delete(key);
+    getCacheMonitor().recordMiss('hyde');
+    return null;
+  }
+  getCacheMonitor().recordHit('hyde');
   return cached.vector;
 }
 

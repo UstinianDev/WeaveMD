@@ -5,6 +5,7 @@
 // 纯函数：除 node fetch 外不 import Electron，可单测（mock global fetch）。
 
 import { xxHash64Sync } from '@shared/utils/hashUtil';
+import { getCacheMonitor } from './cacheMonitor';
 
 // ---------------------------------------------------------------------------
 // 基础类型（向后兼容）
@@ -97,15 +98,19 @@ interface EmbeddingCacheEntry {
 
 const embeddingCache = new Map<string, EmbeddingCacheEntry>();
 
-/** 查询文本 embedding 缓存，命中返回向量，未命中/过期返回 null。 */
+/** 查询文本 embedding 缓存，命中返回向量，未命中/过期返回 null。S15: 记录命中/未命中统计。 */
 export function getCachedEmbedding(text: string): number[] | null {
   const hash = xxHash64Sync(text);
   const entry = embeddingCache.get(hash);
-  if (!entry) return null;
+  if (!entry) {
+    getCacheMonitor().recordMiss('embedding');
+    return null;
+  }
 
   // TTL 检查
   if (Date.now() - entry.ts > EMBEDDING_CACHE_TTL_MS) {
     embeddingCache.delete(hash);
+    getCacheMonitor().recordMiss('embedding');
     return null;
   }
 
@@ -113,6 +118,7 @@ export function getCachedEmbedding(text: string): number[] | null {
   embeddingCache.delete(hash);
   embeddingCache.set(hash, entry);
 
+  getCacheMonitor().recordHit('embedding');
   return entry.vector;
 }
 

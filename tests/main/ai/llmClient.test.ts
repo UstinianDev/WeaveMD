@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { StreamChunk } from '@main/ai/llm/llmClient';
 import { streamChatCompletion } from '@main/ai/llm/llmClient';
+import type { ToolDef } from '@shared/ai';
 
 type FetchFn = typeof fetch;
 type FetchMock = ReturnType<typeof vi.fn> & FetchFn;
@@ -74,9 +76,9 @@ async function collect(gen: AsyncGenerator<{ delta: string }>): Promise<string[]
 
 /** 收集完整块（含 toolCalls），便于断言工具累积。 */
 async function collectFull(
-  gen: AsyncGenerator<{ delta: string; toolCalls?: Array<{ index: number; name: string; arguments: string }> }>
-): Promise<Array<{ delta: string; toolCalls?: Array<{ index: number; name: string; arguments: string }> }>> {
-  const out: Array<{ delta: string; toolCalls?: Array<{ index: number; name: string; arguments: string }> }> = [];
+  gen: AsyncGenerator<StreamChunk>
+): Promise<StreamChunk[]> {
+  const out: StreamChunk[] = [];
   for await (const c of gen) out.push(c);
   return out;
 }
@@ -380,5 +382,78 @@ describe('llmClient.streamChatCompletion tools', () => {
       { index: 0, name: 'listFiles', arguments: '{}' },
       { index: 1, name: 'readFile', arguments: '{"file_id":"x"}' },
     ]);
+  });
+
+  // S16: SSE usage 解析（token 消耗统计）
+  it('parses SSE usage field into StreamChunk.usage', async () => {
+    fetchMock.mockResolvedValue(
+      makeResponse(
+        makeBody(
+          [
+            sseEvent({ choices: [{ delta: { content: 'Hello' } }] }),
+            sseEvent({
+              choices: [{ delta: { content: '' }, finish_reason: 'stop' }],
+              usage: {
+                prompt_tokens: 150,
+                completion_tokens: 80,
+                total_tokens: 230,
+                prompt_tokens_details: {
+                  cached_tokens: 50,
+                  cache_read_tokens: 30,
+                  cache_creation_tokens: 20,
+                },
+                completion_tokens_details: {
+                  reasoning_tokens: 0,
+                },
+              },
+            }),
+            'data: [DONE]\n\n',
+          ].join('')
+        )
+      )
+    );
+    const chunks = await collectFull(streamChatCompletion(baseOpts()));
+    const usageChunks = chunks.filter((c) => c.usage && c.usage.promptTokens != null);
+    expect(usageChunks.length).toBeGreaterThanOrEqual(1);
+    const usage = usageChunks[0].usage!;
+    expect(usage.promptTokens).toBe(150);
+    expect(usage.completionTokens).toBe(80);
+    expect(usage.totalTokens).toBe(230);
+    expect(usage.cacheReadTokens).toBe(30);
+    expect(usage.cacheCreationTokens).toBe(20);
+    // 向后兼容：reasoningTokenCount 仍可用
+    expect(usage.reasoningTokenCount).toBe(0);
+  });
+
+  it('parses SSE usage with reasoning_tokens for deepseek-reasoner', async () => {
+    fetchMock.mockResolvedValue(
+      makeResponse(
+        makeBody(
+          [
+            sseEvent({ choices: [{ delta: { content: 'Result' } }] }),
+            sseEvent({
+              choices: [{ delta: {}, finish_reason: 'stop' }],
+              usage: {
+                prompt_tokens: 500,
+                completion_tokens: 1200,
+                total_tokens: 1700,
+                completion_tokens_details: {
+                  reasoning_tokens: 800,
+                },
+              },
+            }),
+            'data: [DONE]\n\n',
+          ].join('')
+        )
+      )
+    );
+    const chunks = await collectFull(streamChatCompletion(baseOpts()));
+    const usageChunks = chunks.filter((c) => c.usage && c.usage.reasoningTokens != null);
+    expect(usageChunks.length).toBeGreaterThanOrEqual(1);
+    const usage = usageChunks[0].usage!;
+    expect(usage.reasoningTokens).toBe(800);
+    expect(usage.reasoningTokenCount).toBe(800);
+    expect(usage.promptTokens).toBe(500);
+    expect(usage.completionTokens).toBe(1200);
   });
 });

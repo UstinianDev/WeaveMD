@@ -28,7 +28,16 @@ export interface StreamChatCompletionOptions {
 
 export interface StreamChunk {
   delta: string;
-  usage?: { reasoningTokenCount?: number | null };
+  usage?: {
+    /** @deprecated 保留向后兼容，请使用 reasoningTokens */
+    reasoningTokenCount?: number | null;
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+    reasoningTokens?: number;
+    cacheReadTokens?: number;
+    cacheCreationTokens?: number;
+  };
   /**
    * 当次 yield 中完成的工具调用（SSE `delta` 内含 `tool_calls` 增量时，
    * 按 index 累积至 finish_reason:'tool_calls' 或流尾后随本块返回）。
@@ -53,11 +62,85 @@ interface SseJsonShape {
     };
     finish_reason?: string | null;
   }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+      cache_read_tokens?: number;
+      cache_creation_tokens?: number;
+    };
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
+  };
+}
+
+/**
+ * 解析 SSE JSON 中的 usage 字段为 StreamChunk.usage 格式。
+ * 纯函数，保持 reasoningTokenCount 向后兼容。
+ */
+function parseSseUsage(raw: SseJsonShape['usage']): StreamChunk['usage'] {
+  if (!raw) return undefined;
+  const reasoningTokens = raw.completion_tokens_details?.reasoning_tokens;
+  return {
+    reasoningTokenCount: reasoningTokens ?? null,
+    promptTokens: raw.prompt_tokens,
+    completionTokens: raw.completion_tokens,
+    totalTokens: raw.total_tokens,
+    reasoningTokens,
+    cacheReadTokens: raw.prompt_tokens_details?.cache_read_tokens
+      ?? raw.prompt_tokens_details?.cached_tokens,
+    cacheCreationTokens: raw.prompt_tokens_details?.cache_creation_tokens,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// S15: Prompt Cache 命中率统计
+// ---------------------------------------------------------------------------
+
+interface PromptCacheMetrics {
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+}
+
+let _promptCacheMetrics: PromptCacheMetrics = { cacheReadTokens: 0, cacheCreationTokens: 0 };
+
+/** 从 SSE usage 中累加 prompt cache 统计字段。 */
+function accumulatePromptCacheStats(usage: StreamChunk['usage']): void {
+  if (!usage) return;
+  if (usage.cacheReadTokens) _promptCacheMetrics.cacheReadTokens += usage.cacheReadTokens;
+  if (usage.cacheCreationTokens) _promptCacheMetrics.cacheCreationTokens += usage.cacheCreationTokens;
+}
+
+/** 返回 prompt cache 累计统计。命中率 = cacheRead / (cacheRead + cacheCreation)，若无创建则为 0。 */
+export interface PromptCacheStats {
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  /** 缓存命中率（0～1）。cacheRead / (cacheRead + cacheCreation)，无数据时为 0。 */
+  hitRate: number;
+}
+
+export function getPromptCacheStats(): PromptCacheStats {
+  const { cacheReadTokens, cacheCreationTokens } = _promptCacheMetrics;
+  const total = cacheReadTokens + cacheCreationTokens;
+  return {
+    cacheReadTokens,
+    cacheCreationTokens,
+    hitRate: total === 0 ? 0 : cacheReadTokens / total,
+  };
+}
+
+/** 重置 prompt cache 统计（供测试使用，生产代码不应调用）。 */
+export function resetPromptCacheStats(): void {
+  _promptCacheMetrics = { cacheReadTokens: 0, cacheCreationTokens: 0 };
 }
 
 /**
  * 解析一组 SSE 文本行，累积工具调用增量，返回待 yield 的 StreamChunk 数组。
  * 纯函数，供主循环和残余 buffer flush 共用。
+ * 同时提取 SSE 根级 usage 字段（token 消耗统计），作为独立 chunk 返回。
  */
 export function processSseLines(
   lines: string[],
@@ -75,6 +158,16 @@ export function processSseLines(
     } catch {
       continue; // 容错半包
     }
+
+    // S16: 提取 usage（token 消耗统计）+ S15: 累加 prompt cache 统计
+    if (json.usage) {
+      const parsed = parseSseUsage(json.usage);
+      if (parsed) {
+        accumulatePromptCacheStats(parsed);
+        chunks.push({ delta: '', usage: parsed });
+      }
+    }
+
     const choice = json.choices?.[0];
     const delta = choice?.delta;
     const content = delta?.content;

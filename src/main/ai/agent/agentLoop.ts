@@ -5,7 +5,6 @@
 // 注：原铁律一/二已移除，AI 工具可直接写盘，联网/外发无需用户同意。
 // 拆分后本文件仅保留编排逻辑 + 核心类型；工具函数/上下文/工具执行分别在上游模块。
 
-import { IPC_CHANNELS } from '@shared/constants';
 import type {
   AgentRunResult,
   AIErrorCode,
@@ -13,22 +12,46 @@ import type {
   IAIConsent,
   IClarifyQuestion,
 } from '@shared/ai';
+import { IPC_CHANNELS } from '@shared/constants';
 import { appendMessage, updateConversationSummary } from '../../db/ai';
-import { buildCompressed, estimateTokens, shouldCompress, summarizeViaLlm, type LlmMessage } from '../contextManager';
-import { streamChatCompletionWithRetry } from '../llm/llmClient';
-import { type SearchKbFn, isDeferredTool, getDeferredToolSchema } from '../toolRegistry';
+import {
+  buildCompressed,
+  estimateTokens,
+  shouldCompress,
+  summarizeViaLlm,
+  type LlmMessage,
+} from '../contextManager';
+import { streamChatCompletionWithRetry, type StreamChunk } from '../llm/llmClient';
+import { getDeferredToolSchema, isDeferredTool, type SearchKbFn } from '../toolRegistry';
+import { saveCheckpointIncremental } from './agentCheckpoint';
 import { type ExecutionSegment } from './agentExecutionSegments';
 import { createPreloadedSearchKb } from './agentKbPreloader';
-import { saveCheckpointIncremental } from './agentCheckpoint';
 
 // 从拆分模块导入
-import { makeAgentResult, sendProgress, detectTextQuestions, getCompressThreshold, KEEP_RECENT_ROUNDS, CONTEXT_WINDOW } from './agentHelpers';
-import { prepareAgentContext } from './agentContext';
+import { getCostTracker } from '../costTracker';
 import type { AgentContext } from './agentContext';
-import { executeToolRound, executeOneTool, handleToolResult, type ToolExecResult } from './agentToolExecutor';
+import { prepareAgentContext } from './agentContext';
+import {
+  CONTEXT_WINDOW,
+  detectTextQuestions,
+  getCompressThreshold,
+  KEEP_RECENT_ROUNDS,
+  makeAgentResult,
+  sendProgress,
+} from './agentHelpers';
+import {
+  executeOneTool,
+  executeToolRound,
+  handleToolResult,
+  type ToolExecResult,
+} from './agentToolExecutor';
 import { FORCE_CONFIRM_TOOLS } from './agentToolSelector';
-import { StreamingToolExecutor, STREAMING_TOOL_EXEC_ENABLED, type StreamingToolCall } from './StreamingToolExecutor';
-import { ContentReplacementState, applyAggregateBudget } from './toolResultStorage';
+import {
+  STREAMING_TOOL_EXEC_ENABLED,
+  StreamingToolExecutor,
+  type StreamingToolCall,
+} from './StreamingToolExecutor';
+import { applyAggregateBudget, ContentReplacementState } from './toolResultStorage';
 
 // Re-export ToolCtx 保持向后兼容
 export type { ToolCtx } from '../toolRegistry';
@@ -55,7 +78,12 @@ export interface AgentLoopDeps {
    * variant 可选值：'delete_confirm'（删除确认卡片，红色警告样式）。
    * 缺失时 ask_question_card 不暂停（向后兼容）。
    */
-  onInteractionRequired?: (questions: IClarifyQuestion[], variant?: string, round?: number, totalRounds?: number) => void;
+  onInteractionRequired?: (
+    questions: IClarifyQuestion[],
+    variant?: string,
+    round?: number,
+    totalRounds?: number
+  ) => void;
   /**
    * 交互等待用户答案：调用后返回 Promise，resolve 时传入用户答案。
    * 与 onInteractionRequired 配对使用；缺失时不暂停。
@@ -78,7 +106,11 @@ export interface AgentReqPayload {
 /** 工具回填消息（OpenAI 续轮约定，额外字段随序列化传给远端）。 */
 export type AgentLlmMessage = LlmMessage & {
   tool_call_id?: string;
-  tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>;
+  tool_calls?: Array<{
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+  }>;
 };
 
 // ---------------------------------------------------------------------------
@@ -111,6 +143,20 @@ function finalizeAgentRun(ctx: AgentContext, _deps: AgentLoopDeps): AgentRunResu
     roundsUsed: ctx.roundsUsed,
     intent: ctx.intent,
   });
+
+  // S16: 输出本次会话的成本摘要
+  try {
+    const costTable = getCostTracker().formatCostTable(ctx.convId);
+    const costEntries = getCostTracker().getConversationStats(ctx.convId);
+    const totalCost = costEntries.reduce((sum, e) => sum + e.estimatedCostUsd, 0);
+    // eslint-disable-next-line no-console
+    console.log(
+      `[Agent] Cost summary for conversation ${ctx.convId} (${costEntries.length} rounds, ~$${totalCost.toFixed(6)}):\n${costTable}`
+    );
+  } catch {
+    // 成本摘要输出失败不影响主流程
+  }
+
   return makeAgentResult({
     conversationId: ctx.convId,
     assistantId: ctx.assistantId,
@@ -181,7 +227,10 @@ export async function runAgentFlow(
           }
         } catch (compressErr) {
           // 压缩失败不应阻断主流程，记录日志后继续
-          console.warn('[Agent] Context compression failed, continuing without compression:', compressErr);
+          console.warn(
+            '[Agent] Context compression failed, continuing without compression:',
+            compressErr
+          );
         }
       }
 
@@ -204,7 +253,9 @@ export async function runAgentFlow(
         // 重置每次尝试的状态
         accumulatedToolCalls = [];
         assistantContent = '';
-        executor = STREAMING_TOOL_EXEC_ENABLED ? new StreamingToolExecutor(ctx, round, replacementState) : null;
+        executor = STREAMING_TOOL_EXEC_ENABLED
+          ? new StreamingToolExecutor(ctx, round, replacementState)
+          : null;
 
         const gen = streamChatCompletionWithRetry({
           baseUrl: ctx.baseUrl,
@@ -215,7 +266,10 @@ export async function runAgentFlow(
           timeoutMs: 180_000,
           signal: controller.signal,
           // Bug fix: 重试时清空已累积的部分内容，避免与新流拼接导致答非所问
-          onRetry: () => { assistantContent = ''; accumulatedToolCalls.length = 0; },
+          onRetry: () => {
+            assistantContent = '';
+            accumulatedToolCalls.length = 0;
+          },
         });
 
         // 批量 IPC：每 100ms 合并一次 chunk 发送，减少 IPC 调用次数
@@ -223,31 +277,41 @@ export async function runAgentFlow(
         let chunkFlushTimer: ReturnType<typeof setTimeout> | null = null;
         const flushChunks = () => {
           if (chunkBuffer) {
-            ctx.send(IPC_CHANNELS.AI_STREAM_CHUNK, { conversationId: ctx.convId, delta: chunkBuffer });
+            ctx.send(IPC_CHANNELS.AI_STREAM_CHUNK, {
+              conversationId: ctx.convId,
+              delta: chunkBuffer,
+            });
             chunkBuffer = '';
           }
-          if (chunkFlushTimer) { clearTimeout(chunkFlushTimer); chunkFlushTimer = null; }
+          if (chunkFlushTimer) {
+            clearTimeout(chunkFlushTimer);
+            chunkFlushTimer = null;
+          }
         };
 
         // PERF: 记录流开始时间
         streamStartTime = performance.now();
+
+        // S16: 收集本轮 LLM 调用的 usage（token 消耗统计）
+        let roundUsage: StreamChunk['usage'] | undefined;
 
         for await (const chunk of gen) {
           if (chunk.delta) {
             assistantContent += chunk.delta;
             chunkBuffer += chunk.delta;
             if (!chunkFlushTimer) {
-              chunkFlushTimer = setTimeout(() => { flushChunks(); }, 100);
+              chunkFlushTimer = setTimeout(() => {
+                flushChunks();
+              }, 100);
             }
           }
-          if (chunk.usage?.reasoningTokenCount != null) {
-            ctx.reasoningTokenCount = chunk.usage.reasoningTokenCount;
+          if (chunk.usage) {
+            roundUsage = chunk.usage;
+            if (chunk.usage.reasoningTokenCount != null) {
+              ctx.reasoningTokenCount = chunk.usage.reasoningTokenCount;
+            }
           }
           if (chunk.toolCalls?.length) {
-            // PERF: 首个 tool_use 块到达
-            if (accumulatedToolCalls.length === 0 && executor) {
-              console.log('[PERF] First tool_use block arrived at', performance.now() - streamStartTime, 'ms');
-            }
             accumulatedToolCalls.push(...chunk.toolCalls);
             if (executor) {
               for (const tc of chunk.toolCalls) {
@@ -258,9 +322,26 @@ export async function runAgentFlow(
         }
         flushChunks(); // 流结束时刷新剩余 buffer
 
-        // PERF: 流结束
-        if (executor) {
-          console.log('[PERF] Stream ended at', performance.now() - streamStartTime, 'ms');
+        // S16: 记录本轮 LLM 调用的 token 消耗到成本追踪器
+        if (roundUsage) {
+          try {
+            getCostTracker().recordUsage({
+              conversationId: ctx.convId,
+              userId: ctx.userId,
+              model: ctx.model,
+              usage: {
+                promptTokens: roundUsage.promptTokens ?? 0,
+                completionTokens: roundUsage.completionTokens ?? 0,
+                reasoningTokens: roundUsage.reasoningTokens ?? 0,
+                cacheReadTokens: roundUsage.cacheReadTokens ?? 0,
+                cacheCreationTokens: roundUsage.cacheCreationTokens ?? 0,
+              },
+              roundCount: round + 1,
+              intent: ctx.intent.intent,
+            });
+          } catch {
+            // 成本追踪失败不影响主流程
+          }
         }
 
         // 无工具调用 → 无需检查延迟工具，直接跳出
@@ -308,9 +389,11 @@ export async function runAgentFlow(
               '【注意】你的上一条回复包含问题但未使用 ask_question_card 工具。这是违规的。' +
               '请立即使用 ask_question_card 工具重新提问，不要再次在文本中直接输出问题。',
           } as AgentLlmMessage);
-          ctx.totalTokens += estimateTokens(assistantContent) + estimateTokens(
-            '【注意】你的上一条回复包含问题但未使用 ask_question_card 工具。这是违规的。请立即使用 ask_question_card 工具重新提问，不要再次在文本中直接输出问题。'
-          );
+          ctx.totalTokens +=
+            estimateTokens(assistantContent) +
+            estimateTokens(
+              '【注意】你的上一条回复包含问题但未使用 ask_question_card 工具。这是违规的。请立即使用 ask_question_card 工具重新提问，不要再次在文本中直接输出问题。'
+            );
           // 不保存 assistant 消息到 DB（等最终结果），不发送 done，继续循环
           continue;
         }
@@ -341,10 +424,14 @@ export async function runAgentFlow(
       if (STREAMING_TOOL_EXEC_ENABLED && executor) {
         const waitStart = performance.now();
         const streamingResult = await processStreamingToolRound(
-          ctx, executor, accumulatedToolCalls, assistantContent, round, deps, replacementState
+          ctx,
+          executor,
+          accumulatedToolCalls,
+          assistantContent,
+          round,
+          deps,
+          replacementState
         );
-        console.log('[PERF] All tools done, wait time:', performance.now() - waitStart, 'ms');
-
         if (streamingResult.deadLoopBreak) break;
 
         // 1c: 原地 push（避免 spread 重新分配整个数组）
@@ -370,7 +457,7 @@ export async function runAgentFlow(
               ctx.reasoningTokenCount,
               ctx.intent,
               ctx.llmMessages,
-              round,
+              round
             );
           } catch {
             // checkpoint 写入失败不影响主流程
@@ -379,7 +466,12 @@ export async function runAgentFlow(
       } else {
         // 兜底路径：原有 executeToolRound 全量执行
         const { toolTurn, deadLoopBreak } = await executeToolRound(
-          ctx, accumulatedToolCalls, assistantContent, round, deps, replacementState
+          ctx,
+          accumulatedToolCalls,
+          assistantContent,
+          round,
+          deps,
+          replacementState
         );
         if (deadLoopBreak) break;
 
@@ -406,7 +498,7 @@ export async function runAgentFlow(
               ctx.reasoningTokenCount,
               ctx.intent,
               ctx.llmMessages,
-              round,
+              round
             );
           } catch {
             // checkpoint 写入失败不影响主流程
@@ -458,7 +550,7 @@ async function processStreamingToolRound(
   assistantContent: string,
   round: number,
   deps: AgentLoopDeps,
-  replacementState?: ContentReplacementState,
+  replacementState?: ContentReplacementState
 ): Promise<{ toolTurn: AgentLlmMessage[]; deadLoopBreak: boolean }> {
   // 1. 去重 ask_question_card（与 executeToolRound 逻辑一致）
   const dedupedToolCalls = accumulatedToolCalls.filter((tc, idx, arr) => {
@@ -526,9 +618,12 @@ async function processStreamingToolRound(
       let fileInfo = '';
       try {
         const parsed = JSON.parse(tc.arguments) as Record<string, unknown>;
-        fileInfo = (typeof parsed.file_path === 'string' ? parsed.file_path : '')
-          || (typeof parsed.file_id === 'string' ? parsed.file_id : '');
-      } catch { /* args 解析失败不影响拦截逻辑 */ }
+        fileInfo =
+          (typeof parsed.file_path === 'string' ? parsed.file_path : '') ||
+          (typeof parsed.file_id === 'string' ? parsed.file_id : '');
+      } catch {
+        /* args 解析失败不影响拦截逻辑 */
+      }
 
       const confirmQuestion: IClarifyQuestion = {
         id: toolCallId,
@@ -592,7 +687,7 @@ async function processStreamingToolRound(
   // S6: 聚合预算控制——单轮所有结果总和超出上限时压缩最大结果
   const budgetedResults = await applyAggregateBudget(
     [...resultMap.values()],
-    replacementState ?? ctx.replacementState,
+    replacementState ?? ctx.replacementState
   );
   resultMap.clear();
   for (const r of budgetedResults) resultMap.set(r.tc.index, r);
@@ -600,7 +695,15 @@ async function processStreamingToolRound(
   for (const tc of dedupedToolCalls) {
     const entry = resultMap.get(tc.index);
     if (!entry) continue;
-    const check = handleToolResult(entry, ctx, round, thinkingText, deps, toolTurn, executionSegments);
+    const check = handleToolResult(
+      entry,
+      ctx,
+      round,
+      thinkingText,
+      deps,
+      toolTurn,
+      executionSegments
+    );
     if (check.deadLoopBreak) return { toolTurn, deadLoopBreak: true };
   }
 
@@ -609,9 +712,7 @@ async function processStreamingToolRound(
     for (const tc of dedupedToolCalls) {
       if (tc.name !== 'ask_question_card') continue;
       const callId = `call_${round}_${tc.index}`;
-      const askResult = toolTurn.find(
-        (m) => m.role === 'tool' && m.tool_call_id === callId,
-      );
+      const askResult = toolTurn.find((m) => m.role === 'tool' && m.tool_call_id === callId);
       if (!askResult) continue;
       try {
         const parsed = JSON.parse(askResult.content) as { success?: boolean };

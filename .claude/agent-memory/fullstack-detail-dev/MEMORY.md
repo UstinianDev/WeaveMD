@@ -24,4 +24,6 @@
 - [S6 大结果持久化](s6-tool-result-storage.md) — 单工具30k阈值/聚合120k预算/ContentReplacementState确定性替换/tool-results子目录
 - [S5 工具延迟加载](s5-tool-defer-loading.md) — defer_loading 标记/stub-full schema 切换/agentLoop 拦截重发(≤3次)/defineCoreTools 字母序 sort
 - [S10 Embedding 缓存](embedding-cache-s10.md) — LRU+TTL 手写 Map 实现，集成 createEmbedding/createEmbeddingBatch 双路径，测试 19 例全绿
+- [S13 性能基准套件](s13-benchmark-suite.md) — 5 大 Agent 场景 + saveBaseline/loadBaseline/compareWithBaseline + Markdown 对比表格 + 测试 12 例全绿
+- [S14 A/B 测试框架](s14-ab-test-framework.md) — runABTest try/finally 保证 teardown；4 预置套件全不依赖 LLM API；formatABTable 输出 Markdown 对比表格
 

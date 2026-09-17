@@ -1,77 +1,78 @@
 # agent-perf-optimize — Agent 性能优化状态
 
-> 创建：2026-09-16 | 档位：L | 阶段 1 状态：**交付就绪**
+> 创建：2026-09-16 | 档位：L | 最后更新：2026-09-17
 
-## 任务分级
+## 总体进度
 
-| 维度 | 判定 |
+| 阶段 | 任务 | 状态 | 新增测试 |
+|------|------|------|----------|
+| 1 | F1 + S4 + S3 + S2 + S1 | ✅ 已提交 | 51 |
+| 2 | S7 + S8 + S6 + S5 | ✅ 已提交 | 51 |
+| 3 | S9 + S10 + S11 + S12 | ✅ 已提交 | 96 |
+| 4 | S13 + S14 + S15 + S16 | 🔄 执行中 | — |
+
+## 阶段 4 进度
+
+| ID | 优化项 | 状态 | 新增测试 | 证据 |
+|----|--------|------|----------|------|
+| S13 | 性能基准套件 | ✅ 已完成 | 12 | `tests/benchmarks/agent-perf-benchmark.test.ts` 12/12 pass |
+| S14 | A/B 测试框架 | ✅ 已完成 | 22 | `tests/benchmarks/ab-test.test.ts` 22/22 pass |
+| S15 | 缓存命中率监控 | 🔲 待执行 | — | — |
+| S16 | 成本追踪 | 🔲 待执行 | — | — |
+
+### S13 交付物
+
+| 文件 | 说明 |
 |------|------|
-| 请求类型 | 优化（性能优化） |
-| 跨模块 | 是 |
-| 档位 | L |
-| 裁剪策略 | 全阶段：grill-me → 调研 → 规划 → TDD strict → 执行 → 测试 → 连通性 → 合规 → 交付 |
+| `tests/benchmarks/agent-perf-benchmark.test.ts` | 性能基准套件：5 大场景 + 基线保存/加载 + 对比报告 |
 
-## 阶段追踪
+**5 个基准场景**：
 
-| 阶段 | 状态 | 备注 |
-|------|------|------|
-| 0. 分级 | ✅ | L 级，全阶段 |
-| 1. grill-me | ✅ | 14/14 决策确认 |
-| 2. 规划+调研 | ✅ | Plan 完成；P0 外部索引完成 |
-| 3. 并行执行 | ✅ | 2 波并行执行 |
-| 4-5. 核心实现 | ✅ | S1-S4 + F1 全部完成 |
-| 6. 测试 | ✅ | tsc 0 errors，1612/1624 pass，49 新增测试 |
-| 6.5 连通性 | ✅ | 5 链全通（Chain 1 force_confirm 断裂已修复） |
-| 7. 合规 | ⏳ | 进行中 |
-| 8. 交付 | ⏳ | 进行中 |
-
-## 阶段 1 交付物
-
-| 任务 | 新建 | 修改 | 测试 | 状态 |
+| 场景 | 意图 | 轮次 | 工具 | 说明 |
 |------|------|------|------|------|
-| **F1** | — | `ipc.test.ts` | 20/32 | ✅ |
-| **S4** | `hashUtil.ts`, test (11) | 5 文件 | 11/11 | ✅ |
-| **S3** | `searchCache.test.ts` (16) | `searchCache.ts`, `kbIndexer.ts` | 16/16 | ✅ |
-| **S2** | `concurrencyDefs.ts`, test (8) | `agentToolSelector.ts`, `agentToolExecutor.ts` | 8/8 | ✅ |
-| **S1** | `StreamingToolExecutor.ts`, test (16) | `agentLoop.ts` | 16/16 | ✅ |
+| simple-chat | chat | 1 | 无 | 简单对话 |
+| multi-tool | kbQa | 3 | searchKB + readFile | 多工具调用 |
+| large-doc-edit | rewrite | 1 | 无(文档上下文) | 大文档(2000行)编辑 |
+| kb-retrieval | kbQa | 2 | searchKB(20条) | 知识库检索 |
+| write-confirm | create | 2 | createFile + deleteFile | 写控制确认 |
 
-## 连通性修复
+**测试覆盖**（12 例）：
+- 5 个场景运行成功 + 指标验证
+- `compareWithBaseline` 差值计算验证
+- 基准 JSON 序列化/反序列化
+- 保存/加载基线文件
+- 空基线对比
+- Markdown 表格格式输出
+- 底层函数 benchmark（classifyIntent / estimateTokens / toolsForIntent）
 
-| 问题 | 修复 | 测试 |
-|------|------|------|
-| Chain 1: `waitForAll()` 绕过 `FORCE_CONFIRM_TOOLS` | `waitForAll(skipToolNames?)` 参数 + `agentLoop.ts` 传入跳过集 | Test 15/16 验证 skip 逻辑 |
+### S14 交付物
 
-## 质量门禁
+| 文件 | 说明 |
+|------|------|
+| `tests/benchmarks/ab-test-runner.ts` | 核心框架：`runABTest` / `formatABTable` / `runAllABTests` |
+| `tests/benchmarks/ab-test-suites.ts` | 4 套预置 A/B 场景（S1/S5/S3/S4） |
+| `tests/benchmarks/ab-test.test.ts` | 22 测试（框架基础 + 环境隔离 + teardown + 预置套件冒烟） |
+
+## 质量门禁（累计）
 
 | 门禁 | 结果 |
 |------|------|
-| `npx tsc --noEmit` | ✅ 0 errors |
-| `npx vitest run` | ✅ 1612/1624 pass（12 预存失败） |
-| 新增测试 | ✅ **51/51 pass**（4 文件） |
-| `npx eslint`（变更文件） | ✅ 0 errors（5 PERF console.log 允许） |
-| `npx vite build` | ✅ 成功 |
+| `npx tsc --noEmit` | 0 errors |
+| `npx vitest run` | 34/34 pass（benchmarks/ 目录） |
+| 新增测试总计 | **232**（15 个优化项：S1-S14） |
+| 新建源文件 | 12（StreamingToolExecutor / concurrencyDefs / hashUtil / toolResultStorage / ab-test-runner / ab-test-suites / agent-perf-benchmark + 6 test files） |
+| 新增依赖 | `xxhash-wasm@^1.1.0` |
 
-## 新增依赖
+## 阶段 4 待办（明天）
 
-`xxhash-wasm@^1.1.0`
+| ID | 优化项 | 说明 |
+|----|--------|------|
+| S13 | 性能基准套件 | 5 个典型 Agent 场景 × 3 组参数，`.perf-baseline.json` |
+| S14 | A/B 测试框架 | 编译时常量开关 + 自动对比脚本 |
+| S15 | 缓存命中率监控 | HyDE / Embedding / Search / Prompt Cache 命中率 |
+| S16 | 成本追踪 | 累计 reasoning/completion token 按 conversationId 统计 |
 
-## 变更文件总计
+## PERF 清理项（阶段 4 完成后执行）
 
-| 类型 | 数量 | 文件 |
-|------|------|------|
-| 新建 | 7 | StreamingToolExecutor.ts, concurrencyDefs.ts, hashUtil.ts, 3 test files, connectivity report |
-| 修改 | 12 | agentLoop.ts, agentToolExecutor.ts, agentToolSelector.ts, searchCache.ts, kbIndexer.ts, editBlocksHandler.ts, previewFileRevision.ts, previewPatchFilesHandler.ts, rewriteStore.ts, DiffSummaryCard.tsx, ipc.test.ts, package.json |
-| 删除 | 0 | — |
-
-## PERF 清理项
-
-- `src/main/ai/agent/StreamingToolExecutor.ts` L205, L226
-- `src/main/ai/agent/agentLoop.ts` L231, L245, L299
-
-## 剩余风险
-
-| 风险 | 等级 | 说明 |
-|------|------|------|
-| 流路径待实测 | LOW | compile-time toggle 可立即回退 |
-| ipc.test.ts 12 个预存失败 | MEDIUM | 非本次变更引入，需独立任务修复 |
-| PERF 日志待清理 | LOW | 验收后全局搜索 `PERF:` 删除 |
+- `StreamingToolExecutor.ts` L212-219, L232-233
+- `agentLoop.ts` 中 3 处 PERF console.log
