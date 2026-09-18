@@ -40,9 +40,16 @@ import {
   sendProgress,
 } from './agentHelpers';
 import {
+  assembleToolTurn,
+  checkForceConfirmTools,
+  deduplicateAskQuestionCards,
   executeOneTool,
   executeToolRound,
-  handleToolResult,
+  extractThinkingText,
+  handleInteractionPause,
+  mergeResultsWithBudget,
+  processToolResultsLoop,
+  validateQuestionCardArgs,
   type ToolExecResult,
 } from './agentToolExecutor';
 import { FORCE_CONFIRM_TOOLS } from './agentToolSelector';
@@ -51,7 +58,7 @@ import {
   StreamingToolExecutor,
   type StreamingToolCall,
 } from './StreamingToolExecutor';
-import { applyAggregateBudget, ContentReplacementState } from './toolResultStorage';
+import { ContentReplacementState } from './toolResultStorage';
 
 // Re-export ToolCtx 保持向后兼容
 export type { ToolCtx } from '../toolRegistry';
@@ -249,7 +256,10 @@ export async function runAgentFlow(
       // PERF: 记录流开始时间（每次重试都会重置）
       let streamStartTime = 0;
 
-      while (deferredRetryCount <= 3) {
+      // 追踪已升级完整 schema 的延迟工具，避免 isDeferredTool 仍返回 true 导致无限重试
+      const upgradedDeferredTools = new Set<string>();
+
+      while (deferredRetryCount < 3) {
         // 重置每次尝试的状态
         accumulatedToolCalls = [];
         assistantContent = '';
@@ -349,9 +359,11 @@ export async function runAgentFlow(
 
         // S5: 检测是否有延迟工具调用，少于 3 次重试时拦截重发
         if (deferredRetryCount < 3) {
+          // 仅将尚未升级 schema 的延迟工具视为"新延迟工具"，避免 isDeferredTool
+          // 在 schema 已替换后仍返回 true 导致无限重试
           const deferredNamesThisRound = new Set<string>();
           for (const tc of accumulatedToolCalls) {
-            if (isDeferredTool(tc.name)) {
+            if (isDeferredTool(tc.name) && !upgradedDeferredTools.has(tc.name)) {
               deferredNamesThisRound.add(tc.name);
             }
           }
@@ -362,10 +374,75 @@ export async function runAgentFlow(
               if (fullSchema) {
                 const idx = ctx.tools.findIndex((t) => t.function.name === name);
                 if (idx >= 0) ctx.tools[idx] = fullSchema;
+                upgradedDeferredTools.add(name);
               }
             }
+
+            // 保留已执行的非延迟工具结果，避免重发时丢弃。
+            // 通过 executor.waitForAll 收集已推测执行的结果，避免与 StreamingToolExecutor 重复执行。
+            const nonDeferredCalls = accumulatedToolCalls.filter(
+              (tc) => !isDeferredTool(tc.name)
+            );
+            if (nonDeferredCalls.length > 0) {
+              // skipSet: FORCE_CONFIRM_TOOLS（需用户确认）+ 延迟工具（schema 不完整）
+              const skipSet = new Set([...FORCE_CONFIRM_TOOLS, ...deferredNamesThisRound]);
+              const executorResults = executor
+                ? await executor.waitForAll(skipSet)
+                : [];
+              // 过滤出非延迟工具结果
+              const nonDeferredResults = executorResults.filter(
+                (r) => !isDeferredTool(r.tc.name)
+              );
+
+              if (nonDeferredResults.length > 0) {
+                // 组装 assistant tool_calls 消息（包含本轮所有工具调用声明）
+                const assistantToolMsg = assembleToolTurn(accumulatedToolCalls, round);
+                ctx.llmMessages.push(assistantToolMsg);
+                ctx.totalTokens += estimateTokens(assistantToolMsg.content ?? '');
+
+                // 将非延迟工具结果注入 LLM 上下文
+                for (const toolResult of nonDeferredResults) {
+                  const toolMsg: AgentLlmMessage = {
+                    role: 'tool',
+                    tool_call_id: toolResult.toolCallId,
+                    content: toolResult.result.status === 'error'
+                      ? (toolResult.result.content
+                        ? toolResult.result.content
+                        : `[工具 ${toolResult.tc.name} 失败] ${toolResult.result.errorDesc}`)
+                      : toolResult.result.content,
+                  };
+                  ctx.llmMessages.push(toolMsg);
+                  ctx.totalTokens += estimateTokens(toolMsg.content);
+
+                  // IPC 事件 + toolCallsHistory（用户可实时看到非延迟工具结果）
+                  const toolEvent = {
+                    toolCallId: toolResult.toolCallId,
+                    name: toolResult.tc.name,
+                    args: toolResult.tc.arguments,
+                    status: toolResult.result.status,
+                    ...(toolResult.result.status === 'ok'
+                      ? { result: toolResult.result.content }
+                      : { errorDesc: toolResult.result.errorDesc }),
+                    loopIndex: round,
+                  };
+                  ctx.send(IPC_CHANNELS.AI_STREAM_TOOL, {
+                    conversationId: ctx.convId,
+                    ...toolEvent,
+                  });
+                  ctx.toolCallsHistory.push(toolEvent);
+                }
+              }
+
+              // eslint-disable-next-line no-console
+              console.debug('[AgentLoop] 延迟工具重发', {
+                count: deferredRetryCount + 1,
+                deferredTools: [...deferredNamesThisRound],
+                preservedResults: nonDeferredResults.length,
+              });
+            }
+
             deferredRetryCount++;
-            continue; // 重新发送 LLM 请求（此时延迟工具已有完整 schema）
+            continue; // 重新发送 LLM 请求（此时延迟工具已有完整 schema + 非延迟工具结果已注入上下文）
           }
         }
 
@@ -552,126 +629,33 @@ async function processStreamingToolRound(
   deps: AgentLoopDeps,
   replacementState?: ContentReplacementState
 ): Promise<{ toolTurn: AgentLlmMessage[]; deadLoopBreak: boolean }> {
-  // 1. 去重 ask_question_card（与 executeToolRound 逻辑一致）
-  const dedupedToolCalls = accumulatedToolCalls.filter((tc, idx, arr) => {
-    if (tc.name !== 'ask_question_card') return true;
-    try {
-      const parsed = JSON.parse(tc.arguments);
-      if (!parsed.questions || !Array.isArray(parsed.questions) || parsed.questions.length === 0) {
-        const lastAskIdx = arr
-          .map((t, i) => (t.name === 'ask_question_card' ? i : -1))
-          .filter((i) => i >= 0)
-          .pop();
-        if (lastAskIdx !== idx) return false;
-      }
-    } catch {
-      const hasLater = arr.slice(idx + 1).some((t) => t.name === 'ask_question_card');
-      if (hasLater) return false;
-    }
-    return true;
-  });
+  // 1. 去重 ask_question_card
+  const dedupedToolCalls = deduplicateAskQuestionCards(accumulatedToolCalls);
 
-  const toolTurn: AgentLlmMessage[] = [];
-  toolTurn.push({
-    role: 'assistant',
-    content: '',
-    tool_calls: dedupedToolCalls.map((tc) => ({
-      id: `call_${round}_${tc.index}`,
-      type: 'function' as const,
-      function: { name: tc.name, arguments: tc.arguments },
-    })),
-  });
+  // 2. 组装 assistant tool_calls 消息
+  const toolTurn: AgentLlmMessage[] = [assembleToolTurn(dedupedToolCalls, round)];
 
-  // 2. 提取 thinking 文本
-  const thinkingMatch = assistantContent.match(/<thinking>([\s\S]*?)<\/thinking>/i);
-  const thinkingText = thinkingMatch ? thinkingMatch[1].trim() : undefined;
+  // 3. 提取 thinking 文本
+  const thinkingText = extractThinkingText(assistantContent);
 
-  // 3. 等待安全工具完成 + 收集执行结果
   const executionSegments: ExecutionSegment[] = [];
 
-  // 3a. 从 executor 获取已完成的安全工具结果（waitForAll 内部等待 + 串行执行非安全工具，跳过 FORCE_CONFIRM_TOOLS）
+  // 4. 从 executor 获取已完成的安全工具结果（waitForAll 内部等待 + 串行执行非安全工具，跳过 FORCE_CONFIRM_TOOLS）
   const executorResults = await executor.waitForAll(FORCE_CONFIRM_TOOLS);
 
-  // 3b. 区分已执行和未执行的工具
+  // 5. 区分已执行和未执行的工具，执行尚未执行的非安全工具
   const executedIndices = new Set(executorResults.map((r) => r.tc.index));
   const needExecution = dedupedToolCalls.filter((tc) => !executedIndices.has(tc.index));
 
-  // 3c. 执行尚未执行的非安全工具（带 force_confirm / ask_question_card 逻辑）
   const manualResults: ToolExecResult[] = [];
   for (const tc of needExecution) {
-    // ask_question_card 预验证
-    if (tc.name === 'ask_question_card') {
-      try {
-        const parsed = JSON.parse(tc.arguments) as Record<string, unknown>;
-        const qs = parsed.questions as unknown;
-        if (!Array.isArray(qs) || qs.length === 0) {
-          continue; // 无效调用，静默跳过
-        }
-      } catch {
-        continue; // JSON 解析失败，静默跳过
-      }
-    }
+    // R3: ask_question_card 预验证
+    if (!validateQuestionCardArgs(tc)) continue;
 
     // R5: 删除操作强制确认
-    if (FORCE_CONFIRM_TOOLS.has(tc.name)) {
-      const toolCallId = `call_${round}_${tc.index}`;
-      let fileInfo = '';
-      try {
-        const parsed = JSON.parse(tc.arguments) as Record<string, unknown>;
-        fileInfo =
-          (typeof parsed.file_path === 'string' ? parsed.file_path : '') ||
-          (typeof parsed.file_id === 'string' ? parsed.file_id : '');
-      } catch {
-        /* args 解析失败不影响拦截逻辑 */
-      }
-
-      const confirmQuestion: IClarifyQuestion = {
-        id: toolCallId,
-        text: `确认删除${fileInfo ? ` ${fileInfo}` : ''}？此操作不可恢复。`,
-        type: 'confirm',
-      };
-
-      if (deps.onInteractionRequired && deps.waitForInteraction) {
-        deps.onInteractionRequired([confirmQuestion], 'delete_confirm');
-        let answer: Record<string, string>;
-        try {
-          answer = await deps.waitForInteraction();
-        } catch {
-          manualResults.push({
-            tc,
-            toolCallId,
-            result: {
-              content: JSON.stringify({ cancelled: true }),
-              status: 'error',
-              errorDesc: '用户取消了删除操作',
-            },
-          });
-          continue;
-        }
-        if (answer[toolCallId] === 'yes') {
-          manualResults.push(await executeOneTool(tc, round, ctx, replacementState));
-        } else {
-          manualResults.push({
-            tc,
-            toolCallId,
-            result: {
-              content: JSON.stringify({ cancelled: true }),
-              status: 'error',
-              errorDesc: '用户取消了删除操作',
-            },
-          });
-        }
-      } else {
-        manualResults.push({
-          tc,
-          toolCallId,
-          result: {
-            content: '',
-            status: 'error',
-            errorDesc: '删除操作需要用户确认，但当前环境不支持交互。已拒绝执行。',
-          },
-        });
-      }
+    const confirmResult = await checkForceConfirmTools(tc, round, ctx, deps, replacementState);
+    if (confirmResult) {
+      manualResults.push(confirmResult.result);
       continue;
     }
 
@@ -679,56 +663,21 @@ async function processStreamingToolRound(
     manualResults.push(await executeOneTool(tc, round, ctx, replacementState));
   }
 
-  // 4. 合并结果（executor 安全结果 + 手动执行的非安全结果），按 index 顺序
-  const resultMap = new Map<number, ToolExecResult>();
-  for (const r of executorResults) resultMap.set(r.tc.index, r);
-  for (const r of manualResults) resultMap.set(r.tc.index, r);
-
-  // S6: 聚合预算控制——单轮所有结果总和超出上限时压缩最大结果
-  const budgetedResults = await applyAggregateBudget(
-    [...resultMap.values()],
-    replacementState ?? ctx.replacementState
+  // 6. 合并结果 + S6 聚合预算
+  const resultMap = await mergeResultsWithBudget(
+    [executorResults, manualResults],
+    replacementState,
+    ctx.replacementState,
   );
-  resultMap.clear();
-  for (const r of budgetedResults) resultMap.set(r.tc.index, r);
 
-  for (const tc of dedupedToolCalls) {
-    const entry = resultMap.get(tc.index);
-    if (!entry) continue;
-    const check = handleToolResult(
-      entry,
-      ctx,
-      round,
-      thinkingText,
-      deps,
-      toolTurn,
-      executionSegments
-    );
-    if (check.deadLoopBreak) return { toolTurn, deadLoopBreak: true };
-  }
+  // 7. 处理工具结果
+  const loopResult = processToolResultsLoop(
+    dedupedToolCalls, resultMap, ctx, round, thinkingText, deps, toolTurn, executionSegments,
+  );
+  if (loopResult.deadLoopBreak) return { toolTurn, deadLoopBreak: true };
 
-  // 5. ask_question_card 交互暂停（与 executeToolRound 逻辑一致）
-  if (deps.waitForInteraction) {
-    for (const tc of dedupedToolCalls) {
-      if (tc.name !== 'ask_question_card') continue;
-      const callId = `call_${round}_${tc.index}`;
-      const askResult = toolTurn.find((m) => m.role === 'tool' && m.tool_call_id === callId);
-      if (!askResult) continue;
-      try {
-        const parsed = JSON.parse(askResult.content) as { success?: boolean };
-        if (parsed.success) {
-          const answers = await deps.waitForInteraction();
-          toolTurn.push({
-            role: 'tool',
-            content: JSON.stringify({ type: 'user_answers', answers }),
-            tool_call_id: callId,
-          });
-        }
-      } catch {
-        // waitForInteraction 被 reject（用户取消等），不注入答案
-      }
-    }
-  }
+  // 8. ask_question_card 交互暂停
+  await handleInteractionPause(dedupedToolCalls, toolTurn, round, deps);
 
   return { toolTurn, deadLoopBreak: false };
 }

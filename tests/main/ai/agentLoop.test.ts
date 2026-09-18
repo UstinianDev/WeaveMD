@@ -69,8 +69,8 @@ const toolMock = vi.hoisted(() => ({
     { type: 'function', function: { name: 'searchKB', description: 'x', parameters: {} } },
   ]),
   buildToolListForPrompt: vi.fn((tools: unknown[]) => tools),
-  isDeferredTool: vi.fn(() => false),
-  getDeferredToolSchema: vi.fn(() => undefined),
+  isDeferredTool: vi.fn((_name: string): boolean => false),
+  getDeferredToolSchema: vi.fn((_name: string) => undefined as { type: string; function: { name: string; description: string; parameters: Record<string, unknown> } } | undefined),
 }));
 vi.mock('@main/ai/toolRegistry', () => toolMock);
 
@@ -602,5 +602,154 @@ describe('runAgentFlow', () => {
       expect.any(Array),  // existingMessages (memory path)
       expect.any(Number),  // roundIndex
     );
+  });
+
+  // ============================================================
+  // P1-6：延迟工具重发优化（保留非延迟工具结果 + 重发上限修正）
+  // ============================================================
+
+  it('P1-6: deferred retry preserves non-deferred tool results and executes them immediately', async () => {
+    // isDeferredTool: editBlocks 是延迟工具，readFile 不是
+    toolMock.isDeferredTool.mockImplementation((name: string) => name === 'editBlocks');
+    toolMock.getDeferredToolSchema.mockImplementation((name: string) => {
+      if (name === 'editBlocks') {
+        return {
+          type: 'function',
+          function: {
+            name: 'editBlocks',
+            description: '编辑文档块',
+            parameters: { type: 'object', properties: { blocks: { type: 'array' } } },
+          },
+        };
+      }
+      return undefined;
+    });
+
+    let call = 0;
+    llmMock.streamChatCompletion.mockImplementation(() => {
+      call += 1;
+      if (call === 1) {
+        // 第 1 次 LLM：返回 readFile（非延迟）+ editBlocks（延迟）
+        return (async function* () {
+          yield {
+            delta: '',
+            toolCalls: [
+              { index: 0, name: 'readFile', arguments: '{"file_id":"f1"}' },
+              { index: 1, name: 'editBlocks', arguments: '{"blocks":[]}' },
+            ],
+          };
+        })();
+      }
+      if (call === 2) {
+        // 第 2 次 LLM（schema 已升级，editBlocks 不再被视为新延迟工具）：调用 editBlocks
+        return (async function* () {
+          yield {
+            delta: '',
+            toolCalls: [
+              { index: 0, name: 'editBlocks', arguments: '{"blocks":[{"id":"b1"}]}' },
+            ],
+          };
+        })();
+      }
+      // 第 3 次 LLM：最终文本回答
+      return (async function* () {
+        yield { delta: '操作完成' };
+      })();
+    });
+
+    // executeTool 统一返回（延迟块 + 正常轮各执行一次 editBlocks）
+    toolMock.executeTool.mockResolvedValue({ content: '文件内容', status: 'ok' });
+
+    const controller = new AbortController();
+    const res = await runAgentFlow(makeEvent(), payload(), makeConfig(), 'enc:key', controller, {
+      consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+    });
+
+    // LLM 被调用 3 次（1 原始 + 1 重试 + 1 最终）
+    expect(llmMock.streamChatCompletion).toHaveBeenCalledTimes(3);
+    // executeTool 至少被调用 2 次（readFile + editBlocks）
+    expect(toolMock.executeTool.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(toolMock.executeTool).toHaveBeenCalledWith(
+      'readFile',
+      '{"file_id":"f1"}',
+      expect.anything()
+    );
+
+    // IPC 事件包含 readFile 结果（延迟块执行时实时推送）
+    expect(electronMock.webContentsSend).toHaveBeenCalledWith(
+      IPC_CHANNELS.AI_STREAM_TOOL,
+      expect.objectContaining({ name: 'readFile', status: 'ok' })
+    );
+    // IPC 事件包含 editBlocks 结果
+    expect(electronMock.webContentsSend).toHaveBeenCalledWith(
+      IPC_CHANNELS.AI_STREAM_TOOL,
+      expect.objectContaining({ name: 'editBlocks', status: 'ok' })
+    );
+
+    // readFile 结果被注入到 LLM 上下文（第 2 次 LLM 调用的 messages 中包含 readFile 结果）
+    const secondCallMessages = llmMock.streamChatCompletion.mock.calls[1][0].messages as Array<
+      Record<string, unknown>
+    >;
+    const readFileResultMsg = secondCallMessages.find(
+      (m) => m.role === 'tool' && m.content === '文件内容'
+    );
+    expect(readFileResultMsg).toBeDefined();
+    expect(readFileResultMsg?.tool_call_id).toBe('call_0_0');
+
+    expect(res.roundsUsed).toBe(2);
+  });
+
+  it('P1-6: deferred retry upgrades schema and avoids redundant retries', async () => {
+    // 所有工具都是延迟工具（isDeferredTool 始终返回 true）
+    toolMock.isDeferredTool.mockReturnValue(true);
+    // getDeferredToolSchema 返回完整 schema（第 1 次重试时替换）
+    toolMock.getDeferredToolSchema.mockReturnValue({
+      type: 'function',
+      function: {
+        name: 'listFiles',
+        description: '列出文件',
+        parameters: { type: 'object', properties: {} },
+      },
+    });
+
+    let call = 0;
+    llmMock.streamChatCompletion.mockImplementation(() => {
+      call += 1;
+      if (call === 1) {
+        // 第 1 次 LLM：延迟工具（schema 是 stub）
+        return (async function* () {
+          yield {
+            delta: '',
+            toolCalls: [{ index: 0, name: 'listFiles', arguments: '{}' }],
+          };
+        })();
+      }
+      if (call === 2) {
+        // 第 2 次 LLM：schema 已升级，不再视为新延迟工具，正常调用
+        return (async function* () {
+          yield {
+            delta: '',
+            toolCalls: [{ index: 0, name: 'listFiles', arguments: '{}' }],
+          };
+        })();
+      }
+      // 第 3 次 LLM：最终文本回答
+      return (async function* () {
+        yield { delta: '操作完成' };
+      })();
+    });
+    // executeTool 统一返回（每次调用都返回，因为 while 循环 + 外层循环各执行一次）
+    toolMock.executeTool.mockResolvedValue({ content: '[]', status: 'ok' });
+
+    const controller = new AbortController();
+    const res = await runAgentFlow(makeEvent(), payload(), makeConfig(), 'enc:key', controller, {
+      consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+    });
+
+    // 延迟工具 schema 升级后不重复重试：while 循环 2 次 + 工具执行后外层循环 1 次 = 3 次 LLM
+    expect(llmMock.streamChatCompletion).toHaveBeenCalledTimes(3);
+    // executeTool 被调用 2 次（while 循环退出后执行 1 次 + 外层循环 round 1 执行 1 次）
+    expect(toolMock.executeTool).toHaveBeenCalledTimes(2);
+    expect(res.roundsUsed).toBe(2);
   });
 });

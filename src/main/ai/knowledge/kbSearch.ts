@@ -7,11 +7,14 @@
 // R4: 段聚合增强（heading 提升 + 单文件 cap + 上下文扩展）
 // R6: 条件重排（LLM 重排，可选注入）
 
+import { performance } from 'node:perf_hooks';
 import { getDatabase } from '../../db/index';
+import { getCacheMonitor } from './cacheMonitor';
 import type Database from 'better-sqlite3';
 import type {
   IKbSearchResult,
   IKbSearchDetailedResponse,
+  IKbDiagnostics,
   QueryIntentType,
 } from '@shared/ai';
 import {
@@ -428,6 +431,11 @@ export async function searchKB(
   const candidateMultiplier = opts.candidateMultiplier ?? DEFAULT_CANDIDATE_MULTIPLIER;
   const vecScoreThreshold = opts.vecScoreThreshold ?? DEFAULT_VEC_SCORE_THRESHOLD;
 
+  // P1-3: 检索管线耗时统计
+  const t0 = performance.now();
+  let cacheSearchResultHit = 0;
+  let cacheRerankHit = 0;
+
   const cleaned = sanitizeFtsQuery(query);
   const emptyResponse: IKbSearchDetailedResponse = {
     refused: true,
@@ -443,7 +451,25 @@ export async function searchKB(
     const cacheKey = getSearchCacheKey(userId, query, opts);
     const cachedResult = getCachedSearchResult(cacheKey);
     if (cachedResult) {
-      return cachedResult;
+      cacheSearchResultHit = 1;
+      // P1-3: 缓存命中时附加精简诊断（仅 totalMs + cacheSnapshot）
+      const cachedWithDiag: IKbSearchDetailedResponse = {
+        ...cachedResult,
+        diagnostics: {
+          timings: {
+            fts5Ms: 0, vectorMs: 0, titleMs: 0, rrfMs: 0,
+            weightingMs: 0, aggregationMs: 0, rerankMs: 0,
+            totalMs: performance.now() - t0,
+          },
+          counts: {
+            fts5Candidates: 0, vectorCandidates: 0, titleCandidates: 0,
+            mergedCandidates: 0, afterWeighting: 0, afterAggregation: 0,
+            finalResults: cachedResult.results.length,
+          },
+          cacheSnapshot: { searchResultHit: 1, rerankHit: 0 },
+        },
+      };
+      return cachedWithDiag;
     }
   }
 
@@ -453,6 +479,8 @@ export async function searchKB(
 
   // ---- 条件召回（按 searchMode 选择路径） ----
 
+  // P1-3: FTS5 耗时
+  const tFts = performance.now();
   // 路径 1: FTS5 BM25 召回（fts5 和 hybrid 模式）
   const ftsRows = (searchMode === 'fts5' || searchMode === 'hybrid')
     ? db
@@ -479,19 +507,28 @@ export async function searchKB(
         bm: number;
       }>
     : [];
+  const fts5Ms = performance.now() - tFts;
 
+  // P1-3: 向量搜索耗时
+  const tVec = performance.now();
   // 路径 2: 向量搜索（vector 和 hybrid 模式，且 queryVector 存在）
   const vecLimit = topK * candidateMultiplier;
   const vecScores = (searchMode === 'vector' || searchMode === 'hybrid') && opts.queryVector
     ? vectorSearch(db, userId, opts.queryVector, vecLimit, vecScoreThreshold)
     : new Map<string, number>();
+  const vectorMs = performance.now() - tVec;
 
+  // P1-3: 标题匹配耗时
+  const tTitle = performance.now();
   // 路径 3: 标题匹配（所有模式）
   const titleScores = titleMatchSearch(db, userId, cleaned, candidateLimit);
+  const titleMs = performance.now() - tTitle;
 
   // ---- R5: 扩展查询合并（UNION ALL 单次查询） ----
   // expandedQueries 由外部（agentLoop）注入，每条扩展查询额外走 FTS5 召回
   // B8 优化：多条扩展查询合并为 UNION ALL 单次 SQL，减少 N 次 prepare+all 为 1 次
+  // P1-3: 扩展查询耗时（计入 fts5Ms 累积）
+  const tExpanded = performance.now();
   let extraFtsRows: typeof ftsRows = [];
   if (opts.expandedQueries && opts.expandedQueries.length > 0) {
     const subQueries: string[] = [];
@@ -522,6 +559,7 @@ export async function searchKB(
       }
     }
   }
+  const expandedMs = performance.now() - tExpanded;
 
   // 合并所有 FTS 结果（去重）
   const allFtsRows = [...ftsRows];
@@ -612,9 +650,14 @@ export async function searchKB(
   }));
   if (candidates.length === 0) return emptyResponse;
 
+  // P1-3: RRF 融合耗时
+  const tRrf = performance.now();
   // ---- R2: RRF 融合评分 ----
   const ranked = rankCandidates(candidates, pinnedWeight, opts.fuse, rrfK);
+  const rrfMs = performance.now() - tRrf;
 
+  // P1-3: 加权策略耗时
+  const tWeighting = performance.now();
   // ---- R3: 加权策略 ----
   const weighted = ranked.map(r => {
     const updatedAt = updatedAtMap.get(r.docId) ?? null;
@@ -630,14 +673,21 @@ export async function searchKB(
 
   // 重新排序（加权后分数可能改变排序）
   weighted.sort((a, b) => b.score - a.score);
+  const weightingMs = performance.now() - tWeighting;
 
+  // P1-3: 段聚合耗时
+  const tAggregation = performance.now();
   // ---- R4: 段聚合增强 ----
   const aggregated = aggregateAndExpand(weighted, db, userId, {
     maxChunksPerFile: opts.maxChunksPerFile,
     contextExpand: opts.contextExpand,
     topK,
   });
+  const aggregationMs = performance.now() - tAggregation;
 
+  // P1-3: 条件重排耗时 + rerank 缓存命中检测
+  const tRerank = performance.now();
+  const rerankHitsBefore = getCacheMonitor().getStats('rerank').hits;
   // ---- R6: 条件重排 ----
   const intent = detectQueryIntent(query);
   const intentType = mapIntentToType(intent);
@@ -645,17 +695,50 @@ export async function searchKB(
     enableConditionalRerank: opts.enableConditionalRerank,
     rerankFn: opts.rerankFn,
   });
+  const rerankMs = performance.now() - tRerank;
+  cacheRerankHit = getCacheMonitor().getStats('rerank').hits > rerankHitsBefore ? 1 : 0;
 
   // ---- 截取 topK + 拒答判断 ----
   const results = reranked.slice(0, topK);
   const best = results[0] ?? null;
   const refused = !best || best.score < threshold;
 
+  // P1-3: 构造诊断数据
+  const totalMs = performance.now() - t0;
+  const diagnostics: IKbDiagnostics = {
+    timings: {
+      fts5Ms: fts5Ms + expandedMs,
+      vectorMs,
+      titleMs,
+      rrfMs,
+      weightingMs,
+      aggregationMs,
+      rerankMs,
+      totalMs,
+    },
+    counts: {
+      fts5Candidates: ftsRows.length + extraFtsRows.length,
+      vectorCandidates: vecScores.size,
+      titleCandidates: titleScores.size,
+      mergedCandidates: candidates.length,
+      afterWeighting: weighted.length,
+      afterAggregation: aggregated.length,
+      finalResults: results.length,
+    },
+    cacheSnapshot: {
+      searchResultHit: cacheSearchResultHit,
+      rerankHit: cacheRerankHit,
+    },
+  };
+
+  console.debug('[KB diagnostics]', JSON.stringify(diagnostics));
+
   const response: IKbSearchDetailedResponse = {
     refused,
     threshold,
     best,
     results,
+    diagnostics,
   };
 
   // 写入缓存（跳过 expandedQueries 场景）

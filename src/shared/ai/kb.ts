@@ -94,6 +94,64 @@ export interface IKbSearchResult {
   rrfRanks?: { vec?: number; fts?: number; title?: number };
 }
 
+// ---------------------------------------------------------------------------
+// 检索管线诊断（P1-3）
+// ---------------------------------------------------------------------------
+
+/** 检索管线各阶段耗时（毫秒）。 */
+export interface IKbDiagnosticsTimings {
+  fts5Ms: number;
+  vectorMs: number;
+  titleMs: number;
+  rrfMs: number;
+  weightingMs: number;
+  aggregationMs: number;
+  rerankMs: number;
+  totalMs: number;
+}
+
+/** 检索管线各阶段候选数量。 */
+export interface IKbDiagnosticsCounts {
+  fts5Candidates: number;
+  vectorCandidates: number;
+  titleCandidates: number;
+  mergedCandidates: number;
+  afterWeighting: number;
+  afterAggregation: number;
+  finalResults: number;
+}
+
+/** 缓存命中快照。 */
+export interface IKbDiagnosticsCacheSnapshot {
+  /** searchResult 缓存命中次数（0 或 1，单次调用）。 */
+  searchResultHit: number;
+  /** rerank 缓存命中次数（0 或 1，单次调用）。 */
+  rerankHit: number;
+}
+
+/** 查询理解诊断。 */
+export interface IKbDiagnosticsQueryUnderstanding {
+  intentType: string;
+  isFallthrough: boolean;
+  hadPronounRef: boolean;
+}
+
+/** Research loop 诊断（扩展查询场景）。 */
+export interface IKbDiagnosticsResearchLoop {
+  subQueryCount: number;
+  cacheHits: number;
+  totalResults: number;
+}
+
+/** 检索管线完整诊断数据。 */
+export interface IKbDiagnostics {
+  timings: IKbDiagnosticsTimings;
+  counts: IKbDiagnosticsCounts;
+  cacheSnapshot?: IKbDiagnosticsCacheSnapshot;
+  queryUnderstanding?: IKbDiagnosticsQueryUnderstanding;
+  researchLoop?: IKbDiagnosticsResearchLoop;
+}
+
 /** KB 详细检索结果（含证据分级）。 */
 export interface IKbSearchDetailedResponse {
   refused: boolean;
@@ -104,6 +162,8 @@ export interface IKbSearchDetailedResponse {
   evidence?: IEvidenceAssessment;
   /** 查询理解。 */
   queryUnderstanding?: IQueryUnderstanding;
+  /** 检索管线诊断（P1-3，可选，不影响现有调用方）。 */
+  diagnostics?: IKbDiagnostics;
 }
 
 // ---------------------------------------------------------------------------

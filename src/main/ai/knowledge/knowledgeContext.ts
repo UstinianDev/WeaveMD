@@ -125,8 +125,74 @@ function generateSubQueries(
   return queries.slice(0, maxQueries);
 }
 
+// ---------------------------------------------------------------------------
+// P1-4: 研究循环并行化
+// ---------------------------------------------------------------------------
+
+/** 并行子查询批次大小。 */
+const CONCURRENCY_LIMIT = 3;
+
+interface ResearchContext {
+  userId: string;
+  searchKb: SearchKbFn;
+  threshold: number;
+}
+
+/**
+ * 执行单条子查询：缓存检查 → searchKb → 缓存写入 → 返回去重候选。
+ * 供并行/串行两条路径复用。
+ */
+async function executeSubQuery(
+  sq: string,
+  ctx: ResearchContext,
+  cache: Map<string, IKbSearchResult[]>
+): Promise<IKbSearchResult[]> {
+  // 缓存检查（调用方维护的批次级缓存，不同于模块级 researchCache）
+  const batchCached = cache.get(sq);
+  if (batchCached) return batchCached;
+
+  // 模块级缓存检查
+  const cached = getCachedResearch(ctx.userId, sq);
+  if (cached) {
+    cache.set(sq, cached);
+    return cached;
+  }
+
+  try {
+    const res = await ctx.searchKb(ctx.userId, sq, {
+      topK: 5,
+      threshold: ctx.threshold * 0.8,
+    });
+    if (res.results?.length) {
+      setCachedResearch(ctx.userId, sq, res.results);
+      cache.set(sq, res.results);
+      return res.results;
+    }
+  } catch {
+    // 单个子查询失败不中断研究循环
+  }
+
+  return [];
+}
+
+/** 将子查询结果按 chunkId 去重合并到目标数组。 */
+function mergeResults(
+  target: IKbSearchResult[],
+  seenChunkIds: Set<string>,
+  incoming: IKbSearchResult[]
+): void {
+  for (const r of incoming) {
+    if (!seenChunkIds.has(r.chunkId)) {
+      seenChunkIds.add(r.chunkId);
+      target.push(r);
+    }
+  }
+}
+
 /**
  * 研究循环：初始搜索不足时，自动生成子查询并重新检索。
+ * P1-4: 子查询按 CONCURRENCY_LIMIT 分批并行执行，降低串行延迟；
+ *       并行执行失败时自动降级为串行。
  * 返回合并去重后的结果。
  */
 export async function researchLoop(
@@ -142,38 +208,42 @@ export async function researchLoop(
 
   const allResults: IKbSearchResult[] = [];
   const seenChunkIds = new Set<string>();
+  const batchCache = new Map<string, IKbSearchResult[]>();
+  const ctx: ResearchContext = { userId, searchKb, threshold };
 
-  for (const sq of subQueries) {
-    // 检查缓存
-    const cached = getCachedResearch(userId, sq);
-    if (cached) {
-      for (const r of cached) {
-        if (!seenChunkIds.has(r.chunkId)) {
-          seenChunkIds.add(r.chunkId);
-          allResults.push(r);
+  // 计算高质量结果数量
+  const countHighQuality = (): number =>
+    allResults.filter((r) => r.score >= threshold).length;
+
+  try {
+    // 并行执行：按 CONCURRENCY_LIMIT 分批
+    for (let i = 0; i < subQueries.length; i += CONCURRENCY_LIMIT) {
+      const batch = subQueries.slice(i, i + CONCURRENCY_LIMIT);
+      const settled = await Promise.allSettled(
+        batch.map((sq) => executeSubQuery(sq, ctx, batchCache))
+      );
+
+      for (const result of settled) {
+        if (result.status === 'fulfilled') {
+          mergeResults(allResults, seenChunkIds, result.value);
+        } else {
+          console.warn('[researchLoop] sub-query failed:', result.reason);
         }
       }
-      continue;
-    }
 
-    try {
-      const res = await searchKb(userId, sq, { topK: 5, threshold: threshold * 0.8 });
-      if (res.results?.length) {
-        setCachedResearch(userId, sq, res.results);
-        for (const r of res.results) {
-          if (!seenChunkIds.has(r.chunkId)) {
-            seenChunkIds.add(r.chunkId);
-            allResults.push(r);
-          }
-        }
-      }
-    } catch {
-      // 单个子查询失败不中断研究循环
+      // 提前终止：已积累足够高质量结果
+      if (countHighQuality() >= 3) break;
     }
-
-    // 已有足够高质量结果时提前终止
-    const highQuality = allResults.filter((r) => r.score >= threshold);
-    if (highQuality.length >= 3) break;
+  } catch (parallelError) {
+    // 串行 fallback：Promise.allSettled 本身出错时降级
+    console.warn('[researchLoop] parallel execution failed, falling back to serial:', parallelError);
+    allResults.length = 0;
+    seenChunkIds.clear();
+    for (const sq of subQueries) {
+      const sqResults = await executeSubQuery(sq, ctx, batchCache);
+      mergeResults(allResults, seenChunkIds, sqResults);
+      if (countHighQuality() >= 3) break;
+    }
   }
 
   // 按分数降序

@@ -33,6 +33,15 @@ export const FENCE_OPEN_CORE_RE = /^(`{3,}|~{3,})([^\n]*)$/;
 /** 围栏行即时转换（需尾随空格，避免输入中被提前消费） */
 export const FENCE_CONV_CORE_RE = /^(`{3,}|~{3,})([^\n]*?)[ \t\u00A0]+$/;
 
+/** Setext 下划线行：= 或 - 重复至少 1 个，允许 0-3 空格缩进 */
+export const SETEXT_UNDERLINE_RE = /^ {0,3}(=+|-+)[ \t]*$/;
+
+/** 引用行解析版：允许多级 `>`（不强制空格），供解析器递归消费引用块行 */
+export const BLOCKQUOTE_RE = /^ {0,3}(?:>[ \t]?)+(.*)$/;
+
+/** 表格分隔行：4 种对齐变体，允许 0-3 空格缩进 */
+export const TABLE_SEPARATOR_RE = /^ {0,3}\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/;
+
 /** 为核心正则派生"允许 0-3 空格缩进"的行级变体（解析器使用） */
 export function indented(re: RegExp): RegExp {
   return new RegExp(`^(?: {0,3})${re.source.slice(1)}`, re.flags);

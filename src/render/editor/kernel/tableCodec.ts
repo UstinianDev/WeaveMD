@@ -7,6 +7,8 @@
 //
 // 互逆不变量（T1.2）：parseTableText(serializeTable(m)) === m（对矩形 m）。
 
+import { TABLE_SEPARATOR_RE } from './markdownSyntax';
+
 /** 列对齐方式 */
 export type ColumnAlign = 'left' | 'center' | 'right';
 
@@ -21,20 +23,12 @@ export interface TableMatrix {
 }
 
 /**
- * 对齐分隔行宽松正则（独立于 markdownToState.TABLE_SEPARATOR_RE，不改内核）。
- * 匹配 `| a | b |` 式分隔行及任意 `:---` / `:---:` / `---:` 对齐变体；
- * 也允许单列无首尾竖线形式（`---`）。
- */
-const SEPARATOR_RE = /^ *\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/;
-
-/**
  * 判断一行是否为对齐分隔行。
- * 独立辅助函数：与 `markdownToState.TABLE_SEPARATOR_RE`（L46）语义一致但相互独立，
- * 此处仅供渲染层复用，不改内核解析逻辑。
- * 判定：匹配宽松正则，或「至少含一个 `-{3}` 段」（计划 §1.1，覆盖单列无竖线分隔行如 `---`）。
+ * 判定：匹配 markdownSyntax.TABLE_SEPARATOR_RE（4 种对齐变体），
+ * 或「至少含一个 `-{3}` 段」（覆盖单列无竖线分隔行如 `---`）。
  */
 export function isSeparatorRow(line: string): boolean {
-  return SEPARATOR_RE.test(line) || /-{3}/.test(line);
+  return TABLE_SEPARATOR_RE.test(line) || /-{3}/.test(line);
 }
 
 /** 单元格转义：内部 `|` → `\|` */
