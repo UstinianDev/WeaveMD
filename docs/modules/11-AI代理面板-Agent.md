@@ -1,6 +1,6 @@
 # AI 代理面板 (Agent) 功能总结
 
-> 模块编号：11 | 优先级：P1 | 最后更新：2026-09-14
+> 模块编号：11 | 优先级：P1 | 最后更新：2026-09-18
 > 需求编号：AGT-01~19 / KB-01~05（docs/REQUIREMENTS.md 3.7 / 3.8）
 
 **子文档（渐进式披露，按需加载）：**
@@ -80,6 +80,61 @@ src/render/stores/
 | 写控制 | writeMode: auto/manual；staleness detection（MD5） |
 | 搜索配置 | 未配置时不注入 web_search（避免 LLM 调用失败） |
 | 安全 | safeStorage 加密密钥；系统路径黑名单（deleteLocalFile） |
+
+## 3.1 最近优化（2026-09-18 agent-md-kb-optimize）
+
+### 知识库检索管线可观测性
+
+在 `searchKB()` 全链路添加 `performance.now()` 耗时统计和候选数量统计，返回可选 `diagnostics` 字段：
+
+```typescript
+interface IKbSearchDiagnostics {
+  timings: { fts5Ms, vectorMs, titleMs, rrfMs, weightingMs, aggregationMs, rerankMs, totalMs };
+  counts: { fts5Candidates, vectorCandidates, titleCandidates, mergedCandidates, afterWeighting, afterAggregation, finalResults };
+  cacheSnapshot?: { searchResultHit, rerankHit };
+  queryUnderstanding?: { intentType, isFallthrough, hadPronounRef };
+  researchLoop?: { subQueryCount, cacheHits, totalResults };
+}
+```
+
+**关键文件**：`src/shared/ai/kb.ts`（接口）+ `src/main/ai/knowledge/kbSearch.ts`（埋点）
+
+### 研究循环并行化
+
+`knowledgeContext.ts` 的 `researchLoop()` 从串行 `for...of` 改为 `Promise.allSettled()` 并行执行：
+
+- **并发限制**：最多 3 个并行子查询
+- **提前终止**：`highQuality >= 3` 时停止
+- **错误隔离**：单个子查询失败不影响其他
+- **串行 fallback**：并行执行失败时自动降级
+
+**关键文件**：`src/main/ai/knowledge/knowledgeContext.ts`
+
+### Agent 代码重复消除
+
+提取 `processStreamingToolRound()` 和 `executeToolRound()` 的 8 块公共逻辑到 `agentToolExecutor.ts`：
+
+| 函数 | 说明 |
+|------|------|
+| `deduplicateAskQuestionCards` | ask_question_card 去重 |
+| `assembleToolTurn` | toolTurn 组装 |
+| `extractThinkingText` | thinking 文本提取 |
+| `validateQuestionCardArgs` | 参数预验证 |
+| `checkForceConfirmTools` | FORCE_CONFIRM_TOOLS 拦截（统一浅拷贝） |
+| `mergeResultsWithBudget` | 结果合并 + 聚合预算 |
+| `processToolResultsLoop` | handleToolResult 循环 |
+| `handleInteractionPause` | 交互暂停 |
+
+**关键文件**：`src/main/ai/agent/agentToolExecutor.ts`（导出）+ `src/main/ai/agent/agentLoop.ts`（调用）
+
+### 延迟工具重发优化
+
+- **重发上限**：`while (deferredRetryCount < 3)` — 最多 3 次总调用（1 原始 + 2 重试）
+- **保留已执行结果**：通过 `executor.waitForAll(skipSet)` 收集非延迟工具结果，注入 LLM 上下文
+- **Schema 升级追踪**：`upgradedDeferredTools` Set 避免无限重试
+- **遥测日志**：`console.debug('[AgentLoop] 延迟工具重发', {...})`
+
+**关键文件**：`src/main/ai/agent/agentLoop.ts` L259-430
 
 ## 4. 数据模型
 

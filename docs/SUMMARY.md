@@ -1,6 +1,6 @@
 # WeaveMD 文档索引
 
-> 最后更新：2026-09-17
+> 最后更新：2026-09-18
 
 ## 核心文档
 
@@ -68,6 +68,7 @@
 
 | 文档 | 说明 |
 |------|------|
+| [agent-md-kb-optimize.req](./requirements/agent-md-kb-optimize.req.md) | 跨层优化需求（6 子任务：CommonMark 测试 / 正则统一 / KB 可观测性 / 并行化 / 代码去重 / 工具重发） |
 | [agent-perf-optimize.req](./requirements/agent-perf-optimize.req.md) | Agent 性能优化需求（17 子任务：流式推测执行 / 工具延迟 / Prompt 缓存 / KB 缓存 / 监控） |
 
 ### 历史（`docs/requirements/archive/`）
@@ -80,6 +81,8 @@
 
 | 文档 | 说明 |
 |------|------|
+| [agent-md-kb-optimize.plan](./plan/agent-md-kb-optimize.plan.md) | 跨层优化计划（Markdown / KB / Agent） |
+| [agent-md-kb-optimize.status](./plan/agent-md-kb-optimize.status.md) | 跨层优化状态（6 子任务全量完成） |
 | [agent-perf-optimize.plan](./plan/agent-perf-optimize.plan.md) | Agent 性能优化计划（阶段 1-4） |
 | [agent-perf-optimize.phase2.plan](./plan/agent-perf-optimize.phase2.plan.md) | Agent 性能优化阶段 2 计划 |
 | [agent-perf-optimize.status](./plan/agent-perf-optimize.status.md) | Agent 性能优化状态（全阶段追踪） |

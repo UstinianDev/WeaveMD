@@ -1,6 +1,6 @@
 # 编辑主区 (Editor) 功能总结
 
-> 模块编号：04 | 优先级：P0 | 版本：v2.10 | 最后更新：2026-09-11
+> 模块编号：04 | 优先级：P0 | 版本：v2.11 | 最后更新：2026-09-18
 > 设计规范：[specs/editor-v2-architecture.md](../specs/editor-v2-architecture.md)
 > 退出规则：[specs/markdown-block-exit-rules.md](../specs/markdown-block-exit-rules.md)
 > 浮动工具栏/跨块拖选：[specs/floating-toolbar-refactor.md](../specs/floating-toolbar-refactor.md)
@@ -81,6 +81,51 @@ BlockNodeV2 = {
 - 语法类型解析：`kernel/syntaxType.ts` 提供 `resolveSyntaxType(tree, blockId)`（纯函数）——
   沿父链聚合"用户感知语法类型"（heading 优先自身；paragraph 聚合到最近列表/引用容器），
   供工具栏 G1 一致性判定与 G3② 类型映射复用。
+
+### 4.1 CommonMark/GFM 标准测试套件（2026-09-18）
+
+引入 CommonMark 0.31.2 + GFM 0.29-gfm 官方测试用例，建立回归测试基线：
+
+| 测试套件 | 用例数 | 通过率 | 覆盖范围 |
+|----------|--------|--------|----------|
+| CommonMark 0.31.2 | 652 | 100% | 块级解析 + 行内解析 + 边界情况 |
+| GFM 扩展 | 648 | 100% | 表格 + 任务列表 + 删除线 + autolink |
+| 往返测试（原有） | 66 | 100% | 12 种块类型全覆盖 |
+
+**测试数据**：`tests/editor/kernel/fixtures/commonmark-0.31.2.spec.json` + `gfm.spec.json`
+
+**验证维度**（每个用例）：
+1. 解析无崩溃：`markdownToState(markdown)` 不抛异常
+2. 块树结构合法：无悬空引用、无环、父子双向一致
+3. 行内解析稳定：`tokenizeInline()` 在所有叶子块文本上不抛异常
+4. 往返结构一致性：`stateToMarkdown(markdownToState(md))` 再解析后块类型序列一致
+
+**已知限制**（编辑器有意设计差异）：
+- 缩进代码块：4 空格缩进视为 paragraph（使用围栏代码块替代）
+- HTML 块：视为普通 paragraph
+- 引用块嵌套空白行：递归解析不处理 blank-line continuation
+- 硬换行：`  \n` 作为软换行保留
+- 实体引用：`&amp;` 等视为字面文本
+- 链接引用定义：`[foo]: /url` 视为 paragraph
+
+### 4.2 正则统一（2026-09-18）
+
+将分散在 `markdownToState.ts` 中的正则迁移到 `markdownSyntax.ts` 单一来源：
+
+| 正则 | 迁移前 | 迁移后 | 说明 |
+|------|--------|--------|------|
+| `SETEXT_UNDERLINE_RE` | markdownToState.ts L36 | markdownSyntax.ts L37 | Setext 下划线行 |
+| `BLOCKQUOTE_RE` | markdownToState.ts L38 | markdownSyntax.ts L40 | 引用行解析版 |
+| `TABLE_SEPARATOR_RE` | markdownToState.ts L46 | markdownSyntax.ts L43 | 表格分隔行 |
+
+**额外统一**：`tableCodec.ts` 的 `SEPARATOR_RE` 也改为从 `markdownSyntax` 导入，消除语义漂移风险。
+
+**保持独立**：`BQ_CONV_RE`（转换器严格版）与 `BLOCKQUOTE_RE`（解析器宽松版）保持独立，语义分工明确。
+
+**关键文件**：
+- `src/render/editor/kernel/markdownSyntax.ts` — 正则单一来源（11 个正则 + 1 个派生函数）
+- `src/render/editor/kernel/markdownToState.ts` — 块级解析器（导入统一正则）
+- `src/render/editor/kernel/tableCodec.ts` — 表格编解码（导入 TABLE_SEPARATOR_RE）
 
 ## 5. 实时渲染与输入保障（关键机制）
 

@@ -1,8 +1,23 @@
 # TODO
 
-> 最后更新：2026-09-17
+> 最后更新：2026-09-18
 
 ## 已完成
+
+### agent-md-kb-optimize（2026-09-18）
+
+L 级跨层优化，6 子任务（Markdown 解析层 / 知识库检索层 / Agent 上下文构建层），全量交付。
+
+| 优先级 | 模块 | 任务 | 核心交付 |
+|--------|------|------|---------|
+| P0 | Markdown 解析层 | CommonMark/GFM 测试套件 | 1300 例 100% 通过 + parseList 连续空行 bug 修复 |
+| P0 | Markdown 解析层 | 正则统一 | 3 个正则迁移到 markdownSyntax.ts + tableCodec 统一 |
+| P1 | 知识库检索层 | 检索管线可观测性 | IKbSearchDiagnostics 接口 + 全链路 performance.now() 埋点 |
+| P1 | 知识库检索层 | 研究循环并行化 | executeSubQuery 提取 + Promise.allSettled + 并发限制 3 |
+| P1 | Agent 层 | 代码重复消除 | 8 个共享函数提取到 agentToolExecutor.ts（-180 行重复） |
+| P1 | Agent 层 | 延迟工具重发优化 | 保留已执行结果 + 重发上限 3 次 + upgradedDeferredTools 追踪 |
+
+> 详见 [agent-md-kb-optimize 状态](../docs/plan/agent-md-kb-optimize.status.md)
 
 ### agent-perf-optimize（2026-09-16 ~ 2026-09-17）
 
