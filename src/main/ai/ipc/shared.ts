@@ -4,18 +4,21 @@
 // toIAIConfig / toIAIConsent / activeStreams / sendStream —— 供各域 handler 共用。
 
 import { BrowserWindow } from 'electron';
-import type { ChatBackend, IAIConfig, IAIConsent } from '@shared/ai';
+import type { ChatBackend, IAIConfig, IAIConsent, ModelProtocol } from '@shared/ai';
 
 export function toIAIConfig(config: {
   backend: ChatBackend;
   remoteBaseUrl: string;
   model: string;
   apiKeyEnc: string | null;
+  protocol?: ModelProtocol;
   activeModelConfigId?: string | null;
 }): IAIConfig {
   return {
     // 后端恒 remote（ollama 已去除，收敛标识）
     backend: 'remote',
+    // 旧库无 protocol 列时兜底 openai，避免误走 anthropic 路径
+    protocol: config.protocol ?? 'openai',
     remoteBaseUrl: config.remoteBaseUrl,
     model: config.model,
     hasApiKey: !!config.apiKeyEnc,
@@ -50,6 +53,7 @@ export function sendStream(
 /** 默认 AI 配置（无 DB 行时的兜底值）。 */
 export const DEFAULT_AI_CONFIG: IAIConfig = {
   backend: 'remote',
+  protocol: 'openai',
   remoteBaseUrl: 'https://api.deepseek.com',
   model: '',
   hasApiKey: false,

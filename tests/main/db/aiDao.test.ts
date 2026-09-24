@@ -11,6 +11,7 @@ interface FakeStatement {
 interface AiConfigRowFixture {
   id?: string;
   user_id: string;
+  protocol?: string;
   kb_top_k?: number | null;
   kb_fuse?: number | null;
   kb_threshold?: number | null;
@@ -72,6 +73,7 @@ const fakeDbMock = vi.hoisted(() => {
               id: aiConfigRow.id ?? 'cfg1',
               user_id: aiConfigRow.user_id,
               backend: 'remote',
+              protocol: aiConfigRow.protocol,
               ollama_base_url: 'http://localhost:11434',
               remote_base_url: 'https://api.deepseek.com',
               model: '',
@@ -285,5 +287,43 @@ describe('ai DAO — SQL 参数化与归属过滤行为', () => {
     expect(config?.kbFuse).toBe(0.9);
     expect(config?.kbThreshold).toBe(DEFAULT_KB_SETTINGS.threshold);
     expect(config?.kbPinnedWeight).toBe(DEFAULT_KB_SETTINGS.pinnedWeight);
+  });
+
+  // ---- 协议分流：ai_config 落 protocol（决定 LLM 调用走 openai / anthropic 路径）----
+
+  it('upsertAiConfig UPDATE：含 protocol 列且写入传入值', () => {
+    fakeDbMock.setAiConfigRow({ user_id: 'u1', protocol: 'openai' });
+    upsertAiConfig('u1', { protocol: 'anthropic' });
+    const upd = callOf('run', 'UPDATE ai_config');
+    expect(upd?.sql).toContain('protocol = ?');
+    expect(upd?.args).toContain('anthropic');
+  });
+
+  it('upsertAiConfig UPDATE：未传 protocol 时沿用既有值', () => {
+    fakeDbMock.setAiConfigRow({ user_id: 'u1', protocol: 'anthropic' });
+    upsertAiConfig('u1', { kbTopK: 8 });
+    const upd = callOf('run', 'UPDATE ai_config');
+    expect(upd?.args).toContain('anthropic');
+    expect(upd?.args).not.toContain('openai');
+  });
+
+  it('upsertAiConfig INSERT：含 protocol 列且缺省兜底 openai', () => {
+    fakeDbMock.setAiConfigRow({ user_id: 'u1' });
+    fakeDbMock.setSkipFirstAiConfigGet(true);
+    upsertAiConfig('u1', {});
+    const ins = callOf('run', 'INSERT INTO ai_config');
+    expect(ins?.sql).toContain('protocol');
+    expect(ins?.args).toContain('openai');
+  });
+
+  it('mapConfigRow：protocol 有值透出，非法或缺失兜底 openai', () => {
+    fakeDbMock.setAiConfigRow({ user_id: 'u1', protocol: 'anthropic' });
+    expect(getAiConfig('u1')?.protocol).toBe('anthropic');
+
+    fakeDbMock.setAiConfigRow({ user_id: 'u1', protocol: 'weird' });
+    expect(getAiConfig('u1')?.protocol).toBe('openai');
+
+    fakeDbMock.setAiConfigRow({ user_id: 'u1' });
+    expect(getAiConfig('u1')?.protocol).toBe('openai');
   });
 });

@@ -5,6 +5,7 @@
 // 估算 len/4 为相对阈值（误差 ≤2x 不影响「是否该压缩」判定）；压缩为幂等安全动作。
 
 import { streamChatCompletionWithRetry } from './llm/llmClient';
+import { streamAnthropicCompletion } from './llm/anthropicClient';
 import type { ToolDef } from '@shared/ai';
 
 // Re-export 保持向后兼容（agentLoop 等模块从 contextManager 导入 estimateTokens）
@@ -82,6 +83,8 @@ export interface SummarizeCtx {
   baseUrl: string;
   model: string;
   apiKey?: string;
+  /** LLM 协议分流：anthropic 走 /v1/messages，缺省 openai。 */
+  protocol?: 'openai' | 'anthropic';
   timeoutMs?: number;
   signal?: AbortSignal;
   contextWindow?: number;
@@ -110,7 +113,7 @@ export async function summarizeViaLlm(
       role: 'user',
       content: '请将以上对话压缩为不超过150字的中文摘要，只保留主题和关键结论。',
     };
-    const gen = streamChatCompletionWithRetry({
+    const forkOpts = {
       baseUrl: ctx.baseUrl,
       model: ctx.model,
       apiKey: ctx.apiKey,
@@ -118,7 +121,13 @@ export async function summarizeViaLlm(
       messages: [...messages, compactionMsg],
       timeoutMs: ctx.timeoutMs,
       signal: ctx.signal,
-    });
+    };
+    // anthropic 路径不支持 tools 字段（客户端会忽略），压缩本身只读文本、不消费 tool_use，
+    // 故仍按协议分流 —— 否则 anthropic 配置下压缩会打到错误端点直接失败。
+    const gen =
+      ctx.protocol === 'anthropic'
+        ? streamAnthropicCompletion(forkOpts)
+        : streamChatCompletionWithRetry(forkOpts);
     let acc = '';
     for await (const chunk of gen) {
       acc += chunk.delta;
@@ -129,13 +138,13 @@ export async function summarizeViaLlm(
   // ============================================
   // 回退模式：独立 system prompt（向后兼容）
   // ============================================
-  const gen = streamChatCompletionWithRetry({
+  const opts = {
     baseUrl: ctx.baseUrl,
     model: ctx.model,
     apiKey: ctx.apiKey,
     messages: [
       {
-        role: 'system',
+        role: 'system' as const,
         content:
           '你是对话摘要助手。将以下对话压缩为一段简洁的中文摘要。要求：1) 只保留讨论的主题和关键结论，不要包含具体的问题和答案；2) 不要保留具体的计算结果、代码片段或详细数据；3) 控制在 150 字以内。目的：让后续对话知道之前讨论过什么话题，但不会被之前的答案干扰。',
       },
@@ -143,7 +152,12 @@ export async function summarizeViaLlm(
     ],
     timeoutMs: ctx.timeoutMs,
     signal: ctx.signal,
-  });
+  };
+  // 纯文本压缩（不带 tools），按协议分流
+  const gen =
+    ctx.protocol === 'anthropic'
+      ? streamAnthropicCompletion(opts)
+      : streamChatCompletionWithRetry(opts);
   let acc = '';
   for await (const chunk of gen) {
     acc += chunk.delta;

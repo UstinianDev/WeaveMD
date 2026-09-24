@@ -10,6 +10,9 @@
 // - Headers：x-api-key + anthropic-version: 2023-06-01
 // - Body：system 独立顶层字段，messages role 只能是 user/assistant
 // - SSE 事件：message_start / content_block_delta / message_stop / error
+// - Prompt 缓存：system 末块带 cache_control 断点；usage 从 message_start /
+//   message_delta 解析（input_tokens 不含缓存，上报前换算为总量，与
+//   costTracker 的 promptTokens 语义对齐）
 
 import type { StreamChatCompletionOptions, StreamChunk } from './llmClient';
 import { createStreamController, makeError, normalizeBaseUrl } from './streamScaffold';
@@ -29,8 +32,22 @@ interface AnthropicContentBlockDelta {
   };
 }
 
+/** Anthropic usage：input_tokens 不含缓存读写部分。 */
+interface AnthropicUsageShape {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+}
+
 interface AnthropicMessageStart {
   type: 'message_start';
+  message?: { usage?: AnthropicUsageShape };
+}
+
+interface AnthropicMessageDelta {
+  type: 'message_delta';
+  usage?: AnthropicUsageShape;
 }
 
 interface AnthropicMessageStop {
@@ -45,16 +62,74 @@ interface AnthropicError {
 type AnthropicSseEvent =
   | AnthropicContentBlockDelta
   | AnthropicMessageStart
+  | AnthropicMessageDelta
   | AnthropicMessageStop
   | AnthropicError
   | { type: string };
 
 // ---------------------------------------------------------------------------
+// usage 累计状态（message_start 给输入侧，message_delta 给输出侧）
+// ---------------------------------------------------------------------------
+
+interface AnthropicUsageAcc {
+  /** 输入总量（含缓存读写），与 costTracker 的 promptTokens 语义一致。 */
+  promptTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  completionTokens: number;
+  reasoningTokens: number;
+}
+
+function createUsageAcc(): AnthropicUsageAcc {
+  return {
+    promptTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    completionTokens: 0,
+    reasoningTokens: 0,
+  };
+}
+
+/** 用累计状态生成 StreamChunk.usage。 */
+function toUsageChunk(acc: AnthropicUsageAcc): StreamChunk {
+  return {
+    delta: '',
+    usage: {
+      reasoningTokenCount: null,
+      promptTokens: acc.promptTokens,
+      completionTokens: acc.completionTokens,
+      totalTokens: acc.promptTokens + acc.completionTokens,
+      reasoningTokens: acc.reasoningTokens,
+      cacheReadTokens: acc.cacheReadTokens,
+      cacheCreationTokens: acc.cacheCreationTokens,
+    },
+  };
+}
+
+/** 合并 message_start 的输入侧 usage（幂等重放同一事件结果一致）。 */
+function mergeStartUsage(acc: AnthropicUsageAcc, usage?: AnthropicUsageShape): void {
+  if (!usage) return;
+  const cacheRead = usage.cache_read_input_tokens ?? 0;
+  const cacheWrite = usage.cache_creation_input_tokens ?? 0;
+  const input = usage.input_tokens ?? 0;
+  acc.promptTokens = input + cacheRead + cacheWrite;
+  acc.cacheReadTokens = cacheRead;
+  acc.cacheCreationTokens = cacheWrite;
+  if (typeof usage.output_tokens === 'number') acc.completionTokens = usage.output_tokens;
+}
+
+// ---------------------------------------------------------------------------
 // SSE 行解析（单事件块，Anthropic 协议特定）
 // ---------------------------------------------------------------------------
 
-/** 解析一组 SSE 文本行（单事件块），返回待 yield 的 StreamChunk 或抛出错误。 */
-function processAnthropicSseLines(lines: string[]): StreamChunk | null {
+/**
+ * 解析一组 SSE 文本行（单事件块），返回待 yield 的 StreamChunk 或抛出错误。
+ * @param acc usage 累计状态（跨事件共享，message_start/message_delta 写入）
+ */
+function processAnthropicSseLines(
+  lines: string[],
+  acc: AnthropicUsageAcc
+): StreamChunk | null {
   let eventType = '';
   let dataPayload = '';
 
@@ -77,9 +152,21 @@ function processAnthropicSseLines(lines: string[]): StreamChunk | null {
   }
 
   switch (json.type) {
-    case 'message_start':
-      // 忽略
-      return null;
+    case 'message_start': {
+      const ev = json as AnthropicMessageStart;
+      mergeStartUsage(acc, ev.message?.usage);
+      // usage 单独成块返回（delta 为空串，不影响内容累积）
+      return toUsageChunk(acc);
+    }
+
+    case 'message_delta': {
+      const ev = json as AnthropicMessageDelta;
+      // message_delta.usage.output_tokens 是消息累计值，直接赋值
+      if (typeof ev.usage?.output_tokens === 'number') {
+        acc.completionTokens = ev.usage.output_tokens;
+      }
+      return toUsageChunk(acc);
+    }
 
     case 'content_block_delta': {
       const delta = json as AnthropicContentBlockDelta;
@@ -149,7 +236,12 @@ export async function* streamAnthropicCompletion(
     stream: true,
   };
   if (systemParts.length > 0) {
-    body.system = systemParts.join('\n\n');
+    // 末块设 prompt 缓存断点：稳定前缀（系统提示）跨轮复用，命中按 0.1× 计费
+    body.system = systemParts.map((text, i) => ({
+      type: 'text',
+      text,
+      ...(i === systemParts.length - 1 ? { cache_control: { type: 'ephemeral' } } : {}),
+    }));
   }
 
   let response: Response;
@@ -186,6 +278,7 @@ export async function* streamAnthropicCompletion(
   const reader = responseBody.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  const usageAcc = createUsageAcc();
 
   try {
     while (true) {
@@ -197,7 +290,7 @@ export async function* streamAnthropicCompletion(
       buffer = parts.pop() ?? '';
 
       for (const part of parts) {
-        const chunk = processAnthropicSseLines(part.split('\n'));
+        const chunk = processAnthropicSseLines(part.split('\n'), usageAcc);
         if (chunk) yield chunk;
         if (opts.signal?.aborted || sc.controller.signal.aborted) {
           await reader.cancel().catch(() => undefined);
@@ -208,7 +301,7 @@ export async function* streamAnthropicCompletion(
 
     // 残留 buffer flush
     if (buffer && buffer !== '') {
-      const chunk = processAnthropicSseLines(buffer.split('\n'));
+      const chunk = processAnthropicSseLines(buffer.split('\n'), usageAcc);
       if (chunk) yield chunk;
     }
   } catch (err) {

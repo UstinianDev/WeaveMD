@@ -5,8 +5,12 @@ import { join } from 'path';
 
 const llmMock = vi.hoisted(() => ({
   streamChatCompletion: vi.fn(),
+  streamAnthropicCompletion: vi.fn(),
 }));
 vi.mock('@main/ai/llm/llmClient', () => llmMock);
+vi.mock('@main/ai/llm/anthropicClient', () => ({
+  streamAnthropicCompletion: llmMock.streamAnthropicCompletion,
+}));
 
 import { CORE_SKILLS, listSkillsForUi, loadSkills, runSkill } from '@main/ai/skills/skillLoader';
 
@@ -156,6 +160,31 @@ describe('skillLoader.runSkill', () => {
       content: skill.instructions,
     });
     expect(callArgs.messages[1]).toEqual({ role: 'user', content: 'input text' });
+  });
+
+  it('protocol=anthropic 时分流到 streamAnthropicCompletion（openai 保持原路径）', async () => {
+    async function* gen() {
+      yield { delta: 'ok' };
+    }
+    llmMock.streamChatCompletion.mockImplementation(() => gen());
+    llmMock.streamAnthropicCompletion.mockImplementation(() => gen());
+    const skill = CORE_SKILLS[0];
+
+    await runSkill(skill, 'a', {
+      baseUrl: 'https://api.deepseek.com',
+      model: 'deepseek-chat',
+      protocol: 'anthropic',
+    });
+    expect(llmMock.streamAnthropicCompletion).toHaveBeenCalledTimes(1);
+    expect(llmMock.streamChatCompletion).not.toHaveBeenCalled();
+
+    await runSkill(skill, 'b', {
+      baseUrl: 'https://api.deepseek.com',
+      model: 'deepseek-chat',
+      protocol: 'openai',
+    });
+    expect(llmMock.streamChatCompletion).toHaveBeenCalledTimes(1);
+    expect(llmMock.streamAnthropicCompletion).toHaveBeenCalledTimes(1);
   });
 
   it('returns status error when llmClient throws', async () => {

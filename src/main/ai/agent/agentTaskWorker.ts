@@ -14,6 +14,7 @@ import type {
   IAIConfig,
   IAIConsent,
   IClarifyQuestion,
+  IKbSettings,
 } from '@shared/ai';
 import { normalizeKbSettings } from '@shared/ai';
 import { IPC_CHANNELS } from '@shared/constants';
@@ -229,18 +230,7 @@ export class AgentTaskWorker {
       const config: IAIConfig = row ? toIAIConfig(row) : DEFAULT_AI_CONFIG;
       const consent: IAIConsent = row ? toIAIConsent(row) : DEFAULT_CONSENT;
 
-      // 5. 合并 KB 设置
-      const kbDefaults = { topK: 5, fuse: 0.5, threshold: 0.6, pinnedWeight: 1.5 };
-      const persisted = row
-        ? normalizeKbSettings({
-            topK: row.kbTopK,
-            fuse: row.kbFuse,
-            threshold: row.kbThreshold,
-            pinnedWeight: row.kbPinnedWeight,
-          })
-        : kbDefaults;
-
-      // 6. 构造合成 event shim（runAgentFlow 仅用 event.sender 获取 BrowserWindow）
+      // 5. 构造合成 event shim（runAgentFlow 仅用 event.sender 获取 BrowserWindow）
       const syntheticEvent = {
         sender: mainWindow?.webContents ?? ({
           send: () => {},
@@ -248,12 +238,13 @@ export class AgentTaskWorker {
         } as unknown as Electron.WebContents),
       } as Electron.IpcMainInvokeEvent;
 
-      // 6.5. 解析 payloadJson 中的额外字段
-      const { currentDocument, useKnowledgeBase, fileTreePaths } = this.readTaskPayload(task);
+      // 6. 解析 payloadJson 中的额外字段
+      const { currentDocument, useKnowledgeBase, fileTreePaths, kbSettings } =
+        this.readTaskPayload(task);
 
-      // 7. 构造 AgentLoopDeps
+      // 7. 构造 AgentLoopDeps（KB 检索设置在其中合并：payload 显式 > 持久化 > 默认）
       const deps = this.buildAgentDeps(
-        session, sessionId, task, persisted, consent, mainWindow
+        session, sessionId, task, row, kbSettings, consent, mainWindow
       );
 
       // 8. 执行 Agent 流程（传入 sessionId + mainWindow 以启用持久化事件推送）
@@ -316,20 +307,25 @@ export class AgentTaskWorker {
   // Private — Task Helpers
   // -----------------------------------------------------------------------
 
-  /** 解析 payloadJson 中的额外字段（currentDocument / useKnowledgeBase / fileTreePaths 等）。 */
+  /** 解析 payloadJson 中的额外字段（currentDocument / useKnowledgeBase / fileTreePaths / kbSettings）。 */
   private readTaskPayload(task: AgentTask): {
     currentDocument: string | undefined;
     useKnowledgeBase: boolean | undefined;
     fileTreePaths: { files: string[]; folders: string[] } | undefined;
+    kbSettings: Partial<IKbSettings> | undefined;
   } {
     let currentDocument: string | undefined;
     let useKnowledgeBase: boolean | undefined;
     let fileTreePaths: { files: string[]; folders: string[] } | undefined;
+    let kbSettings: Partial<IKbSettings> | undefined;
     try {
       if (task.payloadJson) {
         const extra = JSON.parse(task.payloadJson) as Record<string, unknown>;
         if (typeof extra.currentDocument === 'string') currentDocument = extra.currentDocument;
         if (typeof extra.useKnowledgeBase === 'boolean') useKnowledgeBase = extra.useKnowledgeBase;
+        if (extra.kbSettings && typeof extra.kbSettings === 'object') {
+          kbSettings = extra.kbSettings as Partial<IKbSettings>;
+        }
         if (extra.fileTreePaths && typeof extra.fileTreePaths === 'object') {
           const ftp = extra.fileTreePaths as Record<string, unknown>;
           if (Array.isArray(ftp.files) && Array.isArray(ftp.folders)) {
@@ -343,7 +339,7 @@ export class AgentTaskWorker {
     } catch {
       /* payloadJson 解析失败不阻断主流程 */
     }
-    return { currentDocument, useKnowledgeBase, fileTreePaths };
+    return { currentDocument, useKnowledgeBase, fileTreePaths, kbSettings };
   }
 
   /** 构造 AgentLoopDeps（含 searchKb + consent + 交互回调）。 */
@@ -351,10 +347,18 @@ export class AgentTaskWorker {
     session: AgentSessionStateMachine,
     sessionId: string,
     task: AgentTask,
-    persisted: { topK: number; fuse: number; pinnedWeight: number; threshold: number },
+    row: ReturnType<typeof getAiConfig>,
+    kbSettings: Partial<IKbSettings> | undefined,
     consent: IAIConsent,
     mainWindow: BrowserWindow | null,
   ): import('./agentLoop').AgentLoopDeps {
+    // KB 检索设置合并：payload 显式 > 持久化配置 > 默认值（normalizeKbSettings 统一兜底）
+    const persisted = normalizeKbSettings({
+      topK: kbSettings?.topK ?? row?.kbTopK,
+      fuse: kbSettings?.fuse ?? row?.kbFuse,
+      threshold: kbSettings?.threshold ?? row?.kbThreshold,
+      pinnedWeight: kbSettings?.pinnedWeight ?? row?.kbPinnedWeight,
+    });
     return {
       searchKb: (u: string, q: string, opts?: { topK?: number; queryVector?: number[]; searchMode?: 'fts5' | 'vector' | 'hybrid' }) =>
         searchKB(u, q, {

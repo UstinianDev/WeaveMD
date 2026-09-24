@@ -26,8 +26,9 @@ export function initDatabase(): Database.Database {
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');
 
-  // 加载 sqlite-vec 向量搜索扩展
+  // 加载 sqlite-vec 向量搜索扩展（可选原生扩展，必须动态 require 才能被 try 捕获后降级）
   try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const vec = require('sqlite-vec');
     vec.load(db);
   } catch {
@@ -251,6 +252,9 @@ function runMigrations(database: Database.Database): void {
 
   // 写模式（auto/manual）：ai_config 幂等补 write_mode 列，默认 'manual'
   addColumnIfMissing(database, 'ai_config', 'write_mode', "write_mode TEXT NOT NULL DEFAULT 'manual'");
+
+  // 协议分流：ai_config 幂等补 protocol 列（openai / anthropic），默认 openai
+  addColumnIfMissing(database, 'ai_config', 'protocol', "protocol TEXT NOT NULL DEFAULT 'openai'");
 
   // Agent 任务队列 / 会话 / 运行事件 / 文件快照
   addAgentTables(database);

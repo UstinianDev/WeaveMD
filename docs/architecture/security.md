@@ -59,10 +59,12 @@ db.prepare(`SELECT * FROM users WHERE username = '${username}'`);
 
 ### 知情同意
 
-首次联网/外发弹知情同意页：
+联网许可已由**三配置门禁**（LLM + Embedding + 搜索任一缺失即锁面板）表达，故独立联网同意闸停用：
 
-- `allowNetwork`：允许联网
-- `allowSend`：允许笔记外发
+- ~~`allowNetwork`：允许联网~~ —— `needsConsent` 恒返回 `false`，DB 列保留作历史数据兼容
+- `allowSend`：允许笔记外发（KB 外发闸，`needsKbSendConsent` / `ConsentOverlay`）
+  —— 注：渲染侧唯一触发点是 `useKnowledgeBase && !allowSend`，而知识库开关已随 Module 10 移除，
+  故该弹层**当前在生产 UI 中不可达**（主进程 KB 工具注入仍按 `kbEgressAuthorized` 生效）
 
 ### 文件操作安全
 

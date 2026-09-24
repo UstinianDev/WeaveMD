@@ -6,7 +6,7 @@ import {
 
 describe('TopBar shortcut helpers', () => {
   it('should resolve supported global shortcuts', () => {
-    // Ctrl+N (new-file) — removed, entry migrated to sidebar toolbar
+    // Ctrl+N (new-file) — 与 FileMenu「新建」、空文档提示「Ctrl+N 新建」一致
     expect(
       getShortcutAction({
         key: 'n',
@@ -15,7 +15,7 @@ describe('TopBar shortcut helpers', () => {
         shiftKey: false,
         altKey: false,
       })
-    ).toBe(null);
+    ).toBe('new-file');
     expect(
       getShortcutAction({
         key: 'O',

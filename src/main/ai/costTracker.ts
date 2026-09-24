@@ -12,12 +12,17 @@
 
 /** 单轮 API 调用的 token 消耗明细。 */
 export interface TokenUsage {
+  /**
+   * 本次输入的**总** token 数，包含缓存命中与缓存写入部分
+   * （OpenAI/DeepSeek `prompt_tokens` 语义；Anthropic 路径由客户端换算为
+   * `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`）。
+   */
   promptTokens: number;
   completionTokens: number;
   reasoningTokens: number;
-  /** 缓存命中节省的 prompt tokens（DeepSeek 上下文缓存）。 */
+  /** 缓存命中节省的 prompt tokens（DeepSeek 上下文缓存 / Anthropic cache read）。是 promptTokens 的子集。 */
   cacheReadTokens: number;
-  /** 写入缓存消耗的 prompt tokens。 */
+  /** 写入缓存消耗的 prompt tokens（Anthropic cache write）。是 promptTokens 的子集。 */
   cacheCreationTokens: number;
 }
 
@@ -62,6 +67,15 @@ const MODEL_PRICING: Record<string, { prompt: number; completion: number }> = {
   'default':           { prompt: 1.0,  completion: 2.0 },
 };
 
+// ---------------------------------------------------------------------------
+// 缓存计费倍率（相对 prompt 单价）
+// ---------------------------------------------------------------------------
+
+/** 缓存读取折扣：Anthropic 与 DeepSeek 均约为全价的 0.1。 */
+const CACHE_READ_RATE = 0.1;
+/** 缓存写入溢价：Anthropic cache write 为全价的 1.25。 */
+const CACHE_WRITE_RATE = 1.25;
+
 /** 根据模型名匹配定价，找不到则回退到 default。 */
 function resolvePricing(model: string): { prompt: number; completion: number } {
   const lower = model.toLowerCase();
@@ -70,12 +84,24 @@ function resolvePricing(model: string): { prompt: number; completion: number } {
   return MODEL_PRICING['default'];
 }
 
-/** 根据 token 用量和模型计算估算成本。 */
+/**
+ * 根据 token 用量和模型计算估算成本。
+ *
+ * promptTokens 为输入总量（含缓存），故先扣除缓存读/写两部分再按全价计费，
+ * 缓存部分另按 CACHE_READ_RATE / CACHE_WRITE_RATE 单独计价。
+ */
 function calculateCost(usage: TokenUsage, model: string): number {
   const pricing = resolvePricing(model);
-  const promptCost = (usage.promptTokens / 1_000_000) * pricing.prompt;
-  const completionCost = (usage.completionTokens / 1_000_000) * pricing.completion;
-  return promptCost + completionCost;
+  const cacheRead = usage.cacheReadTokens || 0;
+  const cacheWrite = usage.cacheCreationTokens || 0;
+  const billableInput = Math.max(0, usage.promptTokens - cacheRead - cacheWrite);
+
+  const inputCost = (billableInput / 1_000_000) * pricing.prompt;
+  const cacheReadCost = (cacheRead / 1_000_000) * pricing.prompt * CACHE_READ_RATE;
+  const cacheWriteCost = (cacheWrite / 1_000_000) * pricing.prompt * CACHE_WRITE_RATE;
+  const outputCost = (usage.completionTokens / 1_000_000) * pricing.completion;
+
+  return inputCost + cacheReadCost + cacheWriteCost + outputCost;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,9 +182,9 @@ class CostTrackerImpl implements CostTracker {
         : '_No cost data recorded._';
     }
 
-    // 表头
-    const header = '| Round | Model | Prompt Tokens | Completion Tokens | Reasoning | Cache Hit | Cost (USD) |';
-    const sep    = '|-------|-------|---------------|--------------------|-----------|-----------|------------|';
+    // 表头（Cache Hit / Cache Write 均已按折扣单价计入 Cost）
+    const header = '| Round | Model | Prompt Tokens | Completion Tokens | Reasoning | Cache Hit | Cache Write | Cost (USD) |';
+    const sep    = '|-------|-------|---------------|--------------------|-----------|-----------|-------------|------------|';
 
     const rows: string[] = [header, sep];
 
@@ -169,6 +195,7 @@ class CostTrackerImpl implements CostTracker {
     let sumCompletion = 0;
     let sumReasoning = 0;
     let sumCache = 0;
+    let sumCacheWrite = 0;
     let sumCost = 0;
 
     for (const e of sorted) {
@@ -176,16 +203,18 @@ class CostTrackerImpl implements CostTracker {
       const completionStr = e.usage.completionTokens.toLocaleString();
       const reasoningStr = e.usage.reasoningTokens.toLocaleString();
       const cacheStr = e.usage.cacheReadTokens.toLocaleString();
+      const cacheWriteStr = e.usage.cacheCreationTokens.toLocaleString();
       const costStr = `$${e.estimatedCostUsd.toFixed(6)}`;
 
       rows.push(
-        `| ${e.roundCount} | ${e.model} | ${promptStr} | ${completionStr} | ${reasoningStr} | ${cacheStr} | ${costStr} |`
+        `| ${e.roundCount} | ${e.model} | ${promptStr} | ${completionStr} | ${reasoningStr} | ${cacheStr} | ${cacheWriteStr} | ${costStr} |`
       );
 
       sumPrompt += e.usage.promptTokens;
       sumCompletion += e.usage.completionTokens;
       sumReasoning += e.usage.reasoningTokens;
       sumCache += e.usage.cacheReadTokens;
+      sumCacheWrite += e.usage.cacheCreationTokens;
       sumCost += e.estimatedCostUsd;
     }
 
@@ -194,10 +223,11 @@ class CostTrackerImpl implements CostTracker {
     const totalCompletionStr = `**${sumCompletion.toLocaleString()}**`;
     const totalReasoningStr = `**${sumReasoning.toLocaleString()}**`;
     const totalCacheStr = `**${sumCache.toLocaleString()}**`;
+    const totalCacheWriteStr = `**${sumCacheWrite.toLocaleString()}**`;
     const totalCostStr = `**$${sumCost.toFixed(6)}**`;
 
     rows.push(
-      `| **Total** | | ${totalPromptStr} | ${totalCompletionStr} | ${totalReasoningStr} | ${totalCacheStr} | ${totalCostStr} |`
+      `| **Total** | | ${totalPromptStr} | ${totalCompletionStr} | ${totalReasoningStr} | ${totalCacheStr} | ${totalCacheWriteStr} | ${totalCostStr} |`
     );
 
     return rows.join('\n');

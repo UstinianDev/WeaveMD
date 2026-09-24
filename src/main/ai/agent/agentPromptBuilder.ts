@@ -21,6 +21,26 @@ const MAX_FILE_LIST = 50;
 const MAX_LOCAL_TREE = 30;
 
 // ---------------------------------------------------------------------------
+// 叙述长度上限（agent-cost-optimize A4）
+// ---------------------------------------------------------------------------
+
+/** 文件操作叙述长度可调档位（tokens）：0 = 只报结果、160 = 允许完整说明。 */
+export const FILE_OP_NARRATION_TOKEN_LIMITS = [0, 40, 80, 160] as const;
+
+/** 默认档位：单次文件操作回复不超过 80 tokens（约 2 行）。 */
+export const FILE_OP_NARRATION_TOKEN_LIMIT = 80;
+
+/** 需要读取当前文档作参考的写作意图（chat / kbQa / web 与当前文档无关）。 */
+const DOC_CONTEXT_INTENTS: ReadonlySet<string> = new Set(['rewrite', 'create', 'tech']);
+
+/** 会产出文件变更的写工具（叙述域规则的适用范围）。 */
+const FILE_OP_WRITE_TOOLS = [
+  'createFile', 'createFolder', 'editBlocks', 'editLocalFile',
+  'renameFile', 'moveFile', 'deleteFile', 'deleteLocalFile',
+  'preview_file_revision', 'preview_patch_files',
+] as const;
+
+// ---------------------------------------------------------------------------
 // 文件列表缓存（性能优化）
 // ---------------------------------------------------------------------------
 
@@ -54,6 +74,22 @@ export function buildDocumentContext(currentDocument: string | undefined): strin
     )}${DOC_CONTEXT_CUT_MARKER}`;
   }
   return `以下为当前编辑文档内容（只读，供改写/优化参考）：\n\n${doc}`;
+}
+
+/**
+ * 是否注入当前文档上下文（agent-cost-optimize B1 意图门控）。
+ *
+ * 仅 rewrite / create / tech 三个写作意图需要当前文档作参考
+ * （editBlocks 在 create / tech 可用）；chat / kbQa / web 的回答来源
+ * 分别是对话、知识库、搜索结果，当前文档对它们是纯冗余。
+ * 缺文档或空白文档一律不注入。
+ */
+export function shouldInjectDocumentContext(
+  intent: string | undefined,
+  currentDocument: string | undefined
+): boolean {
+  if (!intent || !DOC_CONTEXT_INTENTS.has(intent)) return false;
+  return !!(currentDocument ?? '').trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -200,11 +236,19 @@ export function buildAgentSystemPrompt(
     '- **URL 查询规则**：当用户提供 URL 并询问网站信息时，**必须调用 web_search 工具**搜索该网站的相关信息。不要仅从 URL 提取域名返回 JSON，必须搜索网站的实际内容、功能、背景等信息并用自然语言回答。',
     '- 提问 → ask_question_card（支持 text/choice/confirm 三种类型），暂停等待回答。每次向用户提问都必须使用此工具，不可在回复文本中直接提问。',
     '',
+    '## 文件操作后的回复',
+    `调用写工具（${FILE_OP_WRITE_TOOLS.join('/')}）后，回复文本：`,
+    '- 只写「做了什么 + 结果」，不超过 2 行。',
+    '- 禁止在回复中复述 diff 对比卡片已展示的变更内容——变更明细由卡片呈现，文字复述是冗余。',
+    '- 不加标题、不列小节、不写总结段、不给后续建议。',
+    `- 单次回复目标上限 ${FILE_OP_NARRATION_TOKEN_LIMIT} tokens（档位：${FILE_OP_NARRATION_TOKEN_LIMITS.join('/')}）。`,
+    '- 本节只约束回复文本，不适用于：产物 payload（createFile.content、editBlocks 的 new_content 全文照常）、ask_question_card 提问文本、错误与安全警告。',
+    '',
     '## 写入规则',
-    '- 安全变更（新增内容、小段改写）：直接执行并告知结果。',
+    '- 安全变更（新增内容、小段改写）：直接执行，执行成功即可。',
     '- 高风险操作（删除、覆盖整个文件）：先说明变更内容，等待用户确认。',
-    '- 删除文件（deleteFile / deleteLocalFile）：系统将强制弹出确认卡片。',
-    '  调用删除工具前，必须在回复中说明即将删除的内容和原因。',
+    '- 删除文件（deleteFile / deleteLocalFile）：系统将强制弹出确认卡片，卡片含文件名与不可恢复提示。',
+    '  仅当删除目标不唯一时，先列将删清单供用户确认；目标唯一时回复不必重复卡片内容。',
     '- 修改本地文件（editLocalFile）：工具执行后系统会自动展示变更对比卡片，无需额外操作。',
     '',
     '## 要点',
@@ -212,10 +256,16 @@ export function buildAgentSystemPrompt(
     '- 用户问文件是否存在，先看文件列表，没有再调 listFiles。',
     '- 文件夹支持嵌套路径（如 "子目录/深层目录"）。',
     '',
+    '## 回复风格',
+    '- 禁止寒暄、客套、感叹词开场，不重复用户的问题或需求描述。',
+    '- 先给结论，用 1~2 句话说明原因，不解释对方已知的基础概念。',
+    '- 段落最多 3 句话、列表不超过 5 项，能短则短。',
+    '',
     '## 回答格式',
-    '- 使用 Markdown 格式组织回答，善用标题（#/##/###）、列表、代码块、粗体等。',
-    '- 长回答用标题分段，短回答直接输出。',
+    '- 知识类回答（检索解读、分析、问答、联网搜索结果）：使用 Markdown 格式组织回答，善用标题（#/##/###）、列表、代码块、粗体等。',
+    '- 知识类回答长文用标题分段，短回答直接输出。',
     '- 代码示例使用 fenced code block（```语言名）。',
+    '- 文件操作轮次：不套用上述结构化格式，改按「## 文件操作后的回复」的 2 行规则输出。',
     '- 禁止在回复中使用 emoji 表情符号（如 ⚠️ ❌ ✅ 🎉 等）。使用纯文本标记代替。',
     fileListSnapshot,
     localFileTreeSnapshot,

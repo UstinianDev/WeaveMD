@@ -26,10 +26,10 @@ import type {
   KbStatusResponse,
   WriteMode,
 } from '@shared/ai';
-import { DEFAULT_KB_SETTINGS, needsConsent } from '@shared/ai';
+import { DEFAULT_KB_SETTINGS } from '@shared/ai';
 import type { WeaveMDApi } from '@main/preload';
 
-// re-export needsConsent（恒返回 false，铁律二已移除）
+// re-export 统一版 needsConsent（保持从 agentStore 导入的向后兼容）
 export { needsConsent } from '@shared/ai';
 import { useAuthStore } from './authStore';
 import { useEditorStore } from '@render/stores/editorStore';
@@ -547,7 +547,13 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
   async sendAgentMessage(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const { activeConversationId, useKnowledgeBase, isStreaming } = get();
+    const { consent, activeConversationId, useKnowledgeBase, isStreaming } = get();
+
+    // 铁律二：仅知识库内容外发需知情同意（联网同意已停用，三配置齐全即视为许可）
+    if (useKnowledgeBase && !consent?.allowSend) {
+      set({ pendingConsent: true });
+      return;
+    }
 
     // 如果正在流式传输，先停止当前流
     if (isStreaming) {
@@ -922,6 +928,13 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       });
       // IpcResponse 类型不含 code（主进程 AGENT_RUN 失败信封实际携带），此处按运行时桥契约读取。
       const failedCode = (res as unknown as { code?: string }).code;
+      if (!res.success && failedCode === 'consent_required') {
+        // 服务端同意闸未过（KB 外发闸共用此错误码）：弹同意页而非静默丢弃，同意后用户重发。
+        unsubscribeStreamDelta();
+        mgr.finishWithoutPersist();
+        set({ pendingConsent: true, isStreaming: false, processStatus: 'idle' });
+        return;
+      }
       if (!res.success) {
         // 清理流监听器（流式 error 事件可能已先清理，此处兜底）
         unsubscribeStreamDelta();
@@ -963,6 +976,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       // 清理流监听器
       unsubscribeStreamDelta();
       mgr.finishWithoutPersist();
+      if ((err as { code?: string })?.code === 'consent_required') {
+        set({ pendingConsent: true, processStatus: 'idle' });
+        return;
+      }
       // 显示错误给用户而不是静默吞掉
       const errorContent = err instanceof Error ? err.message : String(err);
       const errorMsg: IAIMessage = {

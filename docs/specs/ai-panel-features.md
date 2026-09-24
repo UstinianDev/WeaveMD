@@ -59,7 +59,8 @@ ai_* 4 表 DDL + kb_* 预留、`ai:*` IPC + preload、设置面板 AI Tab（safe
 ## 两条铁律
 
 1. **AI 无直接落盘能力**——写路径必经「红删绿增预览 → 用户确认 → `updateContent` 入 undo 栈」
-2. **联网/笔记外发必须用户知情同意**——consent 分层：联网闸 allowNetwork + KB 外发闸 allowSend
+2. **笔记外发必须用户知情同意**——consent 仅存 KB 外发闸 allowSend；联网闸 allowNetwork 已停用
+   （`needsConsent` 恒 false：后端恒 remote，LLM/Embedding/搜索三配置齐全即视为联网许可，再弹同意属重复确认）
 
 ## 延期项（如实标注）
 

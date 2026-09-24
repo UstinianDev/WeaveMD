@@ -1,8 +1,9 @@
 // ============================================
 // WeaveMD — Agent function-calling loop (main)
 // ============================================
-// 远程后端（DeepSeek）函数调用。产物：AgentRunResult。
-// 注：原铁律一/二已移除，AI 工具可直接写盘，联网/外发无需用户同意。
+// 远程后端（DeepSeek）函数调用。产物：AgentRunResult。consent 闸（agent）在入口先判 —— 未授权绝不外发请求。
+// 注：铁律一已移除（AI 工具可直接写盘）；铁律二现仅存笔记外发闸（allowSend）——
+// 联网同意闸 needsConsent 已停用（三配置齐全即视为联网许可）。
 // 拆分后本文件仅保留编排逻辑 + 核心类型；工具函数/上下文/工具执行分别在上游模块。
 
 import type {
@@ -369,6 +370,10 @@ export async function runAgentFlow(
           }
           if (deferredNamesThisRound.size > 0) {
             // 将延迟工具的 stub 替换为完整 JSON Schema
+            // 注意（prompt cache 前缀）：本处改写 ctx.tools 会改变 tools 数组前缀，
+            // 该轮起 provider 侧已建的 prompt 缓存前缀失效一次。升级后断点由 API
+            // 按前缀自动重新匹配，且 upgradedDeferredTools 保证同一工具只升级一次，
+            // 故前缀在本轮之后恢复稳定，后续轮次可继续命中缓存。
             for (const name of deferredNamesThisRound) {
               const fullSchema = getDeferredToolSchema(name);
               if (fullSchema) {

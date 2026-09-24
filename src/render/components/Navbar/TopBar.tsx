@@ -4,7 +4,7 @@
 // 精简版：移除 FileMenu/HistoryMenu/MoreMenu/ExportMenu（已迁移到侧栏工具栏）。
 // 保留：HelpMenu、ViewMenu、Undo/Redo、Settings、WindowControls。
 //
-// 全局快捷键（Ctrl+O/S/Z/Y）已迁移至 useGlobalShortcuts 单例 hook。
+// 全局快捷键（Ctrl+N/O/S/Z/Y）已迁移至 useGlobalShortcuts 单例 hook。
 
 import React, { useState, useCallback } from 'react';
 import Icon from '@render/components/Common/Icon';
@@ -35,6 +35,7 @@ const TopBar: React.FC = () => {
     toggleAIPanel,
     handleUndo,
     handleRedo,
+    handleNewFile,
     handleOpenFile,
   } = useNavbarActions();
 
@@ -54,7 +55,11 @@ const TopBar: React.FC = () => {
   }, [isDirty, saving, saveFile]);
 
   // 全局快捷键（模块级单例，与 EditorView 共享同一 listener）
-  useGlobalShortcuts({ onSave: handleSave, onOpenFile: handleOpenFile });
+  useGlobalShortcuts({
+    onSave: handleSave,
+    onOpenFile: handleOpenFile,
+    onNewFile: handleNewFile,
+  });
 
   return (
     <header

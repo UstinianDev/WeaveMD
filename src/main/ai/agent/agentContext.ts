@@ -18,6 +18,7 @@ import { decryptApiKey } from '../secureConfig';
 import { classifyIntent } from '../intentRouter';
 import { buildCompressed, estimateTokens, type LlmMessage } from '../contextManager';
 import { streamChatCompletionWithRetry } from '../llm/llmClient';
+import { streamAnthropicCompletion } from '../llm/anthropicClient';
 import { createEmbedding } from '../knowledge/embeddingClient';
 import { type ToolCtx } from '../toolRegistry';
 import { resolveSearchConfig } from '../tools/webSearch';
@@ -29,10 +30,12 @@ import {
   buildFileListSnapshot,
   buildLocalTreeSnapshot,
   buildAgentSystemPrompt,
+  shouldInjectDocumentContext,
   CHAT_SYSTEM_PROMPT,
 } from './agentPromptBuilder';
 import { toolsForIntent } from './agentToolSelector';
-import { needsKbSendConsent, getRoundsForIntent, KEEP_RECENT_ROUNDS } from './agentHelpers';
+import { getRoundsForIntent, KEEP_RECENT_ROUNDS } from './agentHelpers';
+import { needsConsent, needsKbSendConsent } from '../consent';
 import type { AgentLoopDeps } from './agentLoop';
 import type { AgentReqPayload } from './agentLoop';
 import type { AgentLlmMessage } from './agentLoop';
@@ -170,13 +173,18 @@ export function prepareAgentContext(
   const convId = payload.conversationId ?? '';
   const send = createSend(event, deps, convId);
 
-  // consent 闸：agent 未授权（默认视为未授权）绝不外发
+  // 联网同意闸已停用（needsConsent 恒 false）：三配置齐全即视为联网许可，保留调用点兼容。
+  // 笔记外发闸由 kbEgressAuthorized（needsKbSendConsent / allowSend）单独把关。
   const consent: IAIConsent = deps.consent ?? {
     allowNetwork: false,
     allowSend: false,
     consentUpdatedAt: null,
   };
-  // consent 闸已移除（原铁律二）
+  if (needsConsent(consent)) {
+    throw Object.assign(new Error('Agent network consent required'), {
+      code: 'consent_required',
+    });
+  }
 
   const message = (payload.message ?? '').trim();
   if (!message) {
@@ -207,6 +215,8 @@ export function prepareAgentContext(
     baseUrl,
     model,
     apiKey,
+    // 透传协议：runSkill 与 summarizeViaLlm 回退模式按此分流
+    protocol: config.protocol,
     timeoutMs: 180_000,
     signal: controller.signal,
   };
@@ -222,16 +232,22 @@ export function prepareAgentContext(
 
       // 1. LLM 生成假设性文档
       let hypotheticalAnswer = '';
-      for await (const chunk of streamChatCompletionWithRetry({
+      const hydeOpts = {
         messages: [
-          { role: 'system', content: '你是一个知识库检索助手。根据用户的问题，写一段可能包含答案的文档片段（100-200字）。直接输出文档内容，不要加任何前缀或解释。' },
-          { role: 'user', content: query },
+          { role: 'system' as const, content: '你是一个知识库检索助手。根据用户的问题，写一段可能包含答案的文档片段（100-200字）。直接输出文档内容，不要加任何前缀或解释。' },
+          { role: 'user' as const, content: query },
         ],
         model,
         baseUrl,
         apiKey: apiKey ?? '',
         signal: controller.signal,
-      })) {
+      };
+      // HyDE 纯文本生成（不带 tools），按协议分流
+      const hydeGen =
+        config.protocol === 'anthropic'
+          ? streamAnthropicCompletion(hydeOpts)
+          : streamChatCompletionWithRetry(hydeOpts);
+      for await (const chunk of hydeGen) {
         if (chunk.delta) hypotheticalAnswer += chunk.delta;
       }
       hypotheticalAnswer = hypotheticalAnswer.trim();
@@ -362,8 +378,9 @@ export function prepareAgentContext(
     : CHAT_SYSTEM_PROMPT;
   llmMessages = [{ role: 'system', content: agentSystemPrompt }, ...llmMessages];
 
-  // 文档上下文注入（仅非 chat 意图：chat 意图不需要读取当前文档）
-  if (useAgentPrompt) {
+  // 文档上下文注入：仅 rewrite/create/tech 三个写作意图（B1 意图门控）。
+  // chat / kbQa / web 的回答来源与当前文档无关，不注入以省输入 token。
+  if (shouldInjectDocumentContext(intent.intent, payload.currentDocument)) {
     const documentContext = buildDocumentContext(payload.currentDocument);
     if (documentContext) {
       llmMessages = [{ role: 'system', content: documentContext }, ...llmMessages];

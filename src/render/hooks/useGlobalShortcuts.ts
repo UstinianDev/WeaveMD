@@ -7,6 +7,7 @@
 //
 // - Ctrl+F：查找替换（始终触发）
 // - Ctrl+`：切换源代码模式（始终触发）
+// - Ctrl+N：新建文件（TopBar 提供回调）
 // - Ctrl+O：打开文件（TopBar 提供回调）
 // - Ctrl+S：保存（TopBar 可提供带 saving 状态的回调）
 // - Ctrl+Z：撤销（flush draft → undo）
@@ -28,13 +29,16 @@ export interface UseGlobalShortcutsOptions {
   onSave?: () => void;
   /** Ctrl+O 回调（仅 TopBar 提供） */
   onOpenFile?: () => void;
+  /** Ctrl+N 回调（TopBar 传入 handleNewFile） */
+  onNewFile?: () => void;
 }
 
 // ---- helpers ----
 
-export type ShortcutAction = 'open-file' | 'undo' | 'redo' | 'save' | null;
+export type ShortcutAction = 'new-file' | 'open-file' | 'undo' | 'redo' | 'save' | null;
 
 const SHORTCUT_MAP: Record<string, ShortcutAction> = {
+  n: 'new-file',
   o: 'open-file',
   z: 'undo',
   y: 'redo',
@@ -151,6 +155,13 @@ export function useGlobalShortcuts(options: UseGlobalShortcutsOptions = {}): voi
 
       // 目标过滤：避免在普通输入框内拦截用户输入
       if (shouldIgnoreGlobalShortcutTarget(e.target)) return;
+
+      // Ctrl+N：新建文件（与 FileMenu「新建」、空文档提示「Ctrl+N 新建」一致）
+      if (ctrl && e.key === 'n' && !e.shiftKey) {
+        e.preventDefault();
+        _optionsRef.current.onNewFile?.();
+        return;
+      }
 
       // Ctrl+O：打开文件
       if (ctrl && e.key === 'o') {

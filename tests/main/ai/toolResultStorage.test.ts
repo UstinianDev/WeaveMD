@@ -302,6 +302,45 @@ describe('toolResultStorage', () => {
   });
 
   // =========================================================================
+  // B3 — 阈值收紧（30k/120k → 10k/40k 字符）
+  // =========================================================================
+  describe('B3 — budget thresholds', () => {
+    it('single-result threshold is 10,000 chars', () => {
+      expect(MAX_SINGLE_RESULT_CHARS).toBe(10_000);
+    });
+
+    it('aggregate threshold is 40,000 chars', () => {
+      expect(MAX_AGGREGATE_RESULTS_CHARS).toBe(40_000);
+    });
+
+    it('10,001 chars triggers persistence', async () => {
+      const content = makeLargeContent(10_001);
+      const result = await persistLargeResult('readFile', content, 'call_1_0');
+      expect(result.persisted).toBe(true);
+      expect(result.filePath).toBeDefined();
+    });
+
+    it('10,000 chars does not trigger persistence', async () => {
+      const content = makeLargeContent(10_000);
+      const result = await persistLargeResult('readFile', content, 'call_1_0');
+      expect(result.persisted).toBe(false);
+    });
+
+    it('aggregate over 40,000 chars is compressed', async () => {
+      const results = [
+        makeResult(makeLargeContent(25_000), 0, 'readFile'),
+        makeResult(makeLargeContent(25_000), 1, 'searchKB'),
+      ];
+      const totalBefore = results.reduce((s, r) => s + r.result.content.length, 0);
+      expect(totalBefore).toBeGreaterThan(MAX_AGGREGATE_RESULTS_CHARS);
+
+      const output = await applyAggregateBudget(results);
+      const totalAfter = output.reduce((s, r) => s + r.result.content.length, 0);
+      expect(totalAfter).toBeLessThanOrEqual(MAX_AGGREGATE_RESULTS_CHARS);
+    });
+  });
+
+  // =========================================================================
   // Edge cases
   // =========================================================================
   describe('edge cases', () => {

@@ -9,6 +9,7 @@ import { IPC_CHANNELS } from '@shared/constants';
 import type { AIErrorCode, AgentRunPayload } from '@shared/ai';
 import { normalizeKbSettings } from '@shared/ai';
 import { getAiConfig, getConversation } from '../../db/ai';
+import { needsConsent } from '../consent';
 import { runAgentFlow } from '../agent/agentLoop';
 import { searchKB } from '../knowledge/kbSearch';
 import { listSkillsForUi, loadUserSkillsFromDirs } from '../skills/skillLoader';
@@ -73,7 +74,15 @@ export function registerAgentHandlers(): void {
 
     const { userId, conversationId } = payload;
 
+    // 入队前检查 consent（consent_required 必须同步返回，不能入队后再拒绝）
     const row = getAiConfig(userId);
+    const consent = row ? toIAIConsent(row) : DEFAULT_CONSENT;
+
+    // 联网同意闸已停用（needsConsent 恒 false）：三配置齐全即视为联网许可。
+    // consent_required 必须在入队前同步返回的约束仍保留（兼容 + KB 外发闸沿用同一错误码）
+    if (needsConsent(consent)) {
+      return { success: false, code: 'consent_required' as AIErrorCode, message: 'Consent required' };
+    }
 
     // 会话存在性校验
     if (conversationId && !getConversation(conversationId, userId)) {

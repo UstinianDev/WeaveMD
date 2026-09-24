@@ -116,7 +116,7 @@
 | AGT-16 | 上下文压缩       | P2     | token 达 80% 自动 + 可手动（/compact 命令，含描述参数）；底栏上下文指示器（绿/黄/红圆点 + token 估算 + 悬停 tooltip）；早期对话合并为「历史摘要」，保留最近 N 轮原文                                                                                                                              |
 | AGT-17 | 工具调用         | P1     | 内置工具：只读（listFiles/readFile/searchKB/context7/firecrawl/runSkill）自动执行；写（editBlocks）必经预览确认；**AI 无直接落盘能力**                                                               |
 | AGT-18 | 会话持久化       | P2     | Chat/Agent 会话各自存 SQLite，按账号隔离，含历史摘要字段；历史会话列表 + 新会话；最近会话删除（🗑 + confirm）；View All → 历史会话列表视图                                                                                                                        |
-| AGT-19 | 授权与知情同意   | P1     | 首次联网/笔记外发弹知情同意页（可勾选：允许联网 / 允许笔记外发）；设置全局开关；key 用 Electron safeStorage 加密存 SQLite、不落渲染进程，网络全走主进程                                               |
+| AGT-19 | 授权与知情同意   | P1     | 笔记外发弹知情同意页（勾选：允许笔记外发）；联网许可由 LLM/Embedding/搜索三配置门禁表达，不再单独弹联网同意；key 用 Electron safeStorage 加密存 SQLite、不落渲染进程，网络全走主进程 |
 
 ### 3.8 知识库导入 (P1)
 

@@ -28,7 +28,9 @@ import {
 import { cancelPendingByConversation } from '../../db/agentTaskDao';
 import { getDatabase } from '../../db/index';
 import { decryptApiKey } from '../secureConfig';
+import { needsConsent } from '../consent';
 import { streamChatCompletion } from '../llm/llmClient';
+import { streamAnthropicCompletion } from '../llm/anthropicClient';
 import { activeStreams, DEFAULT_AI_CONFIG, DEFAULT_CONSENT, sendStream, toIAIConfig, toIAIConsent } from './shared';
 import { exportConversationToMarkdown } from '../files/conversationExport';
 
@@ -222,6 +224,15 @@ export function registerChatHandlers(): void {
     const config: IAIConfig = row ? toIAIConfig(row) : DEFAULT_AI_CONFIG;
     const consent: IAIConsent = row ? toIAIConsent(row) : DEFAULT_CONSENT;
 
+    // 联网同意闸已停用（needsConsent 恒 false）：三配置齐全即视为联网许可，保留调用点兼容
+    if (needsConsent(consent)) {
+      return {
+        success: false,
+        code: 'consent_required',
+        message: 'Network consent required',
+      };
+    }
+
     const controller = new AbortController();
     return await runChatFlow(event, payload, config, row?.apiKeyEnc ?? null, controller);
   });
@@ -281,14 +292,19 @@ async function runChatFlow(
   let reasoningTokenCount: number | null = null;
   try {
     const usage = { reasoningTokenCount: reasoningTokenCount };
-    const gen = streamChatCompletion({
+    const opts = {
       baseUrl,
       model,
       apiKey,
       messages: llmMessages,
       timeoutMs: 60_000,
       signal: controller.signal,
-    });
+    };
+    // 纯对话（不带 tools），按协议分流
+    const gen =
+      config.protocol === 'anthropic'
+        ? streamAnthropicCompletion(opts)
+        : streamChatCompletion(opts);
 
     for await (const chunk of gen) {
       if (chunk.delta) {

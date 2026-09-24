@@ -3,7 +3,7 @@
 // ============================================
 
 import { DEFAULT_MAX_ROUNDS, IPC_CHANNELS } from '@shared/constants';
-import type { AgentRunResult, IAIConsent, IIntent } from '@shared/ai';
+import type { AgentRunResult, IIntent } from '@shared/ai';
 import type { AgentContext } from './agentContext';
 
 // ---------------------------------------------------------------------------
@@ -59,14 +59,6 @@ export function getRoundsForIntent(intent: string): number {
     case 'tech':   return 12;  // 技术任务，复杂多工具组合
     default:       return DEFAULT_MAX_ROUNDS;
   }
-}
-
-/**
- * KB 检索外发闸（笔记内容外发给远端模型）：
- * 已授权联网但未授权外发（allowSend）-> 需同意。
- */
-export function needsKbSendConsent(_config: unknown, _consent: IAIConsent): boolean {
-  return false; // 铁律二已移除：KB 外发不再需要用户同意
 }
 
 /** 发送进度事件（通过 AI_STREAM_TOOL 通道，status 为 progress）。 */

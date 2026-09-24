@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // --- Electron mocks ---
 const electronMock = vi.hoisted(() => {
@@ -44,9 +44,23 @@ const dbMock = vi.hoisted(() => ({
   deleteConversation: vi.fn(() => true),
   updateConversationSummary: vi.fn(),
   upsertAiConfig: vi.fn(),
+  updateKbExtendedSettings: vi.fn(),
 }));
 
 vi.mock('@main/db/ai', () => dbMock);
+
+// AGENT_RUN 已改为异步入队：handler 依赖 initAgentQueue 注入的队列单例
+const queueMock = vi.hoisted(() => ({
+  enqueue: vi.fn(),
+  cancelPending: vi.fn(() => 0),
+  dequeueForProcessing: vi.fn(() => null),
+  updateStatus: vi.fn(),
+  getTask: vi.fn(),
+  getTasksByConversation: vi.fn(() => []),
+}));
+vi.mock('@main/ai/agent/agentTaskQueue', () => ({
+  AgentTaskQueue: vi.fn(() => queueMock),
+}));
 
 const secureMock = vi.hoisted(() => ({
   encryptApiKey: vi.fn((plain: string) => ({ enc: `enc:${plain}`, backend: 'ok' as const })),
@@ -108,7 +122,10 @@ const skillLoaderMock = vi.hoisted(() => ({
 vi.mock('@main/ai/skills/skillLoader', () => skillLoaderMock);
 
 import { IPC_CHANNELS } from '@shared/constants';
-import { registerAiIpcHandlers } from '@main/ai/ipc';
+import { DEFAULT_KB_SETTINGS, normalizeKbSettings } from '@shared/ai';
+import { registerAiIpcHandlers, initAgentQueue, cleanupAgentQueue } from '@main/ai/ipc';
+import { activeStreams, toIAIConfig, DEFAULT_AI_CONFIG } from '@main/ai/ipc/shared';
+import { AgentTaskWorker } from '@main/ai/agent/agentTaskWorker';
 
 function getHandler(channel: string) {
   const fn = electronMock.handlers.get(channel);
@@ -118,6 +135,45 @@ function getHandler(channel: string) {
 
 function makeEvent() {
   return { sender: { id: 1 } };
+}
+
+/** 注入 Agent 队列单例（AGENT_RUN 入队前检查），worker 由 afterEach 清理。 */
+function initQueue() {
+  initAgentQueue(
+    {} as never,
+    { webContents: { send: () => {}, isDestroyed: () => false }, isDestroyed: () => false } as never,
+  );
+}
+
+interface SearchKbDeps {
+  searchKb: (u: string, q: string, o?: Record<string, unknown>) => Promise<unknown>;
+}
+
+/**
+ * AGENT_RUN 队列化后，searchKb 闭包改由 worker.buildAgentDeps 构造。
+ * 该方法为 private，此处用类型断言取回，以验证 KB 设置合并与注入语义。
+ */
+function buildWorkerDeps(row: unknown, kbSettings?: Record<string, unknown>): SearchKbDeps {
+  const worker = new AgentTaskWorker({} as never, {} as never) as unknown as {
+    buildAgentDeps: (
+      session: unknown,
+      sessionId: string,
+      task: unknown,
+      row: unknown,
+      kbSettings: unknown,
+      consent: unknown,
+      mainWindow: unknown,
+    ) => SearchKbDeps;
+  };
+  return worker.buildAgentDeps(
+    null,
+    's1',
+    { conversationId: 'c1' },
+    row,
+    kbSettings,
+    { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+    null,
+  );
 }
 
 beforeEach(() => {
@@ -185,7 +241,27 @@ beforeEach(() => {
     refsJson: null,
     createdAt: 'now',
   }));
+  activeStreams.clear();
+  queueMock.enqueue.mockReset().mockReturnValue({
+    id: 'task-1',
+    conversationId: 'c1',
+    userId: 'u1',
+    message: '',
+    priority: 0,
+    payloadJson: '{}',
+    status: 'pending',
+    attempts: 0,
+    createdAt: 'now',
+    updatedAt: 'now',
+  });
+  queueMock.cancelPending.mockReset().mockReturnValue(0);
+  queueMock.dequeueForProcessing.mockReset().mockReturnValue(null);
   registerAiIpcHandlers();
+});
+
+afterEach(() => {
+  cleanupAgentQueue();
+  activeStreams.clear();
 });
 
 describe('ai:ipc handlers', () => {
@@ -414,57 +490,55 @@ describe('ai:ipc handlers', () => {
   });
 
   // --- 第 4 期：Agent run/abort 通道 ---
-  // runAgentFlow 依赖注入：searchKb 为真实 kbSearch.searchKB 闭包（批次 2 取真），
-  // consent 快照传 runAgentFlow deps，未授权在 agentLoop 内抛 consent_required。
+  // AGENT_RUN 已队列化：handler 只做 consent / 归属校验 + 入队，runAgentFlow 由 worker 执行；
+  // searchKb 闭包与 KB 设置合并随之移到 worker.buildAgentDeps（见 buildWorkerDeps）。
 
-  it('AGENT_RUN injects searchKB (real kbSearch) deps and returns runAgentFlow result', async () => {
-    agentLoopMock.runAgentFlow.mockResolvedValue({
-      conversationId: 'c1',
-      assistantId: 'a1',
-      roundsUsed: 1,
-      intent: { intent: 'kbQa' as const, confidence: 0.9 },
-    });
+  it('AGENT_RUN 入队并透传载荷；searchKb deps 由 worker 注入（真实 kbSearch 闭包）', async () => {
+    initQueue();
     const result = (await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
       userId: 'u1',
       conversationId: 'c1',
       message: '我的笔记里有账单吗',
       useKnowledgeBase: true,
-    })) as { success: boolean; data: unknown };
+    })) as { success: boolean; data: { taskId: string; status: string } };
     expect(result.success).toBe(true);
-    expect(result.data).toEqual(
-      expect.objectContaining({ conversationId: 'c1', assistantId: 'a1' })
-    );
-    const [, payload, , , , deps] = agentLoopMock.runAgentFlow.mock.calls[0] as [
-      unknown,
-      { userId: string; message: string },
-      unknown,
-      unknown,
-      unknown,
-      { searchKb: (u: string, q: string, o?: { topK?: number }) => unknown },
-    ];
-    // userId 传递进 agent 载荷
-    expect(payload.userId).toBe('u1');
+    expect(result.data).toEqual({ taskId: 'task-1', status: 'queued' });
+
+    const enqueued = queueMock.enqueue.mock.calls[0][0] as {
+      conversationId: string;
+      userId: string;
+      message: string;
+      payloadJson: string;
+    };
+    expect(enqueued).toMatchObject({
+      conversationId: 'c1',
+      userId: 'u1',
+      message: '我的笔记里有账单吗',
+    });
+    expect(JSON.parse(enqueued.payloadJson)).toMatchObject({ useKnowledgeBase: true });
+
     // searchKb 是真实 kbSearch 闭包而非死 mock
-    const searchKb = deps.searchKb as (u: string, q: string, o?: { topK: number }) => never;
-    expect(typeof searchKb).toBe('function');
+    const deps = buildWorkerDeps({
+      kbTopK: 5,
+      kbFuse: 0.5,
+      kbThreshold: 0.6,
+      kbPinnedWeight: 1.5,
+    });
+    expect(typeof deps.searchKb).toBe('function');
     expect(kbSearchMock.searchKB).not.toHaveBeenCalled();
-    // 实际调用闭包会命中真实 searchKB 模块 mock（此处仅验证 deps 打通）
-    try {
-      await (deps.searchKb as (u: string, q: string, o?: { topK: number }) => Promise<unknown>)(
-        'u1',
-        'query',
-        { topK: 3 }
-      );
-    } catch {
-      // searchKb 真实实现可能因 mock 空返回/上下文异常而失败；本用例仅验证注入存在
-    }
+    kbSearchMock.searchKB.mockResolvedValue({
+      refused: true,
+      threshold: 0.6,
+      best: null,
+      results: [],
+    });
+    await deps.searchKb('u1', 'query', { topK: 3 });
     expect(kbSearchMock.searchKB).toHaveBeenCalled();
   });
 
-  it('AGENT_RUN surfaces consent_required when runAgentFlow throws it', async () => {
-    agentLoopMock.runAgentFlow.mockRejectedValue(
-      Object.assign(new Error('Agent network consent required'), { code: 'consent_required' })
-    );
+  it('AGENT_RUN 入队前同步拒绝：未授权联网返回 consent_required 且不入队', async () => {
+    initQueue();
+    consentMock.needsConsent.mockReturnValue(true);
     const result = (await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
       userId: 'u1',
       conversationId: 'c1',
@@ -472,46 +546,37 @@ describe('ai:ipc handlers', () => {
     })) as { success: boolean; code: string };
     expect(result.success).toBe(false);
     expect(result.code).toBe('consent_required');
+    // 铁律二：必须在入队前拒绝，不能落进队列再丢弃
+    expect(queueMock.enqueue).not.toHaveBeenCalled();
   });
 
-  it('AGENT_RUN userId 隔离：会话归属校验传递 userId 进 runAgentFlow 载荷', async () => {
-    agentLoopMock.runAgentFlow.mockResolvedValue({
-      conversationId: 'c1',
-      assistantId: 'a1',
-      roundsUsed: 0,
-      intent: null,
-    });
-    const result = (await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
+  it('AGENT_RUN userId 隔离：跨账号 conversationId 入队前拒绝，合法请求透传 userId', async () => {
+    initQueue();
+    const denied = (await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
       userId: 'u2',
       conversationId: 'c1',
       message: 'hello',
-    })) as { success: boolean; data: unknown };
-    expect(result.success).toBe(true);
-    const payload = agentLoopMock.runAgentFlow.mock.calls[0][1] as { userId: string };
-    // 传入的 userId 落在载荷里，由 agentLoop 做会话归属校验（跨账号不可见）
-    expect(payload.userId).toBe('u2');
+    })) as { success: boolean; code: string };
+    expect(denied.success).toBe(false);
+    expect(denied.code).toBe('not_found');
+    expect(queueMock.enqueue).not.toHaveBeenCalled();
+
+    const ok = (await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
+      userId: 'u1',
+      conversationId: 'c1',
+      message: 'hello',
+    })) as { success: boolean };
+    expect(ok.success).toBe(true);
+    // 归属正确的 userId 落在入队载荷，由 worker 传给 agentLoop
+    expect((queueMock.enqueue.mock.calls[0][0] as { userId: string }).userId).toBe('u1');
   });
 
   it('AGENT_ABORT aborts active stream and returns aborted true', async () => {
-    // runAgentFlow 内部用传入的 AbortController 监听信号：abort 后 reject(aborted)，
-    // 与真实 agentLoop 行为一致。AGENT_ABORT 命中 activeStreams 的控制器做 post-abort。
-    let capturedController: AbortController | undefined;
-    agentLoopMock.runAgentFlow.mockImplementation((_eventArg, _payload, config, _key, controller) => {
-      capturedController = controller as AbortController;
-      return new Promise((_resolve, reject) => {
-        capturedController?.signal.addEventListener('abort', () =>
-          reject(Object.assign(new Error('Request aborted'), { code: 'aborted', name: 'AbortError' }))
-        );
-      });
-    });
-    const runPromise = getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
-      userId: 'u1',
-      conversationId: 'c1',
-      message: 'x',
-    }) as Promise<{ success: boolean; code: string }>;
-    // 让 AGENT_RUN 预注册 activeStreams（convId -> controller）并进入 runAgentFlow
-    await Promise.resolve();
-    await Promise.resolve();
+    initQueue();
+    // AGENT_RUN 不再预注册 activeStreams（由 worker 持有 AbortController），
+    // 这里直接放一个运行中控制器，验证 AGENT_ABORT 的三路取消（流 + 队列 + worker）。
+    const controller = new AbortController();
+    activeStreams.set('c1', controller);
 
     const abortResult = (await getHandler(IPC_CHANNELS.AGENT_ABORT)(
       makeEvent(),
@@ -520,10 +585,9 @@ describe('ai:ipc handlers', () => {
     )) as { success: boolean; data: { aborted: boolean } };
     expect(abortResult.success).toBe(true);
     expect(abortResult.data.aborted).toBe(true);
-    // abort 触发 runAgentFlow reject → AGENT_RUN 返回 aborted 错误码
-    const runResult = await runPromise;
-    expect(runResult.success).toBe(false);
-    expect(runResult.code).toBe('aborted');
+    expect(controller.signal.aborted).toBe(true);
+    expect(queueMock.cancelPending).toHaveBeenCalledWith('c1');
+    expect(activeStreams.has('c1')).toBe(false);
   });
 
   it('AGENT_ABORT rejects (aborted:false) when conversation not owned by userId', async () => {
@@ -625,13 +689,16 @@ describe('ai:ipc handlers', () => {
       userId: 'u1',
     })) as { success: boolean; data: Record<string, unknown> };
     expect(result.success).toBe(true);
-    // 纯 FTS 检索参数；embedding 已去除
-    expect(result.data).toEqual({
+    // 纯 FTS 检索参数 + R2~R10 扩展字段（normalizeKbSettings 兜底），核心 4 项必须命中持久化值
+    expect(result.data).toMatchObject({
       topK: 9,
       fuse: 0.8,
       threshold: 0.4,
       pinnedWeight: 2,
     });
+    expect(result.data).toEqual(
+      normalizeKbSettings({ topK: 9, fuse: 0.8, threshold: 0.4, pinnedWeight: 2 })
+    );
     expect(dbMock.getAiConfig).toHaveBeenCalledWith('u1');
   });
 
@@ -641,16 +708,11 @@ describe('ai:ipc handlers', () => {
       userId: 'u1',
     })) as { success: boolean; data: Record<string, unknown> };
     expect(result.success).toBe(true);
-    expect(result.data).toEqual({
-      topK: 5,
-      fuse: 0.5,
-      threshold: 0.6,
-      pinnedWeight: 1.5,
-    });
+    expect(result.data).toEqual(DEFAULT_KB_SETTINGS);
   });
 
   it('KB_SET_SETTINGS normalizes + upserts KB fields and returns written-back values', async () => {
-    dbMock.upsertAiConfig.mockReturnValue({
+    const writtenRow = {
       id: 'cfg1',
       userId: 'u1',
       backend: 'remote',
@@ -667,18 +729,27 @@ describe('ai:ipc handlers', () => {
       kbFuse: 0.6,
       kbThreshold: 0.7,
       kbPinnedWeight: 1.8,
-    });
+    };
+    dbMock.upsertAiConfig.mockReturnValue(writtenRow);
+    // 写后回读走 getAiConfig（队列化前是 upsert 返回行），此处用同一行模拟落盘结果
+    dbMock.getAiConfig.mockReturnValue(writtenRow);
     const result = (await getHandler(IPC_CHANNELS.KB_SET_SETTINGS)(makeEvent(), {
       userId: 'u1',
       settings: { topK: 3, threshold: 0.7 },
     })) as { success: boolean; data: Record<string, unknown> };
     expect(result.success).toBe(true);
-    // 写后回读返回归一/落盘值（upsert 返回行被 normalize 回读）
-    expect(result.data).toEqual({
+    expect(result.data).toMatchObject({
       topK: 3,
       fuse: 0.6,
       threshold: 0.7,
       pinnedWeight: 1.8,
+    });
+    expect(result.data).toEqual(
+      normalizeKbSettings({ topK: 3, fuse: 0.6, threshold: 0.7, pinnedWeight: 1.8 })
+    );
+    expect(dbMock.updateKbExtendedSettings).toHaveBeenCalledWith('u1', {
+      topK: 3,
+      threshold: 0.7,
     });
     // upsertAiConfig 收到归一后的 4 个 KB 字段（embedding 已去除）
     expect(dbMock.upsertAiConfig).toHaveBeenCalledWith('u1', {
@@ -702,6 +773,15 @@ describe('ai:ipc handlers', () => {
   });
 
   it('AGENT_RUN 未传 kbSettings：searchKb 用持久化默认兜底', async () => {
+    initQueue();
+    const persistedRow = {
+      kbTopK: 8,
+      kbFuse: 0.7,
+      kbThreshold: 0.4,
+      kbPinnedWeight: 2.1,
+      kbEmbeddingHost: 'http://agent-persisted:1234',
+      kbEmbeddingModel: 'agent-model',
+    };
     dbMock.getAiConfig.mockReturnValue({
       id: 'cfg1',
       userId: 'u1',
@@ -715,28 +795,18 @@ describe('ai:ipc handlers', () => {
       consentUpdatedAt: null,
       createdAt: 'now',
       updatedAt: 'now',
-      kbTopK: 8,
-      kbFuse: 0.7,
-      kbThreshold: 0.4,
-      kbPinnedWeight: 2.1,
-      kbEmbeddingHost: 'http://agent-persisted:1234',
-      kbEmbeddingModel: 'agent-model',
-    });
-    agentLoopMock.runAgentFlow.mockResolvedValue({
-      conversationId: 'c1',
-      assistantId: 'a1',
-      roundsUsed: 1,
-      intent: null,
+      ...persistedRow,
     });
     await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
       userId: 'u1',
       conversationId: 'c1',
       message: 'q',
     });
-    // 取出注入的 searchKb 闭包并真实调用（命中 kbSearch mock）
-    const deps = agentLoopMock.runAgentFlow.mock.calls[0][5] as {
-      searchKb: (u: string, q: string, o?: Record<string, unknown>) => Promise<unknown>;
-    };
+    // 未传时不往 payloadJson 里塞 kbSettings
+    const enqueued = queueMock.enqueue.mock.calls[0][0] as { payloadJson: string };
+    expect(JSON.parse(enqueued.payloadJson).kbSettings).toBeUndefined();
+
+    const deps = buildWorkerDeps(persistedRow);
     kbSearchMock.searchKB.mockResolvedValue({
       refused: true,
       threshold: 0.4,
@@ -756,41 +826,21 @@ describe('ai:ipc handlers', () => {
     );
   });
 
-  it('AGENT_RUN 传部分 kbSettings：其余持久化兜底（payload 显式 > 持久化）', async () => {    dbMock.getAiConfig.mockReturnValue({
-      id: 'cfg1',
-      userId: 'u1',
-      backend: 'remote',
-      ollamaBaseUrl: 'http://localhost:11434',
-      remoteBaseUrl: 'https://api.deepseek.com',
-      model: '',
-      apiKeyEnc: null,
-      allowNetwork: false,
-      allowSend: false,
-      consentUpdatedAt: null,
-      createdAt: 'now',
-      updatedAt: 'now',
-      kbTopK: 2,
-      kbFuse: 0.3,
-      kbThreshold: 0.9,
-      kbPinnedWeight: 1.1,
-      kbEmbeddingHost: 'http://persist-host:1',
-      kbEmbeddingModel: 'persist-model',
-    });
-    agentLoopMock.runAgentFlow.mockResolvedValue({
-      conversationId: 'c1',
-      assistantId: 'a1',
-      roundsUsed: 1,
-      intent: null,
-    });
+  it('AGENT_RUN 传部分 kbSettings：其余持久化兜底（payload 显式 > 持久化）', async () => {
+    initQueue();
     await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
       userId: 'u1',
       conversationId: 'c1',
       message: 'q',
       kbSettings: { topK: 99, fuse: 0.99 },
     });
-    const deps = agentLoopMock.runAgentFlow.mock.calls[0][5] as {
-      searchKb: (u: string, q: string, o?: Record<string, unknown>) => Promise<unknown>;
-    };
+    const enqueued = queueMock.enqueue.mock.calls[0][0] as { payloadJson: string };
+    expect(JSON.parse(enqueued.payloadJson).kbSettings).toEqual({ topK: 99, fuse: 0.99 });
+
+    const deps = buildWorkerDeps(
+      { kbTopK: 2, kbFuse: 0.3, kbThreshold: 0.9, kbPinnedWeight: 1.1 },
+      { topK: 99, fuse: 0.99 }
+    );
     kbSearchMock.searchKB.mockResolvedValue({
       refused: true,
       threshold: 0.9,
@@ -834,14 +884,48 @@ describe('ai:ipc handlers', () => {
   });
 
   it('AGENT_SKILLS_LIST returns success:false envelope when loadUserSkillsFromDirs throws', async () => {
-    skillLoaderMock.loadUserSkillsFromDirs.mockImplementation(() => {
-      throw new Error('fs read failed');
+    // skillsCache 是模块级 30s TTL，跨用例存活：推进系统时间越过 TTL，强制重新扫描
+    vi.useFakeTimers({ now: Date.now() + 31_000 });
+    try {
+      skillLoaderMock.loadUserSkillsFromDirs.mockImplementation(() => {
+        throw new Error('fs read failed');
+      });
+      const result = (await getHandler(IPC_CHANNELS.AGENT_SKILLS_LIST)(
+        makeEvent(),
+        { userId: 'u1' }
+      )) as { success: boolean; message: string };
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('skills');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // ---- 协议分流：IAIConfig.protocol（LLM 调用点按此分流 openai / anthropic）----
+
+  it('toIAIConfig：透出 protocol', () => {
+    const cfg = toIAIConfig({
+      backend: 'remote',
+      remoteBaseUrl: 'https://api.anthropic.com',
+      model: 'claude-sonnet-5',
+      apiKeyEnc: 'enc',
+      protocol: 'anthropic',
     });
-    const result = (await getHandler(IPC_CHANNELS.AGENT_SKILLS_LIST)(
-      makeEvent(),
-      { userId: 'u1' }
-    )) as { success: boolean; message: string };
-    expect(result.success).toBe(false);
-    expect(result.message).toContain('skills');
+    expect(cfg.protocol).toBe('anthropic');
+    expect(cfg.hasApiKey).toBe(true);
+  });
+
+  it('toIAIConfig：DB 行缺 protocol 时兜底 openai（旧库无该列）', () => {
+    const cfg = toIAIConfig({
+      backend: 'remote',
+      remoteBaseUrl: 'https://api.deepseek.com',
+      model: 'deepseek-chat',
+      apiKeyEnc: null,
+    });
+    expect(cfg.protocol).toBe('openai');
+  });
+
+  it('DEFAULT_AI_CONFIG.protocol 为 openai（无配置行时不走 anthropic 路径）', () => {
+    expect(DEFAULT_AI_CONFIG.protocol).toBe('openai');
   });
 });

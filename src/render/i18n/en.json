@@ -5,7 +5,6 @@
   "ai.context.tooltip": "Token usage: {used} / {total}",
   "ai.agent.placeholder": "Agent capabilities arrive in Phase 4",
   "ai.agent.useKnowledgeBase": "Create using knowledge base",
-  "ai.consent.allowNetwork": "Allow network access",
   "ai.consent.allowSend": "Allow sending notes to AI",
   "ai.consent.deny": "Deny",
   "ai.consent.remember": "Agree & Remember",

@@ -190,6 +190,7 @@ export function registerModelConfigHandlers(): void {
         const row = upsertAiConfig(payload.userId, {
           remoteBaseUrl: modelConfig.baseUrl,
           model: modelConfig.model,
+          protocol: modelConfig.protocol,
           ...(modelConfig.apiKeyEnc ? { apiKeyEnc: modelConfig.apiKeyEnc } : {}),
         });
         // 设置 active_model_config_id

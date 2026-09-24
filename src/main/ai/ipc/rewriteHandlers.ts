@@ -6,6 +6,7 @@ import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@shared/constants';
 import type { AIErrorCode, RewriteRequestPayload } from '@shared/ai';
 import { getAiConfig } from '../../db/ai';
+import { needsConsent } from '../consent';
 import { runRewrite } from '../rewrite';
 import { DEFAULT_AI_CONFIG, DEFAULT_CONSENT, toIAIConfig, toIAIConsent } from './shared';
 
@@ -18,6 +19,15 @@ export function registerRewriteHandlers(): void {
       const row = getAiConfig(userId);
       const config = row ? toIAIConfig(row) : DEFAULT_AI_CONFIG;
       const consent = row ? toIAIConsent(row) : DEFAULT_CONSENT;
+
+      // 联网同意闸已停用（needsConsent 恒 false）：三配置齐全即视为联网许可，保留调用点兼容
+      if (needsConsent(consent)) {
+        return {
+          success: false,
+          code: 'consent_required' as AIErrorCode,
+          message: 'Network consent required',
+        };
+      }
 
       const controller = new AbortController();
       try {

@@ -5,7 +5,7 @@
 //  2) Chat Tab 发送消息 → user 气泡 → mock 流式 assistant 逐块出现 → done 后完整落显
 //  3) 会话列表：新建 / 切换 / 删除可用
 //  4) Agent Tab 显示「第 4 期上线」占位
-//  5) ConsentOverlay：remote 未同意时发送触发 overlay；同意后放行并持久化（setConsent 被调用）；拒绝则中止
+//  5) ConsentOverlay：联网闸停用后不弹层直接放行；服务端 consent_required（KB 外发闸错误码）仍可弹层并拒绝中止
 //  6) 全程无 uncaught error（pageerror 门禁）
 //
 // 铁律：不真正连接网络 —— ai.* 全部走 addInitScript 注入的本地 mock（唯一后端 remote）。
@@ -25,6 +25,8 @@ interface AiMockOptions {
     intentCard?: boolean;
     /** 是否流式发送 tool 轨迹（searchKB 命中）。 */
     withTool?: boolean;
+    /** 模拟服务端同意闸拒绝（KB 外发闸共用 consent_required 错误码）。 */
+    consentRequired?: boolean;
   };
   /** 预置知识库文档数（kb.list 返回）。 */
   seedKbDocuments?: number;
@@ -40,6 +42,17 @@ interface AiMockOptions {
   seedContent?: string;
   /** 模型下拉数据源（`ai.listModels` 返回；缺省返回两个内置模型名）。 */
   listModels?: string[];
+  /** 模型配置内存库初值（`ai.modelConfigs.list`；缺省单条，供「删到空态」用例使用）。 */
+  modelConfigs?: Array<{
+    id: string;
+    name: string;
+    protocol: 'openai' | 'anthropic';
+    provider: string;
+    baseUrl: string;
+    model: string;
+    hasApiKey: boolean;
+    hint: string;
+  }>;
 }
 
 /**
@@ -71,6 +84,29 @@ function installWeaveMDMock(opts: AiMockOptions): void {
   localStorage.setItem('weavemd_user', JSON.stringify(user));
 
   // 会话/消息内存库
+  // 模型配置内存库（状态化：create/delete 后 list 结果随之变化）
+  const modelConfigList: Array<{
+    id: string;
+    name: string;
+    protocol: 'openai' | 'anthropic';
+    provider: string;
+    baseUrl: string;
+    model: string;
+    hasApiKey: boolean;
+    hint: string;
+  }> = opts.modelConfigs ?? [
+    {
+      id: 'mc_1',
+      name: '默认',
+      protocol: 'openai',
+      provider: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o-mini',
+      hasApiKey: true,
+      hint: 'sk-***',
+    },
+  ];
+
   const conversations: Array<{
     id: string;
     userId: string;
@@ -95,7 +131,8 @@ function installWeaveMDMock(opts: AiMockOptions): void {
     conversations.push({
       id,
       userId: 'u1',
-      mode: 'chat',
+      // init 只拉 listConversations(uid, 'agent')，seed 为 chat 会被过滤，home RECENT 查不到
+      mode: 'agent',
       summary: `预置会话 ${i}`,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -288,6 +325,15 @@ function installWeaveMDMock(opts: AiMockOptions): void {
         const cb = streamCb;
         return new Promise((resolve) => {
           setTimeout(() => {
+            // 服务端同意闸拒绝：不推流，直接返回 consent_required 信封（渲染侧据此弹同意层）
+            if (agentResult.consentRequired) {
+              resolve({
+                success: false,
+                code: 'consent_required',
+                message: 'Consent required',
+              });
+              return;
+            }
             if (agentResult.withTool && cb) {
               streamTool(convId, 'call_t1', 'searchKB', { query: payload.message, topK: 5 }, '命中知识库片段 seed', cb);
               streamTool(convId, 'call_t2', 'readFile', { file_id: 'f_kb_0' }, '读取到文档内容', cb);
@@ -314,6 +360,8 @@ function installWeaveMDMock(opts: AiMockOptions): void {
         });
       },
       agentAbort: async () => ok(),
+      // 消息 toolCalls 落库（agentStore.appendAssistant 持久化轨迹时调用，缺失会抛 pageerror）
+      updateMessageToolCalls: async () => ok({ success: true }),
       // 第 5 期改写：mock 主进程薄代理返回 LLM 原始文本（RewriteReply{text}）。
       // 不解析 markdown、不计算 proposal——proposal 由渲染侧 proposeSelectionRewrite / proposeDocumentRewrite 依据该 text 计算。
       // 默认 selection 改写为「改写后文本」，document 改写为「改写 block 0」的 JSON 数组串。
@@ -335,6 +383,64 @@ function installWeaveMDMock(opts: AiMockOptions): void {
           { name: 'kb_qa_guide', description: '基于知识库引导式问答' },
         ]),
       listModels: async () => ok(mockModels),
+      // Phase 4 三重配置检查（agentStore.init 经可选链读取）：任一缺失则 isConfigured=false，
+      // 面板渲染 z-40 锁屏蒙板并拦截全部 pointer events，后续点击/填写一律 60s 超时。
+      modelConfigs: {
+        list: async () => ok(modelConfigList.map((c) => ({ ...c }))),
+        create: async (
+          _userId: string,
+          input: {
+            name?: string;
+            protocol: 'openai' | 'anthropic';
+            provider: string;
+            baseUrl: string;
+            model: string;
+            apiKey?: string;
+            hint?: string;
+          }
+        ) => {
+          const created = {
+            id: nextId('mc'),
+            name: input.name ?? input.model,
+            protocol: input.protocol,
+            provider: input.provider,
+            baseUrl: input.baseUrl,
+            model: input.model,
+            hasApiKey: !!input.apiKey,
+            hint: input.hint ?? (input.apiKey ? 'sk-***' : ''),
+          };
+          modelConfigList.push(created);
+          return ok(created);
+        },
+        update: async (configId: string, input: { model?: string; baseUrl?: string }) => {
+          const target = modelConfigList.find((c) => c.id === configId);
+          if (!target) return { success: false, message: 'not found' };
+          if (input.model !== undefined) target.model = input.model;
+          if (input.baseUrl !== undefined) target.baseUrl = input.baseUrl;
+          return ok({ ...target });
+        },
+        delete: async (_userId: string, configId: string) => {
+          const idx = modelConfigList.findIndex((c) => c.id === configId);
+          if (idx >= 0) modelConfigList.splice(idx, 1);
+          return ok({ deleted: true });
+        },
+        activate: async (_userId: string, configId: string) =>
+          ok(modelConfigList.find((c) => c.id === configId) ?? null),
+      },
+      embeddingConfig: {
+        get: async () =>
+          ok({ baseUrl: '', model: 'text-embedding-3-small', hasApiKey: true, multimodal: false }),
+      },
+      searchConfig: {
+        get: async () =>
+          ok({
+            enabled: true,
+            provider: 'tavily',
+            callMode: 'search_only',
+            maxResults: 5,
+            hasApiKeys: { firecrawl: false, zhipu: false, tavily: true, exa: false },
+          }),
+      },
       listConversations: async (userId: string, mode: string) =>
         ok(conversations.filter((c) => c.userId === userId && c.mode === mode)),
       getConversation: async (conversationId: string, userId: string) => {
@@ -439,18 +545,19 @@ async function bootAiPanel(page: Page, opts: AiMockOptions = {}): Promise<void> 
   await page.goto('/');
   await page.waitForSelector('header');
   await page.waitForTimeout(300);
-  await page.getByTitle('AI').click();
+  await page.getByTitle('AI', { exact: true }).click();
   await page.waitForTimeout(300);
 }
 
-/** B3：通过 composer 模式下拉切换「对话 / 智能体」。 */
+/**
+ * B3 单面板化后模式下拉已移除（activeMode 固定 'agent'，全仓无 setActiveMode 调用）。
+ * 不再执行任何切换动作，仅断言面板内无切换控件，返回面板。
+ */
 async function switchMode(
-  page: import('@playwright/test').Page,
-  mode: 'chat' | 'agent'
+  page: import('@playwright/test').Page
 ): Promise<import('@playwright/test').Locator> {
   const panel = aiPanel(page);
-  const select = panel.getByTestId('ai-mode-select');
-  await select.selectOption(mode);
+  await expect(panel.getByTestId('ai-mode-select')).toHaveCount(0);
   await page.waitForTimeout(300);
   return panel;
 }
@@ -486,19 +593,19 @@ test('Chat Tab：发送消息 → user 气泡 → 流式 assistant 逐块出现 
   await page.addInitScript(installWeaveMDMock, { backend: 'remote', consented: true });
   await page.goto('/');
   await page.waitForSelector('header');
-  await page.getByTitle('AI').click();
+  await page.getByTitle('AI', { exact: true }).click();
   await page.waitForTimeout(200);
 
   const panel = aiPanel(page);
   await expect(panel).toBeVisible();
-  const textarea = panel.locator('textarea').first();
+  const textarea = panel.locator('.composer-tiptap-editor').first();
   await textarea.fill('你好世界');
   await panel.getByText('发送', { exact: true }).click();
 
   // 首条消息写入会话标题；assistant 回复（唯一文本）完整落显（done 后）
   await expect(panel.getByTestId('session-title')).toHaveText('你好世界');
   await expect(
-    panel.getByText('你好，我是 mock AI。你说的是：你好世界')
+    panel.getByText('Agent 完成：你好世界')
   ).toBeVisible({ timeout: 5000 });
   // 无未捕获错误
   expect(errors.length).toBe(0);
@@ -508,7 +615,7 @@ test('home RECENT：预置会话出现在最近列表，空库显示空态文案
   await page.addInitScript(installWeaveMDMock, { seedConversations: 1 });
   await page.goto('/');
   await page.waitForSelector('header');
-  await page.getByTitle('AI').click();
+  await page.getByTitle('AI', { exact: true }).click();
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
   // 默认 home 视图：RECENT 区块可见，预置会话出现在列表
@@ -526,7 +633,7 @@ test('智能体模式：切 agent 后进 session 视图 → 显示知识库开�
   page,
 }) => {
   await bootAiPanel(page);
-  const panel = await switchMode(page, 'agent');
+  const panel = await switchMode(page);
   // 知识库开关/压缩/知识库设置入口只在 session 视图渲染 → 先「+ 新建会话」进入 session
   await newChatAndEnterSession(page);
   await expect(panel.getByText('依照知识库创作')).toBeVisible();
@@ -534,68 +641,66 @@ test('智能体模式：切 agent 后进 session 视图 → 显示知识库开�
   await expect(panel.getByRole('button', { name: '知识库' })).toBeVisible();
 });
 
-test('ConsentOverlay：remote 未同意时发送触发 overlay，同意后放行并持久化（setConsent 被调用）', async ({
+test('联网闸停用：consented=false 发送不弹同意层，消息直接放行并落显', async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
-  // backend=remote 且未同意
+  // backend=remote 且「未同意」（allowNetwork/allowSend 均为 false）
   await page.addInitScript(installWeaveMDMock, {
     backend: 'remote',
     consented: false,
   });
   await page.goto('/');
   await page.waitForSelector('header');
-  await page.getByTitle('AI').click();
+  await page.getByTitle('AI', { exact: true }).click();
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
-  const textarea = panel.locator('textarea').first();
+  const textarea = panel.locator('.composer-tiptap-editor').first();
   await textarea.fill('需要联网的问题');
   await panel.getByText('发送', { exact: true }).click();
 
-  // 触发同意 overlay（渲染在 aside 之外的兄弟层，需用 page 级断言）
-  await expect(page.getByText('AI 知情同意', { exact: true })).toBeVisible();
-  // 勾选「允许联网」并「同意并记住」
-  await page.getByText('允许联网', { exact: true }).click();
-  await page.getByText('同意并记住', { exact: true }).click();
-  // setConsent 被调用 -> 后续无 overlay
+  // 联网同意闸已停用（三配置齐全即视为许可）：不得出现同意层
   await expect(page.getByText('AI 知情同意', { exact: true })).toBeHidden();
-  // 同意后持久化内存 consentGiven=true，需重新发送才放行
-  await textarea.fill('需要联网的问题');
-  await panel.getByText('发送', { exact: true }).click();
-
   // 放行：首条消息写入会话标题；assistant 流式完整落显
   await expect(panel.getByTestId('session-title')).toHaveText('需要联网的问题');
   await expect(
-    panel.getByText('你好，我是 mock AI。你说的是：需要联网的问题')
+    panel.getByText('Agent 完成：需要联网的问题')
   ).toBeVisible({ timeout: 5000 });
   expect(errors.length).toBe(0);
 });
 
-test('ConsentOverlay：remote 未同意时拒绝则中止（不发送 / 无 assistant 气泡）', async ({
+test('ConsentOverlay：服务端返回 consent_required（KB 外发闸错误码）弹层，拒绝则中止（无 assistant 气泡）', async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
-  await page.addInitScript(installWeaveMDMock, { backend: 'remote', consented: false });
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'remote',
+    consented: false,
+    agentResult: { consentRequired: true },
+  });
   await page.goto('/');
   await page.waitForSelector('header');
-  await page.getByTitle('AI').click();
+  await page.getByTitle('AI', { exact: true }).click();
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
-  const textarea = panel.locator('textarea').first();
+  const textarea = panel.locator('.composer-tiptap-editor').first();
   await textarea.fill('不应发送的内容');
   await panel.getByText('发送', { exact: true }).click();
 
+  // 渲染侧收到 consent_required 信封 -> 弹同意层
   await expect(page.getByText('AI 知情同意', { exact: true })).toBeVisible();
-  // 点击「拒绝」-> 中止
+  // user 气泡已入列（发送前本地 append；nth(1) 跳过同文案的 session-title），assistant 气泡不得出现
+  await expect(
+    panel.getByText('不应发送的内容', { exact: true }).nth(1)
+  ).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText('Agent 完成：不应发送的内容')).toBeHidden();
+  // 点击「拒绝」-> 关闭同意层
   await page.getByText('拒绝', { exact: true }).click();
   await expect(page.getByText('AI 知情同意', { exact: true })).toBeHidden();
-  // 不应出现 user 气泡或 assistant 气泡
-  await expect(panel.getByText('不应发送的内容')).toBeHidden();
-  await expect(panel.getByText('你好，我是 mock AI。你说的是：不应发送的内容')).toBeHidden();
   expect(errors.length).toBe(0);
 });
 
@@ -604,7 +709,7 @@ test('Agent 全流程：发送 → tool 轨迹渲染 → assistant 富文本落�
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
-  // 唯一后端 remote 且已同意（allowNetwork），withTool 触发 searchKB/readFile 轨迹
+  // 唯一后端 remote 且三配置齐全（consented=true），withTool 触发 searchKB/readFile 轨迹
   await page.addInitScript(installWeaveMDMock, {
     backend: 'remote',
     consented: true,
@@ -613,13 +718,13 @@ test('Agent 全流程：发送 → tool 轨迹渲染 → assistant 富文本落�
   });
   await page.goto('/');
   await page.waitForSelector('header');
-  await page.getByTitle('AI').click();
+  await page.getByTitle('AI', { exact: true }).click();
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
-  // 切到 智能体 模式（B3 下拉）
-  await switchMode(page, 'agent');
-  const textarea = panel.locator('textarea').first();
+  // 模式恒为 agent（模式下拉已随单面板化移除）
+  await switchMode(page);
+  const textarea = panel.locator('.composer-tiptap-editor').first();
   await textarea.fill('帮我查知识库里的项目计划');
   await panel.getByText('发送', { exact: true }).click();
 
@@ -629,10 +734,11 @@ test('Agent 全流程：发送 → tool 轨迹渲染 → assistant 富文本落�
     timeout: 5000,
   });
   // 工具轨迹：searchKB / readFile 出现 + 结果折叠可展开
-  await expect(panel.getByText('searchKB')).toBeVisible({ timeout: 5000 });
+  // 轨迹渲染折叠态「searchKB +1」与展开态「searchKB」两条 → 取首个
+  await expect(panel.getByText('searchKB').first()).toBeVisible({ timeout: 5000 });
   await expect(panel.getByText('readFile')).toBeVisible();
-  // 日志门禁：无未捕获错误
-  expect(errors.length).toBe(0);
+  // 日志门禁：无未捕获错误（打印完整错误内容便于定位）
+  expect(errors).toEqual([]);
 });
 
 test('知识库设置区：kb.status/list 状态列表渲染 + 导入按钮存在', async ({ page }) => {
@@ -641,12 +747,12 @@ test('知识库设置区：kb.status/list 状态列表渲染 + 导入按钮存�
   await page.addInitScript(installWeaveMDMock, { seedKbDocuments: 2 });
   await page.goto('/');
   await page.waitForSelector('header');
-  await page.getByTitle('AI').click();
+  await page.getByTitle('AI', { exact: true }).click();
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
   // 切到 智能体 模式（B3 下拉）→ 进 session 视图以显示知识库设置区
-  await switchMode(page, 'agent');
+  await switchMode(page);
   await newChatAndEnterSession(page);
   // 展开知识库设置抽屉
   await panel.getByText('知识库', { exact: true }).click();
@@ -671,13 +777,13 @@ test('意图卡片：runAgent 返回低置信 intent → 卡片渲染、点击�
   });
   await page.goto('/');
   await page.waitForSelector('header');
-  await page.getByTitle('AI').click();
+  await page.getByTitle('AI', { exact: true }).click();
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
-  // 切到 智能体 模式（B3 下拉）
-  await switchMode(page, 'agent');
-  const textarea = panel.locator('textarea').first();
+  // 模式恒为 agent（模式下拉已随单面板化移除）
+  await switchMode(page);
+  const textarea = panel.locator('.composer-tiptap-editor').first();
   await textarea.fill('怎么组织这次演讲？');
   await panel.getByText('发送', { exact: true }).click();
 
@@ -705,11 +811,11 @@ async function openEditor(page: import('@playwright/test').Page): Promise<void> 
   await page.waitForSelector('span.block-content[contenteditable="true"]');
 }
 
-/** 打开 AI 面板并切到 智能体 模式（RewritePreviewCard 与改写 composer 均在此模式）。 */
+/** 打开 AI 面板（模式恒为 agent，RewritePreviewCard 与改写 composer 均在此模式）。 */
 async function openAgentPanel(page: import('@playwright/test').Page): Promise<import('@playwright/test').Locator> {
-  await page.getByTitle('AI').click();
+  await page.getByTitle('AI', { exact: true }).click();
   await page.waitForTimeout(300);
-  return switchMode(page, 'agent');
+  return switchMode(page);
 }
 
 /**
@@ -796,19 +902,23 @@ test('改写闭环：选区选中 → FloatingToolbar AI 改写 → 面板 compo
   await page.waitForTimeout(300);
 
   // 面板（Agent 页）composer 出现选区改写占位提示
-  const composer = panel.locator('textarea').first();
+  const composer = panel.locator('.composer-tiptap-editor').first();
   await expect(composer).toHaveAttribute('placeholder', '描述如何改写选中内容');
   await composer.fill('把它改写得更简洁');
   await composer.press('Enter');
   await page.waitForTimeout(400);
 
   // 预览卡片出现：标题 + 行级红删绿增（del 红删除原行 / ins 绿新增改写行）
-  await expect(panel.getByText('改写预览', { exact: true })).toBeVisible({ timeout: 5000 });
-  await expect(panel.locator('[data-type="del"]').first()).toContainText('hello world');
-  await expect(panel.locator('[data-type="ins"]').first()).toContainText('改写后文本');
+  // 内联 diff 已收起（DiffSummaryCard「单文件：不再展开内联 diff」）→ 行级内容在「查看详情」弹窗内
+  await expect(panel.getByText(/文档改写\(/)).toBeVisible({ timeout: 5000 });
+  await panel.getByText('查看详情', { exact: true }).click();
+  await expect(page.locator('[data-type="del"]').first()).toContainText('hello world');
+  await expect(page.locator('[data-type="ins"]').first()).toContainText('改写后文本');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
 
-  // 点「应用」→ 编辑器 content 更新（整段被改写）
-  await panel.getByText('应用', { exact: true }).click();
+  // 点「全部应用」→ 编辑器 content 更新（整段被改写）
+  await panel.getByText('全部应用', { exact: true }).click();
   await page.waitForTimeout(400);
   await expect(editable).toHaveText('改写后文本');
   // 预览卡片关闭
@@ -836,18 +946,22 @@ test('面板 @ 兜底：Agent composer @+描述 → document scope 预览卡 →
   await expect(editable).toHaveText('第一段内容');
 
   const panel = await openAgentPanel(page);
-  const composer = panel.locator('textarea').first();
+  const composer = panel.locator('.composer-tiptap-editor').first();
   // @ + 描述 → document scope 块级改写
   await composer.fill('@ 把第一段改成 Document 改写');
   await composer.press('Enter');
   await page.waitForTimeout(400);
 
   // 预览卡片出现（mock document 返回 JSON：改写 block 0）
-  await expect(panel.getByText('改写预览', { exact: true })).toBeVisible({ timeout: 5000 });
-  await expect(panel.locator('[data-type="ins"]').first()).toContainText('改写后 document');
+  await expect(panel.getByText(/文档改写\(/)).toBeVisible({ timeout: 5000 });
+  // 内联 diff 已收起 → 行级 ins 在「查看详情」弹窗内（Escape 关闭）
+  await panel.getByText('查看详情', { exact: true }).click();
+  await expect(page.locator('[data-type="ins"]').first()).toContainText('改写后 document');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
 
-  // 取消 → 编辑器不变
-  await panel.getByText('取消', { exact: true }).click();
+  // 废弃 → 编辑器不变
+  await panel.getByText('全部废弃', { exact: true }).click();
   await page.waitForTimeout(300);
   await expect(editable).toHaveText('第一段内容');
   expect(errors.length).toBe(0);
@@ -874,11 +988,11 @@ test('stale 拒绝：预览卡出现后改文档 → 应用被拒（文档已变
   await expect(toolbar).toBeVisible();
   await toolbar.locator('button[title="AI 改写"]').click();
 
-  const composer = panel.locator('textarea').first();
+  const composer = panel.locator('.composer-tiptap-editor').first();
   await composer.fill('改写一下');
   await composer.press('Enter');
   await page.waitForTimeout(400);
-  await expect(panel.getByText('改写预览', { exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText(/文档改写\(/)).toBeVisible({ timeout: 5000 });
 
   // 预览期间改编辑器内容（stale：content != originalMd）
   await editable.click();
@@ -887,7 +1001,7 @@ test('stale 拒绝：预览卡出现后改文档 → 应用被拒（文档已变
   await page.waitForTimeout(300);
 
   // 点「应用」→ stale 拒绝，提示「文档已变更」，编辑器不被改写
-  await panel.getByText('应用', { exact: true }).click();
+  await panel.getByText('全部应用', { exact: true }).click();
   await page.waitForTimeout(300);
   await expect(panel.getByText('文档已变更，请重新生成', { exact: true })).toBeVisible();
   await expect(editable).not.toContainText('改写后文本');
@@ -917,7 +1031,7 @@ test('unchanged：mock 改写结果与原文相同 → 提示「无变化」，�
   await expect(toolbar).toBeVisible();
   await toolbar.locator('button[title="AI 改写"]').click();
 
-  const composer = panel.locator('textarea').first();
+  const composer = panel.locator('.composer-tiptap-editor').first();
   await composer.fill('保持不变');
   await composer.press('Enter');
   await page.waitForTimeout(400);
@@ -1004,24 +1118,28 @@ test('A4 回归：含列表文档跨块选区改写 → 仅替换选中区间（
   await toolbar.locator('button[title="AI 改写"]').click();
   await page.waitForTimeout(300);
 
-  const composer = panel.locator('textarea').first();
+  const composer = panel.locator('.composer-tiptap-editor').first();
   await composer.fill('改一下');
   await composer.press('Enter');
   await page.waitForTimeout(400);
 
   // 预览卡出现（改写成功；修复前落错块会 unchanged/noop 无预览）
-  await expect(panel.getByText('改写预览', { exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText(/文档改写\(/)).toBeVisible({ timeout: 5000 });
   // 红删（del）覆盖选中区间文本（item-a / item-b），且不含区间外 'outside' 整词
-  const del = panel.locator('[data-type="del"]');
+  // 内联 diff 已收起 → 行级 del 在「查看详情」弹窗内
+  await panel.getByText('查看详情', { exact: true }).click();
+  const del = page.locator('[data-type="del"]');
   await expect(del.first()).toBeVisible();
   const delText = (await del.allTextContents()).join('');
   expect(delText).toContain('item-a');
   expect(delText).toContain('item-b');
   expect(delText).not.toContain('outside');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
 
   // 应用 → 编辑器更新：选中的列表项被改写为 '改写块'，区间外 'outside' 原样保留。
   // 跨块替换会合并中/尾叶，span 下标随之收敛——只断言「改写块」已写入且区间外正文未变。
-  await panel.getByText('应用', { exact: true }).click();
+  await panel.getByText('全部应用', { exact: true }).click();
   await page.waitForTimeout(400);
   const left = (await page.locator('span.block-content[contenteditable="true"]').allTextContents()).join('');
   expect(left).toContain('改写块');
@@ -1056,17 +1174,17 @@ test('A1c 从0到1写整篇：空文档 composer 触发 → 预览卡 → 应用
   await expect(editable).toHaveText('');
 
   const panel = await openAgentPanel(page);
-  const composer = panel.locator('textarea').first();
+  const composer = panel.locator('.composer-tiptap-editor').first();
   // 「从 0 到 1 写一篇」→ WRITE_WHOLE_DOC_RE 命中 → runFullDocumentRewrite
   await composer.fill('帮我从 0 到 1 写一篇关于 AI 的文档');
   await composer.press('Enter');
   await page.waitForTimeout(400);
 
   // 预览卡出现（整篇生成，红删绿增——原始空行被 + 全文替换）
-  await expect(panel.getByText('改写预览', { exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText(/文档改写\(/)).toBeVisible({ timeout: 5000 });
 
   // 应用 → 编辑器写入整篇 markdown
-  await panel.getByText('应用', { exact: true }).click();
+  await panel.getByText('全部应用', { exact: true }).click();
   await page.waitForTimeout(400);
   await expect(editable).toHaveText('关于 AI');
   // 整篇多块渲染（标题 + 段落）
@@ -1089,13 +1207,15 @@ test('A1c 未打开文档 + 整篇写诉求 → 引导提示，不产生空写',
   });
   await page.goto('/');
   await page.waitForSelector('header');
-  // File → 关闭文件（欢迎文档为虚拟文件，saveFile 对 welcome:// 短路，关闭纯客户端操作）
-  await page.locator('header').getByText(/^文件/).first().click();
-  await page.getByText('关闭文件', { exact: true }).click();
+  // FileMenu 已随导航栏精简移除（TopBar 注释：移除 FileMenu/HistoryMenu/MoreMenu/ExportMenu）
+  // → 改走文件树：再次点击已打开的当前文件即关闭（FileTreePanel.handleFileClick）
+  // 欢迎文档为虚拟文件，saveFile 对 welcome:// 短路，关闭纯客户端操作
+  // 文件名在文件树与状态栏各出现一次 → 限定 complementary（文件树）
+  await page.getByRole('complementary').getByText('欢迎文档.md', { exact: true }).click();
   await page.waitForTimeout(200);
   const panel = await openAgentPanel(page);
 
-  const composer = panel.locator('textarea').first();
+  const composer = panel.locator('.composer-tiptap-editor').first();
   await composer.fill('帮我从 0 到 1 写一篇关于 AI 的文档');
   await composer.press('Enter');
   await page.waitForTimeout(400);
@@ -1190,7 +1310,7 @@ test('A3 选区保持：点 AI 改写 → 编辑器内 .rewrite-highlight 高亮
   await expect(highlight.first()).toBeVisible({ timeout: 5000 });
 
   // 面板 composer 聚焦输入 → 高亮不消失（选中不丢）
-  const composer = panel.locator('textarea').first();
+  const composer = panel.locator('.composer-tiptap-editor').first();
   await composer.click();
   await composer.fill('改写成这样');
   await page.waitForTimeout(200);
@@ -1200,8 +1320,8 @@ test('A3 选区保持：点 AI 改写 → 编辑器内 .rewrite-highlight 高亮
   // 应用改写 → 高亮清除 + 编辑器内容更新为改写后文本
   await composer.press('Enter');
   await page.waitForTimeout(400);
-  await expect(panel.getByText('改写预览', { exact: true })).toBeVisible({ timeout: 5000 });
-  await panel.getByText('应用', { exact: true }).click();
+  await expect(panel.getByText(/文档改写\(/)).toBeVisible({ timeout: 5000 });
+  await panel.getByText('全部应用', { exact: true }).click();
   await page.waitForTimeout(400);
   // 高亮随 selectionContext 清空而移除
   await expect(panel.page().locator('.rewrite-highlight')).toHaveCount(0);
@@ -1232,7 +1352,7 @@ test('B1 @ 补全：输入 @ → 弹出引用菜单（当前文档/知识库）�
   await expect(editable).toHaveText('第一段内容');
 
   const panel = await openAgentPanel(page);
-  const composer = panel.locator('textarea').first();
+  const composer = panel.locator('.composer-tiptap-editor').first();
   // 输入 @ → 引用补全菜单出现（含标题「引用」与两类目标）
   await composer.fill('@');
   await expect(panel.getByText('引用', { exact: true })).toBeVisible({ timeout: 5000 });
@@ -1241,22 +1361,26 @@ test('B1 @ 补全：输入 @ → 弹出引用菜单（当前文档/知识库）�
 
   // 选中「知识库文档」→ 注入 @知识库 前缀 + 空格
   await panel.getByText('知识库文档').click();
-  await expect(composer).toHaveValue('@知识库 ');
+  await expect(composer).toHaveText('@知识库 ');
   // 输入 @ 重新触发 → 选中「当前文档」→ 注入 @文档 前缀
   await composer.fill('@');
   await expect(panel.getByText('当前文档')).toBeVisible();
   await panel.getByText('当前文档').click();
-  await expect(composer).toHaveValue('@文档 ');
+  await expect(composer).toHaveText('@文档 ');
 
   // 补充指令 → Enter → document scope 预览卡（复用现有 @ 协议消费）
   await composer.fill('@文档 把第一段改成 B1 改写');
   await composer.press('Enter');
   await page.waitForTimeout(400);
-  await expect(panel.getByText('改写预览', { exact: true })).toBeVisible({ timeout: 5000 });
-  await expect(panel.locator('[data-type="ins"]').first()).toContainText('改写后 document');
+  await expect(panel.getByText(/文档改写\(/)).toBeVisible({ timeout: 5000 });
+  // 内联 diff 已收起 → 行级 ins 在「查看详情」弹窗内
+  await panel.getByText('查看详情', { exact: true }).click();
+  await expect(page.locator('[data-type="ins"]').first()).toContainText('改写后 document');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
 
-  // 取消后验证 Esc 关闭逻辑：重新输入 @ 弹菜单 → Esc 关闭
-  await panel.getByText('取消', { exact: true }).click();
+  // 废弃后验证 Esc 关闭逻辑：重新输入 @ 弹菜单 → Esc 关闭
+  await panel.getByText('全部废弃', { exact: true }).click();
   await page.waitForTimeout(300);
   await composer.fill('@');
   await expect(panel.getByText('引用', { exact: true })).toBeVisible({ timeout: 5000 });
@@ -1280,7 +1404,7 @@ test('B1 / 补全：输入 / → 弹出技能清单（mock listSkills），选�
   await openEditor(page);
 
   const panel = await openAgentPanel(page);
-  const composer = panel.locator('textarea').first();
+  const composer = panel.locator('.composer-tiptap-editor').first();
   // 输入 / → 技能补全菜单（标题「运行技能」+ 3 个内置技能名称）
   await composer.fill('/');
   await expect(panel.getByText('运行技能', { exact: true })).toBeVisible({ timeout: 5000 });
@@ -1290,7 +1414,7 @@ test('B1 / 补全：输入 / → 弹出技能清单（mock listSkills），选�
 
   // 选中技能 → 注入 /polish_rewrite 前缀 + 空格
   await panel.getByText('polish_rewrite').click();
-  await expect(composer).toHaveValue('/polish_rewrite ');
+  await expect(composer).toHaveText('/polish_rewrite ');
 
   // 补充指令 → Enter → 剥前缀后走 sendAgentMessage（本地 mock，无网络）
   await composer.fill('/polish_rewrite 把这段润色');
@@ -1309,62 +1433,48 @@ test('B1 / 补全：输入 / → 弹出技能清单（mock listSkills），选�
 // ③ agent 模式保专属控件、chat 纯对话。mock 不上网。
 // ============================================================
 
-test('B3 单面板：无 Chat/Agent 双 Tab按钮，头部有模式下拉（对话/智能体）', async ({ page }) => {
+test('B3 单面板：无 Chat/Agent 双 Tab，也无模式下拉（模式恒为 agent）', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
   await bootAiPanel(page);
   const panel = aiPanel(page);
 
-  // 无 Tab 割裂：面板内不存在「对话」「智能体」按钮（模式由下拉承载）
+  // 无 Tab 割裂：面板内不存在「对话」「智能体」按钮
   await expect(panel.getByRole('button', { name: '对话' })).toHaveCount(0);
   await expect(panel.getByRole('button', { name: '智能体' })).toHaveCount(0);
 
-  // 头部存在模式下拉，选项为 对话/智能体
-  const select = panel.getByTestId('ai-mode-select');
-  await expect(select).toBeVisible();
-  await expect(select.locator('option[value="chat"]')).toHaveText('对话');
-  await expect(select.locator('option[value="agent"]')).toHaveText('智能体');
+  // 单面板化后模式下拉一并移除：activeMode 固定 agent，全仓无 setActiveMode 调用
+  await expect(panel.getByTestId('ai-mode-select')).toHaveCount(0);
   expect(errors.length).toBe(0);
 });
 
-test('B3 模式切换：chat ↔ agent 时 mode 下拉生效、消息同一会话内累积', async ({ page }) => {
+test('B3 单模式：消息同一会话内累积（无模式切换，activeMode 恒 agent）', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
-  // 唯一后端 remote：已同意联网才放行发送（chat/agent 消息链路无 ollama 免同意路径）
+  // 唯一后端 remote：已同意联网才放行发送（消息链路无 ollama 免同意路径）
   await bootAiPanel(page, { consented: true });
   const panel = aiPanel(page);
-  const select = panel.getByTestId('ai-mode-select');
 
-  // 默认 chat 域：agent 专属控件（仅在 session 视图渲染）不显示
-  await expect(select).toHaveValue('chat');
-  await expect(panel.getByText('依照知识库创作')).toHaveCount(0);
+  // 模式切换控件已随单面板化移除 → 本用例只验证单域下的消息累积
+  await expect(panel.getByTestId('ai-mode-select')).toHaveCount(0);
 
-  // chat 域发一条消息 → home composer 发送即自动进 session，等待流式 assistant 完整落显
-  await panel.locator('textarea').first().fill('对话消息');
+  // 首条消息 → home composer 发送即自动进 session，等待流式 assistant 完整落显
+  await panel.locator('.composer-tiptap-editor').first().fill('对话消息');
   await panel.getByText('发送', { exact: true }).click();
   // 首条消息写入会话标题（=「对话消息」），与 user 气泡并存 → 用消息区气泡精确断言
   await expect(panel.getByTestId('session-title')).toHaveText('对话消息');
   await expect(
-    panel.getByText('你好，我是 mock AI。你说的是：对话消息')
+    panel.getByText('Agent 完成：对话消息')
   ).toBeVisible({ timeout: 5000 });
 
-  // 切 agent 域：agent 专属控件（session 视图）出现；消息流（共享 store）保留 chat 消息
-  await switchMode(page, 'agent');
-  await expect(panel.getByText('依照知识库创作')).toBeVisible();
-  await expect(
-    panel.getByText('你好，我是 mock AI。你说的是：对话消息')
-  ).toBeVisible();
-
-  // agent 域同会话发一条 → runAgent mock 回复（与 chat 消息共存）
-  await panel.locator('textarea').first().fill('agent指令');
+  // 同会话再发一条 → 消息流累积，不串号（首条 assistant 仍在）
+  await panel.locator('.composer-tiptap-editor').first().fill('第二条指令');
   await panel.getByText('发送', { exact: true }).click();
-  await expect(panel.getByText('agent指令', { exact: true })).toBeVisible({ timeout: 5000 });
-  await expect(panel.getByText('Agent 完成：agent指令')).toBeVisible({ timeout: 5000 });
-
-  // 切回 chat 域：agent 专属控件消失；消息仍在（同一会话内共享）
-  await switchMode(page, 'chat');
-  await expect(panel.getByText('依照知识库创作')).toHaveCount(0);
-  await expect(panel.getByText('Agent 完成：agent指令')).toBeVisible();
+  await expect(panel.getByText('第二条指令', { exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText('Agent 完成：第二条指令')).toBeVisible({ timeout: 5000 });
+  await expect(
+    panel.getByText('Agent 完成：对话消息')
+  ).toBeVisible();
   expect(errors.length).toBe(0);
 });
 
@@ -1375,7 +1485,7 @@ test('B3 专属控件归属：agent 保 知识库开关/压缩/KB设置，chat �
   const panel = aiPanel(page);
 
   // chat 模式：输入 / 不弹技能补全（纯对话），agent 专属控件不显示
-  const composer = panel.locator('textarea').first();
+  const composer = panel.locator('.composer-tiptap-editor').first();
   await composer.fill('/');
   await expect(panel.getByText('运行技能', { exact: true })).toHaveCount(0);
   await expect(panel.getByText('依照知识库创作')).toHaveCount(0);
@@ -1383,7 +1493,7 @@ test('B3 专属控件归属：agent 保 知识库开关/压缩/KB设置，chat �
   await composer.fill('');
 
   // 切 agent 模式 → 进 session 视图：知识库控齐全 + / 技能补全出现
-  await switchMode(page, 'agent');
+  await switchMode(page);
   await newChatAndEnterSession(page);
   await expect(panel.getByText('依照知识库创作')).toBeVisible();
   await expect(panel.getByText('压缩上下文')).toBeVisible();
@@ -1409,7 +1519,7 @@ test('三视图：默认 home 视图 + [+] 新建会话进入 session，标题�
 
   // 默认 home：RECENT 空态 + composer 存在
   await expect(panel.getByText('暂无最近会话', { exact: true })).toBeVisible();
-  await expect(panel.locator('textarea').first()).toBeVisible();
+  await expect(panel.locator('.composer-tiptap-editor').first()).toBeVisible();
 
   // [+] 新建会话 → 进入 session 视图（session-title 行出现，标题为模式兜底）
   await panel.getByTestId('new-chat-btn').click();
@@ -1430,15 +1540,15 @@ test('首条消息 → 会话标题=首条问题；回 home 后 RECENT 显示该
   await page.addInitScript(installWeaveMDMock, { backend: 'remote', consented: true });
   await page.goto('/');
   await page.waitForSelector('header');
-  await page.getByTitle('AI').click();
+  await page.getByTitle('AI', { exact: true }).click();
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
   // home composer 发送首条消息 → 自动进 session，标题=首条问题
-  await panel.locator('textarea').first().fill('第一个问题是什么');
+  await panel.locator('.composer-tiptap-editor').first().fill('第一个问题是什么');
   await panel.getByText('发送', { exact: true }).click();
   await expect(panel.getByTestId('session-title')).toHaveText('第一个问题是什么', { timeout: 5000 });
-  await expect(panel.getByText('你好，我是 mock AI。你说的是：第一个问题是什么')).toBeVisible({
+  await expect(panel.getByText('Agent 完成：第一个问题是什么')).toBeVisible({
     timeout: 5000,
   });
 
@@ -1460,7 +1570,7 @@ test('点击 home RECENT 最近会话 → loadConversation 进 session，标题=
   await page.addInitScript(installWeaveMDMock, { seedConversations: 1 });
   await page.goto('/');
   await page.waitForSelector('header');
-  await page.getByTitle('AI').click();
+  await page.getByTitle('AI', { exact: true }).click();
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
@@ -1473,52 +1583,95 @@ test('点击 home RECENT 最近会话 → loadConversation 进 session，标题=
   expect(errors.length).toBe(0);
 });
 
-test('设置三 tab：模型/skills/MCP 切换，模型表单保存后 config model 生效（mock）', async ({ page }) => {
+test('设置三 tab：模型/skills/MCP 切换，模型新建配置后列表生效（mock）', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
   await bootAiPanel(page);
   const panel = aiPanel(page);
+  expect(panel).toBeTruthy();
 
-  // ⚙ 进入设置视图
-  await panel.getByTestId('open-settings-btn').click();
+  // 面板内设置入口已由全局 UnifiedSettings 取代 → 走 TopBar 齿轮
+  await page.getByTitle('设置').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
   await page.waitForTimeout(300);
-  await expect(panel.getByTestId('settings-tab-model')).toBeVisible();
 
-  // 三 tab 存在
-  await expect(panel.getByText('模型', { exact: true })).toBeVisible();
-  await expect(panel.getByText('技能', { exact: true })).toBeVisible();
-  await expect(panel.getByText('MCP', { exact: true })).toBeVisible();
+  // 默认 system tab，侧栏切换到 AI 模型（原 settings-tab-* 为面板内 testid，已随视图移除）
+  await expect(dialog.getByRole('button', { name: '系统', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: '技能', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'MCP', exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'AI 模型', exact: true }).click();
+  await page.waitForTimeout(300);
+  await expect(dialog.getByText('AI 模型配置')).toBeVisible();
+  await expect(dialog.getByTestId('model-config-item-mc_1')).toBeVisible();
 
   // 切到 skills → 列出 mock 技能
-  await panel.getByTestId('settings-tab-skills').click();
+  await dialog.getByRole('button', { name: '技能', exact: true }).click();
   await page.waitForTimeout(300);
-  await expect(panel.getByTestId('skill-item').first()).toBeVisible({ timeout: 5000 });
-  await expect(panel.getByText('polish_rewrite')).toBeVisible();
+  await expect(dialog.getByTestId('skill-item').first()).toBeVisible({ timeout: 5000 });
+  await expect(dialog.getByText('polish_rewrite')).toBeVisible();
 
   // 切到 mcp → 延期占位
-  await panel.getByTestId('settings-tab-mcp').click();
+  await dialog.getByRole('button', { name: 'MCP', exact: true }).click();
   await page.waitForTimeout(300);
-  await expect(panel.getByText('真正的 MCP server 管理已延期交付')).toBeVisible();
+  await expect(dialog.getByText('真正的 MCP server 管理已延期交付')).toBeVisible();
 
-  // 回到 模型 表单：改 model 并保存 → 下拉 label 更新（setConfig 持久化）
-  await panel.getByTestId('settings-tab-model').click();
+  // 回到 AI 模型 → 新建配置表单 → 添加 → 列表出现新条目
+  // （原 model-form-save 单表单已改为 ModelForm 双视图：model-config-new / model-config-add）
+  await dialog.getByRole('button', { name: 'AI 模型', exact: true }).click();
   await page.waitForTimeout(300);
-  const modelInput = panel.locator('input[placeholder*="qwen3.5"]').first();
-  await modelInput.fill('my-saved-model');
-  await panel.getByTestId('model-form-save').click();
-  await page.waitForTimeout(400);
+  await dialog.getByTestId('model-config-new').click();
+  await page.waitForTimeout(300);
+  await dialog.locator('input[placeholder^="e.g."]').fill('my-saved-model');
+  await dialog.getByTestId('model-config-add').click();
+  await page.waitForTimeout(500);
+  await expect(dialog.getByText('my-saved-model')).toBeVisible({ timeout: 5000 });
   expect(errors.length).toBe(0);
 });
 
-test('composer 模式下拉 chat/agent + 模型下拉列出 mock 模型、选中持久化', async ({ page }) => {
+test('composer 模型下拉列出 mock 模型、选中持久化（模式下拉已移除）', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (err) => errors.push(String(err)));
-  await bootAiPanel(page);
+  // ModelDropdown 数据源是 modelConfigs（非 ai.listModels）→ 注入三条配置
+  await bootAiPanel(page, {
+    listModels: ['qwen3.5:0.8b', 'deepseek-chat'],
+    modelConfigs: [
+      {
+        id: 'mc_1',
+        name: '默认',
+        protocol: 'openai',
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o-mini',
+        hasApiKey: true,
+        hint: 'sk-***',
+      },
+      {
+        id: 'mc_2',
+        name: 'qwen',
+        protocol: 'openai',
+        provider: 'qwen',
+        baseUrl: 'http://127.0.0.1:11434/v1',
+        model: 'qwen3.5:0.8b',
+        hasApiKey: false,
+        hint: '',
+      },
+      {
+        id: 'mc_3',
+        name: 'deepseek',
+        protocol: 'openai',
+        provider: 'deepseek',
+        baseUrl: 'https://api.deepseek.com/v1',
+        model: 'deepseek-chat',
+        hasApiKey: true,
+        hint: 'sk-***',
+      },
+    ],
+  });
   const panel = aiPanel(page);
 
-  // 模式下拉存在且默认 chat
-  const modeSelect = panel.getByTestId('ai-mode-select');
-  await expect(modeSelect).toHaveValue('chat');
+  // 单面板化后无模式切换控件
+  await expect(panel.getByTestId('ai-mode-select')).toHaveCount(0);
 
   // 模型下拉：打开列出 mock 模型
   await panel.getByTestId('model-dropdown').click();
@@ -1557,7 +1710,7 @@ test('改写失败条出现 ✕ 可关闭（dismissRewriteBanner）', async ({ p
   await toolbar.locator('button[title="AI 改写"]').click();
   await page.waitForTimeout(300);
 
-  const composer = panel.locator('textarea').first();
+  const composer = panel.locator('.composer-tiptap-editor').first();
   await composer.fill('保持不变');
   await composer.press('Enter');
   await page.waitForTimeout(400);
@@ -1644,26 +1797,28 @@ test('② 草稿跨视图：composer 输入 → 切设置 → 返回输入仍在
   });
   await page.goto('/');
   await page.waitForSelector('header');
-  await page.getByTitle('AI').click();
+  await page.getByTitle('AI', { exact: true }).click();
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
-  const composer = panel.locator('textarea').first();
+  const composer = panel.locator('.composer-tiptap-editor').first();
   await composer.fill('跨视图草稿文本');
 
-  // 切到 ⚙ 设置视图 → 再返回 home → composer 草稿仍在（B2：视图切换不丢）
-  await panel.getByTestId('open-settings-btn').click();
+  // TopBar 齿轮开全局设置 → Esc 关闭回面板 → composer 草稿仍在（B2：视图切换不丢）
+  // （面板内 ⚙/settings-back 已由全局 UnifiedSettings 取代）
+  await page.getByTitle('设置').click();
+  await expect(page.getByRole('dialog')).toBeVisible();
   await page.waitForTimeout(300);
-  await expect(panel.getByTestId('settings-back')).toBeVisible();
-  await panel.getByTestId('settings-back').click();
+  await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
-  await expect(composer).toHaveValue('跨视图草稿文本');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(composer).toHaveText('跨视图草稿文本');
 
   // home ↔ session 视图切换同样保留（home composer 发送前先在 session 侧确认草稿不透传丢失）
   await panel.getByTestId('new-chat-btn').click();
   await page.waitForTimeout(300);
   // 注意：newChat 语义为「新建会话」→ 清空草稿（B3）。此断言验证清空即新建，与需求一致
-  await expect(composer).toHaveValue('');
+  await expect(composer).toHaveText('');
   expect(errors.length).toBe(0);
 });
 
@@ -1674,23 +1829,25 @@ test('② 草稿发送后清空：composer 输入发送 → 草稿归零', async
   await page.addInitScript(installWeaveMDMock, { backend: 'remote', consented: true });
   await page.goto('/');
   await page.waitForSelector('header');
-  await page.getByTitle('AI').click();
+  await page.getByTitle('AI', { exact: true }).click();
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
 
-  const composer = panel.locator('textarea').first();
+  const composer = panel.locator('.composer-tiptap-editor').first();
   await composer.fill('发送后要被清空的草稿');
   await panel.getByText('发送', { exact: true }).click();
-  await expect(panel.getByText('你好，我是 mock AI。你说的是：发送后要被清空的草稿')).toBeVisible({
+  await expect(panel.getByText('Agent 完成：发送后要被清空的草稿')).toBeVisible({
     timeout: 5000,
   });
   // B3：发送成功 → 草稿清空
-  await expect(composer).toHaveValue('');
+  await expect(composer).toHaveText('');
   expect(errors.length).toBe(0);
 });
 
-// —— ④ provider 状态 + 断开：设置页「已连接」→ 断开 →「未配置 API key，AI 不可用」→ 重填恢复 ——
-test('④ provider 状态+断开：设置页显示已连接 → 断开 → 未配置 AI 不可用 → 重填 key 恢复', async ({
+// —— ④ 模型配置生命周期：设置页列出配置 → 删除 → 空态 → 新建带 key 配置恢复 ——
+// 原 provider「断开连接」按钮已随 a48148c（remove ollama, provider status）移除，
+// ModelForm 改为双视图（list/create），断言落点改为 model-config-* 的增删链路。
+test('④ 模型配置生命周期：列出 → 删除 → 空态 → 新建带 key 配置恢复（mock）', async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -1702,34 +1859,35 @@ test('④ provider 状态+断开：设置页显示已连接 → 断开 → 未�
   });
   await page.goto('/');
   await page.waitForSelector('header');
-  await page.getByTitle('AI').click();
+  await page.getByTitle('AI', { exact: true }).click();
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
+  expect(panel).toBeTruthy();
 
-  // 进入设置（默认模型 tab，ModelForm 渲染 provider 状态行）
-  await panel.getByTestId('open-settings-btn').click();
+  // TopBar 齿轮 → 全局 UnifiedSettings → AI 模型 tab（面板内设置入口已移除）
+  await page.getByTitle('设置').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
   await page.waitForTimeout(300);
-  await expect(panel.getByTestId('settings-tab-model')).toBeVisible();
+  await dialog.getByRole('button', { name: 'AI 模型', exact: true }).click();
+  await page.waitForTimeout(300);
 
-  // D1/D4：初始为「已连接：远程 API」（hasApiKey=true）
-  await expect(panel.getByText(/已连接/)).toBeVisible({ timeout: 5000 });
+  // 初始：mock 预置配置 mc_1 出现在列表
+  await expect(dialog.getByTestId('model-config-item-mc_1')).toBeVisible({ timeout: 5000 });
 
-  // 点「断开连接」→ 清 key → 状态变「未配置 API key，AI 不可用」
-  await panel.getByTestId('provider-disconnect').click();
-  await page.waitForTimeout(300);
-  await expect(panel.getByText('未配置 API key，AI 不可用', { exact: true })).toBeVisible();
+  // 删除唯一配置 → 空态文案
+  await dialog.getByTestId('model-config-delete-mc_1').click();
+  await page.waitForTimeout(500);
+  await expect(dialog.getByText('暂无配置，点击上方按钮新建')).toBeVisible({ timeout: 5000 });
 
-  // D2/D3：重填 key 保存 → 状态恢复「已连接」（ModelForm 进入设置时经 getConfig 刷新，故回 home 再进设置验证）
-  const apiKeyInput = panel.locator('input[placeholder="sk-..."]');
-  await apiKeyInput.fill('sk-reconnected-key');
-  await panel.getByTestId('model-form-save').click();
-  await page.waitForTimeout(400);
-  // 回 home → 重新进入设置 → 刷新 getConfig → hasApiKey=true → 恢复「已连接」
-  await panel.getByTestId('settings-back').click();
+  // 新建带 API Key 的配置 → 列表恢复（key 经 create 持久化到 hasApiKey）
+  await dialog.getByTestId('model-config-new').click();
   await page.waitForTimeout(300);
-  await panel.getByTestId('open-settings-btn').click();
-  await page.waitForTimeout(300);
-  await expect(panel.getByText(/已连接/)).toBeVisible({ timeout: 5000 });
+  await dialog.locator('input[placeholder^="e.g."]').fill('reconnected-model');
+  await dialog.locator('input[placeholder="sk-..."]').fill('sk-reconnected-key');
+  await dialog.getByTestId('model-config-add').click();
+  await page.waitForTimeout(500);
+  await expect(dialog.getByText('reconnected-model')).toBeVisible({ timeout: 5000 });
   expect(errors.length).toBe(0);
 });
 
@@ -1740,18 +1898,28 @@ test('③ 无 ollama 回归：设置页无 Ollama 选项/字段（后端固定 r
   await page.addInitScript(installWeaveMDMock, { backend: 'remote', consented: true });
   await page.goto('/');
   await page.waitForSelector('header');
-  await page.getByTitle('AI').click();
+  await page.getByTitle('AI', { exact: true }).click();
   await page.waitForTimeout(300);
   const panel = aiPanel(page);
+  expect(panel).toBeTruthy();
 
-  await panel.getByTestId('open-settings-btn').click();
+  // 走全局 UnifiedSettings（面板内设置入口已移除）
+  await page.getByTitle('设置').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
   await page.waitForTimeout(300);
-  await expect(panel.getByTestId('settings-tab-model')).toBeVisible();
+  await dialog.getByRole('button', { name: 'AI 模型', exact: true }).click();
+  await page.waitForTimeout(300);
+
+  // 进新建表单视图（协议/提供商选择所在）
+  await dialog.getByTestId('model-config-new').click();
+  await page.waitForTimeout(300);
 
   // C4：无任何 Ollama / localhost:11434 选项或字段
-  await expect(panel.getByText(/ollama/i)).toHaveCount(0);
-  await expect(panel.getByText(/11434/i)).toHaveCount(0);
-  // 后端固定远程 API：设置表单可见「后端」标签且无「后端切换器」元素（ModelForm 直接渲染 provider 状态行）
-  await expect(panel.getByText('后端', { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/ollama/i)).toHaveCount(0);
+  await expect(dialog.getByText(/11434/i)).toHaveCount(0);
+  // 后端固定远程 API：表单只提供「兼容协议」「提供商」选择，无后端切换器
+  await expect(dialog.getByText('兼容协议', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('提供商', { exact: true })).toBeVisible();
   expect(errors.length).toBe(0);
 });

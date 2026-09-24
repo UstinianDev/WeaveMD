@@ -5,7 +5,6 @@
   "ai.context.tooltip": "Token 使用：{used} / {total}",
   "ai.agent.placeholder": "Agent 能力第 4 期上線",
   "ai.agent.useKnowledgeBase": "依照知識庫創作",
-  "ai.consent.allowNetwork": "允許連線網路",
   "ai.consent.allowSend": "允許將筆記傳送給 AI",
   "ai.consent.deny": "拒絕",
   "ai.consent.remember": "同意並記住",

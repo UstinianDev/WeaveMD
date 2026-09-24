@@ -69,7 +69,7 @@
 - **后端 remote-only**：Ollama 已移除，`ChatBackend` 收敛为 `'remote'`；KB 仅 FTS5 关键词召回
 - 右侧 AI 面板（导航栏「AI」按钮开合），仅 Agent 模式（Chat 已删除）
 - 铁律一：**AI 写入必经确认**——红删绿增预览 → 用户确认 → `updateContent` 入 undo 栈
-- 铁律二：**联网 / 笔记外发必须用户知情同意**；key 用 safeStorage 加密存 SQLite
+- 铁律二：**笔记外发必须用户知情同意**（联网同意已停用——三配置齐全即视为许可）；key 用 safeStorage 加密存 SQLite
 - Agent 能力：toolRegistry + agentLoop（≤6 轮）+ skillLoader + intentRouter + contextManager
 - 知识库：FTS5 BM25 召回 + 拒答 0.6 + 出处可跳转 + 置顶 ×1.5；searchMode 三模式（fts5/vector/hybrid）
 - Agentic RAG：所有非 chat 意图均可自主调用 searchKB（LLM 决定是否检索）；HyDE 支持假设性文档 embedding 检索

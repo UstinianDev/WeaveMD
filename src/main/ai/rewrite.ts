@@ -3,7 +3,7 @@
 // ============================================
 // C2 铁律：主进程零 markdown 解析、零 proposal 计算。不 import 渲染内核。
 // 铁律一：runRewrite 只产 LLM 原始文本 {text}，绝不写文件/编辑器/DB。
-// consent 闸（'chat'，allowNetwork）不在本模块判定——由 ipc.ts 层把关（铁律二）。
+// 同意闸不在本模块判定——由 ipc.ts 层把关（联网闸已停用，此处无实际拦截）。
 // 编写遵循 ipc.ts / agentLoop.ts 既有模式：streamChatCompletion 纯对话（不传 tools），
 // 累加非空 delta（qwen thinking 空 content 由 llmClient 处理，此处再跳过一层保险），
 // 错误透传 llmClient 结构化错误 {code,message}。
@@ -11,6 +11,7 @@
 import type { IAIConfig, RewriteReply, RewriteRequestPayload } from '@shared/ai';
 import { decryptApiKey } from './secureConfig';
 import { streamChatCompletion } from './llm/llmClient';
+import { streamAnthropicCompletion } from './llm/anthropicClient';
 
 /** selection 改写指令模板（LLM 先输出一行改写说明，再输出改写后完整 Markdown）。 */
 export const REWRITE_SELECTION_SYSTEM_INSTRUCTION =
@@ -89,14 +90,19 @@ export async function runRewrite(
     apiKey = decryptApiKey(apiKeyEnc);
   }
 
-  const gen = streamChatCompletion({
+  const opts = {
     baseUrl,
     model,
     apiKey,
     messages,
     timeoutMs: 60_000,
     signal: controller.signal,
-  });
+  };
+  // 纯对话（不带 tools），按协议分流
+  const gen =
+    config.protocol === 'anthropic'
+      ? streamAnthropicCompletion(opts)
+      : streamChatCompletion(opts);
 
   let text = '';
   // 纯对话无 tools：for-await 累加 delta.content，跳过空 content（qwen thinking 坑）。

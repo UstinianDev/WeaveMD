@@ -10,6 +10,7 @@ import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import type { AgentSkillInfo } from '@shared/ai';
 import { streamChatCompletion } from '../llm/llmClient';
+import { streamAnthropicCompletion } from '../llm/anthropicClient';
 
 /** 单技能定义：执行时把 instructions 注入 role:'system' 片段。 */
 export interface CoreSkill {
@@ -26,6 +27,8 @@ export interface SkillRunnerCtx {
   baseUrl: string;
   model: string;
   apiKey?: string;
+  /** LLM 协议分流：anthropic 走 /v1/messages，缺省 openai。 */
+  protocol?: 'openai' | 'anthropic';
   timeoutMs?: number;
   signal?: AbortSignal;
 }
@@ -203,17 +206,22 @@ export async function runSkill(
   ctx: SkillRunnerCtx
 ): Promise<{ content: string; status: 'ok' | 'error'; errorDesc?: string }> {
   try {
-    const gen = streamChatCompletion({
+    const opts = {
       baseUrl: ctx.baseUrl,
       model: ctx.model,
       apiKey: ctx.apiKey,
       messages: [
-        { role: 'system', content: skill.instructions },
-        { role: 'user', content: input },
+        { role: 'system' as const, content: skill.instructions },
+        { role: 'user' as const, content: input },
       ],
       timeoutMs: ctx.timeoutMs,
       signal: ctx.signal,
-    });
+    };
+    // 纯文本生成（不带 tools），按协议分流
+    const gen =
+      ctx.protocol === 'anthropic'
+        ? streamAnthropicCompletion(opts)
+        : streamChatCompletion(opts);
     let content = '';
     for await (const chunk of gen) {
       content += chunk.delta;

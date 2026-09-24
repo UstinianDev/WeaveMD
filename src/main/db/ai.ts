@@ -14,6 +14,7 @@ import {
   normalizeKbSettings,
   type ChatBackend,
   type ConversationMode,
+  type ModelProtocol,
   type WriteMode,
   type IAIMessage,
   type IAIConversation,
@@ -43,6 +44,8 @@ export interface AiConfigRow {
   id: string;
   userId: string;
   backend: ChatBackend;
+  /** LLM 协议（openai / anthropic），决定调用点分流到哪个客户端。旧库缺列时兜底 openai。 */
+  protocol: ModelProtocol;
   ollamaBaseUrl: string;
   remoteBaseUrl: string;
   model: string;
@@ -86,6 +89,7 @@ interface AiConfigDbRow {
   id: string;
   user_id: string;
   backend: string;
+  protocol: string | null;
   ollama_base_url: string;
   remote_base_url: string;
   model: string;
@@ -150,6 +154,8 @@ function mapConfigRow(row: AiConfigDbRow): AiConfigRow {
     userId: row.user_id,
     // 后端恒 remote；遗留 'ollama' 值视同 remote（收敛，不做 schema 迁移）
     backend: 'remote',
+    // 旧库/非法值一律收敛 openai，避免误打 /v1/messages
+    protocol: row.protocol === 'anthropic' ? 'anthropic' : 'openai',
     ollamaBaseUrl: row.ollama_base_url,
     remoteBaseUrl: row.remote_base_url,
     model: row.model || '',
@@ -197,6 +203,8 @@ export function getAiConfig(userId: string): AiConfigRow | null {
 
 export interface AiConfigUpdate {
   backend?: ChatBackend;
+  /** 激活模型配置时同步下来的协议 */
+  protocol?: ModelProtocol;
   ollamaBaseUrl?: string;
   remoteBaseUrl?: string;
   model?: string;
@@ -224,7 +232,7 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
          backend = ?, ollama_base_url = ?, remote_base_url = ?, model = ?,
          api_key_enc = ?, allow_network = ?, allow_send = ?, consent_updated_at = ?,
          kb_top_k = ?, kb_fuse = ?, kb_threshold = ?, kb_pinned_weight = ?,
-         write_mode = ?,
+         write_mode = ?, protocol = ?,
          updated_at = datetime('now')
        WHERE user_id = ?`
     ).run(
@@ -241,12 +249,14 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
       update.kbThreshold ?? existing.kbThreshold,
       update.kbPinnedWeight ?? existing.kbPinnedWeight,
       update.writeMode ?? existing.writeMode,
+      update.protocol ?? existing.protocol,
       userId
     );
     // 直接构造返回值，省掉回读 SELECT
     return {
       ...existing,
       backend: 'remote',
+      protocol: update.protocol ?? existing.protocol,
       ollamaBaseUrl: update.ollamaBaseUrl ?? existing.ollamaBaseUrl,
       remoteBaseUrl: update.remoteBaseUrl ?? existing.remoteBaseUrl,
       model: update.model ?? existing.model,
@@ -269,8 +279,8 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
          (id, user_id, backend, ollama_base_url, remote_base_url, model,
           api_key_enc, allow_network, allow_send, consent_updated_at,
           kb_top_k, kb_fuse, kb_threshold, kb_pinned_weight,
-          write_mode)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          write_mode, protocol)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id,
       userId,
@@ -286,7 +296,8 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
       update.kbFuse ?? DEFAULT_KB_SETTINGS.fuse,
       update.kbThreshold ?? DEFAULT_KB_SETTINGS.threshold,
       update.kbPinnedWeight ?? DEFAULT_KB_SETTINGS.pinnedWeight,
-      update.writeMode ?? 'manual'
+      update.writeMode ?? 'manual',
+      update.protocol ?? 'openai'
     );
     // 直接构造返回值，省掉回读 SELECT
     const kb = normalizeKbSettings({
@@ -299,6 +310,7 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
       id,
       userId,
       backend: 'remote',
+      protocol: update.protocol ?? 'openai',
       ollamaBaseUrl: update.ollamaBaseUrl ?? 'http://localhost:11434',
       remoteBaseUrl: update.remoteBaseUrl ?? 'https://api.deepseek.com',
       model: update.model ?? '',

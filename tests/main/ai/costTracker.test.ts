@@ -307,6 +307,80 @@ describe('CostTracker', () => {
   });
 
   // -----------------------------------------------------------------------
+  // B4：成本估算计入缓存折扣
+  // -----------------------------------------------------------------------
+  it('B4: cache hit tokens should lower the estimated cost', () => {
+    tracker.recordUsage({
+      ...makeUsage({ promptTokens: 1_000_000, completionTokens: 0 }),
+      model: 'deepseek-chat',
+      conversationId: 'conv-nocache',
+    });
+    tracker.recordUsage({
+      ...makeUsage({
+        promptTokens: 1_000_000,
+        completionTokens: 0,
+        cacheReadTokens: 800_000,
+      }),
+      model: 'deepseek-chat',
+      conversationId: 'conv-cache',
+    });
+
+    const noCache = tracker.getConversationStats('conv-nocache')[0].estimatedCostUsd;
+    const withCache = tracker.getConversationStats('conv-cache')[0].estimatedCostUsd;
+
+    // 无缓存：1M prompt × $0.14 = $0.14
+    expect(noCache).toBeCloseTo(0.14, 6);
+    // 有缓存：200k 全价 0.028 + 800k 命中 ×0.1 → 0.0112 = $0.0392
+    expect(withCache).toBeCloseTo(0.0392, 6);
+    expect(withCache).toBeLessThan(noCache);
+  });
+
+  it('B4: cache creation tokens should be billed at the write multiplier', () => {
+    tracker.recordUsage({
+      ...makeUsage({
+        promptTokens: 1_000_000,
+        completionTokens: 0,
+        cacheCreationTokens: 200_000,
+      }),
+      model: 'deepseek-chat',
+      conversationId: 'conv-cachewrite',
+    });
+
+    const cost = tracker.getConversationStats('conv-cachewrite')[0].estimatedCostUsd;
+    // 800k 全价 0.112 + 200k × 1.25 → 0.035 = $0.147（略高于无缓存的 0.14）
+    expect(cost).toBeCloseTo(0.147, 6);
+    expect(cost).toBeGreaterThan(0.14);
+  });
+
+  it('B4: zero cache usage keeps the original full-price formula', () => {
+    tracker.recordUsage({
+      ...makeUsage({ promptTokens: 1_000_000, completionTokens: 1_000_000 }),
+      model: 'deepseek-chat',
+      conversationId: 'conv-zero',
+    });
+    expect(tracker.getConversationStats('conv-zero')[0].estimatedCostUsd).toBeCloseTo(0.42, 6);
+  });
+
+  it('B4: formatCostTable exposes a Cache Write column', () => {
+    tracker.recordUsage({
+      ...makeUsage({
+        promptTokens: 5000,
+        completionTokens: 1000,
+        cacheReadTokens: 2000,
+        cacheCreationTokens: 500,
+      }),
+      model: 'deepseek-chat',
+    });
+
+    const table = tracker.formatCostTable('conv-1');
+    expect(table).toContain('| Cache Write |');
+    expect(table).toContain('500');
+    // 表头列数与数据行列数一致（含 Cache Write 后应为 8 列 → split('|') 得 10 段）
+    const headerLine = table.split('\n')[0];
+    expect(headerLine.split('|').length).toBe(10);
+  });
+
+  // -----------------------------------------------------------------------
   // 补充测试：deepseek-reasoner 定价
   // -----------------------------------------------------------------------
   it('should calculate cost correctly for deepseek-reasoner', () => {

@@ -79,7 +79,7 @@ const mockUserMsg = (content: string): IAIMessage => ({
   createdAt: '2026-08-14T00:00:00Z',
 });
 
-describe('needsConsent 纯函数（铁律二已移除，恒返回 false）', () => {
+describe('needsConsent 纯函数（联网闸已停用，恒 false）', () => {
   it('未允许联网 -> false', () => {
     expect(needsConsent(noConsent)).toBe(false);
   });
@@ -88,7 +88,7 @@ describe('needsConsent 纯函数（铁律二已移除，恒返回 false）', () 
     expect(needsConsent(grantedConsent)).toBe(false);
   });
 
-  it('consent 为 null -> false', () => {
+  it('consent 为 null -> false（联网闸不拦截，KB 外发闸单独把关）', () => {
     expect(needsConsent(null)).toBe(false);
   });
 });
@@ -190,19 +190,56 @@ describe('agentStore 会话状态机', () => {
     expect(s.pendingConsent).toBe(false);
   });
 
-  it('sendAgentMessage 无 consent 仍正常发送（铁律二已移除）', async () => {
-    // 铁律二已移除：consent 不再阻拦，sendAgentMessage 继续执行到 createConversation
-    // 这里只验证不会因为 consent 而提前 return
-    useAgentStore.setState({ config: remoteConfig, modelConfigs: mockModelConfigs, embeddingConfig: mockEmbeddingConfig, embeddingConnectionOk: true, searchConfig: mockSearchConfig, searchConnectionOk: true, consent: noConsent, activeMode: 'agent' });
-    // createConversation 在 mock 中返回 undefined，会导致后续逻辑报错
-    // 但我们只关心 consent 检查不会阻拦，所以用 try-catch 包裹
-    try {
-      await useAgentStore.getState().sendAgentMessage('hello');
-    } catch {
-      // 预期的 mock 不完整错误
-    }
-    // consent 检查不再阻拦
+  it('sendAgentMessage 联网闸已停用：allowNetwork=false 仍放行（不触发 pendingConsent）', async () => {
+    let streamCb: ((evt: AIStreamEvent) => void) | null = null;
+
+    (
+      window.weaveMD.ai.onStream as unknown as { mockImplementation: (fn: (...a: unknown[]) => unknown) => void }
+    ).mockImplementation(
+      (cb: unknown) => {
+        streamCb = cb as (evt: AIStreamEvent) => void;
+        return () => {
+          streamCb = null;
+        };
+      }
+    );
+
+    const emit = (evt: AIStreamEvent) => streamCb?.(evt);
+
+    vi.mocked((window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent).mockResolvedValue(
+      { success: true, data: { conversationId: CONVERSATION_ID, assistantId: 'a1', roundsUsed: 1, intent: null } }
+    );
+    vi.mocked(
+      (window.weaveMD.ai as unknown as { createConversation: ReturnType<typeof vi.fn> })
+        .createConversation
+    ).mockResolvedValue({
+      success: true,
+      data: { id: CONVERSATION_ID, userId: 'u1', mode: 'agent', summary: '', createdAt: '', updatedAt: '' },
+    });
+
+    useAgentStore.setState({
+      config: remoteConfig,
+      modelConfigs: mockModelConfigs,
+      embeddingConfig: mockEmbeddingConfig,
+      embeddingConnectionOk: true,
+      searchConfig: mockSearchConfig,
+      searchConnectionOk: true,
+      consent: noConsent,
+      useKnowledgeBase: false,
+      activeMode: 'agent',
+    });
+
+    const sendPromise = useAgentStore.getState().sendAgentMessage('hello');
+    await new Promise((r) => setTimeout(r, 0));
+
+    // 联网同意已停用：allowNetwork=false 不再是拦截条件
     expect(useAgentStore.getState().pendingConsent).toBe(false);
+    expect(
+      (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent
+    ).toHaveBeenCalled();
+
+    emit({ type: 'done', conversationId: CONVERSATION_ID });
+    await sendPromise;
   });
 
   it('sendAgentMessage 流式 chunk 累积进 streamBuffer，done 后写 assistant msg', async () => {
@@ -386,15 +423,20 @@ describe('agentStore 会话状态机', () => {
   });
 });
 
-describe('needsConsent 统一版（铁律二已移除，恒返回 false）', () => {
+describe('needsConsent 统一版（联网闸已停用，恒 false）', () => {
   it('未授权联网 -> false', () => {
     expect(needsConsent(noConsent)).toBe(false);
   });
   it('已授权联网 -> false', () => {
     expect(needsConsent(grantedConsent)).toBe(false);
   });
-  it('consent null -> false', () => {
-    expect(needsConsent(null)).toBe(false);
+  it('允许联网但未 allowSend -> false（联网闸通过；allowSend 由 KB 外发闸单独把关）', () => {
+    const allowNetworkNoSend: IAIConsent = {
+      allowNetwork: true,
+      allowSend: false,
+      consentUpdatedAt: null,
+    };
+    expect(needsConsent(allowNetworkNoSend)).toBe(false);
   });
 });
 
@@ -404,14 +446,14 @@ describe('agentStore agent 模式', () => {
     vi.clearAllMocks();
   });
 
-  it('sendAgentMessage 无 consent 仍正常发送（铁律二已移除）', async () => {
-    useAgentStore.setState({ config: remoteConfig, modelConfigs: mockModelConfigs, embeddingConfig: mockEmbeddingConfig, embeddingConnectionOk: true, searchConfig: mockSearchConfig, searchConnectionOk: true, consent: noConsent, activeMode: 'agent' });
+  it('sendAgentMessage 联网闸已停用：allowNetwork=false 且不开 KB -> 不触发 pendingConsent', async () => {
+    useAgentStore.setState({ config: remoteConfig, consent: noConsent, useKnowledgeBase: false, activeMode: 'agent' });
     await useAgentStore.getState().sendAgentMessage('帮我整理');
-    // 铁律二已移除：不再阻拦
+    // 仅 `useKnowledgeBase && !allowSend` 可触发同意层（对照用例见下一条）
     expect(useAgentStore.getState().pendingConsent).toBe(false);
   });
 
-  it('useKnowledgeBase 开启即使未 allowSend 仍正常发送（铁律二已移除）', async () => {
+  it('useKnowledgeBase 开启但未 allowSend -> pendingConsent 且不调用 runAgent', async () => {
     const allowNetworkNoSend: IAIConsent = {
       allowNetwork: true,
       allowSend: false,
@@ -424,8 +466,10 @@ describe('agentStore agent 模式', () => {
       activeMode: 'agent',
     });
     await useAgentStore.getState().sendAgentMessage('在知识库里找');
-    // 铁律二已移除：不再阻拦
-    expect(useAgentStore.getState().pendingConsent).toBe(false);
+    expect(useAgentStore.getState().pendingConsent).toBe(true);
+    expect(
+      (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent
+    ).not.toHaveBeenCalled();
   });
 
   it('sendAgentMessage API Key 未配置 -> 提示配置 key 且不调用 runAgent', async () => {
@@ -464,7 +508,69 @@ describe('agentStore agent 模式', () => {
     expect(assistantMsgs[0]?.content).toContain('Network timeout');
   });
 
-  // consent_required 测试已删除（铁律二已移除，主进程不再返回 consent_required）
+  it('sendAgentMessage 收到 runAgent consent_required -> 弹同意页并丢弃流（不静默吞掉）', async () => {
+    (
+      window.weaveMD.ai.onStream as unknown as { mockImplementation: (...a: unknown[]) => unknown }
+    ).mockImplementation(() => () => {});
+    (window.weaveMD.ai as unknown as { createConversation: ReturnType<typeof vi.fn> }).createConversation.mockResolvedValue({
+      success: true,
+      data: { id: 'agent-conv-cr', userId: 'u1', mode: 'agent', summary: '', createdAt: '', updatedAt: '' },
+    });
+    // 服务端兜底返回 consent_required（KB 外发闸共用错误码）
+    (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent.mockResolvedValue({
+      success: false,
+      code: 'consent_required',
+      message: 'Agent network consent required',
+    });
+
+    useAgentStore.setState({
+      config: remoteConfig,
+      modelConfigs: mockModelConfigs,
+      embeddingConnectionOk: true,
+      searchConnectionOk: true,
+      consent: grantedConsent,
+      useKnowledgeBase: false,
+      pendingConsent: false,
+      activeMode: 'agent',
+    });
+    const sendPromise = useAgentStore.getState().sendAgentMessage('查询');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useAgentStore.getState().pendingConsent).toBe(true);
+    expect(useAgentStore.getState().isStreaming).toBe(false);
+    await sendPromise;
+  });
+
+  it('sendAgentMessage 抛 consent_required 异常 -> pendingConsent 弹层', async () => {
+    (
+      window.weaveMD.ai.onStream as unknown as { mockImplementation: (...a: unknown[]) => unknown }
+    ).mockImplementation(() => () => {});
+    (window.weaveMD.ai as unknown as { createConversation: ReturnType<typeof vi.fn> }).createConversation.mockResolvedValue({
+      success: true,
+      data: { id: 'agent-conv-cr2', userId: 'u1', mode: 'agent', summary: '', createdAt: '', updatedAt: '' },
+    });
+    // 主进程把 consent_required 作为异常抛出（invoke reject）
+    (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent.mockRejectedValue(
+      Object.assign(new Error('Agent network consent required'), { code: 'consent_required' })
+    );
+
+    useAgentStore.setState({
+      config: remoteConfig,
+      modelConfigs: mockModelConfigs,
+      embeddingConnectionOk: true,
+      searchConnectionOk: true,
+      consent: grantedConsent,
+      useKnowledgeBase: false,
+      pendingConsent: false,
+      activeMode: 'agent',
+    });
+    const sendPromise = useAgentStore.getState().sendAgentMessage('查询');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(useAgentStore.getState().pendingConsent).toBe(true);
+    expect(useAgentStore.getState().isStreaming).toBe(false);
+    await sendPromise;
+  });
 
   it('sendAgentMessage 以 mode=agent 创建隔离会话并调用 runAgent', async () => {
     let streamCb: ((evt: IAgentStreamEvent) => void) | null = null;

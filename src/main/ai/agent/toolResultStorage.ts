@@ -5,8 +5,10 @@
 // 聚合预算控制：单轮所有结果总和超出上限时，从最大结果开始压缩。
 // ContentReplacementState：确保同一 toolCallId 在所有后续调用中返回相同替换内容。
 //
-// 阈值：保守于 Claude Code（单工具 50k → 30k，聚合 200k → 120k）
-// 因为 WeaveMD 的 CONTEXT_WINDOW = 64k tokens，需严格限制。
+// 阈值（agent-cost-optimize B3 收紧）：
+// CONTEXT_WINDOW = 64k tokens，原 30k/120k 字符单轮即可吃掉近半上下文。
+// 现收紧为 10k（≈2.5k tok）/ 40k（≈10k tok）；超限内容仍写文件不丢弃，
+// 预览带恢复路径，信息完整性不受影响。
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -16,11 +18,11 @@ import { app } from 'electron';
 // 常量
 // ---------------------------------------------------------------------------
 
-/** 单工具结果字符阈值（约 7,500 tokens）。超出后写入文件返回预览。 */
-export const MAX_SINGLE_RESULT_CHARS = 30_000;
+/** 单工具结果字符阈值（约 2,500 tokens）。超出后写入文件返回预览。 */
+export const MAX_SINGLE_RESULT_CHARS = 10_000;
 
-/** 单轮所有工具结果总和字符阈值（约 30,000 tokens）。超出后从最大结果开始压缩。 */
-export const MAX_AGGREGATE_RESULTS_CHARS = 120_000;
+/** 单轮所有工具结果总和字符阈值（约 10,000 tokens）。超出后从最大结果开始压缩。 */
+export const MAX_AGGREGATE_RESULTS_CHARS = 40_000;
 
 /** 工具结果持久化子目录（基于 userData，与 images/files 同级）。 */
 export const TOOL_RESULTS_SUBDIR = 'tool-results';
