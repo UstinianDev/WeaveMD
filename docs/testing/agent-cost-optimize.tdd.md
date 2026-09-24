@@ -1,7 +1,7 @@
 # agent-cost-optimize — TDD 证据报告（M / standard）
 
 > 创建：2026-09-23 | 档位：**M** | 强度：standard（RED → GREEN → 重构 → 覆盖率记录 → 本报告）
-> 来源：[计划](../../plan/agent-cost-optimize.plan.md) / [需求](../../requirements/agent-cost-optimize.req.md)
+> 来源：[计划](../plan/agent-cost-optimize.plan.md) / [需求](../requirements/agent-cost-optimize.req.md)
 
 ## 1. 测试范围
 
@@ -98,8 +98,8 @@ Test Files  4 passed (4)
 | 单元测试 | `npx vitest run` | **3226 passed / 0 failed**（138 文件全绿）— 基线 12 failed：consent 恢复修 2 条、队列化残留测试修复 10 条；协议分流 +8 |
 | Lint | `npm run lint` | **108 problems (0 error, 108 warnings)** — 基线 115(1 error)，已修 `db/index.ts:31`；协议分流 9 个改动文件 0 warning |
 | 构建 | `npm run build` | **exit 0** — vite build 3 段全绿 + electron-builder 产出 MSI/NSIS（曾被残留 `electron.exe` 锁 `better_sqlite3.node`，结束实例后复跑通过；协议分流后再跑仍通过） |
-| E2E | `npx playwright test` | **112 failed / 1 skipped / 20 passed（21.9m）** — 协议分流后全量复跑，失败集合与基线双向 `diff` **0 新增 / 0 消失**（见 §7） |
-| E2E（单 spec 锚点改写后） | `npx playwright test e2e/ai-agent-panel.spec.ts` | **21 passed / 14 failed（12.0m）** — 基线 4 passed / 31 failed，**净 +17**；4 条门禁复验：tsc 0 error、vitest **3226/0**（无并发干净跑）、lint **108 (0 error)**、`npx vite build` exit 0 |
+| E2E（6d 全量复跑） | `npx playwright test` | **31 failed / 1 skipped / 97 passed（7.1m，129 条）** — 全部改动落地后实测。基线（干净 HEAD）**112 failed / 20 passed（133 条）** → **failed −81、passed +77**。逐 spec：`editor-table` 7、`feedback` 5、`drag-selection-markers` 5（标题自带「当前 RED」）、`ai-agent-panel` **4（已裁定保留）**、`floating-toolbar` 2、`exit-behavior` 2、`thematic-break` 2、其余 4 个 spec 各 1 |
+| E2E（单 spec 锚点改写后） | `npx playwright test e2e/ai-agent-panel.spec.ts` | **27 passed / 4 failed（6.5m，共 31 条）** — 基线 4 passed / 35 failed（35 条），中间态 21/14，B 类处置 + 补全根因后现态 27/31，**通过数 4 → 27（+23）**；vitest 在最终代码复跑 **3226 passed / 0 failed（138 文件，exit 0）**。剩余 4 条见 §8-13 |
 
 **新增/改写测试**（consent 恢复 + 门禁修复，非本任务原范围）：`ConsentOverlay.test.tsx` +4、`consent.test.ts` +2、
 `agentStore.test.ts` +2（`consent_required` 信封/异常）并还原 3 条被 `61e8036` 反向改写的断言；
@@ -117,7 +117,7 @@ Test Files  4 passed (4)
 | `any` / `dangerouslySetInnerHTML` | ✅ 0 命中 |
 | 迁移 / 认证 / 权限 / 密钥 | ✅ 0 命中 |
 | SQL 参数化 | ✅ 改动文件不含 SQL |
-| 删除测试 | ✅ 无 `D` 条目 |
+| 删除测试 | ⚠️ 单元测试 0 删除；`git status` 无文件级 `D` 条目。**E2E 删除 4 条属用户本轮明确批准**（「删掉这 4 条（推荐）」，测试对象已完全不存在），见 §8-13 |
 | 新建文件与依赖 | ✅ plan §1.1 的 6 个新文件 + 用户单独批准的 3 个 consent 恢复文件（见 §8-9），0 新增依赖 |
 
 ## 7. 基线对照（区分「本次引入」与「既有问题」）
@@ -129,8 +129,8 @@ Test Files  4 passed (4)
 | lint problems | **108 (0 error, 108 warnings)** | 115 (1 error, 114 warnings) | **净减 7**：修掉唯一 error + consent 相关 6 个 unused-var 警告，未新增任何问题 |
 | lint 唯一 error | **已消除** | `src/main/db/index.ts:31` `no-var-requires` | 已修：加 `eslint-disable-next-line`（sqlite-vec 可选扩展动态加载的降级设计不变） |
 | `ipc.test.ts` | **32 passed / 0 failed** | 12 failed / 20 passed | **12 条全清**：2 条随 consent 恢复变绿，10 条按队列化后的真实实现重写（并修复 1 处真实回归，见 §8-10） |
-| **E2E 全量** | **112 failed / 1 skipped / 20 passed（21.9m）** | **112 failed / 1 skipped / 20 passed（23.5m）** | **逐条 0 新增 / 0 消失** — 三份日志（基线 / consent 恢复后 22.1m / 协议分流后 21.9m）失败集合规范化（去序号/时长/填充线/CR）后 `comm` 双向对比为空，`diff` 完全一致。`ai-agent-panel.spec.ts:537`/`:576`（ConsentOverlay）基线同样失败，属既有问题，归入下一任务的 E2E 根因排查 |
-| **E2E `ai-agent-panel` 单 spec** | **21 passed / 14 failed（12.0m）** | **4 passed / 31 failed** | **净 +17 通过**。17 条转 pass 全部来自「跟随产品有意演进」的锚点改写（chat 删除 / 卡片文案 / 内联 diff 收起 / FileMenu 删除 / mock 数据源，0 处产品源码改动，见 status §附3）。剩余 14 条 = **B 类 4 项疑似回归 12 条** + 既有 `@`/`/` 补全 2 条，**断言原样保留作回归证据，未擅自改写** |
+| **E2E 全量** | **31 failed / 1 skipped / 97 passed（7.1m，129 条）** | **112 failed / 1 skipped / 20 passed（23.5m，133 条）** | **failed −81、passed +77**。中途三份日志（基线 / consent 恢复后 / 协议分流后）曾做规范化 `comm` 双向对比得 0 新增 0 消失，但**日志文件未存档**，故 6d 这轮只能比聚合数与逐 spec 计数，**无法再做逐条 `comm`**。剩余 31 条中：4 条 = `ai-agent-panel` 选区改写已知失败（用户裁定保留）、5 条 = `drag-selection-markers` 标题自带「当前 RED」、1 条 = `floating-toolbar:222` 同属已移除的 AI 改写能力（一并保留），其余 21 条属**其他 spec 的既有问题，不在本任务范围** |
+| **E2E `ai-agent-panel` 单 spec** | **27 passed / 4 failed（6.5m，31 条）** | **4 passed / 31 failed（35 条）** | **通过数 4 → 27（+23）**。两轮：① 锚点改写 +17（chat 删除 / 卡片文案 / 内联 diff 收起 / FileMenu 删除 / mock 数据源，见 status §附3）；② B 类断言处置 + 补全根因 +10（删 4 条获批、4 条改走 `@文档 `、2 条补全改断言，见 status §附4），测试 35 → 31。**两轮均 0 处产品源码改动**。剩余 4 条 = 选区改写特有断言（A4/A2/A3/①），`startSelectionRewrite` 生产零调用方、无法改走 `@文档 `，**用户已裁定「保留作已知失败」**——测试原样不改不删，该段永久 4 failed |
 
 ## 8. 计划偏离记录
 
@@ -148,6 +148,7 @@ Test Files  4 passed (4)
 | 10 | **修复 10 条基线失败的 `ipc.test` 时发现并修复了一处真实回归** | AGENT_RUN 队列化后 handler 只入队、`runAgentFlow` 由 `agentTaskWorker` 执行，原测试仍按直调断言（6 条）；另 3 条断言 4 字段而实际返回 `normalizeKbSettings` 的 19 字段、1 条撞上 `skillsCache` 模块级 30s TTL 泄漏。**真实回归**：handler 把 `kbSettings` 写进 `payloadJson`，worker 的 `readTaskPayload` 却从不解析它（渲染层每次都传），合并逻辑成了死路径 —— 已把合并移入 `buildAgentDeps`（payload 显式 > 持久化 > 默认）。断言落点改为 `buildWorkerDeps`（private 方法类型断言取回），`consent_required` 前置闸改为「入队前同步拒绝且不入队」 |
 | 11 | **协议分流按「只分流非工具调用点」实施（衍生任务，L3，用户确认）** | `ai_config` 幂等补 `protocol` 列 + 激活模型配置时同步 + `IAIConfig.protocol?`（可选，缺省即 openai）+ 全仓 7 个 LLM 调用点中 **6 处三元分流**，仅 `agentLoop:270` 主循环**不分流**（Anthropic 路径无 tools 支持）。偏离点：`contextManager` 的 cache-safe fork 分支**带 tools 却仍分流** —— 压缩只读文本不消费 `tool_use`，不分流会让 anthropic 配置下压缩打错端点直接失败；openai 路径的 tools 前缀缓存优化原样保留。`IAIConfig.protocol` 由必填改可选，避免为一个可安全默认的字段改动 10+ 个测试/渲染层字面量。RED 8 failed → GREEN 全绿。详见 `status.md` §附2 |
 | 12 | **#9 恢复的联网同意闸随后被用户叫停并砍除（衍生任务，L4，用户「确认」）** | 用户指出三配置门禁已表达联网意愿、再弹同意属冗余，判定成立：`needsConsent` 改恒 `false`、渲染侧删联网闸分支、`ConsentOverlay` 只剩 `allowSend` 勾选；`allowSend` 与主进程 4 个调用点保留。断言改写涉及 `consent.test.ts` / `agentStore.test.ts` / `ConsentOverlay.test.tsx` / `e2e/ai-agent-panel.spec.ts`（E2E 新增 `agentResult.consentRequired` mock 驱动兼容路径）。详见 `status.md` §附1b |
+| 13 | **B 类 4 项 E2E 断言按用户逐项裁定处置 + `@`/`/` 补全根因修复（衍生任务，用户已裁定）** | 三组分别裁定：① KB 3 条 + intentCard 1 条 → **删除**（测试对象已完全不存在：`KnowledgeBaseSettings.tsx` 零引用、三个 KB i18n 键代码引用数 0、`intentCard` 全仓只写 null），属「明确批准才删测试」的批准项；② AI 改写 8 条 → **4 条改走 `@文档 `**（`sendRoutes.routeDocScope` → `startDocumentRewrite`，断言全保留）+ **4 条无法转换**（A4/A2/A3/① 为选区特有，`startSelectionRewrite` 生产零调用方致 `selectionContext` 恒 null）；③ `@`/`/` 2 条 → **改断言对齐现状**（第一轮「fill 不触发 suggestion」判断不成立，真根因是断言写给已退役 `CompletionMenu`：`引用`→`@ 引用`、`运行技能`→`技能`、选项改文件树；另发现菜单 `mount()` 挂 `document.body` 而非 aside）。顺带修一处被更早失败掩盖的 strict mode 缺陷（`getByRole('关闭')` 命中 3 档 → `getByLabel`）。**0 处产品源码改动**。详见 `status.md` §附4 |
 
 ## 9. 静态 A/B 实测
 
@@ -180,10 +181,24 @@ A5 单段实测：`## 回复风格` 6 条 135 字符/80 tok → 3 条 101 字符
 | chat / kbQa / web | **−最多 5,000 tok/轮**（B1 不再注入文档上下文，`DOC_CONTEXT_TOKEN_LIMIT`） | 不变（走 A 轨以外路径） |
 | 大结果轮次 | 单结果 30k→10k 字符、聚合 120k→40k 字符，最多各减 20k / 80k 字符 | 不变（超限内容落盘、预览带恢复路径） |
 
-### 9.3 未测项（需真实 LLM 调用）
+### 9.3 未测项（用户 2026-09-24 裁定挂起，不做）
 
-create/edit/delete 的**输出侧实际节省 token 数**需跑真实模型对比基线叙述长度 —— 每次运行都产生实际费用，按规范需先获批准。当前只能给出**硬上限 80 tokens**（由 A4 常量 + 提示词共同约束），不以估算冒充实测。
-B2 的**缓存命中率**同理，需真实多轮会话才能观测（S15 统计接线属计划外遗留项）。
+create/edit/delete 的**输出侧实际节省 token 数**与 B2 的**缓存命中率**均需真实 LLM 调用（产生实际费用）。
+用户 2026-09-24「按原计划」裁定**挂起不做** —— **降本改动本身已全部落地生效**，挂起的只是净额量化，不是降本功能。
+
+账面事实（已实测，日后可直接取用，无需重跑）：
+
+- 输出侧 **硬上限 80 tokens/轮**（`FILE_OP_NARRATION_TOKEN_LIMIT` 常量 + 提示词双约束，7 条单测锁死），
+  但**改前平均值未知** → 无法算出实际削减量；
+- 输入侧系统提示 **+291 tok/轮**（1,072 → 1,363，§9.1 实测）—— 是确定的**增加**；
+- → **净额符号未知**。B2 缓存断点已打（`anthropicClient.ts:243` `cache_control: ephemeral`，
+  命中按 0.1× 计价，折算约 +29 tok 价），命中率未观测（S15 统计接线属计划外遗留项）。
+
+**不依赖本节实测的静态收益**（已生效且可验证）：B1 非文件操作意图不再注入文档上下文 → 每轮最多省 5,000 tok；
+B3 工具结果阈值 30k/120k → 10k/40k；A5 回复风格 6→3 条 → -21 tok（§9.1 实测）。
+
+日后若要定符号：采 5 次新建 + 5 次删除看 `costTracker.completionTokens` 均值即可，无需跑完整 A/B。
+**不得以估算充数。**
 
 ## 10. 质量护栏核对
 

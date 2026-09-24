@@ -1,8 +1,9 @@
 // ============================================
 // WeaveMD — Top Navigation Bar
 // ============================================
-// 精简版：移除 FileMenu/HistoryMenu/MoreMenu/ExportMenu（已迁移到侧栏工具栏）。
-// 保留：HelpMenu、ViewMenu、Undo/Redo、Settings、WindowControls。
+// 精简版：移除 FileMenu/HistoryMenu/MoreMenu/ExportMenu/ViewMenu（已迁移到侧栏工具栏 / 内联按钮）。
+// 实际渲染：HelpMenu + Source 模式内联 IconButton + Undo/Redo/Save/Settings + WindowControls。
+// 注意：ViewMenu.tsx 仍留在目录里但零 import（Source 模式由本组件 :111 内联按钮承担）。
 //
 // 全局快捷键（Ctrl+N/O/S/Z/Y）已迁移至 useGlobalShortcuts 单例 hook。
 

@@ -1,6 +1,14 @@
 # Phase 1 Connectivity Validation Report
 
 > Generated: 2026-09-16 | Scope: agent-perf-optimize Phase 1 (StreamingToolExecutor + concurrencyDefs + searchCache + xxHash migration)
+>
+> ⚠️ **行号快照提示**：文中 `L416-432`、`L144-L152`、`L476-533` 等行号是 **2026-09-16 当时的代码位置**，
+> 之后的重构已使其漂移（**不要按行号去 grep 现码**）。核对请以符号名为准，现码位置：
+> `deduplicateAskQuestionCards` → `agentToolExecutor.ts`（实现）/ `agentLoop.ts`（streaming 调用）；
+> `processStreamingToolRound` → `agentLoop.ts`；`executeToolRound` → `agentToolExecutor.ts`；
+> `StreamingToolExecutor.waitForAll` → `StreamingToolExecutor.ts`；
+> 分级失效 → `searchCache.ts`；`isToolConcurrencySafe` 分区 → `agentToolExecutor.ts`。
+> 本报告的 **PASS / BROKEN 结论与链路描述仍然有效**。
 
 ---
 

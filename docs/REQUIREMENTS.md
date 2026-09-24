@@ -109,14 +109,20 @@
 | AGT-09 | 出处与跳转       | P2     | 每条回答附「[来源: 文件名 · 块]」，点击打开文档并滚动到对应块                                                                                                                                          |
 | AGT-10 | 混合检索         | P1     | RRF 三路融合（向量 + FTS5 + 标题），k=60；加权策略（当前文件/标题/时效/置顶）；段聚合（单文件 cap + 上下文扩展）                                                                                                              |
 | AGT-11 | 置顶文档         | P2     | 文件级开关，召回分 ×1.5 优先；支持置顶文档来源匹配                                                                                                                                                     |
-| AGT-12 | @ 文件创作       | P1     | @ 文件树当前目录的 .md；编辑器选区触发为主、面板内 @ + 描述兜底                                                                                                                                         |
+| AGT-12 | @ 文件创作       | P1     | @ 文件树当前目录的 .md；**触发方式为面板内 `@文档 ` / `@ + 描述`**（原「编辑器选区触发为主」入口已随选区改写链路移除，见 3.7 注）          |
 | AGT-13 | 块级精准改写     | P1     | 定向块编辑协议：AI 返回 `[{定位, 新内容}]`，仅替换目标块、其余字节不变；定位失败拒应用                                                                                                                 |
-| AGT-14 | 红删绿增预览     | P1     | diff 预览（红删绿增，可折叠，字体 15px）+ AI 改动说明；选区改写用户消息入会话；→ 用户确认后才经 stateToMarkdown 写入编辑器（作为一次可撤销编辑）                                                                                                                 |
+| AGT-14 | 红删绿增预览     | P1     | diff 预览（红删绿增，可折叠，字体 15px）+ AI 改动说明；改写指令入会话；→ 用户确认后才经 stateToMarkdown 写入编辑器（作为一次可撤销编辑）                                                         |
 | AGT-15 | 意图识别         | P1     | 5 类意图路由（创作/改写、知识库问答、技术资料、网页抓取、闲聊）；模糊 → 提问卡片（grill-me 深度拷问风，列出候选意图）；工具失败自动兜底降级                                                            |
-| AGT-16 | 上下文压缩       | P2     | token 达 80% 自动 + 可手动（/compact 命令，含描述参数）；底栏上下文指示器（绿/黄/红圆点 + token 估算 + 悬停 tooltip）；早期对话合并为「历史摘要」，保留最近 N 轮原文                                                                                                                              |
+| AGT-16 | 上下文压缩       | P2     | token 达阈值（简单 0.85 / 复杂 0.65，`getCompressThreshold`）自动压缩；上下文指示器 `ContextRing` 圆环位于 **composer 内**（非底栏），绿 <50% / 黄 50-80% / 红 >80% + token 估算 + 悬停 tooltip；早期对话合并为「历史摘要」，保留最近 **3** 轮原文。~~`/compact` 手动命令~~ **未实现，需求已移除** |
 | AGT-17 | 工具调用         | P1     | 内置工具：只读（listFiles/readFile/searchKB/context7/firecrawl/runSkill）自动执行；写（editBlocks）必经预览确认；**AI 无直接落盘能力**                                                               |
 | AGT-18 | 会话持久化       | P2     | Chat/Agent 会话各自存 SQLite，按账号隔离，含历史摘要字段；历史会话列表 + 新会话；最近会话删除（🗑 + confirm）；View All → 历史会话列表视图                                                                                                                        |
 | AGT-19 | 授权与知情同意   | P1     | 笔记外发弹知情同意页（勾选：允许笔记外发）；联网许可由 LLM/Embedding/搜索三配置门禁表达，不再单独弹联网同意；key 用 Electron safeStorage 加密存 SQLite、不落渲染进程，网络全走主进程 |
+
+> **3.7 注（2026-09-24 修订）**：AGT-12 / AGT-14 原写「编辑器选区触发**为主**」。
+> 该入口（FloatingToolbar「AI 改写」→ `readDocumentSelection` → `startSelectionRewrite`）已随 `21fedb2` 移除，
+> 全链**生产调用方归零**、`selectionContext` 恒 null，故现唯一触发路径为面板内 `@文档 ` / `@ + 描述`。
+> 对应选区改写 E2E 断言按用户裁定**保留作已知失败**（作为「该能力曾存在」的证据），
+> 见 `docs/plan/agent-cost-optimize.status.md` §附4 / §遗留。
 
 ### 3.8 知识库导入 (P1)
 
@@ -140,7 +146,7 @@
 | WC-04 | 待处理状态保留 | P1 | waiting_* 状态会话在对话历史中持久显示，含恢复/重试入口 |
 | WC-05 | 事件持久化先于推送 | P1 | agentLoop/agentTaskWorker 全部事件走 persistAndSend，刷新后可恢复 |
 | WC-06 | IndexedDB 草稿恢复 | P1 | composer 输入 300ms 防抖保存到 IndexedDB，刷新后自动恢复，按 conversationId 索引 |
-| WC-07 | 已实现模块集成 | P1 | DeadLoopDetector 替代硬编码轮次限制 + 每轮 checkpoint + 完整文件快照 + 回滚 UI |
+| WC-07 | 已实现模块集成 | P1 | DeadLoopDetector **与硬编码轮次上限并存**（`checkRoundLimit` 轮次闸 + MD5 死循环检测，`agentLoop.ts:213`）+ 每轮 checkpoint + 完整文件快照 + 回滚 UI |
 
 ### 3.10 知识库 Notus 对齐 (P1)
 

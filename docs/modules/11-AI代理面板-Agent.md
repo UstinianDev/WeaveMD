@@ -3,11 +3,12 @@
 > 模块编号：11 | 优先级：P1 | 最后更新：2026-09-18
 > 需求编号：AGT-01~19 / KB-01~05（docs/REQUIREMENTS.md 3.7 / 3.8）
 
-**子文档（渐进式披露，按需加载）：**
+**关联文档（渐进式披露，按需加载）：**
 
 | 文档 | 内容 |
 |------|------|
-| [11-Agent-历史实施.md](./11-Agent-历史实施.md) | §7 分期实施 + §8-§9 体验优化 + §10 Notus 克隆 + §11 写控制 + §12 Agentic RAG + §13 优化方案 |
+| [ai-panel-features](../specs/ai-panel-features.md) | 7 期分期实施 + 体验优化 + Notus 对齐 + 写控制 + Agentic RAG 交付记录 |
+| [ai-agent 架构](../architecture/ai-agent.md) | Agent 循环 / 工具系统 / 意图路由 / 协议分流 |
 
 > 本文档保留 §1-§6（功能概述、架构、设计决策、数据模型、模块交互、未决项）+ §7-§10（Diff 卡片系统、提问卡片系统、触发优化、Emoji 禁令）。
 
@@ -17,8 +18,8 @@
 
 右侧 AI 面板（顶部导航栏「AI」按钮开合），**仅 Agent 模式**（Chat 模式已删除）：
 
-- **Agent**：辅助创作——24+ 工具（只读/写入/交互/搜索）+ 3 内置 skills + 用户扩展 + 意图识别/提问卡片/上下文压缩/工具调用轨迹 + 知识库召回（FTS5）与出处
-- **块级改写**：编辑器选区触发 → AI 面板 composer 描述 → 红删绿增预览 → 确认 `updateContent` 入 undo 栈
+- **Agent**：辅助创作——24 个工具（5 核心 + 19 延迟；只读/写入/交互/搜索）+ 3 内置 skills + 用户扩展 + 意图识别/提问卡片/上下文压缩/工具调用轨迹 + 知识库召回（FTS5）与出处
+- **块级改写**：AI 面板 composer 输入 `@文档 ` / `@ + 描述` 触发（document scope）→ 红删绿增预览 → 确认 `updateContent` 入 undo 栈
 - **Composer 标签**：TipTap contentEditable 实现，`/skill`（蓝色 chip）和 `@file`（绿色 chip）以可视化标签渲染，支持整体选中/删除，@tiptap/suggestion 自动补全
 - **AI 标题自动编号**：渲染层自动为 h1-h4 添加编号（h1→中文数字、h2→阿拉伯、h3→层级、h4→带圈），已有编号检测跳过
 - **Agentic RAG**：所有非 chat 意图均可自主调用 searchKB（LLM 决定是否检索）
@@ -36,7 +37,7 @@ src/main/ai/                  # AI 主进程服务
 │   ├── llmClient.ts
 │   └── modelList.ts
 ├── agent/                    # Agent 核心
-│   ├── agentLoop.ts          # 函数调用循环（≤12 轮）
+│   ├── agentLoop.ts          # 函数调用循环（按意图 6~12 轮）
 │   ├── agentLoopGuard.ts     # 死循环检测
 │   ├── agentSession.ts       # 会话管理
 │   ├── agentTaskQueue.ts     # 任务队列
@@ -46,7 +47,7 @@ src/main/ai/                  # AI 主进程服务
 │   ├── kbIndexer.ts          # 导入/分块/增量重索引
 │   ├── kbSearch.ts           # FTS5 关键词召回
 │   └── embeddingClient.ts    # Embedding 客户端
-├── tools/                    # 工具处理器（24+）
+├── tools/                    # 工具处理器（24 个）
 │   ├── webSearch.ts          # 联网搜索
 │   ├── deleteLocalFile.ts    # 本地文件删除
 │   ├── previewFileRevision.ts# 全文修订预览
@@ -142,18 +143,18 @@ interface IKbSearchDiagnostics {
 ai_config(id, user_id UNIQUE, remote_base_url, model, api_key_enc, write_mode, ...)
 ai_conversations(id, user_id, mode, summary, created_at, updated_at)
 ai_messages(id, conversation_id, role, content, tool_call_id, tool_calls, created_at)
-ai_agent_events(id, session_id, conversation_id, seq, event_type, payload, created_at)
+agent_run_events(id, session_id, conversation_id, seq, event_type, payload_json, created_at)
 kb_documents(id, user_id, file_id, source_type, title, pinned, status, created_at)
-kb_chunks(id, document_id, seq, content, source_ref, created_at)
+kb_chunks(id, document_id, seq, content, vector BLOB, embedding_model, source_ref, created_at)
 kb_chunks_fts -- FTS5 虚拟表 + 触发器同步
-embeddings_vec(id, chunk_id, user_id, embedding BLOB, created_at)
+images_vec -- vec0 虚拟表（仅图片向量）
 ```
 
 ## 5. 与其他模块的交互
 
 | 模块 | 交互 |
 |------|------|
-| 编辑主区 v2 | 块级改写复用块树 + 选区触发 + updateContent 可撤销 |
+| 编辑主区 v2 | 块级改写复用块树 + 面板 `@文档 ` 触发（document scope）+ updateContent 可撤销 |
 | 文件管理 | 知识库检索账号内文件 + 保存/删除联动重嵌入 |
 | 设置界面 | AI 配置（key/联网/写模式/阈值）加入设置面板 |
 | 数据持久化 | 8+ 表 + safeStorage 加密 |
@@ -163,7 +164,7 @@ embeddings_vec(id, chunk_id, user_id, embedding BLOB, created_at)
 
 - ⚠️ **真 MCP server 管理**（context7/firecrawl）——延期
 - ⚠️ **GitHub 自取 `writing-shape` 技能**——延期
-- ✅ 其余功能均已交付（详见 [历史实施记录](./11-Agent-历史实施.md)）
+- ✅ 其余功能均已交付（详见 [交付记录](../specs/ai-panel-features.md)）
 
 ---
 

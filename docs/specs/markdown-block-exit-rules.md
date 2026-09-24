@@ -113,59 +113,25 @@ Backspace / Enter 等显式操作，规则见第 3 节。
 
 | # | 问题 | 影响 | 处置 |
 | - | ---- | ---- | ---- |
-| P1 | 列表块 `isAtContentStart` 只检查 anchor 是否为 contentSpan 的直接文本节点；内容以 strong/em/a 开头或光标在零宽空格后时误判，Backspace 无法转正文 | 格式化内容开头的列表块无法退出 | 本次修复：改用 Range 计算到内容起点的文本长度 |
-| P2 | 空结构块（标题/列表/引用）Backspace 当前直接删除整个块，与"撤销语法"语义不符 | 用户一次 Backspace 丢失整个块 | 本次修复：改为先转换正文 |
-| P3 | 代码块空内容 Backspace 无任何处理（textarea `stopPropagation`） | 空代码块无法撤销 | 本次实现 |
-| P4 | `handleBlockDelete` 删除块后不恢复光标 | 删除后焦点丢失/位置漂移 | 本次修复：焦点迁移到前块末尾 |
-| P5 | `handleBlockConvertToParagraph` 转换后光标置于内容末尾 | 与"撤销前缀"直觉不符（应保持在开头） | 本次修复：光标保持在内容起点 |
+| P1 | 仅检查 anchor 是否为 contentSpan 直接文本节点；内容以 strong/em/a 开头或光标在零宽空格后时误判，Backspace 无法转正文 | 格式化内容开头的列表块无法退出 | 已实现：改用 Range 计算到内容起点的文本长度 |
+| P2 | 空结构块（标题/列表/引用）Backspace 直接删除整个块，与"撤销语法"语义不符 | 用户一次 Backspace 丢失整个块 | 已实现：改为先转换正文 |
+| P3 | 代码块空内容 Backspace 无任何处理 | 空代码块无法撤销 | 已实现 |
+| P4 | 删除块后不恢复光标 | 删除后焦点丢失/位置漂移 | 已实现：焦点迁移到前块末尾 |
+| P5 | 转换为段落后光标置于内容末尾 | 与"撤销前缀"直觉不符（应保持在开头） | 已实现：光标保持在内容起点 |
 | P6 | 任务列表复选框无点击切换逻辑（渲染"可打勾"但无交互） | 与需求"⭕(可打勾)"描述有出入 | 记录为后续任务，不在本规范范围 |
 | P7 | 代码块后的段落有 `protectedAfterCodeFence` 保护，Backspace 被完全拦截 | 空代码块位于文档中部时，其后的段落 Backspace 无响应（属既有保护语义） | 保留现状，文档记录 |
 | P8 | pending 阶段删除前缀不进入 undo 栈 | 撤销无法恢复已删除的前缀字符 | 与现有"逐字输入不进 undo"一致，接受 |
 
-## 6. 实现方案
+## 6. 现行实现
 
-### 6.1 改动文件
+§1–§5 的六条退出规则即现行规范（CLAUDE.md「前缀即时转换」条目引用本文档）。
 
-| 文件 | 改动 |
+| 项 | 位置 |
 | ---- | ---- |
-| `src/render/components/Editor/EditorScrollContainer.tsx` | 修复 `isAtContentStart`；抽取 `resolveBackspaceAction` 纯函数并调整 Backspace 分发顺序 |
-| `src/render/components/Editor/blocks/CodeFenceBlock.tsx` | textarea 空内容 Backspace 触发 `onDeleteBlock` |
-| `src/render/components/Editor/BlockRenderer.tsx` | 透传 `onDeleteBlock` |
-| `src/render/components/Editor/EditorView.tsx` | `handleBlockDelete` 增加焦点迁移；`handleBlockConvertToParagraph` 光标保持在起点；新增唯一代码块转空段落处理 |
-| `tests/` | 补充 Backspace 决策、代码块空退、行检测测试 |
+| 退格入口（含 §4 分发顺序） | `src/render/editor/controllers/backspaceCtrl.ts` → `handleBackspaceAtStart` |
+| 空代码块退格（§3.5） | 同文件「空代码块退格：删除代码块，光标移到前一块末尾（无前块则下一块开头；唯一块转空段落）」 |
+| 代码块后空段落保护 | 同文件（前块为代码块/图片块/分割线/表格时，段落 Backspace 不合并、不删除） |
+| 前缀检测（§1 各语法） | `src/render/editor/kernel/markdownSyntax.ts`（正则全含 `U+00A0`）+ `blockDetection.ts` |
+| 测试 | `tests/editor/controllers/controllers.test.ts`（空代码块退格 / 纯空白代码块 / 代码块后空段落受保护 / 空代码块回车退出） |
 
-### 6.2 风险等级
-
-L3（编辑器核心交互逻辑修改）。已由用户授权自主实现；改动集中在 Normal Mode
-Backspace/Enter 分发与光标管理，不影响数据模型与序列化格式。
-
-### 6.3 验收标准
-
-- 六种块类型均可按第 3 节规则退出为正文，内容不丢失。
-- 空结构块 Backspace 先撤销语法、再删除块（两次操作）。
-- 代码块空内容 Backspace 可撤销；唯一代码块转为空正文块。
-- 删除/转换后光标位置正确。
-- 新增测试通过，`tsc --noEmit` 无错误。
-
-## 7. 实现记录与测试结果
-
-### 7.1 已实现（2026-08-05）
-
-- `resolveBackspaceAction` 纯函数统一定义容器 Backspace 分发优先级；代码块被显式排除，
-  由其 textarea 独立处理。
-- 空结构块（标题/列表/引用）Backspace 由"删除块"改为"撤销语法转正文"（规范 4 节顺序 2/3）。
-- 代码块 textarea 空内容 Backspace → 撤销代码块；唯一代码块转为空正文块。
-- `handleBlockDelete` 删除后光标迁移到前块末尾（无前块则后块开头），修复删除后焦点丢失。
-- `handleBlockConvertToParagraph` 转换后光标保持在内容起点。
-- 列表块 `isAtContentStart` 改为 Range 文本长度判定，兼容格式化节点开头与零宽空格。
-
-### 7.2 测试结果
-
-- 新增 `tests/components/editorScrollContainerExitRules.test.ts`（6 例）：覆盖 protected、
-  结构块转换、空段落删除、浏览器默认、代码块排除。
-- `tests/components/CodeFenceBlock.test.tsx` 新增 2 例：空 textarea Backspace 触发
-  `onDeleteBlock`；非空 textarea 不触发。
-- 全量 `vitest run`：16 个文件 / 189 个测试全部通过。
-- `tsc --noEmit`：无错误。
-- ESLint：本次改动 0 error；遗留 1 个既有 warning（`EditorView` handleBlockEnter 依赖数组
-  缺 `getPrefixLength`，该回调为空依赖稳定函数，无实际影响，留待后续清理）。
+**测试基线**：全量 `vitest run` **138 文件 / 3226 测试全绿**（2026-09-24 实测，见 `docs/testing/agent-cost-optimize.tdd.md` §6）；`tsc --noEmit` 0 error。

@@ -1,6 +1,6 @@
 # agent-ux-optimize — 实施计划
 
-> 生成：2026-09-14 | 基于：[需求文档](../requirements/agent-ux-optimize.req.md) | 定档：L
+> 生成：2026-09-14 | 基于：[需求文档](../../requirements/archive/agent-ux-optimize.req.md) | 定档：L
 
 ---
 

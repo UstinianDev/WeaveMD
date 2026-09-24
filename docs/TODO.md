@@ -1,8 +1,27 @@
 # TODO
 
-> 最后更新：2026-09-18
+> 最后更新：2026-09-24
 
 ## 已完成
+
+### agent-cost-optimize（2026-09-23 ~ 2026-09-24）
+
+M 级 Agent 成本降低优化，A 轨叙述精简 + B 轨缓存/预算，全量交付；衍生任务含 consent 闸调整、协议分流接线、E2E 断言处置。
+
+| 轨 | 任务 | 核心交付 |
+|----|------|---------|
+| A | 文件操作叙述精简 A1-A5 | `FILE_OP_NARRATION_TOKEN_LIMIT=80` + `## 文件操作后的回复`/`## 写入规则`/`## 回复风格`/`## 回答格式` 四段改写（系统提示 1,072→1,363 tok） |
+| B | B1 文档上下文门控 | 非文件操作意图不注入文档上下文（chat/kbQa/web 每轮最多省 5,000 tok） |
+| B | B2 Anthropic 缓存断点 | system 末块 `cache_control: ephemeral` + usage 五字段解析；6 处非工具调用点协议分流（`ai_config.protocol`） |
+| B | B3 结果预算收紧 | 单结果 30k→10k、聚合 120k→40k 字符，超限落盘带恢复路径 |
+| B | B4 缓存折扣计费 | `costTracker` 扣减 `cacheRead`/`cacheWrite` + 0.1×/1.25× 分列计价 |
+| 衍生 | consent 铁律二调整 | 联网同意闸停用（`needsConsent` 恒 false），仅存笔记外发闸 `allowSend`；`ConsentOverlay` 单勾选 |
+| 衍生 | E2E 断言处置 | 单 spec **4/35 → 27/31**；删 4 条（对象已不存在）+ 4 条改走 `@文档 ` + 2 条补全改断言 + 4 条选区断言保留作已知失败 |
+
+**门禁**：tsc 0 error / vitest **3226 passed 0 failed** / lint **108 (0 error)** / `vite build` exit 0 / E2E 全量 **31 failed 97 passed**（基线 112/20）。
+付费 LLM 实测净额**用户裁定挂起**（降本改动已生效，挂起的只是量化）。
+
+> 详见 [agent-cost-optimize 状态](./plan/agent-cost-optimize.status.md) / [TDD 报告](./testing/agent-cost-optimize.tdd.md)
 
 ### agent-md-kb-optimize（2026-09-18）
 
@@ -68,7 +87,7 @@ L 级 UX 优化，7 子任务 + 触发路径修复 + UI 美化，全量交付。
 
 ### 四模块全局重构（2026-09-13）
 
-L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/refactor-export-editor-outline-navbar.status.md)。
+L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/archive/refactor-export-editor-outline-navbar.status.md)。
 
 | 阶段 | 范围 | 核心 |
 |------|------|------|
@@ -129,7 +148,7 @@ L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/re
 | 🔲 | 真 MCP server 管理 | 外部 MCP server 注册与生命周期管理 |
 | 🔲 | pdf/docx 知识库导入 | 非 Markdown 格式文档直接导入知识库 |
 | 🔲 | `classifyIntent` 接入 searchKB 主管线 | queryPlanner 意图分类未接入 kbSearch 搜索管线 |
-| 🔲 | `ipc.test.ts` 12 个预存测试修复 | handler 实现变更（consent 移除 / taskQueue 异步入队）导致测试不同步 |
+| 🔲 | 选区改写入口是否恢复 | `startSelectionRewrite` 生产零调用方，4 条 E2E 断言保留作已知失败（见 status §附4） |
 
 ## 已知问题
 
@@ -137,7 +156,7 @@ L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/re
 |------|------|
 | v2 Normal 模式无查找高亮 | 编辑主区（Normal 模式） |
 | 撤销/重做后光标回到重建树首块 | 编辑主区（撤销/重做操作） |
-| 5 个既有 E2E 红（drag-selection-markers.spec.ts） | E2E 测试套件 |
 | 段落级 MD Source 视图未迁移 | 编辑主区（Source 模式） |
-| `ipc.test.ts` 12 个预存测试失败 | CI 容忍，handler 变更（consent 移除 / taskQueue）导致不同步 |
 | `classifyIntent` 未接入 searchKB 主管线 | queryPlanner 意图分类与 kbSearch 独立运行 |
+| E2E 全量 31 failed（基线 112） | 其中 **10 条为已知/预期失败**：`ai-agent-panel` 4 条选区改写（保留作证据）+ `drag-selection-markers` 5 条（标题自带「当前 RED」）+ `floating-toolbar:222` 1 条（同属已移除的 AI 改写能力）；**其余 21 条属其他 spec 的既有问题**，不在 agent-cost-optimize 范围 |
+| 选区改写链路零 E2E 覆盖 | document scope 的预览/应用/撤销/stale/unchanged/失败条已覆盖；选区侧因 `startSelectionRewrite` 无调用方而不可测 |

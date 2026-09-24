@@ -18,9 +18,14 @@
 
 ## 1. 背景与目标
 
-### 1.1 现状问题（代码审查结论）
+### 1.1 v1 现状问题（2026-08-05 v2 重做前的代码审查结论）
 
-对 `src/render/components/Editor/` 与 `src/render/services/` 的全面审查，确认当前编辑主区
+> ⚠️ **本表描述的是 v1 编辑器**，是发起 v2 重做的动机，**不是当前状态**。
+> v2 已于 `editor-v2-progress.md` §13 实施完成并成为唯一路径（v1 组件见 §13「v1 回退退役」删除清单），
+> 表中 `CodeFenceBlock.tsx` / `FloatingToolbarWYSIWYG.tsx` / `EditorScrollContainer.tsx` / `BlockRenderer.tsx`
+> 等文件**均已删除**。证据列仅供追溯，读者无需去源码里找它们。
+
+对 `src/render/components/Editor/` 与 `src/render/services/` 的全面审查，确认 v1 编辑主区
 存在以下结构性问题：
 
 | #   | 问题                                                                                                                               | 证据                                                                                | 影响                                                                                                                                   |

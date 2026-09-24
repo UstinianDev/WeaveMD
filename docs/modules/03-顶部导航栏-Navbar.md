@@ -1,24 +1,27 @@
 # 03 — 顶部导航栏
 
-> 最后更新：2026-09-06
+> 最后更新：2026-09-24
 
 ## 做什么
 
-应用主界面顶部导航栏：应用 Logo、编辑器/AI 面板切换、帮助/视图菜单、撤销/重做/保存、设置、窗口控制。
+应用主界面顶部导航栏：应用 Logo、编辑器/AI 面板切换、Source 模式切换、帮助菜单、撤销/重做/保存、设置、窗口控制。
 
 ## 架构
 
 ```
 src/render/components/Navbar/
-├── TopBar.tsx           ← 导航栏主组件（布局 + 快捷键）
-├── HelpMenu.tsx         ← 帮助菜单（反馈 / 更新 / 版本）— 图标触发器
-├── ViewMenu.tsx         ← 视图菜单（Source Code Mode）— 图标触发器
-├── NavMenu.tsx          ← 菜单包装器（支持文字/图标两种触发器）
+├── TopBar.tsx           ← 导航栏主组件
+│                           渲染：Logo / 收起编辑器 / AI 面板 / Source 模式（内联 IconButton）
+│                                 / HelpMenu / 撤销 / 重做 / 保存 / 设置 / WindowControls
+├── HelpMenu.tsx         ← 帮助菜单（反馈 / 检查更新 / 版本）
 ├── WindowControls.tsx   ← 窗口控制（Min/Max/Close）
-└── ExportMenu.tsx       ← 导出菜单（8 格式）
+├── NavMenu.tsx          ← 菜单包装器（HelpMenu 复用）
+└── CreatePanel.tsx      ← 新建文件/文件夹弹窗（被 OutlinePanel 复用）
 
 src/render/components/Editor/panels/
-└── FindReplaceBar.tsx   ← 查找替换 inline bar
+├── SidebarToolbar.tsx   ← 目录区工具栏：搜索 + 导入 + 导出 + 新建文件/文件夹
+├── FindReplaceBar.tsx   ← 查找替换 inline bar（Ctrl+F）
+└── HistoryPanel.tsx     ← 编辑历史面板（宽度可拖拽）
 ```
 
 ## 3. 实现逻辑流程
@@ -29,12 +32,12 @@ src/render/components/Editor/panels/
 ┌─────────────────────────────────────────────────────────────────┐
 │ 左侧区域 (no-drag)                     右侧区域 (no-drag)       │
 │                                                                 │
-│  📔 │ ⊟ │ 🤖 │ ❓ │ 👁         ↶ 撤销  ↷ 重做  💾 保存  ⚙ │ ─ □ ✕│
+│  📔 │ ⊟ │ 🤖 │ 👁 │ ❓         ↶ 撤销  ↷ 重做  💾 保存  ⚙ │ ─ □ ✕│
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-- 左侧：Logo、收起编辑器、AI 面板切换、帮助菜单、视图菜单
+- 左侧：Logo、收起编辑器、AI 面板切换、**Source/Rich 模式切换（内联 IconButton）**、帮助菜单
 - 右侧：撤销、重做、**保存（Ctrl+S）**、设置、窗口控制
 
 - 高度：`h-12`（48px），`flex-shrink-0`
@@ -43,73 +46,55 @@ src/render/components/Editor/panels/
 
 ### 3.2 快捷键系统
 
-`TopBar` 组件实现了全局快捷键处理：
+快捷键**不在 TopBar 内监听**，统一由 `src/render/hooks/useGlobalShortcuts.ts` 模块级单例 listener 承担
+（合并原 TopBar 与 EditorView 两处 keydown，避免双 listener 重复触发；含 `shouldIgnoreGlobalShortcutTarget`
+目标过滤，普通输入框内不拦截）。
 
-```typescript
-// 快捷键映射
-type ShortcutAction = 'new-file' | 'open-file' | 'undo' | 'redo' | 'save' | null;
+| 快捷键 | 动作 | 回调来源 |
+|--------|------|---------|
+| `Ctrl+F` | 查找替换 | hook 内部（`uiStore.toggleFindReplace`） |
+| `Ctrl+`` ` | 切换 Source 模式 | hook 内部（`uiStore.toggleSourceCodeMode`） |
+| `Ctrl+N` | 新建文件 | `TopBar.tsx:59` 传入 `onNewFile` → `useNavbarActions.handleNewFile` |
+| `Ctrl+O` | 打开文件 | `TopBar.tsx:59` 传入 `onOpenFile` → `handleOpenFile` |
+| `Ctrl+S` | 保存 | `TopBar.tsx:59` 传入 `onSave` → `handleSave`（带 saving 状态） |
+| `Ctrl+Z` | 撤销（先 flush 草稿） | hook 内部 |
+| `Ctrl+Y` / `Ctrl+Shift+Z` | 重做 | hook 内部 |
 
-function getShortcutAction(event: KeyboardEvent): ShortcutAction {
-  const isCtrl = event.ctrlKey || event.metaKey;
-  if (isCtrl && event.key === 'n') return 'new-file';
-  if (isCtrl && event.key === 'o') return 'open-file';
-  if (isCtrl && event.key === 'z') return 'undo';
-  if ((isCtrl && event.key === 'y') || (isCtrl && event.shiftKey && event.key === 'z'))
-    return 'redo';
-  if (isCtrl && event.key === 's') return 'save';
-  return null;
-}
-```
+调用方两处：`TopBar.tsx:59 useGlobalShortcuts({onSave, onOpenFile, onNewFile})`、
+`EditorView.tsx:45 useGlobalShortcuts()`（无参，Ctrl+F/`/Z/Y 仍生效）。
 
-### 3.3 菜单功能详解
+### 3.3 菜单与功能入口
 
-#### File 菜单
-
-| 菜单项      | 快捷键   | 实现逻辑                                                                                                                   |
-| ----------- | -------- | -------------------------------------------------------------------------------------------------------------------------- |
-| New File    | `Ctrl+N` | 打开 CreateDialog 弹窗（选位置+填名称，文件自动加 .md 后缀，空名提示不退出）→ `file:write` 写磁盘 → `openFile` + `addFile` |
-| Open File   | `Ctrl+O` | 调用 `dialog:open-file` IPC → 用磁盘路径作 file ID → `openFile` + `addFile` 到侧栏                                         |
-| Delete File | -        | 确认弹框 → 调用 `file:delete-disk` 删磁盘 → `removeFileFromEverywhere` 清列表 → `closeFile` 显示空状态                     |
-| Close       | -        | 先 `saveCurrentDraftIfNeeded()`（如脏数据）→ `editorStore.closeFile()`                                                                              |
+导航栏上只有 **Help 一个菜单**；新建/打开/删除/导出/历史/源码模式等入口分布在侧栏工具栏、全局快捷键与文件树。
 
 #### Help 菜单
 
 | 菜单项   | 实现逻辑                                         |
 | -------- | ------------------------------------------------ |
-| Settings | `uiStore.openModal('settings')` → 打开设置模态框 |
-| Version  | 显示 `v1.1`（来自 `APP_VERSION` 常量）           |
+| 反馈     | `FeedbackModal`（`feedbackOpen` state）          |
+| 检查更新 | `electron-updater`（可用/下载/安装/跳过状态机）  |
+| Settings | `uiStore.toggleSettings()` → 全局 UnifiedSettings |
+| Version  | `window.weaveMD.version`（IPC `app:get-version` → 主进程 `app.getVersion()`）替换 `Version {version}` 占位符 |
 
-#### History 菜单
+#### 其余功能入口
 
-| 菜单项       | 实现逻辑                                                 |
-| ------------ | -------------------------------------------------------- |
-| 文件列表     | 从 `historyStore.files` 读取当前用户文件列表（升序排列） |
-| Manage Files | `uiStore.toggleHistoryPanel()` → 打开历史面板            |
+| 功能 | 入口 |
+|------|------|
+| 新建文件 / 文件夹 | `SidebarToolbar` → `<CreatePanel>`；快捷键 `Ctrl+N` |
+| 打开文件 | 快捷键 `Ctrl+O` → `useNavbarActions.handleOpenFile` |
+| 删除文件 / 文件夹 | 文件树右键 → `handleDeleteFile` / `handleDeleteFolder` |
+| 导出 | `SidebarToolbar` 导出下拉 → `handleExport` |
+| 源码模式 | TopBar 内联 IconButton；快捷键 `` Ctrl+` `` |
+| 查找替换 | 快捷键 `Ctrl+F` → EditorView 内联 `FindReplaceBar` |
+| 编辑历史 | 文件树入口 → `HistoryPanel`（宽度可拖拽，最小 200px） |
 
-#### View 菜单
+#### Find & Replace（inline bar）
 
-| 菜单项           | 快捷键     | 实现逻辑                                           |
-| ---------------- | ---------- | -------------------------------------------------- |
-| Source Code Mode | `Ctrl+`` ` | `uiStore.toggleSourceCodeMode()` → EditorView 切换 |
-
-#### 更多菜单 (⋮)
-
-| 菜单项         | 优先级 | 说明                                                                                                                                                           |
-| -------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Find & Replace | P0     | `uiStore.toggleFindReplace()` → EditorView 内 FindReplaceBar                                                                                                   |
-| Edit History   | P1     | `uiStore.toggleHistoryPanel()` → HistoryPanel 滑出；宽度可拖拽调整（最小 200px，无上限，持久化）                                                               |
-| 新建文件夹     | P1     | 打开 CreateDialog 弹窗（folder 模式）→ `folder.createFolder` → `loadFolderContents`                                                                            |
-| 打开文件夹     | P1     | `dialog.openFolder()` → `folder.readFolder(path)` 递归扫描 .md → `fileTreeStore.loadFolderContents` 构建层级树                                                 |
-| 删除文件夹     | P1     | `getSelectedFolder()` 从侧栏获取选中文件夹（递归搜索）→ 非文件夹提示 → `folder.deleteFolder` 删磁盘 → `removeFolder` 清列表 → 当前文件在文件夹内则 `closeFile` |
-
-**Find & Replace（Typora 风格 inline bar）：**
-
-查找替换不再使用居中模态弹窗，改为 EditorView 内部的内联栏（`FindReplaceBar.tsx`），渲染在编辑器流式布局内。两种编辑器模式（Normal / Source Code）均可用。
+不用模态弹窗，改为 EditorView 内部内联栏（`FindReplaceBar.tsx`），Normal / Source 两种模式均可用。
 
 - **布局**：EditorView 顶部 slide-down 动画栏，不阻断编辑区
 - **引擎**：`src/render/services/searchEngine.ts` — `findAllMatches`、`replaceAll`、`validateRegex`
 - **功能**：查找/替换双 tab、大小写 (Aa)、全词 (W)、正则 (.*)、◀▶ 导航、匹配预览（黄色高亮）、全部替换
-- **打开方式**：`Ctrl+F`（EditorView 快捷键）或 More → Find & Replace
 - **状态**：`uiStore.isFindReplaceOpen` — TopBar 和 EditorView 共享
 - **IME 兼容**：非受控输入 + `isComposing` 守卫；动画仅 opacity（无 transform）
 
@@ -130,16 +115,19 @@ function getShortcutAction(event: KeyboardEvent): ShortcutAction {
 ### 4.1 组件状态
 
 ```typescript
-// TopBar 组件状态
-const [isLoading, setIsLoading] = useState(false);
-const [errorMessage, setErrorMessage] = useState('');
+// TopBar 本地 state（实际仅 2 个）
+const [feedbackOpen, setFeedbackOpen] = useState(false);
+const [saving, setSaving] = useState(false);
 
 // 从 Zustand stores 获取的状态
-const user = useAuthStore((s) => s.user);
-const currentFile = useEditorStore((s) => s.currentFile);
+const isDirty = useEditorStore((s) => s.isDirty);
+const saveFile = useEditorStore((s) => s.saveFile);
+const isSourceCodeMode = useUIStore((s) => s.isSourceCodeMode);
 const undoStack = useEditorStore((s) => s.undoStack);
 const redoStack = useEditorStore((s) => s.redoStack);
-const files = useHistoryStore((s) => s.files);
+
+// isLoading / errorMessage 来自 useNavbarActions 解构（非 useState）
+const { isLoading, errorMessage, handleNewFile, handleOpenFile, handleSave, ... } = useNavbarActions();
 ```
 
 ### 4.2 菜单样式
@@ -165,7 +153,7 @@ const files = useHistoryStore((s) => s.files);
   background: #2d2d2d;
 }
 
-/* 菜单触发器（文件/帮助/历史/视图/导出/更多 6 个菜单统一） */
+/* 菜单触发器（原 6 个菜单统一，现仅 HelpMenu 使用） */
 .navbar-menu-trigger {
   font-size: 15px;
   letter-spacing: 0.06em;
@@ -195,30 +183,34 @@ const files = useHistoryStore((s) => s.files);
 
 ### 4.5 文件操作流程
 
-**New File 流程：**
+> 触发源：`Ctrl+N/O`（`useGlobalShortcuts` → `useNavbarActions`）、`SidebarToolbar`（导入/导出/新建）
+> 与文件树右键。**IPC 通道名与处理逻辑见 `src/shared/constants.ts`**；
+> 新建弹窗组件为 `Navbar/CreatePanel.tsx`（被 `Editor/panels/OutlinePanel.tsx` 复用）。
+
+**New File 流程（触发：`Ctrl+N` / `SidebarToolbar` 新建按钮）：**
 
 ```
-用户点击 New File
-  → 打开 CreateDialog 弹窗（选位置+填名称，文件自动加 .md 后缀，空名提示不退出）
+handleNewFile (useNavbarActions:75)
+  → dialog.saveFilePath 取路径（自动补 .md）
   → IPC: file:write(filePath, content)
   → editorStore.openFile({ id: path, name, content }) + fileTreeStore.addFile
   → 编辑器加载空内容
 ```
 
-**Open File 流程：**
+**Open File 流程（触发：`Ctrl+O` / 文件树）：**
 
 ```
-用户点击 Open File
+handleOpenFile (useNavbarActions:109)
   → IPC: dialog:open-file
   → 系统文件对话框（过滤 .md 文件）
   → 用磁盘路径作 file ID
-  → editorStore.openFile({ id: path, name, content }) + fileTreeStore.addFile 到侧栏
+  → editorStore.openFile(...) + fileTreeStore.addFile 到侧栏
 ```
 
-**Delete File 流程：**
+**Delete File 流程（触发：文件树右键）：**
 
 ```
-用户点击 Delete File
+handleDeleteFile (useNavbarActions:137)
   → 确认弹框（"确定删除此文件？"）
   → IPC: file:delete-disk(filePath)
   → 主进程: fs.unlinkSync(filePath) 删磁盘
@@ -226,11 +218,11 @@ const files = useHistoryStore((s) => s.files);
   → editorStore.closeFile() 显示空状态
 ```
 
-**Create Folder 流程：**
+**Create Folder 流程（触发：`SidebarToolbar` 新建文件夹）：**
 
 ```
-用户点击更多菜单"新建文件夹"
-  → 打开 CreateDialog 弹窗（folder 模式，选父路径+填名称）
+handleNewFolder (useNavbarActions:159)
+  → <CreatePanel type="folder">（Navbar/CreatePanel.tsx）
   → IPC: folder:create(parentPath, folderName)
   → 主进程: fs.mkdirSync 创建磁盘文件夹
   → fileTreeStore.loadFolderContents 刷新文件树
@@ -250,10 +242,11 @@ const files = useHistoryStore((s) => s.files);
 ## 6. 关键设计决策
 
 1. **无边框窗口**：导航栏顶部区域作为窗口拖拽区域，菜单和按钮使用 `no-drag` 排除
-2. **全局快捷键**：在 TopBar 组件中监听键盘事件，实现 `Ctrl+N/O/Z/Y` 快捷键
+2. **全局快捷键**：统一收敛到 `useGlobalShortcuts` 模块级单例 listener（合并原 TopBar/EditorView 两处 keydown），
+   TopBar 只通过 `useGlobalShortcuts({onSave, onOpenFile, onNewFile})` 注入回调
 3. **自动保存**：关闭窗口时通过 `before-quit` 事件自动保存，无需手动保存按钮
-4. **菜单分层**：File/Help/History/View 四个主菜单 + 更多菜单 (⋮)，按功能域划分
+4. **菜单收敛**：导航栏只保留 HelpMenu，文件/历史/导出/源码/查找等功能入口分布在 `SidebarToolbar`、`useGlobalShortcuts` 与文件树
 5. **账号标签**：导航栏显示当前账号，提供快速切换入口
-6. **View 菜单**：Source Code Mode 切换通过 `uiStore.isSourceCodeMode` 状态共享，EditorView 和 TopBar 均可触发
-7. **Find & Replace inline**：不再使用模态弹窗，改为 EditorView 内联栏（`uiStore.isFindReplaceOpen`），避免 IME 焦点转移问题
-8. **i18n 全覆盖**：TopBar + 6 个菜单组件（FileMenu/HelpMenu/HistoryMenu/ViewMenu/MoreMenu）+ WindowControls 全部接入 `useI18n`；品牌名 "WeaveMD" 与 emoji 图标保持硬编码；Version 项用 `{version}` 占位符替换
+6. **Source 模式切换**：通过 `uiStore.isSourceCodeMode` 状态共享，EditorView 与 TopBar 内联 IconButton 均可触发
+7. **Find & Replace inline**：不用模态弹窗，改为 EditorView 内联栏（`uiStore.isFindReplaceOpen`），避免 IME 焦点转移问题
+8. **i18n 全覆盖**：TopBar + HelpMenu + WindowControls 接入 `useI18n`；品牌名 "WeaveMD" 与 emoji 图标保持硬编码；Version 项用 `{version}` 占位符替换

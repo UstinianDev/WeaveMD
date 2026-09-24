@@ -73,10 +73,12 @@ npm run build
 - [REQUIREMENTS](./REQUIREMENTS.md) — 功能需求文档
 - [TODO](./TODO.md) — 功能进度与已知问题
 - [CONTRIBUTING](./CONTRIBUTING.md) — 文档编写规范（渐进式披露、命名规范、更新流程）
+- [architecture/](./architecture/) — 按技术层分类（10 篇：前端/编辑器/后端/AI/知识库/数据库/IPC/安全/测试/构建）
 - [modules/](./modules/) — 各模块详细文档（11 个模块）
-- [specs/](./specs/) — 编辑主区 v2 规格与实施记录
-- [testing/](./testing/) — TDD 测试报告
-- [plan/](./plan/) — 实施计划与状态
+- [specs/](./specs/) — 编辑主区 v2 规格与实施记录（14 篇）
+- [requirements/](./requirements/) — devflow 需求文档（当前 3 篇 + archive 12 篇）
+- [testing/](./testing/) — TDD 测试报告（7 篇）
+- [plan/](./plan/) — 实施计划与状态（当前 8 篇 + archive 32 篇）
 - [guide/packaging](./guide/packaging.md) — 打包与发布指南
 
 ### 查阅规则
@@ -86,8 +88,10 @@ npm run build
 - 功能需求、验收标准 → REQUIREMENTS.md
 - 功能进度、已知问题 → TODO.md
 - 文档编写规范 → CONTRIBUTING.md
+- 架构、技术层实现 → docs/architecture/{层}.md
 - 模块实现细节 → docs/modules/{模块名}.md
-- 编辑主区规格 → docs/specs/
+- 编辑主区/AI 面板规格 → docs/specs/
 - 测试证据 → docs/testing/
 - 实施计划 → docs/plan/
 - 打包发布 → docs/guide/packaging.md
+- **全部文档索引 → [SUMMARY.md](./SUMMARY.md)**

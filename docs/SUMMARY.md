@@ -1,6 +1,6 @@
 # WeaveMD 文档索引
 
-> 最后更新：2026-09-18
+> 最后更新：2026-09-24
 
 ## 核心文档
 
@@ -21,7 +21,7 @@
 | [backend](./architecture/backend.md) | 主进程架构（Electron/AI/IPC/工具系统） |
 | [ai-agent](./architecture/ai-agent.md) | AI/Agent 系统（循环/工具/意图/写控制/Composer标签化/标题编号） |
 | [knowledge](./architecture/knowledge.md) | 知识库系统（FTS5索引/BM25搜索/HyDE/Agentic RAG） |
-| [database](./architecture/database.md) | 数据库架构（SQLite/better-sqlite3/16+表/FTS5） |
+| [database](./architecture/database.md) | 数据库架构（SQLite/better-sqlite3/25 表：22 实表 + 3 虚拟表/FTS5/vec0） |
 | [ipc](./architecture/ipc.md) | IPC 通信机制（contextBridge/80+通道/9组/事件持久化） |
 | [security](./architecture/security.md) | 安全架构（JWT/bcrypt/safeStorage/参数化查询） |
 | [testing](./architecture/testing.md) | 测试架构（Vitest/Playwright/TDD/质量门禁） |
@@ -37,7 +37,7 @@
 | [04-编辑主区](./modules/04-编辑主区-Editor.md) | v2 块树内核 + Outline 统一 + 浮动工具栏 |
 | [05-设置界面](./modules/05-设置界面-Settings.md) | UnifiedSettings 8 Tab + 主题系统 |
 | [06-窗口控制](./modules/06-窗口控制-Window.md) | Frameless 窗口 + 自动更新 |
-| [07-数据持久化层](./modules/07-数据持久化层-Database.md) | SQLite 16+ 表 + FTS5 |
+| [07-数据持久化层](./modules/07-数据持久化层-Database.md) | SQLite 25 表（22 实表 + 3 虚拟表）+ FTS5 + vec0 |
 | [08-IPC通信机制](./modules/08-IPC通信机制.md) | 80+ 通道（9 组）+ 事件持久化 |
 | [09-国际化](./modules/09-国际化-i18n.md) | 中文简繁 + 英文（三语言） |
 | [10-导出功能](./modules/10-导出功能-Export.md) | 8 格式导出（md/html/pdf/docx/...） |
@@ -70,6 +70,7 @@
 |------|------|
 | [agent-md-kb-optimize.req](./requirements/agent-md-kb-optimize.req.md) | 跨层优化需求（6 子任务：CommonMark 测试 / 正则统一 / KB 可观测性 / 并行化 / 代码去重 / 工具重发） |
 | [agent-perf-optimize.req](./requirements/agent-perf-optimize.req.md) | Agent 性能优化需求（17 子任务：流式推测执行 / 工具延迟 / Prompt 缓存 / KB 缓存 / 监控） |
+| [agent-cost-optimize.req](./requirements/agent-cost-optimize.req.md) | Agent 成本降低需求（A 轨叙述精简 A1-A5 + B 轨缓存/预算 B1-B4 + 质量护栏豁免清单） |
 
 ### 历史（`docs/requirements/archive/`）
 
@@ -87,6 +88,8 @@
 | [agent-perf-optimize.phase2.plan](./plan/agent-perf-optimize.phase2.plan.md) | Agent 性能优化阶段 2 计划 |
 | [agent-perf-optimize.status](./plan/agent-perf-optimize.status.md) | Agent 性能优化状态（全阶段追踪） |
 | [agent-perf-optimize.connectivity](./plan/agent-perf-optimize.connectivity.md) | 连通性验证报告 |
+| [agent-cost-optimize.plan](./plan/agent-cost-optimize.plan.md) | Agent 成本降低计划（B4 → A1-A5 → B1 → B2 → B3） |
+| [agent-cost-optimize.status](./plan/agent-cost-optimize.status.md) | Agent 成本降低状态（§附~§附4 衍生任务 + 五门禁 + 遗留） |
 
 ### 归档（`docs/plan/archive/`）
 
@@ -102,6 +105,7 @@
 | [spec-edit-ft4](./testing/spec-edit-ft4.tdd.md) | 格式应用交互修正 TDD（SPEC-EDIT-FT4） |
 | [spec-edit-cbtp](./testing/spec-edit-cbtp.tdd.md) | 代码块尾随空行 TDD（SPEC-EDIT-CBTP） |
 | [spec-edit-dsf](./testing/spec-edit-dsf.tdd.md) | 拖选闪烁 TDD（SPEC-EDIT-DSF） |
+| [agent-cost-optimize](./testing/agent-cost-optimize.tdd.md) | Agent 成本降低 TDD（M/standard：RED-GREEN + 门禁 + 基线对照 + 13 条偏离） |
 
 ## 查阅规则（渐进式披露）
 

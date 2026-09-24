@@ -10,7 +10,7 @@
 | 构建工具 | Vite | ^5 |
 | 打包 | Electron Builder | - |
 | 数据库 | better-sqlite3 | ^11 |
-| AI 后端 | 远程 OpenAI 兼容 API | remote-only |
+| AI 后端 | 远程 OpenAI 兼容 **或** Anthropic（按 `ai_config.protocol` 分流） | remote-only |
 | 分词 | jieba-wasm | - |
 | 全文检索 | SQLite FTS5 | - |
 
@@ -31,11 +31,14 @@ src/main/
 │   ├── embeddingConfig.ts     # Embedding 配置 DAO
 │   └── ...
 ├── ai/                        # AI 服务层
-│   ├── llm/                   # LLM 客户端
-│   │   ├── llmClient.ts       # SSE 流式调用 + tools 支持
+│   ├── llm/                   # LLM 客户端（按 ai_config.protocol 分流）
+│   │   ├── llmClient.ts       # OpenAI 兼容：SSE 流式调用 + tools 支持
+│   │   ├── anthropicClient.ts # Anthropic：/v1/messages + cache_control 断点（无 tools）
+│   │   ├── anthropicCompat.ts # Anthropic 响应 → OpenAI chunk 形状归一
+│   │   ├── streamScaffold.ts  # 两条客户端共享的 abort/timeout/finalize
 │   │   └── modelList.ts       # 模型列表
 │   ├── agent/                 # Agent 核心
-│   │   ├── agentLoop.ts       # 函数调用循环（≤12 轮）
+│   │   ├── agentLoop.ts       # 函数调用循环（按意图 6~12 轮）
 │   │   ├── agentLoopGuard.ts  # 死循环检测
 │   │   ├── agentSession.ts    # 会话管理
 │   │   ├── agentTaskQueue.ts  # 任务队列
@@ -45,7 +48,7 @@ src/main/
 │   │   ├── kbIndexer.ts       # 导入/分块/增量重索引
 │   │   ├── kbSearch.ts        # FTS5 关键词召回
 │   │   └── embeddingClient.ts # Embedding 客户端
-│   ├── tools/                 # 工具处理器（24+）
+│   ├── tools/                 # 工具处理器（24 个）
 │   │   ├── webSearch.ts       # web_search 联网搜索
 │   │   ├── webSearchHandler.ts
 │   │   ├── searchKBHandler.ts
@@ -75,7 +78,7 @@ src/main/
 
 ### 工具系统
 
-工具注册表 `toolRegistry.ts` 维护 24+ 工具：
+工具注册表 `toolRegistry.ts`（`handlerMap`）维护 **24 个工具**（5 核心 + 19 延迟加载）：
 
 | 类别 | 工具 | 说明 |
 |------|------|------|
@@ -111,7 +114,7 @@ src/main/
 3. LLM 流式调用（带 tools 定义）
 4. 工具执行（只读并行 + 写入串行）
 5. 结果返回 LLM → 下一轮
-6. 最多 12 轮，死循环检测（相同结果/连续失败）
+6. 按意图最多 6~12 轮（`getRoundsForIntent`，默认 10），死循环检测（相同结果/连续失败）
 
 ### 写控制
 

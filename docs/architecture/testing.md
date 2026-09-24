@@ -1,6 +1,6 @@
 # 测试架构
 
-> 最后更新：2026-09-09
+> 最后更新：2026-09-24
 
 ## 测试策略
 
@@ -42,11 +42,23 @@ tests/
 │   └── components/          # 组件测试
 └── shared/                  # 共享模块测试
 
-e2e/                         # Playwright E2E
-├── ai.spec.ts               # AI 面板 E2E
+e2e/                         # Playwright E2E（16 个 spec）
+├── ai-agent-panel.spec.ts   # AI 面板 E2E（31 条）
 ├── editor.spec.ts           # 编辑器 E2E
-└── ...
+├── floating-toolbar.spec.ts # 浮动工具栏 E2E
+├── editor-table.spec.ts     # 可编辑表格块 E2E
+├── exit-behavior.spec.ts    # 前缀退出规则 E2E
+├── drag-selection-*.spec.ts # 跨块拖选（3 个）
+├── cross-block-*.spec.ts    # 跨块选区/替换（2 个）
+├── feedback / image-resize / link-editing-regression /
+│   marktext-rendering / recent-history-restore /
+│   thematic-break / welcome-doc .spec.ts
+└── fixtures/                # 共享 mock（installWeaveMDMock 等）
 ```
+
+**当前规模（2026-09-24 实测）**：单元/组件 **3226 passed / 0 failed（138 文件）**；
+E2E 全量 **31 failed / 1 skipped / 97 passed**（基线 112 failed / 20 passed），
+其中 10 条为已知/预期失败（见 `docs/TODO.md` 已知问题）。
 
 ## 测试命令
 
@@ -74,5 +86,7 @@ e2e/                         # Playwright E2E
 | spec-edit-ft.tdd.md | 浮动工具栏 TDD |
 | spec-edit-ft2.tdd.md | 行内格式 TDD |
 | spec-edit-ft3.tdd.md | 叠加收敛 TDD |
+| spec-edit-ft4.tdd.md | 跨风格叠加畸形修复 TDD |
 | spec-edit-cbtp.tdd.md | 代码块尾随空行 TDD |
 | spec-edit-dsf.tdd.md | 拖选闪烁 TDD |
+| agent-cost-optimize.tdd.md | Agent 成本降低 TDD（M/standard + 基线对照 + 13 条偏离） |

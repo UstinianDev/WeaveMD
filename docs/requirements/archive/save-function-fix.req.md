@@ -53,6 +53,6 @@
 3. 是所有文件还是特定文件有问题
 
 ## 关联文档
-- [编辑器模块文档](../modules/04-编辑主区-Editor.md)
-- [顶部导航栏文档](../modules/03-顶部导航栏-Navbar.md)
-- [IPC通信机制](../modules/08-IPC通信机制.md)
+- [编辑器模块文档](../../modules/04-编辑主区-Editor.md)
+- [顶部导航栏文档](../../modules/03-顶部导航栏-Navbar.md)
+- [IPC通信机制](../../modules/08-IPC通信机制.md)

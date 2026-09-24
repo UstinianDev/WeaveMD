@@ -1,6 +1,7 @@
 # 数据库架构
 
-> 最后更新：2026-09-09
+> 最后更新：2026-09-24
+> 表清单以 `src/main/db/index.ts` 建表语句为准（**22 实表 + 3 虚拟表 = 25**）；本页只展开常用表的字段，其余见 §「其他表索引」。
 
 ## 技术栈
 
@@ -8,7 +9,7 @@
 |------|------|------|
 | 引擎 | SQLite | better-sqlite3 ^11 |
 | 全文检索 | FTS5 | jieba-wasm 分词 |
-| 向量存储 | 自定义 | embeddings_vec 表 |
+| 向量存储 | sqlite-vec（可选扩展） | `images_vec` 虚拟表（仅图片 embedding；扩展缺失时静默跳过） |
 
 ## 数据库文件
 
@@ -67,18 +68,17 @@
 | tool_call_id | TEXT | 工具调用 ID（tool 角色） |
 | created_at | TEXT | 创建时间 |
 
-#### ai_agent_events
+#### agent_run_events
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | TEXT PK | 事件 UUID |
-| session_id | TEXT | Agent 会话 ID |
-| conversation_id | TEXT FK | 所属会话 |
-| user_id | TEXT FK | 所属用户 |
-| seq | INTEGER | 序列号（递增） |
+| session_id | TEXT FK | Agent 会话 ID（`agent_sessions.id`，级联删除） |
+| conversation_id | TEXT | 所属会话 |
+| seq | INTEGER | 序列号（同会话递增，回放用） |
 | event_type | TEXT | 事件类型（chunk/tool/done/error/interaction） |
-| payload | TEXT | JSON 载荷 |
-| created_at | TEXT | 创建时间 |
+| payload_json | TEXT | JSON 载荷 |
+| created_at | TEXT | 创建时间（`datetime('now')`） |
 
 ### AI 配置
 
@@ -88,11 +88,17 @@
 |------|------|------|
 | id | TEXT PK | 配置 UUID |
 | user_id | TEXT FK UNIQUE | 所属用户 |
+| protocol | TEXT | 协议分流：`openai` / `anthropic`，默认 `openai`（幂等补列，`addColumnIfMissing`） |
 | remote_base_url | TEXT | API 基础 URL |
+| ollama_base_url | TEXT | 保留列（Ollama 已移除，仅存历史值） |
 | model | TEXT | 模型名称 |
 | api_key_enc | TEXT | 加密的 API key |
 | write_mode | TEXT | 写模式（auto/manual） |
 | max_rounds | INTEGER | 最大轮次 |
+| active_model_config_id | TEXT | 当前激活的模型配置 ID |
+| allow_network | INTEGER | 联网同意（**判定已停用**，`needsConsent` 恒 false，列保留作历史兼容） |
+| allow_send | INTEGER | 笔记外发同意（KB 外发闸 `needsKbSendConsent` 仍生效） |
+| consent_updated_at | TEXT | 同意时间戳 |
 | created_at | TEXT | 创建时间 |
 | updated_at | TEXT | 更新时间 |
 
@@ -157,23 +163,45 @@
 |------|------|
 | content | 分块内容（jieba 分词） |
 
-#### embeddings_vec
+#### images_vec（vec0 虚拟表）
+
+> KB 文本仅走 FTS5 关键词召回（embedding 已随 remote-only 移除）；本表只存**图片** embedding
+> （`imageIndexer.ts` → `kb_images` + 本表），且仅在 sqlite-vec 扩展可用时创建（`index.ts` try/catch 静默跳过）。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | TEXT PK | 向量 UUID |
-| chunk_id | TEXT FK | 关联分块 |
-| user_id | TEXT FK | 所属用户 |
-| embedding | BLOB | 向量数据（Float32Array） |
-| created_at | TEXT | 创建时间 |
+| id | TEXT PK | 图片 UUID（关联 `kb_images.id`） |
+| vector | FLOAT[1024] | 向量（1024 维） |
+
+## 其他表索引
+
+以下表已建但**字段从简记录**，需要时查 `src/main/db/index.ts` 建表语句（或对应 DAO）：
+
+| 表 | 类型 | DAO | 用途 |
+|----|------|-----|------|
+| `agent_sessions` | 实表 | `agentSessionDao.ts` | Agent 任务会话（90s 租约 + 20s 续约窗口，乐观并发） |
+| `agent_task_queue` | 实表 | `agentTaskDao.ts` | 后台任务队列（`dequeueNext` 保证同 `conversation_id` 串行） |
+| `agent_file_snapshots` | 实表 | `agentSnapshotDao.ts` | 写入前文件快照（回滚用） |
+| `ai_model_configs` | 实表 | `modelConfigs.ts` | 多模型配置（`protocol` / `baseURL` / `apiKey`） |
+| `history` | 实表 | `history.ts` | 文件历史版本 |
+| `file_revisions` | 实表 | `files.ts` | 文件修订记录 |
+| `settings` | 实表 | `settings.ts` | 用户设置 KV |
+| `app_meta` | 实表 | `appMeta.ts` | 应用元数据（schema 版本等） |
+| `mail_config` | 实表 | `mail.ts` | 反馈邮件配置（key 走 safeStorage） |
+| `knowledge_cache` | 实表 | `index.ts` | 知识库查询/Embedding 缓存 |
+| `parsed_attachments` | 实表 | `index.ts` | 附件解析结果缓存 |
+| `kb_images` | 实表 | `kb.ts` | 知识库图片索引（`document_id` 级联删除） |
+| `kb_documents_fts` | FTS5 虚拟表 | `index.ts` | 文档级全文索引 |
+| `images_vec` | vec0 虚拟表 | `index.ts` | 图片向量（sqlite-vec 可用时） |
 
 ## 索引策略
 
 - `files(user_id)` — 按用户查询
 - `ai_messages(conversation_id, created_at)` — 会话消息时序
-- `ai_agent_events(session_id, seq)` — 事件回放
+- `agent_run_events(session_id, seq)` / `(conversation_id, seq)` — 事件回放
 - `kb_chunks(document_id, chunk_index)` — 文档分块
-- `kb_chunks_fts` — FTS5 全文索引（jieba 分词）
+- `kb_images(document_id)` — 图片索引回查
+- `kb_chunks_fts` / `kb_documents_fts` — FTS5 全文索引（jieba 分词，触发器同步）
 
 ## DAO 层
 
@@ -181,13 +209,22 @@
 
 | 模块 | 职责 |
 |------|------|
-| `index.ts` | 数据库初始化 + 连接管理 |
-| `files.ts` | 文件 CRUD |
-| `ai.ts` | 会话/消息/事件 CRUD |
-| `searchConfig.ts` | 搜索配置 CRUD |
-| `embeddingConfig.ts` | Embedding 配置 CRUD |
-| `kbDocuments.ts` | 知识库文档 CRUD |
-| `kbChunks.ts` | 知识库分块 CRUD |
+| `index.ts` | 建表/迁移/连接管理 + 全部虚拟表与缓存表 |
+| `users.ts` | 用户 CRUD + 级联清理（files/history/settings） |
+| `files.ts` | 文件 CRUD + `file_revisions` |
+| `history.ts` | 文件历史版本 |
+| `settings.ts` | 用户设置 KV |
+| `appMeta.ts` | 应用元数据 |
+| `ai.ts` | `ai_config` / `ai_conversations` / `ai_messages` CRUD |
+| `modelConfigs.ts` | `ai_model_configs` 多模型配置 |
+| `searchConfig.ts` | `ai_search_config` 搜索配置 CRUD |
+| `embeddingConfig.ts` | `ai_embedding_config` 配置 CRUD |
+| `kb.ts` | **知识库统一 DAO**：`kb_documents` / `kb_chunks` / `kb_images` |
+| `agentSessionDao.ts` | `agent_sessions`（租约并发控制） |
+| `agentTaskDao.ts` | `agent_task_queue`（同会话串行出队） |
+| `agentEventDao.ts` | `agent_run_events`（事件回放） |
+| `agentSnapshotDao.ts` | `agent_file_snapshots`（写入前快照） |
+| `mail.ts` | `mail_config` 反馈邮件配置 |
 
 ## 安全规则
 

@@ -26,14 +26,14 @@
 - `src/main/export/` — 导出模块：exportService / imageInline / types + mediaMime（MIME 映射）
 - `src/main/ai/` — AI 主进程服务（remote-only）：`llm/`（llmClient/modelList）+
   `agent/`（agentLoop/agentSession/agentTaskQueue）+ `knowledge/`（kbIndexer/kbSearch）+
-  `files/`（conversationExport/documentParser）+ `skills/` + `tools/`（18+ handler）+
+  `files/`（conversationExport/documentParser）+ `skills/` + `tools/`（24 个 handler：5 核心 + 19 延迟）+
   `ipc/` 按域拆分（7 个 handler 模块）
 - `src/render/components/AIAgent/` — AI 面板三视图外壳（home/session/settings）+
   AIPanelComposer（TipTap contentEditable + /@标签 chip）+ AgentTab 消息流 +
   composer/extensions/（SkillTag/MentionTag/skillSuggestion/mentionSuggestion）+
   settings/{ModelForm,EmbeddingSettings,SearchSettings,...}
 - `README.md` — GitHub 项目主页（功能介绍、下载安装、开发指南）
-- `docs/` — REQUIREMENTS / SUMMARY / modules/ / specs/ / guide/
+- `docs/` — README / SUMMARY / TODO / REQUIREMENTS / CONTRIBUTING + architecture/ modules/ specs/ testing/ plan/ requirements/ guide/
 
 ## 规范
 
@@ -42,7 +42,7 @@
 - 命名：组件 PascalCase，函数/文件 camelCase；不用 `any`
 - 标题字号：H1 26/700、H2 22/600、H3 18/600、H4 16/500、正文 14/400
 - 编辑器+目录区字体：中文楷体（KaiTi）、英文 Consolas（`.editor-scroll-container` + `.outline-scroll`）
-- 行前缀解析统一走 `src/render/services/lineMarkdown.ts`（含 U+00A0 分隔）
+- 行前缀解析统一走 `src/render/editor/kernel/markdownSyntax.ts`（正则全含 U+00A0 分隔）+ `blockDetection.ts` 消费
 
 ## 编辑主区 v2（当前主线）
 
@@ -66,12 +66,13 @@
 > 详细规范见 `docs/specs/ai-panel-features.md`（交付记录）+
 > `docs/modules/11-AI代理面板-Agent.md`（架构文档）
 
-- **后端 remote-only**：Ollama 已移除，`ChatBackend` 收敛为 `'remote'`；KB 仅 FTS5 关键词召回
+- **后端 remote-only**：Ollama 已移除，`ChatBackend` 收敛为 `'remote'`
 - 右侧 AI 面板（导航栏「AI」按钮开合），仅 Agent 模式（Chat 已删除）
 - 铁律一：**AI 写入必经确认**——红删绿增预览 → 用户确认 → `updateContent` 入 undo 栈
 - 铁律二：**笔记外发必须用户知情同意**（联网同意已停用——三配置齐全即视为许可）；key 用 safeStorage 加密存 SQLite
 - Agent 能力：toolRegistry + agentLoop（≤6 轮）+ skillLoader + intentRouter + contextManager
-- 知识库：FTS5 BM25 召回 + 拒答 0.6 + 出处可跳转 + 置顶 ×1.5；searchMode 三模式（fts5/vector/hybrid）
+- 知识库：FTS5 BM25 召回 + 标题召回 + 拒答 0.6 + 出处可跳转 + 置顶 ×1.5；searchMode 三模式（fts5/vector/hybrid）
+  —— **向量为可选路径**：`kb_chunks.vector` 需配置 embedding 才写入，且 `queryVector` 仅在 `searchKB` 传 `hyde: true` 时生成，**默认调用降级为 FTS5+标题**
 - Agentic RAG：所有非 chat 意图均可自主调用 searchKB（LLM 决定是否检索）；HyDE 支持假设性文档 embedding 检索
 - 写控制：writeMode auto/manual + MD5 staleness detection + Agent 交互暂停/恢复 + 事件持久化
 - 三视图重构：home（RECENT 最近3）/ session（会话）/ settings（设置侧栏）
@@ -89,7 +90,7 @@
 - `src/render/components/Editor/v2/EditorV2.tsx` — v2 入口（状态、事件路由、焦点恢复、撤销）
 - `src/render/components/Editor/v2/blocks/ContentBlock.tsx` — 唯一 contentEditable 表面
 - `src/render/components/Editor/v2/toolbar/FloatingToolbar.tsx` — 文本浮动工具栏
-- `src/render/components/Editor/v2/ImageResizeBox.tsx` + `resizeMath.ts` — 图片四角缩放
+- `src/render/components/Editor/v2/image/ImageResizeBox.tsx` + `resizeMath.ts` — 图片四角缩放
 - `src/render/components/Editor/EditorView.tsx` — 薄编排器（v2 唯一，副作用抽入 hooks/）
 - `src/render/hooks/useMonacoTheme.ts` — Monaco 主题异步加载
 - `src/render/hooks/useGlobalShortcuts.ts` — 全局快捷键单例（Ctrl+F/S/Z/Y/`/O）
@@ -135,7 +136,7 @@
 - [architecture/](../docs/architecture/) — 按技术层分类（10 篇：前端/编辑器/后端/AI/知识库/数据库/IPC/安全/测试/构建）
 - [modules/](../docs/modules/) — 各模块文档（11 个模块）
 - [specs/](../docs/specs/) — 编辑器/AI 面板/自动更新规格文档（14 篇）
-- [testing/](../docs/testing/) — TDD 测试报告（6 篇）
+- [testing/](../docs/testing/) — TDD 测试报告（7 篇）
 - [plan/](../docs/plan/) — 实施计划与状态
 - [plan/archive/](../docs/plan/archive/) — 已完成的实施状态归档
 

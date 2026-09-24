@@ -3,7 +3,8 @@
 // ============================================
 // kb_documents / kb_chunks 表 DAO。
 // 全部操作按 user_id / document_id 参数化过滤，绝无字符串拼接（SECURITY.md）。
-// 向量/embedding 已随后端收敛 remote-only 去除，仅 FTS5 关键词召回。
+// 检索默认走 FTS5+标题；`kb_chunks.vector` 列保留，由 kbIndexer 在配置了 embedding 时写入，
+// 供 searchKB 传 hyde:true 时的向量路径使用（见 knowledge/kbSearch.ts 与 kbSearchFts.vectorSearch）。
 
 import { randomUUID } from 'crypto';
 import { getDatabase } from './index';

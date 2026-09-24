@@ -4,7 +4,7 @@
 
 ## 做什么
 
-使用 SQLite (better-sqlite3) 实现本地数据持久化。核心 4 表 + AI/Agent/配置扩展表，共 16+ 张表。支持 WAL 模式、外键约束、数据隔离、级联删除。
+使用 SQLite (better-sqlite3) 实现本地数据持久化。**共 25 张表 = 22 实表 + 3 虚拟表**（`kb_chunks_fts` / `kb_documents_fts` FTS5、`images_vec` vec0）。支持 WAL 模式、外键约束、数据隔离、级联删除。完整字段见 [database 架构](../architecture/database.md)。
 
 ## 架构
 
@@ -254,11 +254,17 @@ app.on('before-quit')
 
 | 表 | 文件 | 用途 |
 |------|------|------|
-| `model_configs` | modelConfigs.ts | 多模型配置（name、baseURL、apiKey、model） |
-| `embedding_config` | embeddingConfig.ts | Embedding 服务配置 |
-| `search_config` | searchConfig.ts | 搜索服务配置 |
+| `ai_model_configs` | modelConfigs.ts | 多模型配置（protocol / baseURL / apiKey / model） |
+| `ai_embedding_config` | embeddingConfig.ts | Embedding 服务配置 |
+| `ai_search_config` | searchConfig.ts | 搜索服务配置 |
 | `mail_config` | mail.ts | 邮件配置 |
 | `app_meta` | appMeta.ts | 应用元数据 |
+| `history` | history.ts | 文件历史版本 |
+| `settings` | settings.ts | 用户设置 KV |
+| `file_revisions` | files.ts | 文件修订记录 |
+| `knowledge_cache` | index.ts | 知识库查询/Embedding 缓存 |
+| `parsed_attachments` | index.ts | 附件解析结果缓存 |
+| `kb_images` | kb.ts | 知识库图片索引（→ `images_vec`） |
 
 ## 10. 关键设计决策
 

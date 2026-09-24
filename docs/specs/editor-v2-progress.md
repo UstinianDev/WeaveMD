@@ -31,7 +31,7 @@
 
 ### 13.2 M2 渲染骨架完成（2026-08-06）
 
-渲染层已按第 5 节实施，与 v1 并行、可回退：
+渲染层已按第 5 节实施（当时与 v1 并行，v1 已于 §13.13 退役）：
 
 | 文件                                                        | 内容                                                                                       |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
@@ -42,8 +42,8 @@
 | `src/render/components/Editor/v2/BlockRenderer.tsx`         | 容器/叶子递归分发                                                                          |
 | `src/render/components/Editor/v2/blocks/`                   | ContentBlock（唯一 contentEditable）、LeafBlock、CodeBlock、ListItemBlock、BlockquoteBlock |
 
-**接入方式**：`EditorView` Normal Mode 按 `window.__EDITOR_V2__ !== false` 渲染 v2，
-设为 `false` 刷新即回退 v1（M4 验收后删除 v1 路径）。v1 文件未改动。
+**接入方式**：`EditorView` Normal Mode 直接渲染 v2 —— 当时的 `window.__EDITOR_V2__` 双路开关
+已于 §13.13 随 v1 退役一并删除，**现无回退路径，v2 是唯一渲染路径**。
 
 **M2 能力边界**：基础文本输入（行内实时渲染 + 光标恢复）、Enter 拆块（heading 右半转段落）、
 空块 Backspace 合并/删除、列表/引用/代码块渲染。结构块退出规则、格式化、快捷键等交互在 M3 扩展。
@@ -96,8 +96,7 @@
 - 段落级 MD Source 视图（v1 `mdSourceBlockId`）未迁移到 v2。
 - 跨块鼠标拖选受浏览器编辑宿主边界限制（独立 contentEditable span 无法拖拽跨选；
   退格链已可用，Ctrl+A 可全选；跨块选区层为独立任务）。
-- v1 渲染路径与 `src/render/services/` 保留（`window.__EDITOR_V2__ === false` 可回退）；
-  v1 退役删除建议作为独立任务，先做手工验收。
+- v1 渲染路径与 `src/render/services/` 当时暂留待手工验收，**已在 §13.13 完成退役删除**。
 
 **M4 验证**：新增测试 5 例（outline 3 / EditorV2 集成 2）；
 全量 `vitest run` 296 例通过；`tsc --noEmit` 与 ESLint 零告警；`vite build` 成功。
@@ -135,8 +134,8 @@
 IME 组合、前缀转换、实时加粗渲染、列表转换、标记保留）；
 全量 `vitest run` 304 例通过；`tsc --noEmit` 与 ESLint 零告警；`vite build` 成功。
 
-**建议**：运行 `npm run dev` 在真实桌面环境做输入/IME/格式渲染手工验收；
-确认无回归后执行 v1 路径退役（独立任务）。
+**建议**：运行 `npm run dev` 在真实桌面环境做输入/IME/格式渲染手工验收。
+（该建议的后半段「执行 v1 路径退役」已在 §13.13 于 2026-08-06 完成。）
 
 ### 13.6 真实 Chromium E2E 验证与最终修复（2026-08-06）
 

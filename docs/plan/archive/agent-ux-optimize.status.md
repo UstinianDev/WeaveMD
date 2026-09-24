@@ -25,7 +25,7 @@
 
 - [x] Phase 0: 任务分级 ✅
 - [x] Phase 0.5: 文档索引 ✅（react 49p / tailwindcss 99p / zustand 71p）
-- [x] Phase 1: 需求对齐 ✅ → [需求文档](../requirements/agent-ux-optimize.req.md)
+- [x] Phase 1: 需求对齐 ✅ → [需求文档](../../requirements/archive/agent-ux-optimize.req.md)
 - [x] Phase 2: 规划 ✅ → [实施计划](agent-ux-optimize.plan.md)
 - [x] Phase 2.5: UI 设计规则 ✅（复用现有设计体系）
 - [x] Phase 3: 并行执行 ✅ — 7/7 子任务完成

@@ -1,18 +1,40 @@
 # AI/Agent 系统架构
 
-> 最后更新：2026-09-09
+> 最后更新：2026-09-24
 > 详细文档：[11-AI代理面板-Agent.md](../modules/11-AI代理面板-Agent.md)
 
 ## 系统概览
 
-AI/Agent 系统是 WeaveMD 的智能创作辅助模块，基于远程 OpenAI 兼容 API（remote-only），提供：
+AI/Agent 系统是 WeaveMD 的智能创作辅助模块，**remote-only**（Ollama 已移除，`ChatBackend` 收敛为 `'remote'`），
+按 `ai_config.protocol` 分流到 **OpenAI 兼容** 或 **Anthropic** 两条协议，提供：
 
 - 函数调用循环（Agent Loop）
-- 24+ 工具（只读/写入/交互/搜索）
+- 24 个工具（5 核心 + 19 延迟加载；只读/写入/交互/搜索）
 - 意图路由（规则启发式 6 类）
 - 上下文压缩
 - Skills 体系
 - 写控制（auto/manual）
+
+### 协议分流（2026-09-23 接线）
+
+`ModelProtocol = 'openai' | 'anthropic'`（`src/shared/ai/model.ts`），落 `ai_config.protocol` 列（默认 `openai`）。
+**6 个非工具调用点**按 `protocol === 'anthropic'` 三元分流到 `streamAnthropicCompletion` / `streamChatCompletionWithRetry`：
+
+| 调用点 | 文件 | 说明 |
+|--------|------|------|
+| HyDE 假设性文档生成 | `agent/agentContext.ts:247` | 只读文本，可安全分流 |
+| 压缩 cache-safe fork | `contextManager.ts:128` | 带 tools 但只读文本、不消费 `tool_use` |
+| 上下文压缩 | `contextManager.ts:158` | 同上 |
+| Chat 直连 | `ipc/chatHandlers.ts:305` | — |
+| 改写预览 | `rewrite.ts:103` | — |
+| Skill 执行 | `skills/skillLoader.ts:222` | — |
+
+**`agent/agentLoop.ts:271` 主循环故意不分流** —— `anthropicClient` 无 tools 支持，
+分流会打爆创作 Agent 工具循环（createFile / editBlocks / searchKB / ask_question_card）。
+要拿到主循环收益须先补 Anthropic tool-use 全套（tools 转换 + `tool_use` 流式解析 + `tool_result` 回填），属独立 L3。
+
+Anthropic 路径的 system 末块带 `cache_control: { type: 'ephemeral' }` 断点（`anthropicClient.ts:243`），
+usage 从 `message_start` / `message_delta` 解析出五字段，`costTracker` 按 0.1×（读）/ 1.25×（写）分列计价。
 
 ## Agent 循环
 
@@ -25,7 +47,7 @@ LLM 流式调用（带 tools 定义）
     ↓
 工具执行（只读并行 + 写入串行）
     ↓
-结果返回 LLM → 下一轮（最多 12 轮）
+结果返回 LLM → 下一轮（按意图 6~12 轮，默认 10）
     ↓
 死循环检测 → 完成/错误
 ```
@@ -34,7 +56,8 @@ LLM 流式调用（带 tools 定义）
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
-| maxRounds | 12 | 最大轮次 |
+| maxRounds | 按意图 6~12，默认 10 | `getRoundsForIntent()`：chat 6 / kbQa 8 / web·rewrite 10 / create·tech 12 / 其余 `DEFAULT_MAX_ROUNDS=10`（`agentHelpers.ts:52-62`） |
+| KEEP_RECENT_ROUNDS | 3 | 压缩后保留的最近轮数（`agentHelpers.ts:14`，实际两处调用都显式传 3） |
 | TOOL_EXEC_TIMEOUT_MS | 30000 | 单工具超时 |
 | maxConsecutiveFailures | 2 | 连续失败终止 |
 
@@ -63,7 +86,8 @@ LLM 流式调用（带 tools 定义）
 
 ## 工具系统
 
-工具注册表 `toolRegistry.ts` 维护 24+ 工具：
+工具注册表 `toolRegistry.ts`（`handlerMap`）维护 **24 个工具** —— 5 个核心工具发送完整 JSON Schema，
+19 个延迟工具仅发名称 stub + `defer_loading: true`，被选中时再补 schema 重发（上限 3 次）：
 
 ### 只读工具
 

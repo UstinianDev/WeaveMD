@@ -18,7 +18,7 @@ src/main/export/exportService.ts  # 8 格式统一分发器 + 隐藏窗口渲染
 src/main/ipc-handlers.ts          # 单一 EXPORT_FILE 通道
 src/main/preload.ts               # export.file(req) 桥接
 src/shared/constants.ts           # IPC_CHANNELS.EXPORT_FILE
-src/render/components/Navbar/ExportMenu.tsx  # 导出下拉（8 项两组）
+src/render/components/Editor/panels/SidebarToolbar.tsx # 导出入口（8 项两组）
 src/render/hooks/useNavbarActions.ts        # handleExport（flush 草稿 → renderMarkdownToHtml → bridge.file）
 src/render/utils/weaveMDBridge.ts           # browser mock export.file
 ```
@@ -104,5 +104,5 @@ useNavbarActions.handleExport(format)
 - `tests/main/export/exportTemplate.test.ts`（13 例）：buildExportHtml 自包含/无 var 引用/body 透传。
 - `tests/main/export/imageInline.test.ts`（15 例）：media:// → base64、缺失保留、大图阈值、MIME 映射。
 - `tests/main/export/exportService.test.ts`（10 例）：各格式魔数（%PDF / \x89PNG / \xFF\xD8\xFF / PK+word/document.xml）、取消、截断。
-- `tests/components/ExportMenu.test.tsx`（4 例）+ `tests/components/useNavbarActionsExport.test.ts`（5 例）：UI 分组/禁用/触发 + handleExport 全路径。
+- `tests/components/useNavbarActionsExport.test.ts`（5 例）：handleExport 全路径。
 - 覆盖率：导出模块语句 98.66% / 分支 89.55% / 函数 100%。

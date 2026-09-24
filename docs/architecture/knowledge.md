@@ -50,11 +50,20 @@ pending → done → error
 
 ### 检索模式
 
+`searchMode` 三模式（`kbSearch.ts`，默认 `hybrid`）：
+
 | 模式 | 说明 | 适用场景 |
 |------|------|----------|
 | `fts5` | 纯关键词检索 | 精确术语 |
 | `vector` | 纯向量语义检索 | 模糊/改述 |
-| `hybrid` | FTS5 + 向量 + 标题三路 RRF（默认） | 通用查询 |
+| `hybrid` | FTS5 + 向量 + 标题三路 RRF | 通用查询 |
+
+> **向量路径的前提**：`kbSearch` 只有拿到 `queryVector` 才走向量分支
+> （`searchMode === 'vector' || 'hybrid'` **且** `opts.queryVector` 非空）。
+> 而 `queryVector` **只在 `searchKB` 工具传 `hyde: true` 且已配置 embedding 时才生成**
+> （`searchKBHandler.ts`）。因此**默认调用实际降级为 FTS5 + 标题匹配**
+> （`kbSearch.ts` 注释：无 queryVector 时降级到纯 FTS5 + 标题）。
+> `vectorSearch` 对 `kb_chunks.vector` 用 sqlite-vec `vec_distance_cosine`，扩展缺失时 try/catch 静默降级。
 
 ### 拒答机制
 
@@ -76,9 +85,12 @@ createEmbedding 向量化
 
 ```sql
 kb_documents(id, user_id, file_id, source_type, title, pinned, status, created_at)
-kb_chunks(id, document_id, seq, content, source_ref, created_at)
-kb_chunks_fts -- FTS5 虚拟表（jieba 分词）
-embeddings_vec(id, chunk_id, user_id, embedding BLOB, created_at)
+kb_chunks(id, document_id, seq, content, vector BLOB, embedding_model, source_ref, created_at)
+             -- vector 由 kbIndexer 在配置了 embedding 时写入；未配置则为 NULL
+kb_chunks_fts -- FTS5 虚拟表（jieba 分词，触发器同步）
+kb_documents_fts -- FTS5 文档级虚拟表
+kb_images(id, document_id, source_ref, mime_type, embedding_model, created_at)
+images_vec -- vec0 虚拟表，仅图片向量（sqlite-vec 可用时创建）
 ```
 
 ## KB 参数

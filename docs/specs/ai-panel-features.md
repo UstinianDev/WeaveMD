@@ -43,15 +43,17 @@ ai_* 4 表 DDL + kb_* 预留、`ai:*` IPC + preload、设置面板 AI Tab（safe
 - **A1** 当前文档上下文注入（agentLoop system prompt + 截断）+ rewrite 意图补词 + 从 0 到 1 整篇写
 - **A2** 混合类型工具栏（mouseup 弹 AI 改写）
 - **A3** 选区改写 → 覆盖块整块渐变蓝高亮（`.rewrite-highlight` 纯 CSS overlay）+ 左端取消胶囊
-- **B1** `/ @` 自动补全（`AGENT_SKILLS_LIST` 只读 IPC + `CompletionMenu`）
+- **B1** `/ @` 自动补全（`AGENT_SKILLS_LIST` 只读 IPC；当前实现为 TipTap `@tiptap/suggestion` + `composer/extensions/{skill,mention}Suggestion.ts`）
 - **B2** 命名「智能体」（仅文案 + i18n）
 - **B3** 双 Tab 合并单面板 + 模式下拉（`activeMode` 域隔离）
 - **C1** 视觉美化（字号 ≥13px、composer 收紧、CSS 变量体系）
 
 ### 后端收敛 remote-only（2026-08-16）
 
-- 彻底去除 ollama：`ChatBackend` 收敛为 `'remote'`；主进程删 `probeOllama`/AI_HEALTH/`embeddingClient.ts` 整文件
-- KB 降级仅 FTS5（删向量召回）；后端固定远程、必须填 key；DB 遗留列读时收敛
+- 彻底去除 ollama：`ChatBackend` 收敛为 `'remote'`；主进程删 `probeOllama`/AI_HEALTH
+- KB 默认降级为 FTS5+标题（`queryVector` 仅 `hyde: true` 时生成）；后端固定远程、必须填 key；
+  DB 遗留列读时收敛。（注：`embeddingClient.ts` 后经 HyDE/图片索引需求恢复，现仍存在并被
+  `agentContext` / `kbIndexer` / `imageIndexer` 引用；`kb_chunks.vector` 列同理保留）
 - ModelForm 新增「当前提供商」状态行 + 断开连接
 - composer 草稿提升到 AIAgentPanel 跨视图保留
 - AI 面板字号整体放大一档
@@ -84,4 +86,4 @@ ai_* 4 表 DDL + kb_* 预留、`ai:*` IPC + preload、设置面板 AI Tab（safe
 
 **第二期（2026-08-25）**：R1 写模式切换（auto/manual 泛化，持久化 ai_config）+ R3 Agent 交互暂停/恢复（ask_question_card → waiting_interaction → 恢复续轮）+ R4 待处理状态 UI（QuestionCard + waiting 标识 + 重试入口）+ R6 IndexedDB 草稿恢复（300ms 防抖 + 按 conversationId 索引）
 
-详见 [需求文档](../requirements/write-control-task-safety.req.md) / [实施计划](../plan/write-control-task-safety.plan.md) / [任务状态](../plan/write-control-task-safety.status.md)。
+详见 [需求 §3.9 写控制与任务安全](../REQUIREMENTS.md)（R1~R7）；实施细节见本文档「写控制」章节。
