@@ -9,12 +9,41 @@ export interface IMentionItem {
   description?: string;
 }
 
-/** 附件载荷。 */
+/** 附件解析状态（一-4 三态流转：pending → processing → done | error）。 */
+export type AttachmentParseStatus = 'pending' | 'processing' | 'done' | 'error';
+
+/**
+ * 附件载荷（发送链路 IPC）：解析产物随 content 行进，主进程白名单降级为
+ * IAttachmentMeta 写 attachments_json（一物两表，正文不入消息表）。
+ */
 export interface IAttachmentPayload {
   fileName: string;
-  fileType: string;
+  fileType: 'file' | 'image';
   content: string;
   pageCount?: number;
+  /** composer 侧附件 id（幂等键：Agent 任务重试复用同一 id） */
+  id?: string;
+  /** 本地文件路径（系统对话框/粘贴文件的 Electron path） */
+  path?: string;
+  /** 字节数（正文 UTF-8 编码长度，可空） */
+  size?: number;
+  parseStatus?: AttachmentParseStatus;
+}
+
+/**
+ * ai_messages.attachments_json 轻量元数据（一-4②：只存 id/type/name/path/size/parseStatus，
+ * 解析正文存 parsed_attachments.content）。`thumb` 仅渲染层存活态（data URL），
+ * 主进程序列化时白名单剔除，不落库。
+ */
+export interface IAttachmentMeta {
+  id: string;
+  type: 'file' | 'image';
+  name: string;
+  path?: string;
+  size?: number;
+  parseStatus?: AttachmentParseStatus;
+  /** 渲染层存活态缩略图（data URL），不持久化 */
+  thumb?: string;
 }
 
 /** 图片载荷。 */

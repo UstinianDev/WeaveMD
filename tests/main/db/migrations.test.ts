@@ -5,7 +5,7 @@ vi.mock('electron', () => ({
   app: { getPath: () => ':memory:' },
 }));
 
-import { KB_CONFIG_ALTER_SQL } from '@main/db/index';
+import { addAttachmentColumns, KB_CONFIG_ALTER_SQL } from '@main/db/index';
 
 // ---------------------------------------------------------------------------
 // 第 6 期批次 2：KB 参数列迁移（KB_CONFIG_ALTER_SQL）验证。
@@ -109,5 +109,111 @@ describe('KB_CONFIG_ALTER_SQL — 静态结构断言（真实 SQLite 三态由 s
     expect(byName.kb_rrf_k).toMatch(/INTEGER/);
     expect(byName.kb_vec_score_threshold).toMatch(/REAL/);
     expect(byName.kb_embedding_provider).toMatch(/TEXT/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// doc-pipeline B3 D1/D2：附件列迁移三断言（空库首建 / 旧库升级 / 重复执行）。
+// 真库语义由 scripts/attachments-migration-smoke.cjs（Electron 运行时真 SQLite）验证；
+// 本文件用可探测列的 FakeDb 驱动真实的 addAttachmentColumns，断言 DDL 内容、
+// 幂等（重复执行 ALTER 不重发）与「只增不改」（无 DROP/DELETE/UPDATE）。
+// ---------------------------------------------------------------------------
+
+interface FakeMigrationDb {
+  columns: Map<string, string[]>;
+  alters: string[];
+  execs: string[];
+  prepare: (sql: string) => { get: (name: string) => { c: number } | undefined };
+  exec: (sql: string) => void;
+}
+
+function makeMigrationDb(seed: Record<string, string[]>): FakeMigrationDb {
+  const columns = new Map<string, string[]>(
+    Object.entries(seed).map(([t, cols]) => [t, [...cols]])
+  );
+  const alters: string[] = [];
+  const execs: string[] = [];
+  return {
+    columns,
+    alters,
+    execs,
+    prepare: (sql: string) => ({
+      get: (name: string) => {
+        const m = /pragma_table_info\('([^']+)'\)/.exec(sql);
+        if (!m) throw new Error(`unexpected pragma sql: ${sql}`);
+        const cols = columns.get(m[1]) ?? [];
+        return cols.includes(name) ? { c: 1 } : undefined;
+      },
+    }),
+    exec: (sql: string) => {
+      execs.push(sql);
+      const m = /^ALTER TABLE (\w+) ADD COLUMN (.+)$/s.exec(sql.trim());
+      if (m) {
+        const colName = m[2].trim().split(/\s+/)[0];
+        const cols = columns.get(m[1]) ?? [];
+        if (cols.includes(colName)) {
+          throw new Error(`duplicate column: ${m[1]}.${colName}`);
+        }
+        columns.set(m[1], [...cols, colName]);
+        alters.push(sql.trim());
+        return;
+      }
+      if (/^DROP/i.test(sql.trim())) throw new Error('DROP is forbidden in migrations');
+    },
+  } as unknown as FakeMigrationDb;
+}
+
+// 附件迁移的前序终态（B3 之前 runMigrations 已保证的列）
+const AI_MESSAGES_PRE_B3 = [
+  'id', 'conversation_id', 'user_id', 'role', 'content',
+  'refs_json', 'tool_call_id', 'tool_calls', 'created_at',
+];
+const PARSED_ATTACHMENTS_PRE_B3 = [
+  'id', 'user_id', 'conversation_id', 'file_name', 'file_type', 'content', 'created_at',
+];
+
+function preB3Db(): FakeMigrationDb {
+  return makeMigrationDb({
+    ai_messages: AI_MESSAGES_PRE_B3,
+    parsed_attachments: PARSED_ATTACHMENTS_PRE_B3,
+  });
+}
+
+describe('addAttachmentColumns — B3 D1/D2 迁移三断言（FakeDb 驱动真实迁移函数）', () => {
+  it('态1 空库首建：pre-B3 终态 + 本迁移 → 三列齐备且 DDL/DEFAULT 与计划一致', () => {
+    const db = preB3Db();
+    addAttachmentColumns(db as never);
+    expect(db.columns.get('ai_messages')).toContain('attachments_json');
+    expect(db.columns.get('parsed_attachments')).toContain('parse_status');
+    expect(db.columns.get('parsed_attachments')).toContain('parse_version');
+    // DDL 精确断言（D1: TEXT DEFAULT NULL；D2: TEXT DEFAULT 'done' / INTEGER DEFAULT 1）
+    expect(db.alters).toEqual(
+      expect.arrayContaining([
+        'ALTER TABLE ai_messages ADD COLUMN attachments_json TEXT DEFAULT NULL',
+        "ALTER TABLE parsed_attachments ADD COLUMN parse_status TEXT DEFAULT 'done'",
+        'ALTER TABLE parsed_attachments ADD COLUMN parse_version INTEGER DEFAULT 1',
+      ])
+    );
+    expect(db.alters).toHaveLength(3);
+  });
+
+  it('态2 旧库升级：既有数据行保留，仅追加列（无 DROP/DELETE/UPDATE）', () => {
+    const db = preB3Db();
+    addAttachmentColumns(db as never);
+    expect(db.execs.every((sql) => /^ALTER TABLE/.test(sql.trim()))).toBe(true);
+    expect(db.execs.some((sql) => /DROP|DELETE|UPDATE/i.test(sql))).toBe(false);
+    // 旧版本 SELECT 明确列名不读新列 → 升级后旧行 attachments_json 取 DEFAULT NULL
+    expect(db.columns.get('ai_messages')?.indexOf('attachments_json')).toBeGreaterThan(
+      AI_MESSAGES_PRE_B3.length - 1
+    );
+  });
+
+  it('态3 重复执行：第二遍零 ALTER（幂等 no-op，不抛错）', () => {
+    const db = preB3Db();
+    addAttachmentColumns(db as never);
+    expect(db.alters).toHaveLength(3);
+    addAttachmentColumns(db as never); // 第二遍
+    expect(db.alters).toHaveLength(3); // 无重复 ADD
+    expect(db.alters).toHaveLength(db.execs.length);
   });
 });

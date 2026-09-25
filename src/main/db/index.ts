@@ -265,6 +265,10 @@ function runMigrations(database: Database.Database): void {
   addKnowledgeCacheTable(database);
   addParsedAttachmentsTable(database);
 
+  // doc-pipeline B3 D1/D2：附件列幂等补列（须在 addParsedAttachmentsTable 之后，D2 依赖表先建）。
+  // CREATE 段保持 pre-B3 形态不回写，空库与旧库统一经本函数收敛到同一终态（导出供迁移三断言测试）。
+  addAttachmentColumns(database);
+
   // 性能优化：kb_documents 标题 FTS5 索引（加速标题匹配检索）
   addKbDocumentsFtsIndex(database);
 }
@@ -310,6 +314,25 @@ function addColumnIfMissing(database: Database.Database, table: string, column: 
   if (!hasColumn(database, table, column)) {
     database.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
   }
+}
+
+/**
+ * doc-pipeline B3 D1/D2：附件列幂等补列（追加式迁移，禁止 DROP）。
+ * - D1 `ai_messages.attachments_json TEXT DEFAULT NULL`：轻量元数据 JSON（一物两表）；
+ * - D2 `parsed_attachments.parse_status TEXT DEFAULT 'done'`（三态渲染来源）+
+ *      `parse_version INTEGER DEFAULT 1`（二-6② 回填重建依据）。
+ * 空库首建与旧库升级同路径收敛到同一终态；重复执行 no-op。
+ * 三断言：tests/main/db/migrations.test.ts + scripts/attachments-migration-smoke.cjs（真库）。
+ */
+export function addAttachmentColumns(database: Database.Database): void {
+  addColumnIfMissing(database, 'ai_messages', 'attachments_json', 'attachments_json TEXT DEFAULT NULL');
+  addColumnIfMissing(
+    database,
+    'parsed_attachments',
+    'parse_status',
+    "parse_status TEXT DEFAULT 'done'"
+  );
+  addColumnIfMissing(database, 'parsed_attachments', 'parse_version', 'parse_version INTEGER DEFAULT 1');
 }
 
 /** ai_model_configs 表：用户可创建多个模型配置，一个激活。 */

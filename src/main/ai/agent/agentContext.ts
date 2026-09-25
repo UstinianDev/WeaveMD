@@ -201,7 +201,16 @@ export function prepareAgentContext(
   if (!ownedConv) {
     throw Object.assign(new Error('Conversation not found'), { code: 'config_incomplete' });
   }
-  appendMessage({ conversationId: convId, userId, role: 'user', content: message });
+  // 用户消息落库：附件轻量元数据随消息写 attachments_json（正文已在发送链路落 parsed_attachments，一-4②）
+  appendMessage({
+    conversationId: convId,
+    userId,
+    role: 'user',
+    content: message,
+    ...(payload.attachments && payload.attachments.length > 0
+      ? { attachments: payload.attachments }
+      : {}),
+  });
 
   const intent = classifyIntent(message);
   const baseUrl = config.remoteBaseUrl;

@@ -6,9 +6,10 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import { join } from 'path';
 import type { Database as BetterSqlite3Database } from 'better-sqlite3';
 import { IPC_CHANNELS } from '@shared/constants';
-import type { AIErrorCode, AgentRunPayload } from '@shared/ai';
+import type { AIErrorCode, AgentRunPayload, IAttachmentMeta } from '@shared/ai';
 import { normalizeKbSettings } from '@shared/ai';
 import { getAiConfig, getConversation } from '../../db/ai';
+import { persistIncomingAttachments } from '../../db/attachments';
 import { needsConsent } from '../consent';
 import { runAgentFlow } from '../agent/agentLoop';
 import { searchKB } from '../knowledge/kbSearch';
@@ -98,6 +99,22 @@ export function registerAgentHandlers(): void {
       if (payload.currentDocument) extra.currentDocument = payload.currentDocument;
       if (payload.fileTreePaths) extra.fileTreePaths = payload.fileTreePaths;
 
+      // B3 一-4②：附件先落 parsed_attachments（三态流转），最终元数据随 payloadJson
+      // 透传给 prepareAgentContext 写 attachments_json（一物两表，正文不进 prompt/消息表）
+      let resolvedAttachments: IAttachmentMeta[] | undefined;
+      if (Array.isArray(payload.attachments) && payload.attachments.length > 0) {
+        resolvedAttachments = await persistIncomingAttachments(
+          userId,
+          conversationId ?? '',
+          payload.attachments
+        );
+        if (resolvedAttachments.length > 0) {
+          extra.attachments = resolvedAttachments;
+        } else {
+          resolvedAttachments = undefined;
+        }
+      }
+
       const task = taskQueue.enqueue({
         conversationId: conversationId ?? '',
         userId,
@@ -105,12 +122,13 @@ export function registerAgentHandlers(): void {
         payloadJson: JSON.stringify(extra),
       });
 
-      // 立即返回任务 ID，实际结果通过 SSE 推送
+      // 立即返回任务 ID，实际结果通过 SSE 推送（attachments 回执供渲染层回填乐观状态）
       return {
         success: true,
         data: {
           taskId: task.id,
           status: 'queued' as const,
+          ...(resolvedAttachments ? { attachments: resolvedAttachments } : {}),
         },
       };
     } catch (err) {

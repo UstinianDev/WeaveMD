@@ -13,6 +13,7 @@ import type {
   AIErrorCode,
   IAIConfig,
   IAIConsent,
+  IAttachmentMeta,
   IClarifyQuestion,
   IKbSettings,
 } from '@shared/ai';
@@ -239,7 +240,7 @@ export class AgentTaskWorker {
       } as Electron.IpcMainInvokeEvent;
 
       // 6. 解析 payloadJson 中的额外字段
-      const { currentDocument, useKnowledgeBase, fileTreePaths, kbSettings } =
+      const { currentDocument, useKnowledgeBase, fileTreePaths, kbSettings, attachments } =
         this.readTaskPayload(task);
 
       // 7. 构造 AgentLoopDeps（KB 检索设置在其中合并：payload 显式 > 持久化 > 默认）
@@ -257,6 +258,7 @@ export class AgentTaskWorker {
           currentDocument,
           useKnowledgeBase,
           fileTreePaths,
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
         },
         config,
         row?.apiKeyEnc ?? null,
@@ -307,17 +309,19 @@ export class AgentTaskWorker {
   // Private — Task Helpers
   // -----------------------------------------------------------------------
 
-  /** 解析 payloadJson 中的额外字段（currentDocument / useKnowledgeBase / fileTreePaths / kbSettings）。 */
+  /** 解析 payloadJson 中的额外字段（currentDocument / useKnowledgeBase / fileTreePaths / kbSettings / attachments）。 */
   private readTaskPayload(task: AgentTask): {
     currentDocument: string | undefined;
     useKnowledgeBase: boolean | undefined;
     fileTreePaths: { files: string[]; folders: string[] } | undefined;
     kbSettings: Partial<IKbSettings> | undefined;
+    attachments: IAttachmentMeta[] | undefined;
   } {
     let currentDocument: string | undefined;
     let useKnowledgeBase: boolean | undefined;
     let fileTreePaths: { files: string[]; folders: string[] } | undefined;
     let kbSettings: Partial<IKbSettings> | undefined;
+    let attachments: IAttachmentMeta[] | undefined;
     try {
       if (task.payloadJson) {
         const extra = JSON.parse(task.payloadJson) as Record<string, unknown>;
@@ -335,11 +339,22 @@ export class AgentTaskWorker {
             };
           }
         }
+        // 附件元数据（B3 一-4：AGENT_RUN 已落库，此处仅透传给 appendMessage）
+        if (Array.isArray(extra.attachments)) {
+          attachments = extra.attachments.filter(
+            (a): a is IAttachmentMeta =>
+              !!a &&
+              typeof a === 'object' &&
+              typeof (a as IAttachmentMeta).id === 'string' &&
+              typeof (a as IAttachmentMeta).name === 'string' &&
+              ((a as IAttachmentMeta).type === 'file' || (a as IAttachmentMeta).type === 'image')
+          );
+        }
       }
     } catch {
       /* payloadJson 解析失败不阻断主流程 */
     }
-    return { currentDocument, useKnowledgeBase, fileTreePaths, kbSettings };
+    return { currentDocument, useKnowledgeBase, fileTreePaths, kbSettings, attachments };
   }
 
   /** 构造 AgentLoopDeps（含 searchKb + consent + 交互回调）。 */

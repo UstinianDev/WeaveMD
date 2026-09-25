@@ -109,6 +109,15 @@ export interface AgentRunPayload {
   currentDocument?: string;
   /** 文件树路径（用户打开/导入的文件和文件夹，让 AI 可发现本地文件）。 */
   fileTreePaths?: { files: string[]; folders: string[] };
+  /** 发送附件载荷（解析产物随行；主进程落 parsed_attachments + attachments_json，一-4）。 */
+  attachments?: import('./mention').IAttachmentPayload[];
+}
+
+/** AGENT_RUN 入队返回载荷（attachments = 发送链路解析后的最终元数据，渲染层回填乐观状态）。 */
+export interface AgentRunEnqueueResult {
+  taskId: string;
+  status: 'queued';
+  attachments?: import('./mention').IAttachmentMeta[];
 }
 
 /** 技能清单条目。 */

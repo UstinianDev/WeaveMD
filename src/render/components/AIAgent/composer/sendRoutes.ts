@@ -4,13 +4,15 @@
 // 从 handleSendAgent 7 路 if-branch 提取的独立处理器。
 // 每个处理器接收文本和上下文，返回 true 表示已处理。
 
+import type { IAttachmentPayload } from '@shared/ai';
+
 /** 发送路由上下文（组件状态快照，避免闭包捕获）。 */
 export interface SendContext {
   userId: string | undefined;
   selectionContext: unknown;
   activeConversationId: string | null;
   messages: Array<{ id: string; conversationId: string; role: string; content: string; refsJson: string | null; createdAt: string }>;
-  sendAgentMessage: (msg: string) => void;
+  sendAgentMessage: (msg: string, attachments?: IAttachmentPayload[]) => void;
   startDocumentRewrite: (content: string, instruction: string) => void;
   runFullDocumentRewrite: (text: string) => void;
   runSelectionRewrite: (instruction: string) => void;
@@ -25,6 +27,23 @@ export interface SendContext {
    * 为空字符串表示无 skillTag。
    */
   skillTagName?: string;
+  /**
+   * 发送附件载荷（一-4②：正文只含占位符，附件以载荷随行）。
+   * 仅 agent 对话类路由透传；改写类路由不携带。
+   */
+  attachments?: IAttachmentPayload[];
+}
+
+/**
+ * agent 对话路由统一出口：有附件时携带载荷调用 sendAgentMessage；
+ * 无附件保持单参调用（兼容既有行为与测试断言）。
+ */
+function emitAgent(ctx: SendContext, text: string): void {
+  if (ctx.attachments && ctx.attachments.length > 0) {
+    ctx.sendAgentMessage(text, ctx.attachments);
+  } else {
+    ctx.sendAgentMessage(text);
+  }
 }
 
 /** 引用前缀常量。 */
@@ -67,13 +86,13 @@ export function routeSlashSkill(text: string, ctx: SendContext): boolean {
     // 剥掉文本开头的 /skillname 前缀（保留剩余指令）
     const skillPrefixRe = new RegExp(`^/${ctx.skillTagName}\\s*`);
     const instruction = text.replace(skillPrefixRe, '').trim();
-    if (instruction) ctx.sendAgentMessage(instruction);
+    if (instruction) emitAgent(ctx, instruction);
     return true;
   }
   // 回退：纯文本正则匹配
   if (!SLASH_SKILL_RE.test(text)) return false;
   const instruction = text.replace(SLASH_SKILL_RE, '').trim();
-  if (instruction) ctx.sendAgentMessage(instruction);
+  if (instruction) emitAgent(ctx, instruction);
   return true;
 }
 
@@ -90,7 +109,7 @@ export function routeDocScope(text: string, ctx: SendContext): boolean {
 export function routeKbScope(text: string, ctx: SendContext): boolean {
   if (!text.startsWith(KB_SCOPE_PREFIX)) return false;
   const instruction = text.replace(KB_SCOPE_PREFIX, '').trim();
-  if (instruction) ctx.sendAgentMessage(instruction);
+  if (instruction) emitAgent(ctx, instruction);
   return true;
 }
 
@@ -112,7 +131,7 @@ export function routeWholeDocWrite(text: string, ctx: SendContext): boolean {
 
 /** 路由 7（兜底）：纯 agent 对话。 */
 export function routePlainAgent(text: string, ctx: SendContext): boolean {
-  ctx.sendAgentMessage(text);
+  emitAgent(ctx, text);
   return true;
 }
 

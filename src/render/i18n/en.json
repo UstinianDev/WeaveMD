@@ -140,6 +140,8 @@
   "ai.tab.agent": "Agent",
   "ai.tab.chat": "Chat",
   "ai.modeSelectLabel": "Switch between Chat / Agent mode",
+  "ai.attachment.parsing": "Parsing...",
+  "ai.attachment.parseFailed": "Parse failed",
   "ai.msg.copy": "Copy",
   "ai.msg.edit": "Edit",
   "ai.msg.retry": "Retry",

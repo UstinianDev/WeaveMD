@@ -25,9 +25,11 @@ import {
 } from '../composer/sendRoutes';
 import Icon from '../../Common/Icon';
 import {
+  buildAttachmentSendText,
   genAttachmentId,
   handleComposerPaste,
   ingestFilePaths,
+  toAttachmentPayloads,
   type Attachment,
 } from '../composer/pasteAttachment';
 import { SkillTag } from '../composer/extensions/SkillTag';
@@ -35,6 +37,7 @@ import { MentionTag } from '../composer/extensions/MentionTag';
 import { setCachedSkills, createSkillSuggestionExtension } from '../composer/extensions/skillSuggestion';
 import { setMentionItemsGetter, createMentionSuggestionExtension } from '../composer/extensions/mentionSuggestion';
 import type { MentionOption } from '../composer/extensions/mentionSuggestion';
+import type { IAttachmentPayload } from '@shared/ai';
 
 /** 上下文 token 估算上限（128k）。 */
 const MAX_CONTEXT_TOKENS = 128000;
@@ -328,15 +331,24 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
     return () => { editor.off('update', updatePlaceholder); };
   }, [editor]);
 
-  /** agent 模式发送分流 */
-  const handleSendAgent = (text: string, skillTagName: string): void => {
+  /** agent 模式发送分流（attachments：附件载荷随 agent 对话路由透传，一-4②） */
+  const handleSendAgent = (
+    text: string,
+    skillTagName: string,
+    attachments?: IAttachmentPayload[]
+  ): void => {
     const store = useAgentStore.getState();
     const ctx: SendContext = {
       userId: user?.id,
       selectionContext,
       activeConversationId: store.activeConversationId,
       messages: store.messages,
-      sendAgentMessage: (msg) => { void sendAgentMessage(msg); },
+      sendAgentMessage: (msg, atts) => {
+        // 无附件保持单参调用（兼容既有行为/测试；载荷仅在有附件时随行）
+        if (atts && atts.length > 0) void sendAgentMessage(msg, atts);
+        else void sendAgentMessage(msg);
+      },
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
       startDocumentRewrite: (content, instruction) => {
         useRewriteStore.getState().startDocumentRewrite(content, instruction);
       },
@@ -363,21 +375,13 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
     const trimmed = text.trim();
     if (!trimmed || isStreaming || !isConfigured) return;
 
-    let fullText = trimmed;
-    if (attachments.length > 0) {
-      const parts: string[] = [trimmed];
-      for (const att of attachments) {
-        if (att.type === 'file' && att.content) {
-          parts.push(`[文件: ${att.name}]\n\`\`\`\n${att.content}\n\`\`\``);
-        } else if (att.type === 'image') {
-          parts.push(`[图片: ${att.name}]`);
-        }
-      }
-      fullText = parts.join('\n\n');
-      setAttachments([]);
-    }
+    // 一-4②：正文只拼 [文件: xxx]/[图片: xxx] 占位符（不拼接解析正文，
+    // 防打爆 CONTEXT_WINDOW=64000）；解析产物随附件载荷 IPC 落 parsed_attachments
+    const payloadText = buildAttachmentSendText(trimmed, attachments);
+    const payloads = attachments.length > 0 ? toAttachmentPayloads(attachments) : undefined;
+    if (attachments.length > 0) setAttachments([]);
 
-    void handleSendAgent(fullText, skillTagName);
+    void handleSendAgent(payloadText, skillTagName, payloads);
     // 清空编辑器
     editor.commands.clearContent();
     onChange('');

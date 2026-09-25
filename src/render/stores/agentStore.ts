@@ -15,6 +15,8 @@ import type {
   IAIModelConfig,
   IAIMessage,
   IAgentToolCall,
+  IAttachmentMeta,
+  IAttachmentPayload,
   IClarifyQuestion,
   IEmbeddingConfig,
   IGlobalAgentFiles,
@@ -179,7 +181,8 @@ interface AgentStore {
   init: (userId: string) => Promise<void>;
   reset: () => void;
   newChat: () => void;
-  sendAgentMessage: (text: string) => Promise<void>;
+  /** 发送 agent 消息；attachments 为附件载荷（一-4②：正文只留占位符，载荷随行落两表）。 */
+  sendAgentMessage: (text: string, attachments?: IAttachmentPayload[]) => Promise<void>;
   stopStream: () => void;
   setUseKnowledgeBase: (enabled: boolean) => void;
   setKbSettings: (settings: IKbSettings) => Promise<void>;
@@ -544,7 +547,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     });
   },
 
-  async sendAgentMessage(text: string) {
+  async sendAgentMessage(text: string, attachments?: IAttachmentPayload[]) {
     const trimmed = text.trim();
     if (!trimmed) return;
     const { consent, activeConversationId, useKnowledgeBase, isStreaming } = get();
@@ -595,6 +598,22 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       await get().loadConversations('agent');
     }
 
+    // 附件轻量元数据（乐观初值；主进程回执后回填最终 parseStatus，一-4②）
+    const localAttachments: IAttachmentMeta[] | undefined =
+      attachments && attachments.length > 0
+        ? attachments.map((p) => ({
+            id: p.id ?? makeId(),
+            type: p.fileType,
+            name: p.fileName,
+            ...(p.path ? { path: p.path } : {}),
+            ...(typeof p.size === 'number' ? { size: p.size } : {}),
+            // 乐观三态：有正文 done；仅路径 processing（主进程补解析）；皆无 error
+            parseStatus: p.content ? 'done' : p.path ? 'processing' : 'error',
+            // 图片 data URL 作存活态缩略图（不持久化，仅本会话渲染）
+            ...(p.fileType === 'image' && p.content ? { thumb: p.content } : {}),
+          }))
+        : undefined;
+
     const userMsg: IAIMessage = {
       id: makeId(),
       conversationId,
@@ -602,6 +621,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       content: trimmed,
       refsJson: null,
       createdAt: new Date().toISOString(),
+      ...(localAttachments ? { attachments: localAttachments } : {}),
     };
     // 新一轮开始清空上轮轨迹/意图/提示
     const startTime = Date.now();
@@ -925,6 +945,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         currentDocument: useEditorStore.getState().content,
         // 文件树路径（用户打开/导入的文件和文件夹）
         fileTreePaths,
+        // 附件载荷随行（解析产物落 parsed_attachments，正文不进 prompt，一-4②）
+        ...(attachments && attachments.length > 0 ? { attachments } : {}),
       });
       // IpcResponse 类型不含 code（主进程 AGENT_RUN 失败信封实际携带），此处按运行时桥契约读取。
       const failedCode = (res as unknown as { code?: string }).code;
@@ -967,10 +989,31 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       }
       // 异步入队成功：返回 { taskId, status: 'queued' }
       // 实际结果通过 SSE 推送（AI_STREAM_CHUNK/DONE/ERROR），无需在此处理
-      const queueData = (res as unknown as { data?: { taskId?: string; status?: string } }).data;
+      const queueData = (
+        res as unknown as {
+          data?: { taskId?: string; status?: string; attachments?: IAttachmentMeta[] };
+        }
+      ).data;
       if (queueData?.taskId) {
         // 入队成功，等待 SSE 事件驱动后续流程
         set({ processStatus: 'thinking' });
+      }
+      // 发送链路解析完成：用主进程回执元数据回填乐观状态（存活态 thumb 保留，一-4②）
+      const resolved = queueData?.attachments;
+      if (resolved && resolved.length > 0 && localAttachments) {
+        set((s) => ({
+          messages: s.messages.map((m) =>
+            m.id === userMsg.id
+              ? {
+                  ...m,
+                  attachments: resolved.map((r) => {
+                    const thumb = localAttachments.find((t) => t.id === r.id)?.thumb;
+                    return thumb ? { ...r, thumb } : r;
+                  }),
+                }
+              : m
+          ),
+        }));
       }
     } catch (err) {
       // 清理流监听器

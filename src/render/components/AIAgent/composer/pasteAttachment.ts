@@ -11,7 +11,7 @@
 
 import type { EditorView } from '@tiptap/pm/view';
 
-import { isSupportedDocFile } from '@shared/ai';
+import { isSupportedDocFile, type IAttachmentPayload } from '@shared/ai';
 
 /** 附件类型（文件/图片） */
 export interface Attachment {
@@ -196,6 +196,41 @@ export function handleComposerPaste(
   }
 
   return false;
+}
+
+/**
+ * 发送正文构造（一-4②）：附件只拼 `[文件: xxx]` / `[图片: xxx]` 占位符，
+ * 绝不拼接解析正文 —— 正文随 IPC 载荷入 parsed_attachments（一物两表），
+ * 彻底避免打爆 agentHelpers 的 CONTEXT_WINDOW=64000。
+ */
+export function buildAttachmentSendText(text: string, attachments: Attachment[]): string {
+  if (attachments.length === 0) return text;
+  const parts = [text];
+  for (const att of attachments) {
+    parts.push(att.type === 'image' ? `[图片: ${att.name}]` : `[文件: ${att.name}]`);
+  }
+  return parts.join('\n\n');
+}
+
+/** 正文 UTF-8 字节数（附件 size 元数据，缺省无正文时不算）。 */
+function byteLength(s: string): number {
+  return new TextEncoder().encode(s).length;
+}
+
+/**
+ * Attachment → 发送链路 IPC 载荷（一物两表入参）：
+ * content = 解析产物（或图片 data URL），主进程写 parsed_attachments.content；
+ * 轻量元数据（id/fileType/path/size）最终落 attachments_json。
+ */
+export function toAttachmentPayloads(attachments: Attachment[]): IAttachmentPayload[] {
+  return attachments.map((att) => ({
+    id: att.id,
+    fileName: att.name,
+    fileType: att.type,
+    content: att.content ?? '',
+    ...(att.path ? { path: att.path } : {}),
+    ...(att.content ? { size: byteLength(att.content) } : {}),
+  }));
 }
 
 /**

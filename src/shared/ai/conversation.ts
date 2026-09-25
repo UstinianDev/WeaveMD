@@ -40,6 +40,8 @@ export interface IAIMessage {
   responseTime?: number;
   /** 本轮工具调用轨迹（快照，随消息持久化后可独立渲染）。 */
   toolCalls?: import('./agent').IAgentToolCall[];
+  /** 附件轻量元数据（attachments_json 解析结果；旧消息无该字段，渲染按可选处理）。 */
+  attachments?: import('./mention').IAttachmentMeta[];
 }
 
 /** AI 处理流程状态 */

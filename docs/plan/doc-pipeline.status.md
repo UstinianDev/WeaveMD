@@ -86,11 +86,26 @@ pdfjs-dist(110)、@anthropic-ai/sdk(107)、electron-builder(308) —— 全部 c
 - **遗留**：图片 data URL 仅内存 chips（落盘随 **B6**、正文占位符随 **B3**，批次边界见 TDD §8.4）；粘贴无 path 二进制文件跳过不断批（Electron `File.path` 正常走解析层）；E2E 存量 31 failed 不属本批次。
 - **下一任务**：B3（一-4 附件持久化与消息渲染：`attachments_json` 幂等迁移 + `parsed_attachments` DAO + 气泡三态）。
 
+### B3 完成（2026-09-26）
+
+- **范围**：一-4 附件持久化与消息渲染 = D1/D2 数据迁移 + `parsed_attachments` DAO 启用 + 发送链路落两表 + 气泡三态（TDD strict，L3 数据迁移）。
+- **状态**：✅ 完成。证据：`docs/testing/doc-pipeline-b3.tdd.md`。
+- **交付**：
+  - **D1/D2 迁移**：`db/index.ts` 新增可测导出 `addAttachmentColumns`（`ai_messages.attachments_json TEXT DEFAULT NULL` + `parsed_attachments.parse_status TEXT DEFAULT 'done'` / `parse_version INTEGER DEFAULT 1`），追加式、幂等、零 DROP；调用点在建表之后（D2 依赖，偏离记录 TDD §8.1）。
+  - **DAO 启用**：新建 `src/main/db/attachments.ts`（insert OR REPLACE/get/updateStatus/updateContent/remove/listByConversation 全参数化 + user_id 过滤 + 边界校验 sanitize + 20 项截断）+ **三态状态机** `persistIncomingAttachments`（pending → processing → done|error；有产物直写 done、无产物有路径经 parseLimiter 补解析、图片 data URL 转存 content、皆无 error）。
+  - **两表分工**：`appendMessage` 10 参写 `attachments_json`（**白名单序列化**，thumb/content 剔除）；正文只在 `parsed_attachments.content`；`IAIMessage.attachments` 可选（旧消息 NULL/坏 JSON 向后兼容）；`IAttachmentPayload` 死类型复用补 `id/path/size/parseStatus` + 新增 `IAttachmentMeta`。
+  - **发送链路**：AGENT_RUN 先落两表 → 元数据随 payloadJson → prepareAgentContext 写用户消息 → 回执 `attachments` 回填渲染层乐观态；AI_CHAT 同构；`agentLoop/agentContext/agentTaskWorker` 透传。
+  - **渲染层**：`handleSend` 只拼 `[文件: xxx]`/`[图片: xxx]` 占位符（**不再拼接 att.content，解决打爆 CONTEXT_WINDOW=64000**）；`sendAgentMessage(text, attachments?)` 载荷随行（emitAgent 无附件保持单参兼容）；气泡 chips + 图片缩略图（thumb 存活态 / path→media:// / 图标降级）+ 解析中/失败/完成三态；i18n 三语 catalog。
+  - **真库验证**：新建 `scripts/attachments-migration-smoke.cjs`（Electron 运行时真 SQLite 四态，DDL 从源码正则抽取防漂移），退出码 0。
+- **门禁**：tsc 0 error / vitest **143 文件 3325 passed 0 failed**（+45）/ lint 0 error（108 存量 warning）/ vite build exit 0 / E2E **31 failed·1 skipped·101 passed（133 条）**——failed 名单构成与基线逐条同（ai-agent-panel 恰 4 条 A2/A3/A4/①），**零新增失败**；迁移三断言 vitest（FakeDb）+ 真库 smoke 双轨全过。
+- **遗留**：历史粘贴图片（无 path）重载后缩略图待 **B6** 落盘产 path；改写类路由不携带附件载荷（TDD §8.6 记录取舍）；`attachments.ts` DB 异常兜底分支未单测（TDD §5）；E2E 存量 31 failed 不属本批次。
+- **下一任务**：B4（四-3 批量导入通道：`importDirAsKb` 扩 7 格式 + 先 `parseDocument` 再入索引 + `parsed_attachments.id` 关联）。
+
 ## 进度总览
 
 | 模块 | 任务数 | 状态 |
 |---|---|---|
-| 一 会话附件上传 | 4 | 一-1/一-2/一-3 完成（B2）；一-4 随 B3 |
+| 一 会话附件上传 | 4 | **全部完成**（一-1/一-2/一-3=B2，一-4=B3） |
 | 二 文档解析层 | 6 | 二-1/二-2/二-6契约 完成（B1）；二-3/二-4/二-6落库 随 B7；二-5 随 B12 |
 | 三 目录文件树 | 3 | 未开始 |
 | 四 知识库/RAG | 4 | 未开始 |

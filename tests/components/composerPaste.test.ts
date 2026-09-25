@@ -9,6 +9,9 @@ import type { EditorView } from '@tiptap/pm/view';
 import {
   handleComposerPaste,
   ingestFilePaths,
+  buildAttachmentSendText,
+  toAttachmentPayloads,
+  type Attachment,
   type ComposerPasteDeps,
 } from '@render/components/AIAgent/composer/pasteAttachment';
 
@@ -335,3 +338,82 @@ async function flushMicroTasks(times = 5): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
 }
+
+// ---------------------------------------------------------------------------
+// B3 一-4②：发送正文只留占位符 + Attachment → IPC 载荷
+// ---------------------------------------------------------------------------
+
+function makeAttachment(over: Partial<Attachment> = {}): Attachment {
+  return { id: 'a1', type: 'file', name: 'report.pdf', ...over };
+}
+
+describe('buildAttachmentSendText — 正文只拼占位符（不打爆 CONTEXT_WINDOW）', () => {
+  it('文件附件只拼 [文件: xxx]，绝不拼接解析正文', () => {
+    const att = makeAttachment({ content: '十万字全文'.repeat(1000) });
+    const out = buildAttachmentSendText('帮我看下', [att]);
+    expect(out).toBe('帮我看下\n\n[文件: report.pdf]');
+    expect(out).not.toContain('十万字全文');
+  });
+
+  it('图片附件拼 [图片: xxx]（data URL 不进正文）', () => {
+    const att = makeAttachment({ id: 'i1', type: 'image', name: 'shot.png', content: 'data:image/png;base64,AAA' });
+    const out = buildAttachmentSendText('看图', [att]);
+    expect(out).toBe('看图\n\n[图片: shot.png]');
+    expect(out).not.toContain('base64');
+  });
+
+  it('多附件按顺序拼接，占位符逐个追加', () => {
+    const out = buildAttachmentSendText('对比', [
+      makeAttachment({ id: 'a1', name: 'a.pdf' }),
+      makeAttachment({ id: 'a2', name: 'b.md', content: 'md 正文' }),
+      makeAttachment({ id: 'i1', type: 'image', name: 'c.png' }),
+    ]);
+    expect(out).toBe('对比\n\n[文件: a.pdf]\n\n[文件: b.md]\n\n[图片: c.png]');
+  });
+
+  it('无附件 → 原文本返回', () => {
+    expect(buildAttachmentSendText('纯文本', [])).toBe('纯文本');
+  });
+});
+
+describe('toAttachmentPayloads — Attachment → IPC 载荷（一物两表入参）', () => {
+  it('携带 id/fileName/fileType/content/path，size 取正文 UTF-8 字节数', () => {
+    const payloads = toAttachmentPayloads([
+      makeAttachment({ path: 'C:/docs/report.pdf', content: 'abc' }),
+    ]);
+    expect(payloads).toEqual([
+      {
+        id: 'a1',
+        fileName: 'report.pdf',
+        fileType: 'file',
+        content: 'abc',
+        path: 'C:/docs/report.pdf',
+        size: 3,
+      },
+    ]);
+  });
+
+  it('无 path / 无 content 时省略对应可选字段', () => {
+    const payloads = toAttachmentPayloads([makeAttachment()]);
+    expect(payloads[0]).not.toHaveProperty('path');
+    expect(payloads[0]).not.toHaveProperty('size');
+    expect(payloads[0].content).toBe('');
+  });
+
+  it('图片 data URL 作为 content 照传（主进程转存 parsed_attachments.content）', () => {
+    const payloads = toAttachmentPayloads([
+      makeAttachment({ id: 'i1', type: 'image', name: 'shot.png', content: 'data:image/png;base64,AAA' }),
+    ]);
+    expect(payloads[0].fileType).toBe('image');
+    expect(payloads[0].content).toBe('data:image/png;base64,AAA');
+    expect(payloads[0].size).toBeGreaterThan(0);
+  });
+
+  it('多附件保持顺序（引用编号依赖选择顺序）', () => {
+    const payloads = toAttachmentPayloads([
+      makeAttachment({ id: 'a1', name: '1.pdf' }),
+      makeAttachment({ id: 'a2', name: '2.pdf' }),
+    ]);
+    expect(payloads.map((p) => p.id)).toEqual(['a1', 'a2']);
+  });
+});

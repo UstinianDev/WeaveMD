@@ -11,6 +11,7 @@ import type {
   AIErrorCode,
   IAIConfig,
   IAIConsent,
+  IAttachmentMeta,
   IClarifyQuestion,
 } from '@shared/ai';
 import { IPC_CHANNELS } from '@shared/constants';
@@ -109,6 +110,11 @@ export interface AgentReqPayload {
   currentDocument?: string;
   /** 文件树路径（用户打开/导入的文件和文件夹，让 AI 可发现本地文件）。 */
   fileTreePaths?: { files: string[]; folders: string[] };
+  /**
+   * 发送链路已落库的附件元数据（AGENT_RUN payloadJson 透传），
+   * 由 prepareAgentContext 写入用户消息 attachments_json（一-4②）。
+   */
+  attachments?: IAttachmentMeta[];
 }
 
 /** 工具回填消息（OpenAI 续轮约定，额外字段随序列化传给远端）。 */

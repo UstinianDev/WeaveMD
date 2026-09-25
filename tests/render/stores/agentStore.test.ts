@@ -242,6 +242,72 @@ describe('agentStore 会话状态机', () => {
     await sendPromise;
   });
 
+  it('sendAgentMessage 携带附件（B3 一-4）：正文只留占位符、payload 带载荷、回执回填元数据+存活态 thumb', async () => {
+    let streamCb: ((evt: AIStreamEvent) => void) | null = null;
+    (
+      window.weaveMD.ai.onStream as unknown as { mockImplementation: (fn: (...a: unknown[]) => unknown) => void }
+    ).mockImplementation((cb: unknown) => {
+      streamCb = cb as (evt: AIStreamEvent) => void;
+      return () => {
+        streamCb = null;
+      };
+    });
+    const emit = (evt: AIStreamEvent) => streamCb?.(evt);
+
+    // 回执：主进程解析后的最终元数据（无 thumb —— thumb 仅渲染层存活态）
+    const resolved = [
+      { id: 'att-1', type: 'file' as const, name: 'r.pdf', path: 'C:/r.pdf', size: 4, parseStatus: 'done' as const },
+      { id: 'img-1', type: 'image' as const, name: 's.png', parseStatus: 'done' as const },
+    ];
+    vi.mocked((window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent).mockResolvedValue({
+      success: true,
+      data: { conversationId: CONVERSATION_ID, assistantId: 'a1', roundsUsed: 1, intent: null, attachments: resolved },
+    });
+
+    useAgentStore.setState({
+      config: remoteConfig,
+      modelConfigs: mockModelConfigs,
+      embeddingConfig: mockEmbeddingConfig,
+      embeddingConnectionOk: true,
+      searchConfig: mockSearchConfig,
+      searchConnectionOk: true,
+      consent: noConsent,
+      useKnowledgeBase: false,
+      activeMode: 'agent',
+      activeConversationId: CONVERSATION_ID,
+    });
+
+    const payloads = [
+      // 文件无正文（B2 解析失败/未解析）→ 主进程补解析，乐观 processing 由回执回填 done
+      { id: 'att-1', fileName: 'r.pdf', fileType: 'file' as const, content: '', path: 'C:/r.pdf', size: 4 },
+      { id: 'img-1', fileName: 's.png', fileType: 'image' as const, content: 'data:image/png;base64,AAA' },
+    ];
+
+    const sendPromise = useAgentStore.getState().sendAgentMessage('[文件: r.pdf]\n\n[图片: s.png]', payloads);
+    await new Promise((r) => setTimeout(r, 0));
+
+    // runAgent 载荷：message 只含占位符，附件以载荷数组随行（正文不内联进 prompt）
+    const runArgs = (
+      window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }
+    ).runAgent.mock.calls[0][0] as { message: string; attachments?: unknown[] };
+    expect(runArgs.message).toBe('[文件: r.pdf]\n\n[图片: s.png]');
+    expect(runArgs.message).not.toContain('base64');
+    expect(runArgs.attachments).toEqual(payloads);
+
+    emit({ type: 'done', conversationId: CONVERSATION_ID });
+    await sendPromise;
+    await new Promise((r) => setTimeout(r, 0));
+
+    // 回执回填：附件状态取主进程最终值；图片 thumb（存活态 data URL）保留
+    const userMsg = useAgentStore
+      .getState()
+      .messages.find((m) => m.role === 'user');
+    expect(userMsg?.attachments).toEqual([
+      { id: 'att-1', type: 'file', name: 'r.pdf', path: 'C:/r.pdf', size: 4, parseStatus: 'done' },
+      { id: 'img-1', type: 'image', name: 's.png', parseStatus: 'done', thumb: 'data:image/png;base64,AAA' },
+    ]);
+  });
+
   it('sendAgentMessage 流式 chunk 累积进 streamBuffer，done 后写 assistant msg', async () => {
     let streamCb: ((evt: AIStreamEvent) => void) | null = null;
 

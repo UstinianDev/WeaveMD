@@ -7,12 +7,13 @@
 // assistant refsJson（IKbSearchResult 数组）渲染「[来源: 文件名 · 块]」链接，点击 openFile。
 
 import React, { useMemo, useState, useCallback } from 'react';
-import type { AIMessageRole, IAgentToolCall } from '@shared/ai';
+import type { AIMessageRole, IAgentToolCall, IAttachmentMeta } from '@shared/ai';
 import type { IFile } from '@shared/types';
 import { useI18n } from '@render/i18n';
 import { useAuthStore } from '@render/stores/authStore';
 import { useEditorStore } from '@render/stores/editorStore';
 import { formatMessageTimestamp } from '@render/utils/messageTimestamp';
+import { toImgSrc } from '@render/editor/kernel/inlineRenderer';
 import MarkdownMessage from './MarkdownMessage';
 import ToolCallTrace from './ToolCallTrace';
 import Icon from '../../Common/Icon';
@@ -44,6 +45,11 @@ interface AIMessageBubbleProps {
   onRetry?: () => void;
   /** URL 搜索回调 */
   onUrlSearch?: (url: string) => void;
+  /**
+   * user 消息附件轻量元数据（attachments_json 解析结果，一-4②）。
+   * 旧消息无该字段 → 不渲染附件区（向后兼容）。
+   */
+  attachments?: IAttachmentMeta[];
 }
 
 interface ParsedSource {
@@ -177,6 +183,7 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
   isEditing = false,
   onRetry,
   onUrlSearch,
+  attachments,
 }) => {
   const { t } = useI18n();
   const [hovered, setHovered] = useState(false);
@@ -325,6 +332,56 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
               style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}
             >
               <div className="whitespace-pre-wrap break-words">{content}</div>
+              {/* 附件 chips：图片缩略图 + 解析三态（一-4②；旧消息无字段不渲染） */}
+              {attachments && attachments.length > 0 && (
+                <div
+                  className="mt-1.5 pt-1.5 border-t border-white/20 flex flex-wrap gap-1.5"
+                  data-testid="message-attachments"
+                >
+                  {attachments.map((att) => {
+                    const thumbSrc = att.thumb ?? (att.path ? toImgSrc(att.path) : undefined);
+                    return (
+                      <div
+                        key={att.id}
+                        className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/10 text-[12px] max-w-[200px]"
+                        data-testid="message-attachment-chip"
+                      >
+                        {att.type === 'image' && thumbSrc ? (
+                          <img
+                            src={thumbSrc}
+                            alt={att.name}
+                            className="w-7 h-7 rounded object-cover flex-shrink-0"
+                            data-testid="message-attachment-thumb"
+                          />
+                        ) : (
+                          <Icon
+                            icon={att.type === 'image' ? 'image' : 'file-outline'}
+                            size={14}
+                            className="flex-shrink-0 opacity-80"
+                          />
+                        )}
+                        <span className="truncate max-w-[110px]">{att.name}</span>
+                        {att.parseStatus === 'error' && (
+                          <span
+                            className="text-red-300 text-[11px] whitespace-nowrap"
+                            data-testid="attachment-status-error"
+                          >
+                            {t('ai.attachment.parseFailed', '解析失败')}
+                          </span>
+                        )}
+                        {(att.parseStatus === 'processing' || att.parseStatus === 'pending') && (
+                          <span
+                            className="text-white/70 text-[11px] whitespace-nowrap animate-pulse"
+                            data-testid="attachment-status-parsing"
+                          >
+                            {t('ai.attachment.parsing', '解析中')}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
             {/* 操作栏 + 时间戳：始终可见 */}
             <div className={`flex items-center gap-2 mt-1.5 transition-opacity ${hovered ? 'opacity-100' : 'opacity-70'}`}>

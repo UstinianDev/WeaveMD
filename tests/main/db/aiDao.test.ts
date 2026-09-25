@@ -22,6 +22,8 @@ interface AiConfigRowFixture {
 
 const fakeDbMock = vi.hoisted(() => {
   const calls: Array<{ method: 'get' | 'all' | 'run'; sql: string; args: unknown[] }> = [];
+  // getMessagesByConversation 的可注入行（B3：attachments_json 解析映射用）
+  let messageRows: Record<string, unknown>[] = [];
   // 供 getAiConfig SELECT 注入自定义行（覆盖默认 undefined）→ 触发 UPDATE 分支 / mapConfigRow
   // 第一次 ai_config SELECT 用于 upsert 前置判断；之后为 post-write 回读。用计数区分：
   // skipFirst=false 时所有读取都返回该行；skipFirst=true 时首次返回 undefined（触发 INSERT）。
@@ -36,6 +38,9 @@ const fakeDbMock = vi.hoisted(() => {
     setSkipFirstAiConfigGet: (skip: boolean): void => {
       skipFirst = skip;
       aiConfigGetCount = 0;
+    },
+    setMessageRows: (rows: Record<string, unknown>[]): void => {
+      messageRows = rows;
     },
     prepare: vi.fn().mockImplementation((sql: string) => {
       const stmt: FakeStatement = {
@@ -95,6 +100,8 @@ const fakeDbMock = vi.hoisted(() => {
         },
         all: (...args) => {
           calls.push({ method: 'all', sql, args });
+          // 消息列表查询返回可注入行（attachments_json 映射断言用）
+          if (sql.includes('FROM ai_messages')) return messageRows;
           return [];
         },
         run: (...args) => {
@@ -106,6 +113,7 @@ const fakeDbMock = vi.hoisted(() => {
     }),
     reset: () => {
       calls.length = 0;
+      messageRows = [];
       fakeDbMock.prepare.mockClear();
     },
   };
@@ -163,8 +171,90 @@ describe('ai DAO — SQL 参数化与归属过滤行为', () => {
       content: 'hello',
     });
     const insert = callOf('run', 'INSERT INTO ai_messages');
-    // 9 args: id, conversation_id, user_id, role, content, refs_json, tool_call_id, tool_calls, created_at
-    expect(insert?.args).toEqual([expect.any(String), 'c1', 'u1', 'assistant', 'hello', null, null, null, expect.any(String)]);
+    // 10 args: id, conversation_id, user_id, role, content, refs_json, tool_call_id, tool_calls,
+    //          attachments_json（B3 D1 新列）, created_at
+    expect(insert?.args).toEqual([expect.any(String), 'c1', 'u1', 'assistant', 'hello', null, null, null, null, expect.any(String)]);
+  });
+
+  it('appendMessage 带附件：attachments_json 白名单序列化（content/thumb 不落消息表）', () => {
+    appendMessage({
+      conversationId: 'c1',
+      userId: 'u1',
+      role: 'user',
+      content: '[文件: r.pdf]',
+      attachments: [
+        {
+          id: 'a1',
+          type: 'file',
+          name: 'r.pdf',
+          path: 'C:/docs/r.pdf',
+          size: 123,
+          parseStatus: 'done',
+          thumb: 'data:image/png;base64,SHOULD_NOT_PERSIST',
+        },
+      ],
+    });
+    const insert = callOf('run', 'INSERT INTO ai_messages');
+    const attachmentsJson = insert?.args[8] as string;
+    expect(typeof attachmentsJson).toBe('string');
+    const parsed = JSON.parse(attachmentsJson) as Array<Record<string, unknown>>;
+    expect(parsed).toEqual([
+      { id: 'a1', type: 'file', name: 'r.pdf', path: 'C:/docs/r.pdf', size: 123, parseStatus: 'done' },
+    ]);
+    expect(attachmentsJson).not.toContain('SHOULD_NOT_PERSIST');
+    expect(attachmentsJson).not.toContain('thumb');
+    // 参数化铁律：JSON 不拼进 SQL
+    expect(insert?.sql).not.toContain('attachments_json VALUES');
+    expect(insert?.sql).toContain('attachments_json');
+  });
+
+  it('mapMessageRow：attachments_json 解析为 IAIMessage.attachments（旧消息 NULL/坏 JSON 向后兼容）', () => {
+    fakeDbMock.setMessageRows([
+      {
+        id: 'm1',
+        conversation_id: 'c1',
+        user_id: 'u1',
+        role: 'user',
+        content: '[图片: a.png]',
+        refs_json: null,
+        tool_call_id: null,
+        tool_calls: null,
+        attachments_json: JSON.stringify([
+          { id: 'i1', type: 'image', name: 'a.png', parseStatus: 'done' },
+        ]),
+        created_at: 'now',
+      },
+      {
+        id: 'm2',
+        conversation_id: 'c1',
+        user_id: 'u1',
+        role: 'user',
+        content: '旧消息（无附件字段）',
+        refs_json: null,
+        tool_call_id: null,
+        tool_calls: null,
+        attachments_json: null,
+        created_at: 'now',
+      },
+      {
+        id: 'm3',
+        conversation_id: 'c1',
+        user_id: 'u1',
+        role: 'user',
+        content: '坏 JSON',
+        refs_json: null,
+        tool_call_id: null,
+        tool_calls: null,
+        attachments_json: '{broken',
+        created_at: 'now',
+      },
+    ]);
+    const msgs = getMessagesByConversation('c1', 'u1');
+    expect(msgs[0].attachments).toEqual([
+      { id: 'i1', type: 'image', name: 'a.png', parseStatus: 'done' },
+    ]);
+    expect(msgs[1].attachments).toBeUndefined();
+    expect(msgs[2].attachments).toBeUndefined();
   });
 
   it('listConversationsByUser filters by user_id + mode and orders by updated_at DESC', () => {

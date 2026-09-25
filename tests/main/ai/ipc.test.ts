@@ -105,6 +105,12 @@ const agentLoopMock = vi.hoisted(() => ({
 }));
 vi.mock('@main/ai/agent/agentLoop', () => agentLoopMock);
 
+// B3 一-4：发送链路附件落两表（persistIncomingAttachments 被 AGENT_RUN / AI_CHAT 调用）
+const attachmentsPersistMock = vi.hoisted(() => ({
+  persistIncomingAttachments: vi.fn(),
+}));
+vi.mock('@main/db/attachments', () => attachmentsPersistMock);
+
 const rewriteMock = vi.hoisted(() => ({
   runRewrite: vi.fn(),
 }));
@@ -256,6 +262,7 @@ beforeEach(() => {
   });
   queueMock.cancelPending.mockReset().mockReturnValue(0);
   queueMock.dequeueForProcessing.mockReset().mockReturnValue(null);
+  attachmentsPersistMock.persistIncomingAttachments.mockReset().mockResolvedValue([]);
   registerAiIpcHandlers();
 });
 
@@ -569,6 +576,58 @@ describe('ai:ipc handlers', () => {
     expect(ok.success).toBe(true);
     // 归属正确的 userId 落在入队载荷，由 worker 传给 agentLoop
     expect((queueMock.enqueue.mock.calls[0][0] as { userId: string }).userId).toBe('u1');
+  });
+
+  it('AGENT_RUN 带附件：先落 parsed_attachments，元数据随 payloadJson 透传并回执', async () => {
+    initQueue();
+    const resolved = [{ id: 'a1', type: 'file' as const, name: 'r.pdf', path: 'C:/r.pdf', size: 10, parseStatus: 'done' as const }];
+    attachmentsPersistMock.persistIncomingAttachments.mockResolvedValue(resolved);
+    const raw = [{ id: 'a1', fileName: 'r.pdf', fileType: 'file' as const, content: '全文正文' }];
+    const result = (await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
+      userId: 'u1',
+      conversationId: 'c1',
+      message: '[文件: r.pdf]',
+      attachments: raw,
+    })) as { success: boolean; data: { attachments?: typeof resolved } };
+    expect(result.success).toBe(true);
+    expect(attachmentsPersistMock.persistIncomingAttachments).toHaveBeenCalledWith('u1', 'c1', raw);
+    const enqueued = queueMock.enqueue.mock.calls[0][0] as { payloadJson: string };
+    expect(JSON.parse(enqueued.payloadJson).attachments).toEqual(resolved);
+    // 回执元数据供渲染层回填乐观状态（attachments_json 最终态）
+    expect(result.data.attachments).toEqual(resolved);
+  });
+
+  it('AGENT_RUN 不带附件：不触附件落库（旧行为回归锁定）', async () => {
+    initQueue();
+    const result = (await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
+      userId: 'u1',
+      conversationId: 'c1',
+      message: 'hello',
+    })) as { success: boolean };
+    expect(result.success).toBe(true);
+    expect(attachmentsPersistMock.persistIncomingAttachments).not.toHaveBeenCalled();
+    const enqueued = queueMock.enqueue.mock.calls[0][0] as { payloadJson: string };
+    expect(JSON.parse(enqueued.payloadJson).attachments).toBeUndefined();
+  });
+
+  it('AI_CHAT 带附件：落两表后用户消息 appendMessage 携带附件元数据', async () => {
+    async function* gen() {
+      yield { delta: 'ok' };
+    }
+    llmMock.streamChatCompletion.mockImplementation(() => gen());
+    const resolved = [{ id: 'i1', type: 'image' as const, name: 'a.png', parseStatus: 'done' as const }];
+    attachmentsPersistMock.persistIncomingAttachments.mockResolvedValue(resolved);
+    const raw = [{ id: 'i1', fileName: 'a.png', fileType: 'image' as const, content: 'data:image/png;base64,AAA' }];
+    const result = (await getHandler(IPC_CHANNELS.AI_CHAT)(makeEvent(), {
+      userId: 'u1',
+      message: '[图片: a.png]',
+      attachments: raw,
+    })) as { success: boolean };
+    expect(result.success).toBe(true);
+    expect(attachmentsPersistMock.persistIncomingAttachments).toHaveBeenCalledWith('u1', 'c1', raw);
+    expect(dbMock.appendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ role: 'user', content: '[图片: a.png]', attachments: resolved })
+    );
   });
 
   it('AGENT_ABORT aborts active stream and returns aborted true', async () => {

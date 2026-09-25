@@ -9,6 +9,8 @@ import type {
   ConversationMode,
   IAIConfig,
   IAIConsent,
+  IAttachmentMeta,
+  IAttachmentPayload,
 } from '@shared/ai';
 import {
   appendMessage,
@@ -27,6 +29,7 @@ import {
 } from '../../db/ai';
 import { cancelPendingByConversation } from '../../db/agentTaskDao';
 import { getDatabase } from '../../db/index';
+import { persistIncomingAttachments } from '../../db/attachments';
 import { decryptApiKey } from '../secureConfig';
 import { needsConsent } from '../consent';
 import { streamChatCompletion } from '../llm/llmClient';
@@ -38,6 +41,8 @@ interface ChatReqPayload {
   userId: string;
   conversationId?: string;
   message: string;
+  /** 发送附件载荷（解析产物随行；主进程落两表，一-4②）。 */
+  attachments?: IAttachmentPayload[];
 }
 
 export function registerChatHandlers(): void {
@@ -266,8 +271,20 @@ async function runChatFlow(
   }
   activeStreams.set(convId, controller);
 
-  // 持久化用户消息
-  appendMessage({ conversationId: convId, userId, role: 'user', content: message });
+  // 持久化用户消息：附件先落 parsed_attachments（三态流转），
+  // 轻量元数据随消息写 attachments_json（正文只留占位符，一-4②）
+  let attachmentMetas: IAttachmentMeta[] | undefined;
+  if (payload.attachments && payload.attachments.length > 0) {
+    attachmentMetas = await persistIncomingAttachments(userId, convId, payload.attachments);
+    if (attachmentMetas.length === 0) attachmentMetas = undefined;
+  }
+  appendMessage({
+    conversationId: convId,
+    userId,
+    role: 'user',
+    content: message,
+    ...(attachmentMetas ? { attachments: attachmentMetas } : {}),
+  });
 
   // 组装 messages：历史 + 当前
   const history = getMessagesByConversation(convId, userId);

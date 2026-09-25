@@ -18,6 +18,7 @@ import {
   type WriteMode,
   type IAIMessage,
   type IAIConversation,
+  type IAttachmentMeta,
 } from '@shared/ai';
 
 // ---------------------------------------------------------------------------
@@ -495,7 +496,25 @@ interface AiMessageDbRow {
   refs_json: string | null;
   tool_call_id: string | null;
   tool_calls: string | null;
+  attachments_json: string | null;
   created_at: string;
+}
+
+/**
+ * 附件元数据白名单序列化（一-4②：只存 id/type/name/path/size/parseStatus）。
+ * `thumb` 等渲染层存活态与正文一律剔除 —— 消息表不膨胀（一物两表）。
+ */
+function serializeAttachments(attachments: IAttachmentMeta[]): string {
+  return JSON.stringify(
+    attachments.map((a) => ({
+      id: a.id,
+      type: a.type,
+      name: a.name,
+      ...(a.path ? { path: a.path } : {}),
+      ...(typeof a.size === 'number' ? { size: a.size } : {}),
+      ...(a.parseStatus ? { parseStatus: a.parseStatus } : {}),
+    }))
+  );
 }
 
 function mapMessageRow(row: AiMessageDbRow): IAIMessage {
@@ -505,6 +524,16 @@ function mapMessageRow(row: AiMessageDbRow): IAIMessage {
       toolCalls = JSON.parse(row.tool_calls);
     } catch {
       toolCalls = undefined;
+    }
+  }
+  // 附件元数据：旧消息无列值/坏 JSON → undefined（渲染按可选处理，向后兼容）
+  let attachments: IAIMessage['attachments'];
+  if (row.attachments_json) {
+    try {
+      const parsed: unknown = JSON.parse(row.attachments_json);
+      if (Array.isArray(parsed)) attachments = parsed as IAttachmentMeta[];
+    } catch {
+      attachments = undefined;
     }
   }
   return {
@@ -517,6 +546,7 @@ function mapMessageRow(row: AiMessageDbRow): IAIMessage {
     toolCallId: row.tool_call_id,
     createdAt: row.created_at,
     toolCalls,
+    ...(attachments ? { attachments } : {}),
   };
 }
 
@@ -528,6 +558,8 @@ export function appendMessage(msg: {
   refsJson?: string | null;
   toolCallId?: string | null;
   toolCalls?: IAIMessage['toolCalls'];
+  /** 附件轻量元数据（一-4②：正文入 parsed_attachments，此处只写 attachments_json） */
+  attachments?: IAttachmentMeta[];
 }): IAIMessage {
   const db = getDatabase();
   const id = randomUUID();
@@ -535,9 +567,13 @@ export function appendMessage(msg: {
   const toolCallsJson = msg.toolCalls && msg.toolCalls.length > 0
     ? JSON.stringify(msg.toolCalls)
     : null;
+  const attachmentsJson =
+    msg.attachments && msg.attachments.length > 0
+      ? serializeAttachments(msg.attachments)
+      : null;
   cachedPrepare(db,
-    'INSERT INTO ai_messages (id, conversation_id, user_id, role, content, refs_json, tool_call_id, tool_calls, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, msg.conversationId, msg.userId, msg.role, msg.content, msg.refsJson ?? null, msg.toolCallId ?? null, toolCallsJson, createdAt);
+    'INSERT INTO ai_messages (id, conversation_id, user_id, role, content, refs_json, tool_call_id, tool_calls, attachments_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, msg.conversationId, msg.userId, msg.role, msg.content, msg.refsJson ?? null, msg.toolCallId ?? null, toolCallsJson, attachmentsJson, createdAt);
   cachedPrepare(db,
     "UPDATE ai_conversations SET updated_at = datetime('now') WHERE id = ? AND user_id = ?"
   ).run(msg.conversationId, msg.userId);
@@ -551,6 +587,7 @@ export function appendMessage(msg: {
     toolCallId: msg.toolCallId ?? null,
     createdAt,
     toolCalls: msg.toolCalls,
+    ...(msg.attachments ? { attachments: msg.attachments } : {}),
   };
 }
 

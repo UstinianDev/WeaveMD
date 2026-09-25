@@ -140,6 +140,8 @@
   "ai.tab.agent": "智能體",
   "ai.tab.chat": "對話",
   "ai.modeSelectLabel": "切換對話 / 智能體模式",
+  "ai.attachment.parsing": "解析中",
+  "ai.attachment.parseFailed": "解析失敗",
   "ai.msg.copy": "複製",
   "ai.msg.edit": "編輯",
   "ai.msg.retry": "重試",

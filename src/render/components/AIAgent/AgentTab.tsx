@@ -126,6 +126,7 @@ const MessageList: React.FC<MessageListProps> = React.memo(({ messages, isAgentM
               refsJson={isAgentMode ? m.refsJson : null}
               responseTime={m.responseTime}
               createdAt={m.createdAt}
+              attachments={m.attachments}
               onCopy={() => handleCopy(m.content)}
               onEdit={
                 m.role === 'user'

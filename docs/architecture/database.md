@@ -66,6 +66,7 @@
 | role | TEXT | 角色（user/assistant/tool） |
 | content | TEXT | 消息内容 |
 | tool_call_id | TEXT | 工具调用 ID（tool 角色） |
+| attachments_json | TEXT | 附件轻量元数据 JSON `[{id,type,name,path,size,parseStatus}]`（可空；B3 D1 迁移，解析正文存 `parsed_attachments.content`，一物两表） |
 | created_at | TEXT | 创建时间 |
 
 #### agent_run_events
@@ -189,7 +190,7 @@
 | `app_meta` | 实表 | `appMeta.ts` | 应用元数据（schema 版本等） |
 | `mail_config` | 实表 | `mail.ts` | 反馈邮件配置（key 走 safeStorage） |
 | `knowledge_cache` | 实表 | `index.ts` | 知识库查询/Embedding 缓存 |
-| `parsed_attachments` | 实表 | `index.ts` | 附件解析结果缓存 |
+| `parsed_attachments` | 实表 | `attachments.ts` | 附件解析产物（`content` 存正文；`parse_status` 三态 pending/processing/done/error、`parse_version` 回填重建依据 —— B3 D2 补列启用） |
 | `kb_images` | 实表 | `kb.ts` | 知识库图片索引（`document_id` 级联删除） |
 | `kb_documents_fts` | FTS5 虚拟表 | `index.ts` | 文档级全文索引 |
 | `images_vec` | vec0 虚拟表 | `index.ts` | 图片向量（sqlite-vec 可用时） |
@@ -215,7 +216,8 @@
 | `history.ts` | 文件历史版本 |
 | `settings.ts` | 用户设置 KV |
 | `appMeta.ts` | 应用元数据 |
-| `ai.ts` | `ai_config` / `ai_conversations` / `ai_messages` CRUD |
+| `ai.ts` | `ai_config` / `ai_conversations` / `ai_messages` CRUD（`appendMessage` 写 `attachments_json` 白名单元数据） |
+| `attachments.ts` | `parsed_attachments` DAO（insert/get/updateStatus/updateContent/remove/listByConversation）+ 发送链路三态落库 |
 | `modelConfigs.ts` | `ai_model_configs` 多模型配置 |
 | `searchConfig.ts` | `ai_search_config` 搜索配置 CRUD |
 | `embeddingConfig.ts` | `ai_embedding_config` 配置 CRUD |

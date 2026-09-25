@@ -10,9 +10,9 @@ import type {
   AIStreamEvent,
   AgentInteractionPayload,
   AgentRollbackResult,
+  AgentRunEnqueueResult,
   AgentRunEvent,
   AgentRunPayload,
-  AgentRunResult,
   AiChatResult,
   AiConfigUpdate,
   AiConversationDetail,
@@ -166,7 +166,7 @@ export interface WeaveMDApi {
       userId: string,
       summary: string
     ) => Promise<IpcResponse<IAIConversation>>;
-    runAgent: (payload: AgentRunPayload) => Promise<IpcResponse<AgentRunResult>>;
+    runAgent: (payload: AgentRunPayload) => Promise<IpcResponse<AgentRunEnqueueResult>>;
     agentAbort: (conversationId: string, userId: string) => Promise<IpcResponse<{ aborted: boolean }>>;
     rewritePreview: (payload: RewriteRequestPayload) => Promise<IpcResponse<RewriteReply>>;
     listSkills: (userId: string) => Promise<IpcResponse<AgentSkillInfo[]>>;
