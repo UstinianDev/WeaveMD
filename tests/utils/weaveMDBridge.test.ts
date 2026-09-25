@@ -124,6 +124,39 @@ describe('weaveMDBridge', () => {
     expect(warnSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('kb.parseDocument 浏览器 mock 返回结构化受控产物（B1）', async () => {
+    const bridge = ensureWeaveMDApi();
+
+    const ok = (await bridge.kb.parseDocument('/mock/report.xlsx', 'report.xlsx')) as {
+      success: boolean;
+      data?: {
+        text: string;
+        fileName: string;
+        fileType: string;
+        headings: unknown[];
+        sections: unknown[];
+        tables: unknown[];
+        images: unknown[];
+        parseVersion: number;
+      };
+    };
+    expect(ok.success).toBe(true);
+    expect(ok.data?.fileName).toBe('report.xlsx');
+    expect(ok.data?.fileType).toBe('xlsx');
+    expect(ok.data?.parseVersion).toBe(1);
+    expect(Array.isArray(ok.data?.headings)).toBe(true);
+    expect(Array.isArray(ok.data?.sections)).toBe(true);
+    expect(Array.isArray(ok.data?.tables)).toBe(true);
+    expect(Array.isArray(ok.data?.images)).toBe(true);
+
+    const bad = (await bridge.kb.parseDocument('/mock/img.png', 'img.png')) as {
+      success: boolean;
+      message?: string;
+    };
+    expect(bad.success).toBe(false);
+    expect(bad.message).toContain('Unsupported');
+  });
+
   it('keeps the injected preload bridge when it already exists', () => {
     window.weaveMD = originalBridge;
 

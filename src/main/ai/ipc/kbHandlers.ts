@@ -11,7 +11,7 @@ import { getAiConfig, upsertAiConfig, updateKbExtendedSettings } from '../../db/
 import { listKbDocumentsByUser, listKbDocumentsWithChunkCount } from '../../db/kb';
 import { getFile } from '../../db/files';
 import { indexFile, indexImportedText, removeByFile } from '../knowledge/kbIndexer';
-import { parseDocument } from '../files/documentParser';
+import { isSupportedDocument, parseDocument } from '../files/documentParser';
 import type { IKbImportResult } from '@shared/ai';
 
 export function registerKbHandlers(): void {
@@ -209,11 +209,15 @@ export function registerKbHandlers(): void {
     }
   );
 
-  // 文档解析（PDF/DOCX/MD/TXT）
+  // 文档解析（7 格式白名单 → 结构化产物）
   ipcMain.handle(
     IPC_CHANNELS.KB_PARSE_DOCUMENT,
     async (_event, filePath: string, fileName: string, mimeType?: string) => {
       try {
+        // 白名单入口校验（isSupportedDocument 接线：供上传校验复用，二-1②）
+        if (!isSupportedDocument(fileName)) {
+          return { success: false, message: `Unsupported file type: ${fileName}` };
+        }
         const result = await parseDocument(filePath, fileName, mimeType);
         return { success: true, data: result };
       } catch (error) {

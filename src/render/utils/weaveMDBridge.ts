@@ -1,4 +1,5 @@
 import type { WeaveMDApi } from '@main/preload';
+import { DOCUMENT_PARSE_VERSION, isSupportedDocFile } from '@shared/ai';
 import type {
   AccountInfo,
   IFile,
@@ -708,7 +709,23 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
     status: async () => ({ success: false }),
     getSettings: async () => ({ success: false }),
     setSettings: async () => ({ success: false }),
-    parseDocument: async () => ({ success: false }),
+    // 浏览器 mock：无文件系统，按 7 格式白名单返回受控结构化产物（B1 可测实现）
+    parseDocument: async (_filePath: string, fileName: string) => {
+      if (!isSupportedDocFile(fileName)) {
+        return createFailureResult(`Unsupported file type: ${fileName}`);
+      }
+      const ext = fileName.toLowerCase().slice(fileName.lastIndexOf('.') + 1);
+      return createSuccessResult({
+        text: '',
+        fileName,
+        fileType: ext,
+        headings: [],
+        sections: [],
+        tables: [],
+        images: [],
+        parseVersion: DOCUMENT_PARSE_VERSION,
+      });
+    },
   },
   mail: {
     get: async (userId) => {
