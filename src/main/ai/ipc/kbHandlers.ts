@@ -12,6 +12,7 @@ import { listKbDocumentsByUser, listKbDocumentsWithChunkCount } from '../../db/k
 import { getFile } from '../../db/files';
 import { indexFile, indexImportedText, removeByFile } from '../knowledge/kbIndexer';
 import { isSupportedDocument, parseDocument } from '../files/documentParser';
+import { parseWithLimit } from '../files/parseLimiter';
 import type { IKbImportResult } from '@shared/ai';
 
 export function registerKbHandlers(): void {
@@ -218,7 +219,8 @@ export function registerKbHandlers(): void {
         if (!isSupportedDocument(fileName)) {
           return { success: false, message: `Unsupported file type: ${fileName}` };
         }
-        const result = await parseDocument(filePath, fileName, mimeType);
+        // 解析并发限流（一-2②：多文件批量上传时避免主进程被 20 个 pdf 阻塞）
+        const result = await parseWithLimit(() => parseDocument(filePath, fileName, mimeType));
         return { success: true, data: result };
       } catch (error) {
         return {

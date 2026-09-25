@@ -239,6 +239,7 @@ const triggerBrowserDownload = (content: string, filename: string, mimeType: str
   return true;
 };
 
+/** 编辑器「打开文件」mock（file.open）：单文件 + 全文（编辑区需要 content，与主进程默认模式对齐） */
 const readBrowserSelectedFile = (): Promise<
   ApiResult<{ path: string; name: string; content: string }>
 > => {
@@ -277,6 +278,33 @@ const readBrowserSelectedFile = (): Promise<
       } catch {
         resolve(createFailureResult('Failed to read the selected file.'));
       }
+    });
+
+    input.click();
+  });
+};
+
+/** 附件上传 mock（dialog.openFile）：7 格式白名单 + 多选 + 只返回路径数组（B2 一-1②） */
+const readBrowserSelectedUploadFiles = (): Promise<ApiResult<{ paths: string[] }>> => {
+  if (typeof document === 'undefined') {
+    return Promise.resolve(createFailureResult('File selection is not available.'));
+  }
+
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    // 与主进程 DIALOG_OPEN_FILE upload 模式 filters 对齐
+    input.accept = '.pdf,.doc,.docx,.txt,.md,.xls,.xlsx';
+    input.multiple = true;
+
+    input.addEventListener('change', () => {
+      const files = Array.from(input.files ?? []);
+      if (files.length === 0) {
+        resolve(createFailureResult('File selection cancelled.'));
+        return;
+      }
+      // 只返回路径（浏览器模式以文件名代路径），内容由 kb.parseDocument mock 接管
+      resolve(createSuccessResult({ paths: files.map((f) => f.name) }));
     });
 
     input.click();
@@ -565,7 +593,7 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
     isMaximized: async () => loadState().isMaximized,
   },
   dialog: {
-    openFile: async () => readBrowserSelectedFile(),
+    openFile: async () => readBrowserSelectedUploadFiles(),
     openFolder: async () =>
       createFailureResult('Folder selection is not available in browser mode.'),
     saveFile: async ({ defaultName }) =>
@@ -582,7 +610,8 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
         },
         'Browser bridge save file path mock.'
       ),
-    pickImage: async () => null,
+    // B2：由恒 null 改为受控返回（避免 E2E 对图片入口假通过；真实文件框由 Electron 提供）
+    pickImage: async () => `mock-picked-image-${Date.now().toString(36)}.png`,
   },
   account: {
     info: async (userId) => {

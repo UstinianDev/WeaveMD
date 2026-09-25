@@ -165,4 +165,106 @@ describe('weaveMDBridge', () => {
     expect(bridge).toBe(originalBridge);
     expect(warnSpy).not.toHaveBeenCalled();
   });
+
+  // ============================================
+  // B2 一-1②：openFile mock 契约同步（7 格式 accept + multiple + 只返回 paths）
+  // ============================================
+  it('dialog.openFile mock：accept 放开 7 格式、multiple 多选、返回路径数组保序（B2）', async () => {
+    const bridge = ensureWeaveMDApi();
+    const originalCreate = document.createElement.bind(document);
+    const capturedInputs: HTMLInputElement[] = [];
+    const createSpy = vi
+      .spyOn(document, 'createElement')
+      .mockImplementation(((tag: string) => {
+        const el = originalCreate(tag);
+        if (tag === 'input') capturedInputs.push(el as HTMLInputElement);
+        return el;
+      }) as typeof document.createElement);
+
+    try {
+      const pending = bridge.dialog.openFile();
+      expect(capturedInputs.length).toBe(1);
+      const input = capturedInputs[0];
+      // 7 格式白名单 accept + 支持多选
+      for (const ext of ['.pdf', '.doc', '.docx', '.txt', '.md', '.xls', '.xlsx']) {
+        expect(input.accept).toContain(ext);
+      }
+      expect(input.multiple).toBe(true);
+
+      // 用户多选（保持选择顺序）
+      const f1 = new File(['# b'], 'b.md', { type: 'text/markdown' });
+      const f2 = new File(['x'], 'a.pdf', { type: 'application/pdf' });
+      Object.defineProperty(input, 'files', { value: [f1, f2], configurable: true });
+      input.dispatchEvent(new Event('change'));
+
+      const result = (await pending) as { success: boolean; data?: { paths: string[] } };
+      expect(result.success).toBe(true);
+      expect(result.data?.paths).toEqual(['b.md', 'a.pdf']);
+      // 不再返回全文（内容由解析层接管）
+      expect(result.data).not.toHaveProperty('content');
+    } finally {
+      createSpy.mockRestore();
+    }
+  });
+
+  // ============================================
+  // B2 一-1②：pickImage mock 恒 null → 受控返回（避免 E2E 假通过）
+  // ============================================
+  it('dialog.pickImage mock 返回受控图片路径而非恒 null（B2）', async () => {
+    const bridge = ensureWeaveMDApi();
+
+    const path = await bridge.dialog.pickImage();
+
+    expect(path).not.toBeNull();
+    expect(typeof path).toBe('string');
+    expect(path).toMatch(/\.png$/);
+  });
+
+  // ============================================
+  // 双入口回归锁定：file.open（编辑器）与 dialog.openFile（上传）共享 readBrowser*
+  // 契约源但行为不同 —— file.open 保持 md 单文件 + 全文
+  // ============================================
+  it('file.open mock 保持单文件 + 全文契约（编辑器入口不受 B2 上传契约影响）', async () => {
+    const bridge = ensureWeaveMDApi();
+    const originalCreate = document.createElement.bind(document);
+    const capturedInputs: HTMLInputElement[] = [];
+    const createSpy = vi
+      .spyOn(document, 'createElement')
+      .mockImplementation(((tag: string) => {
+        const el = originalCreate(tag);
+        if (tag === 'input') capturedInputs.push(el as HTMLInputElement);
+        return el;
+      }) as typeof document.createElement);
+
+    try {
+      const pending = bridge.file.open();
+      expect(capturedInputs.length).toBe(1);
+      const input = capturedInputs[0];
+      // 编辑器入口：md 限定 + 不多选
+      expect(input.accept).toContain('.md');
+      expect(input.accept).not.toContain('.pdf');
+      expect(input.multiple).toBe(false);
+
+      const file = new File(['# from disk'], 'disk.md', { type: 'text/markdown' });
+      // jsdom 24 的 File 无 .text()（浏览器/Electron 有），测试内注入
+      Object.defineProperty(file, 'text', {
+        value: async () => '# from disk',
+        configurable: true,
+      });
+      Object.defineProperty(input, 'files', { value: [file], configurable: true });
+      input.dispatchEvent(new Event('change'));
+
+      const result = (await pending) as {
+        success: boolean;
+        data?: { path: string; name: string; content: string; paths?: string[] };
+      };
+      expect(result.success).toBe(true);
+      expect(result.data?.path).toBe('disk.md');
+      expect(result.data?.name).toBe('disk.md');
+      expect(result.data?.content).toBe('# from disk');
+      expect(result.data).not.toHaveProperty('paths');
+    } finally {
+      createSpy.mockRestore();
+    }
+  });
 });

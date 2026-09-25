@@ -43,12 +43,19 @@ const KnowledgeBaseSettings: React.FC = () => {
   const handleImportFile = async () => {
     setBusy(true);
     try {
+      // B2：openFile 只返回路径数组，内容由解析层接管（KB 单文件导入取首个，多选批量随 B4）
       const result = (await window.weaveMD.dialog.openFile()) as unknown as {
         success?: boolean;
-        data?: { name: string; content: string };
+        data?: { paths?: string[] };
       };
-      if (result.success && result.data) {
-        await triggerKbImportFile({ title: result.data.name, content: result.data.content });
+      const path = result.success && Array.isArray(result.data?.paths)
+        ? result.data.paths[0]
+        : undefined;
+      if (!path) return;
+      const name = path.split(/[/\\]/).pop() ?? path;
+      const parsed = await window.weaveMD.kb.parseDocument(path, name);
+      if (parsed.success && parsed.data) {
+        await triggerKbImportFile({ title: name, content: parsed.data.text });
       }
     } finally {
       setBusy(false);

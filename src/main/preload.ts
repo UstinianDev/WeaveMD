@@ -87,7 +87,8 @@ export interface WeaveMDApi {
     isMaximized: () => Promise<boolean>;
   };
   dialog: {
-    openFile: () => Promise<unknown>;
+    /** B2 起返回路径数组（保用户选择顺序），内容由解析层接管 */
+    openFile: () => Promise<IpcResponse<{ paths: string[] }>>;
     saveFile: (options: {
       defaultName: string;
       filters?: Array<{ name: string; extensions: string[] }>;
@@ -328,7 +329,7 @@ const api: WeaveMDApi = {
     isMaximized: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_IS_MAXIMIZED),
   },
   dialog: {
-    openFile: () => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_OPEN_FILE),
+    openFile: () => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_OPEN_FILE, { upload: true }),
     saveFile: (options) => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SAVE_FILE, options),
     openFolder: () => ipcRenderer.invoke(IPC_CHANNELS.DIALOG_OPEN_FOLDER),
     saveFilePath: (title, defaultName, filters) =>

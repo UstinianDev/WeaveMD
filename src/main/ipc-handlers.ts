@@ -129,26 +129,48 @@ export function registerAllIpcHandlers(): void {
   // Dialog
   // ========================================
 
-  ipcMain.handle(IPC_CHANNELS.DIALOG_OPEN_FILE, async (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win) return { success: false, error: 'No window' };
+  // 本通道由两个入口共享：
+  // - 编辑器「打开文件」（preload file.open，无参数）：md 单选 + 返回全文（编辑区需要 content，非 B2 范围）
+  // - 附件上传（preload dialog.openFile，{ upload:true }）：7 格式 + 多选 + 只返回路径数组（一-1②）
+  ipcMain.handle(
+    IPC_CHANNELS.DIALOG_OPEN_FILE,
+    async (
+      event,
+      options?: { upload?: boolean }
+    ) => {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!win) return { success: false, error: 'No window' };
 
-    const result = await dialog.showOpenDialog(win, {
-      title: 'Open Markdown File',
-      filters: [{ name: 'Markdown', extensions: ['md'] }],
-      properties: ['openFile'],
-    });
+      const upload = options?.upload === true;
+      const result = await dialog.showOpenDialog(win, {
+        title: upload ? 'Open Documents' : 'Open Markdown File',
+        filters: upload
+          ? [
+              {
+                name: 'Documents',
+                extensions: ['pdf', 'doc', 'docx', 'txt', 'md', 'xls', 'xlsx'],
+              },
+            ]
+          : [{ name: 'Markdown', extensions: ['md'] }],
+        properties: upload ? ['openFile', 'multiSelections'] : ['openFile'],
+      });
 
-    if (result.canceled || result.filePaths.length === 0) {
-      return { success: false, error: 'Cancelled' };
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, error: 'Cancelled' };
+      }
+
+      if (upload) {
+        // 只返回路径数组（保持用户选择顺序），内容由解析层 KB_PARSE_DOCUMENT 接管（一-1②）
+        return { success: true, data: { paths: [...result.filePaths] } };
+      }
+
+      // 编辑器打开文档：读全文供编辑区显示（保持既有行为）
+      const filePath = result.filePaths[0];
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const name = filePath.split(/[/\\]/).pop() || 'untitled.md';
+      return { success: true, data: { path: filePath, name, content } };
     }
-
-    const filePath = result.filePaths[0];
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const name = filePath.split(/[/\\]/).pop() || 'untitled.md';
-
-    return { success: true, data: { path: filePath, name, content } };
-  });
+  );
 
   ipcMain.handle(IPC_CHANNELS.DIALOG_PICK_IMAGE, async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);

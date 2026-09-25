@@ -53,6 +53,8 @@ interface AiMockOptions {
     hasApiKey: boolean;
     hint: string;
   }>;
+  /** B2 多选上传：dialog.openFile 返回的路径数组（保用户选择顺序）。缺省空数组。 */
+  openFilePaths?: string[];
 }
 
 /**
@@ -73,6 +75,8 @@ function installWeaveMDMock(opts: AiMockOptions): void {
   // 新建文档初始内容（改写用例注入，openFile 后 undo 栈干净）
   const seedContent = opts.seedContent ?? '';
   const mockModels = opts.listModels ?? ['qwen3.5:0.8b', 'deepseek-chat'];
+  // B2 一-1②：openFile 返回路径数组（缺省空 → 现有用例行为不变）
+  const openFilePaths = opts.openFilePaths ?? [];
   const user = {
     id: 'u1',
     username: 'ai_tester',
@@ -263,8 +267,11 @@ function installWeaveMDMock(opts: AiMockOptions): void {
     },
     dialog: {
       saveFilePath: async () => ok({ path: 'C:\\playwright\\ai.md' }),
-      openFile: async () => ok(),
+      // B2：返回路径数组，内容由 kb.parseDocument 接管
+      openFile: async () => ok({ paths: openFilePaths }),
       openFolder: async () => ok(),
+      // B2：受控返回图片路径（pickImage 同步更新，避免图片入口假通过）
+      pickImage: async () => 'mock-picked-image.png',
     },
     window: {
       minimize: async () => ok(),
@@ -512,6 +519,23 @@ function installWeaveMDMock(opts: AiMockOptions): void {
           threshold: 0.6,
           pinnedWeight: 1.5,
         }),
+      // B2：结构化产物受控 mock（白名单校验 + 占位 text，composer 据此入 chips）
+      parseDocument: async (_filePath: string, fileName: string) => {
+        if (!/\.(pdf|doc|docx|txt|md|xls|xlsx)$/i.test(fileName)) {
+          return { success: false, message: `Unsupported file type: ${fileName}` };
+        }
+        const ext = fileName.slice(fileName.lastIndexOf('.') + 1).toLowerCase();
+        return ok({
+          text: `parsed:${fileName}`,
+          fileName,
+          fileType: ext,
+          headings: [],
+          sections: [],
+          tables: [],
+          images: [],
+          parseVersion: 1,
+        });
+      },
     },
     license: {
       status: async () => ok({ status: 'activated' }),
@@ -1802,5 +1826,122 @@ test('③ 无 ollama 回归：设置页无 Ollama 选项/字段（后端固定 r
   // 后端固定远程 API：表单只提供「兼容协议」「提供商」选择，无后端切换器
   await expect(dialog.getByText('兼容协议', { exact: true })).toBeVisible();
   await expect(dialog.getByText('提供商', { exact: true })).toBeVisible();
+  expect(errors.length).toBe(0);
+});
+
+// ============================================================
+// doc-pipeline B2（一-1/一-2/一-3）：上传与粘贴接线
+// mock 不上网：openFile 返回路径数组 → kb.parseDocument 受控产物 → chips。
+// ============================================================
+
+test('B2 多选上传：6 路径逐个解析入 chips，>5 折叠为「1 个附件」', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, {
+    backend: 'remote',
+    consented: true,
+    openFilePaths: [
+      'C:\\docs\\a.pdf',
+      'C:\\docs\\b.doc',
+      'C:\\docs\\c.docx',
+      'C:\\docs\\d.txt',
+      'C:\\docs\\e.md',
+      'C:\\docs\\f.xlsx',
+    ],
+  });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await page.getByTitle('AI', { exact: true }).click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+
+  await panel.getByTitle('上传文件').click();
+
+  // 前 5 个可见（保用户选择顺序：首文件 a.pdf、末可见 e.md）
+  await expect(panel.getByText('a.pdf', { exact: true })).toBeVisible({ timeout: 5000 });
+  await expect(panel.getByText('b.doc', { exact: true })).toBeVisible();
+  await expect(panel.getByText('c.docx', { exact: true })).toBeVisible();
+  await expect(panel.getByText('d.txt', { exact: true })).toBeVisible();
+  await expect(panel.getByText('e.md', { exact: true })).toBeVisible();
+  // 第 6 个折叠（不出现在 chips），折叠标签 = 总数 - 5
+  await expect(panel.getByText('f.xlsx', { exact: true })).toHaveCount(0);
+  await expect(panel.getByTestId('attachment-fold')).toHaveText('1 个附件');
+  expect(errors.length).toBe(0);
+});
+
+test('B2 上传图片按钮：pickImage mock 受控返回 → 图片 chip 出现', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, { backend: 'remote', consented: true });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await page.getByTitle('AI', { exact: true }).click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+
+  await panel.getByTitle('上传图片').click();
+
+  await expect(panel.getByText('mock-picked-image.png', { exact: true })).toBeVisible({
+    timeout: 5000,
+  });
+  expect(errors.length).toBe(0);
+});
+
+test('B2 粘贴文件：DataTransfer.files txt → 附件 chip，正文不重复插入', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, { backend: 'remote', consented: true });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await page.getByTitle('AI', { exact: true }).click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+
+  const composer = panel.locator('.composer-tiptap-editor').first();
+  await composer.fill('已有内容');
+
+  // 真实 Chromium：构造带 File 的 paste 事件派发到 composer（FileReader 读文本入 chips）
+  await page.evaluate(() => {
+    const el = document.querySelector('.composer-tiptap-editor');
+    if (!el) throw new Error('composer not found');
+    const dt = new DataTransfer();
+    dt.items.add(new File(['粘贴文件的正文'], 'pasted-note.txt', { type: 'text/plain' }));
+    const ev = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, 'clipboardData', { value: dt, configurable: true });
+    el.dispatchEvent(ev);
+  });
+
+  // 附件 chip 出现（文件走 7 格式白名单分支）
+  await expect(panel.getByText('pasted-note.txt', { exact: true })).toBeVisible({ timeout: 5000 });
+  // 防文本重复插入：正文保持「已有内容」，不含文件内容
+  await expect(composer).toHaveText('已有内容');
+  expect(errors.length).toBe(0);
+});
+
+test('B2 粘贴图片：clipboardData 图片项（方式1）→ 图片 chip 出现', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, { backend: 'remote', consented: true });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await page.getByTitle('AI', { exact: true }).click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+
+  await panel.locator('.composer-tiptap-editor').first().click();
+
+  await page.evaluate(() => {
+    const el = document.querySelector('.composer-tiptap-editor');
+    if (!el) throw new Error('composer not found');
+    const dt = new DataTransfer();
+    const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+    dt.items.add(new File([bytes], 'shot.png', { type: 'image/png' }));
+    const ev = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, 'clipboardData', { value: dt, configurable: true });
+    el.dispatchEvent(ev);
+  });
+
+  // 图片 chip（clipboard-{id}.png 临时引用，落盘随 B6）
+  await expect(panel.getByText(/^clipboard-[a-z0-9]+\.png$/)).toBeVisible({ timeout: 5000 });
   expect(errors.length).toBe(0);
 });

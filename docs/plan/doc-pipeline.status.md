@@ -76,11 +76,21 @@ pdfjs-dist(110)、@anthropic-ai/sdk(107)、electron-builder(308) —— 全部 c
 - **遗留**：E2E 存量 31 failed 属前序已裁定范围，B1 不处理；`KB_PARSE_DOCUMENT` 的 composer/文件树真实调用方按计划随 **B2**。
 - **下一任务**：B2（一-1/一-2/一-3 上传接线，依赖 B1 解析层）。
 
+### B2 完成（2026-09-26）
+
+- **范围**：一-1 格式白名单 + 一-2 多选批量 + 一-3 粘贴上传（TDD strict，含 Playwright E2E）。
+- **状态**：✅ 完成。证据：`docs/testing/doc-pipeline-b2.tdd.md`。
+- **交付**：`DIALOG_OPEN_FILE` 参数化双模式（`{upload:true}`：7 格式 + `multiSelections` + 返回 `{paths}` 保序 + 无 `readFileSync`；无参数：编辑器 `file.open` 保持 md 单选 + 全文——**双入口共享通道为计划未披露耦合，自检发现并修复，补 2 条回归锁定**）；preload `dialog.openFile` 类型/参数同步；新建 `parseLimiter.ts`（信号量，默认并发 3）并接线 `KB_PARSE_DOCUMENT`；`AIPanelComposer` 收路径数组逐个解析（单文件失败不断批）、chips >5 折叠「N 个附件」、粘贴换 `handleComposerPaste`（图片双兜底 + 7 格式文件分支 + 防重复插入，照 ContentBlock 范式）；新建 `composer/pasteAttachment.ts` 纯函数模块（覆盖率门禁所需，偏离记录见 TDD §8.1）；bridge 拆 openFile/uploadFile 两 mock + `pickImage` 恒 null → 受控返回；`KnowledgeBaseSettings` 契约波及伴随适配（取首路径走 `KB_PARSE_DOCUMENT`）。
+- **门禁**：tsc 0 error / vitest **141 文件 3280 passed 0 failed** / lint 0 error（108 存量 warning）/
+  vite build exit 0 / E2E **31 failed·1 skipped·101 passed（133 条）**——31 failed 与基线逐条同名单（脚本比对零 B2 失败），4 条新增用例全过，**零新增失败**。
+- **遗留**：图片 data URL 仅内存 chips（落盘随 **B6**、正文占位符随 **B3**，批次边界见 TDD §8.4）；粘贴无 path 二进制文件跳过不断批（Electron `File.path` 正常走解析层）；E2E 存量 31 failed 不属本批次。
+- **下一任务**：B3（一-4 附件持久化与消息渲染：`attachments_json` 幂等迁移 + `parsed_attachments` DAO + 气泡三态）。
+
 ## 进度总览
 
 | 模块 | 任务数 | 状态 |
 |---|---|---|
-| 一 会话附件上传 | 4 | 未开始 |
+| 一 会话附件上传 | 4 | 一-1/一-2/一-3 完成（B2）；一-4 随 B3 |
 | 二 文档解析层 | 6 | 二-1/二-2/二-6契约 完成（B1）；二-3/二-4/二-6落库 随 B7；二-5 随 B12 |
 | 三 目录文件树 | 3 | 未开始 |
 | 四 知识库/RAG | 4 | 未开始 |

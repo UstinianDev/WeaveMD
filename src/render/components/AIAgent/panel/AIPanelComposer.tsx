@@ -24,6 +24,12 @@ import {
   type SendContext,
 } from '../composer/sendRoutes';
 import Icon from '../../Common/Icon';
+import {
+  genAttachmentId,
+  handleComposerPaste,
+  ingestFilePaths,
+  type Attachment,
+} from '../composer/pasteAttachment';
 import { SkillTag } from '../composer/extensions/SkillTag';
 import { MentionTag } from '../composer/extensions/MentionTag';
 import { setCachedSkills, createSkillSuggestionExtension } from '../composer/extensions/skillSuggestion';
@@ -33,14 +39,8 @@ import type { MentionOption } from '../composer/extensions/mentionSuggestion';
 /** 上下文 token 估算上限（128k）。 */
 const MAX_CONTEXT_TOKENS = 128000;
 
-/** 附件类型（文件/图片）。 */
-interface Attachment {
-  id: string;
-  type: 'file' | 'image';
-  name: string;
-  content?: string;
-  path?: string;
-}
+/** 附件 chips 可见上限，超出折叠为「N 个附件」（一-2②） */
+const MAX_VISIBLE_ATTACHMENT_CHIPS = 5;
 
 /** 联网搜索引擎选项。 */
 const WEB_SEARCH_ENGINES = ['Firecrawl', 'Zhipu', 'Tavily', 'Exa'] as const;
@@ -276,40 +276,23 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
           ? t('ai.rewrite.selectionHint')
           : t('ai.placeholder'),
       },
-      handlePaste: (view, event) => {
-        const clipboardData = event.clipboardData;
-        if (!clipboardData) return false;
-
-        // 优先检测 Edge 的 text/link-preview 格式，提取原始 URL
-        const linkPreview = clipboardData.getData('text/link-preview');
-        if (linkPreview) {
-          try {
-            const preview = JSON.parse(linkPreview);
-            if (preview.url) {
-              // 插入原始 URL 文本，而非 HTML 标题
-              const { state } = view;
-              const { tr } = state;
-              tr.insertText(preview.url);
-              view.dispatch(tr);
-              return true;
-            }
-          } catch {
-            // JSON 解析失败，继续其他处理
-          }
-        }
-
-        // 检测纯文本是否为 URL
-        const plainText = clipboardData.getData('text/plain');
-        if (plainText && /^https?:\/\/\S+$/i.test(plainText.trim())) {
-          const { state } = view;
-          const { tr } = state;
-          tr.insertText(plainText.trim());
-          view.dispatch(tr);
-          return true;
-        }
-
-        return false;
-      },
+      // 粘贴：图片双兜底 + 7 格式文件分支 + 防文本重复插入（一-3②，纯函数见 pasteAttachment.ts）
+      handlePaste: (view, event) =>
+        handleComposerPaste(view, event, {
+          addAttachment: (att) => {
+            setAttachments((prev) => [...prev, { id: genAttachmentId(), ...att }]);
+          },
+          readElectronImage: () =>
+            window.weaveMD?.clipboard?.readImage() ?? Promise.resolve(null),
+          parsePaths: (paths) =>
+            ingestFilePaths(
+              paths,
+              (path, name) => window.weaveMD?.kb.parseDocument(path, name),
+              (att) => {
+                setAttachments((prev) => [...prev, { id: genAttachmentId(), ...att }]);
+              }
+            ),
+        }),
     },
     onUpdate: ({ editor: ed }) => {
       const { text } = extractEditorContent(ed);
@@ -403,19 +386,24 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
   };
 
   // —— 文件/图片上传 ——
+  // B2 一-1②：只收路径数组，内容由 KB_PARSE_DOCUMENT 解析层接管（不再 readFileSync 全文）
   const handleUploadFile = useCallback(async () => {
     try {
       const result = (await window.weaveMD?.dialog.openFile()) as unknown as {
         success?: boolean;
-        data?: { name: string; content: string };
+        data?: { paths?: string[] };
       };
-      if (result?.success && result.data) {
-        const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-        setAttachments((prev) => [
-          ...prev,
-          { id, type: 'file', name: result.data!.name, content: result.data!.content },
-        ]);
-      }
+      const paths =
+        result?.success && Array.isArray(result.data?.paths) ? result.data.paths : [];
+      if (paths.length === 0) return;
+      // 逐个解析（主进程经 parseLimiter 限流），单文件失败不断批
+      await ingestFilePaths(
+        paths,
+        (path, name) => window.weaveMD?.kb.parseDocument(path, name),
+        (att) => {
+          setAttachments((prev) => [...prev, { id: genAttachmentId(), ...att }]);
+        }
+      );
     } catch {
       /* 静默 */
     }
@@ -426,8 +414,7 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
       const path = await window.weaveMD?.dialog.pickImage();
       if (path) {
         const name = path.split(/[/\\]/).pop() ?? path;
-        const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-        setAttachments((prev) => [...prev, { id, type: 'image', name, path }]);
+        setAttachments((prev) => [...prev, { id: genAttachmentId(), type: 'image', name, path }]);
       }
     } catch {
       /* 静默 */
@@ -480,10 +467,10 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
   return (
     <div className="border-t border-border px-2.5 pt-2 pb-2.5 space-y-1.5">
       <div className="relative">
-        {/* 附件预览条 */}
+        {/* 附件预览条：>5 个折叠为「N 个附件」（一-2②） */}
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-1.5">
-            {attachments.map((att) => (
+            {attachments.slice(0, MAX_VISIBLE_ATTACHMENT_CHIPS).map((att) => (
               <div
                 key={att.id}
                 className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-bg-tertiary border border-border text-[12px] text-text-sub"
@@ -503,6 +490,14 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
                 </button>
               </div>
             ))}
+            {attachments.length > MAX_VISIBLE_ATTACHMENT_CHIPS && (
+              <div
+                className="flex items-center px-2.5 py-1 rounded-lg bg-bg-tertiary border border-border text-[12px] text-text-muted"
+                data-testid="attachment-fold"
+              >
+                {attachments.length - MAX_VISIBLE_ATTACHMENT_CHIPS} 个附件
+              </div>
+            )}
           </div>
         )}
         <div className="relative">
