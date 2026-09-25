@@ -36,10 +36,19 @@ vi.mock('@main/db/kb', () => ({
   listKbDocumentsWithChunkCount: vi.fn(() => []),
 }));
 vi.mock('@main/db/files', () => ({ getFile: vi.fn(() => null) }));
+// B4：kbHandlers 引入附件读取与删除分派 → mock 面同步补齐（本文件只测 KB_PARSE_DOCUMENT）
+vi.mock('@main/db/attachments', () => ({ getParsedAttachment: vi.fn(() => null) }));
 vi.mock('@main/ai/knowledge/kbIndexer', () => ({
   indexFile: vi.fn(),
   indexImportedText: vi.fn(),
   removeByFile: vi.fn(() => true),
+  removeByDocId: vi.fn(() => true),
+  recordImportFailure: vi.fn(() => ({
+    docId: '',
+    title: '',
+    chunks: 0,
+    status: 'error' as const,
+  })),
 }));
 
 import { IPC_CHANNELS } from '@shared/constants';

@@ -101,6 +101,20 @@ pdfjs-dist(110)、@anthropic-ai/sdk(107)、electron-builder(308) —— 全部 c
 - **遗留**：历史粘贴图片（无 path）重载后缩略图待 **B6** 落盘产 path；改写类路由不携带附件载荷（TDD §8.6 记录取舍）；`attachments.ts` DB 异常兜底分支未单测（TDD §5）；E2E 存量 31 failed 不属本批次。
 - **下一任务**：B4（四-3 批量导入通道：`importDirAsKb` 扩 7 格式 + 先 `parseDocument` 再入索引 + `parsed_attachments.id` 关联）。
 
+### B4 完成（2026-09-26）
+
+- **范围**：四-3 批量导入通道 = `importDirAsKb` 解析先行 + 失败 `status='error'` 可见 + 附件入 KB 关联 + **D3** `kb_documents.attachment_id`（TDD strict，L3 数据迁移）。
+- **状态**：✅ 完成。证据：`docs/testing/doc-pipeline-b4.tdd.md`。
+- **交付**：
+  - **目录导入改造**：`importDirAsKb` 正则扩 7 格式（`isSupportedDocument` 白名单）；**先 `parseDocument`（parseLimiter 限流）再 `indexImportedText`，导入路径零文件字节读取**（fs 读禁断言锁定，pdf 不再 utf-8 直读乱码入库）；单文件解析失败/抛异常写 `recordImportFailure`（`status='error'` + 原因进 `IKbImportResult.error`）不静默、不断批。
+  - **附件入 KB**：`importAttachmentAsKb` 读 `parsed_attachments`（user_id 归属过滤）→ `source_type='attachment'` + `attachment_id` 入索引；不存在附件不落孤儿行、未解析完成写 error 行；**复用 `kb:import:file` 载荷二选一**（`KbImportFileRequest`），不新增通道（§1.3 三处同步不触发，取舍 TDD §8.1）。
+  - **删除链路**：`removeParsedAttachment`（唯一删除点）成功即 `removeByAttachment` 清理 KB + 搜索缓存失效（对齐 `cleanupKbAfterFileDelete` 模式）；`KB_DELETE` 载荷扩 `docId`（导入/错误行 `file_id` 为 NULL 可删），设置页删除按钮全量渲染、`triggerKbDelete` 改对象入参（偏离记录 TDD §8.2）。
+  - **D3 迁移**：`db/index.ts` 新增可测导出 `addKbAttachmentColumns`（`attachment_id TEXT DEFAULT NULL` + `idx_kb_doc_user_attachment`），追加式、幂等、零 DROP；`upsertKbDocument` 按 `attachmentId > fileId > 新建行` 查找优先级收敛（附件重试幂等）；`KbIndexOpts` 扩 `sourceType/attachmentId` 贯穿 indexFile/indexImportedText。
+  - **真库验证**：新建 `scripts/kb-attachment-migration-smoke.cjs`（Electron 运行时真 SQLite 四态，DDL 从源码正则抽取防漂移），退出码 0；B3 `attachments-migration-smoke.cjs` 回归亦 4 态全过。
+- **门禁**：tsc 0 error / vitest **145 文件 3370 passed 0 failed**（+45；收尾 03:14 实测）/ lint 0 error（108 存量 warning）/ vite build exit 0 / E2E **31 failed·1 skipped·101 passed（133 条）**——failed 按 spec 构成与基线逐条同名单（ai-agent-panel 4 / drag 5 / table 7 / feedback 5 / float-toolbar 2 / thematic 2 / exit 2 / editor 1 / image-resize 1 / recent-history 1 / welcome 1），**零新增失败**；迁移三断言 vitest（FakeDb）+ 真库 smoke 双轨全过。
+- **遗留**：设置页单文件导入解析失败无行内提示（TDD §8.6）；目录导入重复行语义为既有状态未改（§8.4）；`database.md` kb_documents 字段表按计划归 **B11 八-3②** 对齐（§8.7）；入 KB 勾选 UI 随 **B11**；E2E 存量 31 failed 与 `cacheMonitor` 性能用例负载 flaky 不属本批次（TDD §6）。
+- **下一任务**：B5（四-1 `kbIndexOpts()` 真实配置贯通 3 入口 + 四-2 `heading_path` 写入 + 三-2 表格 md 同批，D4 无 DDL）。
+
 ## 进度总览
 
 | 模块 | 任务数 | 状态 |
@@ -108,7 +122,7 @@ pdfjs-dist(110)、@anthropic-ai/sdk(107)、electron-builder(308) —— 全部 c
 | 一 会话附件上传 | 4 | **全部完成**（一-1/一-2/一-3=B2，一-4=B3） |
 | 二 文档解析层 | 6 | 二-1/二-2/二-6契约 完成（B1）；二-3/二-4/二-6落库 随 B7；二-5 随 B12 |
 | 三 目录文件树 | 3 | 未开始 |
-| 四 知识库/RAG | 4 | 未开始 |
+| 四 知识库/RAG | 4 | 四-3 完成（B4）；四-1/四-2 随 B5；四-4 随 B8 |
 | 五 多模态图片 | 3 | 未开始 |
 | 六 工具与引用溯源 | 3 | 未开始 |
 | 七 打包体积 | 3 | 未开始 |

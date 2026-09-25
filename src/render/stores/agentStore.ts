@@ -199,7 +199,8 @@ interface AgentStore {
   loadKbStatus: () => Promise<void>;
   triggerKbImportFile: (input: { title: string; content: string }) => Promise<boolean>;
   triggerKbImportDir: (folderPath: string) => Promise<void>;
-  triggerKbDelete: (fileId: string) => Promise<void>;
+  /** B4：fileId（文件笔记）/ docId（导入与错误行）二选一删除 */
+  triggerKbDelete: (target: { fileId?: string | null; docId?: string }) => Promise<void>;
 
   // —— 写控制模块：快照回滚 ——
   /** 回滚到指定会话的快照（成功后刷新编辑器内容）。 */
@@ -1391,10 +1392,14 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     }
   },
 
-  async triggerKbDelete(fileId: string) {
+  async triggerKbDelete(target: { fileId?: string | null; docId?: string }) {
     const userId = useAuthStore.getState().user?.id ?? '';
     const kb = getKb();
-    const res = await kb.delete({ userId, fileId });
+    const res = await kb.delete({
+      userId,
+      ...(target.fileId ? { fileId: target.fileId } : {}),
+      ...(target.docId ? { docId: target.docId } : {}),
+    });
     if (res.success) {
       await get().loadKbStatus();
     }

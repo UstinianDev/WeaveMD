@@ -7,11 +7,14 @@
 
 import {
   deleteChunksByDoc,
+  deleteKbDocument,
+  deleteKbDocumentByAttachment,
   deleteKbDocumentByFile,
   getChunksByDoc,
   insertChunksBatch,
   setKbDocStatus,
   upsertKbDocument,
+  type KbSourceType,
 } from '../../db/kb';
 import { getDatabase } from '../../db/index';
 import { createEmbedding } from './embeddingClient';
@@ -117,6 +120,13 @@ export interface KbIndexOpts {
     model: string;
     apiKey: string;
   };
+  /**
+   * 文档归属类型（B4 四-3②）。缺省按入口推导：indexFile='db'、indexImportedText='import'；
+   * 附件入 KB 传 'attachment'（TEXT 取值扩展，无 DDL）。
+   */
+  sourceType?: KbSourceType;
+  /** 关联 parsed_attachments.id（D3；删除附件→清理 KB 的关联键）。 */
+  attachmentId?: string;
 }
 
 const EMBED_BATCH_SIZE = 20;
@@ -201,8 +211,10 @@ export async function indexFile(
   try {
     const doc = upsertKbDocument(userId, {
       fileId: file.id,
+      // D3：附件关联随 opts 贯穿（正常 db 笔记不带 → undefined）
+      attachmentId: opts.attachmentId,
       title: file.name,
-      sourceType: 'db',
+      sourceType: opts.sourceType ?? 'db',
       status: 'importing',
     });
     docId = doc.id;
@@ -258,8 +270,10 @@ export async function indexImportedText(
   try {
     const doc = upsertKbDocument(userId, {
       fileId: null,
+      // D3：附件入 KB 以 attachment_id 收敛（重试更新同一行，不产生重复）
+      attachmentId: opts.attachmentId,
       title,
-      sourceType: 'import',
+      sourceType: opts.sourceType ?? 'import',
       status: 'importing',
     });
     docId = doc.id;
@@ -281,10 +295,65 @@ export async function indexImportedText(
   }
 }
 
+/**
+ * 记录一次导入失败（四-3② 失败不静默）：直接落 `status='error'` 的 kb_documents 行，
+ * 不写 chunks。附件场景带 attachment_id，重试成功时按关联收敛更新同一行。
+ * DB 异常不抛（仍返回 error 结果），保证 UI 可见。
+ */
+export function recordImportFailure(
+  userId: string,
+  title: string,
+  opts?: { sourceType?: KbSourceType; attachmentId?: string; error?: string }
+): IKbImportResult {
+  let docId = '';
+  let finalTitle = title;
+  try {
+    const doc = upsertKbDocument(userId, {
+      fileId: null,
+      attachmentId: opts?.attachmentId,
+      title,
+      sourceType: opts?.sourceType ?? 'import',
+      status: 'error',
+    });
+    docId = doc.id;
+    finalTitle = doc.title;
+  } catch {
+    // DB 层异常不阻断导入流程（结果仍为 error，UI 可见）
+  }
+  return {
+    docId,
+    title: finalTitle,
+    chunks: 0,
+    status: 'error',
+    ...(opts?.error ? { error: opts.error } : {}),
+  };
+}
+
 /** 删除某 file 关联的知识库文档（文件删除清理）。 */
 export function removeByFile(userId: string, fileId: string): boolean {
   const result = deleteKbDocumentByFile(userId, fileId);
   // 删除完成后清除搜索缓存
+  if (result) {
+    invalidateKbSearchCache(userId);
+  }
+  return result;
+}
+
+/**
+ * 删除某附件关联的知识库文档（附件删除→清理 KB，四-3②；
+ * 对齐 ipc-handlers.ts cleanupKbAfterFileDelete 模式，由 db/attachments 唯一删除点收口）。
+ */
+export function removeByAttachment(userId: string, attachmentId: string): boolean {
+  const result = deleteKbDocumentByAttachment(userId, attachmentId);
+  if (result) {
+    invalidateKbSearchCache(userId);
+  }
+  return result;
+}
+
+/** 按 docId 删除（KB 设置页删除导入/错误行——file_id 为 NULL 的文档无 file 键）。 */
+export function removeByDocId(userId: string, docId: string): boolean {
+  const result = deleteKbDocument(userId, docId);
   if (result) {
     invalidateKbSearchCache(userId);
   }

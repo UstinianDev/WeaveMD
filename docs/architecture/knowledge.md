@@ -20,7 +20,7 @@ FTS5 关键词召回 → 结果返回 LLM
 
 | 模块 | 文件 | 职责 |
 |------|------|------|
-| 导入/分块 | `kbIndexer.ts` | md/txt 导入 + 按段落分块 + 增量重索引 |
+| 导入/分块 | `kbIndexer.ts` | 7 格式导入（先 `parseDocument` 再入索引，失败写 `status='error'`）+ 按段落分块 + 增量重索引 + 附件关联（`source_type='attachment'`） |
 | 分词 | `tokenizer.ts` | jieba-wasm（cut_for_search + bigram 回退） |
 | 图片索引 | `imageIndexer.ts` | images_vec 表 + 多模态 embedding |
 | Embedding | `embeddingClient.ts` | 向量生成（HyDE 用） |
@@ -84,7 +84,9 @@ createEmbedding 向量化
 ## 数据模型
 
 ```sql
-kb_documents(id, user_id, file_id, source_type, title, pinned, status, created_at)
+kb_documents(id, user_id, file_id, source_type, title, pinned, status, created_at, attachment_id)
+             -- attachment_id 关联 parsed_attachments.id（B4/D3）；source_type 取值 'db'|'import'|'attachment'
+             -- 删除附件经 removeParsedAttachment → removeByAttachment 清理关联 KB 文档
 kb_chunks(id, document_id, seq, content, vector BLOB, embedding_model, source_ref, created_at)
              -- vector 由 kbIndexer 在配置了 embedding 时写入；未配置则为 NULL
 kb_chunks_fts -- FTS5 虚拟表（jieba 分词，触发器同步）

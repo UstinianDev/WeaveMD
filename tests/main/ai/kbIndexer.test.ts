@@ -13,6 +13,7 @@ const fakeDbMock = vi.hoisted(() => {
   return {
     calls,
     throwOnChunkInsert: false,
+    throwOnDocInsert: false,
     prepare: vi.fn().mockImplementation((sql: string) => {
       const stmt: FakeStatement = {
         sql,
@@ -29,6 +30,9 @@ const fakeDbMock = vi.hoisted(() => {
           if (fakeDbMock.throwOnChunkInsert && sql.includes('INSERT INTO kb_chunks')) {
             throw new Error('db down');
           }
+          if (fakeDbMock.throwOnDocInsert && sql.includes('INSERT INTO kb_documents')) {
+            throw new Error('db down');
+          }
           return { changes: 1 };
         },
       };
@@ -38,6 +42,7 @@ const fakeDbMock = vi.hoisted(() => {
       calls.length = 0;
       fakeDbMock.prepare.mockClear();
       fakeDbMock.throwOnChunkInsert = false;
+      fakeDbMock.throwOnDocInsert = false;
     },
   };
 });
@@ -58,7 +63,16 @@ vi.mock('@main/db/index', () => ({
   getDatabase: () => new FakeDatabase(),
 }));
 
-import { splitNote, indexFile, indexImportedText, reindexAfterSave, removeByFile } from '@main/ai/knowledge/kbIndexer';
+import {
+  splitNote,
+  indexFile,
+  indexImportedText,
+  reindexAfterSave,
+  recordImportFailure,
+  removeByFile,
+  removeByAttachment,
+  removeByDocId,
+} from '@main/ai/knowledge/kbIndexer';
 
 const { calls } = fakeDbMock;
 
@@ -163,5 +177,113 @@ describe('kbIndexer.reindexAfterSave / indexImportedText / removeByFile', () => 
     const stmt = callOf('run', 'DELETE FROM kb_documents');
     expect(stmt?.sql).toMatch(/WHERE file_id = \? AND user_id = \?/);
     expect(stmt?.args).toEqual(['f1', 'u1']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B4 四-3② + D3：source_type='attachment' / attachment_id 关联 / 失败可见 / 删除清理
+// ---------------------------------------------------------------------------
+
+describe('kbIndexer — 附件关联（source_type=attachment + attachment_id）', () => {
+  it('indexImportedText 带 attachment 选项：INSERT 携 source_type + attachment_id', async () => {
+    const result = await indexImportedText('u1', 'report', '正文', {
+      sourceType: 'attachment',
+      attachmentId: 'att1',
+    });
+
+    expect(result.status).toBe('done');
+    const insert = callOf('run', 'INSERT INTO kb_documents');
+    expect(insert?.sql).toContain('attachment_id');
+    // 列序 (id, user_id, file_id, source_type, title, pinned, status, attachment_id)
+    expect(insert?.args[1]).toBe('u1');
+    expect(insert?.args[2]).toBeNull(); // file_id 恒 NULL
+    expect(insert?.args[3]).toBe('attachment');
+    expect(insert?.args[4]).toBe('report');
+    expect(insert?.args[7]).toBe('att1');
+  });
+
+  it('indexImportedText 不带选项 → source_type=import（既有语义回归）', async () => {
+    await indexImportedText('u1', '导入', '正文', {});
+    const insert = callOf('run', 'INSERT INTO kb_documents');
+    expect(insert?.args[3]).toBe('import');
+    expect(insert?.args[7]).toBeNull();
+  });
+
+  it('indexFile 默认 source_type=db；显式 attachment 选项贯穿', async () => {
+    await indexFile('u1', { id: 'f1', name: 'n.md', content: 'x' }, {});
+    let insert = callOf('run', 'INSERT INTO kb_documents');
+    expect(insert?.args[3]).toBe('db');
+
+    fakeDbMock.reset();
+    await indexFile(
+      'u1',
+      { id: 'f1', name: 'n.md', content: 'x' },
+      { sourceType: 'attachment', attachmentId: 'att2' }
+    );
+    insert = callOf('run', 'INSERT INTO kb_documents');
+    expect(insert?.args[3]).toBe('attachment');
+    expect(insert?.args[7]).toBe('att2');
+  });
+});
+
+describe('kbIndexer.recordImportFailure — 失败 status=error 可见（不静默）', () => {
+  it('默认写 source_type=import 的 error 行并返回 error 结果', () => {
+    const result = recordImportFailure('u1', 'broken', { error: 'boom' });
+
+    expect(result.status).toBe('error');
+    expect(result.chunks).toBe(0);
+    expect(result.error).toBe('boom');
+    const insert = callOf('run', 'INSERT INTO kb_documents');
+    expect(insert?.args[3]).toBe('import');
+    expect(insert?.args[4]).toBe('broken');
+    expect(insert?.args[6]).toBe('error'); // status 直接落 error
+  });
+
+  it('attachment 选项：error 行携带 attachment_id（重试收敛到同一行）', () => {
+    const result = recordImportFailure('u1', 'mid', {
+      sourceType: 'attachment',
+      attachmentId: 'att3',
+      error: 'attachment not parsed',
+    });
+
+    expect(result.status).toBe('error');
+    const insert = callOf('run', 'INSERT INTO kb_documents');
+    expect(insert?.args[3]).toBe('attachment');
+    expect(insert?.args[7]).toBe('att3');
+  });
+
+  it('DB 异常不抛，仍返回 error 结果（UI 可见）', () => {
+    fakeDbMock.throwOnDocInsert = true;
+    const result = recordImportFailure('u1', 'broken');
+    expect(result.status).toBe('error');
+    expect(result.docId).toBe('');
+  });
+});
+
+describe('kbIndexer — 删除清理（对齐 cleanupKbAfterFileDelete 模式）', () => {
+  it('removeByAttachment 按 attachment_id + user_id 删除（附件删除→清理 KB）', () => {
+    const removed = removeByAttachment('u1', 'att1');
+    const stmt = callOf('run', 'DELETE FROM kb_documents');
+    expect(removed).toBe(true);
+    expect(stmt?.sql).toMatch(/WHERE attachment_id = \? AND user_id = \?/);
+    expect(stmt?.args).toEqual(['att1', 'u1']);
+  });
+
+  it('removeByDocId 按 id + user_id 删除（导入/错误行可删）', () => {
+    const removed = removeByDocId('u1', 'd9');
+    const stmt = callOf('run', 'DELETE FROM kb_documents');
+    expect(removed).toBe(true);
+    expect(stmt?.sql).toMatch(/WHERE id = \? AND user_id = \?/);
+    expect(stmt?.args).toEqual(['d9', 'u1']);
+  });
+
+  it('未命中删除（changes=0）不视为成功', () => {
+    fakeDbMock.prepare.mockImplementationOnce((sql: string) => ({
+      sql,
+      get: () => undefined,
+      all: () => [],
+      run: () => ({ changes: 0 }),
+    }));
+    expect(removeByAttachment('u1', 'ghost')).toBe(false);
   });
 });

@@ -5,7 +5,7 @@ vi.mock('electron', () => ({
   app: { getPath: () => ':memory:' },
 }));
 
-import { addAttachmentColumns, KB_CONFIG_ALTER_SQL } from '@main/db/index';
+import { addAttachmentColumns, addKbAttachmentColumns, KB_CONFIG_ALTER_SQL } from '@main/db/index';
 
 // ---------------------------------------------------------------------------
 // 第 6 期批次 2：KB 参数列迁移（KB_CONFIG_ALTER_SQL）验证。
@@ -215,5 +215,60 @@ describe('addAttachmentColumns — B3 D1/D2 迁移三断言（FakeDb 驱动真�
     addAttachmentColumns(db as never); // 第二遍
     expect(db.alters).toHaveLength(3); // 无重复 ADD
     expect(db.alters).toHaveLength(db.execs.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// doc-pipeline B4 D3：kb_documents 附件关联迁移三断言
+// （空库首建 / 旧库升级 / 重复执行；真库语义由 scripts/kb-attachment-migration-smoke.cjs 真验）
+// ---------------------------------------------------------------------------
+
+const KB_DOCUMENTS_PRE_B4 = [
+  'id', 'user_id', 'file_id', 'source_type', 'title', 'pinned', 'status', 'created_at',
+];
+
+const D3_INDEX_DDL =
+  'CREATE INDEX IF NOT EXISTS idx_kb_doc_user_attachment ON kb_documents(user_id, attachment_id)';
+
+function preB4KbDb(): FakeMigrationDb {
+  return makeMigrationDb({ kb_documents: [...KB_DOCUMENTS_PRE_B4] });
+}
+
+describe('addKbAttachmentColumns — B4 D3 迁移三断言（FakeDb 驱动真实迁移函数）', () => {
+  it('态1 空库首建：补 attachment_id 列 + 建 user/attachment 索引', () => {
+    const db = preB4KbDb();
+    addKbAttachmentColumns(db as never);
+
+    expect(db.columns.get('kb_documents')).toContain('attachment_id');
+    expect(db.alters).toEqual([
+      'ALTER TABLE kb_documents ADD COLUMN attachment_id TEXT DEFAULT NULL',
+    ]);
+    expect(db.execs).toHaveLength(2); // ALTER + CREATE INDEX
+    expect(db.execs).toContain(D3_INDEX_DDL);
+  });
+
+  it('态2 旧库升级：仅追加列与索引（无 DROP/DELETE/UPDATE），既有行保留', () => {
+    const db = preB4KbDb();
+    addKbAttachmentColumns(db as never);
+
+    expect(db.execs.every((sql) => /^ALTER TABLE|^CREATE INDEX/.test(sql.trim()))).toBe(true);
+    expect(db.execs.some((sql) => /DROP|DELETE|UPDATE/i.test(sql))).toBe(false);
+    // 旧版本 SELECT 明确列名不读新列 → 升级后旧行 attachment_id 取 DEFAULT NULL
+    expect(db.columns.get('kb_documents')?.indexOf('attachment_id')).toBeGreaterThan(
+      KB_DOCUMENTS_PRE_B4.length - 1
+    );
+    // source_type 为 TEXT 取值扩展（'attachment'），零 DDL
+    expect(db.alters.join(' ')).not.toContain('source_type');
+  });
+
+  it('态3 重复执行：第二遍零 ALTER（幂等 no-op，不抛错）', () => {
+    const db = preB4KbDb();
+    addKbAttachmentColumns(db as never);
+    expect(db.alters).toHaveLength(1);
+    expect(db.execs).toHaveLength(2); // ALTER + CREATE INDEX
+
+    addKbAttachmentColumns(db as never); // 第二遍（真库下 CREATE INDEX IF NOT EXISTS 为 no-op）
+    expect(db.alters).toHaveLength(1); // 无重复 ADD
+    expect(db.columns.get('kb_documents')?.filter((c) => c === 'attachment_id')).toHaveLength(1);
   });
 });

@@ -269,6 +269,10 @@ function runMigrations(database: Database.Database): void {
   // CREATE 段保持 pre-B3 形态不回写，空库与旧库统一经本函数收敛到同一终态（导出供迁移三断言测试）。
   addAttachmentColumns(database);
 
+  // doc-pipeline B4 D3：kb_documents 附件关联幂等补列 + 索引（追加式，禁止 DROP；
+  // CREATE 段保持 pre-B4 形态不回写，空库与旧库统一经本函数收敛，导出供迁移三断言测试）。
+  addKbAttachmentColumns(database);
+
   // 性能优化：kb_documents 标题 FTS5 索引（加速标题匹配检索）
   addKbDocumentsFtsIndex(database);
 }
@@ -333,6 +337,27 @@ export function addAttachmentColumns(database: Database.Database): void {
     "parse_status TEXT DEFAULT 'done'"
   );
   addColumnIfMissing(database, 'parsed_attachments', 'parse_version', 'parse_version INTEGER DEFAULT 1');
+}
+
+/**
+ * doc-pipeline B4 D3：kb_documents 附件关联幂等补列（追加式迁移，禁止 DROP）。
+ * - `attachment_id TEXT DEFAULT NULL`：关联 `parsed_attachments.id`（删除附件→清理 KB，
+ *   对齐 ipc-handlers.ts cleanupKbAfterFileDelete 模式）；
+ * - `idx_kb_doc_user_attachment` 索引：user_id + attachment_id 归属过滤加速；
+ * - `source_type` 增加取值 'attachment'：TEXT 取值扩展，零 DDL（B11 Q1 过滤键）。
+ * 空库首建与旧库升级同路径收敛到同一终态；重复执行 no-op（ALTER 探测 + CREATE INDEX IF NOT EXISTS）。
+ * 三断言：tests/main/db/migrations.test.ts + scripts/kb-attachment-migration-smoke.cjs（真库）。
+ */
+export function addKbAttachmentColumns(database: Database.Database): void {
+  addColumnIfMissing(
+    database,
+    'kb_documents',
+    'attachment_id',
+    'attachment_id TEXT DEFAULT NULL'
+  );
+  database.exec(
+    'CREATE INDEX IF NOT EXISTS idx_kb_doc_user_attachment ON kb_documents(user_id, attachment_id)'
+  );
 }
 
 /** ai_model_configs 表：用户可创建多个模型配置，一个激活。 */

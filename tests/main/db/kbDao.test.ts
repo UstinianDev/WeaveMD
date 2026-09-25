@@ -10,13 +10,22 @@ interface FakeStatement {
 
 const fakeDbMock = vi.hoisted(() => {
   const calls: Array<{ method: 'get' | 'all' | 'run'; sql: string; args: unknown[] }> = [];
+  // B4：按 attachment_id lookup 的注入行（默认 undefined → INSERT 分支）
+  let attachmentRow: Record<string, unknown> | undefined;
   return {
     calls,
+    setAttachmentRow: (row: Record<string, unknown> | undefined) => {
+      attachmentRow = row;
+    },
     prepare: vi.fn().mockImplementation((sql: string) => {
       const stmt: FakeStatement = {
         sql,
         get: (...args) => {
           calls.push({ method: 'get', sql, args });
+          // 按 attachment_id lookup（B4 D3）：注入行存在则回读 → UPDATE 分支
+          if (sql.includes('FROM kb_documents') && sql.includes('WHERE attachment_id = ?')) {
+            return attachmentRow;
+          }
           // 仅按 id 回读（upsert 后的列映射）返回行；按 file_id lookup 返回 undefined → 走 INSERT 分支
           if (sql.includes('FROM kb_documents') && sql.includes('WHERE id = ?')) {
             return {
@@ -46,6 +55,7 @@ const fakeDbMock = vi.hoisted(() => {
     reset: () => {
       calls.length = 0;
       fakeDbMock.prepare.mockClear();
+      attachmentRow = undefined;
     },
   };
 });
@@ -64,8 +74,11 @@ vi.mock('@main/db/index', () => ({
 import {
   deleteAllKbForUser,
   deleteChunksByDoc,
+  deleteKbDocumentByAttachment,
   deleteKbDocumentByFile,
   getChunksByDoc,
+  getKbDocument,
+  getKbDocumentByAttachment,
   getKbDocumentByFile,
   insertChunk,
   listKbDocumentsByUser,
@@ -162,5 +175,82 @@ describe('kb DAO — SQL 参数化与 user_id 归属过滤', () => {
     const stmt = callOf('all', 'FROM kb_chunks');
     expect(stmt?.sql).toMatch(/WHERE document_id = \?/);
     expect(stmt?.args).toEqual(['doc1']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B4 D3：kb_documents 附件关联（attachment_id）
+// ---------------------------------------------------------------------------
+
+describe('kb DAO — attachment_id 关联（D3 写入方）', () => {
+  it('upsertKbDocument 带 attachmentId：INSERT 尾列写 attachment_id', () => {
+    upsertKbDocument('u1', {
+      fileId: null,
+      title: 'report',
+      sourceType: 'attachment',
+      attachmentId: 'att1',
+      status: 'importing',
+    });
+    const insert = callOf('run', 'INSERT INTO kb_documents');
+    expect(insert?.sql).toContain('attachment_id');
+    // 列序 (id, user_id, file_id, source_type, title, pinned, status, attachment_id)
+    expect(insert?.args[1]).toBe('u1');
+    expect(insert?.args[2]).toBeNull();
+    expect(insert?.args[3]).toBe('attachment');
+    expect(insert?.args[6]).toBe('importing');
+    expect(insert?.args[7]).toBe('att1');
+    // 附件归属查询先于 INSERT（按 attachment_id 找既有行）
+    const lookup = callOf('get', 'WHERE attachment_id = ?');
+    expect(lookup?.sql).toMatch(/WHERE attachment_id = \? AND user_id = \?/);
+    expect(lookup?.args).toEqual(['att1', 'u1']);
+  });
+
+  it('upsertKbDocument 既有附件行 → UPDATE 收敛（不产生重复行，重试幂等）', () => {
+    fakeDbMock.setAttachmentRow({
+      id: 'doc-att',
+      user_id: 'u1',
+      file_id: null,
+      attachment_id: 'att1',
+      source_type: 'attachment',
+      title: 'old',
+      pinned: 0,
+      status: 'error',
+      created_at: 'now',
+    });
+
+    const row = upsertKbDocument('u1', {
+      fileId: null,
+      title: 'report',
+      sourceType: 'attachment',
+      attachmentId: 'att1',
+      status: 'done',
+    });
+
+    expect(row.id).toBe('doc-att');
+    const update = callOf('run', 'UPDATE kb_documents');
+    expect(update).toBeTruthy();
+    expect(update?.args).toEqual(['report', 'attachment', 0, 'done', 'doc-att', 'u1']);
+    expect(callOf('run', 'INSERT INTO kb_documents')).toBeUndefined();
+  });
+
+  it('getKbDocumentByAttachment 按 attachment_id + user_id 过滤（跨用户不可见）', () => {
+    getKbDocumentByAttachment('u1', 'att1');
+    const stmt = callOf('get', 'FROM kb_documents');
+    expect(stmt?.sql).toMatch(/WHERE attachment_id = \? AND user_id = \?/);
+    expect(stmt?.args).toEqual(['att1', 'u1']);
+  });
+
+  it('deleteKbDocumentByAttachment 按 attachment_id + user_id 删除', () => {
+    deleteKbDocumentByAttachment('u1', 'att1');
+    const stmt = callOf('run', 'DELETE FROM kb_documents');
+    expect(stmt?.sql).toMatch(/WHERE attachment_id = \? AND user_id = \?/);
+    expect(stmt?.args).toEqual(['att1', 'u1']);
+  });
+
+  it('回读行缺 attachment_id（旧库形态）→ attachmentId 归一 null', () => {
+    const doc = getKbDocument('u1', 'doc1');
+    // FakeDb 的 id 回读行不含 attachment_id 列 → 映射降级 null（不抛）
+    expect(doc).not.toBeNull();
+    expect(doc?.attachmentId).toBeNull();
   });
 });

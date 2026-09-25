@@ -18,6 +18,7 @@ import {
 } from '@shared/ai';
 import { parseDocument } from '../ai/files/documentParser';
 import { parseWithLimit } from '../ai/files/parseLimiter';
+import { removeByAttachment } from '../ai/knowledge/kbIndexer';
 
 /** 单条消息附件数上限（边界防护，超限截断；chips 折叠 UI 另有 5 个可视上限）。 */
 export const MAX_ATTACHMENTS_PER_MESSAGE = 20;
@@ -128,13 +129,22 @@ export function updateParsedAttachmentContent(
   ).run(content, status, id, userId);
 }
 
-/** 删除附件行（按 id + user_id，删除附件→后续清理 KB 关联随 B4/D3）。 */
+/**
+ * 删除附件行（按 id + user_id）。
+ * B4 四-3②：本函数是附件的唯一删除点 —— 删除成功即同步清理关联的 KB 文档
+ * （removeByAttachment，对齐 ipc-handlers.ts cleanupKbAfterFileDelete 模式）。
+ */
 export function removeParsedAttachment(id: string, userId: string): boolean {
   const db = getDatabase();
   const info = db
     .prepare('DELETE FROM parsed_attachments WHERE id = ? AND user_id = ?')
     .run(id, userId);
-  return info.changes > 0;
+  const removed = info.changes > 0;
+  if (removed) {
+    // 删除附件 → 清理 kb_documents（source_type='attachment' 关联行）+ 搜索缓存失效
+    removeByAttachment(userId, id);
+  }
+  return removed;
 }
 
 /** 按会话列出附件（conversation_id + user_id 双过滤，时间正序）。 */

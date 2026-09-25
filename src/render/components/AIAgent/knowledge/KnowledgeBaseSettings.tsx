@@ -1,7 +1,7 @@
 // ============================================
 // WeaveMD — 知识库设置/导入 UI
 // ============================================
-// 导入 md/txt（单文件 + 目录批量）、索引状态列表（pending/done/error）、
+// 导入 7 格式文档（单文件 + 目录批量，先 parseDocument 再入索引，B4）、索引状态列表（pending/done/error）、
 // 删除/重建操作、embedding 可用性提示（未装标注「仅关键词召回」）。
 // 数据与动作均读 agentStore（kbStatus/kbDocuments + triggerKb*）。
 
@@ -131,16 +131,15 @@ const KnowledgeBaseSettings: React.FC = () => {
               <span className="flex-shrink-0 text-text-muted">
                 {t('ai.kb.chunks').split('{count}').join(String(doc.chunkCount))}
               </span>
-              {doc.fileId && (
-                <button
-                  type="button"
-                  onClick={() => void triggerKbDelete(doc.fileId ?? '')}
-                  className="flex-shrink-0 text-text-muted hover:text-red-400 transition-colors"
-                  title={t('ai.kb.delete')}
-                >
-                  <Icon icon="close" size={14} />
-                </button>
-              )}
+              {/* B4：导入/附件/错误行（file_id 为 NULL）同样可删 —— 走 KB_DELETE docId 路径 */}
+              <button
+                type="button"
+                onClick={() => void triggerKbDelete({ fileId: doc.fileId, docId: doc.docId })}
+                className="flex-shrink-0 text-text-muted hover:text-red-400 transition-colors"
+                title={t('ai.kb.delete')}
+              >
+                <Icon icon="close" size={14} />
+              </button>
             </div>
           ))
         )}

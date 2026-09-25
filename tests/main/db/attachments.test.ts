@@ -18,6 +18,8 @@ const fakeDbMock = vi.hoisted(() => {
   // 注入行：getParsedAttachment 单行 / listByConversation 列表
   let singleRow: Record<string, unknown> | undefined;
   let listRows: Record<string, unknown>[] = [];
+  // B4：run 影响行数控制（默认 1；置 0 模拟删除未命中）
+  let runChanges = 1;
   return {
     calls,
     setSingleRow: (row: Record<string, unknown> | undefined) => {
@@ -26,10 +28,14 @@ const fakeDbMock = vi.hoisted(() => {
     setListRows: (rows: Record<string, unknown>[]) => {
       listRows = rows;
     },
+    setRunChanges: (n: number) => {
+      runChanges = n;
+    },
     reset: () => {
       calls.length = 0;
       singleRow = undefined;
       listRows = [];
+      runChanges = 1;
     },
     prepare: vi.fn().mockImplementation((sql: string) => {
       const stmt: FakeStatement = {
@@ -44,7 +50,7 @@ const fakeDbMock = vi.hoisted(() => {
         },
         run: (...args) => {
           calls.push({ method: 'run', sql, args });
-          return { changes: 1 };
+          return { changes: runChanges };
         },
       };
       return stmt;
@@ -63,6 +69,12 @@ vi.mock('@main/ai/files/documentParser', () => ({
 vi.mock('@main/ai/files/parseLimiter', () => ({
   parseWithLimit: vi.fn((task: () => unknown) => Promise.resolve(task())),
 }));
+
+// B4 四-3②：删除附件 → 同步清理 KB 关联（removeParsedAttachment 唯一删除点收口）
+const kbIndexerMock = vi.hoisted(() => ({
+  removeByAttachment: vi.fn(() => true),
+}));
+vi.mock('@main/ai/knowledge/kbIndexer', () => kbIndexerMock);
 
 import { parseDocument } from '@main/ai/files/documentParser';
 import {
@@ -170,6 +182,21 @@ describe('parsed_attachments DAO — 参数化与 user_id 归属过滤', () => {
     const del = runCalls().find((c) => c.sql.includes('DELETE FROM parsed_attachments'));
     expect(del?.sql).toContain('WHERE id = ? AND user_id = ?');
     expect(del?.args).toEqual(['att1', 'u1']);
+  });
+
+  it('B4：删除成功 → 同步清理 KB 关联文档（removeByAttachment）', () => {
+    kbIndexerMock.removeByAttachment.mockClear();
+    const removed = removeParsedAttachment('att1', 'u1');
+    expect(removed).toBe(true);
+    expect(kbIndexerMock.removeByAttachment).toHaveBeenCalledWith('u1', 'att1');
+  });
+
+  it('B4：删除未命中（changes=0）→ 不触发 KB 清理', () => {
+    kbIndexerMock.removeByAttachment.mockClear();
+    fakeDbMock.setRunChanges(0);
+    const removed = removeParsedAttachment('ghost', 'u1');
+    expect(removed).toBe(false);
+    expect(kbIndexerMock.removeByAttachment).not.toHaveBeenCalled();
   });
 
   it('listParsedAttachmentsByConversation 按 conversation_id + user_id 过滤并按时间正序', () => {

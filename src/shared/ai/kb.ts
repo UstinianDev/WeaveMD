@@ -175,7 +175,8 @@ export interface IKbDocumentStatus {
   docId: string;
   fileId: string | null;
   title: string;
-  sourceType: 'db' | 'disk' | 'import';
+  /** 'attachment' 为 doc-pipeline B4/D3 的 TEXT 取值扩展（关联 parsed_attachments.id） */
+  sourceType: 'db' | 'disk' | 'import' | 'attachment';
   pinned: boolean;
   status: 'pending' | 'importing' | 'done' | 'error';
   chunkCount: number;
@@ -187,6 +188,8 @@ export interface IKbImportResult {
   title: string;
   chunks: number;
   status: IKbDocumentStatus['status'];
+  /** 失败原因（解析错误/降级提示等，四-3② 失败可见） */
+  error?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -295,3 +298,11 @@ export interface KbImportDirRequest {
   userId: string;
   folderPath: string;
 }
+
+/**
+ * KB_IMPORT_FILE invoke 请求（B4 四-3② 扩附件入 KB 通道）。
+ * 二选一：title+content 纯文本导入 / attachmentId 读 parsed_attachments 解析产物导入。
+ */
+export type KbImportFileRequest =
+  | { userId: string; title: string; content: string }
+  | { userId: string; attachmentId: string };

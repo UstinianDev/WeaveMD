@@ -10,7 +10,14 @@ import { DEFAULT_KB_SETTINGS, normalizeKbSettings } from '@shared/ai';
 import { getAiConfig, upsertAiConfig, updateKbExtendedSettings } from '../../db/ai';
 import { listKbDocumentsByUser, listKbDocumentsWithChunkCount } from '../../db/kb';
 import { getFile } from '../../db/files';
-import { indexFile, indexImportedText, removeByFile } from '../knowledge/kbIndexer';
+import { getParsedAttachment } from '../../db/attachments';
+import {
+  indexFile,
+  indexImportedText,
+  recordImportFailure,
+  removeByDocId,
+  removeByFile,
+} from '../knowledge/kbIndexer';
 import { isSupportedDocument, parseDocument } from '../files/documentParser';
 import { parseWithLimit } from '../files/parseLimiter';
 import type { IKbImportResult } from '@shared/ai';
@@ -33,9 +40,15 @@ export function registerKbHandlers(): void {
     IPC_CHANNELS.KB_IMPORT_FILE,
     async (
       _event,
-      payload: { userId: string; title: string; content: string }
+      // IPC 边界松载荷（二选一校验在 handler 内做，不信渲染层）
+      payload: { userId: string; title?: string; content?: string; attachmentId?: string }
     ) => {
       try {
+        // IPC 边界二选一（B4 四-3②）：attachmentId → 附件入 KB；否则 title+content 文本导入
+        if (typeof payload.attachmentId === 'string' && payload.attachmentId) {
+          const result = await importAttachmentAsKb(payload.userId, payload.attachmentId);
+          return { success: true, data: result };
+        }
         if (!payload.title || typeof payload.content !== 'string') {
           return { success: false, message: 'title/content required' };
         }
@@ -79,11 +92,17 @@ export function registerKbHandlers(): void {
   );
 
   ipcMain.handle(
+    // fileId（文件笔记）与 docId（导入/附件/错误行，file_id 为 NULL）二选一（B4 四-3②）
     IPC_CHANNELS.KB_DELETE,
-    (_event, payload: { userId: string; fileId: string }) => {
+    (_event, payload: { userId: string; fileId?: string | null; docId?: string }) => {
       try {
-        const deleted = removeByFile(payload.userId, payload.fileId);
-        return { success: true, data: { deleted } };
+        if (payload?.fileId) {
+          return { success: true, data: { deleted: removeByFile(payload.userId, payload.fileId) } };
+        }
+        if (payload?.docId) {
+          return { success: true, data: { deleted: removeByDocId(payload.userId, payload.docId) } };
+        }
+        return { success: false, message: 'fileId/docId required' };
       } catch (error) {
         return { success: false, message: 'Failed to delete knowledge base document' };
       }
@@ -236,8 +255,20 @@ export function registerKbHandlers(): void {
 // KB 内部辅助函数
 // ---------------------------------------------------------------------------
 
-/** 目录批量导入：读 folderPath 下 *.md/*.txt，逐个 indexImportedText。路径安全校验，异常逐文件捕获。 */
-async function importDirAsKb(userId: string, folderPath: string): Promise<IKbImportResult[]> {
+/** 去掉最后一个扩展名作为标题（7 格式通用；无扩展名时原样返回）。 */
+function stripExtension(fileName: string): string {
+  return fileName.replace(/\.[^.]+$/, '') || fileName;
+}
+
+/**
+ * 目录批量导入（四-3②）：folderPath 下 7 格式白名单文件，
+ * **先 parseDocument（parseLimiter 限流）再 indexImportedText** —— 直接 utf-8 读 pdf 必乱码，
+ * 本函数不读任何文件字节；单文件解析失败写 status='error' 不静默、不断批。
+ */
+export async function importDirAsKb(
+  userId: string,
+  folderPath: string
+): Promise<IKbImportResult[]> {
   const results: IKbImportResult[] = [];
   if (!folderPath || typeof folderPath !== 'string') return results;
 
@@ -250,19 +281,70 @@ async function importDirAsKb(userId: string, folderPath: string): Promise<IKbImp
 
   for (const entry of entries) {
     if (!entry.isFile()) continue;
-    if (!/\.(md|txt)$/i.test(entry.name)) continue;
+    if (!isSupportedDocument(entry.name)) continue;
     const filePath = `${folderPath}/${entry.name}`;
-    let content: string;
+    const title = stripExtension(entry.name);
     try {
-      content = fs.readFileSync(filePath, 'utf-8');
-    } catch {
-      continue; // 单个文件读取失败跳过，不中断整批
+      // 解析并发限流（B2 parseLimiter）：大目录/大文件不阻塞单线程主进程
+      const parsed = await parseWithLimit(() => parseDocument(filePath, entry.name));
+      if (parsed.error || !parsed.text.trim()) {
+        // 无产物（解析失败 / 无文本层 / .doc 降级）→ status='error' UI 可见，不静默
+        results.push(
+          recordImportFailure(userId, title, {
+            error: parsed.error ?? parsed.degraded ?? 'no extractable text',
+          })
+        );
+        continue;
+      }
+      results.push(await indexImportedText(userId, title, parsed.text, kbIndexOpts()));
+    } catch (err) {
+      // 单文件异常：记 error 行后继续（不断批）
+      results.push(
+        recordImportFailure(userId, title, {
+          error: err instanceof Error ? err.message : String(err),
+        })
+      );
     }
-    const title = entry.name.replace(/\.(md|txt)$/i, '');
-    const result = await indexImportedText(userId, title, content, kbIndexOpts());
-    results.push(result);
   }
   return results;
+}
+
+/**
+ * 附件入 KB（四-3②）：读 `parsed_attachments` 解析产物（content 列），
+ * 以 `source_type='attachment'` + `attachment_id` 入索引；删除附件经 removeByAttachment 清理 KB。
+ * 附件不存在（跨用户/已删）→ error 结果且不落库（不产生孤儿行）。
+ */
+export async function importAttachmentAsKb(
+  userId: string,
+  attachmentId: string
+): Promise<IKbImportResult> {
+  const att = getParsedAttachment(attachmentId, userId); // 参数化 + user_id 归属过滤
+  if (!att) {
+    return {
+      docId: '',
+      title: attachmentId,
+      chunks: 0,
+      status: 'error',
+      error: 'attachment not found',
+    };
+  }
+
+  const title = stripExtension(att.fileName);
+  if (att.parseStatus !== 'done' || !att.content.trim()) {
+    // 未解析完成 / 无正文（图片等）→ 写 error 行，UI 可见
+    return recordImportFailure(userId, title, {
+      sourceType: 'attachment',
+      attachmentId,
+      error: 'attachment not parsed',
+    });
+  }
+
+  const opts = kbIndexOpts();
+  return indexImportedText(userId, title, att.content, {
+    ...opts,
+    sourceType: 'attachment',
+    attachmentId,
+  });
 }
 
 /** KB 重索引：以文件系统笔记（files 表）重建该 fileId 的知识库文档。 */

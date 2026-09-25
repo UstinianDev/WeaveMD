@@ -92,6 +92,14 @@ const kbIndexerMock = vi.hoisted(() => ({
   indexImportedText: vi.fn(),
   indexFile: vi.fn(),
   removeByFile: vi.fn(() => true),
+  // B4：KB_DELETE docId 分派 + 导入失败可见记录
+  removeByDocId: vi.fn(() => true),
+  recordImportFailure: vi.fn(() => ({
+    docId: '',
+    title: '',
+    chunks: 0,
+    status: 'error' as const,
+  })),
 }));
 vi.mock('@main/ai/knowledge/kbIndexer', () => kbIndexerMock);
 
@@ -106,8 +114,10 @@ const agentLoopMock = vi.hoisted(() => ({
 vi.mock('@main/ai/agent/agentLoop', () => agentLoopMock);
 
 // B3 一-4：发送链路附件落两表（persistIncomingAttachments 被 AGENT_RUN / AI_CHAT 调用）
+// B4 四-3②：getParsedAttachment 供 KB_IMPORT_FILE 附件入 KB 通道读取
 const attachmentsPersistMock = vi.hoisted(() => ({
   persistIncomingAttachments: vi.fn(),
+  getParsedAttachment: vi.fn((..._args: unknown[]): unknown => null),
 }));
 vi.mock('@main/db/attachments', () => attachmentsPersistMock);
 
@@ -447,6 +457,84 @@ describe('ai:ipc handlers', () => {
     expect(result.message).toContain('title');
     // 非法载荷不打到 indexImportedText
     expect(kbIndexerMock.indexImportedText).not.toHaveBeenCalled();
+  });
+
+  // --- B4 四-3②：附件入 KB（parsed_attachments.id 关联）---
+
+  it('KB_IMPORT_FILE 携 attachmentId → 读附件产物入索引（source_type=attachment）', async () => {
+    attachmentsPersistMock.getParsedAttachment.mockReturnValue({
+      id: 'att1',
+      userId: 'u1',
+      conversationId: 'c1',
+      fileName: 'report.pdf',
+      fileType: 'file',
+      content: 'PDF 正文',
+      parseStatus: 'done',
+      parseVersion: 1,
+      createdAt: 'now',
+    });
+    kbIndexerMock.indexImportedText.mockResolvedValue({
+      docId: 'd1',
+      title: 'report',
+      chunks: 2,
+      status: 'done',
+    });
+
+    const result = (await getHandler(IPC_CHANNELS.KB_IMPORT_FILE)(makeEvent(), {
+      userId: 'u1',
+      attachmentId: 'att1',
+    })) as { success: boolean; data: { status: string } };
+
+    expect(result.success).toBe(true);
+    expect(result.data.status).toBe('done');
+    // user_id 归属过滤（跨用户读不到附件）
+    expect(attachmentsPersistMock.getParsedAttachment).toHaveBeenCalledWith('att1', 'u1');
+    expect(kbIndexerMock.indexImportedText).toHaveBeenCalledWith(
+      'u1',
+      'report',
+      'PDF 正文',
+      { sourceType: 'attachment', attachmentId: 'att1' }
+    );
+  });
+
+  it('KB_IMPORT_FILE attachmentId 未命中附件 → status=error 且不入索引', async () => {
+    attachmentsPersistMock.getParsedAttachment.mockReturnValue(null);
+
+    const result = (await getHandler(IPC_CHANNELS.KB_IMPORT_FILE)(makeEvent(), {
+      userId: 'u1',
+      attachmentId: 'ghost',
+    })) as { success: boolean; data: { status: string; docId: string } };
+
+    expect(result.success).toBe(true);
+    expect(result.data.status).toBe('error');
+    expect(result.data.docId).toBe('');
+    expect(kbIndexerMock.indexImportedText).not.toHaveBeenCalled();
+    expect(kbIndexerMock.recordImportFailure).not.toHaveBeenCalled();
+  });
+
+  it('KB_DELETE 携 docId → removeByDocId；fileId 路径回归走 removeByFile', async () => {
+    const byDoc = (await getHandler(IPC_CHANNELS.KB_DELETE)(makeEvent(), {
+      userId: 'u1',
+      docId: 'd9',
+    })) as { success: boolean; data: { deleted: boolean } };
+    expect(byDoc.success).toBe(true);
+    expect(kbIndexerMock.removeByDocId).toHaveBeenCalledWith('u1', 'd9');
+
+    const byFile = (await getHandler(IPC_CHANNELS.KB_DELETE)(makeEvent(), {
+      userId: 'u1',
+      fileId: 'f1',
+    })) as { success: boolean; data: { deleted: boolean } };
+    expect(byFile.success).toBe(true);
+    expect(kbIndexerMock.removeByFile).toHaveBeenCalledWith('u1', 'f1');
+  });
+
+  it('KB_DELETE 缺 fileId/docId → 拒绝不打库', async () => {
+    const result = (await getHandler(IPC_CHANNELS.KB_DELETE)(makeEvent(), {
+      userId: 'u1',
+    })) as { success: boolean; message: string };
+    expect(result.success).toBe(false);
+    expect(kbIndexerMock.removeByFile).not.toHaveBeenCalled();
+    expect(kbIndexerMock.removeByDocId).not.toHaveBeenCalled();
   });
 
   it('KB_REINDEX looks up file by userId then indexes', async () => {

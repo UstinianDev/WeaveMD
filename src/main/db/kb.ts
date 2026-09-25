@@ -21,6 +21,8 @@ export interface KbDocumentRow {
   id: string;
   userId: string;
   fileId: string | null;
+  /** 关联 parsed_attachments.id（B4 D3；非附件文档为 null） */
+  attachmentId: string | null;
   sourceType: KbSourceType;
   title: string;
   pinned: boolean;
@@ -32,6 +34,7 @@ interface KbDocumentDbRow {
   id: string;
   user_id: string;
   file_id: string | null;
+  attachment_id?: string | null;
   source_type: string;
   title: string;
   pinned: number;
@@ -44,6 +47,8 @@ function mapDocumentRow(row: KbDocumentDbRow): KbDocumentRow {
     id: row.id,
     userId: row.user_id,
     fileId: row.file_id,
+    // D3 迁移前的行/隔离测试行无该列 → 归一 null
+    attachmentId: row.attachment_id ?? null,
     sourceType: (row.source_type as KbSourceType) || 'import',
     title: row.title,
     pinned: !!row.pinned,
@@ -54,22 +59,32 @@ function mapDocumentRow(row: KbDocumentDbRow): KbDocumentRow {
 
 export interface UpsertKbDocumentInput {
   fileId?: string | null;
+  /** 关联 parsed_attachments.id（source_type='attachment' 时写入，B4 D3） */
+  attachmentId?: string | null;
   title: string;
   sourceType: KbSourceType;
   pinned?: boolean;
   status?: KbDocumentStatus;
 }
 
-/** 插入或按 file 归属更新 kb_documents；返回（id 或既有 id）标识。 */
+/**
+ * 插入或按 file / attachment 归属更新 kb_documents；返回（id 或既有 id）标识。
+ * 查找优先级：attachmentId（附件文档按附件收敛，重试幂等）> fileId > 无关联（纯导入，新建行）。
+ */
 export function upsertKbDocument(userId: string, doc: UpsertKbDocumentInput): KbDocumentRow {
   const db = getDatabase();
   const existing =
-    doc.fileId != null ? getKbDocumentByFile(userId, doc.fileId) : null;
+    doc.attachmentId != null
+      ? getKbDocumentByAttachment(userId, doc.attachmentId)
+      : doc.fileId != null
+        ? getKbDocumentByFile(userId, doc.fileId)
+        : null;
 
   const pinned = doc.pinned ?? false;
   const status = doc.status ?? 'pending';
 
   if (existing) {
+    // UPDATE 不触碰 attachment_id（既有行已关联；查找即按该关联命中）
     db.prepare(
       `UPDATE kb_documents
          SET title = ?, source_type = ?, pinned = ?, status = ?
@@ -82,14 +97,24 @@ export function upsertKbDocument(userId: string, doc: UpsertKbDocumentInput): Kb
   const id = randomUUID();
   db.prepare(
     `INSERT INTO kb_documents
-       (id, user_id, file_id, source_type, title, pinned, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, userId, doc.fileId ?? null, doc.sourceType, doc.title, pinned ? 1 : 0, status);
+       (id, user_id, file_id, source_type, title, pinned, status, attachment_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    userId,
+    doc.fileId ?? null,
+    doc.sourceType,
+    doc.title,
+    pinned ? 1 : 0,
+    status,
+    doc.attachmentId ?? null
+  );
   // 直接构造返回值，省掉回读 SELECT
   return {
     id,
     userId,
     fileId: doc.fileId ?? null,
+    attachmentId: doc.attachmentId ?? null,
     sourceType: doc.sourceType,
     title: doc.title,
     pinned,
@@ -103,6 +128,19 @@ export function getKbDocumentByFile(userId: string, fileId: string): KbDocumentR
   const row = db
     .prepare('SELECT * FROM kb_documents WHERE file_id = ? AND user_id = ?')
     .get(fileId, userId) as KbDocumentDbRow | undefined;
+  if (!row) return null;
+  return mapDocumentRow(row);
+}
+
+/** 按 attachment_id + user_id 查找附件关联的 KB 文档（B4 D3；跨用户不可见）。 */
+export function getKbDocumentByAttachment(
+  userId: string,
+  attachmentId: string
+): KbDocumentRow | null {
+  const db = getDatabase();
+  const row = db
+    .prepare('SELECT * FROM kb_documents WHERE attachment_id = ? AND user_id = ?')
+    .get(attachmentId, userId) as KbDocumentDbRow | undefined;
   if (!row) return null;
   return mapDocumentRow(row);
 }
@@ -168,6 +206,15 @@ export function deleteKbDocumentByFile(userId: string, fileId: string): boolean 
   const info = db
     .prepare('DELETE FROM kb_documents WHERE file_id = ? AND user_id = ?')
     .run(fileId, userId);
+  return info.changes > 0;
+}
+
+/** 删除附件关联的 KB 文档（附件删除→清理 KB，B4 D3）。 */
+export function deleteKbDocumentByAttachment(userId: string, attachmentId: string): boolean {
+  const db = getDatabase();
+  const info = db
+    .prepare('DELETE FROM kb_documents WHERE attachment_id = ? AND user_id = ?')
+    .run(attachmentId, userId);
   return info.changes > 0;
 }
 

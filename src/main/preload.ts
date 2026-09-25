@@ -33,6 +33,7 @@ import type {
   AgentSkillInfo,
   KbDeleteResult,
   KbImportDirRequest,
+  KbImportFileRequest,
   KbStatusResponse,
   ModelProtocol,
   RewriteReply,
@@ -249,14 +250,16 @@ export interface WeaveMDApi {
   };
   kb: {
     list: (userId: string) => Promise<IpcResponse<IKbDocumentStatus[]>>;
-    importFile: (input: {
-      userId: string;
-      title: string;
-      content: string;
-    }) => Promise<IpcResponse<IKbImportResult>>;
+    // B4：二选一 —— title+content 文本导入 / attachmentId 读 parsed_attachments 产物入 KB
+    importFile: (input: KbImportFileRequest) => Promise<IpcResponse<IKbImportResult>>;
     importDir: (req: KbImportDirRequest) => Promise<IpcResponse<IKbImportResult[]>>;
     reindex: (input: { userId: string; fileId: string }) => Promise<IpcResponse<IKbImportResult>>;
-    delete: (input: { userId: string; fileId: string }) => Promise<IpcResponse<KbDeleteResult>>;
+    // B4：fileId（文件笔记）/ docId（导入与错误行）二选一
+    delete: (input: {
+      userId: string;
+      fileId?: string | null;
+      docId?: string;
+    }) => Promise<IpcResponse<KbDeleteResult>>;
     status: (userId: string) => Promise<IpcResponse<KbStatusResponse>>;
     getSettings: (userId: string) => Promise<IpcResponse<IKbSettings>>;
     setSettings: (input: {
