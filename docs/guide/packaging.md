@@ -14,9 +14,22 @@
 npm run build
 ```
 
-该命令会：
-1. 运行 `vite build` 构建渲染进程
-2. 运行 `electron-builder` 打包 Electron 应用
+该命令按 npm 生命周期依次执行：
+
+1. `prebuild` → `npm run clean`（`scripts/clean.mjs`）：删除 `dist-main/`、`dist-render/`
+   全部生成物。`vite-plugin-electron` 不清空 `outDir`，历史哈希分片会无限累积
+   （2026-09-27 实测未清理时 211 个文件约 176MB，其中 `index-*.js` 分片 204 份），
+   且 `build.files` 配了 `dist-main/**/*`，不清理会全部打进安装包
+2. `vite build` 构建渲染进程与主进程
+3. `electron-builder` 打包 Electron 应用
+4. `postbuild` → `npm run size`（`scripts/sizeGate.mjs`）：体积门禁断言，
+   **任一口径超限即 fail build**（详见下文「体积门禁」）
+
+单独运行体积断言：
+
+```bash
+npm run size
+```
 
 ## 打包产物
 
@@ -114,6 +127,29 @@ npx electron-builder --linux
   "build": {
     "appId": "com.weavemd.app",
     "productName": "WeaveMD",
+    "files": [
+      "dist-render/**/*",
+      "dist-main/**/*",
+      "public/**/*",
+      "!node_modules/react-icons/**",
+      "!react-icons/**",
+      "!node_modules/monaco-editor/**",
+      "!monaco-editor/**",
+      "!node_modules/@llamaindex/liteparse/liteparse.linux-x64-gnu.node",
+      "!node_modules/@llamaindex/liteparse/libpdfium.so",
+      "!@llamaindex/liteparse/liteparse.linux-x64-gnu.node",
+      "!@llamaindex/liteparse/libpdfium.so",
+      "!liteparse/liteparse.linux-x64-gnu.node",
+      "!liteparse/libpdfium.so",
+      "!node_modules/jieba-wasm/pkg/web/**",
+      "!node_modules/jieba-wasm/pkg/deno/**",
+      "!node_modules/jieba-wasm/pkg/bundler/**",
+      "!jieba-wasm/pkg/web/**",
+      "!jieba-wasm/pkg/deno/**",
+      "!jieba-wasm/pkg/bundler/**",
+      "!node_modules/better-sqlite3/deps/**",
+      "!better-sqlite3/deps/**"
+    ],
     "mac": {
       "target": ["dmg", "zip"],
       "identity": null
@@ -130,6 +166,36 @@ npx electron-builder --linux
   }
 }
 ```
+
+### files 反向排除说明（doc-pipeline B10 七-1 / 七-2）
+
+electron-builder `^24.13.3` 实测（2026-09-27，`DEBUG=electron-builder` + asar list 双验证）：
+`files` 中的 `!` 排除对生产依赖 `node_modules` 生效；node_modules 拷贝的匹配基准
+（「依赖目录父目录」与「项目根」两种口径）并存，因此每条排除同时写了
+`!node_modules/<path>` 与依赖相对路径两种形式，任一口径命中即生效。
+
+| 排除项 | 体积 | 依据（不改任何功能） |
+|---|---|---|
+| `react-icons` | ~81.9MB | 渲染层全部为具名导入，Vite/Rollup 按 `sideEffects:false` tree-shake 内联进 `dist-render`；包内副本为死重。剔除后由 `tests/components/IconInventory.test.tsx` 全表回归 + 打包实测图标渲染兜底 |
+| `monaco-editor` | ~68.5MB | 运行时验证通过（Q5 唯一判定出口）：完整启动 + 源代码模式（Monaco 实际加载渲染）会话中 asar 副本零加载，`monacoSetup.ts` 已 `loader.config({ monaco })` 使用 Vite 内联副本；无 CDN 兜底请求 |
+| liteparse Linux 件（`liteparse.linux-x64-gnu.node` + `libpdfium.so`） | ~31.9MB | Windows 包内 Linux 原生件永不加载；win32 件在 `@llamaindex/liteparse-win32-x64-msvc`（保留）。**注意：构建 Linux AppImage 前须移除这两条排除**，否则 linux 目标缺原生件 |
+| `jieba-wasm` 的 `pkg/{web,deno,bundler}` | ~11.7MB | `tokenizer.ts` 动态 `require('jieba-wasm')` 经 package.json `exports` 的 `require`/`node` 条件只解析到 `pkg/nodejs`（实测 `require.resolve` 确认）；保留 nodejs 一份 |
+| `better-sqlite3/deps/` | ~9.6MB | `deps/sqlite3/*.c` 为构建期源码，运行期不读取。**绝未排除 `build/Release/*.node`**——`scripts/sizeGate.mjs` 的 `ASAR_REQUIRED` 断言每次打包强制校验其存在，误伤即 fail build |
+
+## 体积门禁（doc-pipeline B10 七-3）
+
+`scripts/sizeGate.mjs`（`postbuild` 自动执行，`npm run size` 可单独运行）：
+
+- **双口径断言**：`release/*.exe`、`release/*.msi` ≤ **500MB**（目标 + 门禁）；
+  `release/win-unpacked/` ≤ **1GB**（硬红线）——任一超限 **exit 1，fail build**
+- **asar 内容断言**：`ASAR_REQUIRED`（better-sqlite3 原生件必须在位，防排除误伤）
+  + `ASAR_FORBIDDEN`（被排除项重新出现 = glob 静默失效，即 fail）
+- **top-N 体积贡献者**：asar 内 top 文件 / top 包分组 + win-unpacked top 文件各 10 条，
+  便于定位体积回归
+- **零网络依赖**：仅本地 `stat` / asar 头解析
+- 基线写入脚本注释（2026-09-25：Setup 147.68MB / win-unpacked 602.1MB / app.asar 287.09MB）
+
+> 二-5 Docling PoC 若要转正，必须先重跑本门禁（源文档七-3②）。
 
 ## 参考
 

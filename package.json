@@ -11,7 +11,11 @@
   "main": "dist-main/index.js",
   "scripts": {
     "dev": "vite",
+    "clean": "node scripts/clean.mjs",
+    "prebuild": "npm run clean",
     "build": "vite build && electron-builder",
+    "postbuild": "npm run size",
+    "size": "node scripts/sizeGate.mjs",
     "lint": "eslint src/ --ext .ts,.tsx --fix",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -92,7 +96,25 @@
     "files": [
       "dist-render/**/*",
       "dist-main/**/*",
-      "public/**/*"
+      "public/**/*",
+      "!node_modules/react-icons/**",
+      "!react-icons/**",
+      "!node_modules/monaco-editor/**",
+      "!monaco-editor/**",
+      "!node_modules/@llamaindex/liteparse/liteparse.linux-x64-gnu.node",
+      "!node_modules/@llamaindex/liteparse/libpdfium.so",
+      "!@llamaindex/liteparse/liteparse.linux-x64-gnu.node",
+      "!@llamaindex/liteparse/libpdfium.so",
+      "!liteparse/liteparse.linux-x64-gnu.node",
+      "!liteparse/libpdfium.so",
+      "!node_modules/jieba-wasm/pkg/web/**",
+      "!node_modules/jieba-wasm/pkg/deno/**",
+      "!node_modules/jieba-wasm/pkg/bundler/**",
+      "!jieba-wasm/pkg/web/**",
+      "!jieba-wasm/pkg/deno/**",
+      "!jieba-wasm/pkg/bundler/**",
+      "!node_modules/better-sqlite3/deps/**",
+      "!better-sqlite3/deps/**"
     ],
     "win": {
       "target": [
