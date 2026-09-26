@@ -160,6 +160,21 @@ pdfjs-dist(110)、@anthropic-ai/sdk(107)、electron-builder(308) —— 全部 c
 - **遗留**：D 路线逐页独立识读（页间跨页表在 D 产物不合并，A 路线有完整合并）；计划 §3 数据变更点漏列 B7（按 §2-B7 落库要求补 D7，见 TDD §8.3）；页眉页脚单页独有文本不剔（跨页语义）。
 - **下一任务**：B8（六-1 文档工具集 + 六-2 citation 回链 + 六-3 评测 + 四-4 检索质量，依赖 B7 真实页码）。
 
+### B8 完成（2026-09-27）
+
+- **范围**：六-1 文档四工具 + 六-2 citation 回链 + 六-3 评测闭环 + 四-4 检索质量（TDD strict，L3）。
+- **状态**：✅ 完成。证据：`docs/testing/doc-pipeline-b8.tdd.md`。
+- **交付**：
+  - **六-1 文档四工具**：新建 `src/main/ai/tools/{searchDocument,readPage,extractTable,analyzeChart}.ts`（对齐 readLocalFile 只读范式）——searchDocument 关键词命中返回 offset/snippet/**真实页码（pageOffsets 二分）**/章节路径；readPage 按页切片（无页码结构显式指引改用 searchDocument）；extractTable 清单先行 + 完整 CSV（引号感知计列、**handler 不截断**）；analyzeChart 以 page/image_index 双锚点返回章节摘录 + 关联数据表（**不在工具期烧 vision token**，取舍记 TDD §8.4 邻接）。注册进 handlerMap + CORE_TOOLS defer + READ_ONLY_TOOLS + **concurrencyDefs 并发安全**（不落 fail-closed 串行）+ toolsForIntent 意图分区 + 系统提示词路由；**陈旧工具名 readFileRevision/listFileRevisions/getFileInfo 从 selector/concurrency 双处清理**（src 零残留）；`IDocumentStructure` 增可选 `images` 锚点（sanitize 白名单 + 解析回写，JSON 级向后兼容）；readLocalFile 超限文案改如实（**择「改文案」不实现分块**，TDD §8.1）。
+  - **六-2 citation 回链**：`buildSourceRef` 第 5 参 attachmentId + indexFile 贯通 fileId（既有 openFile 回链接通）；executeOneTool 收集 searchKB/searchDocument 引用（`collectCitations`/`mergeCitations` 去重封顶 10）→ assistant `refsJson` 落库 + **done 事件携带 refsJson**（渲染即时展示 + 回放恢复，preload map/agentStore 三处消费同步）；气泡页码标签 `ai.refs.page`（三语）+ **附件引用点击经新 IPC `attachment:open-source` 跳原文**——服务端按 user_id 反查路径（参数化 LIKE + JSON 定位）+ 绝对路径/7 格式白名单双校验防伪造 `.exe`；§1.3 三处同步（constants/preload/docs-08）；历史消息无新字段兼容（组件测试锁定）。**与图片引用结构取舍**（两套结构不合并）记 TDD §8.4。
+  - **四-4 检索质量**：`chunkEmbeddingText` **仅向量侧加 headingPath 前缀、FTS5 content 保持原样**（避免污染关键词召回，取舍记 TDD §8.5）；写索引（writeChunks）与回填（vectorBackfill 扫描 SQL 补 heading_path）共用同构；查询侧不加前缀（已知限制如实记录）。
+  - **六-3 评测闭环（可自动化四项）**：① 表格行列还原固定样例（PDF 无框线 3×4 两态 / 跨页合并 / md CSV）→ `docPipelineEval.test.ts`；② chunk 页码溯源（多页单调、首块 page=1）→ kbIndexer.test；③ 固定 query 集检索命中率 5/5（BM25 负分语义 + 分属不同文档防段聚合）→ kbSearch.test；④ 多模态降级行为断言（buildImageParts/D 路线 no-vision 零调用 + VISION_DEGRADED_NOTICE 注入补齐）→ eval + agentLoop。OCR 指标不做（决策基线）。
+  - **HyDE 收益复核（四-4②）**：结构性结论——B5 前文档侧无向量时 `hyde:true` 为 no-op，接通后路径生效（本批 2 例断言锁定：generateHydeVector → queryVector 透传 / 未传零调用）；**量化 A/B 需真实 embedding+LLM 凭据，无凭据环境不编造数据，列遗留**（TDD §8.6）。**拒答阈值 0.6 复核**：附件与笔记同管线同阈值、无 source_type 分支，本期不新增配置（TDD §8.7）。
+- **门禁**：tsc 0 error / vitest **157 文件 3664 passed 0 failed**（B7 基线 3583 + 81，2026-09-27 00:38 实测 exit 0）/ lint 0 error（106 warning，与基线持平）/ vite build exit 0 / E2E **31 failed · 1 skipped · 101 passed**——failed 构成与基线逐项一致（table 7 / feedback 5 / drag 5 / ai-agent-panel 4 / thematic 2 / float-toolbar 2 / exit 2 / editor 1 / image-resize 1 / recent-history 1 / welcome 1），**零新增失败**；B8 触及文件语句覆盖率：四工具聚合 96.58%、kbIndexer 97.29%、vectorBackfill 98.36%、concurrencyDefs 97.84%（agentToolExecutor 整文件 62% 中低值均为存量分支，新增收集器函数全用例直达）。
+- **偏离实测记录**：vitest 环境 `path.isAbsolute` 被 browserify 换为 posix 语义（win32 下 `C:\` 返回 false）→ 通道 handler 改显式盘符/根/UNC 白名单；固定检索集首版用正 bm 与 bm25 负分语义相反致 top1 反转 → 按 `ORDER BY bm` 升序修正（TDD §2 轮3）。
+- **遗留**：HyDE 量化 A/B（需 API 凭据）；chatHandlers（废弃 Chat 模式）未接 citation 收集；附件页内定位（无应用内 PDF 预览，打开交 OS 默认应用）；analyzeChart 工具期像素识读不做（D 路线解析期已转数据表）；readLocalFile offset/limit 分块未实现；E2E 存量 31 failed 不属本批次。
+- **下一任务**：B9（三-1 超长 md 发送 + 三-3 相对路径图片，L2；四工具/搜索路由已就位可配合摘要发送）。
+
 ## 进度总览
 
 | 模块 | 任务数 | 状态 |
@@ -167,8 +182,8 @@ pdfjs-dist(110)、@anthropic-ai/sdk(107)、electron-builder(308) —— 全部 c
 | 一 会话附件上传 | 4 | **全部完成**（一-1/一-2/一-3=B2，一-4=B3） |
 | 二 文档解析层 | 6 | 二-1/二-2 完成（B1）；二-3/二-4/二-6落库 完成（B7）；二-5 随 B12 |
 | 三 目录文件树 | 3 | 三-2 完成（B5）；三-1/三-3 随 B9 |
-| 四 知识库/RAG | 4 | 四-1/四-2/四-3 完成（B5/B4）；四-4 随 B8 |
+| 四 知识库/RAG | 4 | **全部完成**（四-1/四-2=B5、四-3=B4、四-4=B8） |
 | 五 多模态图片 | 3 | **全部完成**（B6） |
-| 六 工具与引用溯源 | 3 | 未开始 |
+| 六 工具与引用溯源 | 3 | **全部完成**（B8） |
 | 七 打包体积 | 3 | 未开始 |
 | 八 写控制与外发同意 | 3 | 未开始 |
