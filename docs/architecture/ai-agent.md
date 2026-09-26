@@ -36,6 +36,25 @@ AI/Agent 系统是 WeaveMD 的智能创作辅助模块，**remote-only**（Ollam
 Anthropic 路径的 system 末块带 `cache_control: { type: 'ephemeral' }` 断点（`anthropicClient.ts:243`），
 usage 从 `message_start` / `message_delta` 解析出五字段，`costTracker` 按 0.1×（读）/ 1.25×（写）分列计价。
 
+### 多模态消息（B6 五-1/五-2/五-3，2026-09-26 接线）
+
+`LlmMessage.content` / `StreamChatCompletionOptions.messages` 放宽为 `string | ContentPart[]`
+（`ContentPart = {type:'text'} | {type:'image_url', image_url:{url}}`），**纯文本消息走原路径零改动**：
+
+| 环节 | 实现 |
+|------|------|
+| 序列化两套分流 | OpenAI：`llmClient.resolveContentForWire` 本地路径读盘转 `data:` URL（坏路径→占位文本 part）；Anthropic：`anthropicCompat.toAnthropicContent` 转 `text`/`image` block（data URL→base64、http→url source） |
+| 分流判定 | `resolveModelProtocol`：显式 `ai_config.protocol` 优先（上表 6 处范式不变）→ 缺省按 `isAnthropicModel(model)` 回退；识别链路首个生产调用方 |
+| 注入点（主进程） | `agentMedia.injectImagesIntoMessages` / `buildImageParts`，Chat（`chatHandlers.runChatFlow`）与 Agent（`prepareAgentContext`）共用；**当前轮图片全量、历史行限最近 3 张**（`selectRecentImageIds`，Q4 同口径）；GIF 附「按首帧处理」text part |
+| vision 检测 | `modelDiscovery.supportsVision(modelId)` **发送前**判定；不支持 → 不注入任何图片 part + 追加 `VISION_DEGRADED_NOTICE` system 消息（**未知模型保守判否**，避免整条请求 400） |
+| 图片落盘 | `image/imageStorage.ts`：`userData/attachments/{userId}/{convId}/{id}.{ext}`，消息存**相对路径**、读取重建；发送链路 `persistIncomingAttachments` 内完成（无新增 IPC 通道）；svg 拒绝 / bmp 栅格化 / gif 原样 / 10MB 上限 |
+| 识别（五-3） | `image/imageRecognition.recognizeImageAttachments` 在 Chat/Agent 两条 IPC 链路调用：不支持 vision 不发请求直接标失败，成功描述写 `parsed_attachments.content`（附件入 KB 可检索文本），失败态「图片未成功识别」 |
+| 压缩丢图（Q4） | `buildCompressed` 保留最近 **3** 张图片 part，更早原位降级为 `IMAGE_DEGRADED_PLACEHOLDER`；`summarizeViaLlm` 剥图（非 vision 模型压缩不再失败） |
+| 事件/checkpoint | `agentEventStore.sanitizeEventPayload` 写入+回放双净化（data URL→占位、附件根内绝对路径→相对）；checkpoint `toCheckpointMessages` 文本化 |
+| 计价 | `costTracker.estimateImageTokens` / `TokenUsage.imageTokens` / `CostEntry.imageCostUsd` **归因拆分**（provider `promptTokens` 已含图片，不重复计费），成本表 Image 列；识别调用 `onUsage` 上报 |
+
+详见 `docs/testing/doc-pipeline-b6.tdd.md`（含全部取舍记录 §8）。
+
 ## Agent 循环
 
 `agentLoop.ts` 核心流程（2026-09-10 重构拆分为子模块）：

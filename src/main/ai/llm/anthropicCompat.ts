@@ -128,5 +128,20 @@ export function isAnthropicModel(modelId: string): boolean {
   return modelId.toLowerCase().includes('claude');
 }
 
+/**
+ * 协议判定（B6 五-1② 两套分流收口）：
+ * 显式 `protocol` 优先（既有 6 处分流范式，`ai_config.protocol` 为准）；
+ * **未显式配置**时按模型名回退 `isAnthropicModel`（claude 系走 /v1/messages）。
+ * 显式 openai 不被模型名覆盖 —— OpenRouter 等兼容端点上跑 claude 的既有语义不被改写。
+ */
+export function resolveModelProtocol(config: {
+  protocol?: 'openai' | 'anthropic';
+  model: string;
+}): 'openai' | 'anthropic' {
+  if (config.protocol === 'anthropic') return 'anthropic';
+  if (config.protocol === 'openai') return 'openai';
+  return isAnthropicModel(config.model) ? 'anthropic' : 'openai';
+}
+
 /** Anthropic API 端点。 */
 export const ANTHROPIC_API_ENDPOINT = 'https://api.anthropic.com/v1/messages';

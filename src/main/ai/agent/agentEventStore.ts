@@ -21,7 +21,7 @@ const IMAGE_DATA_URL_RE = /^data:image\/[a-z0-9.+-]+;base64,/i;
 
 /** 疑似本地绝对路径（盘符 / UNC），只对这类字符串尝试相对化。 */
 function looksLikeAbsPath(s: string): boolean {
-  return /^[a-zA-Z]:[\/]/.test(s) || s.startsWith('\\');
+  return /^[a-zA-Z]:[\\/]/.test(s) || s.startsWith('\\\\');
 }
 
 /**
@@ -243,7 +243,8 @@ export function replayFromSeq(
   const events = eventDao.getEventsAfterSeq(db, sessionId, afterSeq);
 
   for (const event of events) {
-    const parsed = JSON.parse(event.payloadJson);
+    // 回放同样净化：历史行内可能残留 base64（B6 前写入），统一转占位/相对路径
+    const parsed = sanitizeEventPayload(JSON.parse(event.payloadJson));
     // interaction 事件发送到 preload 监听的原始通道（agent:interaction:question），
     // 其他事件走 ai:stream:${eventType} 管道。
     const channel = event.eventType === 'interaction'

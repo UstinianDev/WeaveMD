@@ -11,6 +11,7 @@ import {
   ingestFilePaths,
   buildAttachmentSendText,
   toAttachmentPayloads,
+  validateImageAttachment,
   type Attachment,
   type ComposerPasteDeps,
 } from '@render/components/AIAgent/composer/pasteAttachment';
@@ -261,6 +262,45 @@ describe('handleComposerPaste — 既有文本行为与防重复插入', () => {
 });
 
 // ---------- ingestFilePaths：批量解析 ----------
+
+describe('validateImageAttachment — 图片格式入口校验（B6 五-2②）', () => {
+  it('svg → 拒绝并给出可读原因', () => {
+    const out = validateImageAttachment('logo.svg');
+    expect(out.ok).toBe(false);
+    expect(out.reason).toContain('SVG');
+  });
+
+  it('白名单外格式 → 拒绝并列出支持格式', () => {
+    const out = validateImageAttachment('scan.tiff');
+    expect(out.ok).toBe(false);
+    expect(out.reason).toContain('png');
+  });
+
+  it('png/jpg/jpeg/gif/webp/bmp → 通过', () => {
+    for (const name of ['a.png', 'b.JPG', 'c.jpeg', 'd.gif', 'e.webp', 'f.bmp']) {
+      expect(validateImageAttachment(name).ok).toBe(true);
+    }
+  });
+});
+
+describe('handleComposerPaste — 图片拒绝回调（svg 粘贴不入附件、防重复插入）', () => {
+  it('clipboardData 含 svg 图片项 → onImageRejected 收到原因且不入附件', async () => {
+    const addAttachment = vi.fn();
+    const onImageRejected = vi.fn();
+    const view = makeView();
+    const file = new File([new Uint8Array([1, 2, 3])], 'logo.svg', { type: 'image/svg+xml' });
+    const event = makePasteEvent(
+      makeClipboardData({
+        items: [{ kind: 'file', type: 'image/svg+xml', getAsFile: () => file }],
+      })
+    );
+    const handled = handleComposerPaste(view.view, event, { addAttachment, onImageRejected });
+    expect(handled).toBe(true);
+    expect(onImageRejected).toHaveBeenCalledWith(expect.stringContaining('SVG'));
+    expect(addAttachment).not.toHaveBeenCalled();
+    expect(view.insertText).not.toHaveBeenCalled();
+  });
+});
 
 describe('ingestFilePaths — 路径数组逐个解析（一-1②/一-2②）', () => {
   type ParseRes = { success: boolean; data?: { text?: string } };

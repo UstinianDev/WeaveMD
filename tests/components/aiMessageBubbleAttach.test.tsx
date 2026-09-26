@@ -4,7 +4,7 @@
 // 旧消息无 attachments 字段向后兼容（按可选渲染）。
 // ============================================
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import AIMessageBubble from '@render/components/AIAgent/message/AIMessageBubble';
 import type { IAttachmentMeta } from '@shared/ai';
 
@@ -17,6 +17,7 @@ vi.mock('@render/i18n', () => ({
       'ai.msg.cancel': '取消',
       'ai.attachment.parsing': '解析中',
       'ai.attachment.parseFailed': '解析失败',
+      'ai.attachment.imageFailed': '图片未成功识别',
     };
     return {
       t: (key: string, fallback?: string) => dict[key] ?? fallback ?? `[${key}]`,
@@ -101,6 +102,54 @@ describe('AIMessageBubble — user 分支附件 chips 与三态', () => {
   it('空数组 attachments → 同样不渲染附件区', () => {
     renderUser([]);
     expect(screen.queryByTestId('message-attachments')).toBeNull();
+  });
+
+  it('B6 五-3②：图片识别失败 → 展示「图片未成功识别」（区别于文件解析失败）', () => {
+    renderUser([{ id: 'i4', type: 'image', name: 'blurry.png', parseStatus: 'error' }]);
+    expect(screen.getByTestId('attachment-status-error').textContent).toBe('图片未成功识别');
+  });
+
+  it('B6 五-2②：落盘失败原因随元数据展示（svg 拒绝 / 超限）', () => {
+    renderUser([
+      {
+        id: 'i5',
+        type: 'image',
+        name: 'logo.svg',
+        parseStatus: 'error',
+        error: '不支持该图片格式（SVG 请先另存为 PNG）',
+      },
+    ]);
+    expect(screen.getByText('不支持该图片格式（SVG 请先另存为 PNG）')).toBeTruthy();
+  });
+
+  it('B6 五-3②：点击缩略图打开 lightbox，点击遮罩关闭', () => {
+    renderUser([
+      { id: 'i6', type: 'image', name: 'pic.png', path: 'C:/pics/pic.png', parseStatus: 'done' },
+    ]);
+    expect(screen.queryByTestId('image-lightbox')).toBeNull();
+    fireEvent.click(screen.getByTestId('message-attachment-thumb-btn'));
+    const lightbox = screen.getByTestId('image-lightbox');
+    expect(lightbox).toBeTruthy();
+    expect(screen.getByTestId('image-lightbox-img').getAttribute('src')).toContain('media://');
+    fireEvent.click(lightbox);
+    expect(screen.queryByTestId('image-lightbox')).toBeNull();
+  });
+
+  it('B6 五-3②：Esc 关闭 lightbox', () => {
+    renderUser([
+      { id: 'i7', type: 'image', name: 'pic.png', path: 'C:/pics/pic.png', parseStatus: 'done' },
+    ]);
+    fireEvent.click(screen.getByTestId('message-attachment-thumb-btn'));
+    expect(screen.getByTestId('image-lightbox')).toBeTruthy();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('image-lightbox')).toBeNull();
+  });
+
+  it('B6 五-2②：GIF 图片附「GIF 首帧」提示', () => {
+    renderUser([
+      { id: 'i8', type: 'image', name: 'anim.gif', path: 'C:/pics/anim.gif', parseStatus: 'done' },
+    ]);
+    expect(screen.getByTestId('attachment-gif-note').textContent).toBe('GIF 首帧');
   });
 
   it('正文只含占位符（不内联附件正文），chips 与正文并存', () => {

@@ -9,6 +9,7 @@ import {
   convertToAnthropicFormat,
   buildAnthropicRequest,
   isAnthropicModel,
+  resolveModelProtocol,
 } from '@main/ai/llm/anthropicCompat';
 
 describe('anthropicCompat.convertToAnthropicFormat', () => {
@@ -99,5 +100,12 @@ describe('anthropicCompat.buildAnthropicRequest / isAnthropicModel', () => {
   it('detects anthropic models by id', () => {
     expect(isAnthropicModel('claude-sonnet-4')).toBe(true);
     expect(isAnthropicModel('deepseek-chat')).toBe(false);
+  });
+
+  it('resolveModelProtocol：显式 protocol 优先，缺省按模型名回退（两套分流收口）', () => {
+    expect(resolveModelProtocol({ protocol: 'anthropic', model: 'deepseek-chat' })).toBe('anthropic');
+    expect(resolveModelProtocol({ protocol: 'openai', model: 'claude-sonnet-4' })).toBe('openai');
+    expect(resolveModelProtocol({ model: 'claude-sonnet-4' })).toBe('anthropic');
+    expect(resolveModelProtocol({ model: 'deepseek-chat' })).toBe('openai');
   });
 });

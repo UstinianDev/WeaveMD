@@ -6,7 +6,7 @@
 // （aiMarkdown HAST→React 安全渲染），tool 用 <ToolCallTrace/>，user 保持纯文本。
 // assistant refsJson（IKbSearchResult 数组）渲染「[来源: 文件名 · 块]」链接，点击 openFile。
 
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import type { AIMessageRole, IAgentToolCall, IAttachmentMeta } from '@shared/ai';
 import type { IFile } from '@shared/types';
 import { useI18n } from '@render/i18n';
@@ -262,6 +262,17 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
     return [...new Set(matches)];
   }, [role, content, urlSearchIgnored]);
 
+  // B6 五-3：图片点击放大 lightbox（Esc/点击遮罩关闭）
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (!lightboxSrc) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setLightboxSrc(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [lightboxSrc]);
+
   // 3c: handleOpenSource 用 useCallback
   const handleOpenSource = useCallback((source: ParsedSource) => {
     if (!source.fileId) return;
@@ -347,12 +358,20 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
                         data-testid="message-attachment-chip"
                       >
                         {att.type === 'image' && thumbSrc ? (
-                          <img
-                            src={thumbSrc}
-                            alt={att.name}
-                            className="w-7 h-7 rounded object-cover flex-shrink-0"
-                            data-testid="message-attachment-thumb"
-                          />
+                          <button
+                            type="button"
+                            onClick={() => setLightboxSrc(thumbSrc)}
+                            className="flex-shrink-0 cursor-zoom-in"
+                            aria-label={`放大 ${att.name}`}
+                            data-testid="message-attachment-thumb-btn"
+                          >
+                            <img
+                              src={thumbSrc}
+                              alt={att.name}
+                              className="w-7 h-7 rounded object-cover flex-shrink-0"
+                              data-testid="message-attachment-thumb"
+                            />
+                          </button>
                         ) : (
                           <Icon
                             icon={att.type === 'image' ? 'image' : 'file-outline'}
@@ -366,7 +385,19 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
                             className="text-red-300 text-[11px] whitespace-nowrap"
                             data-testid="attachment-status-error"
                           >
-                            {t('ai.attachment.parseFailed', '解析失败')}
+                            {/* B6 五-3②：图片识别失败态 + svg/超限等具体原因 */}
+                            {att.error ??
+                              (att.type === 'image'
+                                ? t('ai.attachment.imageFailed', '图片未成功识别')
+                                : t('ai.attachment.parseFailed', '解析失败'))}
+                          </span>
+                        )}
+                        {att.type === 'image' && /\.gif$/i.test(att.name) && (
+                          <span
+                            className="text-white/60 text-[11px] whitespace-nowrap"
+                            data-testid="attachment-gif-note"
+                          >
+                            GIF 首帧
                           </span>
                         )}
                         {(att.parseStatus === 'processing' || att.parseStatus === 'pending') && (
@@ -409,6 +440,25 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
               )}
             </div>
           </>
+        )}
+        {/* B6 五-3：点击缩略图放大查看（点击遮罩 / Esc 关闭） */}
+        {lightboxSrc && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 cursor-zoom-out"
+            onClick={() => setLightboxSrc(null)}
+            role="button"
+            tabIndex={-1}
+            aria-label="关闭图片预览"
+            data-testid="image-lightbox"
+          >
+            <img
+              src={lightboxSrc}
+              alt=""
+              className="max-h-[90vh] max-w-[90vw] object-contain shadow-2xl"
+              data-testid="image-lightbox-img"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
         )}
       </div>
     );

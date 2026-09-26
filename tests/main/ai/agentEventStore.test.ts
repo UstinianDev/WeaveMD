@@ -21,7 +21,13 @@ const imageStorageMock = vi.hoisted(() => ({
 }));
 vi.mock('@main/ai/image/imageStorage', () => imageStorageMock);
 
-import { persistAndSend, persistOnly, resetSeqCounter, sanitizeEventPayload } from '@main/ai/agent/agentEventStore';
+import {
+  persistAndSend,
+  persistOnly,
+  replayFromSeq,
+  resetSeqCounter,
+  sanitizeEventPayload,
+} from '@main/ai/agent/agentEventStore';
 
 function fakeDb() {
   return {
@@ -101,6 +107,59 @@ describe('agentEventStore.persistAndSend / persistOnly 持久化', () => {
     });
     expect(ev.payloadJson).not.toContain('base64');
     expect(ev.payloadJson).toContain('图片');
+  });
+
+  it('flushes the batch queue into the DB with sanitized JSON (100ms 批量)', async () => {
+    const run = vi.fn(() => ({ changes: 1 }));
+    const db = {
+      prepare: () => ({ run, get: () => undefined, all: () => [] }),
+      transaction: (fn: (arg: unknown[]) => unknown) => fn,
+    } as never;
+    resetSeqCounter('sess-2');
+    persistAndSend(db, fakeWin, 'sess-2', 'c1', 'chunk', {
+      thumb: 'data:image/png;base64,QUJD',
+    });
+    await new Promise((r) => setTimeout(r, 140));
+    expect(run).toHaveBeenCalled();
+    // 入库参数里不含 base64（payloadJson 是第 6 个占位符）
+    const inserted = run.mock.calls[0] as unknown[];
+    expect(String(inserted[5])).not.toContain('base64');
+    resetSeqCounter('sess-2');
+  });
+
+  it('replayFromSeq 发送已净化的 payload（回放同样不吐 base64）', () => {
+    const send = vi.fn();
+    const win = { webContents: { send } } as never;
+    const events = [
+      {
+        id: 'e1',
+        session_id: 's1',
+        conversation_id: 'c1',
+        seq: 3,
+        event_type: 'tool',
+        payload_json: JSON.stringify({
+          thumb: 'data:image/jpeg;base64,QUJD',
+          result: 'ok',
+        }),
+        created_at: new Date().toISOString(),
+      },
+    ];
+    const db = {
+      prepare: () => ({
+        run: () => ({ changes: 1 }),
+        get: () => undefined,
+        all: () => events,
+      }),
+      transaction: (fn: (arg: unknown[]) => unknown) => fn,
+    } as never;
+
+    const out = replayFromSeq(db, win, 's1', 2);
+    expect(out).toHaveLength(1);
+    expect(send).toHaveBeenCalledTimes(1);
+    const sent = send.mock.calls[0][1] as Record<string, unknown>;
+    expect(sent.thumb).not.toContain('base64');
+    expect(sent.result).toBe('ok');
+    expect(sent.seq).toBe(3);
   });
 
   it('keeps sequential seq across events', () => {

@@ -19,6 +19,7 @@ import { appendMessage, updateConversationSummary } from '../../db/ai';
 import {
   buildCompressed,
   contentToText,
+  countMessageImages,
   estimateContentTokens,
   estimateTokens,
   shouldCompress,
@@ -32,7 +33,7 @@ import { type ExecutionSegment } from './agentExecutionSegments';
 import { createPreloadedSearchKb } from './agentKbPreloader';
 
 // 从拆分模块导入
-import { getCostTracker } from '../costTracker';
+import { estimateImageTokens, getCostTracker } from '../costTracker';
 import type { AgentContext } from './agentContext';
 import { prepareAgentContext } from './agentContext';
 import {
@@ -357,6 +358,8 @@ export async function runAgentFlow(
 
         // S16: 记录本轮 LLM 调用的 token 消耗到成本追踪器
         if (roundUsage) {
+          // B6 五-1：图片 token 归因（provider promptTokens 已含图片，仅拆分展示）
+          const roundImageTokens = estimateImageTokens(countMessageImages(ctx.llmMessages));
           try {
             getCostTracker().recordUsage({
               conversationId: ctx.convId,
@@ -368,6 +371,7 @@ export async function runAgentFlow(
                 reasoningTokens: roundUsage.reasoningTokens ?? 0,
                 cacheReadTokens: roundUsage.cacheReadTokens ?? 0,
                 cacheCreationTokens: roundUsage.cacheCreationTokens ?? 0,
+                ...(roundImageTokens > 0 ? { imageTokens: roundImageTokens } : {}),
               },
               roundCount: round + 1,
               intent: ctx.intent.intent,

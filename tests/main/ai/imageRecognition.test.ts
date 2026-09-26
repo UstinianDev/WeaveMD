@@ -118,6 +118,8 @@ describe('imageRecognition.createRecognitionLlmCall（真实 LLM 调用）', () 
       baseUrl: 'https://api.example.com',
       model: 'claude-sonnet-4',
       apiKey: 'k',
+      // 显式 openai（模型名只在未配置 protocol 时回退，见 resolveModelProtocol）
+      protocol: 'openai',
       onUsage,
     });
     const text = await call([

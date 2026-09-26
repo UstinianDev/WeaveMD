@@ -49,6 +49,17 @@ export function estimateContentTokens(content: MessageContent): number {
   return tokens;
 }
 
+/** 统计 content 中的图片 part 张数（计价归因用）。 */
+export function countImageParts(content: MessageContent): number {
+  if (typeof content === 'string') return 0;
+  return content.reduce((n, p) => (p.type === 'image_url' ? n + 1 : n), 0);
+}
+
+/** 统计一组消息中的图片总张数（costTracker 图片 token 归因，五-1）。 */
+export function countMessageImages(messages: LlmMessage[]): number {
+  return messages.reduce((n, m) => n + countImageParts(m.content), 0);
+}
+
 /**
  * Q4 压缩丢图：从**最新**消息倒推保留 keepImages 张图片 part，
  * 更早的图片 part 原位降级为显式提示占位文本（纯文本消息零影响）。

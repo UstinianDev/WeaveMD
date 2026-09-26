@@ -15,7 +15,8 @@ import { decryptApiKey } from '../secureConfig';
 import { streamAnthropicCompletion } from '../llm/anthropicClient';
 import { streamChatCompletion, type MessageContent } from '../llm/llmClient';
 import { supportsVision } from '../llm/modelDiscovery';
-import { estimateImageTokens } from '../costTracker';
+import { resolveModelProtocol } from '../llm/anthropicCompat';
+import { estimateImageTokens, getCostTracker } from '../costTracker';
 import { formatImageForLlm, processMedia } from '../agent/agentMedia';
 import {
   updateParsedAttachmentContent,
@@ -139,7 +140,7 @@ export function createRecognitionLlmCall(opts: RecognitionLlmOptions): Recogniti
       ...(opts.signal ? { signal: opts.signal } : {}),
     };
     const gen =
-      opts.protocol === 'anthropic'
+      resolveModelProtocol({ protocol: opts.protocol, model: opts.model }) === 'anthropic'
         ? streamAnthropicCompletion(req)
         : streamChatCompletion(req);
 
@@ -204,6 +205,28 @@ export async function recognizeImageAttachments(
     ...(apiKey ? { apiKey } : {}),
     ...(config.protocol ? { protocol: config.protocol } : {}),
     ...(opts.signal ? { signal: opts.signal } : {}),
+    // 五-1 计价：识别调用的 token（含图片归因）进 costTracker
+    onUsage: (usage) => {
+      try {
+        getCostTracker().recordUsage({
+          conversationId: opts.conversationId,
+          userId,
+          model: config.model,
+          usage: {
+            promptTokens: usage.promptTokens,
+            completionTokens: usage.completionTokens,
+            reasoningTokens: 0,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 0,
+            ...(usage.imageTokens > 0 ? { imageTokens: usage.imageTokens } : {}),
+          },
+          roundCount: 0,
+          intent: 'image_recognition',
+        });
+      } catch {
+        // 计价失败不影响识别主流程
+      }
+    },
   });
 
   const out: IAttachmentMeta[] = [];

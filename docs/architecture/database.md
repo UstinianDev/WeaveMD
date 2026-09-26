@@ -66,7 +66,7 @@
 | role | TEXT | 角色（user/assistant/tool） |
 | content | TEXT | 消息内容 |
 | tool_call_id | TEXT | 工具调用 ID（tool 角色） |
-| attachments_json | TEXT | 附件轻量元数据 JSON `[{id,type,name,path,size,parseStatus}]`（可空；B3 D1 迁移，解析正文存 `parsed_attachments.content`，一物两表） |
+| attachments_json | TEXT | 附件轻量元数据 JSON `[{id,type,name,path,size,parseStatus,error}]`（可空；B3 D1 迁移，解析正文存 `parsed_attachments.content`，一物两表。**B6：图片 `path` 存相对路径 `attachments/{userId}/{convId}/{id}.{ext}`，读取时重建绝对路径；`error` 为失败可读原因**） |
 | created_at | TEXT | 创建时间 |
 
 #### agent_run_events

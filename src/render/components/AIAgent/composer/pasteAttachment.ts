@@ -32,6 +32,27 @@ export interface ComposerPasteDeps {
   readElectronImage?: () => Promise<string | null>;
   /** 有本地路径的文档批量解析（KB_PARSE_DOCUMENT 逐个） */
   parsePaths?: (paths: string[]) => Promise<void>;
+  /** 图片被拒绝时的原因提示（svg/格式不支持，五-2②） */
+  onImageRejected?: (reason: string) => void;
+}
+
+/** 可上传图片扩展名白名单（与主进程 imageStorage.ALLOWED_IMAGE_EXTS 对齐） */
+export const IMAGE_UPLOAD_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'];
+
+/**
+ * 图片上传前校验（五-2②）：svg 矢量图不可直喂 vision → 拒绝并给出可读原因；
+ * 其他非白名单扩展名同样拒绝。返回 ok=true 表示可继续。
+ */
+export function validateImageAttachment(fileName: string): { ok: boolean; reason?: string } {
+  const raw = (fileName.split('.').pop() ?? '').toLowerCase();
+  const ext = raw.replace(/^\./, '');
+  if (ext === 'svg') {
+    return { ok: false, reason: '不支持 SVG 图片，请另存为 PNG 后重试' };
+  }
+  if (!IMAGE_UPLOAD_EXTS.includes(ext)) {
+    return { ok: false, reason: '不支持的图片格式（支持 png/jpg/jpeg/gif/webp/bmp）' };
+  }
+  return { ok: true };
 }
 
 /** KB_PARSE_DOCUMENT 同构返回（结构化产物取 text 字段） */
@@ -119,6 +140,12 @@ export function handleComposerPaste(
   const imageBlob = extractImageBlob(clipboardData);
   if (imageBlob) {
     const name = `clipboard-${Date.now().toString(36)}.${extFromMime(imageBlob.type)}`;
+    const check = validateImageAttachment(name);
+    if (!check.ok) {
+      // svg 等不可投喂 vision 的格式：拒绝并提示（不断批，防文本重复插入）
+      deps.onImageRejected?.(check.reason ?? '不支持的图片格式');
+      return true;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       deps.addAttachment({
@@ -182,9 +209,15 @@ export function handleComposerPaste(
       .readElectronImage()
       .then((dataUrl) => {
         if (dataUrl) {
+          const name = `clipboard-${Date.now().toString(36)}.png`;
+          const check = validateImageAttachment(name);
+          if (!check.ok) {
+            deps.onImageRejected?.(check.reason ?? '不支持的图片格式');
+            return;
+          }
           deps.addAttachment({
             type: 'image',
-            name: `clipboard-${Date.now().toString(36)}.png`,
+            name,
             content: dataUrl,
           });
         }

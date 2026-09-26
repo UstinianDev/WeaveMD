@@ -30,6 +30,7 @@ import {
   handleComposerPaste,
   ingestFilePaths,
   toAttachmentPayloads,
+  validateImageAttachment,
   type Attachment,
 } from '../composer/pasteAttachment';
 import { SkillTag } from '../composer/extensions/SkillTag';
@@ -171,6 +172,8 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
 
   // —— 附件状态 ——
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  // B6 五-2②：图片被拒绝时的显式提示（svg/格式不支持，入口先拒）
+  const [imageNotice, setImageNotice] = useState<string | null>(null);
 
   // 文件树数据（用于 @mention）
   const looseFiles = useFileTreeStore((s) => s.looseFiles);
@@ -295,6 +298,7 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
                 setAttachments((prev) => [...prev, { id: genAttachmentId(), ...att }]);
               }
             ),
+          onImageRejected: (reason) => setImageNotice(reason),
         }),
     },
     onUpdate: ({ editor: ed }) => {
@@ -380,6 +384,7 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
     const payloadText = buildAttachmentSendText(trimmed, attachments);
     const payloads = attachments.length > 0 ? toAttachmentPayloads(attachments) : undefined;
     if (attachments.length > 0) setAttachments([]);
+    setImageNotice(null);
 
     void handleSendAgent(payloadText, skillTagName, payloads);
     // 清空编辑器
@@ -418,6 +423,13 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
       const path = await window.weaveMD?.dialog.pickImage();
       if (path) {
         const name = path.split(/[/\\]/).pop() ?? path;
+        // 五-2②：入口先拒（svg/非白名单），主进程落盘再兜底一次
+        const check = validateImageAttachment(name);
+        if (!check.ok) {
+          setImageNotice(check.reason ?? '不支持的图片格式');
+          return;
+        }
+        setImageNotice(null);
         setAttachments((prev) => [...prev, { id: genAttachmentId(), type: 'image', name, path }]);
       }
     } catch {
@@ -472,6 +484,15 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
     <div className="border-t border-border px-2.5 pt-2 pb-2.5 space-y-1.5">
       <div className="relative">
         {/* 附件预览条：>5 个折叠为「N 个附件」（一-2②） */}
+        {/* B6 五-2②：图片拒绝/超限提示 */}
+        {imageNotice && (
+          <div
+            className="px-3 py-1 text-[12px] text-red-500 bg-red-500/10 rounded-md"
+            data-testid="composer-image-notice"
+          >
+            {imageNotice}
+          </div>
+        )}
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-1.5">
             {attachments.slice(0, MAX_VISIBLE_ATTACHMENT_CHIPS).map((att) => (

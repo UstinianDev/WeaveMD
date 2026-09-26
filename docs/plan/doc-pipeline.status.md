@@ -129,6 +129,23 @@ pdfjs-dist(110)、@anthropic-ai/sdk(107)、electron-builder(308) —— 全部 c
 - **遗留**：回填状态无 UI/IPC 展示（B5 验收点只要求可观测，测试与 `getVectorBackfillStatus` 承担；如需设置页展示列后续）；超宽表按单元格 emergency split（STC）未实现——无样例需求记录为可选增强；headingPath 未前置进 `content`（上下文前缀取舍按计划归 **B8 四-4②**）；E2E 存量 31 failed 不属本批次。
 - **下一任务**：B6（五-1 `content` 数组 + 五-2 图片落盘 + 五-3 死代码接活，**L4 执行前需二次确认**）。
 
+### B6 完成（2026-09-26，L4 已获用户放行）
+
+- **范围**：五-1 `content` 数组贯通全调用点 + Q4 压缩丢图 + 五-2 图片落盘相对路径 + 五-3 死代码接活（TDD strict，**L4 核心 LLM 链路**）。
+- **状态**：✅ 完成。证据：`docs/testing/doc-pipeline-b6.tdd.md`。
+- **交付**：
+  - **五-1 content 数组**：`llmClient` 新增 `ContentPart`/`MessageContent`/`LlmRequestMessage`，`resolveContentForWire` 发送前把本地图片路径读成 data URL（坏路径降级占位文本 part，绝不发破请求）；`anthropicCompat.toAnthropicContent` 转 `text`/`image` block（data URL→base64、http→url source）；`anthropicClient` system/messages 双处转换。**两套分流收口 `resolveModelProtocol`**：显式 `ai_config.protocol` 优先（既有 6 处范式不变），缺省按 `isAnthropicModel` 回退（该函数 B6 前零生产调用方，本次接入识别链路）。全部调用点类型贯通（rewrite/skillLoader 纯文本零改动、chatHandlers/agentContext 注入数组、事件回放净化）。
+  - **Q4 压缩丢图**：`LlmMessage.content` 扩数组；`buildCompressed` 保留最近 **3** 张图片 part、更早图片原位降级 `IMAGE_DEGRADED_PLACEHOLDER`（显式提示）；`summarizeViaLlm` 压缩输入剥图（非 vision 模型压缩不再失败）；`estimateContentTokens`/`countMessageImages` 承担含图 token 估算。
+  - **五-2 落盘**：`imageStorage` 重写为 `userData/attachments/{userId}/{conversationId}/{id}.{ext}`；消息 `attachments_json` **存相对路径**（写前 `toRelativePath`、读时 `resolveStoredPath` 重建）；**不新增 IPC 通道**——落盘在发送链路主进程 `persistIncomingAttachments` 完成（复用 `dialog:pick-image` / `clipboard:read-image`，§1.3 三处同步不触发，取舍记 TDD §8.1）；删除会话（IPC 层）/删除附件（`removeParsedAttachment`）同步清文件；svg 三重拒绝（dialog 过滤 + composer 入口 + 存储层）、bmp `nativeImage` 栅格化、gif 原样 + 首帧提示、单图 10MB 上限，失败原因经新字段 `IAttachmentMeta.error` 上屏。
+  - **五-3 死代码接活**：`agentMedia` 新增 `buildImageParts`/`injectImagesIntoMessages`/`selectRecentImageIds`（主进程注入点，Chat `runChatFlow` 与 Agent `prepareAgentContext` 共用；当前轮全量、历史限 3 张；vision 不支持 → 不注入 + `VISION_DEGRADED_NOTICE`）；`imageRecognition` 接真实 `createRecognitionLlmCall`（protocol 分流 + usage 计价回调）并由 `recognizeImageAttachments` 在**两条发送链路**调用（不支持 vision 不发请求直接标失败、成功描述写 `parsed_attachments.content` 供附件入 KB 检索、失败「图片未成功识别」）；`processMedia`/`formatImageForLlm` 均有真实调用方。
+  - **事件回放**：`sanitizeEventPayload` 写入（persistAndSend/persistOnly）+ 回放（replayFromSeq）双净化——data URL→占位、附件根内绝对路径→相对路径；checkpoint 走 `toCheckpointMessages` 文本化（不落 base64/路径）。
+  - **计价**：`IMAGE_TOKENS_PER_IMAGE`/`estimateImageTokens` + `TokenUsage.imageTokens`/`CostEntry.imageCostUsd` **归因拆分**（provider promptTokens 已含图片，不重复计费）+ 成本表 Image 列；agentLoop 每轮按 `countMessageImages` 归因；识别调用 `onUsage` 上报。B7 D 路线直接复用。
+  - **渲染层**：气泡缩略图点击 lightbox（遮罩/Esc 关闭）、图片失败态 `att.error ?? 图片未成功识别`、GIF 首帧提示；composer `validateImageAttachment` 入口拒绝 + `composer-image-notice` 提示行。
+- **门禁**：tsc 0 error（首轮 13 错已修）/ vitest **152 文件 3500 passed 0 failed**（B5 基线 3416 + 84，18:45 实测）/ lint 0 error（106 warning，较基线 108 减 2）/ vite build exit 0 / E2E **31 failed·1 skipped·101 passed（133 条）**——failed 按 spec 构成与基线逐条同名单（table 7 / feedback 5 / drag 5 / ai-agent-panel 4 / thematic 2 / float-toolbar 2 / exit 2 / editor 1 / image-resize 1 / recent-history 1 / welcome 1），**零新增失败**；B6 触及文件语句覆盖率 81.7%~99.7%（聚合 84.87%）。过程 flaky：`cacheMonitor` 与 `ab-test` 两项存量性能断言负载间歇超阈（单跑 37/22 passed，收尾全量绿）。
+- **纯文本链路回归（L4 最高优先级）**：content 类型放宽后既有断言**零修改**全部通过；另加 `resolveContentForWire` 纯文本逐字透传、`buildCompressed` 纯文本输出不变两条专门断言。
+- **遗留**：识别调用同步阻塞发送（多图串行、单次 60s 超时，异步三态留后续）；Skill 链路 content 类型已贯通但输入无附件来源故不注入（取舍 TDD §8.7）；`IImagePayload` 仍无调用方（无使用场景，不强行接线）；图片向量按范围外不动；E2E 存量 31 failed 与性能用例 flaky 不属本批次。
+- **下一任务**：B7（二-3 PDF 版面 + 二-4 D 路线 + 二-6 页码落库；D 路线图片计价复用 `estimateImageTokens`）。
+
 ## 进度总览
 
 | 模块 | 任务数 | 状态 |
@@ -137,7 +154,7 @@ pdfjs-dist(110)、@anthropic-ai/sdk(107)、electron-builder(308) —— 全部 c
 | 二 文档解析层 | 6 | 二-1/二-2/二-6契约 完成（B1）；二-3/二-4/二-6落库 随 B7；二-5 随 B12 |
 | 三 目录文件树 | 3 | 三-2 完成（B5）；三-1/三-3 随 B9 |
 | 四 知识库/RAG | 4 | 四-1/四-2/四-3 完成（B5/B4）；四-4 随 B8 |
-| 五 多模态图片 | 3 | 未开始 |
+| 五 多模态图片 | 3 | **全部完成**（B6） |
 | 六 工具与引用溯源 | 3 | 未开始 |
 | 七 打包体积 | 3 | 未开始 |
 | 八 写控制与外发同意 | 3 | 未开始 |

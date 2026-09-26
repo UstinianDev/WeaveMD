@@ -86,7 +86,7 @@ src/shared/constants.ts           ← IPC 通道常量（80+ 通道）
 | `dialog:save-file` | 保存文件 |
 | `dialog:save-file-path` | 保存路径 |
 | `dialog:open-folder` | 打开文件夹 |
-| `dialog:pick-image` | 选择图片 |
+| `dialog:pick-image` | 选择图片（png/jpg/jpeg/gif/webp/bmp；**svg 已剔除**——矢量图不可直喂 vision，B6 五-2） |
 
 ### Folder（3 通道）
 
