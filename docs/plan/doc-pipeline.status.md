@@ -189,6 +189,23 @@ pdfjs-dist(110)、@anthropic-ai/sdk(107)、electron-builder(308) —— 全部 c
 - **遗留**：`readLocalFile` 无分块（>1MB md 引用模式读不到全文，B8 遗留依赖）；md 图片不持久化到消息表/回放；越界判定大小写敏感（fail-safe 方向）；E2E 存量 31 failed 不属本批次。
 - **下一任务**：B10（七 打包体积，**L4 执行前需二次确认**）与 B11（八 写控制与外发，**L4**）可并行；B12 Docling PoC 收尾。
 
+### B10 完成（2026-09-27）
+
+- **范围**：七-1 四项瘦身 + 七-2 monaco 运行时验证（Q5）+ 七-3 体积门禁（TDD strict，**L4，已获用户二次放行**）。
+- **状态**：✅ 完成。证据：`docs/testing/doc-pipeline-b10.tdd.md`。
+- **交付**：
+  - **七-1① files 反向排除（electron-builder 24.13.3 实测生效）**：`build.files` 新增 21 条 `!` 排除——`react-icons`（~81.9MB，Vite 已内联，具名导入形态本就按需、零代码改动）、`monaco-editor`（68.5MB，见七-2）、liteparse Linux 件（`.node` 24.83MB + `libpdfium.so` 7.09MB，asar 与 asar.unpacked 双处归零）、`jieba-wasm` 的 `pkg/{web,deno,bundler}`（`require.resolve` 实测只走 `pkg/nodejs`，保留一份）、`better-sqlite3/deps/**`（构建期源码 ~9.6MB；**`build/Release/*.node` 零误伤**，`ASAR_REQUIRED` 门禁断言 + 打包后启动实测双保险）。每条排除写双口径 pattern（项目根 / 依赖父目录两种 v24 匹配基准）。**注意**：启用 Linux AppImage target 前须移除 liteparse 两条排除（记录于 packaging.md）。
+  - **七-1① `clean` 脚本**：`scripts/clean.mjs` 挂 `prebuild`——dist-main 历史分片实测 211 文件 176MB（计划时点 44~50MB 已增长）→ 清理后单次构建 7 文件 2.4MB；asar 内 `dist-main/index-*.js` 70 → 3 份。
+  - **七-1① 图标清单 + 视觉回归（先于替换）**：`tests/components/IconInventory.test.tsx` 落 `ICON_INVENTORY` 132 项全表（键双向对账 + 组件身份比对 + 逐项 svg 非空 + 降级断言）→ RED→GREEN 后才动打包配置；打包后 CDP 实测 svgCount 31 与剔除前一致（前后截图存证）。
+  - **七-2② monaco 运行时验证（Q5 判定出口）**：**验证通过 → 剔除执行**。剔除前：CDP 全会话追踪（page request + Network 双通道，先 reload 覆盖完整启动再 Ctrl+` 进源代码模式——Monaco 实际加载渲染截图确认）→ 22 请求全为 `dist-render/assets/*`（正对照成立），`node_modules/monaco-editor|react-icons` 加载 **0**、CDN 兜底 0、pageerror/console error 0；主进程 `NODE_OPTIONS --require` 钩子对打包应用不生效（Electron 既定行为）→ 以主进程/preload 静态零引用 + `nodeIntegration:false` 组合替代并如实记录。剔除后：asar 副本条目 0 且源代码模式 Monaco 正常挂载——**双向闭环**。
+  - **七-3② 体积门禁**：`scripts/sizeGate.mjs`（`postbuild` 自动执行 / `npm run size` 单跑）——exe|msi ≤500MB、win-unpacked ≤1GB 双口径超限 **fail build**；asar 内容断言（必含 `better_sqlite3.node` 防误伤 + 8 类禁含项防 glob 静默失效）；top-N 三段清单（asar 文件/asar 包分组/win-unpacked 文件）；基线写注释与运行输出；纯本地 stat + asar 头解析，零网络依赖。单测 `tests/scripts/sizeGate.test.ts` 18 例（含 asar 字节流解析、超限判定、首轮发现的排序/分组缺陷补测）。
+  - **文档**：`docs/guide/packaging.md` 同步（build 生命周期、files 排除逐项依据表、体积门禁章节）。
+- **体积前后对比（2026-09-27 实测）**：Setup **147.68MB → 99.16MB（−32.9%）**；msi 154.68 → **109.93MB**；win-unpacked **602.15MB → 368.96MB（−38.7%）**；app.asar **288MB → 85.93MB（−70%）**；asar 条目 11313 → 9228。距 500MB/1GB 双红线余量充足（B12 Docling 转正须重跑本门禁）。
+- **门禁**：tsc 0 error / vitest **161 文件 3730 passed 0 failed**（B9 基线 3708 + 22）/ lint 0 error（106 warning 与基线持平）/ vite build exit 0 / E2E **31 failed·1 skipped·101 passed**（failed 构成与基线逐项一致、**零新增失败**）/ **`npm run build` 完整打包 exit 0 + size gate PASSED** + **打包实测可启动**（CDP：欢迎文档渲染 → Ctrl+` 源码模式 Monaco 正常 → 图标齐全 → 0 pageerror/0 console error，前后截图与 report JSON 见 TDD §7）。
+- **偏离记录**：react-icons 已是具名按需导入，治理落在打包剔除而非改 import（TDD §8.1）；`vite.config.ts` external 零改动（无同步项）；`@monaco-editor/*` 小副本保留（~1-2MB，范围外）。
+- **遗留**：打包形态 `sqlite-vec` 加载失败降级 FTS5-only（**旧包即存在、非本批次引入**，vec0.dll 在 asar.unpacked 但扩展加载疑似未映射——建议 B11/独立批次核查）；Linux AppImage 的 liteparse 排除警示；E2E 存量 31 failed 不属本批次。
+- **下一任务**：B11（八 写控制与外发，**L4**）与 B12（Docling PoC，须先过七-3 门禁）。
+
 ## 进度总览
 
 | 模块 | 任务数 | 状态 |
@@ -199,5 +216,5 @@ pdfjs-dist(110)、@anthropic-ai/sdk(107)、electron-builder(308) —— 全部 c
 | 四 知识库/RAG | 4 | **全部完成**（四-1/四-2=B5、四-3=B4、四-4=B8） |
 | 五 多模态图片 | 3 | **全部完成**（B6） |
 | 六 工具与引用溯源 | 3 | **全部完成**（B8） |
-| 七 打包体积 | 3 | 未开始（B10，L4 需二次确认） |
+| 七 打包体积 | 3 | **全部完成**（B10，2026-09-27，L4 已二次放行执行） |
 | 八 写控制与外发同意 | 3 | 未开始（B11，L4 需二次确认） |
