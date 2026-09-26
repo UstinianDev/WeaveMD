@@ -304,5 +304,11 @@ export interface KbImportDirRequest {
  * 二选一：title+content 纯文本导入 / attachmentId 读 parsed_attachments 解析产物导入。
  */
 export type KbImportFileRequest =
-  | { userId: string; title: string; content: string }
+  | {
+      userId: string;
+      title: string;
+      content: string;
+      /** B7 二-6②：每页 text 起始偏移（PDF 单文件导入 → source_ref 真实页码）。 */
+      pageOffsets?: number[];
+    }
   | { userId: string; attachmentId: string };

@@ -210,7 +210,7 @@ describe('importDirAsKb — 7 格式目录导入', () => {
     expect(fsMock.readFileSync).not.toHaveBeenCalled();
     expect(fsMock.readFile).not.toHaveBeenCalled();
     // 内容来自解析产物，路径交解析层
-    expect(parseDocMock.parseDocument).toHaveBeenCalledWith('/kb/paper.pdf', 'paper.pdf');
+    expect(parseDocMock.parseDocument).toHaveBeenCalledWith('/kb/paper.pdf', 'paper.pdf', undefined, { userId: 'u1' });
     expect(kbIndexerMock.indexImportedText).toHaveBeenCalledWith(
       'u1',
       'paper',
@@ -549,6 +549,110 @@ describe('kbIndexOpts — 真实 embedding 配置贯通（四-1②）', () => {
       'a',
       'PARSED:a.md',
       {}
+    );
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// B7 二-4/二-6 — KB 解析与索引的 D 路线 / 真实页码接线
+// ---------------------------------------------------------------------------
+
+describe('B7 — KB 通道 D 路线与 source_ref 真实页码接线', () => {
+  beforeEach(() => {
+    parseDocMock.parseDocument.mockReset();
+    kbIndexerMock.indexImportedText.mockReset();
+    attachmentsMock.getParsedAttachment.mockReset();
+  });
+
+  it('KB_PARSE_DOCUMENT 第 5 参 options.userId 透传 parseDocument（D 路线配置前提）', async () => {
+    parseDocMock.parseDocument.mockResolvedValue(parseResult({ text: 'ok' }));
+    const fn = electronMock.handlers.get(IPC_CHANNELS.KB_PARSE_DOCUMENT);
+    if (!fn) throw new Error('KB_PARSE_DOCUMENT not registered');
+    const res = (await fn({}, '/kb/scan.pdf', 'scan.pdf', undefined, { userId: 'u42' })) as {
+      success: boolean;
+    };
+    expect(res.success).toBe(true);
+    expect(parseDocMock.parseDocument).toHaveBeenCalledWith('/kb/scan.pdf', 'scan.pdf', undefined, {
+      userId: 'u42',
+    });
+  });
+
+  it('KB_PARSE_DOCUMENT 无 options 时保持既有签名（向后兼容）', async () => {
+    parseDocMock.parseDocument.mockResolvedValue(parseResult({ text: 'ok' }));
+    const fn = electronMock.handlers.get(IPC_CHANNELS.KB_PARSE_DOCUMENT);
+    if (!fn) throw new Error('KB_PARSE_DOCUMENT not registered');
+    const res = (await fn({}, '/kb/a.md', 'a.md')) as { success: boolean };
+    expect(res.success).toBe(true);
+    expect(parseDocMock.parseDocument).toHaveBeenCalledWith('/kb/a.md', 'a.md', undefined, undefined);
+  });
+
+  it('importDirAsKb → 产物 pageOffsets 贯通 indexImportedText（source_ref 真实页码）', async () => {
+    setupDir(['paper.pdf']);
+    parseDocMock.parseDocument.mockResolvedValue(
+      parseResult({ text: 'a'.repeat(2000), pageOffsets: [0, 1000] })
+    );
+    kbIndexerMock.indexImportedText.mockResolvedValue({
+      docId: 'd1', title: 'paper', chunks: 2, status: 'done' as const,
+    });
+    const results = await importDirAsKb('u1', '/kb/dir');
+    expect(results.length).toBe(1);
+    expect(kbIndexerMock.indexImportedText).toHaveBeenCalledWith(
+      'u1',
+      'paper',
+      'a'.repeat(2000),
+      expect.objectContaining({ pageOffsets: [0, 1000] })
+    );
+  });
+
+  it('importAttachmentAsKb → structure.pageOffsets 贯通 indexImportedText', async () => {
+    attachmentsMock.getParsedAttachment.mockReturnValue({
+      id: 'att1',
+      userId: 'u1',
+      conversationId: 'c1',
+      fileName: 'report.pdf',
+      fileType: 'file',
+      content: 'PDF 正文',
+      parseStatus: 'done',
+      parseVersion: 2,
+      structure: { pageCount: 2, pageOffsets: [0, 400], sections: [], tables: [], parseVersion: 2 },
+      createdAt: 'now',
+    });
+    kbIndexerMock.indexImportedText.mockResolvedValue({
+      docId: 'd1', title: 'report', chunks: 1, status: 'done' as const,
+    });
+    const result = await importAttachmentAsKb('u1', 'att1');
+    expect(result.status).toBe('done');
+    expect(kbIndexerMock.indexImportedText).toHaveBeenCalledWith(
+      'u1',
+      'report',
+      'PDF 正文',
+      expect.objectContaining({
+        sourceType: 'attachment',
+        attachmentId: 'att1',
+        pageOffsets: [0, 400],
+      })
+    );
+  });
+
+  it('KB_IMPORT_FILE content 分支可携 pageOffsets（单文件 PDF 真实页码）', async () => {
+    kbIndexerMock.indexImportedText.mockResolvedValue({
+      docId: 'd1', title: 't', chunks: 1, status: 'done' as const,
+    });
+    const fn = electronMock.handlers.get(IPC_CHANNELS.KB_IMPORT_FILE);
+    if (!fn) throw new Error('KB_IMPORT_FILE not registered');
+    const res = (await fn({}, {
+      userId: 'u1',
+      title: 'paper',
+      content: 'x'.repeat(100),
+      pageOffsets: [0, 50],
+    })) as { success: boolean };
+    expect(res.success).toBe(true);
+    expect(kbIndexerMock.indexImportedText).toHaveBeenCalledWith(
+      'u1',
+      'paper',
+      'x'.repeat(100),
+      expect.objectContaining({ pageOffsets: [0, 50] })
     );
   });
 });

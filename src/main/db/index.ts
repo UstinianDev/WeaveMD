@@ -273,6 +273,11 @@ function runMigrations(database: Database.Database): void {
   // CREATE 段保持 pre-B4 形态不回写，空库与旧库统一经本函数收敛，导出供迁移三断言测试）。
   addKbAttachmentColumns(database);
 
+  // doc-pipeline B7 D7：parsed_attachments 解析结构幂等补列（structure_json 存
+  // 页码/章节/表格序号 —— 二-6② source_ref 真实页码的落库前提；
+  // 追加式，禁止 DROP，导出供迁移三断言测试）。
+  addB7AttachmentStructureColumn(database);
+
   // 性能优化：kb_documents 标题 FTS5 索引（加速标题匹配检索）
   addKbDocumentsFtsIndex(database);
 }
@@ -358,6 +363,17 @@ export function addKbAttachmentColumns(database: Database.Database): void {
   database.exec(
     'CREATE INDEX IF NOT EXISTS idx_kb_doc_user_attachment ON kb_documents(user_id, attachment_id)'
   );
+}
+
+/**
+ * doc-pipeline B7 D7：parsed_attachments 解析结构幂等补列（追加式，禁止 DROP）。
+ * - `structure_json TEXT DEFAULT NULL`：解析产物页码/章节/表格序号 JSON
+ *   （二-6② source_ref 真实页码的落库前提；旧版本不读该列直接兼容）。
+ * 空库与旧库统一经本函数收敛到同一终态；重复执行 no-op。
+ * 三断言：tests/main/db/migrations.test.ts（FakeDb 驱动真实迁移函数）。
+ */
+export function addB7AttachmentStructureColumn(database: Database.Database): void {
+  addColumnIfMissing(database, 'parsed_attachments', 'structure_json', 'structure_json TEXT DEFAULT NULL');
 }
 
 /** ai_model_configs 表：用户可创建多个模型配置，一个激活。 */

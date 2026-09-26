@@ -13,6 +13,7 @@ import {
   DOCUMENT_PARSE_VERSION,
   isSupportedDocFile,
   type AttachmentParseStatus,
+  type IDocumentStructure,
   type IAttachmentMeta,
   type IAttachmentPayload,
 } from '@shared/ai';
@@ -55,6 +56,8 @@ export interface ParsedAttachmentRecord {
   content: string;
   parseStatus: AttachmentParseStatus;
   parseVersion: number;
+  /** 解析结构（页码/章节/表格序号，二-6②；坏 JSON 容错 undefined）。 */
+  structure?: IDocumentStructure;
   createdAt: string;
 }
 
@@ -67,7 +70,19 @@ interface ParsedAttachmentDbRow {
   content: string;
   parse_status: string;
   parse_version: number | null;
+  structure_json: string | null;
   created_at: string;
+}
+
+function parseStructureJson(json: string | null): IDocumentStructure | undefined {
+  if (!json) return undefined;
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    if (parsed && typeof parsed === 'object') return parsed as IDocumentStructure;
+  } catch {
+    /* 坏 JSON 容错：结构缺失不阻断正文读取 */
+  }
+  return undefined;
 }
 
 function mapRow(row: ParsedAttachmentDbRow): ParsedAttachmentRecord {
@@ -81,6 +96,7 @@ function mapRow(row: ParsedAttachmentDbRow): ParsedAttachmentRecord {
     // 旧库升级行未回写 parse_status 时按列 DEFAULT 'done' 收敛
     parseStatus: (row.parse_status ?? 'done') as AttachmentParseStatus,
     parseVersion: row.parse_version ?? 1,
+    structure: parseStructureJson(row.structure_json),
     createdAt: row.created_at,
   };
 }
@@ -99,12 +115,14 @@ export function insertParsedAttachment(input: {
   content: string;
   parseStatus: AttachmentParseStatus;
   parseVersion?: number;
+  /** 解析结构（二-6②：页码/章节/表格序号 JSON）。 */
+  structure?: IDocumentStructure;
 }): void {
   const db = getDatabase();
   db.prepare(
     `INSERT OR REPLACE INTO parsed_attachments
-       (id, user_id, conversation_id, file_name, file_type, content, parse_status, parse_version, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+       (id, user_id, conversation_id, file_name, file_type, content, parse_status, parse_version, structure_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
   ).run(
     input.id,
     input.userId,
@@ -113,7 +131,8 @@ export function insertParsedAttachment(input: {
     input.fileType,
     input.content,
     input.parseStatus,
-    input.parseVersion ?? DOCUMENT_PARSE_VERSION
+    input.parseVersion ?? DOCUMENT_PARSE_VERSION,
+    input.structure ? JSON.stringify(input.structure) : null
   );
 }
 
@@ -149,6 +168,21 @@ export function updateParsedAttachmentContent(
   db.prepare(
     'UPDATE parsed_attachments SET content = ?, parse_status = ? WHERE id = ? AND user_id = ?'
   ).run(content, status, id, userId);
+}
+
+/**
+ * 写入解析结构（二-6②：页码/章节/表格序号 → structure_json）。
+ * 补解析（主进程 re-parse）成功后回写；payload 结构随 insert 直接落库。
+ */
+export function updateParsedAttachmentStructure(
+  id: string,
+  userId: string,
+  structure: IDocumentStructure
+): void {
+  const db = getDatabase();
+  db.prepare(
+    'UPDATE parsed_attachments SET structure_json = ? WHERE id = ? AND user_id = ?'
+  ).run(JSON.stringify(structure), id, userId);
 }
 
 /**
@@ -202,6 +236,57 @@ export function listParsedAttachmentsByConversation(
  * 多余字段（parseStatus/thumb 等）一律剔除 —— 状态由本层状态机重算，不信渲染层。
  * 非法项静默丢弃（单附件失败不断批语义）。
  */
+/**
+ * IPC 边界结构白名单校验（二-6②）：按字段重建，非法整体丢弃（正文不受影响）。
+ * pageOffsets 逐项有限数字且限长（防 IPC 载荷炸弹）。
+ */
+export function sanitizeStructure(raw: unknown): IDocumentStructure | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const rec = raw as Record<string, unknown>;
+  if (typeof rec.parseVersion !== 'number' || !Number.isFinite(rec.parseVersion)) return undefined;
+  const out: IDocumentStructure = { parseVersion: rec.parseVersion };
+  if (typeof rec.pageCount === 'number' && Number.isFinite(rec.pageCount) && rec.pageCount >= 0) {
+    out.pageCount = rec.pageCount;
+  }
+  if (Array.isArray(rec.pageOffsets)) {
+    if (rec.pageOffsets.length > 1_000_000) return undefined;
+    if (!rec.pageOffsets.every((n) => typeof n === 'number' && Number.isFinite(n) && n >= 0)) {
+      return undefined;
+    }
+    out.pageOffsets = rec.pageOffsets as number[];
+  }
+  if (Array.isArray(rec.sections)) {
+    out.sections = rec.sections.filter(
+      (sec): sec is { title: string; path: string[] } =>
+        !!sec && typeof sec === 'object' &&
+        typeof (sec as { title?: unknown }).title === 'string' &&
+        Array.isArray((sec as { path?: unknown }).path)
+    );
+  }
+  if (Array.isArray(rec.tables)) {
+    out.tables = rec.tables
+      .filter((t) => !!t && typeof t === 'object' && typeof (t as { index?: unknown }).index === 'number')
+      .map((t) => {
+        const tb = t as { index: number; sectionPath?: string[]; pageIndex?: number; csv?: string };
+        return {
+          index: tb.index,
+          sectionPath: Array.isArray(tb.sectionPath) ? tb.sectionPath : [],
+          ...(typeof tb.pageIndex === 'number' ? { pageIndex: tb.pageIndex } : {}),
+          ...(typeof tb.csv === 'string' ? { csv: tb.csv } : {}),
+        };
+      });
+  }
+  if (rec.metadata && typeof rec.metadata === 'object') {
+    const md = rec.metadata as { headersFooters?: unknown };
+    out.metadata = {
+      ...(Array.isArray(md.headersFooters)
+        ? { headersFooters: md.headersFooters.filter((h): h is string => typeof h === 'string') }
+        : {}),
+    };
+  }
+  return out;
+}
+
 export function sanitizeIncomingAttachments(raw: unknown): IAttachmentPayload[] {
   if (!Array.isArray(raw)) return [];
   const out: IAttachmentPayload[] = [];
@@ -221,6 +306,7 @@ export function sanitizeIncomingAttachments(raw: unknown): IAttachmentPayload[] 
       ...(typeof rec.size === 'number' && Number.isFinite(rec.size) && rec.size >= 0
         ? { size: rec.size }
         : {}),
+      ...(sanitizeStructure(rec.structure) ? { structure: sanitizeStructure(rec.structure) } : {}),
     });
   }
   return out;
@@ -253,6 +339,8 @@ export async function persistIncomingAttachments(
     let storedRelPath: string | undefined;
     /** 图片落盘失败的人类可读提示（svg 拒绝 / 超限等）。 */
     let imageError: string | undefined;
+    /** 文件解析失败/降级的显式提示（无文本层等，上屏二-3②）。 */
+    let fileError: string | undefined;
     try {
       insertParsedAttachment({
         id,
@@ -262,6 +350,8 @@ export async function persistIncomingAttachments(
         fileType: att.fileType,
         content: '',
         parseStatus: 'pending',
+        // 二-6②：renderer 解析结构随载荷落库（sanitize 已白名单校验）
+        ...(att.structure ? { structure: att.structure } : {}),
       });
 
       if (att.fileType === 'image') {
@@ -290,14 +380,31 @@ export async function persistIncomingAttachments(
       } else if (att.path && att.fileType === 'file' && isSupportedDocFile(att.fileName)) {
         updateParsedAttachmentStatus(id, userId, 'processing');
         try {
+          // 二-4②：传 userId 供 D 路线解析模型配置（无文本层短路转 D）
           const parsed = await parseWithLimit(() =>
-            parseDocument(att.path as string, att.fileName)
+            parseDocument(att.path as string, att.fileName, undefined, { userId })
           );
           if (parsed.text && parsed.text.trim()) {
             updateParsedAttachmentContent(id, userId, parsed.text, 'done');
+            // 二-6②：解析结构（页码/章节/表格序号）同步落库
+            updateParsedAttachmentStructure(id, userId, {
+              ...(parsed.pageCount != null ? { pageCount: parsed.pageCount } : {}),
+              ...(parsed.pageOffsets ? { pageOffsets: parsed.pageOffsets } : {}),
+              sections: parsed.sections,
+              tables: parsed.tables.map((t) => ({
+                index: t.index,
+                sectionPath: t.sectionPath,
+                ...(t.pageIndex != null ? { pageIndex: t.pageIndex } : {}),
+                ...(t.csv != null ? { csv: t.csv } : {}),
+              })),
+              ...(parsed.metadata ? { metadata: parsed.metadata } : {}),
+              parseVersion: parsed.parseVersion,
+            });
             status = 'done';
           } else {
-            // 无文本层/解析失败产物（errorResult）→ error 三态可见
+            // 无文本层/解析失败产物（errorResult）→ error 三态可见；
+            // 降级提示上屏（二-3②：给用户明确提示，不静默）
+            fileError = parsed.degraded ?? parsed.error ?? '解析失败';
             updateParsedAttachmentStatus(id, userId, 'error');
             status = 'error';
           }
@@ -327,6 +434,7 @@ export async function persistIncomingAttachments(
       // 图片只存落盘相对路径（落盘失败不回退原始路径，绝对路径读取时重建）；
       // 文件仍为原始绝对路径
       ...(imageError ? { error: imageError } : {}),
+      ...(!imageError && fileError ? { error: fileError } : {}),
       ...(storedRelPath
         ? { path: storedRelPath }
         : att.fileType === 'image'

@@ -1,5 +1,7 @@
 // Mention、附件、图片、文件操作、全局文件类型
 
+import type { IDocumentStructure } from './document';
+
 /** @ mention 项。 */
 export interface IMentionItem {
   type: 'file' | 'folder' | 'skill';
@@ -28,6 +30,11 @@ export interface IAttachmentPayload {
   /** 字节数（正文 UTF-8 编码长度，可空） */
   size?: number;
   parseStatus?: AttachmentParseStatus;
+  /**
+   * 解析结构（二-6②：页码/章节/表格序号 + parseVersion，供 source_ref 真实页码）。
+   * 由 renderer 从 KB_PARSE_DOCUMENT 产物提取（extractStructure），主进程白名单校验后落库。
+   */
+  structure?: IDocumentStructure;
 }
 
 /**

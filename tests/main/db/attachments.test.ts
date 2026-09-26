@@ -166,7 +166,7 @@ describe('parsed_attachments DAO — 参数化与 user_id 归属过滤', () => {
     const ins = runCalls().find((c) => c.sql.includes('INSERT OR REPLACE INTO parsed_attachments'));
     expect(ins).toBeTruthy();
     // 10 args: id, user_id, conversation_id, file_name, file_type, content, parse_status, parse_version + ? 自增列
-    expect(ins?.sql).toContain('VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime(\'now\'))');
+    expect(ins?.sql).toContain('VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime(\'now\'))');
     // 参数化铁律：SQL 中不出现具体值
     expect(ins?.sql).not.toContain('att1');
     expect(ins?.sql).not.toContain('report.pdf');
@@ -332,7 +332,7 @@ describe('persistIncomingAttachments — 三态流转与两表分工', () => {
     const metas = await persistIncomingAttachments('u1', 'c1', [
       { id: 'a2', fileName: 'r.pdf', fileType: 'file', content: '', path: 'C:/docs/r.pdf' },
     ]);
-    expect(parseDocument).toHaveBeenCalledWith('C:/docs/r.pdf', 'r.pdf');
+    expect(parseDocument).toHaveBeenCalledWith('C:/docs/r.pdf', 'r.pdf', undefined, { userId: 'u1' });
     expect(statusSeqOf('a2')).toEqual(['pending', 'processing', 'done']);
     expect(metas[0].parseStatus).toBe('done');
     const done = runCalls().find((c) => c.sql.includes('SET content') && c.args.includes('a2'));
@@ -436,5 +436,139 @@ describe('persistIncomingAttachments — 三态流转与两表分工', () => {
   it('无附件（undefined/[]）→ 不触库直接返回 []', async () => {
     expect(await persistIncomingAttachments('u1', 'c1', undefined)).toEqual([]);
     expect(calls).toHaveLength(0);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// B7 二-6② — 解析结构落库（structure_json：页码/章节/表格序号 + parseVersion）
+// ---------------------------------------------------------------------------
+
+describe('B7 结构落库 — sanitize / DAO / 发送链路', () => {
+  const validStructure = {
+    pageCount: 3,
+    pageOffsets: [0, 500, 1200],
+    sections: [{ title: '第一章', path: ['第一章'] }],
+    tables: [{ index: 1, sectionPath: ['第一章'], pageIndex: 2, csv: 'a,b\n1,2' }],
+    metadata: { headersFooters: ['RUNNING HEADER'] },
+    parseVersion: 2,
+  };
+
+  it('sanitizeIncomingAttachments 放行合法 structure（白名单重建）', () => {
+    const out = sanitizeIncomingAttachments([
+      { fileName: 'a.pdf', fileType: 'file', content: 'x', structure: validStructure },
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].structure).toBeDefined();
+    expect(out[0].structure!.pageOffsets).toEqual([0, 500, 1200]);
+    expect(out[0].structure!.pageCount).toBe(3);
+    expect(out[0].structure!.tables![0].pageIndex).toBe(2);
+    expect(out[0].structure!.parseVersion).toBe(2);
+  });
+
+  it('sanitizeIncomingAttachments 剔除非法 structure（pageOffsets 非数字数组 → 整体丢弃结构）', () => {
+    const out = sanitizeIncomingAttachments([
+      { fileName: 'a.pdf', fileType: 'file', content: 'x', structure: { pageOffsets: ['x', null], parseVersion: 'v2' } },
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].structure).toBeUndefined();
+    // 正文不受影响
+    expect(out[0].content).toBe('x');
+  });
+
+  it('insertParsedAttachment 带 structure → structure_json 参数化写入', () => {
+    insertParsedAttachment({
+      id: 'att-s1',
+      userId: 'u1',
+      conversationId: 'c1',
+      fileName: 'report.pdf',
+      fileType: 'file',
+      content: '正文',
+      parseStatus: 'done',
+      structure: validStructure,
+    });
+    const ins = runCalls().find((c) => c.sql.includes('INSERT OR REPLACE INTO parsed_attachments'));
+    expect(ins).toBeTruthy();
+    expect(ins!.sql).toContain('structure_json');
+    const parsed = JSON.parse(String(ins!.args[8]));
+    expect(parsed.pageOffsets).toEqual([0, 500, 1200]);
+    expect(ins!.args[7]).toBe(DOCUMENT_PARSE_VERSION); // parse_version 仍在 structure 之前
+  });
+
+  it('getParsedAttachment 解析 structure_json（坏 JSON 容错为 undefined）', () => {
+    setSingleRow({
+      id: 'a1', user_id: 'u1', conversation_id: 'c1',
+      file_name: 'r.pdf', file_type: 'file', content: 'x',
+      parse_status: 'done', parse_version: 2, created_at: 'now',
+      structure_json: JSON.stringify(validStructure),
+    });
+    const rec = getParsedAttachment('a1', 'u1');
+    expect(rec?.structure?.pageCount).toBe(3);
+    expect(rec!.structure!.tables![0].csv).toBe('a,b\n1,2');
+
+    setSingleRow({
+      id: 'a2', user_id: 'u1', conversation_id: null,
+      file_name: 'r.pdf', file_type: 'file', content: 'x',
+      parse_status: 'done', parse_version: 2, created_at: 'now',
+      structure_json: '{broken json',
+    });
+    expect(getParsedAttachment('a2', 'u1')?.structure).toBeUndefined();
+  });
+
+  it('persistIncomingAttachments：payload 结构随附件落库 + parseDocument 收到 userId', async () => {
+    const metas = await persistIncomingAttachments('u1', 'c1', [
+      { fileName: 'r.pdf', fileType: 'file', content: '正文', path: 'C:/docs/r.pdf', structure: validStructure },
+    ]);
+    expect(metas).toHaveLength(1);
+    const ins = runCalls().find((c) => c.sql.includes('INSERT OR REPLACE INTO parsed_attachments'));
+    expect(ins).toBeTruthy();
+    expect(String(ins!.args[8])).toContain('pageOffsets');
+    // D 路线在主进程补解析路径需要 userId（二-4② 接线）
+    vi.mocked(parseDocument).mockClear();
+    await persistIncomingAttachments('u1', 'c1', [
+      { fileName: 'r2.pdf', fileType: 'file', content: '', path: 'C:/docs/r2.pdf' },
+    ]);
+    expect(parseDocument).toHaveBeenCalledWith('C:/docs/r2.pdf', 'r2.pdf', undefined, { userId: 'u1' });
+  });
+
+  it('补解析成功 → 结构同步落库（updateParsedAttachmentStructure）', async () => {
+    vi.mocked(parseDocument).mockResolvedValueOnce({
+      text: '解析正文',
+      fileName: 'r.pdf',
+      fileType: 'pdf',
+      headings: [],
+      sections: [{ title: '章', path: ['章'] }],
+      tables: [],
+      images: [],
+      parseVersion: 2,
+      pageOffsets: [0, 400],
+      pageCount: 2,
+    });
+    await persistIncomingAttachments('u1', 'c1', [
+      { id: 'a-struct', fileName: 'r.pdf', fileType: 'file', content: '', path: 'C:/r.pdf' },
+    ]);
+    const upd = runCalls().find((c) => c.sql.includes('UPDATE parsed_attachments SET structure_json'));
+    expect(upd).toBeTruthy();
+    expect(upd!.sql).toContain('WHERE id = ? AND user_id = ?');
+    expect(String(upd!.args[0])).toContain('pageOffsets');
+  });
+
+  it('空文本 + degraded 提示 → meta.error 上屏（无文本层给用户明确提示）', async () => {
+    vi.mocked(parseDocument).mockResolvedValueOnce({
+      text: '',
+      fileName: 'scan.pdf',
+      fileType: 'pdf',
+      headings: [],
+      sections: [],
+      tables: [],
+      images: [],
+      parseVersion: 2,
+      degraded: '文档无文本层（疑似扫描件），当前模型不支持视觉理解。',
+    });
+    const metas = await persistIncomingAttachments('u1', 'c1', [
+      { fileName: 'scan.pdf', fileType: 'file', content: '', path: 'C:/scan.pdf' },
+    ]);
+    expect(metas[0].parseStatus).toBe('error');
+    expect(metas[0].error).toContain('无文本层');
   });
 });

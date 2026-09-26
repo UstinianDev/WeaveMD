@@ -5,7 +5,12 @@ vi.mock('electron', () => ({
   app: { getPath: () => ':memory:' },
 }));
 
-import { addAttachmentColumns, addKbAttachmentColumns, KB_CONFIG_ALTER_SQL } from '@main/db/index';
+import {
+  addAttachmentColumns,
+  addB7AttachmentStructureColumn,
+  addKbAttachmentColumns,
+  KB_CONFIG_ALTER_SQL,
+} from '@main/db/index';
 
 // ---------------------------------------------------------------------------
 // 第 6 期批次 2：KB 参数列迁移（KB_CONFIG_ALTER_SQL）验证。
@@ -270,5 +275,49 @@ describe('addKbAttachmentColumns — B4 D3 迁移三断言（FakeDb 驱动真实
     addKbAttachmentColumns(db as never); // 第二遍（真库下 CREATE INDEX IF NOT EXISTS 为 no-op）
     expect(db.alters).toHaveLength(1); // 无重复 ADD
     expect(db.columns.get('kb_documents')?.filter((c) => c === 'attachment_id')).toHaveLength(1);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// doc-pipeline B7 D7：parsed_attachments 解析结构列迁移三断言
+// （structure_json 存页码/章节/表格序号 —— 二-6② source_ref 真实页码的落库前提）
+// ---------------------------------------------------------------------------
+
+const PARSED_ATTACHMENTS_PRE_B7 = [
+  'id', 'user_id', 'conversation_id', 'file_name', 'file_type', 'content',
+  'created_at', 'parse_status', 'parse_version',
+];
+
+function preB7Db(): FakeMigrationDb {
+  return makeMigrationDb({ parsed_attachments: PARSED_ATTACHMENTS_PRE_B7 });
+}
+
+describe('addB7AttachmentStructureColumn — B7 D7 迁移三断言', () => {
+  it('态1 空库首建：pre-B7 终态 + 本迁移 → structure_json 齐备', () => {
+    const db = preB7Db();
+    addB7AttachmentStructureColumn(db as never);
+    expect(db.columns.get('parsed_attachments')).toContain('structure_json');
+    expect(db.alters).toEqual([
+      'ALTER TABLE parsed_attachments ADD COLUMN structure_json TEXT DEFAULT NULL',
+    ]);
+  });
+
+  it('态2 旧库升级：仅追加列（无 DROP/DELETE/UPDATE），旧行经 DEFAULT NULL 收敛', () => {
+    const db = preB7Db();
+    addB7AttachmentStructureColumn(db as never);
+    expect(db.execs.every((sql) => /^ALTER TABLE/.test(sql.trim()))).toBe(true);
+    expect(db.execs.some((sql) => /DROP|DELETE|UPDATE/i.test(sql))).toBe(false);
+    expect(db.columns.get('parsed_attachments')?.indexOf('structure_json')).toBeGreaterThan(
+      PARSED_ATTACHMENTS_PRE_B7.length - 1
+    );
+  });
+
+  it('态3 重复执行：第二遍零 ALTER（幂等 no-op，不抛错）', () => {
+    const db = preB7Db();
+    addB7AttachmentStructureColumn(db as never);
+    expect(db.alters).toHaveLength(1);
+    addB7AttachmentStructureColumn(db as never);
+    expect(db.alters).toHaveLength(1);
   });
 });

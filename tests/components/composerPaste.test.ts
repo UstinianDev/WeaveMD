@@ -457,3 +457,88 @@ describe('toAttachmentPayloads — Attachment → IPC 载荷（一物两表入�
     expect(payloads.map((p) => p.id)).toEqual(['a1', 'a2']);
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// B7 二-6② — 解析结构随附件载荷透传（source_ref 真实页码前提）
+// ---------------------------------------------------------------------------
+
+describe('B7 结构透传 — ingestFilePaths / toAttachmentPayloads', () => {
+  type FullRes = {
+    success: boolean;
+    data?: {
+      text?: string;
+      pageCount?: number;
+      pageOffsets?: number[];
+      sections?: unknown[];
+      tables?: unknown[];
+      parseVersion?: number;
+    };
+  };
+
+  it('ingestFilePaths 从解析产物提取 structure（页码偏移不丢失）', async () => {
+    const parse = vi.fn(async (): Promise<FullRes> => ({
+      success: true,
+      data: {
+        text: 'pdf body',
+        pageCount: 2,
+        pageOffsets: [0, 400],
+        sections: [{ title: '章一', path: ['章一'] }],
+        tables: [{ index: 1, sectionPath: ['章一'], pageIndex: 1, csv: 'a,b' }],
+        parseVersion: 2,
+      },
+    }));
+    const append = vi.fn();
+    await ingestFilePaths(['C:/d/p.pdf'], parse as never, append);
+
+    const att = append.mock.calls[0][0] as {
+      content?: string;
+      structure?: { pageOffsets?: number[]; pageCount?: number; parseVersion?: number };
+    };
+    expect(att.content).toBe('pdf body');
+    expect(att.structure).toBeDefined();
+    expect(att.structure!.pageOffsets).toEqual([0, 400]);
+    expect(att.structure!.pageCount).toBe(2);
+    expect(att.structure!.parseVersion).toBe(2);
+  });
+
+  it('解析产物缺 parseVersion → 不携带 structure（旧 mock/异常响应容错）', async () => {
+    const parse = vi.fn(async (): Promise<FullRes> => ({
+      success: true,
+      data: { text: 'x' },
+    }));
+    const append = vi.fn();
+    await ingestFilePaths(['C:/d/p.pdf'], parse as never, append);
+    const att = append.mock.calls[0][0] as { structure?: unknown };
+    expect(att.structure).toBeUndefined();
+  });
+
+  it('toAttachmentPayloads 透传 structure（一物两表：正文与结构分别落库）', () => {
+    const structure = {
+      pageCount: 2,
+      pageOffsets: [0, 400],
+      sections: [],
+      tables: [],
+      parseVersion: 2,
+    };
+    const payloads = toAttachmentPayloads([
+      {
+        id: 's1',
+        type: 'file',
+        name: 'p.pdf',
+        content: 'body',
+        path: 'C:/d/p.pdf',
+        structure,
+      },
+    ]);
+    expect(payloads[0].structure).toEqual(structure);
+    expect(payloads[0].content).toBe('body');
+  });
+
+  it('无 structure 的附件载荷不含该字段（向后兼容）', () => {
+    const payloads = toAttachmentPayloads([
+      { id: 's2', type: 'file', name: 'n.md', content: 'x' },
+    ]);
+    expect(payloads[0]).not.toHaveProperty('structure');
+  });
+});

@@ -9,6 +9,7 @@ import React, { useEffect, useState } from 'react';
 import type { IKbDocumentStatus } from '@shared/ai';
 import { useI18n } from '@render/i18n';
 import { useAgentStore } from '@render/stores/agentStore';
+import { useAuthStore } from '@render/stores/authStore';
 import Icon from '../../Common/Icon';
 
 const STATUS_LABEL: Record<IKbDocumentStatus['status'], string> = {
@@ -53,9 +54,16 @@ const KnowledgeBaseSettings: React.FC = () => {
         : undefined;
       if (!path) return;
       const name = path.split(/[/\\]/).pop() ?? path;
-      const parsed = await window.weaveMD.kb.parseDocument(path, name);
+      const parsed = await window.weaveMD.kb.parseDocument(path, name, undefined, {
+        userId: useAuthStore.getState().user?.id ?? '',
+      });
       if (parsed.success && parsed.data) {
-        await triggerKbImportFile({ title: name, content: parsed.data.text });
+        await triggerKbImportFile({
+          title: name,
+          content: parsed.data.text,
+          // 二-6②：页码偏移随单文件导入 → source_ref 真实页码
+          ...(parsed.data.pageOffsets ? { pageOffsets: parsed.data.pageOffsets } : {}),
+        });
       }
     } finally {
       setBusy(false);

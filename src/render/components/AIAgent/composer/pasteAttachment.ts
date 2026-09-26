@@ -11,7 +11,13 @@
 
 import type { EditorView } from '@tiptap/pm/view';
 
-import { isSupportedDocFile, type IAttachmentPayload } from '@shared/ai';
+import {
+  extractStructure,
+  isSupportedDocFile,
+  type IDocumentStructure,
+  type IAttachmentPayload,
+  type IDocumentParseResult,
+} from '@shared/ai';
 
 /** 附件类型（文件/图片） */
 export interface Attachment {
@@ -22,6 +28,8 @@ export interface Attachment {
   content?: string;
   /** 本地路径（系统对话框/粘贴文件的 Electron path） */
   path?: string;
+  /** 解析结构（二-6②：页码/章节/表格序号 → 主进程落 structure_json） */
+  structure?: IDocumentStructure;
 }
 
 /** handleComposerPaste 依赖注入（组件传 React setter，单测传 mock） */
@@ -55,10 +63,10 @@ export function validateImageAttachment(fileName: string): { ok: boolean; reason
   return { ok: true };
 }
 
-/** KB_PARSE_DOCUMENT 同构返回（结构化产物取 text 字段） */
+/** KB_PARSE_DOCUMENT 同构返回（结构化产物取 text + structure 字段） */
 export interface ParseLikeResponse {
   success: boolean;
-  data?: { text?: string };
+  data?: Partial<IDocumentParseResult>;
 }
 
 /** 生成附件 id（组件与粘贴通道共用） */
@@ -263,6 +271,7 @@ export function toAttachmentPayloads(attachments: Attachment[]): IAttachmentPayl
     content: att.content ?? '',
     ...(att.path ? { path: att.path } : {}),
     ...(att.content ? { size: byteLength(att.content) } : {}),
+    ...(att.structure ? { structure: att.structure } : {}),
   }));
 }
 
@@ -279,14 +288,19 @@ export async function ingestFilePaths(
   for (const path of paths) {
     const name = path.split(/[/\\]/).pop() || path;
     let content: string | undefined;
+    let structure: IDocumentStructure | undefined;
     try {
       const res = await parse(path, name);
       if (res?.success && typeof res.data?.text === 'string') {
         content = res.data.text;
+        // 二-6②：结构（页码偏移/章节/表格序号）随附件保留，发送时落 structure_json
+        if (typeof res.data.parseVersion === 'number') {
+          structure = extractStructure(res.data);
+        }
       }
     } catch {
       // 单文件解析失败不断批（一-1②）
     }
-    append({ type: 'file', name, path, content });
+    append({ type: 'file', name, path, content, ...(structure ? { structure } : {}) });
   }
 }

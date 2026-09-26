@@ -43,7 +43,14 @@ export function registerKbHandlers(): void {
     async (
       _event,
       // IPC 边界松载荷（二选一校验在 handler 内做，不信渲染层）
-      payload: { userId: string; title?: string; content?: string; attachmentId?: string }
+      payload: {
+        userId: string;
+        title?: string;
+        content?: string;
+        attachmentId?: string;
+        /** B7 二-6②：单文件 PDF 导入的页码偏移。 */
+        pageOffsets?: number[];
+      }
     ) => {
       try {
         // IPC 边界二选一（B4 四-3②）：attachmentId → 附件入 KB；否则 title+content 文本导入
@@ -54,11 +61,19 @@ export function registerKbHandlers(): void {
         if (!payload.title || typeof payload.content !== 'string') {
           return { success: false, message: 'title/content required' };
         }
+        const contentOffsets =
+          Array.isArray(payload.pageOffsets) &&
+          payload.pageOffsets.every((n) => typeof n === 'number' && Number.isFinite(n))
+            ? payload.pageOffsets
+            : undefined;
         const result = await indexImportedText(
           payload.userId,
           payload.title,
           payload.content,
-          kbIndexOpts(payload.userId)
+          {
+            ...kbIndexOpts(payload.userId),
+            ...(contentOffsets ? { pageOffsets: contentOffsets } : {}),
+          }
         );
         // 索引完成后触发向量回填（历史 chunk 缺口/模型切换扫描，防抖合并）
         scheduleVectorBackfill(payload.userId);
@@ -236,14 +251,27 @@ export function registerKbHandlers(): void {
   // 文档解析（7 格式白名单 → 结构化产物）
   ipcMain.handle(
     IPC_CHANNELS.KB_PARSE_DOCUMENT,
-    async (_event, filePath: string, fileName: string, mimeType?: string) => {
+    async (
+      _event,
+      filePath: string,
+      fileName: string,
+      mimeType?: string,
+      options?: { userId?: string }
+    ) => {
       try {
         // 白名单入口校验（isSupportedDocument 接线：供上传校验复用，二-1②）
         if (!isSupportedDocument(fileName)) {
           return { success: false, message: `Unsupported file type: ${fileName}` };
         }
+        // IPC 边界校验：options 须为对象，userId 须为字符串（缺省不触发 D 路线配置读取）
+        const parseOptions =
+          options && typeof options === 'object' && typeof options.userId === 'string'
+            ? { userId: options.userId }
+            : undefined;
         // 解析并发限流（一-2②：多文件批量上传时避免主进程被 20 个 pdf 阻塞）
-        const result = await parseWithLimit(() => parseDocument(filePath, fileName, mimeType));
+        const result = await parseWithLimit(() =>
+          parseDocument(filePath, fileName, mimeType, parseOptions)
+        );
         return { success: true, data: result };
       } catch (error) {
         return {
@@ -290,7 +318,9 @@ export async function importDirAsKb(
     const title = stripExtension(entry.name);
     try {
       // 解析并发限流（B2 parseLimiter）：大目录/大文件不阻塞单线程主进程
-      const parsed = await parseWithLimit(() => parseDocument(filePath, entry.name));
+      const parsed = await parseWithLimit(() =>
+        parseDocument(filePath, entry.name, undefined, { userId })
+      );
       if (parsed.error || !parsed.text.trim()) {
         // 无产物（解析失败 / 无文本层 / .doc 降级）→ status='error' UI 可见，不静默
         results.push(
@@ -300,7 +330,13 @@ export async function importDirAsKb(
         );
         continue;
       }
-      results.push(await indexImportedText(userId, title, parsed.text, kbIndexOpts(userId)));
+      results.push(
+        await indexImportedText(userId, title, parsed.text, {
+          ...kbIndexOpts(userId),
+          // 二-6②：产物页码偏移贯通 → source_ref 真实页码
+          ...(parsed.pageOffsets ? { pageOffsets: parsed.pageOffsets } : {}),
+        })
+      );
     } catch (err) {
       // 单文件异常：记 error 行后继续（不断批）
       results.push(
@@ -350,6 +386,8 @@ export async function importAttachmentAsKb(
     ...opts,
     sourceType: 'attachment',
     attachmentId,
+    // 二-6②：附件结构页码偏移 → source_ref 真实页码
+    ...(att.structure?.pageOffsets ? { pageOffsets: att.structure.pageOffsets } : {}),
   });
   // 附件入 KB 也触发向量回填（同三入口语义）
   scheduleVectorBackfill(userId);

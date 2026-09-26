@@ -197,7 +197,11 @@ interface AgentStore {
 
   // —— KB / 压缩动作 ——
   loadKbStatus: () => Promise<void>;
-  triggerKbImportFile: (input: { title: string; content: string }) => Promise<boolean>;
+  triggerKbImportFile: (input: {
+      title: string;
+      content: string;
+      pageOffsets?: number[];
+    }) => Promise<boolean>;
   triggerKbImportDir: (folderPath: string) => Promise<void>;
   /** B4：fileId（文件笔记）/ docId（导入与错误行）二选一删除 */
   triggerKbDelete: (target: { fileId?: string | null; docId?: string }) => Promise<void>;
@@ -1372,7 +1376,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     }
   },
 
-  async triggerKbImportFile(input: { title: string; content: string }): Promise<boolean> {
+  async triggerKbImportFile(input: {
+    title: string;
+    content: string;
+    /** B7 二-6②：PDF 单文件导入页码偏移（source_ref 真实页码）。 */
+    pageOffsets?: number[];
+  }): Promise<boolean> {
     const userId = useAuthStore.getState().user?.id ?? '';
     const kb = getKb();
     const res = await kb.importFile({ userId, ...input });

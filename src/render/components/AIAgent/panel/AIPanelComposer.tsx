@@ -293,7 +293,10 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
           parsePaths: (paths) =>
             ingestFilePaths(
               paths,
-              (path, name) => window.weaveMD?.kb.parseDocument(path, name),
+              (path, name) =>
+                window.weaveMD?.kb.parseDocument(path, name, undefined, {
+                  userId: useAuthStore.getState().user?.id ?? '',
+                }),
               (att) => {
                 setAttachments((prev) => [...prev, { id: genAttachmentId(), ...att }]);
               }
@@ -408,7 +411,10 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
       // 逐个解析（主进程经 parseLimiter 限流），单文件失败不断批
       await ingestFilePaths(
         paths,
-        (path, name) => window.weaveMD?.kb.parseDocument(path, name),
+        (path, name) =>
+          window.weaveMD?.kb.parseDocument(path, name, undefined, {
+            userId: useAuthStore.getState().user?.id ?? '',
+          }),
         (att) => {
           setAttachments((prev) => [...prev, { id: genAttachmentId(), ...att }]);
         }

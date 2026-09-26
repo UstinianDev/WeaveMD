@@ -266,7 +266,12 @@ export interface WeaveMDApi {
       userId: string;
       settings: IKbSettings;
     }) => Promise<IpcResponse<IKbSettings>>;
-    parseDocument: (filePath: string, fileName: string, mimeType?: string) => Promise<IpcResponse<IDocumentParseResult>>;
+    parseDocument: (
+      filePath: string,
+      fileName: string,
+      mimeType?: string,
+      options?: { userId?: string }
+    ) => Promise<IpcResponse<IDocumentParseResult>>;
   };
   mail: {
     get: (userId: string) => Promise<IpcResponse<MailAuthStatus>>;
@@ -535,8 +540,8 @@ const api: WeaveMDApi = {
     status: (userId) => ipcRenderer.invoke(IPC_CHANNELS.KB_STATUS, { userId }),
     getSettings: (userId) => ipcRenderer.invoke(IPC_CHANNELS.KB_GET_SETTINGS, { userId }),
     setSettings: (input) => ipcRenderer.invoke(IPC_CHANNELS.KB_SET_SETTINGS, input),
-    parseDocument: (filePath, fileName, mimeType) =>
-      ipcRenderer.invoke(IPC_CHANNELS.KB_PARSE_DOCUMENT, filePath, fileName, mimeType),
+    parseDocument: (filePath, fileName, mimeType, options) =>
+      ipcRenderer.invoke(IPC_CHANNELS.KB_PARSE_DOCUMENT, filePath, fileName, mimeType, options),
   },
   mail: {
     get: (userId) => ipcRenderer.invoke(IPC_CHANNELS.MAIL_GET, userId),
