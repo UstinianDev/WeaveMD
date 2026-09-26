@@ -10,6 +10,7 @@ import type { AIErrorCode, AgentRunPayload, IAttachmentMeta } from '@shared/ai';
 import { normalizeKbSettings } from '@shared/ai';
 import { getAiConfig, getConversation } from '../../db/ai';
 import { persistIncomingAttachments } from '../../db/attachments';
+import { recognizeImageAttachments } from '../image/imageRecognition';
 import { needsConsent } from '../consent';
 import { runAgentFlow } from '../agent/agentLoop';
 import { searchKB } from '../knowledge/kbSearch';
@@ -108,6 +109,25 @@ export function registerAgentHandlers(): void {
           conversationId ?? '',
           payload.attachments
         );
+        if (resolvedAttachments.length > 0) {
+          // B6 五-3：图片识别接真实 llmCall（与 Chat 链路同一接线点）
+          try {
+            const aiConfig = row ? toIAIConfig(row) : DEFAULT_AI_CONFIG;
+            resolvedAttachments = await recognizeImageAttachments({
+              userId,
+              conversationId: conversationId ?? '',
+              attachments: resolvedAttachments,
+              config: {
+                remoteBaseUrl: aiConfig.remoteBaseUrl,
+                model: aiConfig.model?.trim() || 'deepseek-chat',
+                protocol: aiConfig.protocol,
+              },
+              apiKeyEnc: row?.apiKeyEnc ?? null,
+            });
+          } catch {
+            // 识别链路异常不阻断入队
+          }
+        }
         if (resolvedAttachments.length > 0) {
           extra.attachments = resolvedAttachments;
         } else {

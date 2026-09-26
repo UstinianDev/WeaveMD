@@ -10,6 +10,49 @@ import type { BrowserWindow } from 'electron';
 import type { Database as BetterSqlite3Database } from 'better-sqlite3';
 import type { AgentRunEvent } from '@shared/ai';
 import * as eventDao from '../../db/agentEventDao';
+import { toRelativePath } from '../image/imageStorage';
+
+// ---------------------------------------------------------------------------
+// B6 五-1②：事件持久化的图片引用（存相对路径、不存 base64）
+// ---------------------------------------------------------------------------
+
+/** base64 data URL（图片）识别。 */
+const IMAGE_DATA_URL_RE = /^data:image\/[a-z0-9.+-]+;base64,/i;
+
+/** 疑似本地绝对路径（盘符 / UNC），只对这类字符串尝试相对化。 */
+function looksLikeAbsPath(s: string): boolean {
+  return /^[a-zA-Z]:[\/]/.test(s) || s.startsWith('\\');
+}
+
+/**
+ * 事件入库前净化：
+ * - 图片 data URL → 显式占位（base64 会撑爆 agent_run_events 表）
+ * - 附件根内的绝对路径 → 相对路径（userData 迁移不失效，回放时重建）
+ * - 纯文本 payload 原样返回（零改动，纯文本链路回归不变）
+ */
+export function sanitizeEventPayload(payload: unknown, depth = 0): unknown {
+  if (depth > 8) return payload;
+  if (typeof payload === 'string') {
+    if (payload.length > 24 && IMAGE_DATA_URL_RE.test(payload)) {
+      return '[图片已省略：内容请使用附件落盘路径引用]';
+    }
+    if (looksLikeAbsPath(payload)) {
+      return toRelativePath(payload) ?? payload;
+    }
+    return payload;
+  }
+  if (Array.isArray(payload)) {
+    return payload.map((v) => sanitizeEventPayload(v, depth + 1));
+  }
+  if (payload && typeof payload === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(payload as Record<string, unknown>)) {
+      out[k] = sanitizeEventPayload(v, depth + 1);
+    }
+    return out;
+  }
+  return payload;
+}
 
 // ---------------------------------------------------------------------------
 // In-memory seq counter — avoids SELECT MAX(seq) on every event
@@ -124,7 +167,8 @@ export function persistAndSend(
   }
   const nextSeq = seq + 1;
   seqCounters.set(sessionId, nextSeq);
-  const payloadJson = JSON.stringify(payload);
+  // 入库 JSON 先净化：图片引用存相对路径、base64 不进事件表（IPC 实时推送仍用原 payload）
+  const payloadJson = JSON.stringify(sanitizeEventPayload(payload));
 
   // 加入批量队列
   eventBatchQueue.push({
@@ -174,7 +218,7 @@ export function persistOnly(
   }
   const nextSeq = seq + 1;
   seqCounters.set(sessionId, nextSeq);
-  const payloadJson = JSON.stringify(payload);
+  const payloadJson = JSON.stringify(sanitizeEventPayload(payload));
 
   return eventDao.insertEvent(
     db,

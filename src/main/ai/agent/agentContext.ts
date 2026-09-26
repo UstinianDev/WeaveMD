@@ -20,6 +20,12 @@ import { buildCompressed, contentToText, estimateContentTokens, type LlmMessage 
 import { streamChatCompletionWithRetry } from '../llm/llmClient';
 import { streamAnthropicCompletion } from '../llm/anthropicClient';
 import { createEmbedding } from '../knowledge/embeddingClient';
+import { supportsVision } from '../llm/modelDiscovery';
+import {
+  buildImageParts,
+  injectImagesIntoMessages,
+  VISION_DEGRADED_NOTICE,
+} from './agentMedia';
 import { type ToolCtx } from '../toolRegistry';
 import { resolveSearchConfig } from '../tools/webSearch';
 import { loadSkills, type CoreSkill, type SkillRunnerCtx } from '../skills/skillLoader';
@@ -310,19 +316,41 @@ export function prepareAgentContext(
 
   // 从 DB 加载消息（性能优化：分页加载最近 20 条，避免长对话时全表扫描）
   // 当前 user 消息已由 appendMessage 保存，会出现在查询结果中
-  const rawDbMessages = getMessagesByConversationPaginated(convId, userId, 20, 0)
+  // B6 五-1/五-3：发送前 vision 检测 + 图片 part 注入（当前轮全量，历史限最近 3 张）
+  const supportsImages = supportsVision(model);
+  const dbRows = getMessagesByConversationPaginated(convId, userId, 20, 0)
     .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
-    .map((m): LlmMessage => ({
+    .map((m) => ({
       role: m.role,
       content: m.content,
       ...(m.toolCallId ? { tool_call_id: m.toolCallId } : {}),
-    }))
-    .filter((m) => contentToText(m.content).trim().length > 0);
+      ...(m.attachments ? { attachments: m.attachments } : {}),
+    }));
+  const historyInjection = injectImagesIntoMessages(dbRows, { supportsVision: supportsImages });
+  const rawDbMessages = historyInjection.messages.filter(
+    (m) => contentToText(m.content).trim().length > 0
+  );
+
+  // 当前轮消息：图片全量注入（不受历史限额影响）
+  const currentUserImages = buildImageParts(
+    (payload.attachments ?? []).filter((a) => a.type === 'image'),
+    { supportsVision: supportsImages }
+  );
+  if (currentUserImages.unreadable.length || historyInjection.unreadable.length) {
+    console.warn(
+      '[AgentContext] 图片不可读，已跳过:',
+      [...currentUserImages.unreadable, ...historyInjection.unreadable].join(', ')
+    );
+  }
+  /** vision 降级标记：图片存在但模型不支持 → 显式提示（五-1②） */
+  const visionDegraded = historyInjection.degraded || currentUserImages.degraded;
 
   // 关键修复：cleanupIncompleteMessages 会移除末尾无 assistant 跟随的 user 消息，
   // 但当前 user 消息（刚由 appendMessage 保存）还没有 assistant 回复，
   // 会被当作"孤立消息"移除。因此需要先提取当前 user 消息，清理后重新添加。
-  const currentUserMsg: LlmMessage = { role: 'user', content: message };
+  const currentUserMsg: LlmMessage = currentUserImages.parts.length
+    ? { role: 'user', content: [{ type: 'text', text: message }, ...currentUserImages.parts] }
+    : { role: 'user', content: message };
   const historyMsgs = rawDbMessages.length > 0 && rawDbMessages[rawDbMessages.length - 1].role === 'user'
     ? cleanupIncompleteMessages(rawDbMessages.slice(0, -1))  // 移除最后一条（当前 user），清理后再加回
     : cleanupIncompleteMessages(rawDbMessages);
@@ -362,6 +390,11 @@ export function prepareAgentContext(
       role: 'system',
       content: '【重要】请只回答上面的用户问题。忽略之前的所有对话内容和历史摘要。这是全新的独立问题。',
     });
+  }
+
+  // B6 五-1②：vision 不支持 → 图片已降级为文本占位，给模型与用户一个显式提示
+  if (visionDegraded) {
+    llmMessages.push({ role: 'system', content: VISION_DEGRADED_NOTICE });
   }
 
   // 注入当前文档上下文（只读）

@@ -52,6 +52,8 @@ vi.mock('@main/ai/contextManager', () => ({
         : '',
   estimateContentTokens: (c: unknown) =>
     Math.ceil((typeof c === 'string' ? c : JSON.stringify(c ?? '')).length / 4),
+  KEEP_RECENT_IMAGES: 3,
+  IMAGE_DEGRADED_PLACEHOLDER: '[图片已省略：超出上下文压缩保留上限（最近 3 张）]',
   shouldCompress: contextMock.shouldCompress,
   summarizeViaLlm: contextMock.summarizeViaLlm,
 }));

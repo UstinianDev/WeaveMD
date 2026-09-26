@@ -31,6 +31,10 @@ import { cancelPendingByConversation } from '../../db/agentTaskDao';
 import { getDatabase } from '../../db/index';
 import { persistIncomingAttachments } from '../../db/attachments';
 import { deleteConversationImages } from '../image/imageStorage';
+import { supportsVision } from '../llm/modelDiscovery';
+import { recognizeImageAttachments } from '../image/imageRecognition';
+import { buildImageParts, injectImagesIntoMessages, VISION_DEGRADED_NOTICE } from '../agent/agentMedia';
+import type { MessageContent } from '../llm/llmClient';
 import { decryptApiKey } from '../secureConfig';
 import { needsConsent } from '../consent';
 import { streamChatCompletion } from '../llm/llmClient';
@@ -285,6 +289,25 @@ async function runChatFlow(
   let attachmentMetas: IAttachmentMeta[] | undefined;
   if (payload.attachments && payload.attachments.length > 0) {
     attachmentMetas = await persistIncomingAttachments(userId, convId, payload.attachments);
+    if (attachmentMetas.length > 0) {
+      // B6 五-3：图片识别接真实 llmCall（成功写描述入 parsed_attachments，失败显式失败态）
+      try {
+        attachmentMetas = await recognizeImageAttachments({
+          userId,
+          conversationId: convId,
+          attachments: attachmentMetas,
+          config: {
+            remoteBaseUrl: config.remoteBaseUrl,
+            model: config.model?.trim() || 'deepseek-chat',
+            protocol: config.protocol,
+          },
+          apiKeyEnc,
+          signal: controller.signal,
+        });
+      } catch {
+        // 识别链路异常不阻断发送（失败态已由内部回写）
+      }
+    }
     if (attachmentMetas.length === 0) attachmentMetas = undefined;
   }
   appendMessage({
@@ -295,21 +318,41 @@ async function runChatFlow(
     ...(attachmentMetas ? { attachments: attachmentMetas } : {}),
   });
 
-  // 组装 messages：历史 + 当前
-  const history = getMessagesByConversation(convId, userId);
-  const historyMessages = history
-    .filter((m) => m.role === 'user' || m.role === 'assistant')
-    .map((m) => ({ role: m.role, content: m.content }));
-  const llmMessages = historyMessages.length
-    ? historyMessages
-    : [{ role: 'user', content: message }];
-
   const baseUrl = config.remoteBaseUrl;
   // model 留空时取默认（deepseek-chat），避免发 model:"" 报错
   const model = config.model?.trim() || 'deepseek-chat';
   let apiKey: string | undefined;
   if (apiKeyEnc) {
     apiKey = decryptApiKey(apiKeyEnc);
+  }
+
+  // 组装 messages：历史 + 当前
+  // B6 五-1/五-3：发送前 vision 检测 + 图片 part 注入（与 Agent 链路同一接线点）
+  const supportsImages = supportsVision(model);
+  const history = getMessagesByConversation(convId, userId)
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .map((m) => ({
+      role: m.role,
+      content: m.content,
+      ...(m.attachments && m.attachments.length ? { attachments: m.attachments } : {}),
+    }));
+  const injected = injectImagesIntoMessages(history, { supportsVision: supportsImages });
+
+  let llmMessages: Array<{ role: string; content: MessageContent }> = injected.messages;
+  if (llmMessages.length === 0) {
+    // 历史为空（新会话）：直接用当前消息 + 附件图片
+    const current = buildImageParts(
+      (attachmentMetas ?? []).filter((a) => a.type === 'image'),
+      { supportsVision: supportsImages }
+    );
+    llmMessages = current.parts.length
+      ? [{ role: 'user', content: [{ type: 'text', text: message }, ...current.parts] }]
+      : [{ role: 'user', content: message }];
+    if (current.degraded) injected.degraded = true;
+  }
+  // B6 五-1②：vision 不支持 → 显式提示，不静默丢图
+  if (injected.degraded) {
+    llmMessages.push({ role: 'system', content: VISION_DEGRADED_NOTICE });
   }
 
   const send = (ch: string, pl: unknown): void => sendStream(event, ch, pl);
