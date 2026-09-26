@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const electronMock = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
@@ -20,6 +20,44 @@ vi.mock('electron', () => ({
 }));
 
 vi.mock('better-sqlite3', () => ({ default: class FakeDatabase {} }));
+
+// --- B5 四-1②：保存防抖重索引入口的依赖受控 ---
+const filesMock = vi.hoisted(() => ({
+  getFile: vi.fn(() => ({ id: 'f1', name: 'n.md', content: 'old' })),
+  // 语义对齐真实 DAO：返回更新后的内容（保存 payload 决定 content）
+  updateFileContent: vi.fn((id: string, _userId: string, content: string) => ({
+    id,
+    name: 'n.md',
+    content,
+  })),
+  createFile: vi.fn(),
+  deleteFile: vi.fn(),
+  listFiles: vi.fn(() => []),
+}));
+vi.mock('@main/db/files', () => filesMock);
+
+const historyMock = vi.hoisted(() => ({
+  getHistoryForFile: vi.fn(() => []),
+  getLastVersion: vi.fn(() => 0),
+  saveVersion: vi.fn(),
+}));
+vi.mock('@main/db/history', () => historyMock);
+
+const kbIndexerMock = vi.hoisted(() => ({
+  reindexAfterSave: vi.fn(
+    async (_userId: string, _file: unknown, _opts: unknown): Promise<null> => null
+  ),
+  removeByFile: vi.fn((_userId: string, _fileId: string): boolean => true),
+}));
+vi.mock('@main/ai/knowledge/kbIndexer', () => kbIndexerMock);
+
+const backfillMock = vi.hoisted(() => ({
+  resolveEmbedding: vi.fn(
+    (): { baseUrl: string; model: string; apiKey: string } | null => null
+  ),
+  scheduleVectorBackfill: vi.fn(),
+}));
+vi.mock('@main/ai/knowledge/vectorBackfill', () => backfillMock);
 
 import { IPC_CHANNELS } from '@shared/constants';
 import { registerAllIpcHandlers } from '@main/ipc-handlers';
@@ -222,5 +260,84 @@ describe('DIALOG_OPEN_FILE handler（B2 上传接线）', () => {
     } finally {
       readSpy.mockRestore();
     }
+  });
+});
+// ============================================
+// B5 四-1②：FILE_SAVE 保存防抖重索引 — 真实 embedding 配置贯通（入口 1/3）
+// ============================================
+describe('FILE_SAVE — 保存防抖重索引携带 embedding 配置（B5 四-1②）', () => {
+  type SaveHandler = (
+    event: { sender: unknown },
+    payload: { fileId: string; content: string; userId: string }
+  ) => Promise<{ success: boolean }>;
+
+  function getSaveHandler(): SaveHandler {
+    const fn = electronMock.handlers.get(IPC_CHANNELS.FILE_SAVE);
+    if (!fn) throw new Error('FILE_SAVE handler not registered');
+    return fn as SaveHandler;
+  }
+
+  beforeEach(() => {
+    electronMock.handlers.clear();
+    vi.clearAllMocks();
+    backfillMock.resolveEmbedding.mockReturnValue(null);
+    filesMock.getFile.mockReturnValue({ id: 'f1', name: 'n.md', content: 'old' });
+    registerAllIpcHandlers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('防抖 1200ms 后重索引携带真实 embedding 配置并触发回填', async () => {
+    vi.useFakeTimers();
+    const emb = { baseUrl: 'https://api.test/v1', model: 'emb-m1', apiKey: 'sk-x' };
+    backfillMock.resolveEmbedding.mockReturnValue(emb);
+
+    const res = await getSaveHandler()(
+      { sender: {} },
+      { fileId: 'f1', content: 'updated', userId: 'u1' }
+    );
+    expect(res.success).toBe(true);
+    // 防抖窗口内未执行
+    expect(kbIndexerMock.reindexAfterSave).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1200);
+
+    expect(kbIndexerMock.reindexAfterSave).toHaveBeenCalledWith(
+      'u1',
+      expect.objectContaining({ id: 'f1', content: 'updated' }),
+      { embedding: emb }
+    );
+    // 保存链路同样触发向量回填
+    expect(backfillMock.scheduleVectorBackfill).toHaveBeenCalledWith('u1');
+  });
+
+  it('未配置 embedding → 传 {}（纯 FTS5 降级不破坏）', async () => {
+    vi.useFakeTimers();
+    backfillMock.resolveEmbedding.mockReturnValue(null);
+
+    await getSaveHandler()({ sender: {} }, { fileId: 'f1', content: 'x', userId: 'u1' });
+    await vi.advanceTimersByTimeAsync(1200);
+
+    expect(kbIndexerMock.reindexAfterSave).toHaveBeenCalledWith(
+      'u1',
+      expect.objectContaining({ id: 'f1' }),
+      {}
+    );
+  });
+
+  it('连续两次保存 → 防抖合并为一次重索引', async () => {
+    vi.useFakeTimers();
+    backfillMock.resolveEmbedding.mockReturnValue(null);
+
+    await getSaveHandler()({ sender: {} }, { fileId: 'f1', content: 'a', userId: 'u1' });
+    await vi.advanceTimersByTimeAsync(600);
+    await getSaveHandler()({ sender: {} }, { fileId: 'f1', content: 'b', userId: 'u1' });
+    await vi.advanceTimersByTimeAsync(1200);
+
+    expect(kbIndexerMock.reindexAfterSave).toHaveBeenCalledTimes(1);
+    // 最后一次保存的内容生效（先清旧 timer）
+    expect(kbIndexerMock.reindexAfterSave.mock.calls[0][1]).toMatchObject({ content: 'b' });
   });
 });

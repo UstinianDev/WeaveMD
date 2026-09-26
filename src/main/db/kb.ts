@@ -278,6 +278,8 @@ export interface InsertChunkInput {
   seq: number;
   content: string;
   sourceRef?: string | null;
+  /** B5 D4：标题路径（空串归一 NULL，老数据/纯文本降级）。 */
+  headingPath?: string | null;
 }
 
 export function insertChunk(chunk: InsertChunkInput): KbChunkRow {
@@ -285,9 +287,16 @@ export function insertChunk(chunk: InsertChunkInput): KbChunkRow {
   const id = randomUUID();
   db.prepare(
     `INSERT INTO kb_chunks
-       (id, document_id, seq, content, source_ref)
-     VALUES (?, ?, ?, ?, ?)`
-  ).run(id, chunk.documentId, chunk.seq, chunk.content, chunk.sourceRef ?? null);
+       (id, document_id, seq, content, source_ref, heading_path)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    chunk.documentId,
+    chunk.seq,
+    chunk.content,
+    chunk.sourceRef ?? null,
+    chunk.headingPath || null
+  );
   // 回读失败（如 FakeDatabase 隔离）时以写入值组装，保证返回形状稳定。
   const row = db.prepare('SELECT * FROM kb_chunks WHERE id = ?').get(id) as
     | KbChunkDbRow
@@ -307,13 +316,22 @@ export function insertChunk(chunk: InsertChunkInput): KbChunkRow {
 export function insertChunksBatch(chunks: InsertChunkInput[]): KbChunkRow[] {
   const db = getDatabase();
   const insertStmt = db.prepare(
-    `INSERT INTO kb_chunks (id, document_id, seq, content, source_ref) VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO kb_chunks (id, document_id, seq, content, source_ref, heading_path)
+     VALUES (?, ?, ?, ?, ?, ?)`
   );
   const wrapped = db.transaction((items: InsertChunkInput[]) => {
     const results: KbChunkRow[] = [];
     for (const chunk of items) {
       const id = randomUUID();
-      insertStmt.run(id, chunk.documentId, chunk.seq, chunk.content, chunk.sourceRef ?? null);
+      insertStmt.run(
+        id,
+        chunk.documentId,
+        chunk.seq,
+        chunk.content,
+        chunk.sourceRef ?? null,
+        // D4 空路径降级：空串不写，统一 NULL（读侧 !!headingPath 判定不受影响）
+        chunk.headingPath || null
+      );
       results.push({
         id,
         documentId: chunk.documentId,

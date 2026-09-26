@@ -17,9 +17,11 @@ import {
   recordImportFailure,
   removeByDocId,
   removeByFile,
+  type KbIndexOpts,
 } from '../knowledge/kbIndexer';
 import { isSupportedDocument, parseDocument } from '../files/documentParser';
 import { parseWithLimit } from '../files/parseLimiter';
+import { resolveEmbedding, scheduleVectorBackfill } from '../knowledge/vectorBackfill';
 import type { IKbImportResult } from '@shared/ai';
 
 export function registerKbHandlers(): void {
@@ -56,8 +58,10 @@ export function registerKbHandlers(): void {
           payload.userId,
           payload.title,
           payload.content,
-          kbIndexOpts()
+          kbIndexOpts(payload.userId)
         );
+        // 索引完成后触发向量回填（历史 chunk 缺口/模型切换扫描，防抖合并）
+        scheduleVectorBackfill(payload.userId);
         return { success: true, data: result };
       } catch (error) {
         return { success: false, message: 'Failed to import text to knowledge base' };
@@ -296,7 +300,7 @@ export async function importDirAsKb(
         );
         continue;
       }
-      results.push(await indexImportedText(userId, title, parsed.text, kbIndexOpts()));
+      results.push(await indexImportedText(userId, title, parsed.text, kbIndexOpts(userId)));
     } catch (err) {
       // 单文件异常：记 error 行后继续（不断批）
       results.push(
@@ -306,6 +310,8 @@ export async function importDirAsKb(
       );
     }
   }
+  // 目录导入入口同样触发向量回填（四-1② 三入口之一，防抖合并）
+  scheduleVectorBackfill(userId);
   return results;
 }
 
@@ -339,12 +345,15 @@ export async function importAttachmentAsKb(
     });
   }
 
-  const opts = kbIndexOpts();
-  return indexImportedText(userId, title, att.content, {
+  const opts = kbIndexOpts(userId);
+  const result = await indexImportedText(userId, title, att.content, {
     ...opts,
     sourceType: 'attachment',
     attachmentId,
   });
+  // 附件入 KB 也触发向量回填（同三入口语义）
+  scheduleVectorBackfill(userId);
+  return result;
 }
 
 /** KB 重索引：以文件系统笔记（files 表）重建该 fileId 的知识库文档。 */
@@ -354,12 +363,27 @@ async function reindexFromKbOrFile(
 ): Promise<IKbImportResult | null> {
   const file = getFile(fileId, userId);
   if (file) {
-    return indexFile(userId, { id: file.id, name: file.name, content: file.content }, kbIndexOpts());
+    const result = await indexFile(
+      userId,
+      { id: file.id, name: file.name, content: file.content },
+      kbIndexOpts(userId)
+    );
+    // 手动重索引入口触发向量回填（四-1② 三入口之一）
+    scheduleVectorBackfill(userId);
+    return result;
   }
   return null;
 }
 
-/** 当前 KB 索引选项（纯 FTS5；无向量/嵌入）。 */
-function kbIndexOpts(): Record<string, never> {
-  return {};
+/**
+ * 当前 KB 索引选项（四-1②）：读取真实 embedding 配置；
+ * 未配置 / 解析失败 → {}（纯 FTS5 分支不破坏）。解析异常在此收敛不外抛。
+ */
+export function kbIndexOpts(userId: string): KbIndexOpts {
+  try {
+    const emb = resolveEmbedding(userId);
+    return emb ? { embedding: emb } : {};
+  } catch {
+    return {};
+  }
 }

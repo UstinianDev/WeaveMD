@@ -79,6 +79,9 @@ export function rrfFusion(
 /**
  * sqlite-vec 向量余弦搜索（可选路径）。
  * 查询向量由外部 embeddingClient 生成后传入。
+ * B5 四-1②：embeddingModel 提供时按 `embedding_model` 列过滤——切换模型后
+ * 旧模型向量不参与检索（失效策略）；不传则保持旧行为（未配置兼容）。
+ * sqlite-vec 加载失败（prepare 抛错）→ 静默降级返回空 Map，检索走 FTS5。
  * 返回 chunkId → cosine 相似度 Map。
  */
 export function vectorSearch(
@@ -86,10 +89,18 @@ export function vectorSearch(
   userId: string,
   queryVector: number[],
   limit: number,
-  threshold: number = DEFAULT_VEC_SCORE_THRESHOLD
+  threshold: number = DEFAULT_VEC_SCORE_THRESHOLD,
+  embeddingModel?: string | null
 ): Map<string, number> {
   const result = new Map<string, number>();
   try {
+    const modelClause = embeddingModel ? ' AND c.embedding_model = ?' : '';
+    const params: Array<Buffer | string | number> = [
+      Buffer.from(new Float32Array(queryVector).buffer),
+      userId,
+    ];
+    if (embeddingModel) params.push(embeddingModel);
+    params.push(limit);
     // sqlite-vec cosine 查询：vec_distance_cosine 返回距离 [0, 2]，similarity = 1 - distance/2
     const rows = db.prepare(`
       SELECT c.id AS chunkId,
@@ -97,10 +108,10 @@ export function vectorSearch(
         FROM kb_chunks c
         JOIN kb_documents d ON d.id = c.document_id
        WHERE d.user_id = ?
-         AND c.vector IS NOT NULL
+         AND c.vector IS NOT NULL${modelClause}
        ORDER BY distance ASC
        LIMIT ?
-    `).all(Buffer.from(new Float32Array(queryVector).buffer), userId, limit) as Array<{
+    `).all(...params) as Array<{
       chunkId: string;
       distance: number;
     }>;

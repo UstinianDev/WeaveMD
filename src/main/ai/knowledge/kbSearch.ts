@@ -9,6 +9,7 @@
 
 import { performance } from 'node:perf_hooks';
 import { getDatabase } from '../../db/index';
+import { getEmbeddingConfig } from '../../db/embeddingConfig';
 import { getCacheMonitor } from './cacheMonitor';
 import type Database from 'better-sqlite3';
 import type {
@@ -512,9 +513,18 @@ export async function searchKB(
   // P1-3: 向量搜索耗时
   const tVec = performance.now();
   // 路径 2: 向量搜索（vector 和 hybrid 模式，且 queryVector 存在）
+  // B5 四-1②：按当前配置的 embedding 模型过滤（切换模型后旧向量失效不参与）
   const vecLimit = topK * candidateMultiplier;
+  let currentEmbeddingModel: string | null = null;
+  if ((searchMode === 'vector' || searchMode === 'hybrid') && opts.queryVector) {
+    try {
+      currentEmbeddingModel = getEmbeddingConfig(userId)?.model ?? null;
+    } catch {
+      currentEmbeddingModel = null; // 配置读取失败 → 不过滤（兼容降级）
+    }
+  }
   const vecScores = (searchMode === 'vector' || searchMode === 'hybrid') && opts.queryVector
-    ? vectorSearch(db, userId, opts.queryVector, vecLimit, vecScoreThreshold)
+    ? vectorSearch(db, userId, opts.queryVector, vecLimit, vecScoreThreshold, currentEmbeddingModel)
     : new Map<string, number>();
   const vectorMs = performance.now() - tVec;
 

@@ -115,14 +115,28 @@ pdfjs-dist(110)、@anthropic-ai/sdk(107)、electron-builder(308) —— 全部 c
 - **遗留**：设置页单文件导入解析失败无行内提示（TDD §8.6）；目录导入重复行语义为既有状态未改（§8.4）；`database.md` kb_documents 字段表按计划归 **B11 八-3②** 对齐（§8.7）；入 KB 勾选 UI 随 **B11**；E2E 存量 31 failed 与 `cacheMonitor` 性能用例负载 flaky 不属本批次（TDD §6）。
 - **下一任务**：B5（四-1 `kbIndexOpts()` 真实配置贯通 3 入口 + 四-2 `heading_path` 写入 + 三-2 表格 md 同批，D4 无 DDL）。
 
+### B5 完成（2026-09-26）
+
+- **范围**：四-1 Embedding 接通 + 四-2 `heading_path` 写入 + 三-2 表格 md 同批（TDD strict，L3；D4 无 DDL）。
+- **状态**：✅ 完成。证据：`docs/testing/doc-pipeline-b5.tdd.md`。
+- **交付**：
+  - **四-1 接通**：新建 `src/main/ai/knowledge/vectorBackfill.ts`——`resolveEmbedding` 单点配置判定（复用 KB_STATUS 的 `kbEmbeddingProvider`+`apiKeyEnc` 语义，读 `ai_embedding_config` 真实 key 解密；任一环节失败降级 null→纯 FTS5）；`kbIndexOpts(userId)` 改读真实配置并 **贯通全部索引入口**：保存防抖（`ipc-handlers` 1200ms → `kbIndexOpts(userId)`，替换硬编码 `{}`）、手动重索引 KB_REINDEX、目录导入 importDirAsKb、文本/附件导入 KB_IMPORT_FILE——漏一条即部分摆设的卡点消除；每入口完成后 `scheduleVectorBackfill(userId)` 触发回填。
+  - **向量回填任务**：`runVectorBackfill` 分批（20/批）限速（批间 300ms）扫描 `vector IS NULL OR embedding_model IS NOT ?`（**切模型旧向量渐进重算**）→ 批量 embedding → Float32 BLOB + `embedding_model` 写回；2s 防抖合并高频调度、running 重入防并发、失败收敛 `phase='error'` 可观测（状态机 pending→running→done|error 对齐 `kb_documents.status` 范式，进程内存态不加 DDL、不新增 IPC）；回填不经检索链路，**pending/error 期间 searchKB 走 FTS5 正常返回**（测试锁定）。
+  - **四-2 heading_path（D4）**：`NoteChunk` 扩 `headingPath`；`splitNote` 内 header stack 计算 `" > "` 路径（80 字符截断、无标题空串）；`insertChunk`/`insertChunksBatch` 写 `heading_path` 列（空串归一 NULL，历史行读侧 NULL 降级）；`aggregateAndExpand` 生效验证 4 用例（heading 30% 提升触发、全空不误触发、isHeading+headingBoost、历史 NULL 不加成）——防历史回归。
+  - **三-2 表格分块（同批强制）**：`splitNote` 重写为「结构单元扫描 → 贪心合并 → 原子输出」：GFM 表格判定（表头/分隔行单元数相等 + 未转义管道计数）、**整表独立成 chunk 不与正文混切**；超长表按行切片、**每片重复表头行+分隔行**（配对保持、片间零 overlap、单行超限不切单元格）；**标题统领**：标题+其下段落 ≤targetSize 合并 1 chunk；超长段保留旧断点+overlap 兜底语义。
+  - **模型过滤（检索侧）**：`vectorSearch` 加 `embeddingModel` 参数化子句（切模型后旧向量不参与 RRF）；`searchKB` 读当前 `ai_embedding_config.model` 透传；sqlite-vec prepare 抛错静默降级（`knowledge.md` 纯 FTS5 约定不破坏）。
+- **门禁**：tsc 0 error（首轮 9 错已修）/ vitest **146 文件 3416 passed 0 failed**（B4 基线 3370 + 46）/ lint 0 error（108 存量 warning）/ vite build exit 0 / E2E **31 failed·1 skipped·101 passed（133 条）**——failed 按 spec 构成与基线逐条同名单，**零新增失败**；过程 1 次 `cacheMonitor` 性能用例负载 flaky（B4 已记录同款），单跑 37 passed、收尾全量绿。
+- **遗留**：回填状态无 UI/IPC 展示（B5 验收点只要求可观测，测试与 `getVectorBackfillStatus` 承担；如需设置页展示列后续）；超宽表按单元格 emergency split（STC）未实现——无样例需求记录为可选增强；headingPath 未前置进 `content`（上下文前缀取舍按计划归 **B8 四-4②**）；E2E 存量 31 failed 不属本批次。
+- **下一任务**：B6（五-1 `content` 数组 + 五-2 图片落盘 + 五-3 死代码接活，**L4 执行前需二次确认**）。
+
 ## 进度总览
 
 | 模块 | 任务数 | 状态 |
 |---|---|---|
 | 一 会话附件上传 | 4 | **全部完成**（一-1/一-2/一-3=B2，一-4=B3） |
 | 二 文档解析层 | 6 | 二-1/二-2/二-6契约 完成（B1）；二-3/二-4/二-6落库 随 B7；二-5 随 B12 |
-| 三 目录文件树 | 3 | 未开始 |
-| 四 知识库/RAG | 4 | 四-3 完成（B4）；四-1/四-2 随 B5；四-4 随 B8 |
+| 三 目录文件树 | 3 | 三-2 完成（B5）；三-1/三-3 随 B9 |
+| 四 知识库/RAG | 4 | 四-1/四-2/四-3 完成（B5/B4）；四-4 随 B8 |
 | 五 多模态图片 | 3 | 未开始 |
 | 六 工具与引用溯源 | 3 | 未开始 |
 | 七 打包体积 | 3 | 未开始 |

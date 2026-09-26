@@ -17,6 +17,8 @@ import { registerMailIpcHandlers } from './mail/ipc';
 import { registerUpdateIpcHandlers } from './update/ipc';
 import { reindexAfterSave, removeByFile } from './ai/knowledge/kbIndexer';
 import type { IndexFileInput } from './ai/knowledge/kbIndexer';
+import { kbIndexOpts } from './ai/ipc/kbHandlers';
+import { scheduleVectorBackfill } from './ai/knowledge/vectorBackfill';
 import { createFile, deleteFile, getFile, listFiles, updateFileContent } from './db/files';
 import { exportFile } from './export/exportService';
 import type { ExportRequest } from './export/types';
@@ -65,8 +67,10 @@ function scheduleReindexAfterSave(userId: string, file: IndexFileInput): void {
   if (existing) clearTimeout(existing);
   const timer = setTimeout(() => {
     reindexTimers.delete(key);
-    // 索引纯 FTS5（无向量）；异常静默降级（不影响已返回的保存成功）
-    void reindexAfterSave(userId, file, {}).catch(() => {});
+    // B5 四-1②：携带真实 embedding 配置（未配置 → {} 纯 FTS5）；异常静默降级
+    void reindexAfterSave(userId, file, kbIndexOpts(userId))
+      .then(() => scheduleVectorBackfill(userId))
+      .catch(() => {});
   }, REINDEX_DEBOUNCE_MS);
   reindexTimers.set(key, timer);
 }

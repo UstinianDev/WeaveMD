@@ -80,6 +80,15 @@ const kbIndexerMock = vi.hoisted(() => ({
 }));
 vi.mock('@main/ai/knowledge/kbIndexer', () => kbIndexerMock);
 
+// B5 四-1②：真实 embedding 配置解析 + 向量回填触发（默认未配置 → 纯 FTS5）
+const backfillMock = vi.hoisted(() => ({
+  resolveEmbedding: vi.fn(
+    (): { baseUrl: string; model: string; apiKey: string } | null => null
+  ),
+  scheduleVectorBackfill: vi.fn(),
+}));
+vi.mock('@main/ai/knowledge/vectorBackfill', () => backfillMock);
+
 import { DOCUMENT_PARSE_VERSION, type IDocumentParseResult } from '@shared/ai';
 import type { ParsedAttachmentRecord } from '@main/db/attachments';
 import { IPC_CHANNELS } from '@shared/constants';
@@ -135,6 +144,8 @@ const makeEvent = () => ({});
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // B5：默认未配置 embedding（既有纯 FTS5 断言不回归）；贯通用例局部覆盖
+  backfillMock.resolveEmbedding.mockReturnValue(null);
   fsMock.readFileSync.mockImplementation(() => {
     throw new Error('utf-8 read forbidden in importDirAsKb');
   });
@@ -423,5 +434,121 @@ describe('kbHandlers IPC — 导入与删除入参分派', () => {
     expect(result.message).toContain('fileId');
     expect(kbIndexerMock.removeByFile).not.toHaveBeenCalled();
     expect(kbIndexerMock.removeByDocId).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B5 四-1②：kbIndexOpts() 真实配置贯通三入口 + 回填触发
+// ---------------------------------------------------------------------------
+
+describe('kbIndexOpts — 真实 embedding 配置贯通（四-1②）', () => {
+  const EMB = { baseUrl: 'https://api.test/v1', model: 'emb-m1', apiKey: 'sk-live' };
+
+  it('KB_IMPORT_FILE 文本导入 → indexImportedText 收到 embedding 配置', async () => {
+    backfillMock.resolveEmbedding.mockReturnValue(EMB);
+    const fn = getHandler(IPC_CHANNELS.KB_IMPORT_FILE);
+
+    await fn(makeEvent(), { userId: 'u1', title: '笔记', content: '正文' });
+
+    expect(kbIndexerMock.indexImportedText).toHaveBeenCalledWith(
+      'u1',
+      '笔记',
+      '正文',
+      { embedding: EMB }
+    );
+    // 索引完成后触发向量回填（历史 chunk 缺口扫描）
+    expect(backfillMock.scheduleVectorBackfill).toHaveBeenCalledWith('u1');
+  });
+
+  it('目录导入 → indexImportedText 收到 embedding 配置', async () => {
+    backfillMock.resolveEmbedding.mockReturnValue(EMB);
+    setupDir(['a.md']);
+
+    await importDirAsKb('u1', '/kb');
+
+    expect(kbIndexerMock.indexImportedText).toHaveBeenCalledWith(
+      'u1',
+      'a',
+      'PARSED:a.md',
+      { embedding: EMB }
+    );
+    expect(backfillMock.scheduleVectorBackfill).toHaveBeenCalledWith('u1');
+  });
+
+  it('手动重索引（KB_REINDEX）→ indexFile 收到 embedding 配置', async () => {
+    backfillMock.resolveEmbedding.mockReturnValue(EMB);
+    const { getFile } = await import('@main/db/files');
+    (getFile as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      id: 'f1',
+      name: 'note.md',
+      content: '# 内容',
+    });
+    kbIndexerMock.indexFile.mockResolvedValueOnce({
+      docId: 'd1',
+      title: 'note.md',
+      chunks: 1,
+      status: 'done',
+    });
+    const fn = getHandler(IPC_CHANNELS.KB_REINDEX);
+
+    const res = (await fn(makeEvent(), { userId: 'u1', fileId: 'f1' })) as {
+      success: boolean;
+    };
+
+    expect(res.success).toBe(true);
+    expect(kbIndexerMock.indexFile).toHaveBeenCalledWith(
+      'u1',
+      expect.objectContaining({ id: 'f1' }),
+      { embedding: EMB }
+    );
+    expect(backfillMock.scheduleVectorBackfill).toHaveBeenCalledWith('u1');
+  });
+
+  it('附件入 KB → 同样携带 embedding 配置', async () => {
+    backfillMock.resolveEmbedding.mockReturnValue(EMB);
+    const att = attachmentRecord({});
+    attachmentsMock.getParsedAttachment.mockReturnValue(att);
+
+    await importAttachmentAsKb('u1', 'att1');
+
+    expect(kbIndexerMock.indexImportedText).toHaveBeenCalledWith(
+      'u1',
+      'report',
+      'PDF 正文',
+      expect.objectContaining({ embedding: EMB, sourceType: 'attachment' })
+    );
+  });
+
+  it('未配置 embedding → opts 为 {}（纯 FTS5 分支不破坏，三入口同语义）', async () => {
+    backfillMock.resolveEmbedding.mockReturnValue(null);
+    setupDir(['a.md']);
+    await importDirAsKb('u1', '/kb');
+    expect(kbIndexerMock.indexImportedText).toHaveBeenCalledWith(
+      'u1',
+      'a',
+      'PARSED:a.md',
+      {}
+    );
+
+    const fn = getHandler(IPC_CHANNELS.KB_IMPORT_FILE);
+    await fn(makeEvent(), { userId: 'u1', title: 't', content: 'c' });
+    expect(kbIndexerMock.indexImportedText).toHaveBeenLastCalledWith('u1', 't', 'c', {});
+  });
+
+  it('resolveEmbedding 解析异常 → 降级 {} 不阻断导入', async () => {
+    backfillMock.resolveEmbedding.mockImplementation(() => {
+      throw new Error('safeStorage unavailable');
+    });
+    setupDir(['a.md']);
+    const results = await importDirAsKb('u1', '/kb');
+    // kbIndexOpts 捕获解析异常 → 降级 {}，导入不中断
+    expect(results).toHaveLength(1);
+    expect(results[0].status).toBe('done');
+    expect(kbIndexerMock.indexImportedText).toHaveBeenCalledWith(
+      'u1',
+      'a',
+      'PARSED:a.md',
+      {}
+    );
   });
 });

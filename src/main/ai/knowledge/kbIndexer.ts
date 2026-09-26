@@ -22,14 +22,16 @@ import { invalidateKbSearchCache } from './kbSearch';
 import type { IKbImportResult } from '@shared/ai';
 
 // ---------------------------------------------------------------------------
-// splitNote — 纯函数分块
+// splitNote — 纯函数分块（B5 三-2② 表格边界 + 标题统领 / 四-2② headingPath）
 // ---------------------------------------------------------------------------
 
-/** 分块结果：seq 序号 / text 块文本 / approxOffset 源文档近似起始偏移。 */
+/** 分块结果：seq 序号 / text 块文本 / approxOffset 源文档近似起始偏移 / headingPath 标题路径。 */
 export interface NoteChunk {
   seq: number;
   text: string;
   approxOffset: number;
+  /** B5 四-2②：块所属标题路径（" > " 连接，≤80 字符；无标题为空串 → 落库 NULL）。 */
+  headingPath: string;
 }
 
 export interface SplitNoteOptions {
@@ -39,9 +41,168 @@ export interface SplitNoteOptions {
   overlap?: number;
 }
 
-const HEADING_SEP = new Set(['## ', '# ', '---']);
+const HEADING_PATH_MAX = 80;
 
-/** 在 window 中找「新行后紧跟 Heading 分隔符」的切点（返回相对 window 的 p，不含换行符）。 */
+/** 源行（含绝对起始偏移）。 */
+interface SourceLine {
+  text: string;
+  start: number;
+}
+
+/** header stack 条目（层级 + 纯标题文本）。 */
+interface TitleEntry {
+  level: number;
+  text: string;
+}
+
+/** 结构单元：非表格内容（text/section）或整张表格（table）。 */
+interface StructuralUnit {
+  kind: 'text' | 'section' | 'table';
+  start: number;
+  end: number;
+  headingPath: string;
+  /** table 单元专用：最近标题行原文 + 表格各行（表头/分隔/数据）与各自偏移。 */
+  table?: {
+    headingLine: string | null;
+    lines: SourceLine[];
+  };
+}
+
+/** 标题行判定（#{1,6} + 空白 + 内容）。 */
+const HEADING_LINE_RE = /^(#{1,6}) [^\s]/;
+
+/** 计算 header stack 路径：' > ' 连接，硬上限 80 字符（research-chunking §3.1）。 */
+function stackPath(stack: TitleEntry[]): string {
+  if (stack.length === 0) return '';
+  return stack.map((t) => t.text).join(' > ').slice(0, HEADING_PATH_MAX);
+}
+
+/** 未转义管道计数（GFM：表头单元数必须等于分隔行）。 */
+function cellCount(line: string): number {
+  const t = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+  if (!t) return 0;
+  return t.split(/(?<!\\)\|/).length;
+}
+
+/** GFM 分隔行判定：至少一个 `---` 单元，允许对齐冒号与首尾管道。 */
+function isDelimiterRow(text: string): boolean {
+  const t = text.trim();
+  if (!t.includes('-')) return false;
+  return /^\s*\|?(?:\s*:?-+:?\s*\|)*\s*:?-+:?\s*\|?\s*$/.test(t);
+}
+
+/** 表格起点：当前行含 | + 下一行为分隔行 + 表头与分隔行单元数相等（GFM Example 203）。 */
+function isTableStart(lines: SourceLine[], i: number): boolean {
+  const line = lines[i];
+  if (!line || !line.text.trim() || !line.text.includes('|')) return false;
+  const next = lines[i + 1];
+  if (!next || !isDelimiterRow(next.text)) return false;
+  return cellCount(line.text) === cellCount(next.text);
+}
+
+/** 找出表格结束行（exclusive）：空行 / 标题行 / 无管道正文行中断（GFM 表格中断规则）。 */
+function findTableEnd(lines: SourceLine[], start: number): number {
+  let j = start + 2; // 表头 + 分隔行之后
+  while (j < lines.length) {
+    const t = lines[j].text;
+    if (!t.trim()) break;
+    if (HEADING_LINE_RE.test(t)) break;
+    if (!t.includes('|')) break;
+    j++;
+  }
+  return j;
+}
+
+/** 按行切分源文本（保留每行绝对起始偏移）。 */
+function scanLines(content: string): SourceLine[] {
+  const lines: SourceLine[] = [];
+  let pos = 0;
+  for (const text of content.split('\n')) {
+    lines.push({ text, start: pos });
+    pos += text.length + 1;
+  }
+  return lines;
+}
+
+/**
+ * 结构扫描：产出「表格单元 + 非表格单元」序列。
+ * - 表格（GFM 判定）总是独立成单元，绝不与正文混切（BI 不变式）；
+ * - 标题行开启新 section 单元（标题统领其下段落）；
+ * - header stack 随标题行弹栈/入栈，为每个单元计算 headingPath。
+ */
+function scanUnits(content: string): StructuralUnit[] {
+  const lines = scanLines(content);
+  const units: StructuralUnit[] = [];
+  const stack: TitleEntry[] = [];
+  let current: StructuralUnit | null = null;
+  let lastHeadingLine: string | null = null;
+  let i = 0;
+
+  const openUnit = (kind: 'text' | 'section', start: number): StructuralUnit => {
+    const unit: StructuralUnit = { kind, start, end: start, headingPath: stackPath(stack) };
+    return unit;
+  };
+  const flushUnit = (end: number): void => {
+    if (current) {
+      current.end = end;
+      units.push(current);
+      current = null;
+    }
+  };
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (HEADING_LINE_RE.test(line.text)) {
+      // 标题行：封存旧单元 → 弹栈/入栈 → 开新 section（标题统领）
+      flushUnit(line.start);
+      const level = line.text.match(HEADING_LINE_RE)![1].length;
+      const titleText = line.text.slice(level + 1).trim();
+      while (stack.length > 0 && stack[stack.length - 1].level >= level) stack.pop();
+      stack.push({ level, text: titleText });
+      lastHeadingLine = line.text;
+      current = openUnit('section', line.start);
+      current.end = line.start + line.text.length;
+      i++;
+      continue;
+    }
+
+    if (isTableStart(lines, i)) {
+      // 表格：独立单元（整表原子）
+      flushUnit(line.start);
+      const end = findTableEnd(lines, i);
+      units.push({
+        kind: 'table',
+        start: line.start,
+        end: lines[end - 1].start + lines[end - 1].text.length,
+        headingPath: stackPath(stack),
+        table: {
+          // 超长表切片时重复的最近标题行（无标题路径时为 null）
+          headingLine: stackPath(stack) ? lastHeadingLine : null,
+          lines: lines.slice(i, end),
+        },
+      });
+      i = end;
+      continue;
+    }
+
+    if (!current) current = openUnit('text', line.start);
+    current.end = line.start + line.text.length;
+    i++;
+  }
+  flushUnit(
+    lines.length > 0
+      ? lines[lines.length - 1].start + lines[lines.length - 1].text.length
+      : content.length
+  );
+
+  return units;
+}
+
+/** 超长段兜底切分的断点前缀（标题行主断点已由结构扫描承担，此处保留 '---' 等兜底）。 */
+const HEADING_SEP = ['## ', '# ', '---'];
+
+/** 在 window 中找「新行后紧跟 Heading/分隔符」的切点（结构单元切分内的兜底断点）。 */
 function findBreakpoint(window: string): number {
   // 最小 25% 窗位门槛：避免在窗口很开头切出过小块；heading 出现在其后即可优先断点。
   const minPos = Math.floor(window.length * 0.25);
@@ -59,46 +220,157 @@ function findBreakpoint(window: string): number {
   return best;
 }
 
-/**
- * 把长文本切成 ~targetSize 字符的块，优先在 Heading/分隔符断点切分（标题不进上一块末尾），
- * 相邻块间保留 approxOverlap 字符 overlap 以衔接语义。返回块内 seq 递增、approxOffset 递增。
- */
-export function splitNote(content: string, opts?: SplitNoteOptions): NoteChunk[] {
-  const targetSize = opts?.targetSize ?? 800;
-  const overlap = opts?.overlap ?? 80;
-  const len = content.length;
-
-  if (len <= targetSize) {
-    return [{ seq: 0, text: content, approxOffset: 0 }];
-  }
-
-  const chunks: NoteChunk[] = [];
-  let cursor = 0;
-  let seq = 0;
+/** 超长非表格单元的兜底切分（段内标题已由结构扫描切走；保留旧断点 + overlap 语义）。 */
+function splitOversizedSegment(
+  content: string,
+  start: number,
+  end: number,
+  headingPath: string,
+  targetSize: number,
+  overlap: number,
+  chunks: NoteChunk[]
+): void {
+  const len = end;
+  let cursor = start;
 
   while (cursor < len) {
-    const end = Math.min(cursor + targetSize, len);
-    const window = content.slice(cursor, end);
+    const windowEnd = Math.min(cursor + targetSize, len);
+    const window = content.slice(cursor, windowEnd);
     let cut = -1;
     let headed = false;
     const bp = findBreakpoint(window);
     if (bp >= 0) {
-      // 断点在换行符之后切，使下一块以标题开头；跨标题切分不施加 overlap，
-      // 以保证「下一块以标题开头」这一断点语义不被 overlap 回拉破坏。
       cut = cursor + bp + 1;
       headed = true;
     } else {
-      cut = end;
+      cut = windowEnd;
     }
     const text = content.slice(cursor, cut).trim();
     if (text.length > 0) {
-      chunks.push({ seq, text, approxOffset: cursor });
-      seq++;
+      chunks.push({ seq: chunks.length, text, approxOffset: cursor, headingPath });
     }
     if (cut >= len) break;
-    // 标题断点 → 下一块直接从切点（标题）开始；字符切分 → 保留 overlap 衔接语义。
     cursor = headed ? cut : Math.max(cut - overlap, cursor + 1);
   }
+}
+
+/** 原子单元 → chunk（≤targetSize 单块；超长段走兜底切分；表格整表独立/超长按行切片带表头）。 */
+function emitUnit(
+  unit: StructuralUnit,
+  content: string,
+  targetSize: number,
+  overlap: number,
+  chunks: NoteChunk[]
+): void {
+  const size = unit.end - unit.start;
+
+  if (unit.kind === 'table' && unit.table) {
+    const { headingLine, lines } = unit.table;
+    const prefix = headingLine ? headingLine + '\n' : '';
+    const full = lines.map((l) => l.text).join('\n');
+    if (prefix.length + full.length <= targetSize) {
+      // 整表独立成一个 chunk（含最近标题行上下文）
+      const text = (prefix + full).trim();
+      if (text.length > 0) {
+        chunks.push({ seq: chunks.length, text, approxOffset: unit.start, headingPath: unit.headingPath });
+      }
+      return;
+    }
+    // 超长表：按行切片，每片重复表头行 + 分隔行（配对保持），不与相邻片 overlap
+    const header = lines[0];
+    const delimiter = lines[1];
+    const dataRows = lines.slice(2);
+    let piece: SourceLine[] = [header, delimiter];
+    let pieceLen = header.text.length + 1 + delimiter.text.length;
+    const flushPiece = (): void => {
+      const body = [prefix, ...piece.map((l) => l.text)].join('\n').trim();
+      if (body.length > 0) {
+        chunks.push({
+          seq: chunks.length,
+          text: body,
+          // 片偏移取该片首个数据行（表头/分隔为复制行，取原文数据位置保单调）
+          approxOffset: piece[2].start,
+          headingPath: unit.headingPath,
+        });
+      }
+    };
+    for (const row of dataRows) {
+      const nextLen = pieceLen + 1 + row.text.length;
+      if (nextLen > targetSize && piece.length > 2) {
+        // 攒满：以表头+分隔为基准开出新片（下一片仍带表头）
+        flushPiece();
+        piece = [header, delimiter];
+        pieceLen = header.text.length + 1 + delimiter.text.length;
+      }
+      piece.push(row);
+      pieceLen += 1 + row.text.length;
+    }
+    if (piece.length > 2) flushPiece();
+    return;
+  }
+
+  if (size <= targetSize) {
+    const text = content.slice(unit.start, unit.end).trim();
+    if (text.length > 0) {
+      chunks.push({
+        seq: chunks.length,
+        text,
+        approxOffset: unit.start,
+        headingPath: unit.headingPath,
+      });
+    }
+    return;
+  }
+  splitOversizedSegment(content, unit.start, unit.end, unit.headingPath, targetSize, overlap, chunks);
+}
+
+/**
+ * 把文档切成 ~targetSize 的块：
+ * - 表格边界识别，整表独立成 chunk；超长表按行切分且每片重复表头行+分隔行（三-2②）；
+ * - 标题统领：标题 + 其下段落（合计 ≤ targetSize）合并为 1 chunk（三-2②）；
+ * - 每块携带 headingPath（四-2②），无标题为空串；相邻非表格块保留 overlap 衔接。
+ * 返回块内 seq 递增、approxOffset 递增。
+ */
+export function splitNote(content: string, opts?: SplitNoteOptions): NoteChunk[] {
+  const targetSize = opts?.targetSize ?? 800;
+  const overlap = opts?.overlap ?? 80;
+  const units = scanUnits(content);
+
+  if (units.length === 0) {
+    const text = content.trim();
+    return [{ seq: 0, text, approxOffset: 0, headingPath: '' }];
+  }
+
+  const chunks: NoteChunk[] = [];
+  let buf: StructuralUnit | null = null;
+
+  const flushBuffer = (): void => {
+    if (buf) {
+      emitUnit(buf, content, targetSize, overlap, chunks);
+      buf = null;
+    }
+  };
+
+  for (const unit of units) {
+    if (unit.kind === 'table') {
+      // 表格原子：先封存累积的正文，再独立出表
+      flushBuffer();
+      emitUnit(unit, content, targetSize, overlap, chunks);
+      continue;
+    }
+    if (!buf) {
+      buf = { ...unit };
+      continue;
+    }
+    if (unit.end - buf.start <= targetSize) {
+      // 标题统领合并：相邻非表格单元拼进同一块（路径取块起始处 stack）
+      buf = { ...buf, end: unit.end };
+    } else {
+      flushBuffer();
+      buf = { ...unit };
+    }
+  }
+  flushBuffer();
 
   return chunks;
 }
@@ -147,6 +419,8 @@ async function writeChunks(
     seq: chunk.seq,
     content: chunk.text,
     sourceRef: buildSourceRef(fileName, chunk.approxOffset),
+    // D4：heading_path 写入（空串由 DAO 归一 NULL）
+    headingPath: chunk.headingPath,
   }));
   const insertedRows = insertChunksBatch(batchInput);
   const insertedChunks = insertedRows.map((row, i) => ({ id: row.id, text: chunks[i].text }));

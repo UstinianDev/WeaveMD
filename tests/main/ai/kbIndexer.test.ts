@@ -287,3 +287,150 @@ describe('kbIndexer — 删除清理（对齐 cleanupKbAfterFileDelete 模式）
     expect(removeByAttachment('u1', 'ghost')).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// B5 三-2②：表格边界 / 整表独立 / 超长表带表头 / 标题统领
+// ---------------------------------------------------------------------------
+
+describe('kbIndexer.splitNote — 表格边界识别（三-2②）', () => {
+  const header = '| 名称 | 数量 |';
+  const delim = '| --- | --- |';
+  const row = (i: number) => `| 项目${i} | ${i} |`;
+
+  it('整表独立成 chunk：表格不与前后正文合并、不被字符切断', () => {
+    const md = `前言段落。\n\n${header}\n${delim}\n${row(1)}\n${row(2)}\n\n后记段落。`;
+    const chunks = splitNote(md);
+
+    const tableChunk = chunks.find((c) => c.text.includes(header));
+    expect(tableChunk).toBeDefined();
+    // 表格完整（表头 + 分隔 + 全部数据行）
+    expect(tableChunk!.text).toContain(delim);
+    expect(tableChunk!.text).toContain(row(1));
+    expect(tableChunk!.text).toContain(row(2));
+    // 独立成块：不混入前后正文
+    expect(tableChunk!.text).not.toContain('前言段落');
+    expect(tableChunk!.text).not.toContain('后记段落');
+    // 前后正文各自成块
+    expect(chunks.some((c) => c.text.includes('前言段落'))).toBe(true);
+    expect(chunks.some((c) => c.text.includes('后记段落'))).toBe(true);
+  });
+
+  it('表头单元数 ≠ 分隔行 → 不识别为表格（按普通文本，不触发表格切分）', () => {
+    const notTable = `${header}\n| --- | --- | --- |\n${row(1)}`;
+    const md = `${'p'.repeat(1600)}\n\n${notTable}\n`;
+    const chunks = splitNote(md);
+    // 未按表格结构独立切分（无 chunk 以表头起始且以数据行收尾的整表形态）
+    const tableShaped = chunks.filter(
+      (c) => c.text.startsWith(header) && c.text.includes(row(1)) && c.text.endsWith(row(1))
+    );
+    expect(tableShaped).toHaveLength(0);
+  });
+
+  it('超长表按行切分：每片重复表头行+分隔行（配对保持），数据行不丢不重', () => {
+    const rows = Array.from({ length: 60 }, (_, i) => row(i));
+    const md = [header, delim, ...rows].join('\n');
+    const chunks = splitNote(md);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) {
+      const lines = c.text.split('\n');
+      // 每片以表头行开头，且分隔行紧随其后（GFM 配对不破坏）
+      expect(lines[0]).toBe(header);
+      expect(lines[1]).toBe(delim);
+    }
+    // 数据行并集 = 原始行，顺序一致且无重复丢失
+    const joined = chunks.flatMap((c) => c.text.split('\n').slice(2));
+    expect(joined).toEqual(rows);
+  });
+
+  it('表格片之间不施加 overlap（数据行按原文顺序连续拼接可还原）', () => {
+    const rows = Array.from({ length: 60 }, (_, i) => row(i));
+    const md = [header, delim, ...rows].join('\n');
+    const chunks = splitNote(md);
+    // 若有 overlap，相邻片的数据行会出现重复；此处验证零重复
+    const joined = chunks.flatMap((c) => c.text.split('\n').slice(2));
+    expect(new Set(joined).size).toBe(joined.length);
+  });
+});
+
+describe('kbIndexer.splitNote — 标题统领多段落（三-2②）', () => {
+  it('标题 + 其下多段落（合计 ≤ targetSize）合并为 1 个 chunk', () => {
+    const md = `${'x'.repeat(1600)}\n\n## 小节\n\n段落甲。\n\n段落乙。`;
+    const chunks = splitNote(md);
+
+    const merged = chunks.find(
+      (c) => c.text.startsWith('## 小节') && c.text.includes('段落甲') && c.text.includes('段落乙')
+    );
+    expect(merged).toBeDefined();
+    // 标题统领的段落未被 800 字符窗口切散
+    expect(merged!.text).not.toContain('x'.repeat(100));
+  });
+});
+
+describe('kbIndexer.splitNote — headingPath 携带（四-2②）', () => {
+  it('多级标题路径以 " > " 分隔，携带到该路径下切出的每个 chunk', () => {
+    const md = `# 甲\n\n## 乙\n\n${'内容。\n'.repeat(200)}`;
+    const chunks = splitNote(md);
+
+    const h1 = chunks.find((c) => c.text.startsWith('# 甲'));
+    const h2 = chunks.find((c) => c.text.startsWith('## 乙'));
+    expect(h1?.headingPath).toBe('甲');
+    expect(h2?.headingPath).toBe('甲 > 乙');
+    // 同 section 内字符切分的后续块同样携带路径
+    const rest = chunks.filter((c) => !c.text.startsWith('#') && c.text.includes('内容。'));
+    expect(rest.length).toBeGreaterThan(0);
+    expect(rest.every((c) => c.headingPath === '甲 > 乙')).toBe(true);
+  });
+
+  it('无标题纯文本 → headingPath 空串（空路径降级，老数据/纯文本 txt）', () => {
+    const chunks = splitNote('q'.repeat(2000));
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every((c) => c.headingPath === '')).toBe(true);
+  });
+
+  it('headingPath 长度硬上限 80 字符（截断防膨胀）', () => {
+    const titles = Array.from(
+      { length: 10 },
+      (_, i) => `# ${'长标题甲乙丙丁'.repeat(2)}${i}`
+    ).join('\n\n');
+    const md = `${titles}\n\n${'b\n'.repeat(600)}`;
+    const chunks = splitNote(md);
+    expect(chunks.length).toBeGreaterThan(0);
+    expect(chunks.every((c) => c.headingPath.length <= 80)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B5 D4：heading_path 落库（NoteChunk → insertChunksBatch）
+// ---------------------------------------------------------------------------
+
+describe('kbIndexer — heading_path 写入（D4 无 DDL）', () => {
+  it('indexFile → INSERT kb_chunks 携 heading_path 列与路径值', async () => {
+    await indexFile(
+      'u1',
+      {
+        id: 'f1',
+        name: 'n.md',
+        content: `# 甲\n\n## 乙\n\n${'内容。\n'.repeat(200)}`,
+      },
+      {}
+    );
+    const inserts = calls.filter(
+      (c) => c.method === 'run' && c.sql.includes('INSERT INTO kb_chunks')
+    );
+    expect(inserts.length).toBeGreaterThan(1);
+    expect(inserts[0].sql).toContain('heading_path');
+    // 至少一个块写入非空路径（列序尾部：..., source_ref, heading_path）
+    expect(inserts.some((c) => c.args.includes('甲 > 乙'))).toBe(true);
+    expect(inserts.some((c) => c.args.includes('甲'))).toBe(true);
+  });
+
+  it('无标题内容 → heading_path 写 NULL（空路径降级不写空串）', async () => {
+    await indexFile('u1', { id: 'f2', name: 'plain.txt', content: 'q'.repeat(2000) }, {});
+    const inserts = calls.filter(
+      (c) => c.method === 'run' && c.sql.includes('INSERT INTO kb_chunks')
+    );
+    expect(inserts.length).toBeGreaterThan(0);
+    expect(inserts.every((c) => c.args[5] === null)).toBe(true);
+  });
+});

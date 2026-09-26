@@ -64,6 +64,11 @@ class FakeDatabase {
   prepare(sql: string): FakeStatement {
     return fakeDbMock.prepare(sql) as FakeStatement;
   }
+
+  /** 事务包装：直接执行回调（FakeDb 无真实事务）。 */
+  transaction<T extends (...args: unknown[]) => unknown>(fn: T): T {
+    return fn;
+  }
 }
 
 vi.mock('better-sqlite3', () => ({ default: FakeDatabase }));
@@ -81,6 +86,7 @@ import {
   getKbDocumentByAttachment,
   getKbDocumentByFile,
   insertChunk,
+  insertChunksBatch,
   listKbDocumentsByUser,
   setKbDocStatus,
   upsertKbDocument,
@@ -252,5 +258,41 @@ describe('kb DAO — attachment_id 关联（D3 写入方）', () => {
     // FakeDb 的 id 回读行不含 attachment_id 列 → 映射降级 null（不抛）
     expect(doc).not.toBeNull();
     expect(doc?.attachmentId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B5 D4：kb_chunks.heading_path 写入方（列已存在，无 DDL）
+// ---------------------------------------------------------------------------
+
+describe('kb DAO — heading_path 写入（D4）', () => {
+  it('insertChunksBatch INSERT 携 heading_path 列与路径值', () => {
+    insertChunksBatch([
+      {
+        documentId: 'doc1',
+        seq: 0,
+        content: '内容',
+        sourceRef: null,
+        headingPath: '甲 > 乙',
+      },
+    ]);
+    const insert = callOf('run', 'INSERT INTO kb_chunks');
+    expect(insert?.sql).toContain('heading_path');
+    // 列序 (id, document_id, seq, content, source_ref, heading_path)
+    expect(insert?.args[5]).toBe('甲 > 乙');
+  });
+
+  it('headingPath 缺省 → 写 NULL（老数据/纯文本空路径降级）', () => {
+    insertChunksBatch([{ documentId: 'doc1', seq: 0, content: '纯文本' }]);
+    const insert = callOf('run', 'INSERT INTO kb_chunks');
+    expect(insert?.args[5]).toBeNull();
+  });
+
+  it('headingPath 空串 → 归一 NULL（不写空串）', () => {
+    insertChunksBatch([
+      { documentId: 'doc1', seq: 0, content: '纯文本', headingPath: '' },
+    ]);
+    const insert = callOf('run', 'INSERT INTO kb_chunks');
+    expect(insert?.args[5]).toBeNull();
   });
 });

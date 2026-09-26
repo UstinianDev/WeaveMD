@@ -52,8 +52,26 @@ vi.mock('@main/db/index', () => ({
   getDatabase: () => new FakeDatabase(),
 }));
 
-import { rankCandidates, sanitizeFtsQuery, searchKB } from '@main/ai/knowledge/kbSearch';
+// B5 四-1②：向量检索按当前 embedding 模型过滤（默认未配置 → null 不过滤）
+const embConfigMock = vi.hoisted(() => ({
+  getEmbeddingConfig: vi.fn(() => null as { model: string } | null),
+}));
+vi.mock('@main/db/embeddingConfig', () => embConfigMock);
+
+import {
+  aggregateAndExpand,
+  rankCandidates,
+  sanitizeFtsQuery,
+  searchKB,
+} from '@main/ai/knowledge/kbSearch';
+import { vectorSearch } from '@main/ai/knowledge/kbSearchFts';
 import type { IKbSearchResult } from '@shared/ai';
+import type Database from 'better-sqlite3';
+
+/** FakeDb → better-sqlite3 类型断言（仅测试面，运行期结构由 FakeDatabase 保证）。 */
+function asDb(f: FakeDatabase): Database.Database {
+  return f as unknown as Database.Database;
+}
 
 const { calls } = fakeDbMock;
 
@@ -79,6 +97,7 @@ function makeCandidate(over: Partial<{ chunkId: string; bm: number; pinned: bool
 beforeEach(() => {
   fakeDbMock.reset();
   fakeRows.value = [];
+  embConfigMock.getEmbeddingConfig.mockReturnValue(null);
 });
 
 describe('kbSearch.sanitizeFtsQuery — 净化与 CJK 前缀', () => {
@@ -251,5 +270,159 @@ describe('kbSearch.searchKB — 对外契约与拒答（纯 FTS5 BM25 + RRF）',
     const result = await searchKB('u1', '   ', {});
     expect(result.refused).toBe(true);
     expect(callOf('all', 'kb_chunks_fts')).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B5 四-1②：向量检索按 embedding_model 过滤 + sqlite-vec 降级
+// ---------------------------------------------------------------------------
+
+describe('kbSearch.vectorSearch — 模型过滤与降级（四-1②）', () => {
+  it('携带模型参数 → SQL 过滤 embedding_model（切换模型后旧向量不参与）', () => {
+    const db = new FakeDatabase();
+    vectorSearch(asDb(db), 'u1', [0.1, 0.2], 10, 0.5, 'm1');
+    const stmt = callOf('all', 'vec_distance_cosine');
+    expect(stmt).toBeDefined();
+    expect(stmt!.sql).toContain('embedding_model = ?');
+    expect(stmt!.args).toEqual([expect.any(Buffer), 'u1', 'm1', 10]);
+  });
+
+  it('不带模型参数（未配置）→ 不过滤（既有纯 FTS5 兼容）', () => {
+    const db = new FakeDatabase();
+    vectorSearch(asDb(db), 'u1', [0.1], 10, 0.5);
+    const stmt = callOf('all', 'vec_distance_cosine');
+    expect(stmt).toBeDefined();
+    expect(stmt!.sql).not.toContain('embedding_model = ?');
+  });
+
+  it('sqlite-vec 缺失（prepare 抛错）→ 静默降级返回空结果不抛', () => {
+    fakeDbMock.prepare.mockImplementationOnce(() => {
+      throw new Error('vec extension unavailable');
+    });
+    const db = new FakeDatabase();
+    let map: Map<string, number> | null = null;
+    expect(() => {
+      map = vectorSearch(asDb(db), 'u1', [0.1], 10, 0.5, 'm1');
+    }).not.toThrow();
+    expect((map as unknown as Map<string, number>).size).toBe(0);
+  });
+});
+
+describe('kbSearch.searchKB — 当前 embedding 模型透传（四-1②）', () => {
+  it('hybrid + queryVector → 向量 SQL 携当前配置模型过滤', async () => {
+    embConfigMock.getEmbeddingConfig.mockReturnValue({ model: 'emb-v2' });
+    await searchKB('u1', '模型过滤透传探针甲', {
+      searchMode: 'hybrid',
+      queryVector: [0.1, 0.2],
+      topK: 3,
+      threshold: 0.01,
+    });
+    const stmt = callOf('all', 'vec_distance_cosine');
+    expect(stmt).toBeDefined();
+    expect(stmt!.args).toContain('emb-v2');
+  });
+
+  it('未配置 embedding → 向量 SQL 无模型过滤（降级兼容不报错）', async () => {
+    await searchKB('u1', '模型过滤透传探针乙', {
+      searchMode: 'hybrid',
+      queryVector: [0.1],
+      topK: 3,
+      threshold: 0.01,
+    });
+    const stmt = callOf('all', 'vec_distance_cosine');
+    expect(stmt).toBeDefined();
+    expect(stmt!.sql).not.toContain('embedding_model = ?');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B5 四-2②：heading_path 写入后 aggregateAndExpand 生效验证（防历史回归）
+// ---------------------------------------------------------------------------
+
+describe('kbSearch.aggregateAndExpand — heading_path 生效（四-2②）', () => {
+  function makeResult(
+    chunkId: string,
+    score: number,
+    isHeading: boolean,
+    seq: number
+  ): IKbSearchResult {
+    return {
+      docId: 'd1',
+      chunkId,
+      fileName: 'n.md',
+      content: '内容',
+      seq,
+      pinned: false,
+      sourceRef: null,
+      score,
+      isHeading,
+    };
+  }
+
+  it('heading chunk 分数按 30% 提升同文档非 heading chunk（写入后真正生效）', () => {
+    const out = aggregateAndExpand(
+      [makeResult('h', 0.5, true, 0), makeResult('b', 0.1, false, 1)],
+      asDb(new FakeDatabase()),
+      'u1',
+      { maxChunksPerFile: 5, contextExpand: 0, topK: 5 }
+    );
+    const body = out.find((r) => r.chunkId === 'b');
+    expect(body).toBeDefined();
+    expect(body!.score).toBeCloseTo(0.1 + 0.5 * 0.3, 6);
+  });
+
+  it('headingPath 全空（老数据/纯文本降级）→ 不触发提升，分数原样', () => {
+    const out = aggregateAndExpand(
+      [makeResult('a', 0.5, false, 0), makeResult('b', 0.1, false, 1)],
+      asDb(new FakeDatabase()),
+      'u1',
+      { maxChunksPerFile: 5, contextExpand: 0, topK: 5 }
+    );
+    expect(out.find((r) => r.chunkId === 'b')!.score).toBeCloseTo(0.1, 6);
+  });
+
+  it('searchKB：候选 headingPath 非空 → isHeading=true 并获 headingBoost(+0.1)', async () => {
+    fakeRows.value = [
+      {
+        chunkId: 'c1',
+        documentId: 'd1',
+        content: 'content',
+        seq: 0,
+        sourceRef: null,
+        pinned: 0,
+        bm: 10,
+        fileName: 'n.md',
+        headingPath: '甲 > 乙',
+      },
+    ];
+    const result = await searchKB('u1', '标题路径生效探针丙', {
+      topK: 5,
+      threshold: 0.001,
+    });
+    expect(result.best?.chunkId).toBe('c1');
+    expect(result.best?.isHeading).toBe(true);
+    expect(result.best!.score).toBeCloseTo(1 / 61 + 0.1, 4);
+  });
+
+  it('候选 headingPath 为 null（历史数据）→ isHeading=false 不加 headingBoost', async () => {
+    fakeRows.value = [
+      {
+        chunkId: 'c2',
+        documentId: 'd2',
+        content: 'content',
+        seq: 0,
+        sourceRef: null,
+        pinned: 0,
+        bm: 10,
+        fileName: 'm.md',
+        headingPath: null,
+      },
+    ];
+    const result = await searchKB('u1', '标题路径生效探针丁', {
+      topK: 5,
+      threshold: 0.001,
+    });
+    expect(result.best?.isHeading).toBe(false);
+    expect(result.best!.score).toBeCloseTo(1 / 61, 4);
   });
 });
