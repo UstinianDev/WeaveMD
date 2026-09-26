@@ -107,6 +107,8 @@ export interface AgentRunPayload {
   useKnowledgeBase?: boolean;
   kbSettings?: import('./kb').IKbSettings;
   currentDocument?: string;
+  /** 当前文档磁盘文件引用（B9 三-1②：只带文件名+路径+摘要，正文交工具按需读取）。 */
+  currentFileRef?: { name: string; path: string };
   /** 文件树路径（用户打开/导入的文件和文件夹，让 AI 可发现本地文件）。 */
   fileTreePaths?: { files: string[]; folders: string[] };
   /** 发送附件载荷（解析产物随行；主进程落 parsed_attachments + attachments_json，一-4）。 */

@@ -234,3 +234,65 @@ describe('B1 — shouldInjectDocumentContext 意图门控', () => {
     expect(buildDocumentContext(undefined)).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// B9 三-1② — 文件引用模式：只带文件名+路径+摘要，正文不整篇内联
+// ---------------------------------------------------------------------------
+
+describe('B9 三-1 — buildDocumentContext 文件引用模式', () => {
+  const longDoc = [
+    '# 深度指南',
+    '',
+    '开头段落第一行。',
+    ...Array.from({ length: 36 }, (_, i) => `第${i + 4}行内容。`),
+    'TAIL_MARKER_XYZ',
+    '结尾行。',
+  ].join('\n');
+
+  it('带 fileRef：注入文件名+路径+摘要，不整篇内联（正文标记不出现）', () => {
+    const out = buildDocumentContext(longDoc, { name: 'huge.md', path: '/ws/docs/huge.md' });
+    expect(out).not.toBeNull();
+    const text = out ?? '';
+    expect(text).toContain('huge.md');
+    expect(text).toContain('/ws/docs/huge.md');
+    expect(text).toContain('readLocalFile');
+    // 规模统计 + 标题大纲 + 开头若干行 = 摘要构成
+    expect(text).toMatch(/共\s*\d+\s*行/);
+    expect(text).toContain('# 深度指南');
+    expect(text).toContain('开头段落第一行。');
+    // 正文深处不内联
+    expect(text).not.toContain('TAIL_MARKER_XYZ');
+    // 有界：摘要不会随文档规模线性膨胀
+    expect(text.length).toBeLessThan(2500);
+  });
+
+  it('短文档带 fileRef 同样走引用模式（不因篇幅短而整篇内联）', () => {
+    const out = buildDocumentContext('# 短文\n\n只有两行。', {
+      name: 's.md',
+      path: '/ws/s.md',
+    });
+    expect(out).toContain('/ws/s.md');
+    expect(out).toContain('只有两行。');
+    expect(out).toContain('readLocalFile');
+  });
+
+  it('无 fileRef 保持旧行为（DB 文档无磁盘路径，整篇注入+超长截断）', () => {
+    const legacy = buildDocumentContext('# 标题\n\n首段内容');
+    expect(legacy).toContain('# 标题\n\n首段内容');
+    const huge = '字'.repeat(20_008);
+    const cut = buildDocumentContext(huge);
+    expect(cut).toContain('文档过长已截断');
+  });
+
+  it('空文档即使带 fileRef 也返回 null', () => {
+    expect(buildDocumentContext('', { name: 'n.md', path: '/ws/n.md' })).toBeNull();
+    expect(buildDocumentContext(undefined, { name: 'n.md', path: '/ws/n.md' })).toBeNull();
+  });
+
+  it('超长单行文档：摘要按字符上限截断（防单行爆量）', () => {
+    const oneLine = `# x ${'字'.repeat(50_000)}`;
+    const out = buildDocumentContext(oneLine, { name: 'big.md', path: '/ws/big.md' }) ?? '';
+    expect(out.length).toBeLessThan(2500);
+    expect(out).toContain('big.md');
+  });
+});

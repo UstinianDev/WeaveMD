@@ -60,13 +60,64 @@ const FILE_LIST_CACHE_TTL = 5 * 60 * 1000;
 // 文档上下文构建
 // ---------------------------------------------------------------------------
 
+/** B9 三-1②：文件引用（文件名+路径随载荷，正文由工具按需读取）。 */
+export interface CurrentFileRef {
+  name: string;
+  path: string;
+}
+
+/** 引用模式摘要：前 N 行 + 字符上限（防单行/超长文档爆量）。 */
+const REF_SUMMARY_MAX_LINES = 20;
+const REF_SUMMARY_MAX_CHARS = 1200;
+/** 引用模式标题大纲上限。 */
+const REF_OUTLINE_MAX = 10;
+/** 大纲单条字符上限（防超长标题行爆量）。 */
+const REF_OUTLINE_MAX_CHARS = 120;
+
+/** 摘要头：取前 N 行并按字符上限截断。 */
+function takeSummaryHead(doc: string): string {
+  const lines = doc.split(/\r?\n/).slice(0, REF_SUMMARY_MAX_LINES);
+  const head = lines.join('\n');
+  return head.length > REF_SUMMARY_MAX_CHARS
+    ? `${head.slice(0, REF_SUMMARY_MAX_CHARS)}…`
+    : head;
+}
+
 /**
  * 组装当前文档上下文 system 消息（只读，供 LLM 优化/改写整篇参考）。
- * 无文档 / 空文档 → 返回 null（不注入）。超长截断而非二次 LLM 压缩。
+ * - 带 fileRef（文件树磁盘 md）→ **引用模式**：只带文件名+路径+摘要
+ *   （规模统计 + 标题大纲 + 前 N 行），正文由 `readLocalFile` 按需读取，不整篇内联（三-1②）；
+ * - 无 fileRef（DB 文档无磁盘路径，工具读不到正文）→ 旧行为：整篇注入 + 超长截断。
+ * 无文档 / 空文档 → 返回 null（不注入）。
  */
-export function buildDocumentContext(currentDocument: string | undefined): string | null {
+export function buildDocumentContext(
+  currentDocument: string | undefined,
+  fileRef?: CurrentFileRef
+): string | null {
   const doc = (currentDocument ?? '').trim();
   if (!doc) return null;
+
+  if (fileRef && fileRef.path) {
+    const lines = doc.split(/\r?\n/);
+    const outline = lines
+      .filter((l) => /^#{1,6}\s+\S/.test(l.trim()))
+      .slice(0, REF_OUTLINE_MAX)
+      .map((l) => {
+        const t = l.trim();
+        return `  ${t.length > REF_OUTLINE_MAX_CHARS ? `${t.slice(0, REF_OUTLINE_MAX_CHARS)}…` : t}`;
+      });
+    const parts = [
+      '以下为当前编辑文档引用（只读，供改写/优化参考）：不注入全文，正文请用 readLocalFile 按路径读取后再改写。',
+      `- 文件名：${fileRef.name}`,
+      `- 路径：${fileRef.path}`,
+      `- 规模：共 ${lines.length} 行 / ${doc.length} 字`,
+      ...(outline.length > 0 ? [`- 标题大纲（前 ${REF_OUTLINE_MAX} 条）：`, ...outline] : []),
+      `- 开头（前 ${REF_SUMMARY_MAX_LINES} 行内）：`,
+      takeSummaryHead(doc),
+    ];
+    return parts.join('\n');
+  }
+
   if (estimateTokens(doc) > DOC_CONTEXT_TOKEN_LIMIT) {
     return `以下为当前编辑文档内容（只读，供改写/优化参考）：\n\n${doc.slice(
       0,

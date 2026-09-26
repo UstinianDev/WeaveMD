@@ -48,6 +48,7 @@ usage 从 `message_start` / `message_delta` 解析出五字段，`costTracker` �
 | 注入点（主进程） | `agentMedia.injectImagesIntoMessages` / `buildImageParts`，Chat（`chatHandlers.runChatFlow`）与 Agent（`prepareAgentContext`）共用；**当前轮图片全量、历史行限最近 3 张**（`selectRecentImageIds`，Q4 同口径）；GIF 附「按首帧处理」text part |
 | vision 检测 | `modelDiscovery.supportsVision(modelId)` **发送前**判定；不支持 → 不注入任何图片 part + 追加 `VISION_DEGRADED_NOTICE` system 消息（**未知模型保守判否**，避免整条请求 400） |
 | 图片落盘 | `image/imageStorage.ts`：`userData/attachments/{userId}/{convId}/{id}.{ext}`，消息存**相对路径**、读取重建；发送链路 `persistIncomingAttachments` 内完成（无新增 IPC 通道）；svg 拒绝 / bmp 栅格化 / gif 原样 / 10MB 上限 |
+| md 相对路径图片（B9 三-3②） | `files/mdImageResolver.ts`：解析基准恒为 **md 所在目录**（非 cwd/userData），`workspaceRoot` 越界拦截（`../../` 出界先于存在性检查，不读工作区外），缺失/移动失效结构化降级；`agentContext` 用 `buildMdImageContext` 复用 `buildImageParts` 注入当前轮（上限 3 张、Q4 同口径），缺失/越界/超限以文本提示随消息注入，远程/data 引用跳过；**图片向量（`imageIndexer`/`images_vec`）不动，范围外** |
 | 识别（五-3） | `image/imageRecognition.recognizeImageAttachments` 在 Chat/Agent 两条 IPC 链路调用：不支持 vision 不发请求直接标失败，成功描述写 `parsed_attachments.content`（附件入 KB 可检索文本），失败态「图片未成功识别」 |
 | 压缩丢图（Q4） | `buildCompressed` 保留最近 **3** 张图片 part，更早原位降级为 `IMAGE_DEGRADED_PLACEHOLDER`；`summarizeViaLlm` 剥图（非 vision 模型压缩不再失败） |
 | 事件/checkpoint | `agentEventStore.sanitizeEventPayload` 写入+回放双净化（data URL→占位、附件根内绝对路径→相对）；checkpoint `toCheckpointMessages` 文本化 |
@@ -84,7 +85,7 @@ LLM 流式调用（带 tools 定义）
 
 | 子模块 | 文件 | 职责 |
 |--------|------|------|
-| Prompt 构建 | `agentPromptBuilder.ts` | 系统提示组装 + 文档上下文 + 文件列表快照 |
+| Prompt 构建 | `agentPromptBuilder.ts` | 系统提示组装 + 文档上下文 + 文件列表快照。文档上下文（B9 三-1②）：载荷带 `currentFileRef`（文件树磁盘 md）时走**引用模式**——只注入文件名+路径+摘要（规模/标题大纲/前 20 行），正文由 `readLocalFile` 按需读取，**不整篇内联**；无磁盘路径（welcome/DB 文档）保持旧的整篇注入+超长截断 |
 | 工具选择 | `agentToolSelector.ts` | 按意图决定可用工具子集 + READ_ONLY/WRITE_TOOLS 常量 |
 | KB 预加载 | `agentKbPreloader.ts` | 异步预检索 + 一次性缓存（30s TTL） |
 

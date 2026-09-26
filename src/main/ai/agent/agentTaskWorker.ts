@@ -240,7 +240,7 @@ export class AgentTaskWorker {
       } as Electron.IpcMainInvokeEvent;
 
       // 6. 解析 payloadJson 中的额外字段
-      const { currentDocument, useKnowledgeBase, fileTreePaths, kbSettings, attachments } =
+      const { currentDocument, currentFileRef, useKnowledgeBase, fileTreePaths, kbSettings, attachments } =
         this.readTaskPayload(task);
 
       // 7. 构造 AgentLoopDeps（KB 检索设置在其中合并：payload 显式 > 持久化 > 默认）
@@ -256,6 +256,7 @@ export class AgentTaskWorker {
           conversationId: task.conversationId,
           message: task.message,
           currentDocument,
+          ...(currentFileRef ? { currentFileRef } : {}),
           useKnowledgeBase,
           fileTreePaths,
           ...(attachments && attachments.length > 0 ? { attachments } : {}),
@@ -309,15 +310,17 @@ export class AgentTaskWorker {
   // Private — Task Helpers
   // -----------------------------------------------------------------------
 
-  /** 解析 payloadJson 中的额外字段（currentDocument / useKnowledgeBase / fileTreePaths / kbSettings / attachments）。 */
+  /** 解析 payloadJson 中的额外字段（currentDocument / currentFileRef / useKnowledgeBase / fileTreePaths / kbSettings / attachments）。 */
   private readTaskPayload(task: AgentTask): {
     currentDocument: string | undefined;
+    currentFileRef: { name: string; path: string } | undefined;
     useKnowledgeBase: boolean | undefined;
     fileTreePaths: { files: string[]; folders: string[] } | undefined;
     kbSettings: Partial<IKbSettings> | undefined;
     attachments: IAttachmentMeta[] | undefined;
   } {
     let currentDocument: string | undefined;
+    let currentFileRef: { name: string; path: string } | undefined;
     let useKnowledgeBase: boolean | undefined;
     let fileTreePaths: { files: string[]; folders: string[] } | undefined;
     let kbSettings: Partial<IKbSettings> | undefined;
@@ -326,6 +329,13 @@ export class AgentTaskWorker {
       if (task.payloadJson) {
         const extra = JSON.parse(task.payloadJson) as Record<string, unknown>;
         if (typeof extra.currentDocument === 'string') currentDocument = extra.currentDocument;
+        // B9 三-1②：文件引用白名单校验（渲染层只回传 name/path 两个字符串字段）
+        if (extra.currentFileRef && typeof extra.currentFileRef === 'object') {
+          const ref = extra.currentFileRef as Record<string, unknown>;
+          if (typeof ref.name === 'string' && typeof ref.path === 'string' && ref.path) {
+            currentFileRef = { name: ref.name, path: ref.path };
+          }
+        }
         if (typeof extra.useKnowledgeBase === 'boolean') useKnowledgeBase = extra.useKnowledgeBase;
         if (extra.kbSettings && typeof extra.kbSettings === 'object') {
           kbSettings = extra.kbSettings as Partial<IKbSettings>;
@@ -354,7 +364,7 @@ export class AgentTaskWorker {
     } catch {
       /* payloadJson 解析失败不阻断主流程 */
     }
-    return { currentDocument, useKnowledgeBase, fileTreePaths, kbSettings, attachments };
+    return { currentDocument, currentFileRef, useKnowledgeBase, fileTreePaths, kbSettings, attachments };
   }
 
   /** 构造 AgentLoopDeps（含 searchKb + consent + 交互回调）。 */

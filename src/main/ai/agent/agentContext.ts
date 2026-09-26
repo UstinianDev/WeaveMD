@@ -26,6 +26,7 @@ import {
   injectImagesIntoMessages,
   VISION_DEGRADED_NOTICE,
 } from './agentMedia';
+import { buildMdImageContext } from '../files/mdImageResolver';
 import { type ToolCtx } from '../toolRegistry';
 import { resolveSearchConfig } from '../tools/webSearch';
 import { loadSkills, type CoreSkill, type SkillRunnerCtx } from '../skills/skillLoader';
@@ -339,21 +340,41 @@ export function prepareAgentContext(
     (payload.attachments ?? []).filter((a) => a.type === 'image'),
     { supportsVision: supportsImages }
   );
-  if (currentUserImages.unreadable.length || historyInjection.unreadable.length) {
+  // B9 三-3②：当前文档 md 内相对路径图片 → 复用五链路注入
+  // （解析基准 md 所在目录、越界拦截、缺失降级提示；图片向量不动，范围外）
+  const mdImageContext = buildMdImageContext({
+    document: payload.currentDocument,
+    filePath: payload.currentFileRef?.path,
+    folders: payload.fileTreePaths?.folders,
+    supportsVision: supportsImages,
+  });
+  const currentParts = [...currentUserImages.parts, ...mdImageContext.parts];
+  if (
+    currentUserImages.unreadable.length ||
+    historyInjection.unreadable.length ||
+    mdImageContext.unreadable.length
+  ) {
     console.warn(
       '[AgentContext] 图片不可读，已跳过:',
-      [...currentUserImages.unreadable, ...historyInjection.unreadable].join(', ')
+      [...currentUserImages.unreadable, ...historyInjection.unreadable, ...mdImageContext.unreadable].join(', ')
     );
   }
   /** vision 降级标记：图片存在但模型不支持 → 显式提示（五-1②） */
-  const visionDegraded = historyInjection.degraded || currentUserImages.degraded;
+  const visionDegraded =
+    historyInjection.degraded || currentUserImages.degraded || mdImageContext.degraded;
+
+  // B9 三-1②/三-3②：md 图片降级提示（缺失/越界/超限）随当前轮消息进 prompt，
+  // 只加在 LLM 消息上，不写消息表（appendMessage 已用原始 message 落库）。
+  const userText = mdImageContext.notes.length > 0
+    ? `${message}\n\n${mdImageContext.notes.join('\n')}`
+    : message;
 
   // 关键修复：cleanupIncompleteMessages 会移除末尾无 assistant 跟随的 user 消息，
   // 但当前 user 消息（刚由 appendMessage 保存）还没有 assistant 回复，
   // 会被当作"孤立消息"移除。因此需要先提取当前 user 消息，清理后重新添加。
-  const currentUserMsg: LlmMessage = currentUserImages.parts.length
-    ? { role: 'user', content: [{ type: 'text', text: message }, ...currentUserImages.parts] }
-    : { role: 'user', content: message };
+  const currentUserMsg: LlmMessage = currentParts.length
+    ? { role: 'user', content: [{ type: 'text', text: userText }, ...currentParts] }
+    : { role: 'user', content: userText };
   const historyMsgs = rawDbMessages.length > 0 && rawDbMessages[rawDbMessages.length - 1].role === 'user'
     ? cleanupIncompleteMessages(rawDbMessages.slice(0, -1))  // 移除最后一条（当前 user），清理后再加回
     : cleanupIncompleteMessages(rawDbMessages);
@@ -426,7 +447,8 @@ export function prepareAgentContext(
   // 文档上下文注入：仅 rewrite/create/tech 三个写作意图（B1 意图门控）。
   // chat / kbQa / web 的回答来源与当前文档无关，不注入以省输入 token。
   if (shouldInjectDocumentContext(intent.intent, payload.currentDocument)) {
-    const documentContext = buildDocumentContext(payload.currentDocument);
+    // B9 三-1②：带磁盘路径时走引用模式（文件名+路径+摘要，正文交 readLocalFile 按需读取）
+    const documentContext = buildDocumentContext(payload.currentDocument, payload.currentFileRef);
     if (documentContext) {
       llmMessages = [{ role: 'system', content: documentContext }, ...llmMessages];
     }

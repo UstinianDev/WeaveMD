@@ -564,6 +564,10 @@ export function registerAllIpcHandlers(): void {
             files.push({ name: entry, path: fullPath, isDirectory: true });
             scan(fullPath);
           } else if (entry.endsWith('.md')) {
+            // 有意为之（doc-pipeline B9 三-1②，决策基线：文件树不扩格式）：
+            // 此处 .md 过滤是**有意保留**的，不得"修复"为全格式——
+            // 非 md 文件走 7 格式上传附件通道（DIALOG_OPEN_FILE upload 模式 + 解析层），
+            // 文件树始终只显示 md 与文件夹。行为由 tests/main/ipcDialogs.test.ts 锁定。
             files.push({ name: entry, path: fullPath, isDirectory: false });
           }
         }

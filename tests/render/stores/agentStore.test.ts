@@ -3,10 +3,12 @@
 // ============================================
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  buildCurrentFileRef,
   needsConsent,
   resetAgentStore,
   useAgentStore,
 } from '@render/stores/agentStore';
+import { useEditorStore } from '@render/stores/editorStore';
 import type {
   AIStreamEvent,
   IAgentStreamEvent,
@@ -861,5 +863,131 @@ describe('agentStore setKbSettings 持久化', () => {
 
     useAgentStore.getState().resetKbSettingsSaveState();
     expect(useAgentStore.getState().kbSettingsSaveState).toBe('idle');
+  });
+});
+
+// ============================================
+// B9 三-1②：currentFileRef 发送构造（文件名+路径随载荷，正文不整篇内联的前提）
+// ============================================
+describe('B9 三-1 — buildCurrentFileRef 与 sendAgentMessage 载荷', () => {
+  beforeEach(() => {
+    // 清调用记录：runAgent.mock.calls[0] 语义按本 describe 内首个调用计算
+    vi.clearAllMocks();
+  });
+
+  it('磁盘文件（绝对路径 id）→ {name,path}；welcome/DB 文档 → 不带引用', () => {
+    expect(buildCurrentFileRef({ id: '/ws/docs/n.md', name: 'n.md' })).toEqual({
+      name: 'n.md',
+      path: '/ws/docs/n.md',
+    });
+    expect(buildCurrentFileRef({ id: 'C:\\ws\\n.md', name: 'n.md' })).toEqual({
+      name: 'n.md',
+      path: 'C:\\ws\\n.md',
+    });
+    expect(buildCurrentFileRef({ id: 'welcome://welcome.md', name: '欢迎' })).toBeUndefined();
+    expect(buildCurrentFileRef({ id: 'db-file-1', name: 'x.md' })).toBeUndefined();
+    expect(buildCurrentFileRef(null)).toBeUndefined();
+  });
+
+  it('sendAgentMessage 载荷携带 currentFileRef（当前打开磁盘文件）', async () => {
+    let streamCb: ((evt: AIStreamEvent) => void) | null = null;
+    (
+      window.weaveMD.ai.onStream as unknown as { mockImplementation: (fn: (...a: unknown[]) => unknown) => void }
+    ).mockImplementation((cb: unknown) => {
+      streamCb = cb as (evt: AIStreamEvent) => void;
+      return () => {
+        streamCb = null;
+      };
+    });
+    const emit = (evt: AIStreamEvent) => streamCb?.(evt);
+
+    vi.mocked((window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent).mockResolvedValue({
+      success: true,
+      data: { conversationId: CONVERSATION_ID, assistantId: 'a1', roundsUsed: 1, intent: null },
+    });
+
+    useAgentStore.setState({
+      config: remoteConfig,
+      modelConfigs: mockModelConfigs,
+      embeddingConfig: mockEmbeddingConfig,
+      embeddingConnectionOk: true,
+      searchConfig: mockSearchConfig,
+      searchConnectionOk: true,
+      consent: noConsent,
+      useKnowledgeBase: false,
+      activeMode: 'agent',
+      activeConversationId: CONVERSATION_ID,
+    });
+    // 打开文件树磁盘文件（id = 路径）
+    useEditorStore.setState({
+      currentFile: {
+        id: '/ws/docs/n.md',
+        userId: '',
+        name: 'n.md',
+        content: '# 内容',
+        createdAt: '',
+        modifiedAt: '',
+        deletedAt: null,
+      },
+      content: '# 内容',
+    });
+
+    try {
+      const sendPromise = useAgentStore.getState().sendAgentMessage('hello');
+      await new Promise((r) => setTimeout(r, 0));
+
+      const runArgs = (
+        window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }
+      ).runAgent.mock.calls[0][0] as { currentFileRef?: { name: string; path: string } };
+      expect(runArgs.currentFileRef).toEqual({ name: 'n.md', path: '/ws/docs/n.md' });
+
+      emit({ type: 'done', conversationId: CONVERSATION_ID });
+      await sendPromise;
+    } finally {
+      useEditorStore.setState({ currentFile: null, content: '' });
+    }
+  });
+
+  it('未打开磁盘文件（currentFile 为空）→ 载荷不带 currentFileRef', async () => {
+    let streamCb: ((evt: AIStreamEvent) => void) | null = null;
+    (
+      window.weaveMD.ai.onStream as unknown as { mockImplementation: (fn: (...a: unknown[]) => unknown) => void }
+    ).mockImplementation((cb: unknown) => {
+      streamCb = cb as (evt: AIStreamEvent) => void;
+      return () => {
+        streamCb = null;
+      };
+    });
+    const emit = (evt: AIStreamEvent) => streamCb?.(evt);
+
+    vi.mocked((window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent).mockResolvedValue({
+      success: true,
+      data: { conversationId: CONVERSATION_ID, assistantId: 'a1', roundsUsed: 1, intent: null },
+    });
+
+    useAgentStore.setState({
+      config: remoteConfig,
+      modelConfigs: mockModelConfigs,
+      embeddingConfig: mockEmbeddingConfig,
+      embeddingConnectionOk: true,
+      searchConfig: mockSearchConfig,
+      searchConnectionOk: true,
+      consent: noConsent,
+      useKnowledgeBase: false,
+      activeMode: 'agent',
+      activeConversationId: CONVERSATION_ID,
+    });
+    useEditorStore.setState({ currentFile: null, content: '' });
+
+    const sendPromise = useAgentStore.getState().sendAgentMessage('hello');
+    await new Promise((r) => setTimeout(r, 0));
+
+    const runArgs = (
+      window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }
+    ).runAgent.mock.calls[0][0] as { currentFileRef?: { name: string; path: string } };
+    expect(runArgs.currentFileRef).toBeUndefined();
+
+    emit({ type: 'done', conversationId: CONVERSATION_ID });
+    await sendPromise;
   });
 });

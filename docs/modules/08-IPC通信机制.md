@@ -92,7 +92,7 @@ src/shared/constants.ts           ← IPC 通道常量（80+ 通道）
 
 | 通道 | 用途 |
 |------|------|
-| `folder:read` | 递归扫描 |
+| `folder:read` | 递归扫描（**仅 `.md` 与文件夹——文件树不扩格式为决策基线，此过滤有意保留，不得"修复"为全格式**，B9 三-1②；非 md 文件走 7 格式上传附件通道，行为锁定于 `tests/main/ipcDialogs.test.ts`） |
 | `folder:create` | 创建文件夹 |
 | `folder:delete` | 删除文件夹 |
 

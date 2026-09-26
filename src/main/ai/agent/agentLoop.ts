@@ -111,6 +111,12 @@ export interface AgentReqPayload {
   useKnowledgeBase?: boolean;
   /** 当前文档 markdown 快照（只读上下文，供 editBlocks 产改写建议；不落盘）。 */
   currentDocument?: string;
+  /**
+   * 当前文档磁盘文件引用（B9 三-1②：文件树 md 发会话只带文件名+路径+摘要，
+   * 正文由 readLocalFile 按需读取；三-3②：md 相对路径图片解析基准）。
+   * 无磁盘路径的文档（welcome/DB）不带此字段，保持旧行为。
+   */
+  currentFileRef?: { name: string; path: string };
   /** 文件树路径（用户打开/导入的文件和文件夹，让 AI 可发现本地文件）。 */
   fileTreePaths?: { files: string[]; folders: string[] };
   /**

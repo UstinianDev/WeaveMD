@@ -664,6 +664,70 @@ describe('ai:ipc handlers', () => {
     expect(kbSearchMock.searchKB).toHaveBeenCalled();
   });
 
+  it('AGENT_RUN 携带 currentFileRef：payloadJson 透传；不传不塞字段（B9 三-1②）', async () => {
+    initQueue();
+    const ok = (await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
+      userId: 'u1',
+      conversationId: 'c1',
+      message: 'hi',
+      currentDocument: '# doc',
+      currentFileRef: { name: 'n.md', path: '/ws/docs/n.md' },
+    })) as { success: boolean };
+    expect(ok.success).toBe(true);
+    expect(
+      JSON.parse((queueMock.enqueue.mock.calls[0][0] as { payloadJson: string }).payloadJson)
+    ).toMatchObject({
+      currentDocument: '# doc',
+      currentFileRef: { name: 'n.md', path: '/ws/docs/n.md' },
+    });
+
+    // 不传 currentFileRef → payloadJson 不含该字段（不制造空引用噪声）
+    const plain = (await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
+      userId: 'u1',
+      conversationId: 'c1',
+      message: 'hi again',
+    })) as { success: boolean };
+    expect(plain.success).toBe(true);
+    const second = JSON.parse(
+      (queueMock.enqueue.mock.calls[1][0] as { payloadJson: string }).payloadJson
+    ) as Record<string, unknown>;
+    expect(second.currentFileRef).toBeUndefined();
+  });
+
+  it('worker.readTaskPayload：currentFileRef 白名单解析（B9 三-1②）', () => {
+    const worker = new AgentTaskWorker({} as never, {} as never) as unknown as {
+      readTaskPayload: (task: { payloadJson: string }) => {
+        currentDocument?: string;
+        currentFileRef?: { name: string; path: string };
+      };
+    };
+
+    // 合法引用原样解析
+    const parsed = worker.readTaskPayload({
+      payloadJson: JSON.stringify({
+        currentDocument: '# x',
+        currentFileRef: { name: 'n.md', path: '/ws/n.md' },
+      }),
+    });
+    expect(parsed.currentDocument).toBe('# x');
+    expect(parsed.currentFileRef).toEqual({ name: 'n.md', path: '/ws/n.md' });
+
+    // 缺 path / name 非字符串 / 非对象 / 坏 JSON → 一律丢弃
+    expect(
+      worker.readTaskPayload({ payloadJson: JSON.stringify({ currentFileRef: { name: 'n.md' } }) })
+        .currentFileRef
+    ).toBeUndefined();
+    expect(
+      worker.readTaskPayload({ payloadJson: JSON.stringify({ currentFileRef: { name: 1, path: '/x' } }) })
+        .currentFileRef
+    ).toBeUndefined();
+    expect(
+      worker.readTaskPayload({ payloadJson: JSON.stringify({ currentFileRef: '/ws/n.md' }) })
+        .currentFileRef
+    ).toBeUndefined();
+    expect(worker.readTaskPayload({ payloadJson: 'not-json' }).currentFileRef).toBeUndefined();
+  });
+
   it('AGENT_RUN 入队前同步拒绝：未授权联网返回 consent_required 且不入队', async () => {
     initQueue();
     consentMock.needsConsent.mockReturnValue(true);

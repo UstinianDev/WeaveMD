@@ -355,3 +355,60 @@ describe('FILE_SAVE — 保存防抖重索引携带 embedding 配置（B5 四-1�
     expect(kbIndexerMock.reindexAfterSave.mock.calls[0][1]).toMatchObject({ content: 'b' });
   });
 });
+
+// ============================================
+// B9 三-1②：FOLDER_READ `.md` 过滤行为锁定（有意为之，防后人误"修复"）
+// ============================================
+describe('FOLDER_READ — 文件树只列 md 与文件夹（决策基线锁定）', () => {
+  type FolderReadHandler = (
+    event: { sender: unknown },
+    folderPath: string
+  ) => Promise<{
+    success: boolean;
+    data?: Array<{ name: string; path: string; isDirectory: boolean }>;
+  }>;
+
+  let tmp: string;
+
+  function getFolderRead(): FolderReadHandler {
+    const fn = electronMock.handlers.get(IPC_CHANNELS.FOLDER_READ);
+    if (!fn) throw new Error('FOLDER_READ handler not registered');
+    return fn as FolderReadHandler;
+  }
+
+  beforeEach(async () => {
+    electronMock.handlers.clear();
+    registerAllIpcHandlers();
+    const fsModule = await import('fs');
+    const osModule = await import('os');
+    const pathModule = await import('path');
+    tmp = fsModule.mkdtempSync(pathModule.join(osModule.tmpdir(), 'weavemd-b9-folder-'));
+    fsModule.mkdirSync(pathModule.join(tmp, 'sub'), { recursive: true });
+    fsModule.writeFileSync(pathModule.join(tmp, 'a.md'), '# a');
+    fsModule.writeFileSync(pathModule.join(tmp, 'b.txt'), 'plain');
+    fsModule.writeFileSync(pathModule.join(tmp, 'c.png'), 'x');
+    fsModule.writeFileSync(pathModule.join(tmp, 'sub', 'd.md'), '# d');
+    fsModule.writeFileSync(pathModule.join(tmp, 'sub', 'e.docx'), 'x');
+  });
+
+  afterEach(async () => {
+    const fsModule = await import('fs');
+    fsModule.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('递归列出目录与 md；txt/png/docx 等非 md 一律不出现（文件树不扩格式）', async () => {
+    const res = await getFolderRead()({ sender: {} }, tmp);
+
+    expect(res.success).toBe(true);
+    const rows = res.data ?? [];
+    const names = rows.map((d) => d.name);
+    expect(names).toContain('a.md');
+    expect(names).toContain('sub');
+    expect(names).toContain('d.md');
+    // 决策基线：非 md 不进文件树（此过滤为有意保留，不得"修复"为全格式）
+    expect(names).not.toContain('b.txt');
+    expect(names).not.toContain('c.png');
+    expect(names).not.toContain('e.docx');
+    expect(rows.every((d) => d.isDirectory || d.name.endsWith('.md'))).toBe(true);
+  });
+});

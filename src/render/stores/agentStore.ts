@@ -49,6 +49,24 @@ function getKb(): KbApi {
   return window.weaveMD?.kb;
 }
 
+/**
+ * B9 三-1②：当前文档 → 磁盘文件引用（文件名+路径随载荷，正文不整篇内联的前提）。
+ * welcome:// 等带协议前缀的文档、DB 内文档（id 非绝对路径）不返回引用——
+ * 这类文档 readLocalFile 读不到正文，保持旧的整篇注入行为。
+ * 绝对路径判定不依赖 path.isAbsolute（测试环境 posix 语义会误拒盘符），与 B8 通道校验同口径。
+ */
+export function buildCurrentFileRef(
+  file: { id: string; name: string } | null | undefined
+): { name: string; path: string } | undefined {
+  if (!file) return undefined;
+  const id = file.id ?? '';
+  if (!id || id.includes('://')) return undefined;
+  const isDiskPath =
+    id.startsWith('/') || id.startsWith('\\\\') || /^[a-zA-Z]:[\\/]/.test(id);
+  if (!isDiskPath) return undefined;
+  return { name: file.name, path: id };
+}
+
 export type ConsentAction = 'agent';
 
 /** 文件操作提案（createFile/createFolder 工具返回的 proposal）。 */
@@ -942,6 +960,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         }
       } catch { /* 文件树获取失败不阻塞主流程 */ }
 
+      // B9 三-1②：当前文档磁盘文件引用（文件树 md → 只带文件名+路径+摘要发送，
+      // 正文由 readLocalFile 按需读取；无磁盘路径的 welcome/DB 文档不带引用保持旧行为）
+      const fileRef = buildCurrentFileRef(useEditorStore.getState().currentFile);
+
       const res = await ai.runAgent({
         userId,
         conversationId,
@@ -951,6 +973,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         kbSettings: get().kbSettings,
         // 当前文档 markdown 快照（只读上下文，供 editBlocks 产改写建议；不落盘）
         currentDocument: useEditorStore.getState().content,
+        ...(fileRef ? { currentFileRef: fileRef } : {}),
         // 文件树路径（用户打开/导入的文件和文件夹）
         fileTreePaths,
         // 附件载荷随行（解析产物落 parsed_attachments，正文不进 prompt，一-4②）

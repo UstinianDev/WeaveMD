@@ -32,10 +32,51 @@ export interface MentionPreviewProps {
 
 // ---------- 工具函数 ----------
 
-/** 截断文本到 maxLen 字符，超出加省略号。 */
-function truncate(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text;
-  return text.slice(0, maxLen) + '...';
+/** B9 三-1②：预览取前 N 行（替代 500 字硬截断）。 */
+const PREVIEW_HEAD_LINES = 20;
+/** 预览标题大纲上限。 */
+const PREVIEW_OUTLINE_MAX = 8;
+/** 预览摘录字符上限（防超长单行爆量）。 */
+const PREVIEW_EXCERPT_MAX_CHARS = 4000;
+/** 预览大纲单条字符上限（防超长标题行爆量）。 */
+const PREVIEW_OUTLINE_MAX_CHARS = 120;
+
+/** 预览体：统计摘要 + 标题大纲 + 前 N 行摘录。 */
+interface FilePreviewBody {
+  summary: string[];
+  excerpt: string;
+  hasMore: boolean;
+}
+
+/**
+ * 文件预览改「摘要 + 前 N 行」（三-1②）：
+ * 摘要 = 行/字统计 + 标题大纲；摘录 = 前 PREVIEW_HEAD_LINES 行（含字符上限）。
+ */
+function buildFilePreviewBody(content: string): FilePreviewBody {
+  const lines = content.split(/\r?\n/);
+  const outline = lines
+    .filter((l) => /^#{1,6}\s+\S/.test(l.trim()))
+    .slice(0, PREVIEW_OUTLINE_MAX)
+    .map((l) => {
+      const t = l.trim();
+      return t.length > PREVIEW_OUTLINE_MAX_CHARS ? `${t.slice(0, PREVIEW_OUTLINE_MAX_CHARS)}…` : t;
+    });
+  const summary = [`共 ${lines.length} 行 / ${content.length} 字`];
+  if (outline.length > 0) {
+    summary.push(`大纲：${outline.join(' · ')}`);
+  }
+
+  let excerpt = lines.slice(0, PREVIEW_HEAD_LINES).join('\n');
+  let cutByChars = false;
+  if (excerpt.length > PREVIEW_EXCERPT_MAX_CHARS) {
+    excerpt = excerpt.slice(0, PREVIEW_EXCERPT_MAX_CHARS);
+    cutByChars = true;
+  }
+  return {
+    summary,
+    excerpt,
+    hasMore: lines.length > PREVIEW_HEAD_LINES || cutByChars,
+  };
 }
 
 /** 格式化文件大小。 */
@@ -85,22 +126,37 @@ const ErrorDisplay: React.FC<{ message: string }> = ({ message }) => (
   <div className="text-[13px] text-[var(--text-muted)] py-4 text-center">{message}</div>
 );
 
-/** 文件内容预览。 */
-const FilePreview: React.FC<{ data: PreviewData }> = ({ data }) => (
-  <div className="space-y-2">
-    <pre className="text-[13px] text-[var(--text-sub)] font-mono whitespace-pre-wrap break-words leading-relaxed max-h-[280px] overflow-auto">
-      {data.content}
-      {(data.metadata?.size as number) > 500 && (
-        <span className="text-[var(--text-muted)]">...</span>
-      )}
-    </pre>
-    {data.metadata?.size !== undefined && (
-      <div className="flex items-center gap-3 text-[12px] text-[var(--text-muted)] pt-2 border-t border-[var(--border-color)]">
-        <span>{formatSize(data.metadata.size as number)}</span>
+/** 文件内容预览（B9 三-1②：摘要 + 前 N 行，替代 500 字硬截断）。 */
+const FilePreview: React.FC<{ data: PreviewData }> = ({ data }) => {
+  const body = buildFilePreviewBody(data.content ?? '');
+  return (
+    <div className="space-y-2">
+      {/* 摘要：行/字统计 + 标题大纲 */}
+      <div className="space-y-0.5 text-[12px] text-[var(--text-muted)]">
+        {body.summary.map((line) => (
+          <div key={line}>{line}</div>
+        ))}
       </div>
-    )}
-  </div>
-);
+      {/* 前 N 行摘录 */}
+      <pre
+        data-testid="mention-preview-excerpt"
+        className="text-[13px] text-[var(--text-sub)] font-mono whitespace-pre-wrap break-words leading-relaxed max-h-[240px] overflow-auto"
+      >
+        {body.excerpt}
+      </pre>
+      {body.hasMore && (
+        <div className="text-[12px] text-[var(--text-muted)]">
+          …（仅预览前 {PREVIEW_HEAD_LINES} 行，完整内容由 AI 按需读取）
+        </div>
+      )}
+      {data.metadata?.size !== undefined && (
+        <div className="flex items-center gap-3 text-[12px] text-[var(--text-muted)] pt-2 border-t border-[var(--border-color)]">
+          <span>{formatSize(data.metadata.size as number)}</span>
+        </div>
+      )}
+    </div>
+  );
+};
 
 /** 目录内容预览。 */
 const DirectoryPreview: React.FC<{ data: PreviewData }> = ({ data }) => (
@@ -173,7 +229,8 @@ const MentionPreview: React.FC<MentionPreviewProps> = ({
             previewData = {
               type: 'file',
               name: res.data.name ?? name,
-              content: truncate(content, 500),
+              // B9 三-1②：全文交给预览组件做「摘要 + 前 N 行」，不再 500 字硬截断
+              content,
               metadata: { size: content.length },
             };
             break;

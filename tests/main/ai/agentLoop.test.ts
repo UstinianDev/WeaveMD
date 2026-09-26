@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 // --- electron mock ---
 const electronMock = vi.hoisted(() => {
@@ -962,5 +965,165 @@ describe('B6 降级补齐（B8 六-3）：vision 不支持 → 显式提示注�
     // 图片本身未产 part（content 保持纯文本）
     const userMsg = msgs.filter((m) => m.role === 'user').pop();
     expect(typeof userMsg?.content).toBe('string');
+  });
+});
+
+// ============================================================
+// B9 三-1② / 三-3②：树 md 发会话只带文件名+路径+摘要（不整篇内联）
+// + md 相对路径图片注入（五链路）
+// ============================================================
+
+describe('B9 文件树 md 发送（三-1 摘要引用 + 三-3 图片注入）', () => {
+  const PNG_BYTES = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+
+  it('超长 md + currentFileRef → 首条 system 只带文件名+路径+摘要，正文不整篇内联', async () => {
+    intentMock.classifyIntent.mockReturnValue({ intent: 'rewrite', confidence: 0.9 });
+    llmMock.streamChatCompletion.mockImplementation(() =>
+      (async function* () {
+        yield { delta: 'ok' };
+      })()
+    );
+    const doc = [
+      '# 深度指南',
+      '',
+      '开头段落。',
+      ...Array.from({ length: 30 }, (_, i) => `第${i + 4}行内容。`),
+      'TAIL_MARKER_XYZ',
+      '结尾行。',
+    ].join('\n');
+
+    const controller = new AbortController();
+    await runAgentFlow(
+      makeEvent(),
+      payload({
+        currentDocument: doc,
+        currentFileRef: { name: 'huge.md', path: '/ws/docs/huge.md' },
+      }),
+      makeConfig(),
+      'enc:key',
+      controller,
+      { consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null } }
+    );
+
+    const msgs = llmMock.streamChatCompletion.mock.calls[0][0].messages as Array<{
+      role: string;
+      content: string;
+    }>;
+    const docSystem = msgs[0];
+    expect(docSystem.role).toBe('system');
+    // 只带文件名 + 路径 + 摘要
+    expect(docSystem.content).toContain('huge.md');
+    expect(docSystem.content).toContain('/ws/docs/huge.md');
+    expect(docSystem.content).toContain('readLocalFile');
+    expect(docSystem.content).toMatch(/共\s*\d+\s*行/);
+    // 正文深处不内联（超长 md 摘要发送断言）
+    expect(docSystem.content).not.toContain('TAIL_MARKER_XYZ');
+    expect(docSystem.content.length).toBeLessThan(2500);
+  });
+
+  it('md 相对路径图片走五链路注入：vision 模型收到 image_url part（基准 md 所在目录）', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'weavemd-b9-loop-'));
+    const docs = join(root, 'docs');
+    mkdirSync(join(docs, 'img'), { recursive: true });
+    const png = join(docs, 'img', 'a.png');
+    writeFileSync(png, PNG_BYTES);
+    try {
+      llmMock.streamChatCompletion.mockImplementation(() =>
+        (async function* () {
+          yield { delta: 'ok' };
+        })()
+      );
+      const controller = new AbortController();
+      await runAgentFlow(
+        makeEvent(),
+        payload({
+          currentDocument: '![架构图](img/a.png)',
+          currentFileRef: { name: 'n.md', path: join(docs, 'n.md') },
+          fileTreePaths: { files: [], folders: [root] },
+        }),
+        makeConfig({ model: 'claude-sonnet-4' }), // supportsVision = true
+        'enc:key',
+        controller,
+        { consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null } }
+      );
+
+      const msgs = llmMock.streamChatCompletion.mock.calls[0][0].messages as Array<{
+        role: string;
+        content: unknown;
+      }>;
+      const userMsg = msgs.filter((m) => m.role === 'user').pop();
+      expect(Array.isArray(userMsg?.content)).toBe(true);
+      const parts = userMsg?.content as Array<{ type: string; image_url?: { url: string } }>;
+      const imagePart = parts.find((p) => p.type === 'image_url');
+      expect(imagePart?.image_url?.url).toBe(png.replace(/\\/g, '/'));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('md 图片存在但模型不支持 vision → 显式降级提示（不静默丢图）', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'weavemd-b9-loop-'));
+    const docs = join(root, 'docs');
+    mkdirSync(join(docs, 'img'), { recursive: true });
+    writeFileSync(join(docs, 'img', 'a.png'), PNG_BYTES);
+    try {
+      llmMock.streamChatCompletion.mockImplementation(() =>
+        (async function* () {
+          yield { delta: 'ok' };
+        })()
+      );
+      const controller = new AbortController();
+      await runAgentFlow(
+        makeEvent(),
+        payload({
+          currentDocument: '![架构图](img/a.png)',
+          currentFileRef: { name: 'n.md', path: join(docs, 'n.md') },
+        }),
+        makeConfig(), // deepseek-chat 不支持 vision
+        'enc:key',
+        controller,
+        { consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null } }
+      );
+      const msgs = llmMock.streamChatCompletion.mock.calls[0][0].messages as Array<{
+        role: string;
+        content: unknown;
+      }>;
+      const systemTexts = msgs.filter((m) => m.role === 'system').map((m) => String(m.content));
+      expect(systemTexts.some((t) => t.includes('当前模型不支持图片理解'))).toBe(true);
+      const userMsg = msgs.filter((m) => m.role === 'user').pop();
+      expect(typeof userMsg?.content).toBe('string');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('md 图片缺失（md 移动后相对路径失效）→ 降级提示随当前轮消息注入', async () => {
+    llmMock.streamChatCompletion.mockImplementation(() =>
+      (async function* () {
+        yield { delta: 'ok' };
+      })()
+    );
+    const controller = new AbortController();
+    await runAgentFlow(
+      makeEvent(),
+      payload({
+        currentDocument: '![丢失](gone.png)',
+        currentFileRef: { name: 'n.md', path: '/ws/docs/n.md' },
+      }),
+      makeConfig({ model: 'claude-sonnet-4' }),
+      'enc:key',
+      controller,
+      { consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null } }
+    );
+    const msgs = llmMock.streamChatCompletion.mock.calls[0][0].messages as Array<{
+      role: string;
+      content: unknown;
+    }>;
+    const userMsg = msgs.filter((m) => m.role === 'user').pop();
+    const text = typeof userMsg?.content === 'string'
+      ? userMsg.content
+      : JSON.stringify(userMsg?.content);
+    expect(text).toContain('gone.png');
+    expect(text).toContain('缺失');
   });
 });

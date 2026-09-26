@@ -134,6 +134,7 @@ export function registerAgentHandlers(): void {
       if (payload.useKnowledgeBase !== undefined) extra.useKnowledgeBase = payload.useKnowledgeBase;
       if (payload.kbSettings) extra.kbSettings = payload.kbSettings;
       if (payload.currentDocument) extra.currentDocument = payload.currentDocument;
+      if (payload.currentFileRef) extra.currentFileRef = payload.currentFileRef;
       if (payload.fileTreePaths) extra.fileTreePaths = payload.fileTreePaths;
 
       // B3 一-4②：附件先落 parsed_attachments（三态流转），最终元数据随 payloadJson
