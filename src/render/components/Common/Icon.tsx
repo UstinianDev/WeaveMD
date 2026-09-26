@@ -139,8 +139,12 @@ import {
   MdOutlineLock,
 } from 'react-icons/md';
 
-/** 图标名称到组件的映射表。 */
-const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
+/**
+ * 图标名称到组件的映射表。
+ * 导出供 tests/components/IconInventory.test.tsx 全表对账（B10 七-1 红线：
+ * 任何增删改必须同步该测试中的 ICON_INVENTORY 清单）。
+ */
+export const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   // 基础操作
   'close': MdClose,
   'check': MdCheck,
