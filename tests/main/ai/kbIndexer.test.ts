@@ -72,6 +72,7 @@ import {
   removeByFile,
   removeByAttachment,
   removeByDocId,
+  buildSourceRef,
 } from '@main/ai/knowledge/kbIndexer';
 
 const { calls } = fakeDbMock;
@@ -432,5 +433,64 @@ describe('kbIndexer — heading_path 写入（D4 无 DDL）', () => {
     );
     expect(inserts.length).toBeGreaterThan(0);
     expect(inserts.every((c) => c.args[5] === null)).toBe(true);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// B7 二-6②：source_ref 真实页码替代 60 字符近似
+// ---------------------------------------------------------------------------
+
+describe('kbIndexer.buildSourceRef — 真实页码（二-6②）', () => {
+  it('有 pageOffsets → page 字段为真实页码（二分定位），不输出 line 近似', () => {
+    // pageOffsets[i] = 第 i+1 页 text 起始偏移
+    const pageOffsets = [0, 500, 1200];
+    const ref1 = JSON.parse(buildSourceRef('report.pdf', 0, undefined, pageOffsets));
+    expect(ref1.page).toBe(1);
+    expect(ref1.line).toBeUndefined();
+    expect(ref1.fileName).toBe('report.pdf');
+
+    const ref2 = JSON.parse(buildSourceRef('report.pdf', 640, undefined, pageOffsets));
+    expect(ref2.page).toBe(2);
+
+    const ref3 = JSON.parse(buildSourceRef('report.pdf', 1201, undefined, pageOffsets));
+    expect(ref3.page).toBe(3);
+  });
+
+  it('无 pageOffsets → 保留 line 近似（md/txt 兼容既有消费方）', () => {
+    const ref = JSON.parse(buildSourceRef('note.md', 120));
+    expect(ref.page).toBeUndefined();
+    expect(ref.line).toBe(3); // 1 + floor(120/60)
+  });
+
+  it('offset 0 且无 pageOffsets → 不带 line（首块无需定位）', () => {
+    const ref = JSON.parse(buildSourceRef('note.md', 0));
+    expect(ref.line).toBeUndefined();
+    expect(ref.fileName).toBe('note.md');
+  });
+
+  it('indexImportedText 携 pageOffsets → INSERT source_ref 含 page', async () => {
+    const pageOffsets = [0, 500];
+    await indexImportedText('u1', 'report', 'A'.repeat(2000), { pageOffsets });
+    const inserts = calls.filter(
+      (c) => c.method === 'run' && c.sql.includes('INSERT INTO kb_chunks')
+    );
+    expect(inserts.length).toBeGreaterThan(1);
+    // 第 1 块（offset 0）→ page 1；第 2 块（offset ≥500）→ page 2
+    const refs = inserts.map((c) => String(c.args[4]));
+    expect(refs.some((r) => r.includes('"page":1'))).toBe(true);
+    expect(refs.some((r) => r.includes('"page":2'))).toBe(true);
+    expect(refs.every((r) => !r.includes('"line"'))).toBe(true);
+  });
+
+  it('无 pageOffsets 的 indexImportedText 仍走 line 近似（回归防护）', async () => {
+    await indexImportedText('u1', 'note', 'x'.repeat(2000), {});
+    const inserts = calls.filter(
+      (c) => c.method === 'run' && c.sql.includes('INSERT INTO kb_chunks')
+    );
+    expect(inserts.length).toBeGreaterThan(1);
+    // 首块 offset=0 不带 line；后续块带 line 近似（既有语义回归防护）
+    expect(inserts.some((c) => String(c.args[4]).includes('"line"'))).toBe(true);
+    expect(inserts.every((c) => !String(c.args[4]).includes('"page"'))).toBe(true);
   });
 });

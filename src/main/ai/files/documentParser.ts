@@ -12,7 +12,10 @@ import fs from 'fs/promises';
 import {
   DOCUMENT_PARSE_VERSION,
   isSupportedDocFile,
+  type IDocumentParseOptions,
 } from '@shared/ai';
+import { analyzePdfLayout, rowsToCsv, shouldUseDRoute } from './pdfLayout';
+import { runDRoute, type DRouteOutcome } from './multimodalParse';
 import type {
   IDocumentHeading,
   IDocumentImage,
@@ -100,12 +103,17 @@ class StructureBuilder {
     return this.stack.map((s) => s.text);
   }
 
-  addTable(markdown: string, sectionPath?: string[]): void {
+  addTable(
+    markdown: string,
+    opts?: { sectionPath?: string[]; csv?: string; pageIndex?: number }
+  ): void {
     this.tableIndex += 1;
     this.tables.push({
       index: this.tableIndex,
       markdown,
-      sectionPath: sectionPath ?? this.currentPath(),
+      sectionPath: opts?.sectionPath ?? this.currentPath(),
+      ...(opts?.csv != null ? { csv: opts.csv } : {}),
+      ...(opts?.pageIndex != null ? { pageIndex: opts.pageIndex } : {}),
     });
   }
 
@@ -128,21 +136,89 @@ function escapeMdCell(text: string): string {
   return text.replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim();
 }
 
-/** 解析 PDF（liteparse 实测 API：LiteParse.parse，本期 OCR 关闭，版面细项随 B7） */
-async function parsePdf(buffer: Buffer, fileName: string): Promise<IDocumentParseResult> {
+/** Markdown 表格行 → CSV 两态（二-6②：跳过分隔行，单元格去管道符转义）。 */
+function mdTableBlockToCsv(blockLines: string[]): string {
+  const isSepLine = /^\s*\|(\s*:?-{3,}:?\s*\|)+\s*$/;
+  const rows = blockLines
+    .filter((l, idx) => !(idx === 1 && isSepLine.test(l)))
+    .map((l) =>
+      l
+        .trim()
+        .replace(/^\|/, '')
+        .replace(/\|$/, '')
+        .split('|')
+        .map((c) => c.trim().replace(/\\\|/g, '|'))
+    );
+  return rowsToCsv(rows);
+}
+
+/** .doc 旧格式降级文案（Q3：D 不可用时提示另存为 docx）。 */
+const DOC_DEGRADED_MSG =
+  '旧版 .doc 格式暂不支持本地解析，已走降级路径：优先多模态识读（D 路线），模型不支持视觉能力时请另存为 .docx 后重试。';
+
+/** 组装 D 路线成功产物（D 输出为 markdown → 复用 md 结构提取）。 */
+function assembleDResult(
+  outcome: Extract<DRouteOutcome, { status: 'used' }>,
+  fileName: string,
+  fileType: string
+): IDocumentParseResult {
+  const md = parseStructuredText(outcome.text, 'd-route.md');
+  return {
+    ...md,
+    fileName,
+    fileType,
+    pageCount: outcome.pagesRendered,
+    pageOffsets: outcome.pageOffsets,
+    parseVersion: DOCUMENT_PARSE_VERSION,
+    dRoute: {
+      triggered: true,
+      used: true,
+      pagesRendered: outcome.pagesRendered,
+      estimatedTokens: outcome.estimatedTokens,
+      truncatedPages: outcome.truncatedPages,
+    },
+  };
+}
+
+/**
+ * 解析 PDF（liteparse 实测 API：LiteParse.parse，本期 OCR 关闭）。
+ * B7 二-3：textItems 坐标 → analyzePdfLayout 版面还原（双栏/表格/页眉页脚/pageOffsets）；
+ * 命中 D 触发条件 → 短路 runDRoute（二-4），成功采用 D 产物、降级保留 A 路线 + 显式提示。
+ */
+async function parsePdf(
+  buffer: Buffer,
+  fileName: string,
+  options?: IDocumentParseOptions
+): Promise<IDocumentParseResult> {
+  let layout: ReturnType<typeof analyzePdfLayout> | null = null;
+  let pageCount = 0;
   try {
     const mod = await import('@llamaindex/liteparse');
     const LiteParse = mod.LiteParse ?? mod.default;
-    const reader = new LiteParse({ outputFormat: 'text', ocrEnabled: false, quiet: true });
+    const reader = new LiteParse({ outputFormat: 'text', ocrEnabled: false, quiet: true, keepHeadersFooters: true });
     const result = await reader.parse(new Uint8Array(buffer));
     if (!result.pages.length) throw new Error('no extractable pages');
-    return {
-      ...baseResult(fileName, 'pdf'),
-      text: result.pages.map((p) => p.text).join('\n\n'),
-      pageCount: result.pages.length,
-    };
+    pageCount = result.pages.length;
+
+    // 二-3②：坐标版面还原（liteparse textItems → pdfLayout 纯函数）
+    layout = analyzePdfLayout(
+      result.pages.map((pg) => ({
+        pageNum: pg.pageNum,
+        width: pg.width,
+        height: pg.height,
+        items: (pg.textItems ?? []).map((ti) => ({
+          text: ti.text,
+          x: ti.x,
+          y: ti.y,
+          width: ti.width,
+          height: ti.height,
+          ...(ti.fontName != null ? { fontName: ti.fontName } : {}),
+          ...(ti.fontSize != null ? { fontSize: ti.fontSize } : {}),
+        })),
+      }))
+    );
   } catch (err) {
-    // liteparse 不可用时降级：粗抽可见字符兜底（仅供可读性，坐标/版面随 B7）
+    // liteparse 不可用时降级：粗抽可见字符兜底（仅供可读性，版面信号按无文本层处理）
     try {
       const text = buffer.toString('utf-8').replace(/[^\x20-\x7E\n\r\t一-鿿]/g, '');
       if (text.trim().length > 100) {
@@ -153,6 +229,52 @@ async function parsePdf(buffer: Buffer, fileName: string): Promise<IDocumentPars
     }
     return errorResult(fileName, 'pdf', `PDF parse failed: ${err instanceof Error ? err.message : String(err)}`);
   }
+
+  // --- A 路线产物（版面还原结果） ---
+  const aRoute: IDocumentParseResult = {
+    ...baseResult(fileName, 'pdf'),
+    text: layout.text,
+    pageCount,
+    pageOffsets: layout.pageOffsets,
+    headings: layout.headings,
+    sections: layout.sections,
+    tables: layout.tables.map((t, i) => ({
+      index: i + 1,
+      markdown: t.markdown,
+      csv: t.csv,
+      sectionPath: t.sectionPath,
+      pageIndex: t.startPage,
+    })),
+    metadata: { headersFooters: layout.metadata.headersFooters },
+    dRoute: { triggered: false, used: false },
+  };
+
+  // --- 二-4②：显式触发判定（不全量烧 token） ---
+  const decision = shouldUseDRoute(layout.analysis);
+  if (!decision.trigger) return aRoute;
+
+  const outcome = await runDRoute({
+    buffer,
+    fileName,
+    fileType: 'pdf',
+    pageCount,
+    fallbackText: aRoute.text,
+    ...(options?.userId != null ? { userId: options.userId } : {}),
+    reason: decision.reasons[0],
+  });
+
+  if (outcome.status === 'used') {
+    const dResult = assembleDResult(outcome, fileName, 'pdf');
+    // 保留 A 路线的页眉页脚 metadata（版面分析已得）
+    return { ...dResult, pageCount, metadata: aRoute.metadata };
+  }
+  // 降级：A 路线文本 + 显式提示（不静默出垃圾）
+  return {
+    ...aRoute,
+    text: outcome.text,
+    degraded: outcome.notice,
+    dRoute: { triggered: true, used: false, reasons: decision.reasons },
+  };
 }
 
 /** 解析 DOCX（mammoth convertToHtml 保留标题/表格结构，cheerio 遍历产出 Markdown） */
@@ -197,7 +319,7 @@ async function parseDocx(buffer: Buffer, fileName: string): Promise<IDocumentPar
             ...rows.slice(1).map((r) => `| ${r.join(' | ')} |`),
           ].join('\n');
           parts.push(md);
-          builder.addTable(md);
+          builder.addTable(md, { csv: rowsToCsv(rows) });
         }
         return;
       }
@@ -251,7 +373,10 @@ async function parseDocx(buffer: Buffer, fileName: string): Promise<IDocumentPar
 }
 
 /** 单 sheet → Markdown 表格（合并单元格还原 + 列宽归一防错位） */
-function sheetToMarkdown(XLSX: XlsxLib, ws: import('xlsx').WorkSheet): string | null {
+function sheetToMarkdown(
+  XLSX: XlsxLib,
+  ws: import('xlsx').WorkSheet
+): { markdown: string; csv: string } | null {
   const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, {
     header: 1,
     defval: '',
@@ -286,11 +411,14 @@ function sheetToMarkdown(XLSX: XlsxLib, ws: import('xlsx').WorkSheet): string | 
   if (rows.length === 0) return null;
 
   const header = rows[0];
-  return [
-    `| ${header.join(' | ')} |`,
-    `| ${header.map(() => '---').join(' | ')} |`,
-    ...rows.slice(1).map((r) => `| ${r.join(' | ')} |`),
-  ].join('\n');
+  return {
+    markdown: [
+      `| ${header.join(' | ')} |`,
+      `| ${header.map(() => '---').join(' | ')} |`,
+      ...rows.slice(1).map((r) => `| ${r.join(' | ')} |`),
+    ].join('\n'),
+    csv: rowsToCsv(rows),
+  };
 }
 
 /** 解析 XLS/XLSX（SheetJS：多 sheet 全转、sheet 名作章节标题） */
@@ -306,10 +434,10 @@ async function parseXlsx(buffer: Buffer, fileName: string): Promise<IDocumentPar
       builder.addHeading(sheetName, 2);
       parts.push(`## ${sheetName}`);
       const ws = wb.Sheets[sheetName];
-      const md = sheetToMarkdown(XLSX, ws);
-      if (md) {
-        parts.push(md);
-        builder.addTable(md);
+      const sheet = sheetToMarkdown(XLSX, ws);
+      if (sheet) {
+        parts.push(sheet.markdown);
+        builder.addTable(sheet.markdown, { csv: sheet.csv });
       }
     }
     return {
@@ -357,7 +485,7 @@ function parseStructuredText(content: string, fileName: string): IDocumentParseR
         block.push(lines[j]);
         j += 1;
       }
-      builder.addTable(block.join('\n'));
+      builder.addTable(block.join('\n'), { csv: mdTableBlockToCsv(block) });
       i = j - 1;
     }
   }
@@ -373,11 +501,13 @@ function parseStructuredText(content: string, fileName: string): IDocumentParseR
  * @param filePath 文件路径（本地文件）或 Buffer（上传文件）
  * @param fileName 原始文件名（用于推断类型）
  * @param mimeType 可选 MIME 类型（不传则从扩展名推断）
+ * @param options 可选入参（userId 供 D 路线解析模型配置，二-4②）
  */
 export async function parseDocument(
   filePath: string | Buffer,
   fileName: string,
-  mimeType?: string
+  mimeType?: string,
+  options?: IDocumentParseOptions
 ): Promise<IDocumentParseResult> {
   const mime = mimeType ?? inferMimeType(fileName);
 
@@ -385,34 +515,52 @@ export async function parseDocument(
     return { ...baseResult(fileName, mime), error: `Unsupported file type: ${mime}` };
   }
 
-  // .doc 旧格式降级（Q3）：mammoth 仅支持 docx。D 路线多模态优先（随 B7 接入），
-  // 模型不支持视觉能力时提示另存为 docx；本期不引 OCR。
-  if (mime === 'application/msword') {
-    return {
-      ...baseResult(fileName, 'doc'),
-      degraded:
-        '旧版 .doc 格式暂不支持本地解析，已走降级路径：优先多模态识读（D 路线），模型不支持视觉能力时请另存为 .docx 后重试。',
-    };
+  // .doc 旧格式（Q3）：D 路线优先；无 userId（D 不可用）直接给另存为 docx 指引，不读文件。
+  const isDoc = mime === 'application/msword';
+  if (isDoc && !options?.userId) {
+    return { ...baseResult(fileName, 'doc'), degraded: DOC_DEGRADED_MSG };
+  }
+
+  // 统一取 buffer（Buffer 直传 / 路径读取）
+  let buffer: Buffer;
+  if (Buffer.isBuffer(filePath)) {
+    buffer = filePath;
+  } else {
+    try {
+      buffer = await fs.readFile(filePath);
+    } catch (err) {
+      if (isDoc) return { ...baseResult(fileName, 'doc'), degraded: DOC_DEGRADED_MSG };
+      return errorResult(
+        fileName,
+        fileTypeOf(fileName),
+        `Read failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
+  // .doc：D 路线优先尝试（Q3）；渲染/识读失败 → 另存为 docx 指引
+  if (isDoc) {
+    try {
+      const outcome = await runDRoute({
+        buffer,
+        fileName,
+        fileType: 'doc',
+        pageCount: 0, // 页数未知（legacy .doc 渲染前不可知）→ 渲染全部后按上限截断
+        fallbackText: '',
+        userId: options?.userId as string,
+      });
+      if (outcome.status === 'used') return assembleDResult(outcome, fileName, 'doc');
+    } catch {
+      /* D 路线异常 → 走降级文案 */
+    }
+    return { ...baseResult(fileName, 'doc'), degraded: DOC_DEGRADED_MSG };
   }
 
   const isXlsx = mime === 'application/vnd.ms-excel' || mime.includes('spreadsheetml');
   const isDocx = mime.includes('wordprocessingml');
   const isPdf = mime === 'application/pdf';
 
-  if (Buffer.isBuffer(filePath)) {
-    if (isPdf) return parsePdf(filePath, fileName);
-    if (isXlsx) return parseXlsx(filePath, fileName);
-    if (isDocx) return parseDocx(filePath, fileName);
-    return parseStructuredText(filePath.toString('utf-8'), fileName);
-  }
-
-  let buffer: Buffer;
-  try {
-    buffer = await fs.readFile(filePath);
-  } catch (err) {
-    return errorResult(fileName, fileTypeOf(fileName), `Read failed: ${err instanceof Error ? err.message : String(err)}`);
-  }
-  if (isPdf) return parsePdf(buffer, fileName);
+  if (isPdf) return parsePdf(buffer, fileName, options);
   if (isXlsx) return parseXlsx(buffer, fileName);
   if (isDocx) return parseDocx(buffer, fileName);
   return parseStructuredText(buffer.toString('utf-8'), fileName);

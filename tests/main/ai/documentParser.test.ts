@@ -51,8 +51,12 @@ vi.mock('@main/ai/knowledge/kbIndexer', () => ({
   })),
 }));
 
+// B7 二-4：D 路线受控（真实 pdfLayout 链路保留，只注入 runDRoute 出口）
+const dRouteMock = vi.hoisted(() => ({ runDRoute: vi.fn() }));
+vi.mock('@main/ai/files/multimodalParse', () => ({ runDRoute: dRouteMock.runDRoute }));
+
 import { IPC_CHANNELS } from '@shared/constants';
-import type { IDocumentParseResult } from '@shared/ai';
+import { DOCUMENT_PARSE_VERSION, type IDocumentParseResult } from '@shared/ai';
 import { isSupportedDocument, parseDocument } from '@main/ai/files/documentParser';
 import { registerKbHandlers } from '@main/ai/ipc/kbHandlers';
 
@@ -191,7 +195,7 @@ describe('7 格式白名单（二-1/一-1 前置）', () => {
   it('parseDocument 拒绝未知类型并返回结构化占位产物', async () => {
     const r = await parseDocument(Buffer.from('x'), 'img.png');
     expect(r.error).toContain('Unsupported file type');
-    expect(r.parseVersion).toBe(1);
+    expect(r.parseVersion).toBe(DOCUMENT_PARSE_VERSION);
     expect(Array.isArray(r.headings)).toBe(true);
     expect(Array.isArray(r.sections)).toBe(true);
     expect(Array.isArray(r.tables)).toBe(true);
@@ -271,7 +275,7 @@ describe('.doc 降级（Q3）', () => {
     expect(r.degraded).toBeDefined();
     expect(r.degraded).toContain('另存为');
     expect(r.degraded).toContain('.docx');
-    expect(r.parseVersion).toBe(1);
+    expect(r.parseVersion).toBe(DOCUMENT_PARSE_VERSION);
   });
 });
 
@@ -349,13 +353,13 @@ describe('PDF（liteparse 实测 API）', () => {
     expect(r.pageCount).toBe(1);
     expect(r.text).toContain('Hello PDF Test');
     expect(r.text).not.toContain('%PDF');
-    expect(r.parseVersion).toBe(1);
+    expect(r.parseVersion).toBe(DOCUMENT_PARSE_VERSION);
   });
 
   it('损坏 PDF 保留 error 且 parseVersion 存在', async () => {
     const r = await parseDocument(Buffer.from('not a real pdf content'), 'broken.pdf');
     expect(r.error).toBeDefined();
-    expect(r.parseVersion).toBe(1);
+    expect(r.parseVersion).toBe(DOCUMENT_PARSE_VERSION);
   });
 });
 
@@ -372,7 +376,7 @@ describe('KB_PARSE_DOCUMENT handler（IPC 接线）', () => {
       data?: IDocumentParseResult;
     };
     expect(result.success).toBe(true);
-    expect(result.data?.parseVersion).toBe(1);
+    expect(result.data?.parseVersion).toBe(DOCUMENT_PARSE_VERSION);
     expect(result.data?.sections.length).toBe(5);
     expect(result.data?.tables.length).toBe(5);
     expect(result.data?.headings.length).toBe(5);
@@ -386,5 +390,260 @@ describe('KB_PARSE_DOCUMENT handler（IPC 接线）', () => {
     };
     expect(result.success).toBe(false);
     expect(result.message).toContain('Unsupported');
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// B7 — PDF 版面还原 + D 路线（二-3 / 二-4 / 二-6）
+// ---------------------------------------------------------------------------
+
+/** 多页 PDF 构造器（Tm 绝对定位 —— liteparse textItems 坐标实测可用）。 */
+function buildPdfPages(pages: Array<Array<{ x: number; y: number; text: string; size?: number }>>): Buffer {
+  const pageObjNums: number[] = [];
+  const contentNums: number[] = [];
+  let n = 3;
+  const fontNum = 3 + pages.length * 2;
+  for (let i = 0; i < pages.length; i++) {
+    contentNums.push(n++);
+    pageObjNums.push(n++);
+  }
+  const offsets: Record<number, number> = {};
+  const parts: string[] = ['%PDF-1.4\n'];
+  const emit = (num: number, body: string): void => {
+    offsets[num] = parts.join('').length;
+    parts.push(`${num} 0 obj\n${body}\nendobj\n`);
+  };
+  emit(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  emit(2, `<< /Type /Pages /Kids [${pageObjNums.map((x) => x + ' 0 R').join(' ')}] /Count ${pages.length} >>`);
+  pages.forEach((items, i) => {
+    let stream = 'BT';
+    for (const it of items) stream += `\n/F1 ${it.size || 12} Tf 1 0 0 1 ${it.x} ${it.y} Tm (${it.text}) Tj`;
+    stream += '\nET';
+    emit(contentNums[i], `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+    emit(pageObjNums[i], `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${contentNums[i]} 0 R /Resources << /Font << /F1 ${fontNum} 0 R >> >> >>`);
+  });
+  emit(fontNum, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  const maxObj = fontNum;
+  let body = parts.join('');
+  const xrefStart = body.length;
+  let xref = `xref\n0 ${maxObj + 1}\n0000000000 65535 f \n`;
+  for (let i = 1; i <= maxObj; i++) xref += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+  body += `${xref}trailer\n<< /Size ${maxObj + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+  return Buffer.from(body, 'latin1');
+}
+
+/** 无文本层 PDF（空内容流 —— liteparse 实测返回 0 items 不抛错）。 */
+function buildTextlessPdf(): Buffer {
+  const objs: string[] = [];
+  objs.push('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+  objs.push('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
+  objs.push('3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n');
+  const stream = 'BT ET';
+  objs.push(`4 0 obj\n<< /Length ${stream.length} >>\nstream\n${stream}\nendstream\nendobj\n`);
+  objs.push('5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n');
+  let body = '%PDF-1.4\n';
+  const offsets: number[] = [];
+  for (const o of objs) {
+    offsets.push(body.length);
+    body += o;
+  }
+  const xrefStart = body.length;
+  let xref = 'xref\n0 6\n0000000000 65535 f \n';
+  for (const off of offsets) xref += `${String(off).padStart(10, '0')} 00000 n \n`;
+  body += `${xref}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+  return Buffer.from(body, 'latin1');
+}
+
+describe('B7 双栏版面还原（真实 liteparse → pdfLayout 全链路）', () => {
+  it('双栏固定样例：左栏全部先于右栏（先左后右）', async () => {
+    const pdf = buildPdfPages([
+      [
+        { x: 72, y: 740, text: 'Doc Title Here', size: 24 },
+        { x: 72, y: 700, text: 'Left column paragraph one alpha.' },
+        { x: 72, y: 680, text: 'Left column paragraph two beta.' },
+        { x: 72, y: 660, text: 'Left column paragraph three gamma.' },
+        { x: 320, y: 700, text: 'Right column paragraph one delta.' },
+        { x: 320, y: 680, text: 'Right column paragraph two epsilon.' },
+        { x: 320, y: 660, text: 'Right column paragraph three zeta.' },
+      ],
+    ]);
+    dRouteMock.runDRoute.mockReset();
+    const r = await parseDocument(pdf, 'twocol.pdf');
+    expect(r.error).toBeUndefined();
+    expect(r.dRoute?.triggered).toBe(false);
+    const lastLeft = Math.max(
+      ...['Left column paragraph one alpha.', 'Left column paragraph two beta.', 'Left column paragraph three gamma.']
+        .map((t) => r.text.indexOf(t))
+    );
+    const firstRight = r.text.indexOf('Right column paragraph one delta.');
+    expect(lastLeft).toBeGreaterThanOrEqual(0);
+    expect(firstRight).toBeGreaterThan(lastLeft);
+    expect(r.text.indexOf('Doc Title Here')).toBeLessThan(lastLeft);
+    expect(r.headings.some((h) => h.text === 'Doc Title Here')).toBe(true);
+    expect(r.pageOffsets?.length).toBe(1);
+  });
+
+  it('双页 PDF：pageOffsets 分页、页眉跨页重复剔除入 metadata', async () => {
+    const pdf = buildPdfPages([
+      [
+        { x: 72, y: 30, text: 'RUNNING HEADER' },
+        { x: 72, y: 700, text: 'First page body content.' },
+      ],
+      [
+        { x: 72, y: 30, text: 'RUNNING HEADER' },
+        { x: 72, y: 700, text: 'Second page body content.' },
+      ],
+    ]);
+    dRouteMock.runDRoute.mockReset();
+    const r = await parseDocument(pdf, 'twopage.pdf');
+    expect(r.pageCount).toBe(2);
+    expect(r.pageOffsets?.length).toBe(2);
+    expect(r.pageOffsets?.[0]).toBe(0);
+    expect(r.text).not.toContain('RUNNING HEADER');
+    expect(r.metadata?.headersFooters).toContain('RUNNING HEADER');
+    const page2 = r.text.slice(r.pageOffsets?.[1] ?? r.text.length);
+    expect(page2).toContain('Second page body content.');
+    expect(page2).not.toContain('First page body content.');
+  });
+
+  it('正常文档不触发 D 路线（不全量烧 token）', async () => {
+    dRouteMock.runDRoute.mockReset();
+    const r = await parseDocument(buildMinimalPdf('Hello PDF Test'), 'sample.pdf');
+    expect(dRouteMock.runDRoute).not.toHaveBeenCalled();
+    expect(r.dRoute?.triggered).toBe(false);
+    expect(r.text).toContain('Hello PDF Test');
+  });
+});
+
+describe('B7 无文本层短路转 D（二-3② / 二-4②）', () => {
+  it('无文本层 → 短路调用 runDRoute；降级时返回 A 路线文本 + 显式提示', async () => {
+    dRouteMock.runDRoute.mockReset();
+    dRouteMock.runDRoute.mockResolvedValue({
+      status: 'degraded',
+      reason: 'no-config',
+      text: 'A-route plain text',
+      notice: '未配置可用的多模态模型，无法执行多模态识读（D 路线）。',
+    });
+    const r = await parseDocument(buildTextlessPdf(), 'scan.pdf');
+    expect(dRouteMock.runDRoute).toHaveBeenCalledTimes(1);
+    const arg = dRouteMock.runDRoute.mock.calls[0][0];
+    expect(arg.fileName).toBe('scan.pdf');
+    expect(arg.fileType).toBe('pdf');
+    expect(arg.reason).toBe('no-text-layer');
+    expect(r.dRoute?.triggered).toBe(true);
+    expect(r.dRoute?.used).toBe(false);
+    expect(r.dRoute?.reasons).toContain('no-text-layer');
+    expect(r.degraded).toContain('多模态识读');
+    expect(r.error).toBeUndefined();
+  });
+
+  it('D 成功 → 采用 D 文本与轨迹，pageOffsets 来自 D', async () => {
+    dRouteMock.runDRoute.mockReset();
+    dRouteMock.runDRoute.mockResolvedValue({
+      status: 'used',
+      text: '# Scanned Title\n\n| A | B |\n| --- | --- |\n| 1 | 2 |',
+      pageOffsets: [0],
+      pagesRendered: 1,
+      estimatedTokens: 1420,
+      truncatedPages: 0,
+    });
+    const r = await parseDocument(buildTextlessPdf(), 'scan.pdf');
+    expect(r.text).toContain('Scanned Title');
+    expect(r.text).toContain('| A | B |');
+    expect(r.dRoute?.used).toBe(true);
+    expect(r.dRoute?.pagesRendered).toBe(1);
+    expect(r.dRoute?.estimatedTokens).toBe(1420);
+    expect(r.pageOffsets).toEqual([0]);
+    expect(r.fileName).toBe('scan.pdf');
+    expect(r.fileType).toBe('pdf');
+    expect(r.degraded).toBeUndefined();
+    expect(r.tables.length).toBe(1);
+    expect(r.tables[0].csv!.split('\n')[0]).toBe('A,B');
+  });
+
+  it('D 触发但降级保留 A 路线文本（不产出残缺 D 文本）', async () => {
+    dRouteMock.runDRoute.mockReset();
+    dRouteMock.runDRoute.mockResolvedValue({
+      status: 'degraded',
+      reason: 'llm-failed',
+      text: 'partial a-route text',
+      notice: '多模态识读失败（模型调用出错），未采用其输出。',
+    });
+    const r = await parseDocument(buildTextlessPdf(), 'scan.pdf');
+    expect(r.text).toBe('partial a-route text');
+    expect(r.dRoute?.used).toBe(false);
+    expect(r.degraded).toContain('识读失败');
+  });
+});
+
+describe('B7 .doc D 路线优先（Q3）', () => {
+  it('有 userId 且 D 成功 → 返回 D 产物（不再直接降级）', async () => {
+    dRouteMock.runDRoute.mockReset();
+    dRouteMock.runDRoute.mockResolvedValue({
+      status: 'used',
+      text: '# Doc Content\n\nlegacy body text',
+      pageOffsets: [0],
+      pagesRendered: 1,
+      estimatedTokens: 1420,
+      truncatedPages: 0,
+    });
+    const r = await parseDocument(Buffer.from('legacy'), 'legacy.doc', undefined, { userId: 'u1' });
+    expect(dRouteMock.runDRoute).toHaveBeenCalledTimes(1);
+    expect(dRouteMock.runDRoute.mock.calls[0][0].fileType).toBe('doc');
+    expect(dRouteMock.runDRoute.mock.calls[0][0].userId).toBe('u1');
+    expect(r.text).toContain('legacy body text');
+    expect(r.fileType).toBe('doc');
+    expect(r.dRoute?.used).toBe(true);
+    expect(r.error).toBeUndefined();
+  });
+
+  it('有 userId 但 D 降级 → 保留另存为 docx 指引（Q3）', async () => {
+    dRouteMock.runDRoute.mockReset();
+    dRouteMock.runDRoute.mockResolvedValue({
+      status: 'degraded',
+      reason: 'render-failed',
+      text: '',
+      notice: '页面渲染失败，无法执行多模态识读（D 路线）。',
+    });
+    const r = await parseDocument(Buffer.from('legacy'), 'legacy.doc', undefined, { userId: 'u1' });
+    expect(r.degraded).toBeDefined();
+    expect(r.degraded).toContain('另存为');
+    expect(r.degraded).toContain('.docx');
+    expect(r.error).toBeUndefined();
+  });
+});
+
+describe('B7 表格 CSV 两态（二-6② 各格式）', () => {
+  it('md 表格同时产出 markdown 与 csv', async () => {
+    const md = ['# T', '', '| a | b |', '| --- | --- |', '| 1 | 2 |', ''].join('\n');
+    const r = await parseDocument(Buffer.from(md, 'utf-8'), 't.md');
+    expect(r.tables.length).toBe(1);
+    expect(r.tables[0].markdown).toContain('| a | b |');
+    expect(r.tables[0].csv!.split('\n')).toEqual(['a,b', '1,2']);
+  });
+
+  it('docx 表格同时产出 markdown 与 csv', async () => {
+    const buf = (await HTMLtoDOCX(
+      '<table><tr><th>名称</th><th>数值</th></tr><tr><td>甲</td><td>1</td></tr></table>'
+    )) as Buffer;
+    const r = await parseDocument(buf, 'r.docx');
+    expect(r.tables.length).toBe(1);
+    expect(r.tables[0].csv!.split('\n')).toEqual(['名称,数值', '甲,1']);
+  });
+});
+
+describe('B7 KB_PARSE_DOCUMENT options 透传', () => {
+  it('handler 接受第 5 参 options（签名扩展不破坏既有调用）', async () => {
+    const fn = electronMock.handlers.get(IPC_CHANNELS.KB_PARSE_DOCUMENT);
+    if (!fn) throw new Error('handler not registered');
+    dRouteMock.runDRoute.mockReset();
+    const result = (await fn({}, path.join(tmpDir, 'missing.pdf'), 'missing.pdf', undefined, { userId: 'u9' })) as {
+      success: boolean;
+      message?: string;
+    };
+    expect(typeof result.success).toBe('boolean');
+    const legacy = (await fn({}, path.join(tmpDir, 'data.xlsx'), 'data.xlsx')) as { success: boolean };
+    expect(legacy.success).toBe(true);
   });
 });

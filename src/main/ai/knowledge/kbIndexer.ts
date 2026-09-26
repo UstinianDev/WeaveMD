@@ -399,6 +399,11 @@ export interface KbIndexOpts {
   sourceType?: KbSourceType;
   /** 关联 parsed_attachments.id（D3；删除附件→清理 KB 的关联键）。 */
   attachmentId?: string;
+  /**
+   * B7 二-6②：每页 text 起始偏移（pageOffsets[i] = 第 i+1 页起点）。
+   * 提供时 source_ref 写真实页码 page（替代 60 字符行号近似）。
+   */
+  pageOffsets?: number[];
 }
 
 const EMBED_BATCH_SIZE = 20;
@@ -408,7 +413,8 @@ async function writeChunks(
   documentId: string,
   content: string,
   fileName: string,
-  embeddingConfig?: { baseUrl: string; model: string; apiKey: string }
+  embeddingConfig?: { baseUrl: string; model: string; apiKey: string },
+  pageOffsets?: number[]
 ): Promise<number> {
   const chunks = splitNote(content);
   if (chunks.length === 0) return 0;
@@ -418,7 +424,7 @@ async function writeChunks(
     documentId,
     seq: chunk.seq,
     content: chunk.text,
-    sourceRef: buildSourceRef(fileName, chunk.approxOffset),
+    sourceRef: buildSourceRef(fileName, chunk.approxOffset, undefined, pageOffsets),
     // D4：heading_path 写入（空串由 DAO 归一 NULL）
     headingPath: chunk.headingPath,
   }));
@@ -461,12 +467,39 @@ async function writeChunks(
   return insertedChunks.length;
 }
 
-/** 构造 source_ref（JSON 字符串）：{ fileName(fileId), line? }。line 由 approxOffset 近似换算。 */
-export function buildSourceRef(fileName: string, approxOffset: number, fileId?: string | null): string {
+/**
+ * 构造 source_ref（JSON 字符串）。
+ * B7 二-6②：有 pageOffsets（PDF/结构化产物）→ 写真实页码 page（二分定位）+ offset，
+ * 替代 60 字符行号近似；无 pageOffsets（md/txt 笔记）→ 保留 line 近似（既有消费方兼容）。
+ */
+export function buildSourceRef(
+  fileName: string,
+  approxOffset: number,
+  fileId?: string | null,
+  pageOffsets?: number[]
+): string {
   const ref: Record<string, unknown> = {};
   if (fileId != null) ref.fileId = fileId;
   ref.fileName = fileName;
-  if (approxOffset > 0) ref.line = 1 + Math.floor(approxOffset / 60); // 近似行号（约 60 字符/行）
+  if (pageOffsets && pageOffsets.length > 0) {
+    // 二分：最大 i 满足 pageOffsets[i] <= approxOffset → 页码 i+1
+    let lo = 0;
+    let hi = pageOffsets.length - 1;
+    let idx = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (pageOffsets[mid] <= approxOffset) {
+        idx = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    ref.page = idx + 1;
+    ref.offset = approxOffset;
+  } else if (approxOffset > 0) {
+    ref.line = 1 + Math.floor(approxOffset / 60); // 近似行号（约 60 字符/行，md/txt 兼容）
+  }
   return JSON.stringify(ref);
 }
 
@@ -497,7 +530,7 @@ export async function indexFile(
     const oldChunks = getChunksByDoc(docId);
     const oldChunkIds = oldChunks.map((c) => c.id);
     deleteChunksByDoc(docId);
-    const chunkCount = await writeChunks(docId, file.content, file.name, opts.embedding);
+    const chunkCount = await writeChunks(docId, file.content, file.name, opts.embedding, opts.pageOffsets);
     setKbDocStatus(userId, docId, 'done');
     // 索引完成后清除搜索缓存（分级失效：先按旧 chunk 精确清除，再全量兜底）
     for (const chunkId of oldChunkIds) {
@@ -555,7 +588,7 @@ export async function indexImportedText(
     const oldChunks = getChunksByDoc(docId);
     const oldChunkIds = oldChunks.map((c) => c.id);
     deleteChunksByDoc(docId);
-    const chunkCount = await writeChunks(docId, text, title, opts.embedding);
+    const chunkCount = await writeChunks(docId, text, title, opts.embedding, opts.pageOffsets);
     setKbDocStatus(userId, docId, 'done');
     // 导入完成后清除搜索缓存（分级失效：先按旧 chunk 精确清除，再全量兜底）
     for (const chunkId of oldChunkIds) {

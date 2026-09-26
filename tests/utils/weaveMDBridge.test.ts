@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { DOCUMENT_PARSE_VERSION } from '@shared/ai';
 import { ensureWeaveMDApi } from '@render/utils/weaveMDBridge';
 
 describe('weaveMDBridge', () => {
@@ -143,7 +144,7 @@ describe('weaveMDBridge', () => {
     expect(ok.success).toBe(true);
     expect(ok.data?.fileName).toBe('report.xlsx');
     expect(ok.data?.fileType).toBe('xlsx');
-    expect(ok.data?.parseVersion).toBe(1);
+    expect(ok.data?.parseVersion).toBe(DOCUMENT_PARSE_VERSION);
     expect(Array.isArray(ok.data?.headings)).toBe(true);
     expect(Array.isArray(ok.data?.sections)).toBe(true);
     expect(Array.isArray(ok.data?.tables)).toBe(true);

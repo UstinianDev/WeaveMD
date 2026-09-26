@@ -5,6 +5,7 @@
 // 真库三断言（空库/旧库/重复）由 scripts/attachments-migration-smoke.cjs 真验。
 // ============================================
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DOCUMENT_PARSE_VERSION } from '@shared/ai';
 
 interface FakeStatement {
   sql: string;
@@ -178,7 +179,7 @@ describe('parsed_attachments DAO — 参数化与 user_id 归属过滤', () => {
       '正文',
       'done',
     ]);
-    expect(ins?.args[7]).toBe(1); // parse_version 默认契约版本 1
+    expect(ins?.args[7]).toBe(DOCUMENT_PARSE_VERSION); // parse_version 默认契约版本
   });
 
   it('getParsedAttachment 按 id + user_id 过滤（归属校验）', () => {
