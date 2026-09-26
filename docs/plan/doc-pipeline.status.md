@@ -175,15 +175,29 @@ pdfjs-dist(110)、@anthropic-ai/sdk(107)、electron-builder(308) —— 全部 c
 - **遗留**：HyDE 量化 A/B（需 API 凭据）；chatHandlers（废弃 Chat 模式）未接 citation 收集；附件页内定位（无应用内 PDF 预览，打开交 OS 默认应用）；analyzeChart 工具期像素识读不做（D 路线解析期已转数据表）；readLocalFile offset/limit 分块未实现；E2E 存量 31 failed 不属本批次。
 - **下一任务**：B9（三-1 超长 md 发送 + 三-3 相对路径图片，L2；四工具/搜索路由已就位可配合摘要发送）。
 
+### B9 完成（2026-09-27）
+
+- **范围**：三-1 超长 md 发送不整篇内联 + `FOLDER_READ` 过滤锁定 + 三-3 相对路径图片（TDD strict，L2）。
+- **状态**：✅ 完成。证据：`docs/testing/doc-pipeline-b9.tdd.md`。
+- **交付**：
+  - **三-1① 发送构造（摘要引用模式）**：载荷新增 `currentFileRef {name,path}`（`shared/ai/agent.ts` → `agentHandlers` extra → `agentTaskWorker.readTaskPayload` 白名单 → `AgentReqPayload`，全链可选、存在才塞）；渲染侧 `agentStore.buildCurrentFileRef` 从当前打开磁盘文件构造（welcome:// 与 DB 文档不带）；`buildDocumentContext` **带 ref 走引用模式**——只注入文件名+路径+规模统计+标题大纲+前 20 行（单行 120/总摘录 1200 字符上限），正文交 `readLocalFile` 按需读取；无 ref（DB/welcome 文档工具读不到正文）保持旧整篇注入+截断，存量 A1a 断言零修改通过。`currentDocument` 全文仍随 IPC 载荷（editBlocks contentHash/门控需要，不消耗 CONTEXT_WINDOW，取舍记 TDD §8.2）。
+  - **三-1② `FOLDER_READ` 锁定**：`.md` 过滤零改动 + handler 内「有意为之」注释 + `docs/modules/08` `folder:read` 行写明决策基线；ipcDialogs 真实目录锁定用例首跑即绿（防误"修复"回归）。
+  - **三-1② `MentionPreview`**：500 字硬截断改「摘要（行/字统计+标题大纲）+ 前 20 行」+「仅预览」提示（摘录 4000 字符/大纲单条 120 字符上限）。
+  - **三-3 相对路径图片**：新建 `src/main/ai/files/mdImageResolver.ts`（纯 fs，不依赖 path 模块平台语义）——解析基准恒为 **md 所在目录**；`workspaceRoot`（`pickWorkspaceRoot` 取含 md 的最长文件树根，缺省 md 目录）**越界拦截先于存在性检查**（工作区外文件真实存在也不读不返回）；`../../`/盘符/UNC 三形态；缺失与 md 移动失效 → missing 结构化降级；远程/data 静默跳过、svg/非图片/`media:` 拒绝。`buildMdImageContext` 复用 B6 `buildImageParts` 在 `agentContext` 注入当前轮（上限 3 张=Q4 口径、vision 不支持 degraded 走 `VISION_DEGRADED_NOTICE`、缺失/越界/超限文本提示随消息进 prompt 不落消息表）；**`imageIndexer`/`images_vec` 图片向量不动（范围外）**。
+- **门禁**：tsc 0 error（修 ContentPart 导入 1 处）/ vitest **159 文件 3708 passed 0 failed**（B8 基线 3664 + 44，收口实测 exit 0）/ lint 0 error（106 warning 与基线持平）/ vite build 三段 exit 0 / E2E **31 failed·1 skipped·101 passed（133 条）**——failed 按 spec 构成与基线逐条一致（table 7 / feedback 5 / drag 5 / ai-agent-panel 4 / thematic 2 / float-toolbar 2 / exit 2 / editor 1 / image-resize 1 / recent-history 1 / welcome 1），**零新增失败**；B9 触及文件覆盖率：mdImageResolver **98.26%**、MentionPreview 93.97%、agentPromptBuilder 91.42%、agentContext 80.08%（新增行全量直达）。过程 flaky：`cacheMonitor`/`ab-test` 存量性能断言负载间歇超阈（单跑 37/22 passed，收尾全量绿）。
+- **偏离记录**：计划指 FileTreePanel「改发送构造」，实测该组件只负责 openFile（发送构造在 agentStore + 主进程注入点）→ FileTreePanel 零改动（TDD §8.1）；md 图片注入主对话而非 `recognizeImageAttachments`（附件专属路径，TDD §8.4）。
+- **遗留**：`readLocalFile` 无分块（>1MB md 引用模式读不到全文，B8 遗留依赖）；md 图片不持久化到消息表/回放；越界判定大小写敏感（fail-safe 方向）；E2E 存量 31 failed 不属本批次。
+- **下一任务**：B10（七 打包体积，**L4 执行前需二次确认**）与 B11（八 写控制与外发，**L4**）可并行；B12 Docling PoC 收尾。
+
 ## 进度总览
 
 | 模块 | 任务数 | 状态 |
 |---|---|---|
 | 一 会话附件上传 | 4 | **全部完成**（一-1/一-2/一-3=B2，一-4=B3） |
 | 二 文档解析层 | 6 | 二-1/二-2 完成（B1）；二-3/二-4/二-6落库 完成（B7）；二-5 随 B12 |
-| 三 目录文件树 | 3 | 三-2 完成（B5）；三-1/三-3 随 B9 |
+| 三 目录文件树 | 3 | **全部完成**（三-2=B5，三-1/三-3=B9） |
 | 四 知识库/RAG | 4 | **全部完成**（四-1/四-2=B5、四-3=B4、四-4=B8） |
 | 五 多模态图片 | 3 | **全部完成**（B6） |
 | 六 工具与引用溯源 | 3 | **全部完成**（B8） |
-| 七 打包体积 | 3 | 未开始 |
-| 八 写控制与外发同意 | 3 | 未开始 |
+| 七 打包体积 | 3 | 未开始（B10，L4 需二次确认） |
+| 八 写控制与外发同意 | 3 | 未开始（B11，L4 需二次确认） |
