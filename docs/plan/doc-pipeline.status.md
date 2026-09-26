@@ -146,12 +146,26 @@ pdfjs-dist(110)、@anthropic-ai/sdk(107)、electron-builder(308) —— 全部 c
 - **遗留**：识别调用同步阻塞发送（多图串行、单次 60s 超时，异步三态留后续）；Skill 链路 content 类型已贯通但输入无附件来源故不注入（取舍 TDD §8.7）；`IImagePayload` 仍无调用方（无使用场景，不强行接线）；图片向量按范围外不动；E2E 存量 31 failed 与性能用例 flaky 不属本批次。
 - **下一任务**：B7（二-3 PDF 版面 + 二-4 D 路线 + 二-6 页码落库；D 路线图片计价复用 `estimateImageTokens`）。
 
+### B7 完成（2026-09-26）
+
+- **范围**：二-3 PDF 版面还原 + 二-4 D 路线（远程多模态兜底）+ 二-6 页码溯源落库（TDD strict，L3）。
+- **状态**：✅ 完成。证据：`docs/testing/doc-pipeline-b7.tdd.md`。
+- **交付**：
+  - **二-3 版面还原**：新建 `src/main/ai/files/pdfLayout.ts`（纯函数、零 native 依赖）——(X,Y) 坐标聚类分栏（coverage-gutter 切分、全宽行 band 分隔、**先左栏后右栏**）、字号 > 字符权重 10% 基准 → 标题层级 1-6、无框线表格列 x-start 对齐还原（**Markdown + CSV 两态**、填充率判据防双栏散文误判）、**跨页表格合并**（页末表 + 次页页首对齐行吸收、重复表头丢弃、全局保留首表表头）、**页眉页脚跨页重复剔除入 `metadata.headersFooters`**（顶/底带 + 数字归一化）、**无文本层双低判定**（字符数/页面积比）、`columnDetectFailed`/`tableConfidence` 信号；`parsePdf` 接线 liteparse `textItems` → `analyzePdfLayout` → 结构化产物（pageOffsets 分页溯源）。
+  - **二-4 D 路线**：新建 `src/main/ai/files/multimodalParse.ts`——`shouldUseDRoute` 显式三信号（no-text-layer / column-detect-failed / low-table-confidence，**正常文档不烧 token**）；`runDRoute` 执行：vision 前置判定（不支持 → 降级 A 路线 + 含模型名的显式提示、零请求）、页数上限 `MAX_D_ROUTE_PAGES=10` 截断显式提示、并发 `D_ROUTE_CONCURRENCY=2` 有界池、`estimateDRouteTokens` 复用 B6 `estimateImageTokens` 计价（调用后 `recordUsage` 图片归因）、`D_ROUTE_SYSTEM_PROMPT` 强制管道表格/数据输出禁评论感想、任一环节失败整体降级不产出残缺 D 文本；**`.doc` D 路线优先（Q3）**：有 userId 先试 D（pageCount=0 全渲染截断），不可用/降级 → 另存为 docx 文案。
+  - **二-6 页码落库**：`buildSourceRef` 增 pageOffsets 二分 → `{fileName, page, offset}` **替代 60 字符行号近似**（md/txt 保留 line 兼容）；`KbIndexOpts.pageOffsets` 贯通目录导入/附件导入/单文件导入三链路；`parsed_attachments` 新增 **D7 `structure_json` 列**（页码/章节/表格序号 + parseVersion，独立幂等迁移函数、不动 B3/B4 已应用迁移、三断言齐备）；composer `ingestFilePaths` 提取 `extractStructure` 随附件载荷透传，主进程 `sanitizeStructure` 白名单校验后落库；`DOCUMENT_PARSE_VERSION` 升 **2**（pageOffsets/metadata/csv/dRoute 契约扩展）。
+  - **接线**：`parseDocument` 增 `options.userId`（D 路线读 ai_config）；`KB_PARSE_DOCUMENT` 第 5 参 options（IPC 边界校验，无 options 向后兼容）；preload + renderer 3 个调用点传 userId；发送链路补解析传 userId + 结构回写 + **空文本 degraded 随 `IAttachmentMeta.error` 上屏**（无文本层给用户明确提示）。
+- **选型（记录于 TDD §8.1）**：坐标与栅格化均用 `@llamaindex/liteparse` 实测能力（`textItems` x/y/width/height/fontSize、`screenshot()` PNG）——**不引入 pdfjs-dist，体积门禁（B10）零增量**。
+- **门禁**：tsc 0 error / vitest **154 文件 3583 passed 0 failed**（B6 基线 3500 + 83）/ lint 0 error（106 warning，与基线持平）/ vite build 三段 exit 0 / E2E **31 failed·1 skipped·101 passed** 两轮实测与基线逐项一致、**零新增失败**；B7 触及文件语句覆盖率 **92.97%~100%**（聚合 95.79%，multimodalParse 首轮 73.38% 补默认依赖 8 例后 97.15%）。
+- **遗留**：D 路线逐页独立识读（页间跨页表在 D 产物不合并，A 路线有完整合并）；计划 §3 数据变更点漏列 B7（按 §2-B7 落库要求补 D7，见 TDD §8.3）；页眉页脚单页独有文本不剔（跨页语义）。
+- **下一任务**：B8（六-1 文档工具集 + 六-2 citation 回链 + 六-3 评测 + 四-4 检索质量，依赖 B7 真实页码）。
+
 ## 进度总览
 
 | 模块 | 任务数 | 状态 |
 |---|---|---|
 | 一 会话附件上传 | 4 | **全部完成**（一-1/一-2/一-3=B2，一-4=B3） |
-| 二 文档解析层 | 6 | 二-1/二-2/二-6契约 完成（B1）；二-3/二-4/二-6落库 随 B7；二-5 随 B12 |
+| 二 文档解析层 | 6 | 二-1/二-2 完成（B1）；二-3/二-4/二-6落库 完成（B7）；二-5 随 B12 |
 | 三 目录文件树 | 3 | 三-2 完成（B5）；三-1/三-3 随 B9 |
 | 四 知识库/RAG | 4 | 四-1/四-2/四-3 完成（B5/B4）；四-4 随 B8 |
 | 五 多模态图片 | 3 | **全部完成**（B6） |
