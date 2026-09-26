@@ -48,7 +48,7 @@ src/main/
 │   │   ├── kbIndexer.ts       # 导入/分块/增量重索引
 │   │   ├── kbSearch.ts        # FTS5 关键词召回
 │   │   └── embeddingClient.ts # Embedding 客户端
-│   ├── tools/                 # 工具处理器（24 个）
+│   ├── tools/                 # 工具处理器（28 个）
 │   │   ├── webSearch.ts       # web_search 联网搜索
 │   │   ├── webSearchHandler.ts
 │   │   ├── searchKBHandler.ts
@@ -78,12 +78,13 @@ src/main/
 
 ### 工具系统
 
-工具注册表 `toolRegistry.ts`（`handlerMap`）维护 **24 个工具**（5 核心 + 19 延迟加载）：
+工具注册表 `toolRegistry.ts`（`handlerMap`）维护 **28 个工具**（5 核心 + 23 延迟加载）：
 
 | 类别 | 工具 | 说明 |
 |------|------|------|
 | 只读 | listFiles, readFile, readLocalFile, listLocalDirectory | 文件访问 |
 | 只读 | searchKB, web_search, research_search | 检索 |
+| 只读 | searchDocument, readPage, extractTable, analyzeChart | 附件文档工具（B8） |
 | 只读 | analyze_folder, check_links, get_task_activity | 辅助 |
 | 写入 | createFile, createFolder, editLocalFile, deleteLocalFile | 文件操作 |
 | 写入 | editBlocks, preview_file_revision, preview_patch_files | 内容修改 |

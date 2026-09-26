@@ -413,3 +413,49 @@ describe('toolRegistry.executeTool', () => {
     expect(filesMock.getFile).not.toHaveBeenCalled();
   });
 });
+
+describe('searchKB — HyDE 查询向量（B8 四-4② 收益复核前置：路径生效断言）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('hyde:true → generateHydeVector 生成的 queryVector 透传 searchKb', async () => {
+    const gen = vi.fn(async () => [0.1, 0.2, 0.3]);
+    const searchKb: SearchKbFn = vi.fn(async () => ({
+      refused: false,
+      threshold: 0.6,
+      best: null,
+      results: [],
+    }));
+    const res = await executeTool(
+      'searchKB',
+      JSON.stringify({ query: 'hyde-query-alpha', hyde: true }),
+      makeCtx({ searchKb, generateHydeVector: gen })
+    );
+    expect(res.status).toBe('ok');
+    expect(gen).toHaveBeenCalledWith('hyde-query-alpha');
+    expect((searchKb as ReturnType<typeof vi.fn>).mock.calls[0][2]).toMatchObject({
+      queryVector: [0.1, 0.2, 0.3],
+    });
+  });
+
+  it('未传 hyde → 不调用 generateHydeVector（默认路径零额外成本）', async () => {
+    const gen = vi.fn(async () => [0.9]);
+    const searchKb: SearchKbFn = vi.fn(async () => ({
+      refused: false,
+      threshold: 0.6,
+      best: null,
+      results: [],
+    }));
+    const res = await executeTool(
+      'searchKB',
+      JSON.stringify({ query: 'plain-query-beta' }),
+      makeCtx({ searchKb, generateHydeVector: gen })
+    );
+    expect(res.status).toBe('ok');
+    expect(gen).not.toHaveBeenCalled();
+    expect((searchKb as ReturnType<typeof vi.fn>).mock.calls[0][2]).toMatchObject({
+      queryVector: undefined,
+    });
+  });
+});

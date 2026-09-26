@@ -385,3 +385,35 @@ describe('vectorBackfill.scheduleVectorBackfill — 防抖与可观测', () => {
     expect(res.refused).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// B8 四-4②：回填侧向量输入带 heading_path 前缀（与写索引同构，防两侧向量空间错位）
+// ---------------------------------------------------------------------------
+
+describe('vectorBackfill — 向量侧上下文前缀（四-4②）', () => {
+  it('行含 heading_path → embedding 输入带前缀；无 heading_path → 原文', async () => {
+    fake.state.total = 2;
+    fake.state.batches = [
+      [
+        { chunkId: 'c1', content: '正文一', headingPath: '季度报告 > 收入' },
+        { chunkId: 'c2', content: '正文二', headingPath: null },
+      ],
+      [],
+    ];
+    embedMock.createEmbedding.mockResolvedValue({
+      embeddings: [[0.1], [0.2]],
+      model: 'emb-m1',
+      usage: { promptTokens: 2 },
+    });
+
+    const status = await runVectorBackfill('u1');
+
+    expect(status.phase).toBe('done');
+    const input = (embedMock.createEmbedding.mock.calls[0][0] as { input: string[] }).input;
+    expect(input[0]).toBe('季度报告 > 收入\n正文一');
+    expect(input[1]).toBe('正文二');
+    // 扫描 SQL 需取 heading_path 列（前缀数据来源）
+    const scan = callOf('all', 'embedding_model IS NOT');
+    expect(scan?.sql).toContain('heading_path');
+  });
+});

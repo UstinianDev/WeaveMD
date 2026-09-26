@@ -15,6 +15,7 @@ import { getEmbeddingConfig } from '../../db/embeddingConfig';
 import { decryptApiKey } from '../secureConfig';
 import { getDatabase } from '../../db/index';
 import { createEmbedding } from './embeddingClient';
+import { chunkEmbeddingText } from './kbIndexer';
 
 // ---------------------------------------------------------------------------
 // 配置解析（kbIndexOpts 与回填任务共用的唯一判定入口）
@@ -189,15 +190,22 @@ export async function runVectorBackfill(
     let processed = 0;
     for (let batch = 0; batch < maxBatches; batch++) {
       const rows = db
-        .prepare(`SELECT c.id AS chunkId, c.content AS content ${where} ORDER BY c.created_at, c.seq LIMIT ?`)
-        .all(userId, emb.model, batchSize) as Array<{ chunkId: string; content: string }>;
+        .prepare(
+          `SELECT c.id AS chunkId, c.content AS content, c.heading_path AS headingPath ${where} ORDER BY c.created_at, c.seq LIMIT ?`
+        )
+        .all(userId, emb.model, batchSize) as Array<{
+        chunkId: string;
+        content: string;
+        headingPath: string | null;
+      }>;
       if (rows.length === 0) break;
 
       const response = await createEmbedding({
         baseUrl: emb.baseUrl,
         model: emb.model,
         apiKey: emb.apiKey,
-        input: rows.map((r) => r.content ?? ''),
+        // B8 四-4②：回填侧与写索引同构 —— 向量输入带 headingPath 前缀（FTS 不动）
+        input: rows.map((r) => chunkEmbeddingText(r.headingPath, r.content ?? '')),
       });
 
       const update = db.prepare(

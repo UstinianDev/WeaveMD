@@ -9,7 +9,7 @@ AI/Agent 系统是 WeaveMD 的智能创作辅助模块，**remote-only**（Ollam
 按 `ai_config.protocol` 分流到 **OpenAI 兼容** 或 **Anthropic** 两条协议，提供：
 
 - 函数调用循环（Agent Loop）
-- 24 个工具（5 核心 + 19 延迟加载；只读/写入/交互/搜索）
+- 28 个工具（5 核心 + 23 延迟加载；只读/写入/交互/搜索）
 - 意图路由（规则启发式 6 类）
 - 上下文压缩
 - Skills 体系
@@ -105,8 +105,8 @@ LLM 流式调用（带 tools 定义）
 
 ## 工具系统
 
-工具注册表 `toolRegistry.ts`（`handlerMap`）维护 **24 个工具** —— 5 个核心工具发送完整 JSON Schema，
-19 个延迟工具仅发名称 stub + `defer_loading: true`，被选中时再补 schema 重发（上限 3 次）：
+工具注册表 `toolRegistry.ts`（`handlerMap`）维护 **28 个工具** —— 5 个核心工具发送完整 JSON Schema，
+23 个延迟工具仅发名称 stub + `defer_loading: true`，被选中时再补 schema 重发（上限 3 次）：
 
 ### 只读工具
 
@@ -123,6 +123,7 @@ LLM 流式调用（带 tools 定义）
 | check_links | 内部链接检查 |
 | get_task_activity | 任务活动查询 |
 | list_skills / get_skill_details | 技能系统 |
+| searchDocument / readPage / extractTable / analyzeChart | 附件文档工具（B8：关键词+页码检索 / 按页读取 / 抽表 CSV / 图表定位分析） |
 
 ### 写入工具
 

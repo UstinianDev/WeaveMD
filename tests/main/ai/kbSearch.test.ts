@@ -426,3 +426,76 @@ describe('kbSearch.aggregateAndExpand — heading_path 生效（四-2②）', ()
     expect(result.best!.score).toBeCloseTo(1 / 61, 4);
   });
 });
+
+// ---------------------------------------------------------------------------
+// B8 六-3：固定 query 集检索命中率回归（可自动化指标）
+// ---------------------------------------------------------------------------
+
+describe('kbSearch — 固定 query 集命中率回归（B8 六-3）', () => {
+  interface FixedCase {
+    query: string;
+    /** bm 为 BM25 原始分（负值，越小越好——与 bm25() 语义一致） */
+    rows: Array<{ chunkId: string; bm: number; headingPath?: string }>;
+    expectTop: string;
+  }
+
+  // 5 条固定样例：BM25 候选序 + 1 条 heading 加权（RRF + 加权排序稳定）
+  const FIXED_QUERIES: FixedCase[] = [
+    {
+      query: '固定集-收入增长',
+      rows: [
+        { chunkId: 'rev-1', bm: -12 },
+        { chunkId: 'rev-2', bm: -3 },
+      ],
+      expectTop: 'rev-1',
+    },
+    {
+      query: '固定集-成本上升',
+      rows: [
+        { chunkId: 'cost-1', bm: -2 },
+        { chunkId: 'cost-2', bm: -9 },
+      ],
+      expectTop: 'cost-2',
+    },
+    {
+      query: '固定集-单候选',
+      rows: [{ chunkId: 'only-1', bm: -5 }],
+      expectTop: 'only-1',
+    },
+    {
+      query: '固定集-三候选',
+      rows: [
+        { chunkId: 'tri-1', bm: -7 },
+        { chunkId: 'tri-2', bm: -8 },
+        { chunkId: 'tri-3', bm: -1 },
+      ],
+      expectTop: 'tri-2',
+    },
+    {
+      // heading 加权路径：headingPath 非空候选参与 headingBoost，排序仍稳定
+      query: '固定集-标题统领',
+      rows: [
+        { chunkId: 'head-win', bm: -8, headingPath: '指南 > 检索' },
+        { chunkId: 'plain-lose', bm: -5 },
+      ],
+      expectTop: 'head-win',
+    },
+  ];
+
+  it('5 条固定查询 top1 命中率 = 100%（RRF + heading 加权排序稳定）', async () => {
+    let hits = 0;
+    for (const fq of FIXED_QUERIES) {
+      // 按真实 FTS SQL（ORDER BY bm 升序 = BM25 最优在前）的输出序注入；
+      // 候选分属不同文档（避免段聚合把同文档 chunk 合并改变 top1）
+      const ordered = [...fq.rows].sort((a, b) => a.bm - b.bm);
+      fakeRows.value = ordered.map((r) => ({
+        ...makeCandidate({ chunkId: r.chunkId, bm: r.bm }),
+        documentId: `doc-${r.chunkId}`,
+        headingPath: r.headingPath ?? null,
+      }));
+      const res = await searchKB('u1', fq.query, { topK: 3, threshold: 0.01 });
+      if (!res.refused && res.results[0]?.chunkId === fq.expectTop) hits += 1;
+    }
+    expect(hits).toBe(FIXED_QUERIES.length);
+  });
+});

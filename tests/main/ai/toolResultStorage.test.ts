@@ -368,3 +368,28 @@ describe('toolResultStorage', () => {
     });
   });
 });
+// ---------------------------------------------------------------------------
+// B8 六-1②：extract_table 超预算 —— 落盘降级不截断丢数据
+// ---------------------------------------------------------------------------
+
+describe('B8 extract_table 预算落盘（六-1②）', () => {
+  it('大 CSV 超单结果预算 → 落盘完整、预览带路径（数据零丢失）', async () => {
+    const dir = setTempDir();
+    try {
+      const csv = ['H1,H2', ...Array.from({ length: 6000 }, (_, i) => `a${i},b${i}`)].join('\n');
+      const content = JSON.stringify({ table: { index: 1, csv } });
+      expect(content.length).toBeGreaterThan(MAX_SINGLE_RESULT_CHARS);
+
+      const res = await persistLargeResult('extract_table', content, 'call_extract_eval');
+
+      expect(res.persisted).toBe(true);
+      expect(res.filePath).toBeTruthy();
+      expect(res.displayContent).toContain(res.filePath!);
+      // 完整内容写盘：S6 落盘是「预览替换」而非「截断丢弃」
+      expect(fs.readFileSync(res.filePath!, 'utf-8')).toBe(content);
+      expect(res.displayContent.length).toBeLessThan(content.length);
+    } finally {
+      cleanTempDir(dir);
+    }
+  });
+});

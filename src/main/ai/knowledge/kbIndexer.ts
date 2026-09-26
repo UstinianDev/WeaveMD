@@ -408,6 +408,19 @@ export interface KbIndexOpts {
 
 const EMBED_BATCH_SIZE = 20;
 
+/**
+ * B8 四-4②：向量侧上下文前缀（Anthropic「Chunk 文本 + 上下文说明 → 再索引」思路）。
+ * **仅用于 embedding 输入**——FTS5 content 保持原文，避免前缀污染关键词召回
+ * （取舍：仅向量侧加前缀 / FTS5 侧保持原样，四-4②）。写索引与回填共用本函数，
+ * 保证两侧向量空间同构；headingPath 为空（老数据/纯文本）原样返回。
+ */
+export function chunkEmbeddingText(
+  headingPath: string | null | undefined,
+  text: string
+): string {
+  return headingPath ? `${headingPath}\n${text}` : text;
+}
+
 /** 分块并依次落库（FTS 文本 + 可选向量嵌入）。返回落库 chunk 数。 */
 async function writeChunks(
   documentId: string,
@@ -437,7 +450,11 @@ async function writeChunks(
     headingPath: chunk.headingPath,
   }));
   const insertedRows = insertChunksBatch(batchInput);
-  const insertedChunks = insertedRows.map((row, i) => ({ id: row.id, text: chunks[i].text }));
+  const insertedChunks = insertedRows.map((row, i) => ({
+    id: row.id,
+    // B8 四-4②：向量输入带 headingPath 前缀（FTS content 已按原文落库）
+    embedText: chunkEmbeddingText(chunks[i].headingPath, chunks[i].text),
+  }));
 
   // 第二步：批量生成向量（如果配置了 embedding）
   if (embeddingConfig && insertedChunks.length > 0) {
@@ -445,7 +462,7 @@ async function writeChunks(
       const db = getDatabase();
       for (let i = 0; i < insertedChunks.length; i += EMBED_BATCH_SIZE) {
         const batch = insertedChunks.slice(i, i + EMBED_BATCH_SIZE);
-        const texts = batch.map((c) => c.text);
+        const texts = batch.map((c) => c.embedText);
 
         const response = await createEmbedding({
           baseUrl: embeddingConfig.baseUrl,

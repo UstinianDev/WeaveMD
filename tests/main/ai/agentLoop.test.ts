@@ -932,3 +932,35 @@ describe('collectCitations / mergeCitations（B8 六-2 收集器）', () => {
     expect(new Set(merged.map((e) => e.sourceRef)).size).toBe(10);
   });
 });
+
+describe('B6 降级补齐（B8 六-3）：vision 不支持 → 显式提示注入', () => {
+  it('附件含图片且模型不支持 vision → system 消息注入 VISION_DEGRADED_NOTICE（不静默丢图）', async () => {
+    llmMock.streamChatCompletion.mockImplementation(() =>
+      (async function* () {
+        yield { delta: '完成' };
+      })()
+    );
+    const controller = new AbortController();
+    await runAgentFlow(
+      makeEvent(),
+      payload({
+        attachments: [
+          { id: 'i1', type: 'image', name: 'a.png', parseStatus: 'done', path: 'attachments/u1/c1/i1.png' },
+        ],
+      }),
+      makeConfig(), // deepseek-chat 不支持 vision
+      'enc:key',
+      controller,
+      { consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null } }
+    );
+    const msgs = llmMock.streamChatCompletion.mock.calls[0][0].messages as Array<{
+      role: string;
+      content: unknown;
+    }>;
+    const systemTexts = msgs.filter((m) => m.role === 'system').map((m) => String(m.content));
+    expect(systemTexts.some((t) => t.includes('当前模型不支持图片理解'))).toBe(true);
+    // 图片本身未产 part（content 保持纯文本）
+    const userMsg = msgs.filter((m) => m.role === 'user').pop();
+    expect(typeof userMsg?.content).toBe('string');
+  });
+});

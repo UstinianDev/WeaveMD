@@ -63,6 +63,10 @@ vi.mock('@main/db/index', () => ({
   getDatabase: () => new FakeDatabase(),
 }));
 
+// B8 四-4②：向量侧上下文前缀（createEmbedding 可断言入参）
+const embedMock = vi.hoisted(() => ({ createEmbedding: vi.fn() }));
+vi.mock('@main/ai/knowledge/embeddingClient', () => embedMock);
+
 import {
   splitNote,
   indexFile,
@@ -537,5 +541,59 @@ describe('kbIndexer.buildSourceRef — 附件与文件锚点（B8 六-2）', () 
     expect(inserts.length).toBeGreaterThan(0);
     const ref = JSON.parse(String(inserts[0].args[4]));
     expect(ref.fileId).toBe('f-1');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B8 四-4②：chunk 上下文前缀 —— 仅向量侧加前缀、FTS5 侧保持原样
+// ---------------------------------------------------------------------------
+
+describe('kbIndexer — 向量侧上下文前缀（四-4②）', () => {
+  beforeEach(() => {
+    embedMock.createEmbedding.mockReset();
+    embedMock.createEmbedding.mockResolvedValue({
+      embeddings: [[0.1, 0.2, 0.3, 0.4]],
+      model: 'm',
+      usage: { promptTokens: 1 },
+    });
+  });
+
+  it('headingPath 非空 → embedding 输入带标题路径前缀；FTS content 保持原文', async () => {
+    await indexImportedText('u1', 'note', '# 一级标题\n正文一段。', {
+      embedding: { baseUrl: 'http://x', model: 'm', apiKey: 'k' },
+    });
+    // FTS 侧：kb_chunks.content 原文（不带前缀，避免污染关键词召回）
+    const insert = callOf('run', 'INSERT INTO kb_chunks');
+    expect(insert).toBeDefined();
+    const rawContent = String(insert!.args[3]);
+    expect(rawContent).toContain('正文一段');
+    expect(rawContent.startsWith('一级标题\n')).toBe(false);
+    // 向量侧：embedding input 首行为标题路径（上下文前缀）
+    const input = (embedMock.createEmbedding.mock.calls[0][0] as { input: string[] }).input;
+    expect(input[0].startsWith('一级标题\n')).toBe(true);
+    expect(input[0]).toContain('正文一段');
+  });
+
+  it('headingPath 空（纯文本 txt）→ embedding 输入为原文（不加前缀）', async () => {
+    await indexImportedText('u1', 'note', '纯文本正文，无标题。', {
+      embedding: { baseUrl: 'http://x', model: 'm', apiKey: 'k' },
+    });
+    const input = (embedMock.createEmbedding.mock.calls[0][0] as { input: string[] }).input;
+    expect(input[0]).toBe('纯文本正文，无标题。');
+  });
+
+  it('六-3 页码溯源回归：多页文档 chunk source_ref 页码单调且首块 page=1', async () => {
+    const content = 'A'.repeat(700) + '\n' + 'B'.repeat(700) + '\n' + 'C'.repeat(700);
+    await indexImportedText('u1', 'report.pdf', content, { pageOffsets: [0, 700, 1400] });
+    const inserts = calls.filter(
+      (c) => c.method === 'run' && c.sql.includes('INSERT INTO kb_chunks')
+    );
+    expect(inserts.length).toBeGreaterThanOrEqual(3);
+    const pages = inserts.map((c) => (JSON.parse(String(c.args[4])) as { page?: number }).page);
+    expect(pages[0]).toBe(1);
+    for (let i = 1; i < pages.length; i += 1) {
+      expect(pages[i]).toBeGreaterThanOrEqual(pages[i - 1] as number);
+    }
+    expect(Math.max(...pages.map((p) => p ?? 0))).toBeLessThanOrEqual(3);
   });
 });
