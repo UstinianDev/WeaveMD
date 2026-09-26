@@ -6,7 +6,40 @@
 // 显式提示（不静默出垃圾）、渲染/识读失败降级、结构化表格输出提示词。
 // 全程注入 deps —— 不加载 native、不发网络请求。
 
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// --- B7 默认依赖生产路径覆盖用 mock（全部用例注入 deps 时零影响） ---
+const hoisted = vi.hoisted(() => ({
+  recordUsage: vi.fn(),
+  getAiConfig: vi.fn(),
+  decryptApiKey: vi.fn(),
+  liteparseScreenshot: vi.fn(),
+  streamChatCompletion: vi.fn(),
+  streamAnthropicCompletion: vi.fn(),
+}));
+vi.mock('@main/ai/costTracker', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@main/ai/costTracker')>();
+  return {
+    ...actual,
+    getCostTracker: vi.fn(() => ({ recordUsage: hoisted.recordUsage })),
+  };
+});
+vi.mock('@main/db/ai', () => ({ getAiConfig: hoisted.getAiConfig }));
+vi.mock('@main/ai/secureConfig', () => ({ decryptApiKey: hoisted.decryptApiKey }));
+vi.mock('@llamaindex/liteparse', () => ({
+  LiteParse: class {
+    screenshot = hoisted.liteparseScreenshot;
+  },
+  default: class {
+    screenshot = hoisted.liteparseScreenshot;
+  },
+}));
+vi.mock('@main/ai/llm/llmClient', () => ({
+  streamChatCompletion: hoisted.streamChatCompletion,
+}));
+vi.mock('@main/ai/llm/anthropicClient', () => ({
+  streamAnthropicCompletion: hoisted.streamAnthropicCompletion,
+}));
 
 import { estimateImageTokens } from '@main/ai/costTracker';
 import {
@@ -244,5 +277,240 @@ describe('estimateDRouteTokens', () => {
   it('= 图片 token（B6 计价）+ 每页文本预算', () => {
     expect(estimateDRouteTokens(3)).toBe(estimateImageTokens(3) + 3 * 120);
     expect(estimateDRouteTokens(0)).toBe(0);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// B7 默认依赖生产路径（动态 import 的真实现覆盖 —— 新增代码 ≥80%）
+// ---------------------------------------------------------------------------
+
+describe('runDRoute — 默认依赖生产路径', () => {
+  beforeEach(() => {
+    hoisted.getAiConfig.mockReset();
+    hoisted.decryptApiKey.mockReset();
+    hoisted.liteparseScreenshot.mockReset();
+    hoisted.streamChatCompletion.mockReset();
+    hoisted.streamAnthropicCompletion.mockReset();
+    hoisted.recordUsage.mockReset();
+  });
+
+  /** 只注入 supportsVision/readPage，逼 resolveConfig/renderPages 走默认实现。 */
+  function depsFor(overrides: Partial<DRouteDeps> = {}): Partial<DRouteDeps> {
+    return {
+      supportsVision: vi.fn(() => false),
+      ...overrides,
+    };
+  }
+
+  it('defaultResolveConfig 读 ai_config + safeStorage 解密（不注入 resolveConfig）', async () => {
+    hoisted.getAiConfig.mockReturnValue({
+      model: 'gpt-4o',
+      remoteBaseUrl: 'https://api.example.com/v1',
+      protocol: 'openai',
+      apiKeyEnc: 'enc-blob',
+    });
+    hoisted.decryptApiKey.mockReturnValue('sk-plain');
+    const out = await runDRoute({
+      buffer: Buffer.from('x'),
+      fileName: 'a.pdf',
+      fileType: 'pdf',
+      pageCount: 1,
+      fallbackText: 'A',
+      userId: 'u1',
+      deps: depsFor(), // supportsVision: false → 解析成功后停在 no-vision
+    });
+    expect(out.status).toBe('degraded');
+    if (out.status === 'degraded') {
+      expect(out.reason).toBe('no-vision');
+      expect(out.notice).toContain('gpt-4o');
+    }
+    expect(hoisted.getAiConfig).toHaveBeenCalledWith('u1');
+    expect(hoisted.decryptApiKey).toHaveBeenCalledWith('enc-blob');
+  });
+
+  it('ai_config 缺失 → no-config 降级（不触达解密与渲染）', async () => {
+    hoisted.getAiConfig.mockReturnValue(null);
+    const out = await runDRoute({
+      buffer: Buffer.from('x'),
+      fileName: 'a.pdf',
+      fileType: 'pdf',
+      pageCount: 1,
+      fallbackText: 'A',
+      userId: 'u1',
+      deps: depsFor(),
+    });
+    expect(out.status).toBe('degraded');
+    if (out.status === 'degraded') expect(out.reason).toBe('no-config');
+    expect(hoisted.decryptApiKey).not.toHaveBeenCalled();
+    expect(hoisted.liteparseScreenshot).not.toHaveBeenCalled();
+  });
+
+  it('decryptApiKey 抛错 → apiKey 缺省降级到 vision 判定（不中断）', async () => {
+    hoisted.getAiConfig.mockReturnValue({
+      model: 'deepseek-chat',
+      remoteBaseUrl: 'https://api.deepseek.com',
+      protocol: 'openai',
+      apiKeyEnc: 'bad',
+    });
+    hoisted.decryptApiKey.mockImplementation(() => {
+      throw new Error('decrypt fail');
+    });
+    const out = await runDRoute({
+      buffer: Buffer.from('x'),
+      fileName: 'a.pdf',
+      fileType: 'pdf',
+      pageCount: 1,
+      fallbackText: 'A',
+      userId: 'u1',
+      deps: depsFor(),
+    });
+    expect(out.status).toBe('degraded');
+    if (out.status === 'degraded') expect(out.reason).toBe('no-vision');
+  });
+
+  it('defaultRenderPages：页数未知（pageCount=0）→ screenshot 全页（null 语义）', async () => {
+    hoisted.getAiConfig.mockReturnValue({
+      model: 'gpt-4o',
+      remoteBaseUrl: 'https://api.example.com/v1',
+      protocol: 'openai',
+      apiKeyEnc: null,
+    });
+    hoisted.liteparseScreenshot.mockResolvedValue([
+      { pageNum: 1, imageBuffer: Buffer.from('png1') },
+      { pageNum: 2, imageBuffer: Buffer.from('png2') },
+    ]);
+    const out = await runDRoute({
+      buffer: Buffer.from('x'),
+      fileName: 'legacy.doc',
+      fileType: 'doc',
+      pageCount: 0,
+      fallbackText: '',
+      userId: 'u1',
+      deps: depsFor({ supportsVision: vi.fn(() => true), readPage: vi.fn(async (r) => `ok:${r.pageNum}`) }),
+    });
+    expect(out.status).toBe('used');
+    // 全页调用：第二参为 null/undefined（native null 语义）
+    const args = hoisted.liteparseScreenshot.mock.calls[0];
+    expect(args.length === 1 || args[1] == null).toBe(true);
+    if (out.status === 'used') {
+      expect(out.pagesRendered).toBe(2);
+      expect(out.text).toContain('ok:1');
+      expect(out.text).toContain('ok:2');
+    }
+  });
+
+  it('defaultRenderPages：已知页数 → screenshot 指定页子集', async () => {
+    hoisted.getAiConfig.mockReturnValue({
+      model: 'gpt-4o',
+      remoteBaseUrl: 'https://api.example.com/v1',
+      protocol: 'openai',
+      apiKeyEnc: null,
+    });
+    hoisted.liteparseScreenshot.mockResolvedValue([
+      { pageNum: 1, imageBuffer: Buffer.from('p1') },
+      { pageNum: 2, imageBuffer: Buffer.from('p2') },
+    ]);
+    const out = await runDRoute({
+      buffer: Buffer.from('x'),
+      fileName: 'a.pdf',
+      fileType: 'pdf',
+      pageCount: 2,
+      fallbackText: '',
+      userId: 'u1',
+      deps: depsFor({ supportsVision: vi.fn(() => true), readPage: vi.fn(async () => 'text') }),
+    });
+    expect(out.status).toBe('used');
+    expect(hoisted.liteparseScreenshot.mock.calls[0][1]).toEqual([1, 2]);
+  });
+
+  it('defaultReadPage：OpenAI 流累加 delta + 计价上报（图片 token 归因）', async () => {
+    hoisted.getAiConfig.mockReturnValue({
+      model: 'gpt-4o',
+      remoteBaseUrl: 'https://api.example.com/v1',
+      protocol: 'openai',
+      apiKeyEnc: null,
+    });
+    hoisted.liteparseScreenshot.mockResolvedValue([
+      { pageNum: 1, imageBuffer: Buffer.from('p1') },
+    ]);
+    hoisted.streamChatCompletion.mockImplementation(async function* () {
+      yield { delta: 'structured ' };
+      yield { delta: 'markdown', usage: { promptTokens: 100, completionTokens: 20 } };
+    });
+    const out = await runDRoute({
+      buffer: Buffer.from('x'),
+      fileName: 'a.pdf',
+      fileType: 'pdf',
+      pageCount: 1,
+      fallbackText: '',
+      userId: 'u1',
+      deps: depsFor({ supportsVision: vi.fn(() => true) }), // readPage 走默认
+    });
+    expect(out.status).toBe('used');
+    if (out.status === 'used') expect(out.text).toContain('structured markdown');
+    expect(hoisted.streamChatCompletion).toHaveBeenCalledTimes(1);
+    // 计价：图片 token 归因进 costTracker（二-4② 计价链路覆盖图片）
+    expect(hoisted.recordUsage).toHaveBeenCalledTimes(1);
+    const usageArg = hoisted.recordUsage.mock.calls[0][0];
+    expect(usageArg.usage.imageTokens).toBe(estimateImageTokens(1));
+    expect(usageArg.intent).toBe('document_d_route');
+  });
+
+  it('defaultReadPage：anthropic protocol 分流到 streamAnthropicCompletion', async () => {
+    hoisted.getAiConfig.mockReturnValue({
+      model: 'claude-sonnet-4',
+      remoteBaseUrl: 'https://api.anthropic.com',
+      protocol: 'anthropic',
+      apiKeyEnc: null,
+    });
+    hoisted.liteparseScreenshot.mockResolvedValue([
+      { pageNum: 1, imageBuffer: Buffer.from('p1') },
+    ]);
+    hoisted.streamAnthropicCompletion.mockImplementation(async function* () {
+      yield { delta: 'anthropic ok' };
+    });
+    const out = await runDRoute({
+      buffer: Buffer.from('x'),
+      fileName: 'a.pdf',
+      fileType: 'pdf',
+      pageCount: 1,
+      fallbackText: '',
+      userId: 'u1',
+      deps: depsFor({ supportsVision: vi.fn(() => true) }),
+    });
+    expect(out.status).toBe('used');
+    expect(hoisted.streamAnthropicCompletion).toHaveBeenCalledTimes(1);
+    expect(hoisted.streamChatCompletion).not.toHaveBeenCalled();
+    if (out.status === 'used') expect(out.text).toContain('anthropic ok');
+  });
+
+  it('defaultReadPage：空响应抛错 → llm-failed 降级（不产出空 D 文本）', async () => {
+    hoisted.getAiConfig.mockReturnValue({
+      model: 'gpt-4o',
+      remoteBaseUrl: 'https://api.example.com/v1',
+      protocol: 'openai',
+      apiKeyEnc: null,
+    });
+    hoisted.liteparseScreenshot.mockResolvedValue([
+      { pageNum: 1, imageBuffer: Buffer.from('p1') },
+    ]);
+    hoisted.streamChatCompletion.mockImplementation(async function* () {
+      yield { delta: '' };
+    });
+    const out = await runDRoute({
+      buffer: Buffer.from('x'),
+      fileName: 'a.pdf',
+      fileType: 'pdf',
+      pageCount: 1,
+      fallbackText: 'fallback text',
+      userId: 'u1',
+      deps: depsFor({ supportsVision: vi.fn(() => true) }),
+    });
+    expect(out.status).toBe('degraded');
+    if (out.status === 'degraded') {
+      expect(out.reason).toBe('llm-failed');
+      expect(out.text).toBe('fallback text');
+    }
   });
 });

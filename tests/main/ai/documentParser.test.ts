@@ -257,6 +257,16 @@ describe('xlsx 解析（二-2）', () => {
     ]);
   });
 
+  it('表格同时产出 Markdown 与 CSV 两态（二-6②）', () => {
+    const md = xlsxResult.tables[0].markdown;
+    const csv = xlsxResult.tables[0].csv!;
+    expect(md).toContain('| Region | Q1 | Q2 |');
+    expect(csv.split('\n')[0]).toBe('Region,Q1,Q2');
+    expect(csv.split('\n')[1]).toBe('North,10,20');
+    // 两态行数一致（表头 + 数据行）
+    expect(csv.split('\n').length).toBe(md.split('\n').length - 1);
+  });
+
   it('路径输入与 Buffer 输入产物一致', async () => {
     const r = await parseDocument(xlsxFilePath, 'data.xlsx');
     expect(r.error).toBeUndefined();
