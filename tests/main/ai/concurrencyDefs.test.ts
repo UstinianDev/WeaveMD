@@ -41,9 +41,12 @@ const WRITE_TOOLS = new Set([
 ]);
 
 // 其余工具（阶段 1 默认 false，fail-closed）：
-// listLocalDirectory / web_search / research_search / runSkill / readFileRevision
-// listFileRevisions / getFileInfo / ask_question_card / preview_file_revision / preview_patch_files
+// listLocalDirectory / web_search / research_search / runSkill
+// / ask_question_card / preview_file_revision / preview_patch_files
 // → 全部在 Test 7 中逐条验证返回 false
+// （B8 六-1②：陈旧名 readFileRevision/listFileRevisions/getFileInfo 已清理——
+//   不在定义表中即 fail-closed 串行，Test 7 断言语义保持）
+// B8 文档四工具：searchDocument/readPage/extractTable/analyzeChart → 并发安全 true
 
 describe('concurrencyDefs', () => {
   // -------------------------------------------------------------------------
@@ -108,11 +111,11 @@ describe('concurrencyDefs', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test 6: isToolConcurrencySafe covers ALL 24 tools from registry
+  // Test 6: isToolConcurrencySafe covers ALL 28 tools from registry
   // -------------------------------------------------------------------------
-  it('covers all 24 tools from defineCoreTools (no throw, defined value)', () => {
+  it('covers all 28 tools from defineCoreTools (no throw, defined value)', () => {
     const registryTools = defineCoreTools().map((t) => t.function.name);
-    expect(registryTools).toHaveLength(24);
+    expect(registryTools).toHaveLength(28);
 
     for (const name of registryTools) {
       // 不抛异常，返回值必须是 boolean
@@ -136,11 +139,18 @@ describe('concurrencyDefs', () => {
     expect(isToolConcurrencySafe('get_task_activity', {})).toBe(true);
     expect(isToolConcurrencySafe('readLocalFile', {})).toBe(true);
 
+    // B8 文档四工具：只读 → 并发安全（不落 fail-closed 串行陷阱）
+    expect(isToolConcurrencySafe('searchDocument', {})).toBe(true);
+    expect(isToolConcurrencySafe('readPage', {})).toBe(true);
+    expect(isToolConcurrencySafe('extractTable', {})).toBe(true);
+    expect(isToolConcurrencySafe('analyzeChart', {})).toBe(true);
+
     // Phase 2: read tools still serial
     expect(isToolConcurrencySafe('listLocalDirectory', {})).toBe(false);
     expect(isToolConcurrencySafe('web_search', {})).toBe(false);
     expect(isToolConcurrencySafe('research_search', {})).toBe(false);
     expect(isToolConcurrencySafe('runSkill', {})).toBe(false);
+    // 陈旧工具名（已清理出定义表）→ 未知工具 fail-closed 串行
     expect(isToolConcurrencySafe('readFileRevision', {})).toBe(false);
     expect(isToolConcurrencySafe('listFileRevisions', {})).toBe(false);
     expect(isToolConcurrencySafe('getFileInfo', {})).toBe(false);

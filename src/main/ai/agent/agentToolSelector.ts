@@ -14,14 +14,16 @@ export { isToolConcurrencySafe } from './concurrencyDefs';
 // 常量
 // ---------------------------------------------------------------------------
 
-/** 只读工具集合（无副作用，可并行执行）。 */
+/** 只读工具集合（无副作用，可并行执行）。B8 六-1②：陈旧名已清理 + 文档四工具入区。 */
 export const READ_ONLY_TOOLS = new Set([
-  'listFiles', 'readFile', 'searchKB', 'readFileRevision',
-  'listFileRevisions', 'getFileInfo', 'readLocalFile', 'listLocalDirectory',
+  'listFiles', 'readFile', 'searchKB',
+  'readLocalFile', 'listLocalDirectory',
   'analyze_folder', 'check_links', 'get_task_activity', 'web_search',
   'editBlocks',
   'research_search',
   'list_skills', 'get_skill_details',
+  // B8 文档工具集（只读）
+  'searchDocument', 'readPage', 'extractTable', 'analyzeChart',
 ]);
 
 /** 写入工具集合（有副作用，需串行执行 + 预览通知）。 */
@@ -76,6 +78,11 @@ export function toolsForIntent(
   names.add('get_task_activity');
   names.add('list_skills');
   names.add('get_skill_details');
+  // B8 六-1：文档四工具对所有意图可用（与 readLocalFile 同为只读基础区）
+  names.add('searchDocument');
+  names.add('readPage');
+  names.add('extractTable');
+  names.add('analyzeChart');
 
   // Agentic RAG：web_search 对所有非 chat 意图可用（与 searchKB 模式对齐）
   // 让 LLM 自主决定是否需要联网搜索，而非由意图路由硬性限制

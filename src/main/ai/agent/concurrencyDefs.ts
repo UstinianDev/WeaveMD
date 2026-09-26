@@ -29,14 +29,21 @@ const CONCURRENCY_DEFS: Record<string, ConcurrencyDef> = {
 
   // ==========================================
   // 其余只读工具 — 阶段 2 补全（当前串行执行）
+  // B8 六-1②：陈旧名 readFileRevision/listFileRevisions/getFileInfo 已清理
+  //（不在表中 → fail-closed 串行，语义不变；避免照抄坏范式）
   // ==========================================
   'listLocalDirectory':    { defaultSafe: false },
   'web_search':            { defaultSafe: false },
   'research_search':       { defaultSafe: false },
   'runSkill':              { defaultSafe: false },
-  'readFileRevision':      { defaultSafe: false },
-  'listFileRevisions':     { defaultSafe: false },
-  'getFileInfo':           { defaultSafe: false },
+
+  // ==========================================
+  // B8 文档四工具 — 只读并发安全（不落 fail-closed 串行陷阱）
+  // ==========================================
+  'searchDocument':        { defaultSafe: true },
+  'readPage':              { defaultSafe: true },
+  'extractTable':          { defaultSafe: true },
+  'analyzeChart':          { defaultSafe: true },
 
   // ==========================================
   // 写入工具 — 始终串行

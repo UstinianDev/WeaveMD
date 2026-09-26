@@ -276,6 +276,27 @@ export function sanitizeStructure(raw: unknown): IDocumentStructure | undefined 
         };
       });
   }
+  if (Array.isArray(rec.images)) {
+    // B8 六-1：图片序号白名单（index 正整数；sectionPath 字符串数组；pageIndex 可选）
+    out.images = rec.images
+      .filter(
+        (img): img is { index: number; sectionPath: string[]; pageIndex?: number } =>
+          !!img && typeof img === 'object' &&
+          typeof (img as { index?: unknown }).index === 'number' &&
+          Number.isInteger((img as { index: number }).index) &&
+          (img as { index: number }).index >= 1
+      )
+      .map((img) => {
+        const im = img as { sectionPath?: unknown; pageIndex?: unknown };
+        return {
+          index: (img as { index: number }).index,
+          sectionPath: Array.isArray(im.sectionPath)
+            ? im.sectionPath.filter((s): s is string => typeof s === 'string')
+            : [],
+          ...(typeof im.pageIndex === 'number' ? { pageIndex: im.pageIndex } : {}),
+        };
+      });
+  }
   if (rec.metadata && typeof rec.metadata === 'object') {
     const md = rec.metadata as { headersFooters?: unknown };
     out.metadata = {
@@ -397,6 +418,8 @@ export async function persistIncomingAttachments(
                 ...(t.pageIndex != null ? { pageIndex: t.pageIndex } : {}),
                 ...(t.csv != null ? { csv: t.csv } : {}),
               })),
+              // B8 六-1：图片序号随解析结构落库（analyzeChart 定位锚点）
+              ...(parsed.images.length > 0 ? { images: parsed.images } : {}),
               ...(parsed.metadata ? { metadata: parsed.metadata } : {}),
               parseVersion: parsed.parseVersion,
             });

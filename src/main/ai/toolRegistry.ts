@@ -7,9 +7,11 @@
 //
 // S5 工具延迟加载：
 // - 核心工具（5 个）：始终发送完整 JSON Schema → 缓存前缀稳定
-// - 延迟工具（19 个）：仅发送名称 stub + defer_loading: true 标记
+// - 延迟工具（23 个）：仅发送名称 stub + defer_loading: true 标记
 // - 当 LLM 选择调用延迟工具时，拦截 → 补充完整 schema → 重发请求
 // - 重发上限 3 次，防止死循环
+// B8 六-1：文档四工具 searchDocument/readPage/extractTable/analyzeChart
+// 全部只读 + defer（description 静态，严禁动态内容破坏 prompt 前缀缓存）。
 
 import type { ToolDef } from '@shared/ai';
 import type { ToolCtx, ToolHandler, ToolResult } from './toolTypes';
@@ -39,6 +41,10 @@ import { handleEditLocalFile } from './tools/editLocalFileHandler';
 import { handleDeleteLocalFile, deleteLocalFileSchema } from './tools/deleteLocalFile';
 import { executePreviewFileRevision, previewFileRevisionSchema } from './tools/previewFileRevision';
 import { handleListSkills, handleGetSkillDetails } from './tools/skillToolsHandler';
+import { handleSearchDocument } from './tools/searchDocument';
+import { handleReadPage } from './tools/readPage';
+import { handleExtractTable } from './tools/extractTable';
+import { handleAnalyzeChart } from './tools/analyzeChart';
 
 // Schema 导入（defineCoreTools 需要）
 import { askQuestionCardSchema } from './tools/askQuestionCard';
@@ -78,6 +84,11 @@ const handlerMap = new Map<string, ToolHandler>([
   ['preview_file_revision', executePreviewFileRevision],
   ['list_skills', handleListSkills],
   ['get_skill_details', handleGetSkillDetails],
+  // B8 六-1 文档工具集（只读，落 READ_ONLY_TOOLS + concurrencyDefs 并发安全）
+  ['searchDocument', handleSearchDocument],
+  ['readPage', handleReadPage],
+  ['extractTable', handleExtractTable],
+  ['analyzeChart', handleAnalyzeChart],
 ]);
 
 // ---------------------------------------------------------------------------
@@ -297,6 +308,79 @@ const CORE_TOOLS: ToolDef[] = [
           skill_name: { type: 'string', description: '技能名称' },
         },
         required: ['skill_name'],
+      },
+    },
+    defer_loading: true,
+  },
+  // ---- B8 六-1 文档四工具（只读；description 写明与 searchKB/readLocalFile 边界） ----
+  {
+    type: 'function',
+    function: {
+      name: 'searchDocument',
+      description:
+        '在当前会话已解析附件的正文中检索关键词（只读），返回命中片段与真实页码/章节路径。与 searchKB 的区别：searchKB 跨文档查知识库分块索引，本工具查附件原文的页码级片段。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: '要查找的关键词（不区分大小写的子串匹配）' },
+          attachment_id: { type: 'string', description: '目标附件 id（可选，缺省按当前会话附件解析）' },
+          file_name: { type: 'string', description: '附件文件名（可选，attachment_id 缺省时按名匹配）' },
+          top_k: { type: 'number', description: '返回匹配数上限（默认 5，最大 20）' },
+        },
+        required: ['query'],
+      },
+    },
+    defer_loading: true,
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'readPage',
+      description:
+        '按页码读取当前会话已解析附件的单页正文（只读，需页码结构；PDF/多模态产物可用）。md/txt 附件无页码时请改用 searchDocument。',
+      parameters: {
+        type: 'object',
+        properties: {
+          page: { type: 'number', description: '页码（从 1 起）' },
+          attachment_id: { type: 'string', description: '目标附件 id（可选，缺省按当前会话附件解析）' },
+          file_name: { type: 'string', description: '附件文件名（可选）' },
+        },
+        required: ['page'],
+      },
+    },
+    defer_loading: true,
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'extractTable',
+      description:
+        '提取当前会话已解析附件中的表格（只读）。不带 table_index 返回表格清单（序号/章节/页码/行列数），带 table_index 返回该表完整 CSV。',
+      parameters: {
+        type: 'object',
+        properties: {
+          table_index: { type: 'number', description: '表格全局序号（从 1 起；缺省返回清单）' },
+          attachment_id: { type: 'string', description: '目标附件 id（可选）' },
+          file_name: { type: 'string', description: '附件文件名（可选）' },
+        },
+      },
+    },
+    defer_loading: true,
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'analyzeChart',
+      description:
+        '定位文档图表并返回其所在页/章节、上下文文本与关联数据表（CSV，只读），供基于数据分析。不在工具内做像素识读（解析期已将图表转为数据表）。page 与 image_index 至少提供一个。',
+      parameters: {
+        type: 'object',
+        properties: {
+          page: { type: 'number', description: '图表所在页码（分页产物用）' },
+          image_index: { type: 'number', description: '图片/图表全局序号（结构化产物用，如 docx）' },
+          attachment_id: { type: 'string', description: '目标附件 id（可选）' },
+          file_name: { type: 'string', description: '附件文件名（可选）' },
+        },
       },
     },
     defer_loading: true,

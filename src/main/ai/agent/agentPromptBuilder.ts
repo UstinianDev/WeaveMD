@@ -232,6 +232,7 @@ export function buildAgentSystemPrompt(
     '- 修改文件 → editBlocks（当前文档）/ preview_file_revision（任意文件）/ editLocalFile（本地文件直接修改）。',
     '- 本地文件 → readLocalFile/editLocalFile/listLocalDirectory，返回绝对路径后续直接使用。',
     '- 检索 → searchKB：当用户问题可能与笔记/文档相关时，主动检索知识库。首次用宽泛关键词，后续换不同角度，最多 2-3 次。信息不足时如实说明。传 hyde:true 可启用假设性文档检索（适合语义复杂的查询）。',
+    '- 文档附件 → searchDocument/readPage/extractTable/analyzeChart：查当前会话上传附件的原文（关键词命中含页码、按页读取、抽取表格 CSV、图表数据定位）。跨文档/笔记检索用 searchKB；原始本地文件用 readLocalFile。',
     '- 联网搜索 → web_search：搜索互联网获取最新信息。搜索结果包含 title、url、snippet（摘要）。**必须基于搜索结果回答问题**，不得声称"没有找到信息"。如果结果中有相关内容，直接引用并注明来源 URL；如果结果确实不相关，尝试换关键词重新搜索。',
     '- **URL 查询规则**：当用户提供 URL 并询问网站信息时，**必须调用 web_search 工具**搜索该网站的相关信息。不要仅从 URL 提取域名返回 JSON，必须搜索网站的实际内容、功能、背景等信息并用自然语言回答。',
     '- 提问 → ask_question_card（支持 text/choice/confirm 三种类型），暂停等待回答。每次向用户提问都必须使用此工具，不可在回复文本中直接提问。',

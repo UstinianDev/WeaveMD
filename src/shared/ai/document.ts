@@ -123,6 +123,8 @@ export interface IDocumentStructure {
     pageIndex?: number;
     csv?: string;
   }>;
+  /** 图片/图表序号与位置（B8 六-1 analyzeChart 定位锚点；历史行无该字段向后兼容）。 */
+  images?: IDocumentImage[];
   metadata?: IDocumentParseMetadata;
   parseVersion: number;
 }
@@ -141,6 +143,8 @@ export function extractStructure(
       ...(t.pageIndex != null ? { pageIndex: t.pageIndex } : {}),
       ...(t.csv != null ? { csv: t.csv } : {}),
     })),
+    // B8 六-1：图片序号随结构落库（analyzeChart 定位锚点；空数组不写省带宽）
+    ...(result.images && result.images.length > 0 ? { images: result.images } : {}),
     ...(result.metadata ? { metadata: result.metadata } : {}),
     parseVersion: result.parseVersion ?? DOCUMENT_PARSE_VERSION,
   };

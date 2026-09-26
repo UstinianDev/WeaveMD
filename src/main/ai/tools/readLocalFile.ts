@@ -25,10 +25,12 @@ export const handleReadLocalFile: ToolHandler = (args): ToolResult => {
       return { content: '', status: 'error', errorDesc: `路径不是文件: ${filePath}` };
     }
     if (stat.size > MAX_FILE_SIZE) {
+      // B8 六-1②：原文案指向不存在的 readFile 分块参数——改为如实说明限制
+      // （readLocalFile 不支持分块；分块读取列为范围外后续，取舍记录于 TDD）
       return {
         content: '',
         status: 'error',
-        errorDesc: `文件过大（${Math.round(stat.size / 1024)}KB > 1000KB），请使用 readFile 分块读取`,
+        errorDesc: `文件过大（${Math.round(stat.size / 1024)}KB > 1000KB），readLocalFile 不支持分块读取`,
       };
     }
 

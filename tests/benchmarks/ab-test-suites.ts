@@ -140,6 +140,8 @@ const DEFERRED_NAMES = [
   'deleteFile', 'research_search', 'readLocalFile', 'listLocalDirectory',
   'editLocalFile', 'deleteLocalFile', 'preview_file_revision', 'list_skills',
   'get_skill_details',
+  // B8 文档四工具（与生产注册表 28 工具保持同步）
+  'searchDocument', 'readPage', 'extractTable', 'analyzeChart',
 ];
 
 let s2Defer: boolean = false;
@@ -147,8 +149,8 @@ let s2Defer: boolean = false;
 export const deferredLoadingSuite: ABTestConfig = {
   name: 'S5: Deferred Tool Loading',
   description:
-    `24 tools total (5 core + 19 deferred). ` +
-    `A: all 24 with full JSON Schema. B: 5 core full schema + 19 stubs (name only).`,
+    `28 tools total (5 core + 23 deferred). ` +
+    `A: all 28 with full JSON Schema. B: 5 core full schema + 23 stubs (name only).`,
   higherIsBetter: new Set([]), // lower token count = better
 
   setupA: () => {
