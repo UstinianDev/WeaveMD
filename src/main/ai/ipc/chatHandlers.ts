@@ -30,6 +30,7 @@ import {
 import { cancelPendingByConversation } from '../../db/agentTaskDao';
 import { getDatabase } from '../../db/index';
 import { persistIncomingAttachments } from '../../db/attachments';
+import { deleteConversationImages } from '../image/imageStorage';
 import { decryptApiKey } from '../secureConfig';
 import { needsConsent } from '../consent';
 import { streamChatCompletion } from '../llm/llmClient';
@@ -90,6 +91,14 @@ export function registerChatHandlers(): void {
     (_event, conversationId: string, userId: string) => {
       try {
         const deleted = deleteConversation(conversationId, userId);
+        // B6 五-2②：删除会话 → 同步清理该会话的落盘图片（对齐 cleanupKbAfterFileDelete 模式）
+        if (deleted) {
+          try {
+            deleteConversationImages(userId, conversationId);
+          } catch {
+            // 文件清理失败不影响删除结果
+          }
+        }
         return { success: true, data: { deleted } };
       } catch (error) {
         return { success: false, message: 'Failed to delete conversation' };

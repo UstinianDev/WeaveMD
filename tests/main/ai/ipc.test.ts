@@ -126,6 +126,21 @@ const rewriteMock = vi.hoisted(() => ({
 }));
 vi.mock('@main/ai/rewrite', () => rewriteMock);
 
+// B6 五-2②：删除会话/附件时清理落盘图片
+const imageStorageMock = vi.hoisted(() => ({
+  deleteConversationImages: vi.fn(() => 0),
+  deleteAttachmentImage: vi.fn(() => false),
+  storeAttachmentImage: vi.fn(),
+  getAttachmentsRoot: vi.fn(() => ''),
+  resolveStoredPath: vi.fn((p: string) => p),
+  toRelativePath: vi.fn(() => null),
+  isRelativeAttachmentPath: vi.fn(() => false),
+  MAX_IMAGE_BYTES: 10 * 1024 * 1024,
+  ALLOWED_IMAGE_EXTS: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'],
+  REJECTED_IMAGE_EXTS: ['svg'],
+}));
+vi.mock('@main/ai/image/imageStorage', () => imageStorageMock);
+
 import type { CoreSkill } from '@main/ai/skills/skillLoader';
 
 const skillLoaderMock = vi.hoisted(() => ({
@@ -301,6 +316,18 @@ describe('ai:ipc handlers', () => {
     ]) {
       expect(electronMock.handlers.get(ch)).toBeDefined();
     }
+  });
+
+  it('B6 五-2②：删除成功 → 同步清理该会话落盘图片', async () => {
+    imageStorageMock.deleteConversationImages.mockClear();
+    dbMock.deleteConversation.mockReturnValue(true);
+    const result = (await getHandler(IPC_CHANNELS.AI_CONVERSATION_DELETE)(
+      makeEvent(),
+      'c9',
+      'u1'
+    )) as { success: boolean; data: { deleted: boolean } };
+    expect(result.data.deleted).toBe(true);
+    expect(imageStorageMock.deleteConversationImages).toHaveBeenCalledWith('u1', 'c9');
   });
 
   it('AI_GET_CONFIG never leaks api key — only exposes hasApiKey flag', async () => {

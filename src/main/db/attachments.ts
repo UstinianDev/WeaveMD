@@ -19,9 +19,31 @@ import {
 import { parseDocument } from '../ai/files/documentParser';
 import { parseWithLimit } from '../ai/files/parseLimiter';
 import { removeByAttachment } from '../ai/knowledge/kbIndexer';
+import {
+  deleteAttachmentImage,
+  MAX_IMAGE_BYTES,
+  storeAttachmentImage,
+  type StoreImageErrorCode,
+} from '../ai/image/imageStorage';
 
 /** 单条消息附件数上限（边界防护，超限截断；chips 折叠 UI 另有 5 个可视上限）。 */
 export const MAX_ATTACHMENTS_PER_MESSAGE = 20;
+
+/** 图片落盘失败 → 用户可读提示（五-2②：格式拒绝 / 大小上限 / 文件缺失）。 */
+export function imageStoreErrorMessage(code: StoreImageErrorCode): string {
+  switch (code) {
+    case 'unsupported_format':
+      return '不支持该图片格式（SVG 请先另存为 PNG）';
+    case 'too_large':
+      return `图片超过 ${Math.round(MAX_IMAGE_BYTES / (1024 * 1024))}MB 上限，请压缩后重试`;
+    case 'invalid_source':
+      return '图片文件不存在或已被移动';
+    case 'write_failed':
+      return '图片保存失败';
+    default:
+      return '图片处理失败';
+  }
+}
 
 /** parsed_attachments 行（camel 映射）。 */
 export interface ParsedAttachmentRecord {
@@ -136,6 +158,10 @@ export function updateParsedAttachmentContent(
  */
 export function removeParsedAttachment(id: string, userId: string): boolean {
   const db = getDatabase();
+  // 先取会话归属（参数化查询），删除成功后一并清理该附件的落盘图片
+  const row = db
+    .prepare('SELECT conversation_id FROM parsed_attachments WHERE id = ? AND user_id = ?')
+    .get(id, userId) as { conversation_id: string | null } | undefined;
   const info = db
     .prepare('DELETE FROM parsed_attachments WHERE id = ? AND user_id = ?')
     .run(id, userId);
@@ -143,6 +169,10 @@ export function removeParsedAttachment(id: string, userId: string): boolean {
   if (removed) {
     // 删除附件 → 清理 kb_documents（source_type='attachment' 关联行）+ 搜索缓存失效
     removeByAttachment(userId, id);
+    // 删除附件 → 清理落盘图片（五-2②，对齐 ipc-handlers.ts 清理模式）
+    if (row?.conversation_id) {
+      deleteAttachmentImage(userId, row.conversation_id, id);
+    }
   }
   return removed;
 }
@@ -219,6 +249,10 @@ export async function persistIncomingAttachments(
   for (const att of items) {
     const id = att.id ?? randomUUID();
     let status: AttachmentParseStatus = 'pending';
+    /** 图片落盘后的相对路径（写进 attachments_json，不存 base64，五-2②）。 */
+    let storedRelPath: string | undefined;
+    /** 图片落盘失败的人类可读提示（svg 拒绝 / 超限等）。 */
+    let imageError: string | undefined;
     try {
       insertParsedAttachment({
         id,
@@ -230,7 +264,27 @@ export async function persistIncomingAttachments(
         parseStatus: 'pending',
       });
 
-      if (att.content) {
+      if (att.fileType === 'image') {
+        // 五-2：图片落盘 userData/attachments/{userId}/{convId}/{id}.{ext}；
+        // content 不写 base64（粘贴 data URL 就地解码写盘），svg/超限 → error 三态可见
+        const outcome = storeAttachmentImage({
+          userId,
+          conversationId: conversationId || '',
+          id,
+          fileName: att.fileName,
+          ...(att.path ? { sourcePath: att.path } : {}),
+          ...(att.content ? { dataUrl: att.content } : {}),
+        });
+        if (outcome.ok) {
+          storedRelPath = outcome.value.relPath;
+          updateParsedAttachmentStatus(id, userId, 'done');
+          status = 'done';
+        } else {
+          imageError = imageStoreErrorMessage(outcome.error);
+          updateParsedAttachmentStatus(id, userId, 'error');
+          status = 'error';
+        }
+      } else if (att.content) {
         updateParsedAttachmentContent(id, userId, att.content, 'done');
         status = 'done';
       } else if (att.path && att.fileType === 'file' && isSupportedDocFile(att.fileName)) {
@@ -252,7 +306,7 @@ export async function persistIncomingAttachments(
           status = 'error';
         }
       } else if (att.path) {
-        // 图片仅有本地路径：不需要文本解析（vision/落盘随 B6）
+        // 非白名单扩展名但带本地路径：无解析产物可写，沿用既有语义记 done（正文空）
         updateParsedAttachmentStatus(id, userId, 'done');
         status = 'done';
       } else {
@@ -262,14 +316,24 @@ export async function persistIncomingAttachments(
     } catch (err) {
       // DB 层异常不阻断发送（单附件失败不断批），状态按已有信息兜底
       console.warn('[attachments] persist failed:', err instanceof Error ? err.message : String(err));
-      status = att.content ? 'done' : 'error';
+      // 图片落盘异常一律 error（三态可见），文件按是否已有产物兜底
+      status = att.fileType === 'image' ? 'error' : att.content ? 'done' : 'error';
     }
 
     metas.push({
       id,
       type: att.fileType,
       name: att.fileName,
-      ...(att.path ? { path: att.path } : {}),
+      // 图片只存落盘相对路径（落盘失败不回退原始路径，绝对路径读取时重建）；
+      // 文件仍为原始绝对路径
+      ...(imageError ? { error: imageError } : {}),
+      ...(storedRelPath
+        ? { path: storedRelPath }
+        : att.fileType === 'image'
+          ? {}
+          : att.path
+            ? { path: att.path }
+            : {}),
       ...(typeof att.size === 'number' ? { size: att.size } : {}),
       parseStatus: status,
     });

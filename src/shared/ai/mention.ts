@@ -42,6 +42,8 @@ export interface IAttachmentMeta {
   path?: string;
   size?: number;
   parseStatus?: AttachmentParseStatus;
+  /** 附件失败的人类可读原因（svg 拒绝 / 超限 / 落盘失败），三态渲染展示用 */
+  error?: string;
   /** 渲染层存活态缩略图（data URL），不持久化 */
   thumb?: string;
 }

@@ -76,6 +76,32 @@ const kbIndexerMock = vi.hoisted(() => ({
 }));
 vi.mock('@main/ai/knowledge/kbIndexer', () => kbIndexerMock);
 
+// B6 五-2：图片落盘（真实写盘在 imageStorage.test.ts 覆盖，此处只断言发送链路接线）
+const imageStorageMock = vi.hoisted(() => ({
+  storeAttachmentImage: vi.fn(
+    (
+      input: { userId: string; conversationId: string; id: string; fileName: string }
+    ): { ok: true; value: { relPath: string; size: number; mimeType: string } } | { ok: false; error: string } => ({
+      ok: true,
+      value: {
+        relPath: `attachments/${input.userId}/${input.conversationId}/${input.id}.png`,
+        size: 4,
+        mimeType: 'image/png',
+      },
+    })
+  ),
+  deleteAttachmentImage: vi.fn(() => true),
+  deleteConversationImages: vi.fn(() => 0),
+  getAttachmentsRoot: vi.fn(() => ''),
+  resolveStoredPath: vi.fn((p: string) => p),
+  toRelativePath: vi.fn(() => null),
+  isRelativeAttachmentPath: vi.fn(() => false),
+  MAX_IMAGE_BYTES: 10 * 1024 * 1024,
+  ALLOWED_IMAGE_EXTS: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'],
+  REJECTED_IMAGE_EXTS: ['svg'],
+}));
+vi.mock('@main/ai/image/imageStorage', () => imageStorageMock);
+
 import { parseDocument } from '@main/ai/files/documentParser';
 import {
   insertParsedAttachment,
@@ -117,6 +143,8 @@ function statusSeqOf(id: string): string[] {
 beforeEach(() => {
   reset();
   vi.mocked(parseDocument).mockReset();
+  imageStorageMock.storeAttachmentImage.mockClear();
+  imageStorageMock.deleteAttachmentImage.mockClear();
 });
 
 // ---------------------------------------------------------------------------
@@ -189,6 +217,15 @@ describe('parsed_attachments DAO — 参数化与 user_id 归属过滤', () => {
     const removed = removeParsedAttachment('att1', 'u1');
     expect(removed).toBe(true);
     expect(kbIndexerMock.removeByAttachment).toHaveBeenCalledWith('u1', 'att1');
+  });
+
+  it('B6 五-2：删除成功 → 同步清理落盘图片（按会话归属定位）', () => {
+    setSingleRow({ conversation_id: 'c9' });
+    imageStorageMock.deleteAttachmentImage.mockClear();
+    const removed = removeParsedAttachment('att9', 'u1');
+    expect(removed).toBe(true);
+    expect(imageStorageMock.deleteAttachmentImage).toHaveBeenCalledWith('u1', 'c9', 'att9');
+    setSingleRow(undefined);
   });
 
   it('B4：删除未命中（changes=0）→ 不触发 KB 清理', () => {
@@ -340,16 +377,41 @@ describe('persistIncomingAttachments — 三态流转与两表分工', () => {
     expect(statusSeqOf('i1')).toEqual(['pending', 'done']);
     expect(metas[0].parseStatus).toBe('done');
     expect(metas[0].type).toBe('image');
+    // 五-2：源路径交落盘 handler，消息存相对路径
+    expect(imageStorageMock.storeAttachmentImage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'i1', sourcePath: 'C:/pics/shot.png' })
+    );
+    expect(metas[0].path).toBe('attachments/u1/c1/i1.png');
   });
 
-  it('图片粘贴 data URL：正文转存 parsed_attachments.content，元数据不携带', async () => {
+  it('图片粘贴 data URL：落盘转存、base64 绝不进 parsed_attachments.content（五-2②）', async () => {
     const metas = await persistIncomingAttachments('u1', 'c1', [
       { id: 'i2', fileName: 'clipboard-a.png', fileType: 'image', content: 'data:image/png;base64,AAA' },
     ]);
-    const done = runCalls().find((c) => c.sql.includes('SET content') && c.args.includes('i2'));
-    expect(done?.args).toEqual(['data:image/png;base64,AAA', 'done', 'i2', 'u1']);
+    // data URL 交给落盘，而不是写 content 列
+    expect(imageStorageMock.storeAttachmentImage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'i2', dataUrl: 'data:image/png;base64,AAA' })
+    );
+    const contentWrites = runCalls().filter(
+      (c) => c.sql.includes('SET content') && c.args.includes('i2')
+    );
+    expect(contentWrites).toHaveLength(0);
+    // 消息元数据存落盘相对路径
+    expect(metas[0].path).toBe('attachments/u1/c1/i2.png');
     expect(metas[0].parseStatus).toBe('done');
     expect(metas[0]).not.toHaveProperty('content');
+  });
+
+  it('图片落盘失败（svg/超限）→ pending → error 三态可见', async () => {
+    imageStorageMock.storeAttachmentImage.mockReturnValueOnce({ ok: false, error: 'unsupported_format' });
+    const metas = await persistIncomingAttachments('u1', 'c1', [
+      { id: 'i3', fileName: 'logo.svg', fileType: 'image', path: 'C:/pics/logo.svg' },
+    ]);
+    expect(statusSeqOf('i3')).toEqual(['pending', 'error']);
+    expect(metas[0].parseStatus).toBe('error');
+    expect(metas[0]).not.toHaveProperty('path');
+    // 五-2② 拒绝提示随元数据回传（气泡直接展示原因）
+    expect(metas[0].error).toContain('SVG');
   });
 
   it('既无正文也无路径 → pending → error', async () => {

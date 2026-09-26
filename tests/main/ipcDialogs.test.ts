@@ -140,6 +140,20 @@ describe('DIALOG_PICK_IMAGE handler', () => {
     expect(winArg).toBe(win);
     expect(options.filters[0].extensions).toContain('png');
   });
+
+  it('B6 五-2②：图片过滤器剔除 svg（矢量图不可直喂 vision），保留 gif/webp/bmp', async () => {
+    electronMock.fromWebContents.mockReturnValue({});
+    electronMock.showOpenDialog.mockResolvedValue({ canceled: true, filePaths: [] });
+    await getPickImage()({ sender: {} });
+    const [, options] = (electronMock.showOpenDialog.mock.calls[0] as unknown[]) as [
+      unknown,
+      { filters: { extensions: string[] }[] },
+    ];
+    expect(options.filters[0].extensions).not.toContain('svg');
+    for (const ext of ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp']) {
+      expect(options.filters[0].extensions).toContain(ext);
+    }
+  });
 });
 
 // ============================================

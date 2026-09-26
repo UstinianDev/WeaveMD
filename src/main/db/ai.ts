@@ -9,6 +9,12 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'crypto';
 import { getDatabase } from './index';
+// B6 五-2：图片附件存相对路径、读取时重建绝对路径（electron 不可用时原样透传）
+import {
+  isRelativeAttachmentPath,
+  resolveStoredPath,
+  toRelativePath,
+} from '../ai/image/imageStorage';
 import {
   DEFAULT_KB_SETTINGS,
   normalizeKbSettings,
@@ -506,14 +512,28 @@ interface AiMessageDbRow {
  */
 function serializeAttachments(attachments: IAttachmentMeta[]): string {
   return JSON.stringify(
-    attachments.map((a) => ({
-      id: a.id,
-      type: a.type,
-      name: a.name,
-      ...(a.path ? { path: a.path } : {}),
-      ...(typeof a.size === 'number' ? { size: a.size } : {}),
-      ...(a.parseStatus ? { parseStatus: a.parseStatus } : {}),
-    }))
+    attachments.map((a) => {
+      // 图片一律以相对路径落库（附件根本外的原始路径保留原样，B6 五-2②）
+      const rel = a.path && a.type === 'image' ? toRelativePath(a.path) ?? a.path : a.path;
+      return {
+        id: a.id,
+        type: a.type,
+        name: a.name,
+        ...(rel ? { path: rel } : {}),
+        ...(typeof a.size === 'number' ? { size: a.size } : {}),
+        ...(a.parseStatus ? { parseStatus: a.parseStatus } : {}),
+        ...(a.error ? { error: a.error.slice(0, 200) } : {}),
+      };
+    })
+  );
+}
+
+/** 读取时把图片相对路径重建为绝对路径（userData 迁移不失效；非图片/绝对路径原样返回）。 */
+function resolveAttachmentPaths(attachments: IAttachmentMeta[]): IAttachmentMeta[] {
+  return attachments.map((a) =>
+    a.type === 'image' && a.path && isRelativeAttachmentPath(a.path)
+      ? { ...a, path: resolveStoredPath(a.path) }
+      : a
   );
 }
 
@@ -531,7 +551,7 @@ function mapMessageRow(row: AiMessageDbRow): IAIMessage {
   if (row.attachments_json) {
     try {
       const parsed: unknown = JSON.parse(row.attachments_json);
-      if (Array.isArray(parsed)) attachments = parsed as IAttachmentMeta[];
+      if (Array.isArray(parsed)) attachments = resolveAttachmentPaths(parsed as IAttachmentMeta[]);
     } catch {
       attachments = undefined;
     }

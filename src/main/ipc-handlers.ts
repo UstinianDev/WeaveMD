@@ -182,7 +182,8 @@ export function registerAllIpcHandlers(): void {
 
     const result = await dialog.showOpenDialog(win, {
       title: 'Select Image',
-      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'] }],
+      // B6 五-2②：svg 矢量图不可直喂 vision → 选择框直接剔除（存储层同样拒绝）
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }],
       properties: ['openFile'],
     });
 
