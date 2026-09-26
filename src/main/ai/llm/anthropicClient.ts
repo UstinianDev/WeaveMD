@@ -15,6 +15,7 @@
 //   costTracker 的 promptTokens 语义对齐）
 
 import type { StreamChatCompletionOptions, StreamChunk } from './llmClient';
+import { toAnthropicContent, type AnthropicContentBlock } from './anthropicCompat';
 import { createStreamController, makeError, normalizeBaseUrl } from './streamScaffold';
 
 const ANTHROPIC_VERSION = '2023-06-01';
@@ -213,14 +214,22 @@ export async function* streamAnthropicCompletion(
   const sc = createStreamController(opts.signal, opts.timeoutMs);
 
   // 分离 system 消息与 user/assistant 消息
+  // B6 五-1：content 数组 → Anthropic text/image block（与 OpenAI image_url 两套协议分流）
   const systemParts: string[] = [];
-  const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  const messages: Array<{ role: 'user' | 'assistant'; content: string | AnthropicContentBlock[] }> = [];
 
   for (const msg of opts.messages) {
     if (msg.role === 'system') {
-      systemParts.push(msg.content);
+      systemParts.push(
+        typeof msg.content === 'string'
+          ? msg.content
+          : msg.content
+              .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+              .map((p) => p.text)
+              .join('')
+      );
     } else if (msg.role === 'user' || msg.role === 'assistant') {
-      messages.push({ role: msg.role, content: msg.content });
+      messages.push({ role: msg.role, content: toAnthropicContent(msg.content) });
     }
   }
 

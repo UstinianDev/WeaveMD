@@ -78,6 +78,17 @@ vi.mock('@main/ai/contextManager', () => ({
     ...(msgs as Array<{ role: string; content: string }>),
   ],
   estimateTokens: (t: string) => Math.ceil((t || '').length / 4),
+  // B6 五-1：content 数组贯通所需的新导出（mock 补齐，避免 agentLoop 运行期 undefined）
+  contentToText: (c: unknown) =>
+    typeof c === 'string'
+      ? c
+      : Array.isArray(c)
+        ? (c as Array<{ type: string; text?: string }>)
+            .map((p) => (p.type === 'text' ? (p.text ?? '') : '[图片]'))
+            .join('')
+        : '',
+  estimateContentTokens: (c: unknown) =>
+    Math.ceil((typeof c === 'string' ? c : JSON.stringify(c ?? '')).length / 4),
   shouldCompress: contextMock.shouldCompress,
   summarizeViaLlm: contextMock.summarizeViaLlm,
 }));
@@ -212,6 +223,7 @@ import { prepareAgentContext } from '@main/ai/agent/agentContext';
 import { executeToolRound } from '@main/ai/agent/agentToolExecutor';
 import { classifyIntent } from '@main/ai/intentRouter';
 import { estimateTokens } from '@main/ai/utils/tokenEstimator';
+import { contentToText } from '@main/ai/contextManager';
 import { toolsForIntent } from '@main/ai/agent/agentToolSelector';
 import { buildAgentSystemPrompt } from '@main/ai/agent/agentPromptBuilder';
 import { buildDocumentContext } from '@main/ai/agent/agentPromptBuilder';
@@ -509,7 +521,7 @@ async function runScenario1_SimpleChat(): Promise<PerfScenario> {
     ];
     let tokens = 0;
     for (const m of messages) {
-      tokens += estimateTokens(m.content);
+      tokens += estimateTokens(contentToText(m.content));
     }
     return tokens;
   });
@@ -591,7 +603,7 @@ async function runScenario2_MultiTool(): Promise<PerfScenario> {
   const { ms: messageBuildMs } = measurePhaseSync('messageBuild', () => {
     let tokens = 0;
     for (const m of ctx.llmMessages) {
-      tokens += estimateTokens(m.content);
+      tokens += estimateTokens(contentToText(m.content));
     }
     tokens += estimateTokens(JSON.stringify({ results: Array.from({ length: 10 }, (_, i) => ({ file_id: `f${i}`, content: `笔记内容 ${i}` })) }));
     return tokens;
@@ -840,7 +852,7 @@ async function runScenario5_WriteConfirm(): Promise<PerfScenario> {
   const { ms: messageBuildMs } = measurePhaseSync('messageBuild', () => {
     let tokens = 0;
     for (const m of ctx.llmMessages) {
-      tokens += estimateTokens(m.content);
+      tokens += estimateTokens(contentToText(m.content));
     }
     return tokens;
   });

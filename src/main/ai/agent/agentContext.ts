@@ -16,7 +16,7 @@ import { listFiles } from '../../db/files';
 import { getEmbeddingConfig } from '../../db/embeddingConfig';
 import { decryptApiKey } from '../secureConfig';
 import { classifyIntent } from '../intentRouter';
-import { buildCompressed, estimateTokens, type LlmMessage } from '../contextManager';
+import { buildCompressed, contentToText, estimateContentTokens, type LlmMessage } from '../contextManager';
 import { streamChatCompletionWithRetry } from '../llm/llmClient';
 import { streamAnthropicCompletion } from '../llm/anthropicClient';
 import { createEmbedding } from '../knowledge/embeddingClient';
@@ -317,7 +317,7 @@ export function prepareAgentContext(
       content: m.content,
       ...(m.toolCallId ? { tool_call_id: m.toolCallId } : {}),
     }))
-    .filter((m) => m.content && m.content.trim().length > 0);
+    .filter((m) => contentToText(m.content).trim().length > 0);
 
   // 关键修复：cleanupIncompleteMessages 会移除末尾无 assistant 跟随的 user 消息，
   // 但当前 user 消息（刚由 appendMessage 保存）还没有 assistant 回复，
@@ -397,7 +397,7 @@ export function prepareAgentContext(
   }
 
   // 初始 token 统计
-  const initTokens = llmMessages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+  const initTokens = llmMessages.reduce((sum, m) => sum + estimateContentTokens(m.content), 0);
 
   return {
     convId,

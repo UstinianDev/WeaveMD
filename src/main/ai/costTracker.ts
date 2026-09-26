@@ -24,6 +24,12 @@ export interface TokenUsage {
   cacheReadTokens: number;
   /** 写入缓存消耗的 prompt tokens（Anthropic cache write）。是 promptTokens 的子集。 */
   cacheCreationTokens: number;
+  /**
+   * 本轮消息中的图片 token（估算值，B6 五-1 计价归因）。
+   * Provider 的 promptTokens **已包含**图片 token，故本字段只用于归因展示，
+   * 不再叠加进 estimatedCostUsd（避免重复计费）。
+   */
+  imageTokens?: number;
 }
 
 /** 单次 LLM 调用的成本记录。 */
@@ -34,6 +40,8 @@ export interface CostEntry {
   usage: TokenUsage;
   /** 估算美元成本（基于模型单价）。 */
   estimatedCostUsd: number;
+  /** 图片 token 归因成本（已含在 estimatedCostUsd 内，仅拆分展示；B7 D 路线复用）。 */
+  imageCostUsd?: number;
   /** Unix 毫秒时间戳。 */
   timestamp: number;
   /** 当前会话的第几轮。 */
@@ -44,8 +52,8 @@ export interface CostEntry {
 
 /** 成本追踪器接口。 */
 export interface CostTracker {
-  /** 记录一轮 API 调用的 token 消耗。自动计算 estimatedCostUsd 并打时间戳。 */
-  recordUsage(entry: Omit<CostEntry, 'estimatedCostUsd' | 'timestamp'>): void;
+  /** 记录一轮 API 调用的 token 消耗。自动计算 estimatedCostUsd / imageCostUsd 并打时间戳。 */
+  recordUsage(entry: Omit<CostEntry, 'estimatedCostUsd' | 'imageCostUsd' | 'timestamp'>): void;
   /** 获取某次会话的累计统计（按轮次排序）。 */
   getConversationStats(conversationId: string): CostEntry[];
   /** 获取某用户的累计统计。 */
@@ -76,6 +84,19 @@ const CACHE_READ_RATE = 0.1;
 /** 缓存写入溢价：Anthropic cache write 为全价的 1.25。 */
 const CACHE_WRITE_RATE = 1.25;
 
+/**
+ * 单张图片的估算输入 token（B6 五-1 计价口径，B7 D 路线页面图片复用）。
+ * 取值为 OpenAI high-detail（~1105+）与 Anthropic（~1600）的折中近似；
+ * provider usage 已把图片计入 promptTokens，本值仅用于成本拆分归因。
+ */
+export const IMAGE_TOKENS_PER_IMAGE = 1300;
+
+/** 图片张数 → 估算 token。 */
+export function estimateImageTokens(imageCount: number): number {
+  if (!Number.isFinite(imageCount) || imageCount <= 0) return 0;
+  return Math.round(imageCount) * IMAGE_TOKENS_PER_IMAGE;
+}
+
 /** 根据模型名匹配定价，找不到则回退到 default。 */
 function resolvePricing(model: string): { prompt: number; completion: number } {
   const lower = model.toLowerCase();
@@ -104,6 +125,18 @@ function calculateCost(usage: TokenUsage, model: string): number {
   return inputCost + cacheReadCost + cacheWriteCost + outputCost;
 }
 
+/**
+ * 图片 token 归因成本（B6 五-1 / B7 D 路线复用）。
+ * 图片 token 已包含在 provider 的 promptTokens 内，此处只做**成本拆分展示**，
+ * 不叠加进 estimatedCostUsd（避免同一批 token 计费两次）。
+ */
+function calculateImageCost(usage: TokenUsage, model: string): number {
+  const imageTokens = usage.imageTokens || 0;
+  if (imageTokens <= 0) return 0;
+  const pricing = resolvePricing(model);
+  return (imageTokens / 1_000_000) * pricing.prompt;
+}
+
 // ---------------------------------------------------------------------------
 // 实现
 // ---------------------------------------------------------------------------
@@ -111,11 +144,13 @@ function calculateCost(usage: TokenUsage, model: string): number {
 class CostTrackerImpl implements CostTracker {
   private entries: Map<string, CostEntry[]> = new Map();
 
-  recordUsage(entry: Omit<CostEntry, 'estimatedCostUsd' | 'timestamp'>): void {
+  recordUsage(entry: Omit<CostEntry, 'estimatedCostUsd' | 'imageCostUsd' | 'timestamp'>): void {
     const estimatedCostUsd = calculateCost(entry.usage, entry.model);
+    const imageCostUsd = calculateImageCost(entry.usage, entry.model);
     const fullEntry: CostEntry = {
       ...entry,
       estimatedCostUsd,
+      ...(imageCostUsd > 0 ? { imageCostUsd } : {}),
       timestamp: Date.now(),
     };
     const existing = this.entries.get(entry.conversationId);
@@ -182,9 +217,9 @@ class CostTrackerImpl implements CostTracker {
         : '_No cost data recorded._';
     }
 
-    // 表头（Cache Hit / Cache Write 均已按折扣单价计入 Cost）
-    const header = '| Round | Model | Prompt Tokens | Completion Tokens | Reasoning | Cache Hit | Cache Write | Cost (USD) |';
-    const sep    = '|-------|-------|---------------|--------------------|-----------|-----------|-------------|------------|';
+    // 表头（Cache Hit / Cache Write 均已按折扣单价计入 Cost；Image 为图片 token 归因）
+    const header = '| Round | Model | Prompt Tokens | Completion Tokens | Reasoning | Cache Hit | Cache Write | Image | Cost (USD) |';
+    const sep    = '|-------|-------|---------------|--------------------|-----------|-----------|-------------|-------|------------|';
 
     const rows: string[] = [header, sep];
 
@@ -196,6 +231,7 @@ class CostTrackerImpl implements CostTracker {
     let sumReasoning = 0;
     let sumCache = 0;
     let sumCacheWrite = 0;
+    let sumImage = 0;
     let sumCost = 0;
 
     for (const e of sorted) {
@@ -204,10 +240,11 @@ class CostTrackerImpl implements CostTracker {
       const reasoningStr = e.usage.reasoningTokens.toLocaleString();
       const cacheStr = e.usage.cacheReadTokens.toLocaleString();
       const cacheWriteStr = e.usage.cacheCreationTokens.toLocaleString();
+      const imageStr = (e.usage.imageTokens ?? 0).toLocaleString();
       const costStr = `$${e.estimatedCostUsd.toFixed(6)}`;
 
       rows.push(
-        `| ${e.roundCount} | ${e.model} | ${promptStr} | ${completionStr} | ${reasoningStr} | ${cacheStr} | ${cacheWriteStr} | ${costStr} |`
+        `| ${e.roundCount} | ${e.model} | ${promptStr} | ${completionStr} | ${reasoningStr} | ${cacheStr} | ${cacheWriteStr} | ${imageStr} | ${costStr} |`
       );
 
       sumPrompt += e.usage.promptTokens;
@@ -215,6 +252,7 @@ class CostTrackerImpl implements CostTracker {
       sumReasoning += e.usage.reasoningTokens;
       sumCache += e.usage.cacheReadTokens;
       sumCacheWrite += e.usage.cacheCreationTokens;
+      sumImage += e.usage.imageTokens ?? 0;
       sumCost += e.estimatedCostUsd;
     }
 
@@ -224,10 +262,11 @@ class CostTrackerImpl implements CostTracker {
     const totalReasoningStr = `**${sumReasoning.toLocaleString()}**`;
     const totalCacheStr = `**${sumCache.toLocaleString()}**`;
     const totalCacheWriteStr = `**${sumCacheWrite.toLocaleString()}**`;
+    const totalImageStr = `**${sumImage.toLocaleString()}**`;
     const totalCostStr = `**$${sumCost.toFixed(6)}**`;
 
     rows.push(
-      `| **Total** | | ${totalPromptStr} | ${totalCompletionStr} | ${totalReasoningStr} | ${totalCacheStr} | ${totalCacheWriteStr} | ${totalCostStr} |`
+      `| **Total** | | ${totalPromptStr} | ${totalCompletionStr} | ${totalReasoningStr} | ${totalCacheStr} | ${totalCacheWriteStr} | ${totalImageStr} | ${totalCostStr} |`
     );
 
     return rows.join('\n');

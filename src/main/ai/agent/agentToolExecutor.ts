@@ -11,6 +11,7 @@ import { isToolConcurrencySafe, safeParseArgs } from './concurrencyDefs';
 import { createSegment, completeSegment, type ExecutionSegment } from './agentExecutionSegments';
 import { type LoopCheckResult } from './agentLoopGuard';
 import { TOOL_EXEC_TIMEOUT_MS } from './agentHelpers';
+import { contentToText } from '../contextManager';
 import { persistLargeResult, applyAggregateBudget, type ContentReplacementState } from './toolResultStorage';
 import type { AgentContext } from './agentContext';
 import type { AgentLlmMessage, AgentLoopDeps } from './agentLoop';
@@ -254,7 +255,7 @@ export async function handleInteractionPause<T extends ToolCall>(
     const askResult = toolTurn.find((m) => m.role === 'tool' && m.tool_call_id === callId);
     if (!askResult) continue;
     try {
-      const parsed = JSON.parse(askResult.content) as { success?: boolean };
+      const parsed = JSON.parse(contentToText(askResult.content)) as { success?: boolean };
       if (parsed.success) {
         const answers = await deps.waitForInteraction();
         toolTurn.push({

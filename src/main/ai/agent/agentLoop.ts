@@ -18,6 +18,8 @@ import { IPC_CHANNELS } from '@shared/constants';
 import { appendMessage, updateConversationSummary } from '../../db/ai';
 import {
   buildCompressed,
+  contentToText,
+  estimateContentTokens,
   estimateTokens,
   shouldCompress,
   summarizeViaLlm,
@@ -131,6 +133,20 @@ export type AgentLlmMessage = LlmMessage & {
 // 阶段 3：收敛提示
 // ---------------------------------------------------------------------------
 
+/**
+ * checkpoint 序列化：content 数组转纯文本（图片 part → [图片] 占位）。
+ * checkpoint_json 只存文本，不落 base64 / 本地路径（B6 五-1，事件回放同规则）。
+ */
+function toCheckpointMessages(
+  messages: AgentLlmMessage[]
+): Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; tool_call_id?: string }> {
+  return messages.map((m) => ({
+    role: m.role as 'system' | 'user' | 'assistant' | 'tool',
+    content: contentToText(m.content),
+    ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
+  }));
+}
+
 function finalizeAgentRun(ctx: AgentContext, _deps: AgentLoopDeps): AgentRunResult {
   const stats = ctx.detector.getStats();
   let finalMessage: string;
@@ -237,7 +253,7 @@ export async function runAgentFlow(
             updateConversationSummary(ctx.convId, ctx.userId, newSummary);
             ctx.llmMessages = buildCompressed(ctx.llmMessages, newSummary, KEEP_RECENT_ROUNDS);
 
-            ctx.totalTokens = ctx.llmMessages.reduce((s, m) => s + estimateTokens(m.content), 0);
+            ctx.totalTokens = ctx.llmMessages.reduce((s, m) => s + estimateContentTokens(m.content), 0);
           }
         } catch (compressErr) {
           // 压缩失败不应阻断主流程，记录日志后继续
@@ -409,7 +425,7 @@ export async function runAgentFlow(
                 // 组装 assistant tool_calls 消息（包含本轮所有工具调用声明）
                 const assistantToolMsg = assembleToolTurn(accumulatedToolCalls, round);
                 ctx.llmMessages.push(assistantToolMsg);
-                ctx.totalTokens += estimateTokens(assistantToolMsg.content ?? '');
+                ctx.totalTokens += estimateContentTokens(assistantToolMsg.content ?? '');
 
                 // 将非延迟工具结果注入 LLM 上下文
                 for (const toolResult of nonDeferredResults) {
@@ -423,7 +439,7 @@ export async function runAgentFlow(
                       : toolResult.result.content,
                   };
                   ctx.llmMessages.push(toolMsg);
-                  ctx.totalTokens += estimateTokens(toolMsg.content);
+                  ctx.totalTokens += estimateContentTokens(toolMsg.content);
 
                   // IPC 事件 + toolCallsHistory（用户可实时看到非延迟工具结果）
                   const toolEvent = {
@@ -526,7 +542,7 @@ export async function runAgentFlow(
         ctx.llmMessages.push(...streamingResult.toolTurn);
         // 1b: 增量 token 统计
         for (const m of streamingResult.toolTurn) {
-          ctx.totalTokens += estimateTokens(m.content);
+          ctx.totalTokens += estimateContentTokens(m.content);
         }
 
         // R7b: checkpoint
@@ -535,16 +551,12 @@ export async function runAgentFlow(
             saveCheckpointIncremental(
               deps.db!,
               deps.sessionId!,
-              streamingResult.toolTurn.map((m) => ({
-                role: m.role as 'system' | 'user' | 'assistant' | 'tool',
-                content: m.content,
-                ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
-              })),
+              toCheckpointMessages(streamingResult.toolTurn),
               ctx.toolCallsHistory,
               ctx.roundsUsed,
               ctx.reasoningTokenCount,
               ctx.intent,
-              ctx.llmMessages,
+              toCheckpointMessages(ctx.llmMessages),
               round
             );
           } catch {
@@ -567,7 +579,7 @@ export async function runAgentFlow(
         ctx.llmMessages.push(...toolTurn);
         // 1b: 增量 token 统计
         for (const m of toolTurn) {
-          ctx.totalTokens += estimateTokens(m.content);
+          ctx.totalTokens += estimateContentTokens(m.content);
         }
 
         // R7b: checkpoint
@@ -576,16 +588,12 @@ export async function runAgentFlow(
             saveCheckpointIncremental(
               deps.db!,
               deps.sessionId!,
-              toolTurn.map((m) => ({
-                role: m.role as 'system' | 'user' | 'assistant' | 'tool',
-                content: m.content,
-                ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
-              })),
+              toCheckpointMessages(toolTurn),
               ctx.toolCallsHistory,
               ctx.roundsUsed,
               ctx.reasoningTokenCount,
               ctx.intent,
-              ctx.llmMessages,
+              toCheckpointMessages(ctx.llmMessages),
               round
             );
           } catch {

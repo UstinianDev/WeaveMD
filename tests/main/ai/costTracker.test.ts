@@ -5,7 +5,12 @@
 // getGlobalStats 全局 / 成本估算 / formatCostTable / 未知模型回退 / cache tokens
 
 import { describe, expect, it, beforeEach } from 'vitest';
-import { createCostTracker, type CostTracker } from '@main/ai/costTracker';
+import {
+  createCostTracker,
+  estimateImageTokens,
+  IMAGE_TOKENS_PER_IMAGE,
+  type CostTracker,
+} from '@main/ai/costTracker';
 
 // ---------------------------------------------------------------------------
 // 辅助函数
@@ -375,9 +380,11 @@ describe('CostTracker', () => {
     const table = tracker.formatCostTable('conv-1');
     expect(table).toContain('| Cache Write |');
     expect(table).toContain('500');
-    // 表头列数与数据行列数一致（含 Cache Write 后应为 8 列 → split('|') 得 10 段）
-    const headerLine = table.split('\n')[0];
-    expect(headerLine.split('|').length).toBe(10);
+    // 表头列数与数据行列数一致（B4 Cache Write 8 列 + B6 Image 列 = 9 列 → split('|') 得 11 段）
+    const lines = table.split('\n');
+    const headerLine = lines[0];
+    expect(headerLine.split('|').length).toBe(11);
+    expect(lines[2].split('|').length).toBe(headerLine.split('|').length);
   });
 
   // -----------------------------------------------------------------------
@@ -394,5 +401,79 @@ describe('CostTracker', () => {
     // completion: 1M * $2.19 = $2.19
     // total: $2.74
     expect(stats[0].estimatedCostUsd).toBeCloseTo(2.74, 4);
+  });
+});
+// ---------------------------------------------------------------------------
+// B6 五-1：图片 token 计价（归因拆分，不重复计费）
+// ---------------------------------------------------------------------------
+
+describe('CostTracker 图片 token 计价', () => {
+  let tracker: CostTracker;
+
+  beforeEach(() => {
+    tracker = createCostTracker();
+  });
+
+  it('estimates image tokens per image via estimateImageTokens', () => {
+    expect(estimateImageTokens(0)).toBe(0);
+    expect(estimateImageTokens(-1)).toBe(0);
+    expect(estimateImageTokens(3)).toBe(IMAGE_TOKENS_PER_IMAGE * 3);
+  });
+
+  it('records imageTokens and imageCostUsd without double counting total cost', () => {
+    const withoutImage = createCostTracker();
+    withoutImage.recordUsage({
+      conversationId: 'conv-img',
+      userId: 'u1',
+      model: 'deepseek-chat',
+      usage: { promptTokens: 5000, completionTokens: 100, reasoningTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 },
+      roundCount: 1,
+      intent: 'chat',
+    });
+    tracker.recordUsage({
+      conversationId: 'conv-img',
+      userId: 'u1',
+      model: 'deepseek-chat',
+      usage: {
+        promptTokens: 5000,
+        completionTokens: 100,
+        reasoningTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        imageTokens: 2600,
+      },
+      roundCount: 1,
+      intent: 'chat',
+    });
+
+    const [entry] = tracker.getConversationStats('conv-img');
+    const [base] = withoutImage.getConversationStats('conv-img');
+    expect(entry.usage.imageTokens).toBe(2600);
+    // 图片成本按 prompt 单价拆分展示
+    expect(entry.imageCostUsd).toBeGreaterThan(0);
+    expect(entry.imageCostUsd).toBeCloseTo((2600 / 1_000_000) * 0.14, 8);
+    // 总成本不含叠加（provider promptTokens 已含图片 token）
+    expect(entry.estimatedCostUsd).toBeCloseTo(base.estimatedCostUsd, 8);
+  });
+
+  it('exposes an Image column in the cost table', () => {
+    tracker.recordUsage({
+      conversationId: 'conv-img',
+      userId: 'u1',
+      model: 'deepseek-chat',
+      usage: {
+        promptTokens: 3000,
+        completionTokens: 200,
+        reasoningTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        imageTokens: 1300,
+      },
+      roundCount: 1,
+      intent: 'chat',
+    });
+    const table = tracker.formatCostTable('conv-img');
+    expect(table).toContain('| Image |');
+    expect(table).toContain('1,300');
   });
 });

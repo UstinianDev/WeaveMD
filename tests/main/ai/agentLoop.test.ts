@@ -41,6 +41,17 @@ vi.mock('@main/ai/contextManager', () => ({
     ...(msgs as Array<{ role: string; content: string }>),
   ],
   estimateTokens: (t: string) => Math.ceil((t || '').length / 4),
+  // B6 五-1：content 数组贯通所需的新导出（mock 补齐，避免 agentLoop 运行期 undefined）
+  contentToText: (c: unknown) =>
+    typeof c === 'string'
+      ? c
+      : Array.isArray(c)
+        ? (c as Array<{ type: string; text?: string }>)
+            .map((p) => (p.type === 'text' ? (p.text ?? '') : '[图片]'))
+            .join('')
+        : '',
+  estimateContentTokens: (c: unknown) =>
+    Math.ceil((typeof c === 'string' ? c : JSON.stringify(c ?? '')).length / 4),
   shouldCompress: contextMock.shouldCompress,
   summarizeViaLlm: contextMock.summarizeViaLlm,
 }));

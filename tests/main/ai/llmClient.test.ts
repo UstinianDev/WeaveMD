@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import type { StreamChunk } from '@main/ai/llm/llmClient';
-import { streamChatCompletion } from '@main/ai/llm/llmClient';
+import { streamChatCompletion, resolveContentForWire } from '@main/ai/llm/llmClient';
 import type { ToolDef } from '@shared/ai';
 
 type FetchFn = typeof fetch;
@@ -455,5 +458,134 @@ describe('llmClient.streamChatCompletion tools', () => {
     expect(usage.reasoningTokenCount).toBe(800);
     expect(usage.promptTokens).toBe(500);
     expect(usage.completionTokens).toBe(1200);
+  });
+});
+
+// ============================================
+// B6 五-1：content 数组（多模态消息）贯通
+// ============================================
+
+describe('llmClient content 数组（B6 五-1）', () => {
+  let fetchMock: FetchMock;
+  let imgDir: string;
+  let imgPath: string;
+
+  beforeEach(() => {
+    fetchMock = stubFetch();
+    imgDir = mkdtempSync(join(tmpdir(), 'weavemd-b6-'));
+    imgPath = join(imgDir, 'sample.png');
+    // 最小 PNG 头（1x1 透明 PNG 的前若干字节即可，仅断言 base64 透传）
+    writeFileSync(imgPath, Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'));
+  });
+  afterEach(() => {
+    fetchMock?.mockReset();
+    rmSync(imgDir, { recursive: true, force: true });
+  });
+
+  it('keeps pure-string messages byte-identical（纯文本链路回归）', () => {
+    const wire = resolveContentForWire([{ role: 'user', content: '你好' }]);
+    expect(wire).toEqual([{ role: 'user', content: '你好' }]);
+  });
+
+  it('resolves local image path into data URL image_url part', () => {
+    const wire = resolveContentForWire([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '看图' },
+          { type: 'image_url', image_url: { url: imgPath } },
+        ],
+      },
+    ]);
+    const content = wire[0].content as Array<{ type: string; image_url?: { url: string } }>;
+    expect(content[0]).toEqual({ type: 'text', text: '看图' });
+    expect(content[1].type).toBe('image_url');
+    expect(content[1].image_url?.url.startsWith('data:image/png;base64,')).toBe(true);
+    // 原始字节应完整编码
+    expect(content[1].image_url?.url.endsWith(Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex').toString('base64'))).toBe(true);
+  });
+
+  it('passes data:/http(s) image urls through untouched', () => {
+    const dataUrl = 'data:image/png;base64,AAAA';
+    const wire = resolveContentForWire([
+      { role: 'user', content: [{ type: 'image_url', image_url: { url: dataUrl } }] },
+    ]);
+    const content = wire[0].content as Array<{ image_url: { url: string } }>;
+    expect(content[0].image_url.url).toBe(dataUrl);
+  });
+
+  it('replaces unreadable local image with explicit placeholder text part', () => {
+    const missing = join(imgDir, 'gone.png');
+    const wire = resolveContentForWire([
+      { role: 'user', content: [{ type: 'image_url', image_url: { url: missing } }] },
+    ]);
+    const content = wire[0].content as Array<{ type: string; text?: string }>;
+    expect(content).toHaveLength(1);
+    expect(content[0].type).toBe('text');
+    expect(content[0].text).toContain('图片');
+    expect(content[0].text).toContain('gone.png');
+  });
+
+  it('sends resolved image parts in the request body end-to-end', async () => {
+    fetchMock.mockResolvedValue(makeResponse(makeBody('data: [DONE]\n\n')));
+    await collect(
+      streamChatCompletion(
+        baseOpts({
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: '描述这张图' },
+                { type: 'image_url', image_url: { url: imgPath } },
+              ],
+            },
+          ],
+        })
+      )
+    );
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse((init as RequestInit).body as string) as {
+      messages: Array<{ content: unknown }>;
+    };
+    const content = body.messages[0].content as Array<{ type: string; image_url?: { url: string } }>;
+    expect(Array.isArray(content)).toBe(true);
+    expect(content[0]).toEqual({ type: 'text', text: '描述这张图' });
+    expect(content[1].image_url?.url).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it('does not alter SSE / tool_calls parsing when request carries image parts', async () => {
+    fetchMock.mockResolvedValue(
+      makeResponse(
+        makeBody(
+          [
+            sseEvent({
+              choices: [
+                { delta: { tool_calls: [{ index: 0, function: { name: 'readFile', arguments: '{}' } }] } },
+              ],
+            }),
+            sseEvent({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] }),
+            'data: [DONE]\n\n',
+          ].join('')
+        )
+      )
+    );
+    const chunks = await collectFull(
+      streamChatCompletion(
+        baseOpts({
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: '看图后读文件' },
+                { type: 'image_url', image_url: { url: imgPath } },
+              ],
+            },
+          ],
+          tools: [{ type: 'function', function: { name: 'readFile', description: 'x', parameters: {} } }],
+        })
+      )
+    );
+    const done = chunks.find((c) => c.toolCalls && c.toolCalls.length > 0);
+    expect(done?.toolCalls).toEqual([{ index: 0, name: 'readFile', arguments: '{}' }]);
   });
 });

@@ -8,14 +8,96 @@
 // delta.reasoning 且 delta.content 为空串/undefined -> 必须跳过空 content，
 // 只累加非空 delta.content。
 
+import { readFileSync } from 'fs';
+import { basename, extname } from 'path';
+
 import type { ToolDef } from '@shared/ai';
+import { resolveMediaMime } from '../../mediaMime';
 import { createStreamController, makeError, normalizeBaseUrl } from './streamScaffold';
+
+// ---------------------------------------------------------------------------
+// B6 五-1：多模态 content 数组（内部统一为 OpenAI 形态）
+// ---------------------------------------------------------------------------
+
+/** 文本 part。 */
+export interface ContentTextPart {
+  type: 'text';
+  text: string;
+}
+
+/**
+ * 图片 part。`image_url.url` 支持三种形态：
+ * - `data:<mime>;base64,...`（识别链路即时使用）
+ * - `http(s)://...`（远端图片）
+ * - **本地文件路径**（ctx/事件持久化只存路径，发送前由 resolveContentForWire 读盘转 data URL）
+ */
+export interface ContentImagePart {
+  type: 'image_url';
+  image_url: { url: string };
+}
+
+export type ContentPart = ContentTextPart | ContentImagePart;
+
+/** 消息正文：纯文本（历史/绝大多数链路）或多模态 part 数组。 */
+export type MessageContent = string | ContentPart[];
+
+/** 一条待发送消息（content 数组贯通全部调用点，五-1②）。 */
+export interface LlmRequestMessage {
+  role: string;
+  content: MessageContent;
+  tool_call_id?: string;
+}
+
+/** url 是否已可直接发送（data URL / 远端 URL），否则按本地路径读盘。 */
+function isSendableUrl(url: string): boolean {
+  return /^(data:|https?:)/i.test(url);
+}
+
+/** 本地图片路径 → data URL；读取失败返回 null（由调用方降级占位符）。 */
+function localImageToDataUrl(filePath: string): string | null {
+  try {
+    const buf = readFileSync(filePath);
+    const mime = resolveMediaMime(extname(filePath));
+    return `data:${mime};base64,${buf.toString('base64')}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 发送前消息解析：纯文本消息**原样返回**（零拷贝，纯文本链路行为不变）；
+ * 图片 part 的本地路径读盘转 data URL，读取失败降级为显式占位文本 part。
+ */
+export function resolveContentForWire(messages: LlmRequestMessage[]): LlmRequestMessage[] {
+  return messages.map((msg) => {
+    if (typeof msg.content === 'string') return msg;
+    const content: ContentPart[] = [];
+    for (const part of msg.content) {
+      if (part.type === 'text' || !part.image_url) {
+        content.push(part);
+        continue;
+      }
+      const url = part.image_url.url ?? '';
+      if (!url || isSendableUrl(url)) {
+        content.push(part);
+        continue;
+      }
+      const dataUrl = localImageToDataUrl(url);
+      if (dataUrl) {
+        content.push({ type: 'image_url', image_url: { url: dataUrl } });
+      } else {
+        content.push({ type: 'text', text: `[图片无法读取: ${basename(url)}]` });
+      }
+    }
+    return { ...msg, content };
+  });
+}
 
 export interface StreamChatCompletionOptions {
   baseUrl: string;
   model: string;
   apiKey?: string;
-  messages: Array<{ role: string; content: string; tool_call_id?: string }>;
+  messages: LlmRequestMessage[];
   /** OpenAI 兼容工具定义。可选，缺省不发。 */
   tools?: ToolDef[];
   /** thinking 模式必须 'auto'。仅在同时传 tools 时生效。 */
@@ -245,7 +327,8 @@ export async function* streamChatCompletion(
       },
       body: JSON.stringify({
         model: opts.model,
-        messages: opts.messages,
+        // B6 五-1：图片 part 发送前解析（本地路径 → data URL）
+        messages: resolveContentForWire(opts.messages),
         stream: true,
         ...(opts.tools && opts.tools.length
           ? { tools: opts.tools, tool_choice: 'auto' as const }

@@ -1,5 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
-import { buildCompressed, estimateTokens, shouldCompress } from '@main/ai/contextManager';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import {
+  buildCompressed,
+  estimateTokens,
+  estimateContentTokens,
+  shouldCompress,
+  IMAGE_TOKENS_PER_IMAGE,
+  type LlmMessage,
+} from '@main/ai/contextManager';
 
 // ============================================
 // summarizeViaLlm tests — mock llmClient
@@ -265,5 +272,99 @@ describe('contextManager.summarizeViaLlm', () => {
 
     const result = await summarizeViaLlm(sampleMessages, sampleCtx, sampleTools);
     expect(result).toBe('');
+  });
+});
+// ============================================
+// B6 五-1 / Q4：content 数组 + 压缩丢图策略
+// ============================================
+
+describe('contextManager Q4 压缩丢图（保最近 3 张）', () => {
+  const img = (n: number): { type: 'image_url'; image_url: { url: string } } => ({
+    type: 'image_url',
+    image_url: { url: `C:/img/${n}.png` },
+  });
+
+  it('keeps the newest 3 image parts and degrades older ones to explicit placeholder', () => {
+    const msgs: LlmMessage[] = [
+      { role: 'user', content: [{ type: 'text', text: 'u1' }, img(1), img(2)] },
+      { role: 'user', content: [{ type: 'text', text: 'u2' }, img(3), img(4)] },
+      { role: 'user', content: [{ type: 'text', text: 'u3' }, img(5)] },
+      { role: 'assistant', content: 'a3' },
+    ];
+    const out = buildCompressed(msgs, 'S', 10);
+    const kept: string[] = [];
+    const degraded: string[] = [];
+    for (const m of out) {
+      if (Array.isArray(m.content)) {
+        for (const p of m.content) {
+          if (p.type === 'image_url') kept.push(p.image_url.url);
+          else if (p.type === 'text' && p.text.includes('图片已省略')) degraded.push(p.text);
+        }
+      }
+    }
+    // 保留最近 3 张（u2 的 2 张 + u3 的 1 张），u1 的 2 张降级
+    expect(kept).toEqual(['C:/img/3.png', 'C:/img/4.png', 'C:/img/5.png']);
+    expect(degraded).toHaveLength(2);
+    expect(degraded[0]).toContain('图片已省略');
+    expect(degraded[0]).toContain('3');
+  });
+
+  it('leaves pure-string history untouched（纯文本链路回归）', () => {
+    const msgs = [
+      { role: 'user', content: 'u1' },
+      { role: 'assistant', content: 'a1' },
+      { role: 'user', content: 'u2' },
+      { role: 'assistant', content: 'a2' },
+    ];
+    const out = buildCompressed(msgs, 'S', 1);
+    expect(out.slice(1).map((m) => m.content)).toEqual(['u2', 'a2']);
+  });
+
+  it('estimateContentTokens counts text plus image parts', () => {
+    expect(estimateContentTokens('hello world')).toBe(estimateTokens('hello world'));
+    const tokens = estimateContentTokens([
+      { type: 'text', text: 'hello world' },
+      { type: 'image_url', image_url: { url: 'C:/img/a.png' } },
+    ]);
+    expect(tokens).toBe(estimateTokens('hello world') + IMAGE_TOKENS_PER_IMAGE);
+  });
+});
+
+describe('contextManager.summarizeViaLlm 图片剥离（压缩不送图）', () => {
+  const ctx = {
+    baseUrl: 'https://api.example.com',
+    model: 'test-model',
+    apiKey: 'sk-test',
+    timeoutMs: 30_000,
+    signal: new AbortController().signal,
+  };
+
+  beforeEach(() => {
+    llmClientMock.reset();
+    llmClientMock.streamChatCompletionWithRetry.mockClear();
+  });
+
+  it('strips image parts before compression call (only text is summarized)', async () => {
+    await summarizeViaLlm(
+      [
+        { role: 'user', content: '看图' },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: '图里是山' },
+            { type: 'image_url', image_url: { url: 'C:/img/a.png' } },
+          ],
+        },
+      ],
+      ctx
+    );
+    const opts = llmClientMock.getLastOpts()!;
+    const msgs = opts.messages as Array<{ content: unknown }>;
+    const last = msgs[msgs.length - 1];
+    expect(Array.isArray(last.content)).toBe(true);
+    const parts = last.content as Array<{ type: string }>;
+    expect(parts.every((p) => p.type === 'text')).toBe(true);
+    // 纯文本消息原样透传（未被改写）
+    expect(msgs.some((m) => m.content === '看图')).toBe(true);
   });
 });
