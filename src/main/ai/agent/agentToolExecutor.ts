@@ -271,6 +271,94 @@ export async function handleInteractionPause<T extends ToolCall>(
 }
 
 // ---------------------------------------------------------------------------
+// B8 六-2②：citation 收集（searchKB / searchDocument → assistant refsJson）
+// ---------------------------------------------------------------------------
+
+/** 轻量引用条目（refs_json 载荷；不携带 chunk 正文，保持消息行轻量）。 */
+export interface CitationEntry {
+  fileName: string;
+  /** source_ref JSON（fileId / attachmentId / page / line 锚点）。 */
+  sourceRef?: string;
+  seq?: number;
+  score?: number;
+}
+
+/** 单条 assistant 消息引用上限（超出截断，防止 refs_json 膨胀）。 */
+export const MAX_CITATIONS = 10;
+
+/**
+ * 从工具结果中提取引用条目（仅 searchKB / searchDocument；其余或解析失败 → null）。
+ * - searchKB：结果数组或 { results } 包装（clarification 形态）；refused 无 results → null。
+ * - searchDocument：每个命中合成 { fileName, attachmentId?, page? } 的 sourceRef。
+ */
+export function collectCitations(toolName: string, content: string): CitationEntry[] | null {
+  if (toolName !== 'searchKB' && toolName !== 'searchDocument') return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+
+  if (toolName === 'searchDocument') {
+    const rec = parsed as { fileName?: unknown; attachmentId?: unknown; matches?: unknown };
+    if (typeof rec.fileName !== 'string' || !Array.isArray(rec.matches)) return null;
+    const entries: CitationEntry[] = [];
+    for (const m of rec.matches) {
+      if (!m || typeof m !== 'object') continue;
+      const page = (m as { page?: unknown }).page;
+      const ref: Record<string, unknown> = { fileName: rec.fileName };
+      if (typeof rec.attachmentId === 'string' && rec.attachmentId) {
+        ref.attachmentId = rec.attachmentId;
+      }
+      if (typeof page === 'number' && Number.isInteger(page)) ref.page = page;
+      entries.push({ fileName: rec.fileName, sourceRef: JSON.stringify(ref) });
+    }
+    return entries.length > 0 ? entries : null;
+  }
+
+  let items: unknown;
+  if (Array.isArray(parsed)) {
+    items = parsed;
+  } else {
+    const wrap = parsed as { results?: unknown };
+    items = Array.isArray(wrap.results) ? wrap.results : null;
+  }
+  if (!items) return null;
+  const entries: CitationEntry[] = [];
+  for (const it of items as unknown[]) {
+    if (!it || typeof it !== 'object') continue;
+    const r = it as { fileName?: unknown; sourceRef?: unknown; seq?: unknown; score?: unknown };
+    if (typeof r.fileName !== 'string' || !r.fileName) continue;
+    entries.push({
+      fileName: r.fileName,
+      ...(typeof r.sourceRef === 'string' ? { sourceRef: r.sourceRef } : {}),
+      ...(typeof r.seq === 'number' ? { seq: r.seq } : {}),
+      ...(typeof r.score === 'number' ? { score: r.score } : {}),
+    });
+  }
+  return entries.length > 0 ? entries : null;
+}
+
+/** 合并引用：按 sourceRef（缺省 fileName）去重，总数封顶 MAX_CITATIONS。返回新数组。 */
+export function mergeCitations(
+  existing: CitationEntry[],
+  incoming: CitationEntry[]
+): CitationEntry[] {
+  const merged = [...existing];
+  const seen = new Set(existing.map((e) => e.sourceRef ?? e.fileName));
+  for (const e of incoming) {
+    const key = e.sourceRef ?? e.fileName;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (merged.length >= MAX_CITATIONS) break;
+    merged.push(e);
+  }
+  return merged;
+}
+
+// ---------------------------------------------------------------------------
 // 单工具执行
 // ---------------------------------------------------------------------------
 
@@ -302,8 +390,13 @@ export async function executeOneTool(
     };
   }
 
-  // S6: 大结果持久化——成功结果超出单工具阈值时写入文件、返回预览
   if (result.status === 'ok' && result.content) {
+    // B8 六-2②：检索结果收集成 citation（须在 S6 预算替换前，取完整原文）
+    const incoming = collectCitations(tc.name, result.content);
+    if (incoming) {
+      ctx.citationRefs = mergeCitations(ctx.citationRefs ?? [], incoming);
+    }
+    // S6: 大结果持久化——成功结果超出单工具阈值时写入文件、返回预览
     const state = replacementState ?? ctx.replacementState;
     const persisted = await persistLargeResult(tc.name, result.content, toolCallId, state);
     if (persisted.persisted) {

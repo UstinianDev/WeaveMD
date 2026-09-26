@@ -494,3 +494,48 @@ describe('kbIndexer.buildSourceRef — 真实页码（二-6②）', () => {
     expect(inserts.every((c) => !String(c.args[4]).includes('"page"'))).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// B8 六-2②：source_ref 附件/文件锚点（citation 点击回链）
+// ---------------------------------------------------------------------------
+
+describe('kbIndexer.buildSourceRef — 附件与文件锚点（B8 六-2）', () => {
+  it('第 5 参 attachmentId → ref 含 attachmentId（与 page 并存）', () => {
+    // pageOffsets [0,50]：offset 100 落第 2 页（二分：最大 i 满足 offsets[i] <= 100）
+    const ref = JSON.parse(buildSourceRef('report.pdf', 100, undefined, [0, 50], 'att-1'));
+    expect(ref.attachmentId).toBe('att-1');
+    expect(ref.page).toBe(2);
+    expect(ref.fileName).toBe('report.pdf');
+  });
+
+  it('fileId 锚点写入 ref（db 笔记 chunk 可 openFile 回链）', () => {
+    const ref = JSON.parse(buildSourceRef('note.md', 120, 'f-9'));
+    expect(ref.fileId).toBe('f-9');
+    expect(ref.line).toBe(3);
+  });
+
+  it('indexImportedText attachment 选项 → chunk source_ref 含 attachmentId + page', async () => {
+    await indexImportedText('u1', 'report.pdf', '第一页内容。\n第二页内容。', {
+      sourceType: 'attachment',
+      attachmentId: 'att-1',
+      pageOffsets: [0, 9],
+    });
+    const inserts = calls.filter(
+      (c) => c.method === 'run' && c.sql.includes('INSERT INTO kb_chunks')
+    );
+    expect(inserts.length).toBeGreaterThan(0);
+    const ref = JSON.parse(String(inserts[0].args[4]));
+    expect(ref.attachmentId).toBe('att-1');
+    expect(ref.page).toBe(1);
+  });
+
+  it('indexFile → chunk source_ref 含 fileId（既有 openFile 回链接通）', async () => {
+    await indexFile('u1', { id: 'f-1', name: 'note.md', content: '# 标题\n正文内容。' }, {});
+    const inserts = calls.filter(
+      (c) => c.method === 'run' && c.sql.includes('INSERT INTO kb_chunks')
+    );
+    expect(inserts.length).toBeGreaterThan(0);
+    const ref = JSON.parse(String(inserts[0].args[4]));
+    expect(ref.fileId).toBe('f-1');
+  });
+});

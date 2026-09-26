@@ -414,7 +414,9 @@ async function writeChunks(
   content: string,
   fileName: string,
   embeddingConfig?: { baseUrl: string; model: string; apiKey: string },
-  pageOffsets?: number[]
+  pageOffsets?: number[],
+  /** B8 六-2②：回链锚点（db 笔记 fileId / 附件 attachmentId，均写入 source_ref）。 */
+  anchors?: { fileId?: string | null; attachmentId?: string }
 ): Promise<number> {
   const chunks = splitNote(content);
   if (chunks.length === 0) return 0;
@@ -424,7 +426,13 @@ async function writeChunks(
     documentId,
     seq: chunk.seq,
     content: chunk.text,
-    sourceRef: buildSourceRef(fileName, chunk.approxOffset, undefined, pageOffsets),
+    sourceRef: buildSourceRef(
+      fileName,
+      chunk.approxOffset,
+      anchors?.fileId,
+      pageOffsets,
+      anchors?.attachmentId
+    ),
     // D4：heading_path 写入（空串由 DAO 归一 NULL）
     headingPath: chunk.headingPath,
   }));
@@ -471,15 +479,19 @@ async function writeChunks(
  * 构造 source_ref（JSON 字符串）。
  * B7 二-6②：有 pageOffsets（PDF/结构化产物）→ 写真实页码 page（二分定位）+ offset，
  * 替代 60 字符行号近似；无 pageOffsets（md/txt 笔记）→ 保留 line 近似（既有消费方兼容）。
+ * B8 六-2②：第 5 参 attachmentId —— 附件 chunk 的点击回链锚点
+ * （refsJson 渲染侧据此调 attachment:open-source 跳回原文）。
  */
 export function buildSourceRef(
   fileName: string,
   approxOffset: number,
   fileId?: string | null,
-  pageOffsets?: number[]
+  pageOffsets?: number[],
+  attachmentId?: string
 ): string {
   const ref: Record<string, unknown> = {};
   if (fileId != null) ref.fileId = fileId;
+  if (attachmentId) ref.attachmentId = attachmentId;
   ref.fileName = fileName;
   if (pageOffsets && pageOffsets.length > 0) {
     // 二分：最大 i 满足 pageOffsets[i] <= approxOffset → 页码 i+1
@@ -530,7 +542,10 @@ export async function indexFile(
     const oldChunks = getChunksByDoc(docId);
     const oldChunkIds = oldChunks.map((c) => c.id);
     deleteChunksByDoc(docId);
-    const chunkCount = await writeChunks(docId, file.content, file.name, opts.embedding, opts.pageOffsets);
+    // B8 六-2②：db 笔记 fileId 写入 source_ref（既有 openFile 回链接通）
+    const chunkCount = await writeChunks(docId, file.content, file.name, opts.embedding, opts.pageOffsets, {
+      fileId: file.id,
+    });
     setKbDocStatus(userId, docId, 'done');
     // 索引完成后清除搜索缓存（分级失效：先按旧 chunk 精确清除，再全量兜底）
     for (const chunkId of oldChunkIds) {
@@ -588,7 +603,10 @@ export async function indexImportedText(
     const oldChunks = getChunksByDoc(docId);
     const oldChunkIds = oldChunks.map((c) => c.id);
     deleteChunksByDoc(docId);
-    const chunkCount = await writeChunks(docId, text, title, opts.embedding, opts.pageOffsets);
+    // B8 六-2②：附件 attachmentId 写入 source_ref（citation 附件点击跳原文）
+    const chunkCount = await writeChunks(docId, text, title, opts.embedding, opts.pageOffsets, {
+      ...(opts.attachmentId ? { attachmentId: opts.attachmentId } : {}),
+    });
     setKbDocStatus(userId, docId, 'done');
     // 导入完成后清除搜索缓存（分级失效：先按旧 chunk 精确清除，再全量兜底）
     for (const chunkId of oldChunkIds) {

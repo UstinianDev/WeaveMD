@@ -86,6 +86,7 @@
   "ai.panelTitle": "AI",
   "ai.placeholder": "輸入你的問題...",
   "ai.refs.chunk": "來源：{fileName} · {chunk}",
+  "ai.refs.page": "來源：{fileName} · 第{page}頁",
   "ai.refs.file": "來源：{fileName}",
   "ai.rewrite.applied": "已套用",
   "ai.rewrite.cancelled": "已取消改寫",

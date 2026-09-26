@@ -46,6 +46,7 @@ import type { AgentLoopDeps } from './agentLoop';
 import type { AgentReqPayload } from './agentLoop';
 import type { AgentLlmMessage } from './agentLoop';
 import type { ContentReplacementState } from './toolResultStorage';
+import type { CitationEntry } from './agentToolExecutor';
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -74,6 +75,8 @@ export interface AgentContext {
   totalTokens: number;
   /** S6: 大结果替换状态（确保跨轮确定性）。 */
   replacementState?: ContentReplacementState;
+  /** B8 六-2②：本轮检索 citation（assistant refsJson 来源，executeOneTool 收集）。 */
+  citationRefs?: CitationEntry[];
 }
 
 // ---------------------------------------------------------------------------
@@ -452,5 +455,6 @@ export function prepareAgentContext(
     reasoningTokenCount: null,
     assistantId: '',
     totalTokens: initTokens,
+    citationRefs: [],
   };
 }

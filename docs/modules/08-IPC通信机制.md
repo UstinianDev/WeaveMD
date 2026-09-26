@@ -161,6 +161,7 @@ src/shared/constants.ts           ← IPC 通道常量（80+ 通道）
 | `agent:global-files:*` | 全局文件 |
 | `agent:upload:attachment` / `agent:upload:image` | 上传 |
 | `agent:replay:events` / `agent:rollback:snapshot` | 回放/回滚 |
+| `attachment:open-source` | 附件引用跳转原文（B8 六-2：按 attachmentId 服务端解析路径 + 白名单校验后打开） |
 
 ### Mail / Notification（5 通道）
 

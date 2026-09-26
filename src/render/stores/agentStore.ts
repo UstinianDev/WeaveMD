@@ -360,7 +360,8 @@ interface StreamManagerOptions {
   conversationId: string;
   onTool?: (evt: IAgentToolCall) => void;
   onInteraction?: (sessionId: string, questions: IClarifyQuestion[], variant?: string, round?: number, totalRounds?: number) => void;
-  finishAndPersist: () => void;
+  /** 结束流并落显 assistant 消息；refsJson 为 B8 六-2 检索引用（done 事件携带）。 */
+  finishAndPersist: (refsJson?: string | null) => void;
 }
 
 /**
@@ -415,7 +416,8 @@ function createStreamManager(
         // 清理流监听器，防止残留
         unsub?.();
         unsub = null;
-        opts.finishAndPersist();
+        // B8 六-2②：done 携带本轮检索引用 → 气泡出处区即时展示
+        opts.finishAndPersist(evt.refsJson);
         return;
       }
       if (evt.type === 'error') {
@@ -642,7 +644,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       processStatus: 'thinking',
     }));
 
-    const appendAssistant = (): void => {
+    const appendAssistant = (refsJson?: string | null): void => {
       unsubscribeStreamDelta();
       const { toolCalls: currentToolCalls } = get();
       const responseTime = Date.now() - startTime;
@@ -659,7 +661,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             conversationId: conversationId ?? '',
             role: 'assistant' as const,
             content: streamText,
-            refsJson: null,
+            // B8 六-2②：done 事件携带的检索引用（无引用保持 null 兼容旧消息）
+            refsJson: refsJson ?? null,
             createdAt: new Date().toISOString(),
             responseTime,
             // 将本轮 toolCalls 快照附着到消息上
@@ -1597,12 +1600,14 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           }
         } else if (event.eventType === 'done') {
           // replay 的 done 事件：持久化 assistant 消息并结束流
+          const replayRefs = (payload as { refsJson?: string | null }).refsJson ?? null;
           const assistantMsg: IAIMessage = {
             id: makeId(),
             conversationId: activeConversationId,
             role: 'assistant',
             content: replayStreamText,
-            refsJson: null,
+            // B8 六-2②：回放同样恢复出处引用
+            refsJson: replayRefs,
             createdAt: new Date().toISOString(),
           };
           replayStreamText = '';

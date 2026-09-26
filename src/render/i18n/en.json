@@ -86,6 +86,7 @@
   "ai.panelTitle": "AI",
   "ai.placeholder": "Ask anything...",
   "ai.refs.chunk": "Source: {fileName} · {chunk}",
+  "ai.refs.page": "Source: {fileName} · p.{page}",
   "ai.refs.file": "Source: {fileName}",
   "ai.rewrite.applied": "Applied",
   "ai.rewrite.cancelled": "Rewrite cancelled",

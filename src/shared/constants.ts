@@ -173,6 +173,9 @@ export const IPC_CHANNELS = {
   AGENT_UPLOAD_ATTACHMENT: 'agent:upload:attachment',
   AGENT_UPLOAD_IMAGE: 'agent:upload:image',
 
+  // AI — 附件引用跳转原文（B8 六-2 citation 回链；按 attachmentId 服务端解析路径）
+  ATTACHMENT_OPEN_SOURCE: 'attachment:open-source',
+
   // AI — conversation export (第 8 期)
   AI_CONVERSATION_EXPORT: 'ai:conversation:export',
 

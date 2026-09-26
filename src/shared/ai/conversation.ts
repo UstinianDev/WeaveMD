@@ -68,7 +68,13 @@ export type AIErrorCode =
 
 export type AIStreamEvent =
   | { type: 'chunk'; conversationId: string; delta: string }
-  | { type: 'done'; conversationId: string; usage?: { reasoningTokenCount?: number | null } }
+  | {
+      type: 'done';
+      conversationId: string;
+      usage?: { reasoningTokenCount?: number | null };
+      /** B8 六-2②：本轮检索引用（IKbSearchResult 轻量数组 JSON；无引用为 null）。 */
+      refsJson?: string | null;
+    }
   | { type: 'error'; conversationId: string; code: AIErrorCode; message: string };
 
 /** llmClient 识别后的结构化错误 */

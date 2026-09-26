@@ -611,6 +611,38 @@ export function appendMessage(msg: {
   };
 }
 
+/**
+ * 按附件 id 反查其原始本地路径（B8 六-2 citation 附件回链）。
+ * 只扫当前用户自己的消息（参数化 LIKE 收窄 + 逐条 JSON 解析精确定位 id），
+ * 命中第一个非空 path（文件附件为原始绝对路径；图片为相对路径由调用方拒绝）。
+ */
+export function findAttachmentFilePath(userId: string, attachmentId: string): string | null {
+  const db = getDatabase();
+  const rows = cachedPrepare(
+    db,
+    `SELECT attachments_json FROM ai_messages
+      WHERE user_id = ? AND attachments_json IS NOT NULL AND attachments_json LIKE '%' || ? || '%'
+      ORDER BY created_at DESC LIMIT 50`
+  ).all(userId, attachmentId) as Array<{ attachments_json: string | null }>;
+  for (const row of rows) {
+    if (!row.attachments_json) continue;
+    try {
+      const arr: unknown = JSON.parse(row.attachments_json);
+      if (!Array.isArray(arr)) continue;
+      for (const item of arr) {
+        if (!item || typeof item !== 'object') continue;
+        const rec = item as { id?: unknown; path?: unknown };
+        if (rec.id === attachmentId && typeof rec.path === 'string' && rec.path) {
+          return rec.path;
+        }
+      }
+    } catch {
+      /* 坏 JSON 容错：跳过该行继续找 */
+    }
+  }
+  return null;
+}
+
 export function getMessagesByConversation(
   conversationId: string,
   userId: string

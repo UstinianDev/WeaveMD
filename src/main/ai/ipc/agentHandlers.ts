@@ -2,13 +2,13 @@
 // Agent IPC Handlers
 // ============================================
 
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { join } from 'path';
 import type { Database as BetterSqlite3Database } from 'better-sqlite3';
 import { IPC_CHANNELS } from '@shared/constants';
 import type { AIErrorCode, AgentRunPayload, IAttachmentMeta } from '@shared/ai';
-import { normalizeKbSettings } from '@shared/ai';
-import { getAiConfig, getConversation } from '../../db/ai';
+import { isSupportedDocFile, normalizeKbSettings } from '@shared/ai';
+import { findAttachmentFilePath, getAiConfig, getConversation } from '../../db/ai';
 import { persistIncomingAttachments } from '../../db/attachments';
 import { recognizeImageAttachments } from '../image/imageRecognition';
 import { needsConsent } from '../consent';
@@ -68,6 +68,42 @@ export function cleanupAgentQueue(): void {
 // ---------------------------------------------------------------------------
 
 export function registerAgentHandlers(): void {
+  // ========================================
+  // attachment:open-source — 附件引用点击跳回原文（B8 六-2 citation 回链）
+  // 只接受 attachmentId（服务端按 user_id 反查路径），不接受渲染层直传路径；
+  // 绝对路径 + 7 格式白名单双重校验（防伪造路径打开可执行文件）。
+  // ========================================
+  ipcMain.handle(IPC_CHANNELS.ATTACHMENT_OPEN_SOURCE, async (_event, payload: unknown) => {
+    if (!payload || typeof payload !== 'object') {
+      return { success: false, message: 'invalid payload' };
+    }
+    const { attachmentId, userId } = payload as { attachmentId?: unknown; userId?: unknown };
+    if (
+      typeof attachmentId !== 'string' ||
+      !attachmentId ||
+      typeof userId !== 'string' ||
+      !userId
+    ) {
+      return { success: false, message: 'invalid payload' };
+    }
+    try {
+      const filePath = findAttachmentFilePath(userId, attachmentId);
+      if (!filePath) return { success: false, message: 'attachment path not found' };
+      // 绝对路径判定不依赖 path 模块（测试环境 browserify path 为 posix 语义，
+      // 会误拒 Windows 盘符路径）：盘符 / 正斜杠根 / UNC 三种形态显式白名单
+      const isLocalAbsolute =
+        filePath.startsWith('/') ||
+        filePath.startsWith('\\\\') ||
+        /^[a-zA-Z]:[\\/]/.test(filePath);
+      if (!isLocalAbsolute) return { success: false, message: 'not a local file path' };
+      if (!isSupportedDocFile(filePath)) return { success: false, message: 'unsupported file type' };
+      const errMsg = await shell.openPath(filePath);
+      return errMsg ? { success: false, message: errMsg } : { success: true };
+    } catch (err) {
+      return { success: false, message: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   // --- agent: run (异步入队，立即返回 taskId) ---
   ipcMain.handle(IPC_CHANNELS.AGENT_RUN, async (event, payload: AgentRunPayload) => {
     if (!taskQueue) {

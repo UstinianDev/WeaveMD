@@ -124,6 +124,10 @@ const mockWeaveMD = {
     quitAndInstall: vi.fn(),
     onEvent: vi.fn(() => () => {}),
   },
+  // B8 六-2：附件引用跳转原文（attachment:open-source）
+  attachment: {
+    openSource: vi.fn(async () => ({ success: true })),
+  },
 };
 
 Object.defineProperty(window, 'weaveMD', {

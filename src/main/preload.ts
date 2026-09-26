@@ -114,6 +114,10 @@ export interface WeaveMDApi {
   link: {
     openExternal: (url: string) => Promise<void>;
   };
+  /** B8 六-2：附件引用跳回原文（按 attachmentId 服务端解析路径）。 */
+  attachment: {
+    openSource: (payload: { attachmentId: string; userId: string }) => Promise<unknown>;
+  };
   clipboard: {
     readImage: () => Promise<string | null>;
   };
@@ -357,6 +361,10 @@ const api: WeaveMDApi = {
   link: {
     openExternal: (url) => ipcRenderer.invoke(IPC_CHANNELS.LINK_OPEN_EXTERNAL, url),
   },
+  attachment: {
+    openSource: (payload: { attachmentId: string; userId: string }) =>
+      ipcRenderer.invoke(IPC_CHANNELS.ATTACHMENT_OPEN_SOURCE, payload),
+  },
   clipboard: {
     readImage: () => ipcRenderer.invoke(IPC_CHANNELS.CLIPBOARD_READ_IMAGE),
   },
@@ -428,10 +436,15 @@ const api: WeaveMDApi = {
       );
       subscribe(
         IPC_CHANNELS.AI_STREAM_DONE,
-        (p: { conversationId: string; usage?: { reasoningTokenCount?: number | null } }) => ({
+        (p: {
+          conversationId: string;
+          usage?: { reasoningTokenCount?: number | null };
+          refsJson?: string | null;
+        }) => ({
           type: 'done',
           conversationId: p.conversationId,
           usage: p.usage,
+          refsJson: p.refsJson ?? null,
         })
       );
       subscribe(

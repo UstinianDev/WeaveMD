@@ -135,6 +135,7 @@ const checkpointMock = vi.hoisted(() => ({
 vi.mock('@main/ai/agent/agentCheckpoint', () => checkpointMock);
 
 import { runAgentFlow } from '@main/ai/agent/agentLoop';
+import { collectCitations, mergeCitations, type CitationEntry } from '@main/ai/agent/agentToolExecutor';
 import { IPC_CHANNELS } from '@shared/constants';
 import type { IAIConfig } from '@shared/ai';
 
@@ -766,5 +767,168 @@ describe('runAgentFlow', () => {
     // executeTool 被调用 2 次（while 循环退出后执行 1 次 + 外层循环 round 1 执行 1 次）
     expect(toolMock.executeTool).toHaveBeenCalledTimes(2);
     expect(res.roundsUsed).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B8 六-2②：citation 收集（searchKB/searchDocument → refsJson 落库 + done 透传）
+// ---------------------------------------------------------------------------
+
+describe('B8 六-2 citation 收集与透传', () => {
+  it('searchKB 命中 → assistant appendMessage 带 refsJson，done 事件同步携带', async () => {
+    let call = 0;
+    llmMock.streamChatCompletion.mockImplementation(() => {
+      call += 1;
+      if (call === 1) {
+        return (async function* () {
+          yield {
+            delta: '',
+            toolCalls: [{ index: 0, name: 'searchKB', arguments: '{"query":"收入"}' }],
+          };
+        })();
+      }
+      return (async function* () {
+        yield { delta: '结论正文' };
+      })();
+    });
+    const results = JSON.stringify([
+      {
+        docId: 'd1',
+        chunkId: 'c1',
+        fileName: 'report.pdf',
+        content: '收入增长 12%',
+        seq: 0,
+        score: 0.9,
+        pinned: false,
+        sourceRef: JSON.stringify({ fileName: 'report.pdf', attachmentId: 'att-1', page: 2 }),
+      },
+    ]);
+    toolMock.executeTool.mockResolvedValue({ content: results, status: 'ok' });
+
+    const controller = new AbortController();
+    await runAgentFlow(makeEvent(), payload(), makeConfig(), 'enc:key', controller, {
+      consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+    });
+
+    const assistantWrite = dbMock.appendMessage.mock.calls.find(
+      (c) => c[0].role === 'assistant' && c[0].content.includes('结论正文')
+    );
+    expect(assistantWrite).toBeDefined();
+    const refsJson = (assistantWrite![0] as { refsJson?: string | null }).refsJson;
+    expect(refsJson).toBeTruthy();
+    const parsedRefs = JSON.parse(refsJson!) as Array<{ fileName: string; sourceRef?: string }>;
+    expect(parsedRefs).toHaveLength(1);
+    expect(parsedRefs[0].fileName).toBe('report.pdf');
+    expect(parsedRefs[0].sourceRef).toContain('"attachmentId":"att-1"');
+    expect(parsedRefs[0].sourceRef).toContain('"page":2');
+
+    const doneCall = electronMock.webContentsSend.mock.calls.find(
+      (c) => c[0] === IPC_CHANNELS.AI_STREAM_DONE
+    );
+    expect(doneCall).toBeDefined();
+    expect((doneCall![1] as { refsJson?: string | null }).refsJson).toContain('report.pdf');
+  });
+
+  it('无检索工具调用 → assistant refsJson 为 null（不写空数组）', async () => {
+    let call = 0;
+    llmMock.streamChatCompletion.mockImplementation(() => {
+      call += 1;
+      if (call === 1) {
+        return (async function* () {
+          yield {
+            delta: '',
+            toolCalls: [{ index: 0, name: 'readFile', arguments: '{"file_id":"f1"}' }],
+          };
+        })();
+      }
+      return (async function* () {
+        yield { delta: '直接回答' };
+      })();
+    });
+    toolMock.executeTool.mockResolvedValue({ content: '文件内容', status: 'ok' });
+
+    const controller = new AbortController();
+    await runAgentFlow(makeEvent(), payload(), makeConfig(), 'enc:key', controller, {
+      consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+    });
+    const assistantWrite = dbMock.appendMessage.mock.calls.find(
+      (c) => c[0].role === 'assistant' && c[0].content.includes('直接回答')
+    );
+    expect(assistantWrite![0].refsJson ?? null).toBeNull();
+  });
+});
+
+describe('collectCitations / mergeCitations（B8 六-2 收集器）', () => {
+  const kbResult = JSON.stringify([
+    {
+      docId: 'd1',
+      chunkId: 'c1',
+      fileName: 'report.pdf',
+      content: 'x'.repeat(500),
+      seq: 3,
+      score: 0.88,
+      pinned: false,
+      sourceRef: JSON.stringify({ fileName: 'report.pdf', page: 2 }),
+    },
+  ]);
+
+  it('searchKB 数组结果 → 裁剪为轻量 {fileName, sourceRef, seq, score}', () => {
+    const entries = collectCitations('searchKB', kbResult);
+    expect(entries).toHaveLength(1);
+    expect(entries![0].fileName).toBe('report.pdf');
+    expect(entries![0].seq).toBe(3);
+    expect(entries![0].sourceRef).toContain('"page":2');
+    // 不携带 chunk 正文（refs_json 保持轻量）
+    expect(entries![0]).not.toHaveProperty('content');
+  });
+
+  it('searchKB clarification 包装结果 → 取内层 results', () => {
+    const wrapped = JSON.stringify({ results: JSON.parse(kbResult), clarificationNeeded: true });
+    expect(collectCitations('searchKB', wrapped)).toHaveLength(1);
+  });
+
+  it('searchKB refused（无 results）→ null', () => {
+    expect(collectCitations('searchKB', JSON.stringify({ refused: true, threshold: 0.6 }))).toBeNull();
+  });
+
+  it('searchDocument 命中 → 每条 sourceRef 含 attachmentId + page', () => {
+    const content = JSON.stringify({
+      attachmentId: 'att-1',
+      fileName: 'report.pdf',
+      query: '收入',
+      matchCount: 2,
+      matches: [
+        { offset: 10, snippet: 'a', page: 1, sectionPath: ['季度报告'] },
+        { offset: 900, snippet: 'b', page: 2, sectionPath: ['季度报告'] },
+      ],
+    });
+    const entries = collectCitations('searchDocument', content);
+    expect(entries).toHaveLength(2);
+    for (const e of entries!) {
+      const ref = JSON.parse(e.sourceRef!);
+      expect(ref.attachmentId).toBe('att-1');
+      expect(typeof ref.page).toBe('number');
+    }
+  });
+
+  it('非引用工具 / 非法 JSON → null（不收集）', () => {
+    expect(collectCitations('readPage', '{"page":1}')).toBeNull();
+    expect(collectCitations('searchKB', 'not-json')).toBeNull();
+    expect(collectCitations('searchKB', JSON.stringify({ foo: 1 }))).toBeNull();
+  });
+
+  it('mergeCitations 按 sourceRef 去重并封顶 10 条', () => {
+    const make = (i: number): CitationEntry => ({
+      fileName: `f${i}.md`,
+      sourceRef: JSON.stringify({ fileName: `f${i}.md`, line: i }),
+    });
+    let merged: CitationEntry[] = [];
+    for (let i = 0; i < 12; i++) {
+      merged = mergeCitations(merged, [make(i)]);
+    }
+    // 重复注入同一条 → 仍去重
+    merged = mergeCitations(merged, [make(0)]);
+    expect(merged).toHaveLength(10);
+    expect(new Set(merged.map((e) => e.sourceRef)).size).toBe(10);
   });
 });

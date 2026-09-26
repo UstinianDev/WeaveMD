@@ -656,6 +656,10 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
   link: {
     openExternal: async () => {},
   },
+  // B8 六-2：浏览器模式无本地原文可开 → 受控失败（不假装成功）
+  attachment: {
+    openSource: async () => ({ success: false, message: 'browser mock: no local file' }),
+  },
   clipboard: {
     readImage: async () => null,
   },

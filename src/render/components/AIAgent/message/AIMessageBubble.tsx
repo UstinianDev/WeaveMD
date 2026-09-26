@@ -58,9 +58,13 @@ interface ParsedSource {
   chunkLabel?: string;
   /** 出处行号（sourceRef.line，尽力滚动用；缺失或超范围则仅 openFile）。 */
   line?: number;
+  /** 真实页码（B8 六-2②，source_ref.page；有则标签展示「第 N 页」）。 */
+  page?: number;
+  /** 附件锚点（B8 六-2②，source_ref.attachmentId；点击经 attachment:open-source 跳原文）。 */
+  attachmentId?: string;
 }
 
-/** 解析 refsJson 中每条出处：取 fileName 与 sourceRef 里的 fileId / line。 */
+/** 解析 refsJson 中每条出处：取 fileName 与 sourceRef 里的 fileId / line / page / attachmentId。 */
 function parseRefsJson(json: string | null | undefined): ParsedSource[] {
   if (!json) return [];
   try {
@@ -75,6 +79,8 @@ function parseRefsJson(json: string | null | undefined): ParsedSource[] {
       let fileId: string | null = null;
       let chunkLabel: string | undefined;
       let line: number | undefined;
+      let page: number | undefined;
+      let attachmentId: string | undefined;
       const rawRef = rec.sourceRef;
       if (typeof rawRef === 'string') {
         try {
@@ -82,13 +88,18 @@ function parseRefsJson(json: string | null | undefined): ParsedSource[] {
           if (typeof refObj.fileId === 'string') fileId = refObj.fileId;
           if (typeof refObj.seq === 'number') chunkLabel = String(refObj.seq);
           if (typeof refObj.line === 'number' && refObj.line > 0) line = refObj.line;
+          // B8 六-2②：页码与附件锚点（历史消息无该字段 → 兼容为 undefined）
+          if (typeof refObj.page === 'number' && refObj.page > 0) page = refObj.page;
+          if (typeof refObj.attachmentId === 'string' && refObj.attachmentId) {
+            attachmentId = refObj.attachmentId;
+          }
         } catch {
           fileId = null;
         }
       } else if (rec.fileId && typeof rec.fileId === 'string') {
         fileId = rec.fileId;
       }
-      sources.push({ fileName, fileId, chunkLabel, line });
+      sources.push({ fileName, fileId, chunkLabel, line, page, attachmentId });
     }
     return sources;
   } catch {
@@ -275,20 +286,36 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
 
   // 3c: handleOpenSource 用 useCallback
   const handleOpenSource = useCallback((source: ParsedSource) => {
-    if (!source.fileId) return;
     const userId = useAuthStore.getState().user?.id ?? '';
-    // getFile 走既有文件 API（尽力而为；失败不阻塞）
-    void window.weaveMD.file.get(source.fileId, userId).then((res) => {
-      const d = res as { success?: boolean; data?: IFile };
-      if (d.success !== false && d.data) {
-        useEditorStore.getState().openFile(d.data);
-        // 出处行号尽力滚动；无行号/超范围只 openFile，不阻塞
-        if (source.line) {
-          const total = d.data.content.split('\n').length;
-          tryScrollEditorToLine(source.line, total);
+    if (source.fileId) {
+      // getFile 走既有文件 API（尽力而为；失败不阻塞）
+      void window.weaveMD.file.get(source.fileId, userId).then((res) => {
+        const d = res as { success?: boolean; data?: IFile };
+        if (d.success !== false && d.data) {
+          useEditorStore.getState().openFile(d.data);
+          // 出处行号尽力滚动；无行号/超范围只 openFile，不阻塞
+          if (source.line) {
+            const total = d.data.content.split('\n').length;
+            tryScrollEditorToLine(source.line, total);
+          }
         }
-      }
-    });
+      });
+      return;
+    }
+    if (source.attachmentId) {
+      // B8 六-2②：附件引用 → 服务端按 attachmentId 解析原文路径并打开（失败静默不阻塞）
+      void window.weaveMD.attachment
+        .openSource({ attachmentId: source.attachmentId, userId })
+        .then((res) => {
+          const d = res as { success?: boolean; message?: string };
+          if (d && d.success === false) {
+            console.warn('[refs] 附件原文打开失败:', d.message);
+          }
+        })
+        .catch((err: unknown) => {
+          console.warn('[refs] 附件原文打开异常:', err);
+        });
+    }
   }, []);
 
   if (role === 'user') {
@@ -506,15 +533,21 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
         {sources.length > 0 && (
           <div className="flex flex-wrap gap-1.5 pt-1">
             {sources.map((source, index) => {
-              const clickable = !!source.fileId;
-              const template = source.chunkLabel
-                ? t('ai.refs.chunk')
-                : t('ai.refs.file');
+              const clickable = !!source.fileId || !!source.attachmentId;
+              // 页码标签优先（B8 六-2② 真实回链），其次块号，再次文件名
+              const template =
+                source.page != null
+                  ? t('ai.refs.page')
+                  : source.chunkLabel
+                    ? t('ai.refs.chunk')
+                    : t('ai.refs.file');
               const label = template
                 .split('{fileName}')
                 .join(source.fileName)
                 .split('{chunk}')
-                .join(source.chunkLabel ?? '');
+                .join(source.chunkLabel ?? '')
+                .split('{page}')
+                .join(String(source.page ?? ''));
               return clickable ? (
                 <button
                   key={`${source.fileName}-${index}`}

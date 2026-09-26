@@ -7,7 +7,8 @@ const electronMock = vi.hoisted(() => {
   const fromWebContents = vi.fn(
     () => ({ webContents: { send: webContentsSend } }),
   );
-  return { handlers, webContentsSend, fromWebContents };
+  const shellOpenPath = vi.fn(async () => '');
+  return { handlers, webContentsSend, fromWebContents, shellOpenPath };
 });
 
 vi.mock('electron', () => ({
@@ -17,6 +18,7 @@ vi.mock('electron', () => ({
     },
   },
   BrowserWindow: { fromWebContents: electronMock.fromWebContents },
+  shell: { openPath: electronMock.shellOpenPath },
   safeStorage: {
     isEncryptionAvailable: () => true,
     getSelectedStorageBackend: () => 'keychain',
@@ -45,6 +47,8 @@ const dbMock = vi.hoisted(() => ({
   updateConversationSummary: vi.fn(),
   upsertAiConfig: vi.fn(),
   updateKbExtendedSettings: vi.fn(),
+  // B8 六-2：附件引用跳转原文（attachment:open-source 路径解析）
+  findAttachmentFilePath: vi.fn(),
 }));
 
 vi.mock('@main/db/ai', () => dbMock);
@@ -288,6 +292,8 @@ beforeEach(() => {
   queueMock.cancelPending.mockReset().mockReturnValue(0);
   queueMock.dequeueForProcessing.mockReset().mockReturnValue(null);
   attachmentsPersistMock.persistIncomingAttachments.mockReset().mockResolvedValue([]);
+  dbMock.findAttachmentFilePath.mockReset();
+  electronMock.shellOpenPath.mockReset().mockResolvedValue('');
   registerAiIpcHandlers();
 });
 
@@ -1101,5 +1107,79 @@ describe('ai:ipc handlers', () => {
 
   it('DEFAULT_AI_CONFIG.protocol 为 openai（无配置行时不走 anthropic 路径）', () => {
     expect(DEFAULT_AI_CONFIG.protocol).toBe('openai');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B8 六-2：attachment:open-source（附件引用点击跳回原文）
+// ---------------------------------------------------------------------------
+
+describe('attachment:open-source（B8 六-2）', () => {
+  it('按 attachmentId 解析本地路径并 shell.openPath 打开', async () => {
+    dbMock.findAttachmentFilePath.mockReturnValue('C:/docs/report.pdf');
+    const handler = getHandler(IPC_CHANNELS.ATTACHMENT_OPEN_SOURCE);
+    const res = (await handler(makeEvent(), {
+      attachmentId: 'att-1',
+      userId: 'u1',
+    })) as { success: boolean };
+    expect(res.success).toBe(true);
+    expect(dbMock.findAttachmentFilePath).toHaveBeenCalledWith('u1', 'att-1');
+    expect(electronMock.shellOpenPath).toHaveBeenCalledWith('C:/docs/report.pdf');
+  });
+
+  it('路径未找到 → success:false 且不调 openPath', async () => {
+    dbMock.findAttachmentFilePath.mockReturnValue(null);
+    const handler = getHandler(IPC_CHANNELS.ATTACHMENT_OPEN_SOURCE);
+    const res = (await handler(makeEvent(), {
+      attachmentId: 'att-none',
+      userId: 'u1',
+    })) as { success: boolean };
+    expect(res.success).toBe(false);
+    expect(electronMock.shellOpenPath).not.toHaveBeenCalled();
+  });
+
+  it('相对路径（图片落盘路径）→ 拒绝打开', async () => {
+    dbMock.findAttachmentFilePath.mockReturnValue('attachments/u1/c1/att-1.png');
+    const handler = getHandler(IPC_CHANNELS.ATTACHMENT_OPEN_SOURCE);
+    const res = (await handler(makeEvent(), {
+      attachmentId: 'att-1',
+      userId: 'u1',
+    })) as { success: boolean };
+    expect(res.success).toBe(false);
+    expect(electronMock.shellOpenPath).not.toHaveBeenCalled();
+  });
+
+  it('非白名单扩展名（如 .exe）→ 拒绝打开（防伪造路径执行）', async () => {
+    dbMock.findAttachmentFilePath.mockReturnValue('C:/docs/evil.exe');
+    const handler = getHandler(IPC_CHANNELS.ATTACHMENT_OPEN_SOURCE);
+    const res = (await handler(makeEvent(), {
+      attachmentId: 'att-1',
+      userId: 'u1',
+    })) as { success: boolean };
+    expect(res.success).toBe(false);
+    expect(electronMock.shellOpenPath).not.toHaveBeenCalled();
+  });
+
+  it('非法载荷 → success:false（IPC 边界校验）', async () => {
+    const handler = getHandler(IPC_CHANNELS.ATTACHMENT_OPEN_SOURCE);
+    const res1 = (await handler(makeEvent(), null)) as { success: boolean };
+    const res2 = (await handler(makeEvent(), { attachmentId: 123, userId: 'u1' })) as {
+      success: boolean;
+    };
+    expect(res1.success).toBe(false);
+    expect(res2.success).toBe(false);
+    expect(electronMock.shellOpenPath).not.toHaveBeenCalled();
+  });
+
+  it('shell.openPath 返回错误文案 → success:false 透传（文件被移动等）', async () => {
+    dbMock.findAttachmentFilePath.mockReturnValue('C:/docs/report.pdf');
+    electronMock.shellOpenPath.mockResolvedValue('File not found');
+    const handler = getHandler(IPC_CHANNELS.ATTACHMENT_OPEN_SOURCE);
+    const res = (await handler(makeEvent(), {
+      attachmentId: 'att-1',
+      userId: 'u1',
+    })) as { success: boolean; message?: string };
+    expect(res.success).toBe(false);
+    expect(res.message).toContain('File not found');
   });
 });

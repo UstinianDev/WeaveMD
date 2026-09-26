@@ -148,6 +148,16 @@ function toCheckpointMessages(
   }));
 }
 
+/**
+ * B8 六-2②：citation → refsJson（空引用不写，保持 null 兼容旧渲染）。
+ * 同一份 JSON 同时落库（appendMessage）与随 done 事件透传（渲染层即时展示）。
+ */
+function citationRefsJson(ctx: AgentContext): string | null {
+  return ctx.citationRefs && ctx.citationRefs.length > 0
+    ? JSON.stringify(ctx.citationRefs)
+    : null;
+}
+
 function finalizeAgentRun(ctx: AgentContext, _deps: AgentLoopDeps): AgentRunResult {
   const stats = ctx.detector.getStats();
   let finalMessage: string;
@@ -161,11 +171,13 @@ function finalizeAgentRun(ctx: AgentContext, _deps: AgentLoopDeps): AgentRunResu
   } else {
     finalMessage = `已在 ${stats.maxRounds} 轮内达到上限，请将需求拆分后重试。`;
   }
+  const finalRefsJson = citationRefsJson(ctx);
   const convergence = appendMessage({
     conversationId: ctx.convId,
     userId: ctx.userId,
     role: 'assistant',
     content: finalMessage,
+    ...(finalRefsJson ? { refsJson: finalRefsJson } : {}),
   });
   ctx.assistantId = convergence.id;
   ctx.send(IPC_CHANNELS.AI_STREAM_DONE, {
@@ -173,6 +185,7 @@ function finalizeAgentRun(ctx: AgentContext, _deps: AgentLoopDeps): AgentRunResu
     usage: { reasoningTokenCount: ctx.reasoningTokenCount },
     roundsUsed: ctx.roundsUsed,
     intent: ctx.intent,
+    refsJson: finalRefsJson,
   });
 
   // S16: 输出本次会话的成本摘要
@@ -506,11 +519,13 @@ export async function runAgentFlow(
           continue;
         }
         // 正常路径：无工具调用且无文本问题 → 结束
+        const refsJson = citationRefsJson(ctx);
         const assistantMsg = appendMessage({
           conversationId: ctx.convId,
           userId: ctx.userId,
           role: 'assistant',
           content: assistantContent,
+          ...(refsJson ? { refsJson } : {}),
         });
         ctx.assistantId = assistantMsg.id;
         ctx.send(IPC_CHANNELS.AI_STREAM_DONE, {
@@ -518,6 +533,7 @@ export async function runAgentFlow(
           usage: { reasoningTokenCount: ctx.reasoningTokenCount },
           roundsUsed: ctx.roundsUsed,
           intent: ctx.intent,
+          refsJson,
         });
         return makeAgentResult({
           conversationId: ctx.convId,
