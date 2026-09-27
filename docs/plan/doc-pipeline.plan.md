@@ -277,8 +277,8 @@ B12 二-5 Docling PoC（最后、随时可停）
 
 ## 3. 数据变更专章
 
-> 涉及批次：B3（D1/D2）、B4（D3）、B5（D4）、B8（D6）、B11（D5）、B7（D7）。共 **8 个数据变更点**
-> （D5b consent_granted 为 B11 实现中补充、D7 structure_json 为 B7 落库要求补充——原稿写 6，阶段 7 合规核对后回填）。
+> 涉及批次：B3（D1/D2）、B4（D3）、B5（D4）、B8（D6）、B11（D5）、B7（D7）、remedial（D8）。共 **9 个数据变更点**
+> （D5b consent_granted 为 B11 实现中补充、D7 structure_json 为 B7 落库要求补充、D8 vision_override 为遗留修复批次补充——原稿写 6，阶段 7 合规核对后回填 8，remedial 批次回填 9）。
 
 ### 统一迁移纪律（适用于全部 D 项）
 
@@ -329,6 +329,13 @@ B12 二-5 Docling PoC（最后、随时可停）
 - **目标模型**：JSON 内扩展页码/附件锚点字段（真实页码回链、附件跳转）；历史消息无新字段按可选解析（六-2②向后兼容）。
 - **迁移写法**：无 schema 变更；读写均按可选字段。
 - **回滚**：旧渲染忽略新增字段，双向兼容。
+
+### D8 `ai_config.vision_override` 补列（remedial Bug B）
+
+- **现状**：`ai_config` 无 vision 覆盖字段；`supportsVision` 仅按模型 id 模式猜且未知恒 false（诊断报告 B-1）。
+- **目标模型**：`vision_override INTEGER DEFAULT NULL` 三态 —— NULL=自动判定（已知能力表 → 未知模型乐观注入）、1=强制支持、0=强制不支持；注入与识别两链路经 `resolveVisionSupport` 统一消费。
+- **迁移写法**：`addColumnIfMissing` 追加在 D5/D8 同组补列之后（remedial 批次实现为独立导出 `addVisionOverrideColumn`，三断言 `tests/main/db/migrations.test.ts`）。
+- **回滚**：可空列旧版不读，直接兼容；回滚 = 代码 revert + 列保留无害。
 
 ---
 

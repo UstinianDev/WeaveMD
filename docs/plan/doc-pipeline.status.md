@@ -245,6 +245,30 @@ pdfjs-dist(110)、@anthropic-ai/sdk(107)、electron-builder(308) —— 全部 c
 - **阶段 7 合规** ✅：报告 `docs/plan/doc-pipeline.compliance.md`（commit 35180f7）。**APPROVED WITH COMMENTS，无 Critical**；161 文件 +24360/−750；红线七项全过；范围外九项零触碰。非阻断：xlsx@0.18.5 CVE 跟踪、E2E 措辞按裁定口径、cacheMonitor 负载 flaky（非本分支引入）。
 - **阶段 8 交付核对** ✅：29 任务/12 批与计划变更清单对账无遗漏、无越界功能性改动；plan §3 数据变更点 6→8 已回填。**交付完成，未推送远程**（待用户授权）。
 
+## 遗留修复批次（remedial，2026-09-27）
+
+> 蓝图：`docs/plan/doc-pipeline.remedial.diagnosis.md`（commit aca71fd）；TDD 证据：`docs/testing/doc-pipeline-remedial.tdd.md`。
+> 范围：Bug A（上传文件）、Bug B（上传图片）、R3~R8 遗留修复点；R1/R2/R9/R10 不在本批次（废弃开关/打包互斥/休眠契约，维持裁定）。
+
+- **完成项（9 项，TDD strict 分项小步提交）**：
+  - **Bug A**：A-1 附件清单注入 system 段（文件名+**绝对路径**+attachment_id+状态+searchDocument/readLocalFile 指引，`buildAttachmentManifest`）；A-2 附件消息即走 Agent 提示（chat 意图的「不要提及工具」不再锁死 searchDocument/ask_question_card，纯闲聊仍 CHAT_SYSTEM_PROMPT）——`4d0b07b`。
+  - **Bug B**：D8 迁移 `ai_config.vision_override INTEGER DEFAULT NULL`（三态：NULL=自动/1=强制支持/0=强制不支持，幂等补列三断言）**且**扩展已知能力表（vision +glm-4v/minicpm 等、非 vision 显式负表）；未知模型**默认乐观注入**；`resolveVisionSupport` 统一注入（agentContext/chatHandlers）与识别（imageRecognition）三调用点；降级经 `IAttachmentMeta.error` 上屏（识别链回执/消息 + 注入链 appendMessage 前补写失败态），非仅 console.warn——`d6a7bef`。
+  - **R3（L4）**：`ToolCtx.attachmentEgressAllowed = allowSend ∨ 勾选授权`（fail-closed）+ `resolveAttachmentTarget` 会话边界/外发双检（四工具共闸）——`442a028`。
+  - **R4**：AGENT_RUN 回执图片 `resolveStoredPath` 转绝对（toImgSrc→media://，落库仍相对归一）——`76928e2`。
+  - **R5**：open-source 先按 `isRelativeAttachmentPath` resolve 相对路径 + 图片扩展档放行（.exe/svg 仍拒）——`1a2070b`。
+  - **R6**：渲染层发送前 `slice(0,20)`，`MAX_ATTACHMENTS_PER_MESSAGE`/`IMAGE_UPLOAD_EXTS` 抽 shared 单一来源——`925fe20`。
+  - **R7**：消息级级联——`deleteMessagesAfter` 收集受影响 attachments_json 逐 id `removeParsedAttachment`（KB+图片一并清）——`db7e6f8`。
+  - **R8**：会话删除先取 `listParsedAttachmentsByConversation` 再删会话行，逐 id 级联（`deleteConversationImages` 兜底保留）——`59b8bf6`。
+- **诊断开放点裁定结果（三项，均按裁定执行零偏离）**：
+  1. **R3**：本会话附件豁免、拦跨会话——当前会话用户主动上传且落库的附件不受 allowSend 拦截；跨会话/未授权一律 fail-closed（8 格矩阵 + fail-closed 断言见 TDD §2，跨会话 4 格恒拒、本会话 4 格恒放行）。
+  2. **R7**：消息级级联（`deleteMessagesAfter` 内聚实现），**不做** chip 独立删除。
+  3. **BugB**：D8 配置列（三态语义已记录）**且**扩展能力表；未知模型乐观注入由既有降级链兜底；降级提示用户端可见。附带遗留：设置页 vision 开关 UI 未做（裁定枚举未含 UI；`AI_GET/SET_CONFIG.visionOverride` 通道可读写）。
+- **门禁**：tsc 0 error / vitest **3847 全过**（3788=剔除 2 个存量负载 flaky 后 160 文件 EXIT0 + 59=2 文件单跑；两次全量整跑 3837/3845 全绿实录）/ lint src 0 error（106 warning 持平）/ vite build exit 0 / E2E **31 failed·1 skipped·101 passed（133 条）与裁定基线逐 spec 同名单，零新增失败**。新增代码覆盖率：触及 16 文件聚合 78.35%（剔除既有 runMigrations DDL 的 db/index.ts 后 **87.5%**），新增行经 40+ 专属用例全覆盖（8 条定向补测）。D8 三断言 FakeDb 全过。
+- **数据变更**：+1（D8 `ai_config.vision_override`，plan §3 8→9 已同步）。
+- **偏离记录**：无功能性偏离；`ToolCtx` 字段按蓝图命名 `attachmentEgressAllowed`（任务书 "`ToolCtx.egession`" 为同一语义的简写）。
+- **遗留**：E2E 存量 31 failed（基线口径）；`cacheMonitor`/`ab-test` 存量性能断言负载 flaky（单跑全绿，B4/B5/B6 已入档）；诊断 A-3（readLocalFile cwd 相对解析）与开放点 4（agentLoop anthropic 不分流）维持观察不动；vision 覆盖无设置页 UI。
+- **提交**：`aca71fd`（蓝图）→ `925fe20`/`1a2070b`/`76928e2`/`59b8bf6`/`db7e6f8`/`442a028`/`4d0b07b`/`d6a7bef`（分项 fix）→ 收尾（覆盖补齐 tests + 本两份文档）。**未推送远程**（待用户授权）。
+
 ## 进度总览
 
 | 模块 | 任务数 | 状态 |
