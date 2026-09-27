@@ -10,3 +10,4 @@
 - [doc-pipeline B9 完成与引用模式取舍](doc-pipeline-b9-done.md) — B9 两 commit 至 67372f8、下一任务 B10/B11（L4 需二次确认）；发送构造在 agentStore 非 FileTreePanel + 越界判定先于存在性检查
 - [doc-pipeline B10 完成与打包验证坑](doc-pipeline-b10-done.md) — B10 三 commit 至 bc34ef3、下一任务 B11/B12；asar 288→85.93MB、Q5 验证通过、v24 排除双口径 + sqlite-vec 打包降级遗留
 - [doc-pipeline B11 完成与外发过滤结构](doc-pipeline-b11-done.md) — B11 两 commit 至 b1ed1f1、下一任务 B12；过滤必须包 deps.searchKb（preloader 覆盖 toolCtx）+ D5b 计划缺口 + FakeDb run 的 sql 是闭包变量
+- [doc-pipeline remedial 完成与裁定/fs-mock 坑](doc-pipeline-remedial-done.md) — remedial 11 commit 至 e6bdb6e、R3 本会话豁免跨会话恒拦；vi.mock('fs') 打不进 agentMedia 用真文件
