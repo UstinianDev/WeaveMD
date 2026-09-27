@@ -7,10 +7,11 @@ import { join } from 'path';
 import type { Database as BetterSqlite3Database } from 'better-sqlite3';
 import { IPC_CHANNELS } from '@shared/constants';
 import type { AIErrorCode, AgentRunPayload, IAttachmentMeta } from '@shared/ai';
-import { isSupportedDocFile, normalizeKbSettings } from '@shared/ai';
+import { IMAGE_UPLOAD_EXTS, isSupportedDocFile, normalizeKbSettings } from '@shared/ai';
 import { findAttachmentFilePath, getAiConfig, getConversation } from '../../db/ai';
 import { persistIncomingAttachments } from '../../db/attachments';
 import { recognizeImageAttachments } from '../image/imageRecognition';
+import { isRelativeAttachmentPath, resolveStoredPath } from '../image/imageStorage';
 import { needsConsent } from '../consent';
 import { runAgentFlow } from '../agent/agentLoop';
 import { searchKB } from '../knowledge/kbSearch';
@@ -88,8 +89,13 @@ export function registerAgentHandlers(): void {
       return { success: false, message: 'invalid payload' };
     }
     try {
-      const filePath = findAttachmentFilePath(userId, attachmentId);
+      let filePath = findAttachmentFilePath(userId, attachmentId);
       if (!filePath) return { success: false, message: 'attachment path not found' };
+      // R5：图片附件落库存相对路径（attachments/ 前缀），先按附件根重建绝对路径；
+      // 非附件前缀的相对路径不 resolve，沿用下方绝对路径校验拒绝（fail-closed）
+      if (isRelativeAttachmentPath(filePath)) {
+        filePath = resolveStoredPath(filePath);
+      }
       // 绝对路径判定不依赖 path 模块（测试环境 browserify path 为 posix 语义，
       // 会误拒 Windows 盘符路径）：盘符 / 正斜杠根 / UNC 三种形态显式白名单
       const isLocalAbsolute =
@@ -97,7 +103,11 @@ export function registerAgentHandlers(): void {
         filePath.startsWith('\\\\') ||
         /^[a-zA-Z]:[\\/]/.test(filePath);
       if (!isLocalAbsolute) return { success: false, message: 'not a local file path' };
-      if (!isSupportedDocFile(filePath)) return { success: false, message: 'unsupported file type' };
+      // 扩展名双档白名单：7 格式文档 / 图片（R5 图片档放行，防伪造 .exe 仍拒）
+      const ext = (filePath.toLowerCase().split('.').pop() ?? '').replace(/^\./, '');
+      if (!isSupportedDocFile(filePath) && !IMAGE_UPLOAD_EXTS.includes(ext)) {
+        return { success: false, message: 'unsupported file type' };
+      }
       const errMsg = await shell.openPath(filePath);
       return errMsg ? { success: false, message: errMsg } : { success: true };
     } catch (err) {

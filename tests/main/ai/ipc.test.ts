@@ -1214,8 +1214,61 @@ describe('attachment:open-source（B8 六-2）', () => {
     expect(electronMock.shellOpenPath).not.toHaveBeenCalled();
   });
 
-  it('相对路径（图片落盘路径）→ 拒绝打开', async () => {
+  it('相对路径（图片落盘路径）→ 先 resolveStoredPath 重建绝对再打开（R5）', async () => {
+    // 图片 attachments_json 存相对路径：isRelativeAttachmentPath 判定后 resolve 成绝对
+    imageStorageMock.isRelativeAttachmentPath.mockReturnValueOnce(true);
+    imageStorageMock.resolveStoredPath.mockReturnValueOnce(
+      'C:/Users/u/AppData/attachments/u1/c1/att-1.png'
+    );
     dbMock.findAttachmentFilePath.mockReturnValue('attachments/u1/c1/att-1.png');
+    const handler = getHandler(IPC_CHANNELS.ATTACHMENT_OPEN_SOURCE);
+    const res = (await handler(makeEvent(), {
+      attachmentId: 'att-1',
+      userId: 'u1',
+    })) as { success: boolean };
+    expect(res.success).toBe(true);
+    expect(electronMock.shellOpenPath).toHaveBeenCalledWith(
+      'C:/Users/u/AppData/attachments/u1/c1/att-1.png'
+    );
+  });
+
+  it('相对路径但 resolve 后仍非绝对（附件根不可用）→ 拒绝打开（fail-closed）', async () => {
+    imageStorageMock.isRelativeAttachmentPath.mockReturnValueOnce(true);
+    imageStorageMock.resolveStoredPath.mockReturnValueOnce('attachments/u1/c1/att-1.png');
+    dbMock.findAttachmentFilePath.mockReturnValue('attachments/u1/c1/att-1.png');
+    const handler = getHandler(IPC_CHANNELS.ATTACHMENT_OPEN_SOURCE);
+    const res = (await handler(makeEvent(), {
+      attachmentId: 'att-1',
+      userId: 'u1',
+    })) as { success: boolean };
+    expect(res.success).toBe(false);
+    expect(electronMock.shellOpenPath).not.toHaveBeenCalled();
+  });
+
+  it('非附件前缀的相对路径（不 resolve）→ 拒绝打开（旧行为保留）', async () => {
+    dbMock.findAttachmentFilePath.mockReturnValue('some/relative/note.md');
+    const handler = getHandler(IPC_CHANNELS.ATTACHMENT_OPEN_SOURCE);
+    const res = (await handler(makeEvent(), {
+      attachmentId: 'att-1',
+      userId: 'u1',
+    })) as { success: boolean };
+    expect(res.success).toBe(false);
+    expect(electronMock.shellOpenPath).not.toHaveBeenCalled();
+  });
+
+  it('绝对路径图片扩展名（.png，R5 图片档放行）→ 打开成功', async () => {
+    dbMock.findAttachmentFilePath.mockReturnValue('C:/pics/shot.png');
+    const handler = getHandler(IPC_CHANNELS.ATTACHMENT_OPEN_SOURCE);
+    const res = (await handler(makeEvent(), {
+      attachmentId: 'att-1',
+      userId: 'u1',
+    })) as { success: boolean };
+    expect(res.success).toBe(true);
+    expect(electronMock.shellOpenPath).toHaveBeenCalledWith('C:/pics/shot.png');
+  });
+
+  it('非白名单图片扩展名（.svg，R5 不放行）→ 拒绝打开', async () => {
+    dbMock.findAttachmentFilePath.mockReturnValue('C:/pics/vector.svg');
     const handler = getHandler(IPC_CHANNELS.ATTACHMENT_OPEN_SOURCE);
     const res = (await handler(makeEvent(), {
       attachmentId: 'att-1',
