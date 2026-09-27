@@ -70,7 +70,9 @@ vi.mock('@main/ai/toolRegistry', () => ({
 }));
 
 import { prepareAgentContext } from '@main/ai/agent/agentContext';
-import type { IAIConfig } from '@shared/ai';
+import { classifyIntent } from '@main/ai/intentRouter';
+import { CHAT_SYSTEM_PROMPT } from '@main/ai/agent/agentPromptBuilder';
+import type { IAIConfig, IAttachmentMeta } from '@shared/ai';
 import type { AgentReqPayload } from '@main/ai/agent/agentLoop';
 
 function makeConfig(over: Partial<IAIConfig> = {}): IAIConfig {
@@ -155,5 +157,108 @@ describe('R3 — toolCtx.attachmentEgressAllowed 注入（allowSend ∨ 勾选�
       consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
     });
     expect(ctx.toolCtx.currentConversationId).toBe('c9');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug A-1：附件清单（文件名 + 绝对路径 + attachment_id + 状态）注入 system 段
+// 根因：渲染层正文只有 [文件: xxx] 占位符，att.path/attachment_id 从未进 prompt，
+// LLM 调 readLocalFile 只能编造路径（诊断报告 A-1）。
+// ---------------------------------------------------------------------------
+
+describe('Bug A-1 — 附件清单注入 system prompt', () => {
+  const ALLOW_ALL = {
+    consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+  };
+
+  function fileAtt(over: Partial<IAttachmentMeta> = {}): IAttachmentMeta {
+    return {
+      id: 'att-1',
+      type: 'file',
+      name: 'report.pdf',
+      path: 'C:/docs/report.pdf',
+      parseStatus: 'done',
+      ...over,
+    };
+  }
+
+  it('带文件附件 → system 段含文件名、绝对路径、附件 id、解析状态与工具指引', () => {
+    const ctx = runPrepare(
+      makePayload({
+        message: '[文件: report.pdf]\n帮我看看',
+        attachments: [
+          fileAtt(),
+          {
+            id: 'att-2',
+            type: 'image',
+            name: 'shot.png',
+            path: 'attachments/u1/c1/att-2.png',
+            parseStatus: 'done',
+          },
+        ],
+      }),
+      ALLOW_ALL
+    );
+    const systemText = ctx.llmMessages
+      .filter((m) => m.role === 'system')
+      .map((m) => (typeof m.content === 'string' ? m.content : ''))
+      .join('\n');
+    // 文件：绝对路径 + id + 状态
+    expect(systemText).toContain('report.pdf');
+    expect(systemText).toContain('C:/docs/report.pdf');
+    expect(systemText).toContain('att-1');
+    expect(systemText).toContain('done');
+    // 图片：id 引导（不给 readLocalFile 用的相对路径）
+    expect(systemText).toContain('att-2');
+    // 工具指引：searchDocument 优先 / readLocalFile 按路径读原始文件
+    expect(systemText).toContain('searchDocument');
+    expect(systemText).toContain('readLocalFile');
+  });
+
+  it('无附件 → 附件清单段不出现（零回归）', () => {
+    const ctx = runPrepare(makePayload({ message: '写一篇关于 React 的文章' }), ALLOW_ALL);
+    const systemText = ctx.llmMessages
+      .filter((m) => m.role === 'system')
+      .map((m) => (typeof m.content === 'string' ? m.content : ''))
+      .join('\n');
+    expect(systemText).not.toContain('本会话附件清单');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug A-2：chat 意图吃掉 CHAT_SYSTEM_PROMPT（「不要提及工具」）导致附件场景
+// 工具/提问全被禁。裁定：附件消息有附件即走 Agent prompt（聊天闲聊不带附件）。
+// ---------------------------------------------------------------------------
+
+describe('Bug A-2 — 附件消息不受 chat 意图提示词禁令锁死', () => {
+  const ALLOW_ALL = {
+    consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+  };
+
+  it('前置事实：附件消息被 classifyIntent 判为 chat（问题根因）', () => {
+    expect(classifyIntent('[文件: a.pdf]\n帮我看看').intent).toBe('chat');
+  });
+
+  it('chat 意图 + 附件 → 用 Agent 提示（含 ask_question_card 铁律），非 CHAT_SYSTEM_PROMPT', () => {
+    const ctx = runPrepare(
+      makePayload({
+        message: '[文件: a.pdf]\n帮我看看',
+        attachments: [{ id: 'a1', type: 'file', name: 'a.pdf', path: 'C:/a.pdf', parseStatus: 'done' }],
+      }),
+      ALLOW_ALL
+    );
+    const first = ctx.llmMessages[0];
+    expect(first.role).toBe('system');
+    const text = typeof first.content === 'string' ? first.content : '';
+    expect(classifyIntent('[文件: a.pdf]\n帮我看看').intent).toBe('chat'); // 同输入
+    expect(text).toContain('ask_question_card');
+    expect(text).not.toContain('不要提及工具、文件或文档');
+    expect(text).not.toBe(CHAT_SYSTEM_PROMPT);
+  });
+
+  it('纯闲聊无附件 → 仍走 CHAT_SYSTEM_PROMPT（零回归）', () => {
+    const ctx = runPrepare(makePayload({ message: '你好，今天天气怎么样？' }), ALLOW_ALL);
+    expect(ctx.llmMessages[0].role).toBe('system');
+    expect(ctx.llmMessages[0].content).toBe(CHAT_SYSTEM_PROMPT);
   });
 });

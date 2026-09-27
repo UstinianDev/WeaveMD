@@ -5,6 +5,7 @@
 // 纯函数，不依赖 IPC / 数据库（listFiles 由调用方注入快照）。
 // 性能优化：文件列表缓存（避免每次 Agent 调用都查询 DB）。
 
+import type { IAttachmentMeta } from '@shared/ai';
 import { estimateTokens } from '../utils/tokenEstimator';
 
 // ---------------------------------------------------------------------------
@@ -223,14 +224,53 @@ export function buildLocalTreeSnapshot(
 }
 
 // ---------------------------------------------------------------------------
+// 附件清单快照（Bug A-1）
+// ---------------------------------------------------------------------------
+
+/**
+ * 构建本会话附件清单（注入 system prompt）：
+ * 文件给绝对路径（readLocalFile 可直接消费）、图片只给 id（已随消息作为图像
+ * 注入或走 analyzeChart 定位，勿用 readLocalFile 读相对路径）。
+ * 数据源为发送链路落库后的 payload.attachments（轻量元数据，一物两表）。
+ * 无附件返回空串（调用方 filter(Boolean) 零回归）。
+ */
+export function buildAttachmentManifest(
+  attachments?: readonly IAttachmentMeta[]
+): string {
+  if (!attachments || attachments.length === 0) return '';
+  const lines = attachments.map((a) => {
+    const segs = [`- ${a.name}`];
+    if (a.type === 'file') {
+      if (a.path) segs.push(`路径: ${a.path}`);
+    } else {
+      segs.push('图片附件（已随消息作为图像注入，勿用 readLocalFile 读取）');
+    }
+    segs.push(`附件 id: ${a.id}`);
+    if (a.parseStatus) segs.push(`状态: ${a.parseStatus}`);
+    if (a.error) segs.push(`提示: ${a.error}`);
+    return segs.join(' | ');
+  });
+  return [
+    '',
+    `本会话附件清单（共 ${attachments.length} 个）：`,
+    ...lines,
+    '检索指引：附件正文优先用 searchDocument/readPage/extractTable/analyzeChart 按 file_name 或附件 id 检索；原始文件用 readLocalFile 按上方路径读取。',
+  ].join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // 系统提示组装
 // ---------------------------------------------------------------------------
 
-/** 组装 Agent 系统提示（非 chat 意图）。 */
+/**
+ * 组装 Agent 系统提示（非 chat 意图，或带附件/需澄清 —— Bug A-2）。
+ * @param attachmentManifest 本会话附件清单（buildAttachmentManifest 产物，空串不注入）
+ */
 export function buildAgentSystemPrompt(
   fileListSnapshot: string,
   localFileTreeSnapshot: string,
-  needsClarification?: boolean
+  needsClarification?: boolean,
+  attachmentManifest?: string
 ): string {
   const clarificationPrefix = needsClarification
     ? [
@@ -321,6 +361,7 @@ export function buildAgentSystemPrompt(
     '- 禁止在回复中使用 emoji 表情符号（如 ⚠️ ❌ ✅ 🎉 等）。使用纯文本标记代替。',
     fileListSnapshot,
     localFileTreeSnapshot,
+    attachmentManifest ?? '',
   ].filter(Boolean).join('\n');
 }
 

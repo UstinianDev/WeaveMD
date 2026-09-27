@@ -37,6 +37,7 @@ import {
   buildDocumentContext,
   buildFileListSnapshot,
   buildLocalTreeSnapshot,
+  buildAttachmentManifest,
   buildAgentSystemPrompt,
   shouldInjectDocumentContext,
   CHAT_SYSTEM_PROMPT,
@@ -449,10 +450,22 @@ export function prepareAgentContext(
   const isChatIntent = intent.intent === 'chat';
   // 模糊输入需要澄清时：即使意图判为 chat，也用 Agent 提示 + 提供 ask_question_card
   const needsClarification = intent.needsClarification === true;
-  const useAgentPrompt = !isChatIntent || needsClarification;
+  // Bug A-2：带附件即用 Agent 提示 —— 附件消息常被 classifyIntent 判 chat，
+  // 而 CHAT_SYSTEM_PROMPT 的「不要提及工具/文件」会锁死 searchDocument 与
+  // ask_question_card（chat 闲聊不带附件，误伤面≈0）
+  const hasAttachments = (payload.attachments?.length ?? 0) > 0;
+  const useAgentPrompt = !isChatIntent || needsClarification || hasAttachments;
 
+  // Bug A-1：本会话附件清单（文件名+绝对路径+attachment_id+状态）随 system 段注入，
+  // LLM 拿到真实路径/附件 id 后才能正确给 readLocalFile/searchDocument 传参
+  const attachmentManifest = buildAttachmentManifest(payload.attachments);
   const agentSystemPrompt = useAgentPrompt
-    ? buildAgentSystemPrompt(fileListSnapshot, localFileTreeSnapshot, needsClarification)
+    ? buildAgentSystemPrompt(
+        fileListSnapshot,
+        localFileTreeSnapshot,
+        needsClarification,
+        attachmentManifest
+      )
     : CHAT_SYSTEM_PROMPT;
   llmMessages = [{ role: 'system', content: agentSystemPrompt }, ...llmMessages];
 
