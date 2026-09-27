@@ -29,7 +29,11 @@ import {
 } from '../../db/ai';
 import { cancelPendingByConversation } from '../../db/agentTaskDao';
 import { getDatabase } from '../../db/index';
-import { persistIncomingAttachments } from '../../db/attachments';
+import {
+  listParsedAttachmentsByConversation,
+  persistIncomingAttachments,
+  removeParsedAttachment,
+} from '../../db/attachments';
 import { deleteConversationImages } from '../image/imageStorage';
 import { supportsVision } from '../llm/modelDiscovery';
 import { recognizeImageAttachments } from '../image/imageRecognition';
@@ -97,9 +101,26 @@ export function registerChatHandlers(): void {
     IPC_CHANNELS.AI_CONVERSATION_DELETE,
     (_event, conversationId: string, userId: string) => {
       try {
+        // R8：parsed_attachments 无 FK 级联 —— 先取该会话附件列表（会话行删除前取，
+        // 防未来加 FK），删除成功后逐个 removeParsedAttachment 级联清 KB 关联行 + 落盘图片
+        let attachmentIds: string[] = [];
+        try {
+          attachmentIds = listParsedAttachmentsByConversation(conversationId, userId).map(
+            (a) => a.id
+          );
+        } catch {
+          // 附件列表获取失败不阻断会话删除
+        }
         const deleted = deleteConversation(conversationId, userId);
-        // B6 五-2②：删除会话 → 同步清理该会话的落盘图片（对齐 cleanupKbAfterFileDelete 模式）
         if (deleted) {
+          for (const id of attachmentIds) {
+            try {
+              removeParsedAttachment(id, userId);
+            } catch {
+              // 单附件级联失败不断批（deleteConversationImages 兜底）
+            }
+          }
+          // B6 五-2②：删除会话 → 同步清理该会话的落盘图片（对齐 cleanupKbAfterFileDelete 模式）
           try {
             deleteConversationImages(userId, conversationId);
           } catch {

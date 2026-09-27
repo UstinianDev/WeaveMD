@@ -130,6 +130,9 @@ vi.mock('@main/ai/agent/agentLoop', () => agentLoopMock);
 const attachmentsPersistMock = vi.hoisted(() => ({
   persistIncomingAttachments: vi.fn(),
   getParsedAttachment: vi.fn((..._args: unknown[]): unknown => null),
+  // R7/R8：消息/会话删除级联清理（removeParsedAttachment 为附件唯一删除点）
+  listParsedAttachmentsByConversation: vi.fn(() => []),
+  removeParsedAttachment: vi.fn(() => true),
 }));
 vi.mock('@main/db/attachments', () => attachmentsPersistMock);
 
@@ -306,6 +309,8 @@ beforeEach(() => {
   queueMock.cancelPending.mockReset().mockReturnValue(0);
   queueMock.dequeueForProcessing.mockReset().mockReturnValue(null);
   attachmentsPersistMock.persistIncomingAttachments.mockReset().mockResolvedValue([]);
+  attachmentsPersistMock.listParsedAttachmentsByConversation.mockReset().mockReturnValue([]);
+  attachmentsPersistMock.removeParsedAttachment.mockReset().mockReturnValue(true);
   dbMock.findAttachmentFilePath.mockReset();
   electronMock.shellOpenPath.mockReset().mockResolvedValue('');
   registerAiIpcHandlers();
@@ -348,6 +353,54 @@ describe('ai:ipc handlers', () => {
     )) as { success: boolean; data: { deleted: boolean } };
     expect(result.data.deleted).toBe(true);
     expect(imageStorageMock.deleteConversationImages).toHaveBeenCalledWith('u1', 'c9');
+  });
+
+  it('R8 删除会话：先取该会话附件列表，删除后逐个 removeParsedAttachment 级联（KB+图片）', async () => {
+    attachmentsPersistMock.listParsedAttachmentsByConversation.mockReset().mockReturnValue([
+      { id: 'pa1' },
+      { id: 'pa2' },
+    ]);
+    attachmentsPersistMock.removeParsedAttachment.mockReset().mockReturnValue(true);
+    dbMock.deleteConversation.mockReturnValue(true);
+    const result = (await getHandler(IPC_CHANNELS.AI_CONVERSATION_DELETE)(
+      makeEvent(),
+      'c1',
+      'u1'
+    )) as { success: boolean; data: { deleted: boolean } };
+    expect(result.data.deleted).toBe(true);
+    // 先取列表（参数化双过滤）再删会话行
+    expect(attachmentsPersistMock.listParsedAttachmentsByConversation).toHaveBeenCalledWith(
+      'c1',
+      'u1'
+    );
+    expect(attachmentsPersistMock.removeParsedAttachment).toHaveBeenCalledWith('pa1', 'u1');
+    expect(attachmentsPersistMock.removeParsedAttachment).toHaveBeenCalledWith('pa2', 'u1');
+    const listIdx = attachmentsPersistMock.listParsedAttachmentsByConversation.mock.invocationCallOrder[0];
+    const delIdx = dbMock.deleteConversation.mock.invocationCallOrder[0];
+    expect(listIdx).toBeLessThan(delIdx);
+  });
+
+  it('R8 删除会话：无附件会话 → 不触发级联删除（零副作用）', async () => {
+    attachmentsPersistMock.listParsedAttachmentsByConversation.mockReset().mockReturnValue([]);
+    attachmentsPersistMock.removeParsedAttachment.mockReset().mockReturnValue(true);
+    dbMock.deleteConversation.mockReturnValue(true);
+    await getHandler(IPC_CHANNELS.AI_CONVERSATION_DELETE)(makeEvent(), 'c1', 'u1');
+    expect(attachmentsPersistMock.removeParsedAttachment).not.toHaveBeenCalled();
+  });
+
+  it('R8 删除会话失败（deleted=false）→ 不级联清理附件', async () => {
+    attachmentsPersistMock.listParsedAttachmentsByConversation.mockReset().mockReturnValue([
+      { id: 'pa1' },
+    ]);
+    attachmentsPersistMock.removeParsedAttachment.mockReset().mockReturnValue(true);
+    dbMock.deleteConversation.mockReturnValue(false);
+    const result = (await getHandler(IPC_CHANNELS.AI_CONVERSATION_DELETE)(
+      makeEvent(),
+      'c1',
+      'u1'
+    )) as { success: boolean; data: { deleted: boolean } };
+    expect(result.data.deleted).toBe(false);
+    expect(attachmentsPersistMock.removeParsedAttachment).not.toHaveBeenCalled();
   });
 
   it('AI_GET_CONFIG never leaks api key — only exposes hasApiKey flag', async () => {
