@@ -14,10 +14,15 @@ import type { EditorView } from '@tiptap/pm/view';
 import {
   extractStructure,
   isSupportedDocFile,
+  IMAGE_UPLOAD_EXTS,
+  MAX_ATTACHMENTS_PER_MESSAGE,
   type IDocumentStructure,
   type IAttachmentPayload,
   type IDocumentParseResult,
 } from '@shared/ai';
+
+// R6/R5：常量抽到 shared（主进程与渲染层同口径），re-export 兼容既有引用
+export { IMAGE_UPLOAD_EXTS };
 
 /** 附件类型（文件/图片） */
 export interface Attachment {
@@ -43,9 +48,6 @@ export interface ComposerPasteDeps {
   /** 图片被拒绝时的原因提示（svg/格式不支持，五-2②） */
   onImageRejected?: (reason: string) => void;
 }
-
-/** 可上传图片扩展名白名单（与主进程 imageStorage.ALLOWED_IMAGE_EXTS 对齐） */
-export const IMAGE_UPLOAD_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'];
 
 /**
  * 图片上传前校验（五-2②）：svg 矢量图不可直喂 vision → 拒绝并给出可读原因；
@@ -243,11 +245,12 @@ export function handleComposerPaste(
  * 发送正文构造（一-4②）：附件只拼 `[文件: xxx]` / `[图片: xxx]` 占位符，
  * 绝不拼接解析正文 —— 正文随 IPC 载荷入 parsed_attachments（一物两表），
  * 彻底避免打爆 agentHelpers 的 CONTEXT_WINDOW=64000。
+ * R6：按 MAX_ATTACHMENTS_PER_MESSAGE 截断（与主进程落库同口径）。
  */
 export function buildAttachmentSendText(text: string, attachments: Attachment[]): string {
   if (attachments.length === 0) return text;
   const parts = [text];
-  for (const att of attachments) {
+  for (const att of attachments.slice(0, MAX_ATTACHMENTS_PER_MESSAGE)) {
     parts.push(att.type === 'image' ? `[图片: ${att.name}]` : `[文件: ${att.name}]`);
   }
   return parts.join('\n\n');
@@ -262,9 +265,10 @@ function byteLength(s: string): number {
  * Attachment → 发送链路 IPC 载荷（一物两表入参）：
  * content = 解析产物（或图片 data URL），主进程写 parsed_attachments.content；
  * 轻量元数据（id/fileType/path/size）最终落 attachments_json。
+ * R6：按 MAX_ATTACHMENTS_PER_MESSAGE 截断（与占位符文本同口径）。
  */
 export function toAttachmentPayloads(attachments: Attachment[]): IAttachmentPayload[] {
-  return attachments.map((att) => ({
+  return attachments.slice(0, MAX_ATTACHMENTS_PER_MESSAGE).map((att) => ({
     id: att.id,
     fileName: att.name,
     fileType: att.type,

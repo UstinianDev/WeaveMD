@@ -28,6 +28,16 @@ export function isSupportedDocFile(fileName: string): boolean {
   return (SUPPORTED_DOC_EXTENSIONS as readonly string[]).includes(ext);
 }
 
+/**
+ * 单条消息附件数上限（R6：主进程 sanitize 与渲染层发送文本/载荷共用同一口径，
+ * 消除「占位符数 ≠ 落库行数」的不一致；chips 折叠 UI 另有 5 个可视上限）。
+ */
+export const MAX_ATTACHMENTS_PER_MESSAGE = 20;
+
+/** 可上传图片扩展名白名单（与主进程 imageStorage.ALLOWED_IMAGE_EXTS 对齐；
+ *  R5 open-source 图片档放行 / 粘贴入口校验共用）。 */
+export const IMAGE_UPLOAD_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'];
+
 /** 标题（层级 + 祖先路径） */
 export interface IDocumentHeading {
   text: string;

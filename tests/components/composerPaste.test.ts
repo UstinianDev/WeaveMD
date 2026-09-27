@@ -458,6 +458,45 @@ describe('toAttachmentPayloads — Attachment → IPC 载荷（一物两表入�
   });
 });
 
+// ---------------------------------------------------------------------------
+// R6 >20 附件渲染层截断（与主进程 sanitizeIncomingAttachments 同口径，
+// 消除「正文占位符数 ≠ 落库行数」的不一致）
+// ---------------------------------------------------------------------------
+
+describe('R6 发送前附件截断（MAX_ATTACHMENTS_PER_MESSAGE=20，shared 常量单一来源）', () => {
+  function makeMany(n: number): Attachment[] {
+    return Array.from({ length: n }, (_, i) =>
+      makeAttachment({ id: `a${i + 1}`, name: `doc${i + 1}.pdf` })
+    );
+  }
+
+  it('buildAttachmentSendText 对 25 个附件只拼前 20 个占位符', () => {
+    const out = buildAttachmentSendText('批量', makeMany(25));
+    expect(out).toContain('[文件: doc20.pdf]');
+    expect(out).not.toContain('[文件: doc21.pdf]');
+    expect(out).not.toContain('[文件: doc25.pdf]');
+    expect((out.match(/\[文件:/g) ?? []).length).toBe(20);
+  });
+
+  it('toAttachmentPayloads 同口径截断到 20，且与占位符附件序列一致', () => {
+    const many = makeMany(25);
+    const payloads = toAttachmentPayloads(many);
+    const text = buildAttachmentSendText('批量', many);
+    expect(payloads).toHaveLength(20);
+    expect(payloads.map((p) => p.fileName)).toEqual(many.slice(0, 20).map((a) => a.name));
+    for (const p of payloads) expect(text).toContain(`[文件: ${p.fileName}]`);
+  });
+
+  it('20 个以内不截断（零回归）', () => {
+    const exactly = makeMany(20);
+    expect(toAttachmentPayloads(exactly)).toHaveLength(20);
+    expect((buildAttachmentSendText('x', exactly).match(/\[文件:/g) ?? []).length).toBe(20);
+    const few = makeMany(3);
+    expect(toAttachmentPayloads(few)).toHaveLength(3);
+    expect((buildAttachmentSendText('x', few).match(/\[文件:/g) ?? []).length).toBe(3);
+  });
+});
+
 
 // ---------------------------------------------------------------------------
 // B7 二-6② — 解析结构随附件载荷透传（source_ref 真实页码前提）

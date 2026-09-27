@@ -12,6 +12,7 @@ import { getDatabase } from './index';
 import {
   DOCUMENT_PARSE_VERSION,
   isSupportedDocFile,
+  MAX_ATTACHMENTS_PER_MESSAGE,
   type AttachmentParseStatus,
   type IDocumentStructure,
   type IAttachmentMeta,
@@ -27,8 +28,8 @@ import {
   type StoreImageErrorCode,
 } from '../ai/image/imageStorage';
 
-/** 单条消息附件数上限（边界防护，超限截断；chips 折叠 UI 另有 5 个可视上限）。 */
-export const MAX_ATTACHMENTS_PER_MESSAGE = 20;
+// R6：上限常量抽到 shared（渲染层发送截断同口径），此处 re-export 兼容既有引用
+export { MAX_ATTACHMENTS_PER_MESSAGE };
 
 /** 图片落盘失败 → 用户可读提示（五-2②：格式拒绝 / 大小上限 / 文件缺失）。 */
 export function imageStoreErrorMessage(code: StoreImageErrorCode): string {
