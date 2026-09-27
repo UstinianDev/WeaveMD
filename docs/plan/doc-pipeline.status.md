@@ -238,6 +238,13 @@ pdfjs-dist(110)、@anthropic-ai/sdk(107)、electron-builder(308) —— 全部 c
 - **遗留**：样例为合成单样例（真值可量化，但复杂真实版面对比属后续，如重启需另立任务）；docling 转正重启条件 = 需要真实复杂版面增益且**先重跑七-3**。
 - **下一任务**：doc-pipeline 12 批全部收口（B1~B12）；剩余为全量门禁复跑与收尾归档（如派发）。
 
+## 收尾阶段（2026-09-27）
+
+- **阶段 6 全量门禁** ✅：报告 `docs/testing/doc-pipeline.final.md`（commit 58d71d7）。tsc 0 / vitest 3781 全绿 / lint 0 error（106 warning 持平）/ vite build 0 / E2E 31f·1s·101p 与裁定基线逐 spec 一致零新增。覆盖率：新增 8 文件 lines 97.64%、改动 55 文件聚合 79.40%。
+- **阶段 6.5 连通性** ✅：报告 `docs/plan/doc-pipeline.connectivity.md`（commit b52cbeb）。12 链路 ✅6/⚠️6/❌0 **无断裂**；风险 R1~R10（R1/R2=既有废弃开关不可达；R3 searchDocument 旁路；R4/R5/R6 图片回执 404/引用被拒/20 附件截断；R7/R8 删除清理休眠与孤儿行；R9 linux target 互斥；R10 AI_CHAT 休眠契约）——处置待需求方裁定。
+- **阶段 7 合规** ✅：报告 `docs/plan/doc-pipeline.compliance.md`（commit 35180f7）。**APPROVED WITH COMMENTS，无 Critical**；161 文件 +24360/−750；红线七项全过；范围外九项零触碰。非阻断：xlsx@0.18.5 CVE 跟踪、E2E 措辞按裁定口径、cacheMonitor 负载 flaky（非本分支引入）。
+- **阶段 8 交付核对** ✅：29 任务/12 批与计划变更清单对账无遗漏、无越界功能性改动；plan §3 数据变更点 6→8 已回填。**交付完成，未推送远程**（待用户授权）。
+
 ## 进度总览
 
 | 模块 | 任务数 | 状态 |
