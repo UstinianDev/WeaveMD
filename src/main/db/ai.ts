@@ -74,6 +74,8 @@ export interface AiConfigRow {
   activeModelConfigId: string | null;
   // ---- 写模式（auto / manual） ----
   writeMode: WriteMode;
+  // ---- remedial D8：vision 覆盖三态（null=自动判定） ----
+  visionOverride: boolean | null;
   // ---- R2~R10: 扩展 KB 设置（由 normalizeKbSettings 兜底） ----
   kbRrfK: number;
   kbCandidateMultiplier: number;
@@ -115,6 +117,8 @@ interface AiConfigDbRow {
   active_model_config_id: string | null;
   // 遗留列（kb_embedding_host / kb_embedding_model）不再读取/写入，保留 NULL
   write_mode: string | null;
+  // remedial D8：vision 覆盖三态（NULL=自动 / 1=强制支持 / 0=强制不支持）
+  vision_override: number | null;
   // R2~R10: 新增 KB 配置列（NULL 时由 normalizeKbSettings 兜底）
   kb_rrf_k: number | null;
   kb_candidate_multiplier: number | null;
@@ -181,6 +185,8 @@ function mapConfigRow(row: AiConfigDbRow): AiConfigRow {
     activeModelConfigId: row.active_model_config_id ?? null,
     // write_mode: 新旧库兼容，NULL 或非 'auto' 值一律收敛为 'manual'
     writeMode: row.write_mode === 'auto' ? 'auto' : 'manual',
+    // D8 三态：NULL/缺列 → null（自动判定），1 → true，0 → false
+    visionOverride: row.vision_override == null ? null : row.vision_override !== 0,
     // R2~R10: 扩展 KB 设置
     kbRrfK: kb.rrfK!,
     kbCandidateMultiplier: kb.candidateMultiplier!,
@@ -263,6 +269,8 @@ export interface AiConfigUpdate {
   kbPinnedWeight?: number;
   // ---- 写模式（可选，缺省不回写） ----
   writeMode?: WriteMode;
+  // ---- remedial D8：vision 覆盖三态（缺省不回写，保留既有值） ----
+  visionOverride?: boolean;
 }
 
 export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfigRow {
@@ -277,6 +285,7 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
          api_key_enc = ?, allow_network = ?, allow_send = ?, consent_updated_at = ?,
          kb_top_k = ?, kb_fuse = ?, kb_threshold = ?, kb_pinned_weight = ?,
          write_mode = ?, protocol = ?,
+         vision_override = ?,
          updated_at = datetime('now')
        WHERE user_id = ?`
     ).run(
@@ -294,6 +303,16 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
       update.kbPinnedWeight ?? existing.kbPinnedWeight,
       update.writeMode ?? existing.writeMode,
       update.protocol ?? existing.protocol,
+      // D8 三态：缺省保留既有值（null 也原样回写，保持自动判定）
+      update.visionOverride !== undefined
+        ? update.visionOverride
+          ? 1
+          : 0
+        : existing.visionOverride == null
+          ? null
+          : existing.visionOverride
+            ? 1
+            : 0,
       userId
     );
     // 直接构造返回值，省掉回读 SELECT
@@ -313,6 +332,7 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
       kbThreshold: update.kbThreshold ?? existing.kbThreshold,
       kbPinnedWeight: update.kbPinnedWeight ?? existing.kbPinnedWeight,
       writeMode: update.writeMode ?? existing.writeMode,
+      visionOverride: update.visionOverride !== undefined ? update.visionOverride : existing.visionOverride,
       updatedAt: new Date().toISOString(),
     };
   } else {
@@ -366,6 +386,7 @@ export function upsertAiConfig(userId: string, update: AiConfigUpdate): AiConfig
       updatedAt: new Date().toISOString(),
       activeModelConfigId: null,
       writeMode: update.writeMode ?? 'manual',
+      visionOverride: update.visionOverride ?? null,
       kbTopK: kb.topK,
       kbFuse: kb.fuse,
       kbThreshold: kb.threshold,

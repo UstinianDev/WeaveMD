@@ -3,7 +3,10 @@
 // R3：ToolCtx.attachmentEgressAllowed 注入（allowSend ∨ 勾选授权，fail-closed）
 // （Bug A 附件清单/提示词选择、Bug B vision 判定后续小节在此扩展）
 // ============================================
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { writeFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 // --- Electron mock（agentContext: BrowserWindow；imageStorage 链: app/nativeImage） ---
 const electronMock = vi.hoisted(() => ({
@@ -260,5 +263,122 @@ describe('Bug A-2 — 附件消息不受 chat 意图提示词禁令锁死', () =
     const ctx = runPrepare(makePayload({ message: '你好，今天天气怎么样？' }), ALLOW_ALL);
     expect(ctx.llmMessages[0].role).toBe('system');
     expect(ctx.llmMessages[0].content).toBe(CHAT_SYSTEM_PROMPT);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bug B — vision 发送前最终判定链（visionOverride 覆盖 → 已知能力表 → 未知乐观）
+// 注入侧：llmMessages 图片 part 有无 + VISION_DEGRADED_NOTICE；
+// 上屏侧：降级时当前轮图片附件写入 parseStatus=error + error（IAttachmentMeta.error 通道）。
+// ---------------------------------------------------------------------------
+
+describe('Bug B — prepareAgentContext 注入/降级判定链', () => {
+  const ALLOW_ALL = {
+    consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+  };
+  // 注入链 existsSync 走真实 fs：建真实临时图片文件（agentMedia 的 fs 链未被
+  // vi.mock 覆盖，实测 mock 'fs' 不影响其模块实例 —— 用真文件更贴近生产）
+  const tmpImage = join(tmpdir(), `weavemd-vision-${process.pid}.png`);
+  const PNG_BYTES = Buffer.from('89504e470d0a1a0a', 'hex');
+  let imageAtt: IAttachmentMeta;
+  beforeAll(() => {
+    writeFileSync(tmpImage, PNG_BYTES);
+    imageAtt = {
+      id: 'i1',
+      type: 'image',
+      name: 'shot.png',
+      path: tmpImage,
+      parseStatus: 'done',
+    };
+  });
+  afterAll(() => {
+    try {
+      rmSync(tmpImage, { force: true });
+    } catch {
+      /* 清理失败不影响结果 */
+    }
+  });
+
+  function userMessage(ctx: ReturnType<typeof runPrepare>) {
+    const users = ctx.llmMessages.filter((m) => m.role === 'user');
+    return users[users.length - 1];
+  }
+
+  function lastAppendedAttachments(): IAttachmentMeta[] | undefined {
+    const calls = dbAiMock.appendMessage.mock.calls;
+    const last = calls[calls.length - 1][0] as { attachments?: IAttachmentMeta[] };
+    return last.attachments;
+  }
+
+  it('visionOverride=true + 已知非 vision 模型 → 注入 image_url part（覆盖优先）', () => {
+    const ctx = runPrepare(
+      makePayload({ message: '[图片: shot.png] 看看', attachments: [imageAtt] }),
+      ALLOW_ALL,
+      makeConfig({ model: 'deepseek-chat', visionOverride: true })
+    );
+    const user = userMessage(ctx);
+    expect(Array.isArray(user.content)).toBe(true);
+    const parts = user.content as Array<{ type: string }>;
+    expect(parts.some((p) => p.type === 'image_url')).toBe(true);
+    // 覆盖为真 → 不降级、附件不被标失败
+    const atts = lastAppendedAttachments();
+    expect(atts?.[0].parseStatus).toBe('done');
+    expect(atts?.[0].error).toBeUndefined();
+  });
+
+  it('visionOverride=false + 已知 vision 模型 → 无 part + 降级提示 + 附件上屏失败态', () => {
+    const ctx = runPrepare(
+      makePayload({ message: '[图片: shot.png] 看看', attachments: [imageAtt] }),
+      ALLOW_ALL,
+      makeConfig({ model: 'claude-sonnet-4', visionOverride: false })
+    );
+    const user = userMessage(ctx);
+    expect(typeof user.content).toBe('string');
+    // LLM 可见降级提示
+    const systemText = ctx.llmMessages
+      .filter((m) => m.role === 'system')
+      .map((m) => (typeof m.content === 'string' ? m.content : ''))
+      .join('\n');
+    expect(systemText).toContain('不支持图片理解');
+    // 用户可见降级：attachments_json 图片失败态（IAttachmentMeta.error 上屏通道）
+    const atts = lastAppendedAttachments();
+    expect(atts?.[0].parseStatus).toBe('error');
+    expect(atts?.[0].error).toContain('不支持图片理解');
+  });
+
+  it('未知模型无覆盖 → 乐观注入（不降级）', () => {
+    const ctx = runPrepare(
+      makePayload({ message: '[图片: shot.png] 看看', attachments: [imageAtt] }),
+      ALLOW_ALL,
+      makeConfig({ model: 'my-private-llm' })
+    );
+    const user = userMessage(ctx);
+    expect(Array.isArray(user.content)).toBe(true);
+    const atts = lastAppendedAttachments();
+    expect(atts?.[0].parseStatus).toBe('done');
+  });
+
+  it('已知非 vision 模型无覆盖 → 降级 + 附件失败态上屏（既有保守行为保留）', () => {
+    runPrepare(
+      makePayload({ message: '[图片: shot.png] 看看', attachments: [imageAtt] }),
+      ALLOW_ALL,
+      makeConfig({ model: 'deepseek-chat' })
+    );
+    const atts = lastAppendedAttachments();
+    expect(atts?.[0].parseStatus).toBe('error');
+    expect(atts?.[0].error).toContain('不支持图片理解');
+  });
+
+  it('识别链已标过失败的附件保留原 error（不覆盖既有失败原因）', () => {
+    runPrepare(
+      makePayload({
+        message: '[图片: shot.png] 看看',
+        attachments: [{ ...imageAtt, parseStatus: 'error', error: '图片保存失败' }],
+      }),
+      ALLOW_ALL,
+      makeConfig({ model: 'deepseek-chat' })
+    );
+    const atts = lastAppendedAttachments();
+    expect(atts?.[0].error).toBe('图片保存失败');
   });
 });

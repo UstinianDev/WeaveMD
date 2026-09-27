@@ -35,7 +35,7 @@ import {
   removeParsedAttachment,
 } from '../../db/attachments';
 import { deleteConversationImages } from '../image/imageStorage';
-import { supportsVision } from '../llm/modelDiscovery';
+import { resolveVisionSupport } from '../llm/modelDiscovery';
 import { recognizeImageAttachments } from '../image/imageRecognition';
 import { buildImageParts, injectImagesIntoMessages, VISION_DEGRADED_NOTICE } from '../agent/agentMedia';
 import type { MessageContent } from '../llm/llmClient';
@@ -324,6 +324,10 @@ async function runChatFlow(
             remoteBaseUrl: config.remoteBaseUrl,
             model: config.model?.trim() || 'deepseek-chat',
             protocol: config.protocol,
+            // Bug B：识别与注入统一判定源（vision_override 三态）
+            ...(config.visionOverride !== undefined
+              ? { visionOverride: config.visionOverride }
+              : {}),
           },
           apiKeyEnc,
           signal: controller.signal,
@@ -357,7 +361,8 @@ async function runChatFlow(
 
   // 组装 messages：历史 + 当前
   // B6 五-1/五-3：发送前 vision 检测 + 图片 part 注入（与 Agent 链路同一接线点）
-  const supportsImages = supportsVision(model);
+  // Bug B：判定链统一（visionOverride 覆盖 → 能力表 → 未知乐观）
+  const supportsImages = resolveVisionSupport(model, config.visionOverride);
   const history = getMessagesByConversation(convId, userId)
     .filter((m) => m.role === 'user' || m.role === 'assistant')
     .map((m) => ({

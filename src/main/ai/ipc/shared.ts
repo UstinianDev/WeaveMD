@@ -13,6 +13,8 @@ export function toIAIConfig(config: {
   apiKeyEnc: string | null;
   protocol?: ModelProtocol;
   activeModelConfigId?: string | null;
+  /** remedial D8：vision 覆盖三态（null=自动判定，映射为不下发） */
+  visionOverride?: boolean | null;
 }): IAIConfig {
   return {
     // 后端恒 remote（ollama 已去除，收敛标识）
@@ -23,6 +25,7 @@ export function toIAIConfig(config: {
     model: config.model,
     hasApiKey: !!config.apiKeyEnc,
     ...(config.activeModelConfigId ? { activeModelConfigId: config.activeModelConfigId } : {}),
+    ...(config.visionOverride != null ? { visionOverride: config.visionOverride } : {}),
   };
 }
 

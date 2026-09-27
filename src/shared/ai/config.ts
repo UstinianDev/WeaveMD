@@ -18,6 +18,13 @@ export interface IAIConfig {
   hasApiKey: boolean;
   /** 当前激活的模型配置 ID（多模型配置支持）。 */
   activeModelConfigId?: string;
+  /**
+   * remedial Bug B —— vision 能力用户覆盖（ai_config.vision_override 三态）：
+   * true=强制支持图片理解 / false=强制不支持 / 缺省（undefined）=自动判定
+   * （已知能力表 → 未知模型乐观注入）。注入与识别两链路统一经
+   * resolveVisionSupport 消费。
+   */
+  visionOverride?: boolean;
 }
 
 export interface IAIConsent {

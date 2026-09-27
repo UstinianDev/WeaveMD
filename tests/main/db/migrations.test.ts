@@ -11,6 +11,7 @@ import {
   addKbAttachmentColumns,
   addKbConsentGrantedColumn,
   addUploadKbDefaultColumn,
+  addVisionOverrideColumn,
   KB_CONFIG_ALTER_SQL,
 } from '@main/db/index';
 
@@ -403,6 +404,51 @@ describe('addKbConsentGrantedColumn — B11 D5b 迁移三断言', () => {
     addKbConsentGrantedColumn(db as never);
     expect(db.alters).toHaveLength(1);
     addKbConsentGrantedColumn(db as never);
+    expect(db.alters).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// doc-pipeline remedial D8：ai_config.vision_override 幂等补列
+// 三态语义：NULL=自动判定（能力表+未知乐观）/ 1=强制支持 / 0=强制不支持。
+// ---------------------------------------------------------------------------
+
+const AI_CONFIG_PRE_D8 = [
+  'id', 'user_id', 'backend', 'ollama_base_url', 'remote_base_url', 'model',
+  'api_key_enc', 'allow_network', 'allow_send', 'consent_updated_at',
+  'created_at', 'updated_at', 'write_mode', 'protocol', 'upload_kb_default',
+  'active_model_config_id',
+];
+
+function preD8AiConfigDb(): FakeMigrationDb {
+  return makeMigrationDb({ ai_config: [...AI_CONFIG_PRE_D8] });
+}
+
+describe('addVisionOverrideColumn — remedial D8 迁移三断言', () => {
+  it('态1 空库首建：vision_override 齐备且 DEFAULT NULL（NULL=自动三态）', () => {
+    const db = preD8AiConfigDb();
+    addVisionOverrideColumn(db as never);
+    expect(db.columns.get('ai_config')).toContain('vision_override');
+    expect(db.alters).toEqual([
+      'ALTER TABLE ai_config ADD COLUMN vision_override INTEGER DEFAULT NULL',
+    ]);
+  });
+
+  it('态2 旧库升级：仅追加列（无 DROP/DELETE/UPDATE），旧行经 DEFAULT NULL 收敛为自动判定', () => {
+    const db = preD8AiConfigDb();
+    addVisionOverrideColumn(db as never);
+    expect(db.execs.every((sql) => /^ALTER TABLE/.test(sql.trim()))).toBe(true);
+    expect(db.execs.some((sql) => /DROP|DELETE|UPDATE/i.test(sql))).toBe(false);
+    expect(db.columns.get('ai_config')?.indexOf('vision_override')).toBeGreaterThan(
+      AI_CONFIG_PRE_D8.length - 1
+    );
+  });
+
+  it('态3 重复执行：第二遍零 ALTER（幂等 no-op）', () => {
+    const db = preD8AiConfigDb();
+    addVisionOverrideColumn(db as never);
+    expect(db.alters).toHaveLength(1);
+    addVisionOverrideColumn(db as never);
     expect(db.alters).toHaveLength(1);
   });
 });

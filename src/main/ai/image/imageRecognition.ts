@@ -14,7 +14,7 @@ import type { IAttachmentMeta } from '@shared/ai';
 import { decryptApiKey } from '../secureConfig';
 import { streamAnthropicCompletion } from '../llm/anthropicClient';
 import { streamChatCompletion, type MessageContent } from '../llm/llmClient';
-import { supportsVision } from '../llm/modelDiscovery';
+import { resolveVisionSupport } from '../llm/modelDiscovery';
 import { resolveModelProtocol } from '../llm/anthropicCompat';
 import { estimateImageTokens, getCostTracker } from '../costTracker';
 import { formatImageForLlm, processMedia } from '../agent/agentMedia';
@@ -171,7 +171,13 @@ export interface RecognizeImagesOptions {
   userId: string;
   conversationId: string;
   attachments: IAttachmentMeta[];
-  config: { remoteBaseUrl: string; model: string; protocol?: 'openai' | 'anthropic' };
+  config: {
+    remoteBaseUrl: string;
+    model: string;
+    protocol?: 'openai' | 'anthropic';
+    /** Bug B：vision 覆盖三态（缺省自动判定，与注入链同一判定源） */
+    visionOverride?: boolean;
+  };
   apiKeyEnc?: string | null;
   signal?: AbortSignal;
 }
@@ -190,7 +196,8 @@ export async function recognizeImageAttachments(
   const { userId, attachments, config } = opts;
   if (attachments.length === 0) return attachments;
 
-  const visionOk = supportsVision(config.model);
+  // Bug B：与注入链统一判定源（覆盖 → 能力表 → 未知乐观）
+  const visionOk = resolveVisionSupport(config.model, config.visionOverride);
   let apiKey: string | undefined;
   if (opts.apiKeyEnc) {
     try {

@@ -131,7 +131,7 @@ const attachmentsPersistMock = vi.hoisted(() => ({
   persistIncomingAttachments: vi.fn(),
   getParsedAttachment: vi.fn((..._args: unknown[]): unknown => null),
   // R7/R8：消息/会话删除级联清理（removeParsedAttachment 为附件唯一删除点）
-  listParsedAttachmentsByConversation: vi.fn(() => []),
+  listParsedAttachmentsByConversation: vi.fn((): Array<{ id: string }> => []),
   removeParsedAttachment: vi.fn(() => true),
 }));
 vi.mock('@main/db/attachments', () => attachmentsPersistMock);
@@ -416,6 +416,34 @@ describe('ai:ipc handlers', () => {
     expect(result.data).not.toHaveProperty('apiKeyEnc');
     expect(result.data).not.toHaveProperty('apiKey');
     expect(result.data).toHaveProperty('hasApiKey', true);
+  });
+
+  it('AI_GET_CONFIG 透出 visionOverride（Bug B 三态：true/false/null）', async () => {
+    dbMock.getAiConfig.mockReturnValue({ ...dbMock.getAiConfig(), visionOverride: true });
+    const on = (await getHandler(IPC_CHANNELS.AI_GET_CONFIG)(makeEvent(), 'u1')) as {
+      success: boolean;
+      data: { visionOverride?: boolean };
+    };
+    expect(on.data.visionOverride).toBe(true);
+    dbMock.getAiConfig.mockReturnValue({ ...dbMock.getAiConfig(), visionOverride: null });
+    const auto = (await getHandler(IPC_CHANNELS.AI_GET_CONFIG)(makeEvent(), 'u1')) as {
+      success: boolean;
+      data: { visionOverride?: boolean | null };
+    };
+    expect(auto.data.visionOverride ?? null).toBeNull();
+  });
+
+  it('AI_SET_CONFIG 透传 visionOverride 到 upsertAiConfig（Bug B 覆盖开关注入）', async () => {
+    dbMock.upsertAiConfig.mockReturnValue({ ...dbMock.getAiConfig() });
+    const result = (await getHandler(IPC_CHANNELS.AI_SET_CONFIG)(makeEvent(), {
+      userId: 'u1',
+      config: { model: 'm1', visionOverride: true },
+    })) as { success: boolean };
+    expect(result.success).toBe(true);
+    expect(dbMock.upsertAiConfig).toHaveBeenCalledWith(
+      'u1',
+      expect.objectContaining({ visionOverride: true })
+    );
   });
 
   it('AI_CHAT streams chunk/done via webContents.send and persists assistant message', async () => {
@@ -903,6 +931,56 @@ describe('ai:ipc handlers', () => {
     expect(imageStorageMock.resolveStoredPath).toHaveBeenCalledTimes(1);
     // 恢复默认实现，避免 mockReturnValue 泄漏到后续用例
     imageStorageMock.resolveStoredPath.mockImplementation((p: string) => p);
+  });
+
+  it('AGENT_RUN 识别链：config.visionOverride=true（已知非 vision 模型）→ 覆盖生效不标「不支持」', async () => {
+    initQueue();
+    dbMock.getAiConfig.mockReturnValue({ ...dbMock.getAiConfig(), visionOverride: true });
+    attachmentsPersistMock.persistIncomingAttachments.mockResolvedValue([
+      {
+        id: 'i1',
+        type: 'image' as const,
+        name: 'a.png',
+        path: 'attachments/u1/c1/i1.png',
+        parseStatus: 'done' as const,
+      },
+    ]);
+    const result = (await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
+      userId: 'u1',
+      conversationId: 'c1',
+      message: '[图片: a.png]',
+      attachments: [{ id: 'i1', fileName: 'a.png', fileType: 'image' as const }],
+    })) as { success: boolean; data: { attachments?: Array<{ error?: string }> } };
+    expect(result.success).toBe(true);
+    const receipt = result.data.attachments ?? [];
+    // 覆盖生效：vision 闸放行 → 走真实识别（测试内文件缺失 → 通用识别失败态）
+    expect(receipt[0].error).toBe('图片未成功识别');
+    expect(receipt[0].error).not.toContain('不支持图片理解');
+  });
+
+  it('AGENT_RUN 识别链对照：无覆盖 + 已知非 vision → 降级原因经 IAttachmentMeta.error 上屏', async () => {
+    initQueue();
+    attachmentsPersistMock.persistIncomingAttachments.mockResolvedValue([
+      {
+        id: 'i1',
+        type: 'image' as const,
+        name: 'a.png',
+        path: 'attachments/u1/c1/i1.png',
+        parseStatus: 'done' as const,
+      },
+    ]);
+    const result = (await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
+      userId: 'u1',
+      conversationId: 'c1',
+      message: '[图片: a.png]',
+      attachments: [{ id: 'i1', fileName: 'a.png', fileType: 'image' as const }],
+    })) as {
+      success: boolean;
+      data: { attachments?: Array<{ parseStatus?: string; error?: string }> };
+    };
+    const receipt = result.data.attachments ?? [];
+    expect(receipt[0].parseStatus).toBe('error');
+    expect(receipt[0].error).toContain('不支持图片理解');
   });
 
   it('AI_CHAT 带附件：落两表后用户消息 appendMessage 携带附件元数据', async () => {

@@ -193,6 +193,49 @@ describe('imageRecognition.recognizeImageAttachments（发送链路接入）', (
     );
   });
 
+  it('visionOverride=true 覆盖：已知非 vision 模型也发识别请求（判定链覆盖优先）', async () => {
+    llmMock.streamChatCompletion.mockReturnValue(chunks([{ delta: '识别描述' }]));
+    const out = await recognizeImageAttachments({
+      userId: 'u1',
+      conversationId: 'c1',
+      attachments: [image()],
+      config: { ...config, model: 'deepseek-chat', visionOverride: true },
+      apiKeyEnc: 'enc:key',
+    });
+    expect(llmMock.streamChatCompletion).toHaveBeenCalledTimes(1);
+    expect(out[0].parseStatus).toBe('done');
+    expect(out[0].error).toBeUndefined();
+  });
+
+  it('visionOverride=false 覆盖：已知 vision 模型也降级（不发请求 + 上屏 error）', async () => {
+    const out = await recognizeImageAttachments({
+      userId: 'u1',
+      conversationId: 'c1',
+      attachments: [image()],
+      config: { ...config, visionOverride: false },
+      apiKeyEnc: 'enc:key',
+    });
+    expect(llmMock.streamChatCompletion).not.toHaveBeenCalled();
+    expect(out[0].parseStatus).toBe('error');
+    expect(out[0].error).toContain('不支持');
+  });
+
+  it('未知模型无覆盖 → 乐观进入识别（不标「不支持」，失败走通用识别失败态）', async () => {
+    llmMock.streamChatCompletion.mockImplementation(() => {
+      throw Object.assign(new Error('boom'), { code: 'http_500' });
+    });
+    const out = await recognizeImageAttachments({
+      userId: 'u1',
+      conversationId: 'c1',
+      attachments: [image()],
+      config: { ...config, model: 'my-private-llm' },
+      apiKeyEnc: 'enc:key',
+    });
+    expect(out[0].parseStatus).toBe('error');
+    expect(out[0].error).toBe('图片未成功识别');
+    expect(out[0].error).not.toContain('不支持');
+  });
+
   it('stores the description on success (parseStatus done, KB-indexable text)', async () => {
     llmMock.streamChatCompletion.mockReturnValue(chunks([{ delta: '截图：一份表格数据' }]));
     const out = await recognizeImageAttachments({

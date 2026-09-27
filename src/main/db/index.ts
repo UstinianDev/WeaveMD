@@ -282,6 +282,10 @@ function runMigrations(database: Database.Database): void {
   // 追加式，禁止 DROP，导出供迁移三断言测试）。
   addB7AttachmentStructureColumn(database);
 
+  // doc-pipeline remedial D8：ai_config vision_override 覆盖三态幂等补列
+  // （NULL=自动判定 / 1=强制支持 / 0=强制不支持；追加式，禁止 DROP）。
+  addVisionOverrideColumn(database);
+
   // 性能优化：kb_documents 标题 FTS5 索引（加速标题匹配检索）
   addKbDocumentsFtsIndex(database);
 }
@@ -400,6 +404,18 @@ export function addUploadKbDefaultColumn(database: Database.Database): void {
  */
 export function addKbConsentGrantedColumn(database: Database.Database): void {
   addColumnIfMissing(database, 'kb_documents', 'consent_granted', 'consent_granted INTEGER DEFAULT 0');
+}
+
+/**
+ * doc-pipeline remedial D8：ai_config vision_override 幂等补列（追加式迁移，禁止 DROP）。
+ * - `vision_override INTEGER DEFAULT NULL`：vision 能力用户覆盖三态 ——
+ *   NULL=自动判定（已知能力表 → 未知模型乐观注入）、1=强制支持、0=强制不支持。
+ *   旧行 DEFAULT NULL = 自动（不改变升级前行为的判定来源，仅判定策略按新链收敛）。
+ * 空库与旧库同路径收敛；重复执行 no-op。
+ * 三断言：tests/main/db/migrations.test.ts（FakeDb 驱动真实迁移函数）。
+ */
+export function addVisionOverrideColumn(database: Database.Database): void {
+  addColumnIfMissing(database, 'ai_config', 'vision_override', 'vision_override INTEGER DEFAULT NULL');
 }
 
 /** ai_model_configs 表：用户可创建多个模型配置，一个激活。 */

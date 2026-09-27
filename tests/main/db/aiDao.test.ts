@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // --- Fake better-sqlite3 隔离（沿用 ipcDialogs 实证模式） ---
+// get 可返回 null（R7 setMessageTarget(null) 模拟目标行不存在，SQL .get 语义）
 interface FakeStatement {
   sql: string;
-  get: (...args: unknown[]) => Record<string, unknown> | undefined;
+  get: (...args: unknown[]) => Record<string, unknown> | null | undefined;
   all: (...args: unknown[]) => Record<string, unknown>[];
   run: (...args: unknown[]) => { changes: number };
 }
@@ -20,6 +21,8 @@ interface AiConfigRowFixture {
   kb_embedding_model?: string | null;
   /** B11 D5：勾选「加入知识库」默认值（0/1/缺省） */
   upload_kb_default?: number | null;
+  /** remedial D8：vision 覆盖三态（NULL=自动 / 1=强制支持 / 0=强制不支持） */
+  vision_override?: number | null;
 }
 
 const fakeDbMock = vi.hoisted(() => {
@@ -108,6 +111,7 @@ const fakeDbMock = vi.hoisted(() => {
               kb_embedding_host: aiConfigRow.kb_embedding_host ?? undefined,
               kb_embedding_model: aiConfigRow.kb_embedding_model ?? undefined,
               upload_kb_default: aiConfigRow.upload_kb_default ?? undefined,
+              vision_override: aiConfigRow.vision_override ?? undefined,
             };
           }
           return undefined;
@@ -536,5 +540,49 @@ describe('ai DAO — R7 deleteMessagesAfter 消息级附件级联', () => {
     expect(() => deleteMessagesAfter('c1', 'm0')).not.toThrow();
     expect(attachmentsCascadeMock.removeParsedAttachment).toHaveBeenCalledTimes(1);
     expect(attachmentsCascadeMock.removeParsedAttachment).toHaveBeenCalledWith('ok1', 'u1');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// remedial D8 — ai_config.vision_override 三态读写（NULL=自动 / 1=强制支持 / 0=强制不支持）
+// ---------------------------------------------------------------------------
+
+describe('ai DAO — vision_override 三态（D8）', () => {
+  it('mapConfigRow：1 → true、0 → false、NULL/缺列 → null（自动判定）', () => {
+    fakeDbMock.setAiConfigRow({ user_id: 'u1', vision_override: 1 });
+    expect(getAiConfig('u1')?.visionOverride).toBe(true);
+    fakeDbMock.setAiConfigRow({ user_id: 'u1', vision_override: 0 });
+    expect(getAiConfig('u1')?.visionOverride).toBe(false);
+    fakeDbMock.setAiConfigRow({ user_id: 'u1', vision_override: null });
+    expect(getAiConfig('u1')?.visionOverride).toBeNull();
+    fakeDbMock.setAiConfigRow({ user_id: 'u1' });
+    expect(getAiConfig('u1')?.visionOverride).toBeNull();
+  });
+
+  /** UPDATE 参数序列中 vision_override 紧邻 updated_at 之前（倒数第 2 = vision 参数，倒数第 1 = user_id）。 */
+  function visionParam(): unknown {
+    const upd = callOf('run', 'UPDATE ai_config SET');
+    expect(upd?.sql).toContain('vision_override = ?');
+    const args = upd?.args ?? [];
+    return args[args.length - 2];
+  }
+
+  it('upsertAiConfig UPDATE：visionOverride=true → 参数化写入 1', () => {
+    fakeDbMock.setAiConfigRow({ user_id: 'u1' });
+    upsertAiConfig('u1', { visionOverride: true });
+    expect(visionParam()).toBe(1);
+  });
+
+  it('upsertAiConfig UPDATE：visionOverride=false → 参数化写入 0', () => {
+    fakeDbMock.setAiConfigRow({ user_id: 'u1' });
+    upsertAiConfig('u1', { visionOverride: false });
+    expect(visionParam()).toBe(0);
+  });
+
+  it('upsertAiConfig：未传 visionOverride → 保留既有值（缺省不回写语义）', () => {
+    fakeDbMock.setAiConfigRow({ user_id: 'u1', vision_override: 1 });
+    const row = upsertAiConfig('u1', { model: 'm1' });
+    expect(row.visionOverride).toBe(true);
+    expect(visionParam()).toBe(1);
   });
 });

@@ -33,6 +33,8 @@ export function registerConfigConsentHandlers(): void {
           model?: string;
           apiKey?: string;
           activeModelConfigId?: string;
+          /** remedial D8：vision 覆盖三态开关（缺省不回写） */
+          visionOverride?: boolean;
         };
       }
     ) => {
@@ -49,6 +51,9 @@ export function registerConfigConsentHandlers(): void {
           remoteBaseUrl: payload.config.remoteBaseUrl,
           model: payload.config.model,
           apiKeyEnc,
+          ...(payload.config.visionOverride !== undefined
+            ? { visionOverride: payload.config.visionOverride }
+            : {}),
         });
         // 设置 active_model_config_id（如果传了）
         if (payload.config.activeModelConfigId !== undefined) {

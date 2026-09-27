@@ -21,7 +21,7 @@ import { buildCompressed, contentToText, estimateContentTokens, type LlmMessage 
 import { streamChatCompletionWithRetry } from '../llm/llmClient';
 import { streamAnthropicCompletion } from '../llm/anthropicClient';
 import { createEmbedding } from '../knowledge/embeddingClient';
-import { supportsVision } from '../llm/modelDiscovery';
+import { resolveVisionSupport } from '../llm/modelDiscovery';
 import {
   buildImageParts,
   injectImagesIntoMessages,
@@ -213,16 +213,6 @@ export function prepareAgentContext(
   if (!ownedConv) {
     throw Object.assign(new Error('Conversation not found'), { code: 'config_incomplete' });
   }
-  // 用户消息落库：附件轻量元数据随消息写 attachments_json（正文已在发送链路落 parsed_attachments，一-4②）
-  appendMessage({
-    conversationId: convId,
-    userId,
-    role: 'user',
-    content: message,
-    ...(payload.attachments && payload.attachments.length > 0
-      ? { attachments: payload.attachments }
-      : {}),
-  });
 
   const intent = classifyIntent(message);
   const baseUrl = config.remoteBaseUrl;
@@ -231,6 +221,37 @@ export function prepareAgentContext(
   if (apiKeyEnc) {
     apiKey = decryptApiKey(apiKeyEnc);
   }
+
+  // Bug B 发送前最终判定链：visionOverride 覆盖 → 已知能力表 → 未知乐观注入
+  // （注入与识别两链路统一经 resolveVisionSupport，来源一致）
+  const supportsImages = resolveVisionSupport(model, config.visionOverride);
+
+  // Bug B 降级上屏：模型不支持 vision 时，当前轮图片附件补写失败态与原因
+  // （识别链已标过的保留原错误；识别链异常被吞时由本处兜底）→ attachments_json
+  // 随消息落库，渲染层按 parseStatus=error + IAttachmentMeta.error 展示。
+  const stampedAttachments =
+    !supportsImages && payload.attachments && payload.attachments.length > 0
+      ? payload.attachments.map((a) =>
+          a.type === 'image' && a.parseStatus !== 'error'
+            ? {
+                ...a,
+                parseStatus: 'error' as const,
+                error: a.error ?? `当前模型（${model}）不支持图片理解`,
+              }
+            : a
+        )
+      : payload.attachments;
+
+  // 用户消息落库：附件轻量元数据随消息写 attachments_json（正文已在发送链路落 parsed_attachments，一-4②）
+  appendMessage({
+    conversationId: convId,
+    userId,
+    role: 'user',
+    content: message,
+    ...(stampedAttachments && stampedAttachments.length > 0
+      ? { attachments: stampedAttachments }
+      : {}),
+  });
 
   const skillContext: SkillRunnerCtx = {
     baseUrl,
@@ -333,8 +354,8 @@ export function prepareAgentContext(
 
   // 从 DB 加载消息（性能优化：分页加载最近 20 条，避免长对话时全表扫描）
   // 当前 user 消息已由 appendMessage 保存，会出现在查询结果中
-  // B6 五-1/五-3：发送前 vision 检测 + 图片 part 注入（当前轮全量，历史限最近 3 张）
-  const supportsImages = supportsVision(model);
+  // B6 五-1/五-3：图片 part 注入（当前轮全量，历史限最近 3 张）；
+  // supportsImages 已在 appendMessage 前按 Bug B 判定链算出
   const dbRows = getMessagesByConversationPaginated(convId, userId, 20, 0)
     .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
     .map((m) => ({

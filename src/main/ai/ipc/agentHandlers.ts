@@ -169,6 +169,10 @@ export function registerAgentHandlers(): void {
                 remoteBaseUrl: aiConfig.remoteBaseUrl,
                 model: aiConfig.model?.trim() || 'deepseek-chat',
                 protocol: aiConfig.protocol,
+                // Bug B：识别与注入统一判定源（vision_override 三态）
+                ...(aiConfig.visionOverride !== undefined
+                  ? { visionOverride: aiConfig.visionOverride }
+                  : {}),
               },
               apiKeyEnc: row?.apiKeyEnc ?? null,
             });
