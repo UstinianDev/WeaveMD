@@ -1,6 +1,6 @@
 # 测试架构
 
-> 最后更新：2026-09-24
+> 最后更新：2026-09-27
 
 ## 测试策略
 
@@ -90,3 +90,6 @@ E2E 全量 **31 failed / 1 skipped / 97 passed**（基线 112 failed / 20 passed
 | spec-edit-cbtp.tdd.md | 代码块尾随空行 TDD |
 | spec-edit-dsf.tdd.md | 拖选闪烁 TDD |
 | agent-cost-optimize.tdd.md | Agent 成本降低 TDD（M/standard + 基线对照 + 13 条偏离） |
+| doc-pipeline-b1.tdd.md ~ doc-pipeline-b11.tdd.md | 文档处理流水线 11 批 TDD（解析/上传/持久化/入库/检索/多模态/版面/工具引用/文件树/体积/外发闸） |
+| doc-pipeline.final.md | doc-pipeline 五门禁收口（tsc / vitest / lint / build / E2E 基线零新增） |
+| doc-pipeline-remedial.tdd.md | 遗留修复批次 TDD（Bug A/B + R3~R8） |

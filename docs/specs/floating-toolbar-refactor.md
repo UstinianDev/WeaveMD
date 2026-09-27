@@ -251,7 +251,7 @@ export type BlockTypeOption =
 | -------------------------------------------------------------- | -------------------------------------------------------- | ---- |
 | `src/render/editor/kernel/syntaxType.ts`（新增）               | `SyntaxType` + `resolveSyntaxType` 纯函数                | 低   |
 | `src/render/editor/kernel/index.ts`                            | 导出 syntaxType                                          | 低   |
-| `src/render/components/Editor/v2/FloatingToolbar.tsx`          | 显示条件（类型一致性）、下拉展开、`currentType` 映射、转换矩阵 | 中   |
+| `src/render/components/Editor/v2/toolbar/FloatingToolbar.tsx`          | 显示条件（类型一致性）、下拉展开、`currentType` 映射、转换矩阵 | 中   |
 | `src/render/components/Editor/v2/types.ts`                     | `BlockTypeOption` 类型扩展                               | 低   |
 | `src/render/components/Editor/v2/EditorV2.tsx`                 | `onConvertBlock` 按矩阵分发（含 code-block 只读分支）     | 中   |
 | `src/render/hooks/useCrossBlockDragSelection.ts` | rAF 节流 + 非内容区回退 + 方向无关 + 收尾校验            | 中   |

@@ -24,10 +24,11 @@
 - `src/render/components/Editor/` — EditorView 薄编排器（v2 唯一）
 - `src/render/stores/ services/ styles/` — Zustand / markdown 服务 / globals.css
 - `src/main/export/` — 导出模块：exportService / imageInline / types + mediaMime（MIME 映射）
-- `src/main/ai/` — AI 主进程服务（remote-only）：`llm/`（llmClient/modelList）+
-  `agent/`（agentLoop/agentSession/agentTaskQueue）+ `knowledge/`（kbIndexer/kbSearch）+
-  `files/`（conversationExport/documentParser）+ `skills/` + `tools/`（24 个 handler：5 核心 + 19 延迟）+
-  `ipc/` 按域拆分（7 个 handler 模块）
+- `src/main/ai/` — AI 主进程服务（remote-only）：`llm/`（llmClient/anthropicClient/modelList）+
+  `agent/`（agentLoop/agentSession/agentTaskQueue/agentContext）+ `knowledge/`（kbIndexer/kbSearch）+
+  `files/`（documentParser/multimodalParse/pdfLayout/mdImageResolver/conversationExport/parseLimiter）+
+  `skills/` + `tools/`（28 个工具：5 核心 + 23 延迟）+
+  `ipc/` 按域拆分（11 个 handler 模块 + index + shared）
 - `src/render/components/AIAgent/` — AI 面板三视图外壳（home/session/settings）+
   AIPanelComposer（TipTap contentEditable + /@标签 chip）+ AgentTab 消息流 +
   composer/extensions/（SkillTag/MentionTag/skillSuggestion/mentionSuggestion）+
@@ -46,8 +47,8 @@
 
 ## 编辑主区 v2（当前主线）
 
-> 详细规范见 `docs/specs/editor-v2-architecture.md`（§1-§6 架构）+
-> `docs/specs/editor-v2-progress.md`（§13 实施记录）+
+> 详细规范见 `docs/specs/editor-v2-architecture.md`（§1-§2 架构，§3-§6 拆为同名分册）+
+> `docs/specs/editor-v2-progress.md`（§13 实施记录索引，13.1~13.15 分 3 册）+
 > `docs/modules/04-编辑主区-Editor.md`（模块文档）
 
 - 仅叶子块内容 span（`ContentBlock`）可编辑；不可变块树 + 无损双向转换（往返不变式）
@@ -101,7 +102,7 @@
 - `src/main/export/imageInline.ts` — 图片 base64 内联（media:// / http(s) / 本地路径）
 - `src/main/export/exportService.ts` — 8 格式分发器（md/html/doc/docx/pdf/png/jpg/jpeg）
 - `src/main/mediaMime.ts` — 项目唯一 MIME 映射表（合并 3 处重复定义）
-- `src/main/ai/toolRegistry.ts` — Agent 工具注册（24 工具，含 deleteLocalFile）
+- `src/main/ai/toolRegistry.ts` — Agent 工具注册（28 工具：5 核心 + 23 延迟，含 deleteLocalFile）
 - `src/main/ai/agent/agentLoop.ts` — Agent 循环（WRITE_TOOLS + toolsForIntent + 确认流程）
 - `src/main/ai/agent/agentTaskWorker.ts` — 后台任务执行器（交互事件持久化 + IPC 发送）
 - `src/main/ai/agent/agentEventStore.ts` — 事件持久化（persistAndSend + persistOnly + replayFromSeq）
@@ -121,7 +122,7 @@
 - 浮动工具栏图标：Material Design Icons（react-icons/md）
 - 主题：Default（明亮）+ Warm Earth（暖色陶土），CSS 变量在 globals.css
 
-## 已知限制（详见 docs/specs/editor-v2-progress.md §13.x）
+## 已知限制（详见 docs/specs/editor-v2-progress.md §13 索引表 → 对应分册）
 
 - v2 Normal 无查找高亮；撤销/重做后光标回到重建树首块；段落级 MD Source 视图未迁移
 
@@ -135,10 +136,11 @@
 - [CONTRIBUTING](../docs/CONTRIBUTING.md) — 文档编写规范
 - [architecture/](../docs/architecture/) — 按技术层分类（10 篇：前端/编辑器/后端/AI/知识库/数据库/IPC/安全/测试/构建）
 - [modules/](../docs/modules/) — 各模块文档（11 个模块）
-- [specs/](../docs/specs/) — 编辑器/AI 面板/自动更新规格文档（14 篇）
-- [testing/](../docs/testing/) — TDD 测试报告（7 篇）
-- [plan/](../docs/plan/) — 实施计划与状态
-- [plan/archive/](../docs/plan/archive/) — 已完成的实施状态归档
+- [specs/](../docs/specs/) — 编辑器/AI 面板/自动更新规格文档（14 篇主文档 + 7 篇分册）
+- [testing/](../docs/testing/) — TDD 测试报告（20 篇）
+- [requirements/](../docs/requirements/) — devflow 需求文档（当前 4 篇 + archive 12 篇）
+- [plan/](../docs/plan/) — 实施计划与状态（当前 20 篇主文档 + 4 篇分册）
+- [plan/archive/](../docs/plan/archive/) — 已完成的实施状态归档（32 篇）
 
 ### 查阅规则（渐进式披露）
 - 项目是什么、怎么跑 → README.md（根目录）
@@ -156,6 +158,7 @@
 - 构建、打包、发布 → docs/architecture/build.md
 - 自动更新、版本检测 → docs/specs/auto-update-spec.md
 - 模块实现细节 → docs/modules/{模块名}.md
+- 超长三级文档的分册 → 主文档头部索引 → docs/{文档名}/NN-主题.md（分册正文与原章节逐字一致）
 - 编辑器/AI 面板设计 → docs/specs/
 - 测试覆盖、验证证据 → docs/testing/
 - 实施计划、优化状态 → docs/plan/

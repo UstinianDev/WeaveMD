@@ -1,117 +1,100 @@
 # WeaveMD 文档索引
 
-> 最后更新：2026-09-24
+> 最后更新：2026-09-28
+> 索引只列到「目录 / 任务」粒度；单篇文件清单由各目录的 README 或本文附录给出，避免索引本身膨胀。
 
 ## 核心文档
 
 | 文档 | 说明 |
 |------|------|
 | [README](../README.md) | GitHub 项目主页（功能介绍、下载安装、开发指南） |
-| [REQUIREMENTS](./REQUIREMENTS.md) | 功能需求文档（完整版） |
+| [docs/README](./README.md) | 开发参考（技术栈、目录结构、命令、质量门禁） |
+| [REQUIREMENTS](./REQUIREMENTS.md) | 功能需求文档（3.1~3.12，含 doc-pipeline 流水线） |
 | [TODO](./TODO.md) | 功能进度与已知问题 |
 | [CONTRIBUTING](./CONTRIBUTING.md) | 文档编写规范（渐进式披露、命名规范、更新流程） |
-| [packaging](./guide/packaging.md) | 打包与发布指南（Electron Builder） |
 
-## 架构文档（按技术层）
-
-| 文档 | 说明 |
-|------|------|
-| [frontend](./architecture/frontend.md) | 前端渲染层架构（React/状态管理/CSS/TipTap） |
-| [editor](./architecture/editor.md) | 编辑器内核（块树/转换/渲染/控制器/Outline统一） |
-| [backend](./architecture/backend.md) | 主进程架构（Electron/AI/IPC/工具系统） |
-| [ai-agent](./architecture/ai-agent.md) | AI/Agent 系统（循环/工具/意图/写控制/Composer标签化/标题编号） |
-| [knowledge](./architecture/knowledge.md) | 知识库系统（FTS5索引/BM25搜索/HyDE/Agentic RAG） |
-| [database](./architecture/database.md) | 数据库架构（SQLite/better-sqlite3/25 表：22 实表 + 3 虚拟表/FTS5/vec0） |
-| [ipc](./architecture/ipc.md) | IPC 通信机制（contextBridge/80+通道/9组/事件持久化） |
-| [security](./architecture/security.md) | 安全架构（JWT/bcrypt/safeStorage/参数化查询） |
-| [testing](./architecture/testing.md) | 测试架构（Vitest/Playwright/TDD/质量门禁） |
-| [build](./architecture/build.md) | 构建与发布（Vite/Electron Builder/GitHub Release） |
-
-## 模块文档
+## 架构文档（按技术层，10 篇）
 
 | 文档 | 说明 |
 |------|------|
-| [01-加载页面](./modules/01-加载页面-Splash.md) | 启动动画（Lottie + 版本检测） |
-| [02-认证系统](./modules/02-认证系统-Auth.md) | 注册/登录/JWT/多账号切换 |
-| [03-顶部导航栏](./modules/03-顶部导航栏-Navbar.md) | 图标菜单/撤销/重做/设置/AI按钮 |
+| [frontend](./architecture/frontend.md) | 前端渲染层（React / 8 个 store / 11 个 hooks / Tailwind） |
+| [editor](./architecture/editor.md) | 编辑器内核（块树 / 双向转换 / 9 类控制器 / Outline） |
+| [backend](./architecture/backend.md) | 主进程（Electron / AI 服务 / 11 个 IPC handler 模块 / 28 工具） |
+| [ai-agent](./architecture/ai-agent.md) | AI/Agent 系统（循环 / 工具 / 意图 / 写控制 / 标题编号） |
+| [knowledge](./architecture/knowledge.md) | 知识库（FTS5 索引 / BM25 搜索 / HyDE / Agentic RAG / 附件关联） |
+| [database](./architecture/database.md) | 数据库（SQLite / 25 表：22 实表 + 3 虚拟表 / D1~D8 迁移） |
+| [ipc](./architecture/ipc.md) | IPC 通信（contextBridge / 111 通道 / 11 组 / 事件持久化） |
+| [security](./architecture/security.md) | 安全（JWT / bcrypt / safeStorage / 参数化查询 / 外发闸） |
+| [testing](./architecture/testing.md) | 测试（Vitest / Playwright / TDD / 质量门禁） |
+| [build](./architecture/build.md) | 构建与发布（Vite / electron-builder / sizeGate 体积门禁） |
+
+## 模块文档（11 个）
+
+| 文档 | 说明 |
+|------|------|
+| [01-加载页面](./modules/01-加载页面-Splash.md) | 启动动画 + 阶段切换 |
+| [02-认证系统](./modules/02-认证系统-Auth.md) | 注册 / 登录 / JWT / 多账号切换 |
+| [03-顶部导航栏](./modules/03-顶部导航栏-Navbar.md) | 图标菜单 / 撤销重做 / 设置 / AI 按钮 |
 | [04-编辑主区](./modules/04-编辑主区-Editor.md) | v2 块树内核 + Outline 统一 + 浮动工具栏 |
-| [05-设置界面](./modules/05-设置界面-Settings.md) | UnifiedSettings 8 Tab + 主题系统 |
+| [05-设置界面](./modules/05-设置界面-Settings.md) | UnifiedSettings 多 Tab + 主题系统 |
 | [06-窗口控制](./modules/06-窗口控制-Window.md) | Frameless 窗口 + 自动更新 |
-| [07-数据持久化层](./modules/07-数据持久化层-Database.md) | SQLite 25 表（22 实表 + 3 虚拟表）+ FTS5 + vec0 |
-| [08-IPC通信机制](./modules/08-IPC通信机制.md) | 80+ 通道（9 组）+ 事件持久化 |
+| [07-数据持久化层](./modules/07-数据持久化层-Database.md) | SQLite 25 表 + FTS5 + vec0 |
+| [08-IPC通信机制](./modules/08-IPC通信机制.md) | 111 通道（11 组）+ 事件持久化 |
 | [09-国际化](./modules/09-国际化-i18n.md) | 中文简繁 + 英文（三语言） |
-| [10-导出功能](./modules/10-导出功能-Export.md) | 8 格式导出（md/html/pdf/docx/...） |
-| [11-AI代理面板](./modules/11-AI代理面板-Agent.md) | Agent/知识库/Agentic RAG/HyDE + Composer标签化 + 标题自动编号 |
+| [10-导出功能](./modules/10-导出功能-Export.md) | 8 格式导出（md/html/doc/docx/pdf/png/jpg/jpeg） |
+| [11-AI代理面板](./modules/11-AI代理面板-Agent.md) | Agent / 知识库 / Agentic RAG + Composer 标签化 + 标题自动编号 |
 
-## 规格文档
+## 规格文档（14 篇主文档 + 7 篇分册）
 
-| 文档 | 说明 |
-|------|------|
-| [editor-v2-architecture](./specs/editor-v2-architecture.md) | v2 块树架构设计（§1-§6：内核/渲染/选区/撤销） |
-| [editor-v2-progress](./specs/editor-v2-progress.md) | v2 实施记录（§13：分阶段交付 + 门禁证据） |
-| [editor-v2-features](./specs/editor-v2-features.md) | v2 功能清单（编辑器 UI 规范 + 工具栏 + 图片 + 表格） |
-| [editor-v2-selection-undo](./specs/editor-v2-selection-undo.md) | v2 选区/撤销/集成设计（跨块选区 + undo栈） |
-| [ai-panel-features](./specs/ai-panel-features.md) | AI 面板历史交付记录（7 期 + 写控制 + Agentic RAG） |
-| [auto-update-spec](./specs/auto-update-spec.md) | 自动更新规范（架构/数据流/IPC/发布流程/故障排查） |
-| [markdown-block-exit-rules](./specs/markdown-block-exit-rules.md) | 退格退出规则（六条：列表/引用/任务/代码块） |
-| [floating-toolbar-refactor](./specs/floating-toolbar-refactor.md) | 浮动工具栏重构规范（SPEC-EDIT-FT：选区触发 + 块类型下拉） |
-| [floating-toolbar-ux](./specs/floating-toolbar-ux-and-inline-format.md) | 浮动工具栏 UX + 行内格式（加粗/斜体/删除线/高亮/代码/链接） |
-| [floating-toolbar-format-sticky](./specs/floating-toolbar-format-sticky.md) | 格式应用交互修正（SPEC-EDIT-FT4：选区保持 + 格式粘性） |
-| [drag-selection-flicker](./specs/drag-selection-flicker.md) | 跨块拖选闪烁优化（SPEC-EDIT-DSF：端点检测 + rAF合并） |
-| [code-block-trailing-paragraph](./specs/code-block-trailing-paragraph.md) | 代码块/图片块尾随空行持久化（SPEC-EDIT-CBTP） |
-| [embedding-architecture](./specs/embedding-architecture.md) | Embedding 多提供商架构设计 |
-| [indexing-compatibility](./specs/indexing-compatibility.md) | 索引流程兼容性设计 |
+> 超长三级文档已按渐进式披露拆到 `docs/{文档名}/` 子目录：**主文档路径不变**（入链全保留），
+> 头部给出索引，分册承载被拆出的章节，分册正文与原文件逐字一致。
 
-## 需求文档
+| 分组 | 文档 | 说明 |
+|------|------|------|
+| 编辑器 v2 | [editor-v2-architecture](./specs/editor-v2-architecture.md) | v2 架构规范索引（§1 背景 / §2 总体架构）+ 分册 2 篇（§3-§4 数据模型与转换、§5-§6 渲染与控制器） |
+| | [editor-v2-progress](./specs/editor-v2-progress.md) | v2 实施记录索引（§13.1~§13.15 条目表）+ 分册 3 篇（内核集成 / 退出与工具栏 / 行内与图片） |
+| | [editor-v2-features](./specs/editor-v2-features.md) | v2 功能清单（编辑器 UI 规范 + 工具栏 + 图片 + 表格） |
+| | [editor-v2-selection-undo](./specs/editor-v2-selection-undo.md) | v2 选区 / 撤销 / 集成设计 |
+| | [markdown-block-exit-rules](./specs/markdown-block-exit-rules.md) | 退格退出规则（六条） |
+| 浮动工具栏 | [floating-toolbar-refactor](./specs/floating-toolbar-refactor.md) | SPEC-EDIT-FT：选区触发 + 块类型下拉 |
+| | [floating-toolbar-ux](./specs/floating-toolbar-ux-and-inline-format.md) | 行内格式（加粗 / 斜体 / 删除线 / 高亮 / 代码 / 链接）+ 分册：§9 实施记录 |
+| | [floating-toolbar-format-sticky](./specs/floating-toolbar-format-sticky.md) | SPEC-EDIT-FT4：选区保持 + 格式粘性 + 分册：§9 实施记录 |
+| | [drag-selection-flicker](./specs/drag-selection-flicker.md) | SPEC-EDIT-DSF：端点检测 + rAF 合并 |
+| | [code-block-trailing-paragraph](./specs/code-block-trailing-paragraph.md) | SPEC-EDIT-CBTP：代码块尾随空行持久化 |
+| AI 与知识库 | [ai-panel-features](./specs/ai-panel-features.md) | AI 面板历史交付记录（7 期 + 写控制 + Agentic RAG） |
+| | [embedding-architecture](./specs/embedding-architecture.md) | Embedding 多提供商架构 |
+| | [indexing-compatibility](./specs/indexing-compatibility.md) | 索引流程兼容性设计 |
+| 发布 | [auto-update-spec](./specs/auto-update-spec.md) | 自动更新规范（架构 / IPC / 发布流程 / 故障排查） |
 
-### 当前
+## devflow 产出
 
-| 文档 | 说明 |
-|------|------|
-| [agent-md-kb-optimize.req](./requirements/agent-md-kb-optimize.req.md) | 跨层优化需求（6 子任务：CommonMark 测试 / 正则统一 / KB 可观测性 / 并行化 / 代码去重 / 工具重发） |
-| [agent-perf-optimize.req](./requirements/agent-perf-optimize.req.md) | Agent 性能优化需求（17 子任务：流式推测执行 / 工具延迟 / Prompt 缓存 / KB 缓存 / 监控） |
-| [agent-cost-optimize.req](./requirements/agent-cost-optimize.req.md) | Agent 成本降低需求（A 轨叙述精简 A1-A5 + B 轨缓存/预算 B1-B4 + 质量护栏豁免清单） |
+按任务成套存放，同一任务的四件套同名前缀：`{task}.req.md`（需求）、`{task}.plan.md` / `{task}.status.md`（计划与状态）、`{task}.*.tdd.md`（测试证据），另有 connectivity（连通性）与 compliance（合规）报告。
 
-### 历史（`docs/requirements/archive/`）
+| 需求（`requirements/`，当前 4 篇 + archive 12 篇） | 计划与状态（`plan/`，当前 20 篇主文档 + 4 篇分册 + archive 32 篇） | 测试报告（`testing/`，20 篇） |
+|---|---|---|
+| [doc-pipeline.req](./requirements/doc-pipeline.req.md) | [doc-pipeline.plan](./plan/doc-pipeline.plan.md) / [status](./plan/doc-pipeline.status.md) / [connectivity](./plan/doc-pipeline.connectivity.md) / [compliance](./plan/doc-pipeline.compliance.md) / [docling-poc](./plan/doc-pipeline.docling-poc.md) / [remedial.diagnosis](./plan/doc-pipeline.remedial.diagnosis.md) | `doc-pipeline-b1` ~ `doc-pipeline-b11` + `doc-pipeline-remedial` + `doc-pipeline.final` |
+| [agent-cost-optimize.req](./requirements/agent-cost-optimize.req.md) | [plan](./plan/agent-cost-optimize.plan.md) / [status](./plan/agent-cost-optimize.status.md) | `agent-cost-optimize.tdd` |
+| [agent-perf-optimize.req](./requirements/agent-perf-optimize.req.md) | [plan](./plan/agent-perf-optimize.plan.md) / [phase2](./plan/agent-perf-optimize.phase2.plan.md) / [status](./plan/agent-perf-optimize.status.md) / [connectivity](./plan/agent-perf-optimize.connectivity.md) | — |
+| [agent-md-kb-optimize.req](./requirements/agent-md-kb-optimize.req.md) | [plan](./plan/agent-md-kb-optimize.plan.md) / [status](./plan/agent-md-kb-optimize.status.md) | — |
+| — | 6 篇 doc-pipeline 调研（`plan/doc-pipeline.research-*.md`：parse / pdf-multimodal / storage / chunking / packaging / tools） | `spec-edit-ft` ~ `ft4` / `cbtp` / `dsf`（编辑器规格 TDD 6 篇） |
 
-12 篇已完成任务的需求文档已归档。
+> 历史任务的计划与需求已归档至 `plan/archive/`、`requirements/archive/`，不在上表展开。
+> 超长的 3 篇计划/状态已拆出分册（`plan/doc-pipeline.plan/`、`plan/doc-pipeline.status/`、
+> `plan/agent-cost-optimize.status/`）：主文档保留批次总表/决策基线/总览，逐批变更与逐批记录进分册。
 
-## 实施计划
-
-### 当前
-
-| 文档 | 说明 |
-|------|------|
-| [agent-md-kb-optimize.plan](./plan/agent-md-kb-optimize.plan.md) | 跨层优化计划（Markdown / KB / Agent） |
-| [agent-md-kb-optimize.status](./plan/agent-md-kb-optimize.status.md) | 跨层优化状态（6 子任务全量完成） |
-| [agent-perf-optimize.plan](./plan/agent-perf-optimize.plan.md) | Agent 性能优化计划（阶段 1-4） |
-| [agent-perf-optimize.phase2.plan](./plan/agent-perf-optimize.phase2.plan.md) | Agent 性能优化阶段 2 计划 |
-| [agent-perf-optimize.status](./plan/agent-perf-optimize.status.md) | Agent 性能优化状态（全阶段追踪） |
-| [agent-perf-optimize.connectivity](./plan/agent-perf-optimize.connectivity.md) | 连通性验证报告 |
-| [agent-cost-optimize.plan](./plan/agent-cost-optimize.plan.md) | Agent 成本降低计划（B4 → A1-A5 → B1 → B2 → B3） |
-| [agent-cost-optimize.status](./plan/agent-cost-optimize.status.md) | Agent 成本降低状态（§附~§附4 衍生任务 + 五门禁 + 遗留） |
-
-### 归档（`docs/plan/archive/`）
-
-32 篇已完成任务的计划/状态/瓶颈分析/连通性/重构报告文件已归档。
-
-## 测试报告
+## 其他
 
 | 文档 | 说明 |
 |------|------|
-| [spec-edit-ft](./testing/spec-edit-ft.tdd.md) | 浮动工具栏 TDD（SPEC-EDIT-FT） |
-| [spec-edit-ft2](./testing/spec-edit-ft2.tdd.md) | 行内格式 TDD（SPEC-EDIT-FT2） |
-| [spec-edit-ft3](./testing/spec-edit-ft3.tdd.md) | 叠加收敛 TDD（SPEC-EDIT-FT3） |
-| [spec-edit-ft4](./testing/spec-edit-ft4.tdd.md) | 格式应用交互修正 TDD（SPEC-EDIT-FT4） |
-| [spec-edit-cbtp](./testing/spec-edit-cbtp.tdd.md) | 代码块尾随空行 TDD（SPEC-EDIT-CBTP） |
-| [spec-edit-dsf](./testing/spec-edit-dsf.tdd.md) | 拖选闪烁 TDD（SPEC-EDIT-DSF） |
-| [agent-cost-optimize](./testing/agent-cost-optimize.tdd.md) | Agent 成本降低 TDD（M/standard：RED-GREEN + 门禁 + 基线对照 + 13 条偏离） |
+| [guide/packaging](./guide/packaging.md) | 打包与发布指南（Electron Builder + files 反向排除 + sizeGate） |
 
 ## 查阅规则（渐进式披露）
 
 - 项目是什么、怎么跑 → [README](../README.md)
 - 技术栈、目录结构、命令 → [docs/README](./README.md)
 - 功能进度、已知问题 → [TODO](./TODO.md)
+- 功能需求、验收标准 → [REQUIREMENTS](./REQUIREMENTS.md)
+- 文档编写规范 → [CONTRIBUTING](./CONTRIBUTING.md)
 - 前端渲染层、状态管理 → [frontend](./architecture/frontend.md)
 - 编辑器内核、块树、控制器 → [editor](./architecture/editor.md)
 - 主进程、IPC、工具系统 → [backend](./architecture/backend.md)

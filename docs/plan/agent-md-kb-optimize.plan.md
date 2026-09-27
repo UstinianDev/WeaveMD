@@ -9,7 +9,7 @@
 | 文件 | 用途 |
 |------|------|
 | `tests/editor/kernel/fixtures/commonmark-0.31.2.spec.json` | CommonMark 0.31.2 测试用例（从 spec.txt 解析） |
-| `tests/editor/kernel/fixtures/gfm-extensions.json` | GFM 扩展测试用例 |
+| `tests/editor/kernel/fixtures/gfm.spec.json` | GFM 扩展测试用例 |
 | `tests/editor/kernel/commonmarkSpec.test.ts` | CommonMark 批量动态测试 |
 | `tests/editor/kernel/gfmSpec.test.ts` | GFM 扩展批量动态测试 |
 | `tests/editor/kernel/scripts/parseSpecTxt.ts` | spec.txt → JSON 转换脚本 |

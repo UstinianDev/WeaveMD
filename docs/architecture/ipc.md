@@ -1,6 +1,6 @@
 # IPC 通信机制
 
-> 最后更新：2026-09-09
+> 最后更新：2026-09-27
 > 详细文档：[08-IPC通信机制.md](../modules/08-IPC通信机制.md)
 
 ## 通信模型
@@ -13,26 +13,28 @@
 - 所有 IPC 通信通过 `contextBridge` 暴露的 API
 - IPC handler 必须验证调用来源和参数合法性
 
-## 通道分组（9 组，80+ 通道）
+## 通道分组（11 组，111 通道）
+
+常量表 `src/shared/constants.ts` 的 `IPC_CHANNELS` 共 111 条：
 
 | 组 | 通道数 | 说明 |
 |----|--------|------|
-| 文件 | ~10 | CRUD + 导入/导出 |
-| AI Chat | ~5 | 聊天/模型列表 |
-| AI Agent | ~15 | 代理循环/工具/事件 |
-| AI KB | ~10 | 知识库索引/搜索 |
-| 搜索 | ~5 | 搜索配置/测试 |
-| 设置 | ~10 | 配置读写 |
-| 窗口 | ~5 | 最大化/最小化/关闭 |
-| 认证 | ~5 | 登录/注册/Token |
-| 系统 | ~10 | 更新/通知/路径 |
+| AI | 64 | Agent / 知识库 / 配置 / 事件推送（24 个子域注释块） |
+| 文件与历史 | 16 | 文件 CRUD、历史、目录、导出 |
+| 认证与账号 | 6 | 登录 / 注册 / Token / 多账号 |
+| 应用与更新 | 6 | 版本检测、更新、通知 |
+| 窗口 | 5 | 最大化 / 最小化 / 关闭 |
+| 对话框 | 5 | 打开 / 保存 / 上传文件选择 |
+| 邮件 | 4 | 问题反馈邮件 |
+| 设置 | 2 | 配置读写 |
+| 剪贴板 / 链接 / 通知 | 3 | 剪贴板、外链、系统通知 |
 
 ## AI Agent IPC 通道
 
 | 通道 | 方向 | 说明 |
 |------|------|------|
-| `ai:agent:run` | render → main | 启动 Agent |
-| `ai:agent:abort` | render → main | 中断 Agent |
+| `agent:run` | render → main | 启动 Agent |
+| `agent:abort` | render → main | 中断 Agent |
 | `ai:stream:chunk` | main → render | 流式文本块 |
 | `ai:stream:tool` | main → render | 工具调用事件 |
 | `ai:stream:done` | main → render | 完成 |

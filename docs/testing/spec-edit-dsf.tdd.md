@@ -20,7 +20,7 @@
 | 文件 | 改动摘要 | 性质 |
 | ---- | -------- | ---- |
 | `src/render/editor/kernel/syntaxType.ts` | `resolveSyntaxTypesInRange` 边枚举边比对短路 + `MAX_RANGE_LEAF_COUNT=500` 上限 + `sameSyntaxType`；不一致/超限/不可达统一返回 `null`（与 FloatingToolbar 既有 `null→false` 契约兼容） | 生产 |
-| `src/render/components/Editor/v2/FloatingToolbar.tsx` | selectionchange rAF 合并（`latestSelectionRef`+`rafIdRef`）；`visibleRef` 镜像可见性，`setVisibleGuarded` 仅在值变化时 `setVisible`；卸载时 cancelAnimationFrame | 生产 |
+| `src/render/components/Editor/v2/toolbar/FloatingToolbar.tsx` | selectionchange rAF 合并（`latestSelectionRef`+`rafIdRef`）；`visibleRef` 镜像可见性，`setVisibleGuarded` 仅在值变化时 `setVisible`；卸载时 cancelAnimationFrame | 生产 |
 | `src/render/hooks/useCrossBlockDragSelection.ts` | 新增 `RangeEndpoint` 类型 + `areRangeEndpointsEqual` 纯函数 + `lastAppliedRangeRef`；跨块写入分支端点比对，全等跳过写入；mousedown/mouseup 重置 | 生产 |
 | `tests/editor/kernel/syntaxType.test.ts` | 更新 1 例断言（h1+paragraph 现返回 null）+ 新增 5 例短路/上限/边界 | 测试 |
 | `tests/components/FloatingToolbarV2.test.tsx` | 新增 4 例 rAF 节流（合并/跨帧去重/最新覆盖/卸载清理）；共享夹具上提模块级 | 测试 |

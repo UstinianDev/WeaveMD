@@ -155,7 +155,10 @@ npx electron-builder --linux
       "identity": null
     },
     "win": {
-      "target": "nsis"
+      "target": ["nsis", "msi"]
+    },
+    "linux": {
+      "target": "AppImage"
     },
     "publish": {
       "provider": "github",

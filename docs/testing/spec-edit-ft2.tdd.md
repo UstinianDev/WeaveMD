@@ -22,7 +22,7 @@
 | 文件 | 改动摘要 | 性质 |
 | ---- | -------- | ---- |
 | `src/render/styles/globals.css` | 5 主题块 highlight 变量；`.md-syntax` 方案 B；mark 黄色；工具栏尺寸类；`.inline-image`/`.math-inline` | 生产 |
-| `src/render/components/Editor/v2/FloatingToolbar.tsx` | `CHAR_BUTTONS`/`OBJECT_BUTTONS` 分组 + 橡皮擦；`isBoundedWrap` activeTest；image/link prompt；`onClearFormat?` prop；`.ft-btn`/`.ft-divider` | 生产 |
+| `src/render/components/Editor/v2/toolbar/FloatingToolbar.tsx` | `CHAR_BUTTONS`/`OBJECT_BUTTONS` 分组 + 橡皮擦；`isBoundedWrap` activeTest；image/link prompt；`onClearFormat?` prop；`.ft-btn`/`.ft-divider` | 生产 |
 | `src/render/components/Editor/v2/types.ts` | `BlockHandlers.onFormat` 补 `url?`；新增 `onClearFormat` | 生产 |
 | `src/render/components/Editor/v2/blocks/ContentBlock.tsx` | `onFormat` 补 `url?`；Ctrl+U / Ctrl+Shift+M | 生产 |
 | `src/render/components/Editor/v2/EditorV2.tsx` | `onClearFormat` useCallback；注册进 handlers；传给 FloatingToolbar | 生产 |

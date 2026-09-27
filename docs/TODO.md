@@ -1,8 +1,28 @@
 # TODO
 
-> 最后更新：2026-09-24
+> 最后更新：2026-09-27
 
 ## 已完成
+
+### doc-pipeline 文档处理流水线（2026-09-26 ~ 2026-09-27）
+
+M 级，8 模块 29 任务全量交付 + 遗留修复批次；需求见 [doc-pipeline.req](./requirements/doc-pipeline.req.md)。
+
+| 批 | 范围 | 核心交付 |
+|----|------|---------|
+| B1~B2 | 解析与上传 | `parseDocument` 结构化产物 + `DIALOG_OPEN_FILE({upload:true})` 7 格式多选 + 粘贴/选择器双入口 + 解析限流 3 并发 |
+| B3~B4 | 持久化与入库 | `attachments_json`(D1) + `parsed_attachments` 三态 + `structure_json` 页码溯源 + KB 附件关联 `attachment_id`(D3) |
+| B5~B6 | 检索与多模态 | `searchDocument`/`readPage`/`extractTable`/`analyzeChart` + citation 回链 `refsJson` + `LlmMessage.content` 数组贯通 + 图片相对路径落盘 |
+| B7~B8 | 版面与工具引用 | `pdfLayout` 坐标分栏/无框线表格/跨页合并 + D 路线多模态截图 + 工具计数 24→28 与文档同步 |
+| B9~B10 | 文件树与体积 | 超长 md 引用模式发送 + `files` 21 条反向排除（Setup 147.68→99.16MB / unpacked 602→369MB / asar 288→86MB）+ `sizeGate` 双口径门禁 |
+| B11~B12 | 外发闸与 PoC | `allowSend` 不放宽 + 勾选入 KB 授权列(D5/D5b) + Docling PoC 量化不达标按 Q6 关闭 |
+| 收尾 | 四阶段 | 五门禁（`doc-pipeline.final.md`，E2E 31 failed 为裁定基线零新增）/ 连通性 12 链 0 断裂 / 合规 APPROVED WITH COMMENTS / 交付对账 |
+
+> 目录批量导入 `importDirAsKb` 已扩至 7 格式且先解析再入索引，原「pdf/docx 知识库导入」待办随之关闭。
+
+**遗留修复批次（2026-09-27）**：Bug A（附件绝对路径清单注入 system prompt + 附件消息解锁 `ask_question_card`）、Bug B（`vision_override` 三态列 + 能力表 + 未知模型乐观默认 + 降级上屏）、R3 外发双检会话边界、R4/R5 路径回执与 citation 打开、R6 20 附件截断对齐、R7/R8 删除级联。证据 [doc-pipeline-remedial.tdd](./testing/doc-pipeline-remedial.tdd.md)。
+
+> 详见 [status](./plan/doc-pipeline.status.md) / [connectivity](./plan/doc-pipeline.connectivity.md) / [compliance](./plan/doc-pipeline.compliance.md)
 
 ### agent-cost-optimize（2026-09-23 ~ 2026-09-24）
 
@@ -142,11 +162,16 @@ L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/ar
 
 | 优先级 | 任务 | 说明 |
 |------|------|------|
+| 🔲 | vision 开关设置页 UI | `vision_override` 三态列与读写通道已通（D8），缺设置页开关；当前只能改库 |
+| 🔲 | anthropic 主循环分流 | `ai_config.protocol=anthropic` 时主循环仍按 OpenAI 形状调用（agent-cost-optimize 已建 `anthropicClient` 与 6 处非工具调用点分流，主循环未分流）——另立 issue |
+| 🔲 | OCR | doc-pipeline 决策基线明确本期无 OCR，无文本层 PDF 只能走 D 路线多模态 |
+| 🔲 | 图片向量 | `images_vec` 表与 `imageIndexer` 已在，附件图片未接入 embedding |
+| 🔲 | 拖拽上传 | 粘贴与选择器双入口已交付，拖拽未实现 |
+| 🔲 | write_mode 完整接线 | 附件写路径按 manual 确认语义实现（B11 记录），全局 write_mode 接线未补 |
 | 🔲 | v2 Normal 查找高亮 | 编辑模式查找结果高亮，替代 Monaco 查找 |
 | 🔲 | 撤销/重做后光标定位优化 | 当前光标回到重建树首块，需恢复到操作位置 |
 | 🔲 | 段落级 MD Source 视图迁移 | v2 编辑器迁移 Monaco Source 视图 |
 | 🔲 | 真 MCP server 管理 | 外部 MCP server 注册与生命周期管理 |
-| 🔲 | pdf/docx 知识库导入 | 非 Markdown 格式文档直接导入知识库 |
 | 🔲 | `classifyIntent` 接入 searchKB 主管线 | queryPlanner 意图分类未接入 kbSearch 搜索管线 |
 | 🔲 | 选区改写入口是否恢复 | `startSelectionRewrite` 生产零调用方，4 条 E2E 断言保留作已知失败（见 status §附4） |
 
@@ -154,6 +179,12 @@ L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/ar
 
 | 问题 | 影响范围 |
 |------|------|
+| `useKnowledgeBase` 恒 `false`（R1） | KB 注入矩阵、`searchKB` citation 分支在生产 UI 不可达——该开关为 Module 10 移除后的废弃项，**按裁定不恢复**（连通性 R1） |
+| `allowSend` 无可达设置入口（R2） | `filterKbEgressResults` 生产不执行，仅数据层 fail-closed 兜底；`ai.settings.allowSend` 为孤儿 i18n 键 |
+| Linux AppImage 与 liteparse 排除互斥（R9） | `build.files` 排除 Linux 原生件是 Windows 瘦身手段，执行 Linux 打包前须先移除这两条排除（见 [packaging](./guide/packaging.md)） |
+| `AI_CHAT` 附件/入 KB 链休眠（R10） | 主进程 `ChatReqPayload` 有 `attachments`/`uploadToKb`，preload 类型缺字段，渲染层零调用方（Chat 模式已废弃） |
+| anthropic 主循环不分流 | `protocol=anthropic` 时主循环仍走 OpenAI 形状，已建的 `anthropicClient` 未接入主循环（另立 issue） |
+| xlsx@0.18.5 依赖漏洞 | SheetJS 官方源修复版未发 npm，跟踪上游发布后再升级 |
 | v2 Normal 模式无查找高亮 | 编辑主区（Normal 模式） |
 | 撤销/重做后光标回到重建树首块 | 编辑主区（撤销/重做操作） |
 | 段落级 MD Source 视图未迁移 | 编辑主区（Source 模式） |

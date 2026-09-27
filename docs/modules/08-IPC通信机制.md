@@ -1,25 +1,30 @@
 # 08 — IPC 通信机制
 
-> 最后更新：2026-08-30
+> 最后更新：2026-09-27
 
 ## 做什么
 
-Electron 主进程与渲染进程之间的安全通信桥梁。使用 `contextBridge` + `ipcRenderer.invoke`/`ipcMain.handle` 模式，共 80+ 个 IPC 通道。
+Electron 主进程与渲染进程之间的安全通信桥梁。使用 `contextBridge` + `ipcRenderer.invoke`/`ipcMain.handle` 模式，`src/shared/constants.ts` 的 `IPC_CHANNELS` 共 **111 个通道**。
 
 ## 架构
 
 ```
 src/main/ipc-handlers.ts          ← 主进程 IPC 处理器注册（基础通道）
-src/main/ai/ipc/                  ← AI 模块 IPC（7 个 handler 文件）
-├── shared.ts                     ← AI 共享 handler
-├── configConsentHandlers.ts      ← AI 配置/同意
-├── chatHandlers.ts               ← Chat/对话
-├── kbHandlers.ts                 ← 知识库
-├── agentHandlers.ts              ← Agent
-├── rewriteHandlers.ts            ← 改写
-└── modelConfigHandlers.ts        ← 多模型配置
+src/main/ai/ipc/                  ← AI 模块 IPC（11 个 handler 模块 + index + shared）
+├── index.ts / shared.ts          ← 注册入口与共享工具
+├── agentHandlers.ts              ← Agent 运行、附件落库、citation 回链
+├── chatHandlers.ts               ← Chat 载荷（渲染层零调用方）
+├── kbHandlers.ts                 ← 知识库索引 / 解析 / 导入
+├── embeddingHandlers.ts          ← Embedding 调用
+├── embeddingConfigHandlers.ts    ← Embedding 配置 CRUD
+├── modelHandlers.ts              ← 模型列表 / 识别
+├── modelConfigHandlers.ts        ← 多模型配置
+├── searchHandlers.ts             ← 搜索调用
+├── searchConfigHandlers.ts       ← 搜索配置 CRUD
+├── rewriteHandlers.ts            ← 块级改写
+└── configConsentHandlers.ts      ← 配置 / 同意闸
 src/main/preload.ts               ← 预加载脚本（暴露安全 API）
-src/shared/constants.ts           ← IPC 通道常量（80+ 通道）
+src/shared/constants.ts           ← IPC 通道常量（111 通道）
 ```
 
 ## 通道分组

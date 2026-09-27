@@ -1,18 +1,20 @@
 # 编辑主区深度重做规范（Editor v2 Architecture）
 
-> 规范编号：SPEC-EDITOR-V2 | 版本：v0.2（草案，待评审后实施）| 更新：2026-08-05
+> 规范编号：SPEC-EDITOR-V2 | 版本：v0.3（索引页 + 分册）| 更新：2026-09-27
 > 关联需求：REQUIREMENTS.md 3.2 编辑器核心（EDIT-01 ~ EDIT-12）
 > 参考实现：marktext/marktext（Muya 编辑器内核，MIT License）
 > 关联文档：docs/modules/04-编辑主区-Editor.md、docs/specs/markdown-block-exit-rules.md
 
-**子文档（渐进式披露，按需加载）：**
+**分册（渐进式披露，按需加载）：**
 
 | 文档 | 内容 |
 |------|------|
+| [editor-v2-architecture/01-data-model-conversion.md](./editor-v2-architecture/01-data-model-conversion.md) | §3 数据模型 BlockTree v2 + §4 Markdown 双向转换（不变量与行内渲染） |
+| [editor-v2-architecture/02-render-controllers.md](./editor-v2-architecture/02-render-controllers.md) | §5 渲染模型 + §6 事件控制器（input/enter/backspace/click/convert/format/list） |
 | [editor-v2-selection-undo.md](./editor-v2-selection-undo.md) | §7 选区 / §8 撤销重做 / §9 集成契约 / §10 实施分期 / §11 测试策略 / §12 风险 |
-| [editor-v2-progress.md](./editor-v2-progress.md) | §13 实施记录（M1~M4 + 各期增量修复，13.1~13.15） |
+| [editor-v2-progress.md](./editor-v2-progress.md) | §13 实施记录（13.1~13.15，含分册索引） |
 
-> 本文档保留 §1-§6（背景、架构、数据模型、Markdown 转换、渲染、事件控制器）。
+> 本文档为 v2 规范**索引页**：保留 §1 背景与目标、§2 总体架构，其余章节按主题拆为分册。
 
 ---
 
@@ -112,388 +114,46 @@ WeaveMD 不整体移植 muya（其为 Vue 无关的 1000+ 文件 JS 库，依赖
 - 块树更新采用不可变风格（每次操作返回新树），但与 v1 的"版本号 + 全量 effect 扫描"
   不同，v2 由控制器精确指定受影响块集合，按需渲染。
 
-### 2.3 目标目录结构（新增/重构）
+### 2.3 目录结构（设计目标与实际落地）
+
+> 设计阶段的目标树与最终落地有出入：渲染层统一收进 `v2/`，块组件按叶子/容器职责归并
+> （`LeafBlock` 承担段落/标题等叶子块，无 `HeadingBlock`/`ParagraphBlock`/`ContainerBlock`），
+> 下表为**当前实际结构**。v1 已退役，其组件与 `blockTreeBuilder.ts`/`blockTreeSerializer.ts`/
+> `lineMarkdown.ts` 均已删除。
 
 ```
-src/render/editor/                    # 新内核目录（与 React 解耦）
+src/render/editor/                    # 内核目录（与 React 解耦）
 ├── kernel/
 │   ├── types.ts                      # BlockNode v2、Cursor、BlockTree 类型
 │   ├── blockTree.ts                  # 不可变块树纯函数
+│   ├── blockDetection.ts             # 行前缀识别（消费 markdownSyntax）
+│   ├── markdownSyntax.ts             # 行前缀解析（正则全含 U+00A0 分隔）
 │   ├── markdownToState.ts            # markdown → BlockTree
 │   ├── stateToMarkdown.ts            # BlockTree → markdown
-│   ├── inlineRenderer.ts             # text → 行内富文本 HTML
+│   ├── inlineRenderer.ts / inlineLexer.ts
+│   ├── outline.ts                    # 大纲抽取
+│   ├── tableCodec.ts                 # 表格编解码
 │   └── selection.ts                  # cursor 模型 + DOM 读写
 ├── controllers/
-│   ├── inputCtrl.ts
-│   ├── enterCtrl.ts
-│   ├── backspaceCtrl.ts
-│   ├── clickCtrl.ts
-│   ├── formatCtrl.ts
-│   └── listCtrl.ts
+│   ├── inputCtrl.ts / enterCtrl.ts / backspaceCtrl.ts
+│   ├── convertCtrl.ts / clickCtrl.ts / listCtrl.ts
+│   ├── formatCtrl.ts / imageFormatCtrl.ts / imageWidthCtrl.ts
+│   ├── shared.ts / index.ts
 └── editorInstance.ts                 # 组装内核 + 控制器 + 事件中心的宿主
 
-src/render/components/Editor/         # 渲染层（重构）
-├── EditorView.tsx                    # 保持对外 props，内部换用 editorInstance
-├── EditorScrollContainer.tsx         # 纯容器：滚动 + 事件代理
+src/render/components/Editor/v2/      # 渲染层
+├── EditorV2.tsx                      # v2 入口（状态、事件路由、焦点恢复、撤销）
 ├── BlockRenderer.tsx                 # 块类型分发
-├── blocks/                           # 各块组件（容器块 + 叶子块）
-│   ├── ContainerBlock.tsx            # list / blockquote / table 容器
-│   ├── HeadingBlock.tsx              # 叶子块，内含 ContentBlock
-│   ├── ParagraphBlock.tsx
-│   ├── CodeBlock.tsx                 # 代码块（contentEditable 化，替代 textarea 旁路）
-│   ├── ListItemBlock.tsx
-│   ├── BlockquoteBlock.tsx
-│   ├── TableBlock.tsx
-│   └── ContentBlock.tsx              # 通用可编辑内容区
-└── panels/                           # OutlinePanel / Minimap / FindReplaceBar 适配层
+├── EditorScrollContainer.tsx         # 纯容器：滚动 + 事件代理
+├── blocks/                           # 叶子块与容器块组件
+│   ├── ContentBlock.tsx              # 唯一 contentEditable 表面
+│   ├── LeafBlock.tsx                 # 段落 / 标题等叶子块
+│   ├── ListItemBlock.tsx / BlockquoteBlock.tsx / CodeBlock.tsx
+│   ├── TableBlock.tsx + tableHelpers.ts + useTableEvents.ts
+│   └── blocks 类型协同由 types.ts 约束
+├── toolbar/FloatingToolbar.tsx       # 文本浮动工具栏
+├── image/                            # ImageToolbar + ImageResizeBox
+└── InsertUrlModal.tsx
 ```
-
-`src/render/services/` 下 v1 的 `blockTree.ts / blockTreeBuilder.ts / blockTreeSerializer.ts /
-lineMarkdown.ts / markdown.ts / searchEngine.ts` 保留到 M4 完成后再退役，过渡期不与 v2 混用。
-
----
-
-## 3. 数据模型：BlockTree v2
-
-### 3.1 类型定义
-
-```ts
-// src/render/editor/kernel/types.ts
-
-export type BlockTypeV2 =
-  | 'document' // 根容器
-  | 'paragraph' // 叶子块（含文本）
-  | 'heading' // 叶子块
-  | 'code-block' // 叶子块（围栏代码）
-  | 'html-block' // 叶子块（原始 HTML，只读展示）
-  | 'thematic-break' // 叶子块（分割线）
-  | 'blockquote' // 容器块
-  | 'bullet-list' // 容器块
-  | 'ordered-list' // 容器块
-  | 'task-list' // 容器块
-  | 'list-item' // 容器块（列表项，包裹内容）
-  | 'table'; // v2 首版为叶子块（原始文本），M4 可选升级为容器块
-
-export interface BlockNodeV2 {
-  /** 稳定 ID（构建时生成，重排不变） */
-  id: string;
-  type: BlockTypeV2;
-  /** 父块 ID；根容器的 parent 为 null */
-  parentId: string | null;
-  /** 兄弟链表（文档顺序） */
-  prevId: string | null;
-  nextId: string | null;
-  /** 容器块的子块 ID 列表；叶子块为 [] */
-  childrenIds: string[];
-  /** 叶子块文本（唯一文本事实源）；容器块为 null */
-  text: string | null;
-  /** 块级元数据 */
-  meta?: {
-    headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
-    fenceLanguage?: string; // code-block
-    listMarker?: '-' | '*' | '+'; // bullet-list
-    orderedStart?: number; // ordered-list 起始编号
-    orderedDelimiter?: '.' | ')';
-    taskChecked?: boolean; // task-list-item
-    loose?: boolean; // 列表是否松散
-  };
-  /** 渲染缓存：行内富文本 HTML（由 inlineRenderer 生成，可为 null 表示待渲染） */
-  inlineHtml: string | null;
-}
-
-export interface BlockTreeV2 {
-  root: BlockNodeV2; // document 根
-  blocks: Record<string, BlockNodeV2>;
-}
-
-export interface CursorV2 {
-  blockId: string;
-  /** 相对块文本的偏移（UTF-16 code unit，与 DOM offset 对齐） */
-  offset: number;
-}
-
-export interface SelectionV2 {
-  anchor: CursorV2;
-  focus: CursorV2;
-}
-```
-
-### 3.2 容器块与叶子块划分
-
-| 分类   | 类型                                                                               | 子块规则                          |
-| ------ | ---------------------------------------------------------------------------------- | --------------------------------- |
-| 容器块 | document / blockquote / bullet-list / ordered-list / task-list / list-item / table | `childrenIds` 非空；自身无 `text` |
-| 叶子块 | paragraph / heading / code-block / html-block / thematic-break                     | `text` 非空；`childrenIds` 为空   |
-
-容器嵌套规则（与 CommonMark 对齐）：
-
-- `blockquote` 可包含任意块（含列表、代码块、子引用）。
-- `list-item` 至少一个块子节点（通常是 paragraph 或嵌套 list）；`list` 的子节点只能是 `list-item`。
-- `table` 在 v2 首版为**叶子块**（text 保存原始 Markdown 文本，整块只读 + 源码编辑）；
-  行级容器化结构（table-row / table-cell）留待 M4 可选扩展。
-
-### 3.3 纯函数操作 API（内核层签名）
-
-```ts
-// src/render/editor/kernel/blockTree.ts
-
-export function createDocumentTree(): BlockTreeV2;
-export function getBlock(tree: BlockTreeV2, id: string): BlockNodeV2 | undefined;
-export function getChildren(tree: BlockTreeV2, id: string): BlockNodeV2[];
-export function getPrev(tree: BlockTreeV2, id: string): BlockNodeV2 | null;
-export function getNext(tree: BlockTreeV2, id: string): BlockNodeV2 | null;
-export function getParent(tree: BlockTreeV2, id: string): BlockNodeV2 | null;
-export function getFirstLeaf(tree: BlockTreeV2, id: string): BlockNodeV2 | null; // DFS 首个叶子
-export function getLastLeaf(tree: BlockTreeV2, id: string): BlockNodeV2 | null;
-export function getNextLeaf(tree: BlockTreeV2, id: string): BlockNodeV2 | null; // 文档序下一个叶子
-export function getPrevLeaf(tree: BlockTreeV2, id: string): BlockNodeV2 | null;
-export function getAllBlocksInOrder(tree: BlockTreeV2): BlockNodeV2[]; // 文档序（前序）
-
-export function insertBlockAfter(tree: BlockTreeV2, refId: string, node: BlockNodeV2): BlockTreeV2;
-export function insertBlockBefore(tree: BlockTreeV2, refId: string, node: BlockNodeV2): BlockTreeV2;
-export function appendChild(tree: BlockTreeV2, parentId: string, node: BlockNodeV2): BlockTreeV2;
-export function removeBlock(tree: BlockTreeV2, id: string): BlockTreeV2;
-export function replaceBlock(tree: BlockTreeV2, id: string, node: BlockNodeV2): BlockTreeV2;
-export function setBlockText(tree: BlockTreeV2, id: string, text: string): BlockTreeV2;
-export function setInlineHtml(tree: BlockTreeV2, id: string, html: string): BlockTreeV2;
-export function updateMeta(
-  tree: BlockTreeV2,
-  id: string,
-  patch: Partial<BlockNodeV2['meta']>
-): BlockTreeV2;
-
-/** 将一段文本按块树结构切分：splitLeaf(tree, leafId, offset) → 左右两个叶子 */
-export function splitLeaf(tree: BlockTreeV2, leafId: string, offset: number): BlockTreeV2;
-
-/** 把相邻叶子合并（backspace 跨块删除时使用） */
-export function mergeLeafIntoPrev(tree: BlockTreeV2, leafId: string): BlockTreeV2;
-
-/** 根据 text 内容决定叶子块应转换成的类型（供控制器查询） */
-export function detectBlockConversion(text: string): {
-  type:
-    | 'paragraph'
-    | 'heading'
-    | 'bullet-list'
-    | 'ordered-list'
-    | 'task-list'
-    | 'blockquote'
-    | 'code-block'
-    | 'thematic-break';
-  meta?: BlockNodeV2['meta'];
-  prefixLength: number;
-} | null;
-```
-
-所有操作返回新树（结构共享、不可变），保证 React 可直接比较引用触发渲染。
-
----
-
-## 4. Markdown 双向转换
-
-### 4.1 块检测优先级（markdownToState）
-
-按行/块级规则依次尝试，命中即消费：
-
-````
-空白行（跳过，用于块分隔）
-→ 围栏代码块（``` / ~~~，含语言标识，直到闭合围栏）
-→ HTML 块（<div> 等，可选支持）
-→ 表格（| 表头 | 分隔行 | 行 |）
-→ ATX 标题（#{1,6} 空格）
-→ Setext 标题（下划线 = 或 -，可选支持）
-→ 引用块（> 前缀，连续多行合并，支持嵌套 >）
-→ 列表（无序 -/*/+ 或有序 1. / 1) ；任务列表 - [x] / - [ ] 优先于无序）
-→ 代码块（4 空格缩进，可选支持）
-→ 分割线（--- / *** / ___，独立成块）
-→ 段落（兜底，连续非空行合并，行内再解析）
-````
-
-列表块解析须支持：
-
-- 同一列表容器内连续列表项合并；不同标记（`-` 与 `+`）视为同一列表（marktext 行为：合并）。
-- 列表项内缩进 2/4 空格产生嵌套子块（段落缩进 → 子列表 / 代码块）。
-- 任务列表 `- [x] text` 转换为 `task-list > task-list-item(checked) > paragraph`。
-- 有序列表保留 `start` 与分隔符（`.` 或 `)`）。
-
-### 4.2 转换不变量
-
-对任意 markdown 文本 `M`：
-
-```
-stateToMarkdown(markdownToState(M)) === M（按规范化的行尾与块间隔）
-```
-
-实现要点：
-
-- 叶子块 `text` 存**纯文本**（不含语法前缀），序列化时按块类型 + meta 重建前缀（如
-  `heading` → `#{level} ` + text；`bullet-list > list-item` → `- ` + text）。
-- 容器块的嵌套缩进由序列化器按层级计算（列表子项 2 空格/4 空格，与解析器互逆）。
-- 块间以空行分隔（loose list 项间空行由 `loose` meta 控制）。
-- 代码块序列化：`+ 语言 + 内容 +`；内容含围栏时自动选择更长围栏。
-
-**规范化往返定义（M1 定稿）**：`stateToMarkdown(markdownToState(M)) === M` 对所有
-"规范输入"严格成立；非规范输入输出语义等价的规范化形式。已知归一化清单：
-
-| 输入                            | 输出（规范化）                         | 说明                                       |
-| ------------------------------- | -------------------------------------- | ------------------------------------------ |
-| 块间无空行（`# H\np`）          | 补空行（`# H\n\np`）                   | 块边界显式化                               |
-| 标题 closing `#`（`# Title #`） | 剥离（`# Title`）                      | CommonMark 语义                            |
-| 无序列表 `*` / `+` 标记         | 统一 `-`                               | marktext 行为                              |
-| 分割线 `***` / `___`            | 统一 `---`                             | 语义等价                                   |
-| 文档首尾空行                    | 剥离                                   | 无信息量                                   |
-| 空文档（纯空白）                | `''`                                   | 无信息量                                   |
-| 以围栏代码块收尾的文档          | 块树末尾补空 paragraph（文本输出不变） | 代码块尾随保护空行持久化（SPEC-EDIT-CBTP） |
-| 引用内末尾代码块                | 引用尾部序列化出一行裸 `>`             | SPEC-EDIT-CBTP B3 边缘场景，语义等价       |
-
-### 4.3 行内渲染（inlineRenderer）
-
-`text → inlineHtml` 由行内 lexer + renderer 完成，支持：
-
-- 强调/加粗/删除线/下划线/高亮（`*` `**` `~~` `<u>` `==`）
-- 行内代码（`` ` ``，含转义与多反引号）
-- 链接与图片（`[text](url)` / `![alt](url)`）
-- 自动链接（URL / email）
-- HTML 转义（`&` `<` `>`）、反斜杠转义
-- 任务列表复选标记不属于行内（由块渲染处理）
-
-行内渲染结果存入 `inlineHtml` 缓存；`text` 变化时由控制器失效缓存。
-
----
-
-## 5. 渲染模型
-
-### 5.1 组件树
-
-```
-EditorScrollContainer（滚动视口）
-└── <div data-editor-root>（非 contentEditable）
-    └── BlockRenderer(root)
-        ├── ContainerBlock（blockquote / list / list-item / table）
-        │   └── 递归 BlockRenderer 子块
-        └── LeafBlock（paragraph / heading / code-block / thematic-break）
-            └── ContentBlock（唯一 contentEditable 区域）
-```
-
-### 5.2 contentEditable 边界
-
-- **仅叶子块的内容区**为 `contenteditable="true"`（`ContentBlock`，`span.mu-content` 等价物）。
-- 容器块、语法装饰（列表标记、引用竖线、代码围栏）、表格外壳一律 `contenteditable="false"`。
-- 列表项文本 = 列表项内 paragraph 的 ContentBlock；列表标记由列表项渲染（`::marker` 或装饰 span）。
-- 代码块 v2 改为 contentEditable 内容区（含语法高亮渲染层），替代 v1 textarea 旁路；
-  编辑仍通过独立路径（不参与前缀检测），但可参与统一的块合并/空退逻辑。
-
-### 5.3 DOM ↔ 块绑定
-
-- 每个块组件根元素带 `data-block-id`。
-- `ContentBlock` 的 DOM 节点通过 `editorInstance.domRegistry`（`Map<id, HTMLElement>`）注册，
-  供光标读写与滚动定位使用；卸载时注销。
-- 不把块实例挂到 DOM 属性上（React 惯例），所有跨块查找走注册表 + 块树。
-
-### 5.4 更新策略
-
-- 控制器修改块树后返回受影响块 ID 集合，`EditorView` 只对这些块调用 `setBlockTree` 相关更新。
-- `ContentBlock` 使用受控渲染：React 渲染 `inlineHtml`，但**输入中的文本变化不触发 React 重渲染**
-  （DOM 已由浏览器修改），由 `input` 事件控制器读取 DOM 文本 → 更新块树 → 若行内渲染结果变化
-  才重渲染该块并恢复光标（muya 的 `checkNeedRender` 策略）。
-
----
-
-## 6. 事件控制器
-
-所有控制器为纯逻辑模块，输入 `(editorInstance, event, ctx)`，通过 `editorInstance.dispatch` 修改
-块树。事件注册集中在 `editorInstance`：内容块统一监听 input/keydown/keyup/click/blur/focus/
-compositionstart/compositionend，按事件类型路由到对应控制器。
-
-### 6.1 inputCtrl（输入）
-
-处理 `input` 与 `compositionend`：
-
-1. `isComposed` 期间跳过（compositionstart 置位，compositionend 手动调用一次）。
-2. 读取内容块 DOM 文本（排除渲染节点）与光标。
-3. **autoPair**（自动配对，配置可开关）：
-   - `(` `[` `{` `` ` `` `'` `"` 输入时自动补右侧，光标留在中间；
-   - 成对删除：`deleteContentBackward` 删除 `(` 时若下一字符是 `)` 则一并删除。
-4. 更新块树 `text`；若行内渲染结果变化（`checkNeedRender`），重渲染该块。
-5. 调用 `detectBlockConversion(text)`，若检测到块级前缀且前缀以换行/块首开始，执行
-   `convertIfNeeded`（见 6.5 块转换）。
-6. 同步 `editorStore.content`（经防抖序列化，见 9.1）。
-
-### 6.2 enterCtrl（回车）
-
-内容块 `Enter`（非 shift）：
-
-1. 读取光标偏移，`splitLeaf` 拆分为前后两个叶子（`paragraph` 文本）。
-2. 特殊分支：
-   - 列表项内 paragraph 为空：在列表项后创建新列表项（`- ` / 按序编号）或退出列表
-     （见 6.5 空列表项回退，对接 SPEC-EDIT-EXIT）。
-   - 代码块内：换行（插入 `\n` 到 text，不拆块）。
-   - 标题内：拆分为段落（后段为 paragraph，非标题）。
-3. 光标移到新叶子起点。
-
-`Shift+Enter`：软换行，向 text 插入 `\n`（渲染为 `<br>`）。
-
-### 6.3 backspaceCtrl（退格）
-
-内容块 `Backspace` 优先级（与 SPEC-EDIT-EXIT 对齐并扩展）：
-
-1. 有选区（非折叠）：删除选区文本（浏览器默认，不干预）。
-2. 光标在文本起点：
-   a. 叶子在列表项内且为首个内容：删除列表标记 → 列表项转 paragraph（或列表项移除后
-   列表缩级），对应"撤销圆点/数字/复选框"；
-   b. 叶子在引用块内且为唯一内容：引用块降级为 paragraph；
-   c. 空 paragraph 块：与前一叶子合并（跨块时 `mergeLeafIntoPrev`；跨容器时降级容器）；
-   d. 标题：降级为 paragraph（内容保留）；
-   e. 代码块空内容：移除代码块（对应 SPEC-EDIT-EXIT 五）。
-3. 光标在文本中间：浏览器默认删除。
-4. 特殊 token（行内数学 `$$` 等，v2 可选）：成对删除。
-
-### 6.4 clickCtrl（点击）
-
-- 点击叶子块：浏览器默认放置光标。
-- 点击列表标记/引用竖线/代码围栏等装饰区：光标定位到对应内容块起点（不选中装饰）。
-- 点击任务复选框：切换 `taskChecked`（v1 缺失的"可打勾"交互）。
-- 点击链接：`Ctrl/Cmd+Click` 经 IPC 打开外部；普通点击定位光标。
-- 点击代码块语言徽标：不进入编辑（保持 v1 行为），语言切换走工具栏下拉。
-
-### 6.5 块转换（convertIfNeeded）
-
-统一由 `detectBlockConversion(text)` 驱动，取代 v1 的 pending 灰化 + 双路径提交：
-
-| 输入前缀              | 转换                                   | 说明                                                          |
-| --------------------- | -------------------------------------- | ------------------------------------------------------------- |
-| `# ` ~ `###### `      | heading(level)                         | 前缀随回车/输入即时提交；删除前缀字符（含空格）→ 回 paragraph |
-| `- ` / `* ` / `+ `    | bullet-list > list-item > paragraph    | 后续行 Enter 续行                                             |
-| `1. ` / `1) `         | ordered-list（start=1, delimiter）     | 续行自动递增                                                  |
-| `- [ ] ` / `- [x] `   | task-list > task-list-item > paragraph | checked 由标记决定                                            |
-| `> `                  | blockquote > paragraph                 | 连续 `>` 续行                                                 |
-| ` ``` lang`           | code-block(lang)                       | 完整围栏自动闭合；空内容 Backspace 退出                       |
-| `---` / `***` / `___` | thematic-break                         | 独立成块                                                      |
-
-**v2 移除 v1 的 pendingTypeChange 机制**：前缀输入即时转换块类型（marktext 行为），
-删除语法前缀时即时降级。块内不渲染灰色前缀；语法标记由块渲染提供（列表标记/引用竖线）。
-
-**空块回退规则**（与 SPEC-EDIT-EXIT 保持一致）：
-
-- 空列表项 Backspace → 列表项转 paragraph（若为列表末项，列表容器一并移除）。
-- 空列表项 Enter → 退出列表（转 paragraph）并保留新空段落。
-- 空引用块 Backspace / Enter → 转 paragraph。
-- 空标题 Backspace → 转 paragraph。
-- 空代码块 Backspace → 移除代码块（唯一块时转空 paragraph）。
-
-### 6.6 formatCtrl（格式化）
-
-取代 `document.execCommand`：
-
-- 对折叠光标：插入成对标记（`**` `*` `~~` `` ` `` `==` 等），光标置于中间。
-- 对选区：解析选区文本与行内 token，生成带标记的新文本，替换选区（在 `text` 层操作，
-  而非 DOM range 操作）。
-- 链接：打开链接对话框（v1 Modal 复用），生成 `[text](url)`。
-- 列表缩进/凸出（Tab / Shift+Tab）：移动 list-item 在列表容器中的嵌套层级（listCtrl）。
-
-### 6.7 listCtrl（列表操作）
-
-- Tab：列表项缩进（成为上一列表项的子列表项）；Shift+Tab：凸出。
-- 列表项内 Enter 续行；空项 Enter/Backspace 退出列表。
-- 有序列表续行编号递增；删除中间项后编号按 `start + index` 重算。
 
 ---

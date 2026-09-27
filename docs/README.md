@@ -13,7 +13,8 @@ WeaveMD 是基于 Electron 的本地 Markdown 可视化笔记应用。核心定�
 | 状态管理 | Zustand v4 |
 | 数据存储 | SQLite（better-sqlite3 ^11，FTS5 全文检索） |
 | 编辑器 | 自研块树内核（v2）+ Monaco（Source 模式）+ TipTap（Composer 富文本） |
-| AI | 远程 OpenAI 兼容 API（remote-only）+ jieba-wasm 分词 + FTS5 关键词召回 |
+| 文档解析 | @llamaindex/liteparse（PDF/版面坐标/截图）+ mammoth（docx）+ SheetJS（xlsx） |
+| AI | 远程 OpenAI 兼容 API 或 Anthropic（按 `ai_config.protocol` 分流，remote-only）+ jieba-wasm 分词 + FTS5 关键词召回 |
 | 测试 | Vitest + Playwright（真实 Chromium E2E） |
 | 图标 | react-icons/md（Material Design Icons） |
 
@@ -33,9 +34,10 @@ src/
 │   └── services/          # 业务逻辑（markdown、搜索、保存）
 └── shared/                # 跨进程共享类型和常量
 
-docs/                      # 项目文档（需求、技术选型、模块、规格、测试）
+docs/                      # 项目文档（需求 / 架构 / 模块 / 规格 / 计划 / 测试）
 tests/                     # Vitest 单元/组件测试
 e2e/                       # Playwright 真实 Chromium E2E
+scripts/                   # 构建与冒烟脚本（clean / sizeGate / 迁移冒烟 / Docling PoC）
 ```
 
 ## 如何运行
@@ -60,6 +62,7 @@ npm run build
 | `npm run test` | Vitest 单元测试 |
 | `npm run typecheck` | TypeScript 类型检查（tsc --noEmit） |
 | `npm run lint` | ESLint 代码检查 |
+| `npm run format` | Prettier 格式化 `src/**/*.{ts,tsx,css}` |
 | `npx playwright test` | Playwright E2E 测试 |
 
 ## 质量门禁
@@ -75,10 +78,10 @@ npm run build
 - [CONTRIBUTING](./CONTRIBUTING.md) — 文档编写规范（渐进式披露、命名规范、更新流程）
 - [architecture/](./architecture/) — 按技术层分类（10 篇：前端/编辑器/后端/AI/知识库/数据库/IPC/安全/测试/构建）
 - [modules/](./modules/) — 各模块详细文档（11 个模块）
-- [specs/](./specs/) — 编辑主区 v2 规格与实施记录（14 篇）
-- [requirements/](./requirements/) — devflow 需求文档（当前 3 篇 + archive 12 篇）
-- [testing/](./testing/) — TDD 测试报告（7 篇）
-- [plan/](./plan/) — 实施计划与状态（当前 8 篇 + archive 32 篇）
+- [specs/](./specs/) — 编辑主区/AI 面板规格与实施记录（14 篇主文档 + 7 篇分册）
+- [requirements/](./requirements/) — devflow 需求文档（当前 4 篇 + archive 12 篇）
+- [testing/](./testing/) — TDD 测试报告（20 篇）
+- [plan/](./plan/) — 实施计划与状态（当前 20 篇主文档 + 4 篇分册 + archive 32 篇）
 - [guide/packaging](./guide/packaging.md) — 打包与发布指南
 
 ### 查阅规则

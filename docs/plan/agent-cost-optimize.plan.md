@@ -123,7 +123,7 @@ Anthropic 客户端上报前换算为 `input_tokens + cache_creation + cache_rea
 同理 `agentLoop.ts` 的注释改动也只对未来生效。
 
 **后续接线（衍生任务，L3，用户已确认方案）**：按「只分流非工具调用点」补齐 B2 运行时收益 —— 见
-`docs/plan/agent-cost-optimize.status.md` §附2 协议分流接线。
+`docs/plan/agent-cost-optimize.status/01-derived-tasks.md` §附2 协议分流接线（原 status §附，已拆分册）。
 
 **回滚**：还原 `body.system` 为 join 字符串、还原 `message_start` 为 return null。
 

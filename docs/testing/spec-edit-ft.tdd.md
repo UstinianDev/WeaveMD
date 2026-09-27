@@ -22,7 +22,7 @@
 | `src/render/editor/kernel/syntaxType.ts`（新增） | `SyntaxType` + `resolveSyntaxType`（沿父链聚合，heading 优先自身） | 生产 |
 | `src/render/editor/kernel/index.ts` | 导出 syntaxType | 生产 |
 | `src/render/components/Editor/v2/types.ts` | `BlockTypeOption` 扩至 12 种、`BLOCK_TYPE_OPTIONS`、`canConvertBlock` 转换矩阵 | 生产 |
-| `src/render/components/Editor/v2/FloatingToolbar.tsx` | 导出 `syntaxTypeToOption`/`selectionSyntaxTypesConsistent`；`computeToolbarState` 增 tree 参数做 G1 校验；自定义块类型下拉 | 生产 |
+| `src/render/components/Editor/v2/toolbar/FloatingToolbar.tsx` | 导出 `syntaxTypeToOption`/`selectionSyntaxTypesConsistent`；`computeToolbarState` 增 tree 参数做 G1 校验；自定义块类型下拉 | 生产 |
 | `src/render/components/Editor/v2/EditorV2.tsx` | `onConvertBlock` 重写：`canConvertBlock + resolveSyntaxType` 前置校验分发（含 code-block 只读） | 生产 |
 | `src/render/hooks/useCrossBlockDragSelection.ts` | rAF 节流 + 反向交换端点 + 非内容区回退 + mouseup 末帧兜底 + 多帧重放 | 生产 |
 | `tests/editor/kernel/syntaxType.test.ts` | 21 例判定矩阵 | 测试 |

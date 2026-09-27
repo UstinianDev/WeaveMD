@@ -1,6 +1,6 @@
 # 编辑器内核架构
 
-> 最后更新：2026-09-09
+> 最后更新：2026-09-27
 > 详细规格：[editor-v2-architecture.md](../specs/editor-v2-architecture.md)
 
 ## 核心设计原则
@@ -33,22 +33,31 @@ BlockTreeV2
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | 块树操作 | `kernel/blockTree.ts` | splitLeaf / mergeLeafIntoPrev / detectBlockConversion |
+| 行前缀识别 | `kernel/blockDetection.ts` + `kernel/markdownSyntax.ts` | 行前缀解析（正则全含 U+00A0 分隔）与消费 |
 | MD→块树 | `kernel/markdownToState.ts` | 块级解析器（围栏/表格/ATX/Setext/引用/列表/分割线/段落） |
 | 块树→MD | `kernel/stateToMarkdown.ts` | 逐行序列化器（标记归一化、围栏自动加长） |
-| 行内渲染 | `kernel/inlineRenderer.ts` | 强调/代码/链接/图片/自动链接/转义 |
+| 行内渲染 | `kernel/inlineRenderer.ts` + `kernel/inlineLexer.ts` | 强调/代码/链接/图片/自动链接/转义 |
+| 表格编解码 | `kernel/tableCodec.ts` | 表格块纯函数编解码 |
+| 目录树 | `kernel/outline.ts` | 大纲抽取（块树 DFS + 序列化行号） |
 | 选区管理 | `kernel/selection.ts` | 跨块选区支持 |
+| 图片块 | `kernel/imageBlock.ts` / `imageReplace.ts` | 图片块解析与替换 |
 
 ## 交互控制器
 
 | 控制器 | 文件 | 职责 |
 |--------|------|------|
-| 输入 | `controllers/inputController.ts` | 输入处理 |
-| Enter | `controllers/enterController.ts` | Enter 键行为（拆块/列表延续） |
-| 退格 | `controllers/backspaceController.ts` | 退格行为（合并/降级） |
-| 转换 | `controllers/convertController.ts` | 前缀即时转换（`# ` / `- ` / `1. ` 等） |
-| 点击 | `controllers/clickController.ts` | 点击事件（checkbox/链接） |
-| 列表 | `controllers/listController.ts` | 列表行为（缩进/退出） |
-| 格式化 | `controllers/formatController.ts` | 格式化操作 |
+| 输入 | `controllers/inputCtrl.ts` | 输入处理 |
+| Enter | `controllers/enterCtrl.ts` | Enter 键行为（拆块/列表延续） |
+| 退格 | `controllers/backspaceCtrl.ts` | 退格行为（合并/降级） |
+| 转换 | `controllers/convertCtrl.ts` | 前缀即时转换（`# ` / `- ` / `1. ` 等） |
+| 点击 | `controllers/clickCtrl.ts` | 点击事件（checkbox/链接） |
+| 列表 | `controllers/listCtrl.ts` | 列表行为（缩进/退出） |
+| 格式化 | `controllers/formatCtrl.ts` | 行内格式化操作 |
+| 图片格式 | `controllers/imageFormatCtrl.ts` | 图片相关格式操作 |
+| 图片宽度 | `controllers/imageWidthCtrl.ts` | 图片宽度调整 |
+| 共享 | `controllers/shared.ts` | 控制器间共享工具 |
+
+> 控制器统一由 `controllers/index.ts` 汇总导出。
 
 ## 前缀即时转换
 

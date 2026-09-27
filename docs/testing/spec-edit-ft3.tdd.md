@@ -62,7 +62,7 @@ Tests  44 passed (44)                # 全量 E2E（43 存量 + 1 新增 FT3-E7�
 - [x] 工具栏格式应用后驻留；点击外/滚动/Escape/键入退出；块转换仍退出
 - [x] `tsc --noEmit` 通过、ESLint 0 error、`vite build`（render/main/preload）通过（electron-builder 重编译 better-sqlite3 因 .node 文件被运行中进程占用 EBUSY，环境问题，与本次改动无关）
 - [x] 全量门禁：Vitest 460/460、Playwright 44/44（无回归）
-- [x] 文档同步：FT3 §4.1/§9.9（C12）、tdd.md、modules/04、SUMMARY
+- [x] 文档同步：FT3 §4.1 / 分册 §9.9（C12）、tdd.md、modules/04、SUMMARY
 
 ## 5. 遗留问题
 

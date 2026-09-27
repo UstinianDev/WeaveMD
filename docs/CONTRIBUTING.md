@@ -1,6 +1,6 @@
 # 文档编写规范
 
-> 最后更新：2026-09-12
+> 最后更新：2026-09-28
 
 ## 文档结构
 
@@ -28,7 +28,7 @@ docs/
 ├── plan/              # 实施计划
 │   └── archive/       # 已完成计划归档
 ├── requirements/      # 需求文档（devflow产出）
-├── refactor/          # 重构报告
+│   └── archive/       # 已完成需求归档
 └── guide/             # 使用指南
 ```
 
@@ -50,6 +50,18 @@ docs/
 | 架构文档 | ≤ 300 行 | 按技术层拆分 |
 | 规格文档 | ≤ 500 行 | 按功能点拆分 |
 | 测试报告 | ≤ 200 行 | 按测试类型拆分 |
+
+**超长文档的分册写法**（三级文档 specs/plan/testing 超出建议长度时）：
+
+1. 按独立章节切分到 `docs/{文档名}/` 子目录，命名 `NN-主题.md`；
+2. 主文档**路径不变**（保住全部入链），只保留头部元信息 + 索引表 + 概览章节；
+3. 分册首部写明「拆分自 `{原文件}`、原章节范围、正文未改动」与返回索引链接；
+4. 分册内沿用原相对链接时按目录深度补齐 `../`。
+
+已在本次拆分中应用的文档：`editor-v2-architecture`、`editor-v2-progress`、
+`floating-toolbar-ux-and-inline-format`、`floating-toolbar-format-sticky`、
+`agent-cost-optimize.status`、`doc-pipeline.plan`、`doc-pipeline.status`。
+architecture/（≤300 行）与 modules/（level-2 单模块查阅单元）保持单文件。
 
 ### 渐进式披露示例
 
@@ -104,7 +116,7 @@ BlockNodeV2 接口定义：
 1. **功能完成**：更新 TODO.md、相关模块文档
 2. **架构变更**：更新 architecture/ 下对应文档
 3. **Bug 修复**：更新 TODO.md 已知问题、创建 status.md
-4. **重构完成**：创建 refactor/ 报告、更新模块文档
+4. **重构完成**：更新 plan/ 状态文档、更新模块文档
 
 ### 更新检查清单
 

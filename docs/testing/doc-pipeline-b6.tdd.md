@@ -179,7 +179,7 @@ All files          |   84.87 |    79.83 |   85.12 |   84.87
 10. **计价为归因拆分**：provider 的 `promptTokens` 已含图片 token，`imageTokens`/`imageCostUsd` 仅做成本拆分展示（**不叠加进 `estimatedCostUsd`**，避免重复计费）；识别调用通过 `onUsage` 上报进 costTracker（`intent:'image_recognition'`）。B7 D 路线复用 `estimateImageTokens`。
 11. **压缩输入剥图**：`summarizeViaLlm` 发送前把图片 part 换成 `[图片]` —— 非 vision 模型压缩不再整段失败（catch 降级），同时省输入 token；cache-safe fork 前缀在含图消息处会 miss 一次，属可接受代价。
 12. **既有测试断言调整（非删除）**：① `attachments.test` 的「图片粘贴 data URL → 正文转存 content」用例前提被 B6 推翻，**重写为「落盘 + base64 绝不进 content 列」**（断言更强）；② `costTracker.test` 表头列数 10→11（新增 Image 列），并补数据行列数一致性断言。其余既有用例零修改。
-13. **`resolveModelProtocol` 新增**：计划要求「两套分流复用既有 `isAnthropicModel`」，但该函数在 B6 前**无任何生产调用方**（`agent-cost-optimize.status.md:179` 已记录）；本批次以「显式 `protocol` 优先 + 缺省按模型名回退」的方式接入新链路（识别调用），**不改写既有 6 处 protocol 分流语义**（OpenRouter 等兼容端点跑 claude 的配置不被模型名覆盖）。
+13. **`resolveModelProtocol` 新增**：计划要求「两套分流复用既有 `isAnthropicModel`」，但该函数在 B6 前**无任何生产调用方**（`agent-cost-optimize.status/01-derived-tasks.md:117`（原 status §附，已拆分册） 已记录）；本批次以「显式 `protocol` 优先 + 缺省按模型名回退」的方式接入新链路（识别调用），**不改写既有 6 处 protocol 分流语义**（OpenRouter 等兼容端点跑 claude 的配置不被模型名覆盖）。
 14. **vision 判定保守**：未知模型 id 判为不支持 → 降级只丢图片、文本链路照常（向不支持 vision 的模型发图片会让整条请求 400）。后续如需精确探测，应走模型能力接口而非扩名字规则。
 
 ## 9. 遗留（移交后续批次）

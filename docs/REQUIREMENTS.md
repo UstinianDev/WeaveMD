@@ -1,6 +1,6 @@
 # WeaveMD 需求文档
 
-> 版本：v3.1 | 最后更新：2026-09-07
+> 版本：v3.2 | 最后更新：2026-09-27
 
 ---
 
@@ -122,7 +122,7 @@
 > 该入口（FloatingToolbar「AI 改写」→ `readDocumentSelection` → `startSelectionRewrite`）已随 `21fedb2` 移除，
 > 全链**生产调用方归零**、`selectionContext` 恒 null，故现唯一触发路径为面板内 `@文档 ` / `@ + 描述`。
 > 对应选区改写 E2E 断言按用户裁定**保留作已知失败**（作为「该能力曾存在」的证据），
-> 见 `docs/plan/agent-cost-optimize.status.md` §附4 / §遗留。
+> 见 `docs/plan/agent-cost-optimize.status/01-derived-tasks.md` §附4 与 `docs/plan/agent-cost-optimize.status.md` §遗留（附录已拆分册）。
 
 ### 3.8 知识库导入 (P1)
 
@@ -175,6 +175,27 @@
 | AGT-20 | Agentic RAG — 自主检索 | P4 | 所有非 chat 意图（rewrite/create/tech/web）均可自主调用 searchKB，LLM 决定是否检索、检索几次、如何组合结果 |
 | AGT-21 | HyDE 假设性文档检索 | P4 | searchKB 工具支持 hyde 参数：LLM 先生成假设性文档 → embedding → 向量检索，提升语义匹配质量 |
 | AGT-22 | searchMode 工具参数 | P4 | searchKB 工具支持 searchMode 参数（fts5/vector/hybrid），LLM 可按查询特性选择搜索策略 |
+
+### 3.12 文档处理流水线 (P0)
+
+> 来源：`docs/requirements/doc-pipeline.req.md`（8 模块 29 任务，2026-09-27 全量交付）。
+
+| 编号 | 需求 | 优先级 | 说明 |
+|------|------|--------|------|
+| DP-01 | 附件上传 7 格式 | P0 | `DIALOG_OPEN_FILE({upload:true})` 多选 7 格式（md/pdf/docx/xlsx/csv/html/txt），粘贴与选择器双入口，最多 20 个 |
+| DP-02 | 解析产物持久化 | P0 | `attachments_json` 轻量元数据 + `parsed_attachments` 正文，三态 `pending/processing/done/error`，正文只留占位符 |
+| DP-03 | 统一解析入口 | P0 | `parseDocument` 返回结构化产物（标题/章节/表格/页码），`KB_PARSE_DOCUMENT` 第 5 参 `options.userId` |
+| DP-04 | PDF 版面还原 | P1 | 坐标分栏、无框线表格、跨页合并、页眉页脚检测（`pdfLayout.ts`，本期无 OCR）；复杂版面走 D 路线远程多模态截图 |
+| DP-05 | 结构化溯源 | P1 | `structure_json` 存页码偏移/章节/表格序号，`source_ref` 落真实页码 |
+| DP-06 | 附件文档工具 | P1 | `searchDocument` / `readPage` / `extractTable` / `analyzeChart` 只读工具 + citation 回链 `refsJson` |
+| DP-07 | 多模态图片 | P1 | `LlmMessage.content` 数组贯通，`media://` 与相对路径落盘，历史保留最近 3 张、更早降级占位 |
+| DP-08 | vision 能力判定 | P1 | `vision_override` 三态配置列 + 模型能力表 + 未知模型乐观默认；不支持时降级提示上屏 |
+| DP-09 | 附件清单注入 | P0 | 附件绝对路径清单写入 system prompt，Agent 可正确调工具与提问 |
+| DP-10 | 外发同意闸 | P0 | `allowSend` 不放宽：附件入 KB 后按 `consent_granted` 过滤；上传勾选「加入知识库」默认勾选并存 `ai_config.upload_kb_default` |
+| DP-11 | 目录与文件树 | P1 | 超长 md 发送带文件名+路径+摘要；`splitNote` 表格边界与 `heading_path` 真实写入 |
+| DP-12 | 向量可选路径 | P2 | `kbIndexOpts()` 贯通 4 个索引入口 + `scheduleVectorBackfill` 回填；未配置 embedding 时降级 FTS5+标题 |
+| DP-13 | 打包体积门禁 | P1 | `build.files` 21 条反向排除 + `prebuild clean` + `postbuild sizeGate`（Setup ≤500MB / unpacked ≤1GB，超限 fail build） |
+| DP-14 | Docling PoC 关闭 | P2 | 量化不达标按 Q6 关闭；依赖隔离在 `scripts/docling-poc/`，主 `package.json` 零依赖 |
 
 ## 4. 非功能需求
 

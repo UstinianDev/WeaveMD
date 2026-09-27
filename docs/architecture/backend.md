@@ -1,6 +1,6 @@
 # 主进程架构
 
-> 最后更新：2026-09-09
+> 最后更新：2026-09-27
 
 ## 技术栈
 
@@ -23,10 +23,12 @@ src/main/
 ├── preload.ts                 # contextBridge API 暴露
 ├── ipc-handlers.ts            # IPC 处理器注册入口
 ├── media-protocol.ts          # media:// 本地图协议
+├── mediaMime.ts               # 项目唯一 MIME 映射表
 ├── db/                        # 数据访问层
-│   ├── index.ts               # 数据库初始化 + 连接管理
+│   ├── index.ts               # 数据库初始化 + 连接管理 + D1~D8 迁移
 │   ├── files.ts               # 文件 CRUD
 │   ├── ai.ts                  # AI 会话/消息 DAO
+│   ├── attachments.ts         # 附件解析产物 DAO
 │   ├── searchConfig.ts        # 搜索配置 DAO
 │   ├── embeddingConfig.ts     # Embedding 配置 DAO
 │   └── ...
@@ -43,19 +45,25 @@ src/main/
 │   │   ├── agentSession.ts    # 会话管理
 │   │   ├── agentTaskQueue.ts  # 任务队列
 │   │   ├── agentTaskWorker.ts # 后台任务执行器
+│   │   ├── agentContext.ts    # 上下文组装（附件清单 / vision 判定 / 外发闸）
 │   │   └── agentEventStore.ts # 事件持久化
 │   ├── knowledge/             # 知识库
 │   │   ├── kbIndexer.ts       # 导入/分块/增量重索引
 │   │   ├── kbSearch.ts        # FTS5 关键词召回
 │   │   └── embeddingClient.ts # Embedding 客户端
+│   ├── files/                 # 文档解析与附件读取
+│   │   ├── documentParser.ts  # 7 格式解析入口（PDF 走 @llamaindex/liteparse）
+│   │   ├── multimodalParse.ts # 复杂版面远程多模态截图
+│   │   ├── pdfLayout.ts       # PDF 坐标版面还原
+│   │   └── mdImageResolver.ts # md 相对路径图片基准与越界拦截
 │   ├── tools/                 # 工具处理器（28 个）
 │   │   ├── webSearch.ts       # web_search 联网搜索
 │   │   ├── webSearchHandler.ts
 │   │   ├── searchKBHandler.ts
+│   │   ├── searchDocument.ts  # 附件正文检索（B8）
 │   │   ├── createFileHandler.ts
 │   │   ├── editLocalFileHandler.ts
 │   │   ├── deleteLocalFile.ts
-│   │   ├── previewFileRevision.ts
 │   │   └── ...
 │   ├── toolRegistry.ts        # 工具注册表（handlerMap + CORE_TOOLS）
 │   ├── toolTypes.ts           # 工具类型定义
@@ -64,12 +72,16 @@ src/main/
 │   ├── skillLoader.ts         # Skills 体系
 │   ├── searchClient.ts        # 多引擎搜索客户端
 │   ├── secureConfig.ts        # safeStorage 加密/解密
-│   └── ipc/                   # IPC handler 按域拆分（7 模块）
-│       ├── index.ts
-│       ├── aiChatIpc.ts
-│       ├── aiAgentIpc.ts
-│       ├── aiKbIpc.ts
-│       └── ...
+│   ├── consent.ts             # 外发同意闸（needsKbSendConsent）
+│   └── ipc/                   # IPC handler 按域拆分（11 个 handler 模块 + index + shared）
+│       ├── index.ts / shared.ts
+│       ├── agentHandlers.ts   # Agent 运行、附件落库、citation 回链
+│       ├── chatHandlers.ts    # Chat 载荷（渲染层零调用方）
+│       ├── kbHandlers.ts      # 知识库索引 / 解析 / 导入
+│       ├── embeddingHandlers.ts + embeddingConfigHandlers.ts
+│       ├── modelHandlers.ts + modelConfigHandlers.ts
+│       ├── searchHandlers.ts + searchConfigHandlers.ts
+│       └── rewriteHandlers.ts + configConsentHandlers.ts
 └── shared/                    # 跨进程共享类型
     └── ai.ts                  # AI 相关类型定义
 ```
@@ -87,6 +99,7 @@ src/main/
 | 只读 | searchDocument, readPage, extractTable, analyzeChart | 附件文档工具（B8） |
 | 只读 | analyze_folder, check_links, get_task_activity | 辅助 |
 | 写入 | createFile, createFolder, editLocalFile, deleteLocalFile | 文件操作 |
+| 写入 | renameFile, moveFile, deleteFile | 文件重命名/移动/删除（`fileOperations.ts`） |
 | 写入 | editBlocks, preview_file_revision, preview_patch_files | 内容修改 |
 | 交互 | ask_question_card | 用户提问 |
 | 技能 | runSkill, list_skills, get_skill_details | 技能系统 |
@@ -134,19 +147,21 @@ src/main/
 
 ## IPC 通信
 
-80+ 通道，按域拆分为 9 组：
+111 个通道常量，按域拆分为 11 组（`src/shared/constants.ts` 的 `IPC_CHANNELS`）：
 
 | 组 | 通道数 | 说明 |
 |----|--------|------|
-| 文件 | ~10 | CRUD + 导入/导出 |
-| AI Chat | ~5 | 聊天/模型列表 |
-| AI Agent | ~15 | 代理循环/工具/事件 |
-| AI KB | ~10 | 知识库索引/搜索 |
-| 搜索 | ~5 | 搜索配置/测试 |
-| 设置 | ~10 | 配置读写 |
-| 窗口 | ~5 | 最大化/最小化/关闭 |
-| 认证 | ~5 | 登录/注册/Token |
-| 系统 | ~10 | 更新/通知/路径 |
+| AI | 64 | Agent 循环 / 工具 / 知识库 / 配置 / 事件推送（24 个子域注释块） |
+| 文件与历史 | 16 | 文件 CRUD、历史、目录、导出 |
+| 认证与账号 | 6 | 登录 / 注册 / Token / 多账号 |
+| 应用与更新 | 6 | 版本检测、更新、通知 |
+| 窗口 | 5 | 最大化 / 最小化 / 关闭 |
+| 对话框 | 5 | 打开 / 保存 / 上传文件选择 |
+| 邮件 | 4 | 问题反馈邮件 |
+| 设置 | 2 | 配置读写 |
+| 剪贴板 / 链接 / 通知 | 3 | 剪贴板、外链、系统通知 |
+
+> 通道数与分组以 `IPC_CHANNELS` 常量为准；本页表格为聚合视图（合计 111）。
 
 ## 安全规则
 
