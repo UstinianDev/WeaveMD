@@ -133,6 +133,7 @@ src/shared/constants.ts           ← IPC 通道常量（80+ 通道）
 | `ai:embedding:get-config` / `ai:embedding:set-config` | Embedding 配置 |
 | `ai:search:get-config` / `ai:search:set-config` | 搜索配置 |
 | `ai:get:writeMode` / `ai:set:writeMode` | 写模式 |
+| `ai:get:uploadKbDefault` / `ai:set:uploadKbDefault` | 上传勾选「加入知识库」默认值（B11 Q2/D5，`ai_config.upload_kb_default`） |
 | `ai:message:edit` / `ai:message:updateToolCalls` | 消息编辑 |
 | `ai:stream:*` | 流式推送（chunk/done/error/tool） |
 
@@ -159,7 +160,6 @@ src/shared/constants.ts           ← IPC 通道常量（80+ 通道）
 | `agent:retry:task` | 重试任务 |
 | `agent:file:rename` / `agent:file:move` / `agent:file:delete` | 文件操作 |
 | `agent:global-files:*` | 全局文件 |
-| `agent:upload:attachment` / `agent:upload:image` | 上传 |
 | `agent:replay:events` / `agent:rollback:snapshot` | 回放/回滚 |
 | `attachment:open-source` | 附件引用跳转原文（B8 六-2：按 attachmentId 服务端解析路径 + 白名单校验后打开） |
 

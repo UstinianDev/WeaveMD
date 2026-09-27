@@ -52,10 +52,12 @@ db.prepare(`SELECT * FROM users WHERE username = '${username}'`);
 
 ### 写控制
 
-| 模式 | 行为 |
-|------|------|
-| `auto` | AI 直接执行写操作 |
-| `manual` | 弹确认卡片（红删绿增预览） |
+| 模式 | 设计意图 | 实现现状（B11 八-2② 如实记录） |
+|------|------|------|
+| `auto` | AI 直接执行写操作 | **主进程工具执行路径无消费点**——仅 UI toggle + IPC 持久化（`ai_config.write_mode`），不构成权限放宽 |
+| `manual` | 弹确认卡片（红删绿增预览） | 生效路径：`FORCE_CONFIRM_TOOLS` 硬确认（删除类）+ proposal 确认（恒 manual）；附件/解析产物写入一律按 manual 确认语义（仅用户显式动作触发，AI 工具集无触发点） |
+
+> `write_mode` 完整接线列为后续（不阻塞）；staleness 实为 **xxHash64**（`src/shared/utils/hashUtil.ts`），非早期文档所称 MD5。
 
 ### 知情同意
 

@@ -139,6 +139,11 @@ LLM 流式调用（带 tools 定义）
 | preview_patch_files | 多文件补丁预览 | manual |
 | renameFile / moveFile / deleteFile | 文件操作 | auto/manual |
 
+> **B11 八-2② 实现现状**：`auto/manual` 为设计意图档位。截至 B11，主进程工具执行路径对
+> `write_mode=auto` **无消费点**（该值仅由 UI toggle 与 `AI_GET/SET_WRITE_MODE` 持久化到
+> `ai_config.write_mode`）；实际硬确认由 `FORCE_CONFIRM_TOOLS`（`agentToolExecutor.checkForceConfirmTools`，
+> 删除类不可恢复操作恒确认）与 proposal/confirm 类工具（恒 manual）承担。详见下方「写控制」。
+
 ### 交互工具
 
 | 工具 | 说明 |
@@ -148,12 +153,20 @@ LLM 流式调用（带 tools 定义）
 
 ## 写控制
 
-| 模式 | 行为 |
-|------|------|
-| `auto` | AI 直接执行写操作 |
-| `manual` | 弹确认卡片（红删绿增预览） |
+| 模式 | 设计意图 | 实现现状（B11 八-2② 如实记录） |
+|------|------|------|
+| `auto` | AI 直接执行写操作 | **主进程工具执行路径无消费点**——仅 UI toggle + IPC（`AI_GET/SET_WRITE_MODE`）持久化为用户偏好 |
+| `manual` | 弹确认卡片（红删绿增预览） | 生效路径：`FORCE_CONFIRM_TOOLS` 硬确认（删除类）+ `editBlocks`/`preview_*` proposal 确认（恒 manual） |
 
-**staleness detection**：editBlocks proposal 生成时计算 MD5 contentHash，确认时二次校验。
+- **附件/解析产物写入按 `manual` 确认语义执行**（八-2②）：入 KB（`importAttachmentAsKb`）、
+  附件落库（`persistIncomingAttachments`）等触发点全部来自用户显式动作（勾选+发送、设置页导入），
+  AI 工具集内无任何可触发上述写入的工具（已核查 toolRegistry/agent 侧零引用）——不存在
+  "AI 自动写附件"路径，天然满足 manual 语义。
+- **确认 UI 不空转**：Composer 写模式开关已加显式 title 提示（auto=偏好预设、当前按手动语义执行）。
+- `write_mode` 完整接线（auto 分支消费点、确认卡片+staleness 全链路）列为后续，不阻塞本期（八-2 范围）。
+
+**staleness detection**：editBlocks proposal 生成时计算 **xxHash64** contentHash
+（`src/shared/utils/hashUtil.ts`，S4 MD5→xxHash64 迁移后；本行原文误写为 MD5，B11 如实修正），确认时二次校验。
 
 ## 任务队列
 

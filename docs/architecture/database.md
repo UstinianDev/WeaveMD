@@ -134,28 +134,35 @@
 
 ### 知识库
 
-#### kb_documents
+#### kb_documents（与 `src/main/db/index.ts` 实际 DDL 对齐，B11 八-3② 同步）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | TEXT PK | 文档 UUID |
 | user_id | TEXT FK | 所属用户 |
+| file_id | TEXT | 关联 `files.id`（索引笔记时写入，导入/附件为 NULL） |
+| source_type | TEXT | 来源：`db` / `import` / `attachment`（B4 TEXT 取值扩展） |
 | title | TEXT | 文档标题 |
-| source_path | TEXT | 来源路径 |
-| status | TEXT | 状态（indexing/ready/error） |
-| chunk_count | INTEGER | 分块数量 |
+| pinned | INTEGER | 置顶（检索加权 ×1.5） |
+| status | TEXT | 状态（pending/importing/done/error） |
+| attachment_id | TEXT | 关联 `parsed_attachments.id`（B4 D3；附件删除→清理 KB） |
+| consent_granted | INTEGER | B11 D5b：勾选授权标记（1=该文档显式外发授权，外发过滤键；默认 0） |
+| file_path | TEXT | 文件路径（可空） |
 | created_at | TEXT | 创建时间 |
-| updated_at | TEXT | 更新时间 |
+| updated_at | TEXT | 更新时间（R3 时效加权） |
 
-#### kb_chunks
+#### kb_chunks（与实际 DDL 对齐，B11 八-3② 同步）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | id | TEXT PK | 分块 UUID |
-| document_id | TEXT FK | 所属文档 |
-| user_id | TEXT FK | 所属用户 |
-| content | TEXT | 分块内容 |
-| chunk_index | INTEGER | 分块序号 |
+| document_id | TEXT FK | 所属文档（ON DELETE CASCADE） |
+| seq | INTEGER | 分块序号 |
+| content | TEXT | 分块内容（FTS5 原文） |
+| vector | BLOB | 向量（Float32 BLOB，配置 embedding 时写入） |
+| source_ref | TEXT | 出处（fileId / 真实页码 / attachmentId，citation 回链） |
+| heading_path | TEXT | 标题路径（R5/B5 写入，段聚合；NULL 降级） |
+| embedding_model | TEXT | 向量模型（切换模型按此过滤旧向量） |
 | created_at | TEXT | 创建时间 |
 
 #### kb_chunks_fts（FTS5 虚拟表）
@@ -166,8 +173,10 @@
 
 #### images_vec（vec0 虚拟表）
 
-> KB 文本仅走 FTS5 关键词召回（embedding 已随 remote-only 移除）；本表只存**图片** embedding
-> （`imageIndexer.ts` → `kb_images` + 本表），且仅在 sqlite-vec 扩展可用时创建（`index.ts` try/catch 静默跳过）。
+> 本表只存**图片** embedding（`imageIndexer.ts` → `kb_images` + 本表），仅在 sqlite-vec 扩展可用时创建
+> （`index.ts` try/catch 静默跳过）。文本向量自 B5 存 `kb_chunks.vector`（Float32 BLOB）；
+> **打包形态 sqlite-vec 加载失败时**（B11 核查结论）：向量检索经 `kbSearchFts.vectorSearch` prepare 失败
+> 静默降级空候选 → 检索走纯 FTS5+标题，回填仅写 BLOB 不依赖扩展，全链路不报错（旧包即存在的降级路径，非本批次引入）。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|

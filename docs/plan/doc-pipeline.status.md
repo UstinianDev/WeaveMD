@@ -206,6 +206,22 @@ pdfjs-dist(110)、@anthropic-ai/sdk(107)、electron-builder(308) —— 全部 c
 - **遗留**：打包形态 `sqlite-vec` 加载失败降级 FTS5-only（**旧包即存在、非本批次引入**，vec0.dll 在 asar.unpacked 但扩展加载疑似未映射——建议 B11/独立批次核查）；Linux AppImage 的 liteparse 排除警示；E2E 存量 31 failed 不属本批次。
 - **下一任务**：B11（八 写控制与外发，**L4**）与 B12（Docling PoC，须先过七-3 门禁）。
 
+### B11 完成（2026-09-27）
+
+- **范围**：八-1 外发同意闸（B+C，Q1/Q2）+ 八-2 write_mode 核查（只做两件事）+ 八-3 死通道清理（TDD strict，**L4 安全语义，已获用户二次放行**）。
+- **状态**：✅ 完成。证据：`docs/testing/doc-pipeline-b11.tdd.md`。
+- **交付**：
+  - **八-1① 过滤三层落地（Q1 选定「入 KB + 过滤」）**：附件照常入 KB（保本地检索价值）；`kb_documents.consent_granted` 勾选授权标记（**D5b 追加补列**，计划 §3 未单列但变更清单要求，三断言齐）→ `getGrantedAttachmentDocIds` 白名单（仅 `source_type='attachment' AND consent_granted=1`，笔记永不入列）→ `filterKbEgressResults` 纯函数（`allowSend=false` 仅放行授权附件、best 同步收敛、查询异常空集合 fail-closed）→ **外发唯一出口接线** `agentTaskWorker.buildAgentDeps` searchKb 闭包（preloader/citation 均继承）。
+  - **八-1① 注入矩阵（现状锁定 + 勾选授权）**：`kbEgressAuthorized = !needsKbSendConsent` 计算一字未动（无放宽路径断言）；`toolsForIntent` 增第 7 参 `kbAttachmentEgressGranted`——`allowSend=false 且无授权附件 → searchKB 不注入`（现状锁定）、`有勾选授权附件 → 注入且结果被过滤收敛`（该文档显式授权，不追溯其他笔记）。**如实标注**：`useKnowledgeBase` 为 Module 10 移除的硬编码 false（B 类废弃，不恢复），注入矩阵生产 UI 当前不可达，本批落地为主进程安全语义层。
+  - **八-1② Q2 勾选链**：`ai_config.upload_kb_default INTEGER DEFAULT 1`（D5 三断言，NULL/旧库/无行收敛默认勾选）→ 新通道 `AI_GET/SET_UPLOAD_KB_DEFAULT`（constants/preload/docs/08 三处同步）→ `agentStore.uploadKbDefault`（init 回读 + toggle 持久化）→ composer 附件区「加入知识库」勾选 UI（默认勾选）→ 发送载荷 `uploadToKb` → AGENT_RUN/AI_CHAT 持久化后 `importAttachmentsAsKb`（仅 file+done；**勾选是入 KB 唯一触发**，fire-and-forget 不阻塞发送；`importAttachmentAsKb` 缺省不写授权键 fail-closed）。
+  - **八-2 两件事**：`ai-agent.md`/`security.md` 写控制表改「设计意图 vs 实现现状」双列——`auto` 主进程工具执行路径**无消费点**（仅 UI+IPC 持久化）；staleness **MD5 → xxHash64** 修正；附件/解析产物写入路径核查（工具侧对 `importAttachmentAsKb`/`persistIncomingAttachments` 零引用 grep 实测）→ 全部用户显式触发 = **manual 确认语义天然满足**，结论入档；写模式开关加 title 显式提示（不空转误导）。完整接线=范围外（后续不阻塞）。
+  - **八-3 死通道**：取计划裁定「**删除常量**」——`constants.ts` 两行删除 + `docs/modules/08:162` 行同步删除（不留第三种状态）；**零引用断言**=递归扫全 `src/**/*.ts(x)` 四种 token 形态 + IPC 文档。`database.md` kb_documents/kb_chunks 字段表与实际 DDL 全对齐（含 D3/D5b/heading_path/vector 等触及条目，不做全仓重构）；`parsed_attachments` DAO（B3）与陈旧工具名（B8）复核通过。
+  - **B10 遗留核查（sqlite-vec 降级）**：**结论=降级路径可用、非本批次引入、不修**——加载失败仅 warn（index.ts）、`vectorSearch` prepare 抛错静默降级空候选走 FTS5（B5 测试已锁定）、回填写 Float32 BLOB 不依赖扩展、imageIndexer 静默跳过；打包形态 vec 未映射时回填正常/检索降级/零报错。结论入 `database.md` images_vec 注记与 TDD §7。
+- **门禁**：tsc 0 error / vitest **161 文件 3781 passed 0 failed**（B10 基线 3730 + 51，0 删除）/ lint 0 error（106 warning 与基线持平）/ vite build exit 0 / E2E 见 TDD §5（验收口径：基线 31 failed 存量、**零新增失败**）。新增代码覆盖率（v8 触碰文件口径）：kbHandlers 92.6% / kb.ts 80.1% / ai.ts 79.0%（未覆盖为既有段），新增函数逐一直测 ≥80% 达成。
+- **偏离记录**：D5b（`consent_granted` 补列）为计划 §3 未单列项，按 §2-B11 变更清单「kbIndexer 记录勾选授权标记」落地（TDD §6 记录）；`chatHandlers` 上传载荷消费而非 consent 注入点（计划行号 225-232 偏差，consent 注入语义在勾选授权链）。
+- **遗留**：`write_mode` 完整接线（auto 消费点）后续不阻塞；`useKnowledgeBase` 废弃开关维持 B 类裁定不得恢复；打包 sqlite-vec 未映射（旧包既有，已核实降级可用不修）；E2E 存量 31 failed 不属本批次。
+- **下一任务**：B12（Docling PoC，须先过七-3 体积门禁）——B10/B11 双 L4 已完成。
+
 ## 进度总览
 
 | 模块 | 任务数 | 状态 |
@@ -217,4 +233,4 @@ pdfjs-dist(110)、@anthropic-ai/sdk(107)、electron-builder(308) —— 全部 c
 | 五 多模态图片 | 3 | **全部完成**（B6） |
 | 六 工具与引用溯源 | 3 | **全部完成**（B8） |
 | 七 打包体积 | 3 | **全部完成**（B10，2026-09-27，L4 已二次放行执行） |
-| 八 写控制与外发同意 | 3 | 未开始（B11，L4 需二次确认） |
+| 八 写控制与外发同意 | 3 | **全部完成**（B11，2026-09-27，L4 已二次放行执行） |
