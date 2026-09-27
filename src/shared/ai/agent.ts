@@ -113,6 +113,8 @@ export interface AgentRunPayload {
   fileTreePaths?: { files: string[]; folders: string[] };
   /** 发送附件载荷（解析产物随行；主进程落 parsed_attachments + attachments_json，一-4）。 */
   attachments?: import('./mention').IAttachmentPayload[];
+  /** B11 八-1②：勾选「加入知识库」（勾选=该文档显式授权；缺省 false 不入 KB）。 */
+  uploadToKb?: boolean;
 }
 
 /** AGENT_RUN 入队返回载荷（attachments = 发送链路解析后的最终元数据，渲染层回填乐观状态）。 */

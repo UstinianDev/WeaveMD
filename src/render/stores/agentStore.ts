@@ -153,6 +153,9 @@ interface AgentStore {
   /** 写操作模式：auto 自动应用 / manual 需用户确认（覆盖 editBlocks / createFile / createFolder）。 */
   writeMode: WriteMode;
   setWriteMode: (mode: WriteMode) => Promise<void>;
+  /** B11 Q2：勾选「加入知识库」（默认勾选，持久化 ai_config.upload_kb_default；勾选=该文档显式授权）。 */
+  uploadKbDefault: boolean;
+  setUploadKbDefault: (enabled: boolean) => Promise<void>;
 
   // —— 文件操作提案 ——
   fileOpProposals: FileOpProposal[];
@@ -266,6 +269,7 @@ const RESET_FIELDS: Pick<
   | 'globalFiles'
   | 'processStatus'
   | 'writeMode'
+  | 'uploadKbDefault'
   | 'fileOpProposals'
   | 'editBlocksProposals'
   | 'patchProposals'
@@ -299,6 +303,8 @@ const RESET_FIELDS: Pick<
   globalFiles: null,
   processStatus: 'idle',
   writeMode: 'auto',
+  // Q2 默认勾选（init 从 ai_config 回读覆盖；读取失败保持勾选）
+  uploadKbDefault: true,
   fileOpProposals: [],
   editBlocksProposals: [],
   patchProposals: [],
@@ -474,7 +480,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
 
   async init(userId: string) {
     const ai = getAi();
-    const [configRes, consentRes, convRes, kbSettingsRes, modelConfigsRes, embeddingConfigRes, searchConfigRes, writeModeRes] =
+    const [configRes, consentRes, convRes, kbSettingsRes, modelConfigsRes, embeddingConfigRes, searchConfigRes, writeModeRes, uploadKbDefaultRes] =
       await Promise.all([
         ai.getConfig(userId),
         ai.getConsent(userId),
@@ -495,6 +501,10 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         (ai as unknown as Record<string, unknown>).getWriteMode
           ? (ai as unknown as { getWriteMode: (uid: string) => Promise<{ success: boolean; data?: WriteMode }> }).getWriteMode(userId)
           : Promise.resolve(undefined),
+        // B11 Q2：勾选「加入知识库」默认值拉取（IPC 未接线/失败时保留默认勾选）
+        (ai as unknown as Record<string, unknown>).getUploadKbDefault
+          ? (ai as unknown as { getUploadKbDefault: (uid: string) => Promise<{ success: boolean; data?: boolean }> }).getUploadKbDefault(userId)
+          : Promise.resolve(undefined),
       ]);
 
     const config = configRes.success ? (configRes.data ?? null) : null;
@@ -514,6 +524,12 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     const writeMode: WriteMode =
       writeModeRes?.success && writeModeRes.data ? writeModeRes.data : 'manual';
 
+    // 勾选「加入知识库」：IPC 返回值成功则覆盖（Q2 默认勾选，失败保留 true）
+    const uploadKbDefault =
+      uploadKbDefaultRes?.success && typeof uploadKbDefaultRes.data === 'boolean'
+        ? uploadKbDefaultRes.data
+        : true;
+
     // 合并为单次 set()，减少渲染批次
     set({
       userId,
@@ -524,6 +540,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       kbSettings,
       activeModelConfigId,
       writeMode,
+      uploadKbDefault,
       ...(modelConfigsRes?.success && modelConfigsRes.data ? { modelConfigs: modelConfigsRes.data } : {}),
       ...(embeddingConfigRes?.success && embeddingConfigRes.data ? {
         embeddingConfig: embeddingConfigRes.data,
@@ -978,6 +995,8 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         fileTreePaths,
         // 附件载荷随行（解析产物落 parsed_attachments，正文不进 prompt，一-4②）
         ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        // B11 八-1②：勾选「加入知识库」随发送传递（勾选=该文档显式授权）
+        uploadToKb: get().uploadKbDefault,
       });
       // IpcResponse 类型不含 code（主进程 AGENT_RUN 失败信封实际携带），此处按运行时桥契约读取。
       const failedCode = (res as unknown as { code?: string }).code;
@@ -1105,6 +1124,26 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       const ai = getAi();
       if ((ai as unknown as Record<string, unknown>).setWriteMode) {
         await (ai as unknown as { setWriteMode: (uid: string, m: WriteMode) => Promise<unknown> }).setWriteMode(userId, mode);
+      }
+    } catch {
+      /* 持久化失败不回滚内存态 */
+    }
+  },
+
+  async setUploadKbDefault(enabled: boolean) {
+    const userId = get().userId;
+    // 未登录仅更新内存态
+    if (!userId) {
+      set({ uploadKbDefault: enabled });
+      return;
+    }
+    set({ uploadKbDefault: enabled });
+    try {
+      const ai = getAi();
+      if ((ai as unknown as Record<string, unknown>).setUploadKbDefault) {
+        await (ai as unknown as {
+          setUploadKbDefault: (uid: string, v: boolean) => Promise<unknown>;
+        }).setUploadKbDefault(userId, enabled);
       }
     } catch {
       /* 持久化失败不回滚内存态 */

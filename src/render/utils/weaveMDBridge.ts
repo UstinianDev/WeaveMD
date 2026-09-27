@@ -701,6 +701,9 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
       createSuccessResult(['qwen3.5:0.8b', 'deepseek-chat']),
     getWriteMode: async () => createSuccessResult('manual' as const),
     setWriteMode: async () => createSuccessResult('manual' as const),
+    // B11 Q2/D5：web/E2E 模式默认勾选「加入知识库」（与 ai_config DEFAULT 1 一致）
+    getUploadKbDefault: async () => createSuccessResult(true),
+    setUploadKbDefault: async (_userId: string, enabled: boolean) => createSuccessResult(enabled),
     resumeInteraction: async () => ({ success: false }),
     retryTask: async () => ({ success: false }),
     onStream: () => () => {},

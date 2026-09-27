@@ -208,6 +208,41 @@ export function getAiConfig(userId: string): AiConfigRow | null {
   return mapConfigRow(row);
 }
 
+/**
+ * B11 Q2/D5：读勾选「加入知识库」默认值。
+ * 行不存在或列 NULL → true（Q2 默认勾选，与「勾选=显式授权」语义自洽）。
+ */
+export function getUploadKbDefault(userId: string): boolean {
+  const db = getDatabase();
+  const row = cachedPrepare(db, 'SELECT upload_kb_default FROM ai_config WHERE user_id = ?')
+    .get(userId) as { upload_kb_default: number | null } | undefined;
+  if (!row || row.upload_kb_default == null) return true;
+  return row.upload_kb_default !== 0;
+}
+
+/**
+ * B11 Q2/D5：写勾选「加入知识库」默认值（参数化；行不存在时补建最小行）。
+ * 返回是否写入成功。
+ */
+export function setUploadKbDefault(userId: string, enabled: boolean): boolean {
+  const db = getDatabase();
+  const info = cachedPrepare(
+    db,
+    "UPDATE ai_config SET upload_kb_default = ?, updated_at = datetime('now') WHERE user_id = ?"
+  ).run(enabled ? 1 : 0, userId);
+  if (info.changes > 0) return true;
+  // 行不存在（从未保存过 AI 配置）→ 补建最小行（其余列走 DEFAULT）
+  try {
+    cachedPrepare(
+      db,
+      'INSERT INTO ai_config (id, user_id, upload_kb_default) VALUES (?, ?, ?)'
+    ).run(randomUUID(), userId, enabled ? 1 : 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export interface AiConfigUpdate {
   backend?: ChatBackend;
   /** 激活模型配置时同步下来的协议 */

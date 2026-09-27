@@ -49,6 +49,9 @@ const dbMock = vi.hoisted(() => ({
   updateKbExtendedSettings: vi.fn(),
   // B8 六-2：附件引用跳转原文（attachment:open-source 路径解析）
   findAttachmentFilePath: vi.fn(),
+  // B11 Q2：勾选「加入知识库」默认值读写（D5）
+  getUploadKbDefault: vi.fn(() => true),
+  setUploadKbDefault: vi.fn(() => true),
 }));
 
 vi.mock('@main/db/ai', () => dbMock);
@@ -84,6 +87,9 @@ vi.mock('@main/ai/llm/llmClient', () => llmMock);
 const kbDaoMock = vi.hoisted(() => ({
   listKbDocumentsByUser: vi.fn(() => []),
   countChunksByDoc: vi.fn(() => 0),
+  // B11 八-1②：勾选授权附件集合（外发过滤键，fail-closed 默认空集合）
+  getGrantedAttachmentDocIds: vi.fn(() => new Set<string>()),
+  hasGrantedAttachmentDocs: vi.fn(() => false),
 }));
 vi.mock('@main/db/kb', () => kbDaoMock);
 
@@ -109,6 +115,8 @@ vi.mock('@main/ai/knowledge/kbIndexer', () => kbIndexerMock);
 
 const kbSearchMock = vi.hoisted(() => ({
   searchKB: vi.fn(),
+  // B11 八-1②：外发结果过滤（默认 identity；allowSend=false 用例注入真实过滤语义）
+  filterKbEgressResults: vi.fn((res: unknown) => res),
 }));
 vi.mock('@main/ai/knowledge/kbSearch', () => kbSearchMock);
 
@@ -188,7 +196,11 @@ interface SearchKbDeps {
  * AGENT_RUN 队列化后，searchKb 闭包改由 worker.buildAgentDeps 构造。
  * 该方法为 private，此处用类型断言取回，以验证 KB 设置合并与注入语义。
  */
-function buildWorkerDeps(row: unknown, kbSettings?: Record<string, unknown>): SearchKbDeps {
+function buildWorkerDeps(
+  row: unknown,
+  kbSettings?: Record<string, unknown>,
+  consent?: { allowNetwork: boolean; allowSend: boolean; consentUpdatedAt: string | null }
+): SearchKbDeps {
   const worker = new AgentTaskWorker({} as never, {} as never) as unknown as {
     buildAgentDeps: (
       session: unknown,
@@ -206,7 +218,7 @@ function buildWorkerDeps(row: unknown, kbSettings?: Record<string, unknown>): Se
     { conversationId: 'c1' },
     row,
     kbSettings,
-    { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+    consent ?? { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
     null,
   );
 }
@@ -1245,5 +1257,224 @@ describe('attachment:open-source（B8 六-2）', () => {
     })) as { success: boolean; message?: string };
     expect(res.success).toBe(false);
     expect(res.message).toContain('File not found');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B11 八：写控制与外发同意（L4 安全语义）
+// ---------------------------------------------------------------------------
+
+describe('八-3 死通道删除后全库零引用（AGENT_UPLOAD_ATTACHMENT / AGENT_UPLOAD_IMAGE）', () => {
+  it('src/ 源码与 IPC 文档均无 agent:upload:* 残留（含常量名与字面量两种形态）', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { readdirSync, readFileSync, statSync } = require('node:fs') as typeof import('node:fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { join } = require('node:path') as typeof import('node:path');
+    const FORBIDDEN = [
+      'AGENT_UPLOAD_ATTACHMENT',
+      'AGENT_UPLOAD_IMAGE',
+      'agent:upload:attachment',
+      'agent:upload:image',
+    ];
+    const hits: string[] = [];
+
+    const walk = (dir: string): void => {
+      for (const name of readdirSync(dir)) {
+        const full = join(dir, name);
+        const stat = statSync(full);
+        if (stat.isDirectory()) {
+          walk(full);
+          continue;
+        }
+        if (!/\.(ts|tsx)$/.test(name)) continue;
+        const text = readFileSync(full, 'utf-8');
+        for (const token of FORBIDDEN) {
+          if (text.includes(token)) hits.push(`${full} :: ${token}`);
+        }
+      }
+    };
+    walk(join(process.cwd(), 'src'));
+
+    const ipcDoc = readFileSync(join(process.cwd(), 'docs', 'modules', '08-IPC通信机制.md'), 'utf-8');
+    for (const token of FORBIDDEN) {
+      if (ipcDoc.includes(token)) hits.push(`docs/modules/08-IPC通信机制.md :: ${token}`);
+    }
+
+    expect(hits).toEqual([]);
+  });
+});
+
+describe('AI_GET/SET_UPLOAD_KB_DEFAULT — Q2 勾选默认值持久化（D5）', () => {
+  it('通道已注册', () => {
+    expect(electronMock.handlers.get(IPC_CHANNELS.AI_GET_UPLOAD_KB_DEFAULT)).toBeDefined();
+    expect(electronMock.handlers.get(IPC_CHANNELS.AI_SET_UPLOAD_KB_DEFAULT)).toBeDefined();
+  });
+
+  it('GET → 透传 DAO 返回值（DAO 层 NULL→默认勾选 true）', async () => {
+    dbMock.getUploadKbDefault.mockReturnValue(true);
+    const res = (await getHandler(IPC_CHANNELS.AI_GET_UPLOAD_KB_DEFAULT)(
+      makeEvent(),
+      'u1'
+    )) as { success: boolean; data: boolean };
+    expect(res.success).toBe(true);
+    expect(res.data).toBe(true);
+    expect(dbMock.getUploadKbDefault).toHaveBeenCalledWith('u1');
+  });
+
+  it('SET → 参数化写入并回传', async () => {
+    dbMock.setUploadKbDefault.mockReturnValue(true);
+    const res = (await getHandler(IPC_CHANNELS.AI_SET_UPLOAD_KB_DEFAULT)(makeEvent(), {
+      userId: 'u1',
+      enabled: false,
+    })) as { success: boolean; data: boolean };
+    expect(res.success).toBe(true);
+    expect(res.data).toBe(false);
+    expect(dbMock.setUploadKbDefault).toHaveBeenCalledWith('u1', false);
+  });
+
+  it('SET 载荷非法（缺 userId / 非布尔 enabled）→ 拒绝', async () => {
+    const bad1 = (await getHandler(IPC_CHANNELS.AI_SET_UPLOAD_KB_DEFAULT)(makeEvent(), {
+      enabled: true,
+    })) as { success: boolean };
+    const bad2 = (await getHandler(IPC_CHANNELS.AI_SET_UPLOAD_KB_DEFAULT)(makeEvent(), {
+      userId: 'u1',
+      enabled: 'yes',
+    })) as { success: boolean };
+    expect(bad1.success).toBe(false);
+    expect(bad2.success).toBe(false);
+    expect(dbMock.setUploadKbDefault).not.toHaveBeenCalled();
+  });
+});
+
+describe('八-1 searchKb 外发过滤接线（buildAgentDeps，allowSend × 过滤层）', () => {
+  const envelope = { refused: false, threshold: 0.6, best: null, results: [] };
+
+  beforeEach(() => {
+    kbSearchMock.searchKB.mockResolvedValue(envelope);
+  });
+
+  it('allowSend=false → 查勾选授权附件集合并调用过滤层（fail-closed 接线）', async () => {
+    const deps = buildWorkerDeps(
+      { kbTopK: 5, kbFuse: 0.5, kbThreshold: 0.6, kbPinnedWeight: 1.5 },
+      undefined,
+      { allowNetwork: true, allowSend: false, consentUpdatedAt: null }
+    );
+    await deps.searchKb('u1', 'query', {});
+    expect(kbDaoMock.getGrantedAttachmentDocIds).toHaveBeenCalledWith('u1');
+    expect(kbSearchMock.filterKbEgressResults).toHaveBeenCalled();
+  });
+
+  it('allowSend=true → 不触发过滤层（既有行为零回归）', async () => {
+    const deps = buildWorkerDeps(
+      { kbTopK: 5, kbFuse: 0.5, kbThreshold: 0.6, kbPinnedWeight: 1.5 },
+      undefined,
+      { allowNetwork: true, allowSend: true, consentUpdatedAt: null }
+    );
+    await deps.searchKb('u1', 'query', {});
+    expect(kbDaoMock.getGrantedAttachmentDocIds).not.toHaveBeenCalled();
+    expect(kbSearchMock.filterKbEgressResults).not.toHaveBeenCalled();
+  });
+});
+
+describe('八-1 发送链路 uploadToKb 勾选入 KB（AGENT_RUN / AI_CHAT）', () => {
+  const doneFileMeta = [
+    { id: 'a1', type: 'file' as const, name: 'r.pdf', path: 'C:/r.pdf', size: 10, parseStatus: 'done' as const },
+  ];
+  const parsedAtt = {
+    id: 'a1',
+    userId: 'u1',
+    conversationId: 'c1',
+    fileName: 'r.pdf',
+    fileType: 'file',
+    content: 'PDF 正文',
+    parseStatus: 'done',
+    parseVersion: 1,
+    createdAt: 'now',
+  };
+
+  beforeEach(() => {
+    attachmentsPersistMock.persistIncomingAttachments.mockResolvedValue(doneFileMeta);
+    attachmentsPersistMock.getParsedAttachment.mockReturnValue(parsedAtt);
+    kbIndexerMock.indexImportedText.mockResolvedValue({
+      docId: 'd1',
+      title: 'r',
+      chunks: 1,
+      status: 'done',
+    });
+  });
+
+  it('AGENT_RUN uploadToKb=true → 附件入 KB 且带 consentGranted=true', async () => {
+    initQueue();
+    const res = (await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
+      userId: 'u1',
+      conversationId: 'c1',
+      message: '[文件: r.pdf]',
+      attachments: [{ id: 'a1', fileName: 'r.pdf', fileType: 'file', content: '全文正文' }],
+      uploadToKb: true,
+    })) as { success: boolean };
+    expect(res.success).toBe(true);
+    await vi.waitFor(() => {
+      expect(kbIndexerMock.indexImportedText).toHaveBeenCalled();
+    });
+    expect(kbIndexerMock.indexImportedText).toHaveBeenCalledWith(
+      'u1',
+      'r',
+      'PDF 正文',
+      expect.objectContaining({ sourceType: 'attachment', attachmentId: 'a1', consentGranted: true })
+    );
+  });
+
+  it('AGENT_RUN 缺省 uploadToKb → 不入 KB（勾选是唯一触发，fail-closed）', async () => {
+    initQueue();
+    const res = (await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
+      userId: 'u1',
+      conversationId: 'c1',
+      message: '[文件: r.pdf]',
+      attachments: [{ id: 'a1', fileName: 'r.pdf', fileType: 'file', content: '全文正文' }],
+    })) as { success: boolean };
+    expect(res.success).toBe(true);
+    await Promise.resolve();
+    expect(kbIndexerMock.indexImportedText).not.toHaveBeenCalled();
+  });
+
+  it('AI_CHAT uploadToKb=true → 附件入 KB 且带 consentGranted=true', async () => {
+    async function* gen() {
+      yield { delta: 'ok' };
+    }
+    llmMock.streamChatCompletion.mockImplementation(() => gen());
+    const res = (await getHandler(IPC_CHANNELS.AI_CHAT)(makeEvent(), {
+      userId: 'u1',
+      conversationId: 'c1',
+      message: '[文件: r.pdf]',
+      attachments: [{ id: 'a1', fileName: 'r.pdf', fileType: 'file', content: '全文正文' }],
+      uploadToKb: true,
+    })) as { success: boolean };
+    expect(res.success).toBe(true);
+    await vi.waitFor(() => {
+      expect(kbIndexerMock.indexImportedText).toHaveBeenCalled();
+    });
+    expect(kbIndexerMock.indexImportedText).toHaveBeenCalledWith(
+      'u1',
+      'r',
+      'PDF 正文',
+      expect.objectContaining({ consentGranted: true })
+    );
+  });
+
+  it('AI_CHAT uploadToKb=false → 不入 KB', async () => {
+    async function* gen() {
+      yield { delta: 'ok' };
+    }
+    llmMock.streamChatCompletion.mockImplementation(() => gen());
+    const res = (await getHandler(IPC_CHANNELS.AI_CHAT)(makeEvent(), {
+      userId: 'u1',
+      conversationId: 'c1',
+      message: '[文件: r.pdf]',
+      attachments: [{ id: 'a1', fileName: 'r.pdf', fileType: 'file', content: '全文正文' }],
+      uploadToKb: false,
+    })) as { success: boolean };
+    expect(res.success).toBe(true);
+    await Promise.resolve();
+    expect(kbIndexerMock.indexImportedText).not.toHaveBeenCalled();
   });
 });

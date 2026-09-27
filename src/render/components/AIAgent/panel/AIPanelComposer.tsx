@@ -125,6 +125,8 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
   const messages = useAgentStore((s) => s.messages);
   const writeMode = useAgentStore((s) => s.writeMode);
   const setWriteMode = useAgentStore((s) => s.setWriteMode);
+  const uploadKbDefault = useAgentStore((s) => s.uploadKbDefault);
+  const setUploadKbDefault = useAgentStore((s) => s.setUploadKbDefault);
 
   // 配置状态（用于未配置锁）：LLM + Embedding + Search 三重检查
   const config = useAgentStore((s) => s.config);
@@ -529,6 +531,19 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
                 {attachments.length - MAX_VISIBLE_ATTACHMENT_CHIPS} 个附件
               </div>
             )}
+            {/* B11 Q2/八-1②：勾选「加入知识库」（默认勾选；勾选=该文档显式外发授权） */}
+            <label
+              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-bg-tertiary border border-border text-[12px] text-text-sub cursor-pointer select-none"
+              data-testid="upload-kb-toggle"
+            >
+              <input
+                type="checkbox"
+                checked={uploadKbDefault}
+                onChange={(e) => void setUploadKbDefault(e.target.checked)}
+                className="w-3.5 h-3.5 accent-[var(--accent)] cursor-pointer"
+              />
+              加入知识库
+            </label>
           </div>
         )}
         <div className="relative">
@@ -589,6 +604,8 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
             }`}
             role="switch"
             aria-checked={writeMode === 'manual'}
+            // B11 八-2②：auto 分支主进程暂无消费点（仅偏好持久化）——显式提示，避免"看似生效"误导
+            title="写入确认：手动=逐次确认（当前主进程按手动语义执行）；自动=偏好预设（完整接线为后续版本）"
           >
             <span
               className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${

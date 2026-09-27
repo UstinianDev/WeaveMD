@@ -359,3 +359,64 @@ describe('AIPanelComposer（handleSendAgent 分流）', () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// B11 Q2/八-1②：「加入知识库」勾选 UI（默认勾选，状态持久化走 ai_config.upload_kb_default）
+// ---------------------------------------------------------------------------
+describe('AIPanelComposer — 加入知识库勾选（B11 Q2）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockEditorText = '';
+    (window.weaveMD as unknown as { ai: Record<string, unknown> }).ai.listSkills = vi
+      .fn()
+      .mockResolvedValue({ success: true, data: [] });
+    (window.weaveMD as unknown as { ai: Record<string, unknown> }).ai.listModels = vi
+      .fn()
+      .mockResolvedValue({ success: false });
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  /** 挂载一个文件附件（经 handleUploadFile 真实路径）。 */
+  const attachOneFile = async () => {
+    (window.weaveMD as unknown as { dialog: Record<string, unknown> }).dialog.openFile = vi
+      .fn()
+      .mockResolvedValue({ success: true, data: { paths: ['C:/docs/report.pdf'] } });
+    (window.weaveMD as unknown as { kb: Record<string, unknown> }).kb.parseDocument = vi
+      .fn()
+      .mockResolvedValue({ success: true, data: { text: 'PDF 正文', parseVersion: 1 } });
+    fireEvent.click(screen.getByTitle('上传文件'));
+    await screen.findByTestId('upload-kb-toggle');
+  };
+
+  it('无附件时勾选不显示（勾选仅随附件出现）', () => {
+    useAgentStore.setState({ ...defaultState, activeMode: 'agent' });
+    render(<ControlledComposer />);
+    expect(screen.queryByTestId('upload-kb-toggle')).not.toBeInTheDocument();
+  });
+
+  it('挂载附件 → 显示勾选且默认勾选（Q2 默认值）', async () => {
+    useAgentStore.setState({ ...defaultState, activeMode: 'agent', uploadKbDefault: true });
+    render(<ControlledComposer />);
+    await attachOneFile();
+    const checkbox = screen
+      .getByTestId('upload-kb-toggle')
+      .querySelector('input') as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+  });
+
+  it('切换勾选 → 调 store.setUploadKbDefault 持久化', async () => {
+    const setUpload = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(useAgentStore.getState(), 'setUploadKbDefault').mockImplementation(setUpload);
+    useAgentStore.setState({ ...defaultState, activeMode: 'agent', uploadKbDefault: true });
+    render(<ControlledComposer />);
+    await attachOneFile();
+    const checkbox = screen
+      .getByTestId('upload-kb-toggle')
+      .querySelector('input') as HTMLInputElement;
+    fireEvent.click(checkbox);
+    expect(setUpload).toHaveBeenCalledWith(false);
+  });
+});

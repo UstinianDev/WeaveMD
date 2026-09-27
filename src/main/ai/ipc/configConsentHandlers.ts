@@ -5,7 +5,7 @@
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@shared/constants';
 import type { ChatBackend, IAIConfig, IAIConsent, WriteMode } from '@shared/ai';
-import { getAiConfig, upsertAiConfig } from '../../db/ai';
+import { getAiConfig, getUploadKbDefault, setUploadKbDefault, upsertAiConfig } from '../../db/ai';
 import { getDatabase } from '../../db/index';
 import { encryptApiKey } from '../secureConfig';
 import { DEFAULT_AI_CONFIG, DEFAULT_CONSENT, toIAIConfig, toIAIConsent } from './shared';
@@ -122,6 +122,39 @@ export function registerConfigConsentHandlers(): void {
         return { success: true, data: payload.mode };
       } catch {
         return { success: false, message: 'Failed to save write mode' };
+      }
+    }
+  );
+
+  // --- 上传勾选「加入知识库」默认值 get / set（B11 Q2 / D5） ---
+
+  ipcMain.handle(IPC_CHANNELS.AI_GET_UPLOAD_KB_DEFAULT, (_event, userId: string) => {
+    try {
+      if (!userId || typeof userId !== 'string') {
+        return { success: false, message: 'userId required' };
+      }
+      return { success: true, data: getUploadKbDefault(userId) };
+    } catch {
+      return { success: false, message: 'Failed to get upload kb default' };
+    }
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.AI_SET_UPLOAD_KB_DEFAULT,
+    (_event, payload: { userId?: unknown; enabled?: unknown }) => {
+      try {
+        if (!payload || typeof payload.userId !== 'string' || !payload.userId) {
+          return { success: false, message: 'userId required' };
+        }
+        if (typeof payload.enabled !== 'boolean') {
+          return { success: false, message: 'enabled must be boolean' };
+        }
+        if (!setUploadKbDefault(payload.userId, payload.enabled)) {
+          return { success: false, message: 'Failed to save upload kb default' };
+        }
+        return { success: true, data: payload.enabled };
+      } catch {
+        return { success: false, message: 'Failed to save upload kb default' };
       }
     }
   );

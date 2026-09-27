@@ -9,6 +9,8 @@ import {
   addAttachmentColumns,
   addB7AttachmentStructureColumn,
   addKbAttachmentColumns,
+  addKbConsentGrantedColumn,
+  addUploadKbDefaultColumn,
   KB_CONFIG_ALTER_SQL,
 } from '@main/db/index';
 
@@ -318,6 +320,89 @@ describe('addB7AttachmentStructureColumn — B7 D7 迁移三断言', () => {
     addB7AttachmentStructureColumn(db as never);
     expect(db.alters).toHaveLength(1);
     addB7AttachmentStructureColumn(db as never);
+    expect(db.alters).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// doc-pipeline B11 D5/D5b 迁移三断言
+// - D5: ai_config.upload_kb_default INTEGER DEFAULT 1（Q2 默认勾选「加入知识库」）
+// - D5b: kb_documents.consent_granted INTEGER DEFAULT 0（八-1 勾选=该文档显式授权的过滤键）
+// ---------------------------------------------------------------------------
+
+const AI_CONFIG_PRE_B11 = [
+  'id', 'user_id', 'backend', 'ollama_base_url', 'remote_base_url', 'model',
+  'api_key_enc', 'allow_network', 'allow_send', 'consent_updated_at',
+  'created_at', 'updated_at', 'write_mode', 'protocol',
+];
+
+const KB_DOCUMENTS_PRE_B11 = [
+  'id', 'user_id', 'file_id', 'source_type', 'title', 'pinned', 'status',
+  'created_at', 'attachment_id',
+];
+
+function preB11AiConfigDb(): FakeMigrationDb {
+  return makeMigrationDb({ ai_config: [...AI_CONFIG_PRE_B11] });
+}
+
+function preB11KbDb(): FakeMigrationDb {
+  return makeMigrationDb({ kb_documents: [...KB_DOCUMENTS_PRE_B11] });
+}
+
+describe('addUploadKbDefaultColumn — B11 D5 迁移三断言', () => {
+  it('态1 空库首建：upload_kb_default 齐备且 DEFAULT 1（Q2 默认勾选）', () => {
+    const db = preB11AiConfigDb();
+    addUploadKbDefaultColumn(db as never);
+    expect(db.columns.get('ai_config')).toContain('upload_kb_default');
+    expect(db.alters).toEqual([
+      'ALTER TABLE ai_config ADD COLUMN upload_kb_default INTEGER DEFAULT 1',
+    ]);
+  });
+
+  it('态2 旧库升级：仅追加列（无 DROP/DELETE/UPDATE），旧行经 DEFAULT 1 收敛', () => {
+    const db = preB11AiConfigDb();
+    addUploadKbDefaultColumn(db as never);
+    expect(db.execs.every((sql) => /^ALTER TABLE/.test(sql.trim()))).toBe(true);
+    expect(db.execs.some((sql) => /DROP|DELETE|UPDATE/i.test(sql))).toBe(false);
+    expect(db.columns.get('ai_config')?.indexOf('upload_kb_default')).toBeGreaterThan(
+      AI_CONFIG_PRE_B11.length - 1
+    );
+  });
+
+  it('态3 重复执行：第二遍零 ALTER（幂等 no-op，不抛错）', () => {
+    const db = preB11AiConfigDb();
+    addUploadKbDefaultColumn(db as never);
+    expect(db.alters).toHaveLength(1);
+    addUploadKbDefaultColumn(db as never);
+    expect(db.alters).toHaveLength(1);
+  });
+});
+
+describe('addKbConsentGrantedColumn — B11 D5b 迁移三断言', () => {
+  it('态1 空库首建：consent_granted 齐备且 DEFAULT 0（未勾选默认不授权）', () => {
+    const db = preB11KbDb();
+    addKbConsentGrantedColumn(db as never);
+    expect(db.columns.get('kb_documents')).toContain('consent_granted');
+    expect(db.alters).toEqual([
+      'ALTER TABLE kb_documents ADD COLUMN consent_granted INTEGER DEFAULT 0',
+    ]);
+  });
+
+  it('态2 旧库升级：仅追加列（无 DROP/DELETE/UPDATE），历史笔记行 consent_granted=0', () => {
+    const db = preB11KbDb();
+    addKbConsentGrantedColumn(db as never);
+    expect(db.execs.every((sql) => /^ALTER TABLE/.test(sql.trim()))).toBe(true);
+    expect(db.execs.some((sql) => /DROP|DELETE|UPDATE/i.test(sql))).toBe(false);
+    expect(db.columns.get('kb_documents')?.indexOf('consent_granted')).toBeGreaterThan(
+      KB_DOCUMENTS_PRE_B11.length - 1
+    );
+  });
+
+  it('态3 重复执行：第二遍零 ALTER（幂等 no-op，不抛错）', () => {
+    const db = preB11KbDb();
+    addKbConsentGrantedColumn(db as never);
+    expect(db.alters).toHaveLength(1);
+    addKbConsentGrantedColumn(db as never);
     expect(db.alters).toHaveLength(1);
   });
 });

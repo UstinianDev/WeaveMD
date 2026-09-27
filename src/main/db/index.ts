@@ -273,6 +273,10 @@ function runMigrations(database: Database.Database): void {
   // CREATE 段保持 pre-B4 形态不回写，空库与旧库统一经本函数收敛，导出供迁移三断言测试）。
   addKbAttachmentColumns(database);
 
+  // doc-pipeline B11 D5/D5b：勾选「加入知识库」默认值 + 勾选授权标记（外发过滤键）。
+  addUploadKbDefaultColumn(database);
+  addKbConsentGrantedColumn(database);
+
   // doc-pipeline B7 D7：parsed_attachments 解析结构幂等补列（structure_json 存
   // 页码/章节/表格序号 —— 二-6② source_ref 真实页码的落库前提；
   // 追加式，禁止 DROP，导出供迁移三断言测试）。
@@ -374,6 +378,28 @@ export function addKbAttachmentColumns(database: Database.Database): void {
  */
 export function addB7AttachmentStructureColumn(database: Database.Database): void {
   addColumnIfMissing(database, 'parsed_attachments', 'structure_json', 'structure_json TEXT DEFAULT NULL');
+}
+
+/**
+ * doc-pipeline B11 D5：ai_config 勾选默认值幂等补列（追加式迁移，禁止 DROP）。
+ * - `upload_kb_default INTEGER DEFAULT 1`：Q2 默认勾选「加入知识库」（与「勾选=显式授权」语义自洽）。
+ * 空库与旧库同路径收敛；重复执行 no-op。
+ * 三断言：tests/main/db/migrations.test.ts（FakeDb 驱动真实迁移函数）。
+ */
+export function addUploadKbDefaultColumn(database: Database.Database): void {
+  addColumnIfMissing(database, 'ai_config', 'upload_kb_default', 'upload_kb_default INTEGER DEFAULT 1');
+}
+
+/**
+ * doc-pipeline B11 D5b：kb_documents 勾选授权标记幂等补列（追加式迁移，禁止 DROP）。
+ * - `consent_granted INTEGER DEFAULT 0`：八-1 外发过滤键——「勾选=该文档显式授权」，
+ *   `allowSend=false` 时外发结果仅放行 `source_type='attachment' AND consent_granted=1`。
+ *   历史行 DEFAULT 0 = 未授权（fail-closed，笔记与旧附件结果不外发）。
+ * 空库与旧库同路径收敛；重复执行 no-op。
+ * 三断言：tests/main/db/migrations.test.ts（FakeDb 驱动真实迁移函数）。
+ */
+export function addKbConsentGrantedColumn(database: Database.Database): void {
+  addColumnIfMissing(database, 'kb_documents', 'consent_granted', 'consent_granted INTEGER DEFAULT 0');
 }
 
 /** ai_model_configs 表：用户可创建多个模型配置，一个激活。 */

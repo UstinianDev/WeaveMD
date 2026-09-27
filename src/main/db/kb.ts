@@ -27,6 +27,8 @@ export interface KbDocumentRow {
   title: string;
   pinned: boolean;
   status: KbDocumentStatus;
+  /** B11 八-1：勾选授权标记（该文档显式外发授权；历史行/未勾选 = false） */
+  consentGranted: boolean;
   createdAt: string;
 }
 
@@ -39,6 +41,8 @@ interface KbDocumentDbRow {
   title: string;
   pinned: number;
   status: string;
+  /** D5b 迁移前的行/隔离测试行无该列 → undefined 归一 false（fail-closed） */
+  consent_granted?: number | null;
   created_at: string;
 }
 
@@ -53,6 +57,7 @@ function mapDocumentRow(row: KbDocumentDbRow): KbDocumentRow {
     title: row.title,
     pinned: !!row.pinned,
     status: (row.status as KbDocumentStatus) || 'pending',
+    consentGranted: !!row.consent_granted,
     createdAt: row.created_at,
   };
 }
@@ -65,6 +70,11 @@ export interface UpsertKbDocumentInput {
   sourceType: KbSourceType;
   pinned?: boolean;
   status?: KbDocumentStatus;
+  /**
+   * B11 八-1：勾选授权标记（外发过滤键）。
+   * undefined = 不改既有授权（重入不因漏传而撤销）；true/false = 显式写入。
+   */
+  consentGranted?: boolean;
 }
 
 /**
@@ -82,9 +92,26 @@ export function upsertKbDocument(userId: string, doc: UpsertKbDocumentInput): Kb
 
   const pinned = doc.pinned ?? false;
   const status = doc.status ?? 'pending';
+  const consentGranted = doc.consentGranted ?? false;
 
   if (existing) {
-    // UPDATE 不触碰 attachment_id（既有行已关联；查找即按该关联命中）
+    // UPDATE 不触碰 attachment_id（既有行已关联；查找即按该关联命中）；
+    // consent_granted 仅在显式传入时写（undefined 保留既有授权，不因漏传撤销）
+    if (doc.consentGranted !== undefined) {
+      db.prepare(
+        `UPDATE kb_documents
+           SET title = ?, source_type = ?, pinned = ?, status = ?, consent_granted = ?
+         WHERE id = ? AND user_id = ?`
+      ).run(doc.title, doc.sourceType, pinned ? 1 : 0, status, consentGranted ? 1 : 0, existing.id, userId);
+      return {
+        ...existing,
+        title: doc.title,
+        sourceType: doc.sourceType,
+        pinned,
+        status,
+        consentGranted,
+      };
+    }
     db.prepare(
       `UPDATE kb_documents
          SET title = ?, source_type = ?, pinned = ?, status = ?
@@ -97,8 +124,8 @@ export function upsertKbDocument(userId: string, doc: UpsertKbDocumentInput): Kb
   const id = randomUUID();
   db.prepare(
     `INSERT INTO kb_documents
-       (id, user_id, file_id, source_type, title, pinned, status, attachment_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+       (id, user_id, file_id, source_type, title, pinned, status, attachment_id, consent_granted)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     userId,
@@ -107,7 +134,8 @@ export function upsertKbDocument(userId: string, doc: UpsertKbDocumentInput): Kb
     doc.title,
     pinned ? 1 : 0,
     status,
-    doc.attachmentId ?? null
+    doc.attachmentId ?? null,
+    consentGranted ? 1 : 0
   );
   // 直接构造返回值，省掉回读 SELECT
   return {
@@ -119,6 +147,7 @@ export function upsertKbDocument(userId: string, doc: UpsertKbDocumentInput): Kb
     title: doc.title,
     pinned,
     status,
+    consentGranted,
     createdAt: new Date().toISOString(),
   };
 }
@@ -207,6 +236,31 @@ export function deleteKbDocumentByFile(userId: string, fileId: string): boolean 
     .prepare('DELETE FROM kb_documents WHERE file_id = ? AND user_id = ?')
     .run(fileId, userId);
   return info.changes > 0;
+}
+
+/**
+ * B11 八-1②：勾选授权的附件文档 docId 集合（外发过滤白名单）。
+ * 仅含 `source_type='attachment' AND consent_granted=1`——笔记（db/import）永不入列。
+ */
+export function getGrantedAttachmentDocIds(userId: string): Set<string> {
+  const db = getDatabase();
+  const rows = db
+    .prepare(
+      'SELECT id FROM kb_documents WHERE user_id = ? AND source_type = ? AND consent_granted = 1'
+    )
+    .all(userId, 'attachment') as Array<{ id: string }>;
+  return new Set(rows.map((r) => r.id));
+}
+
+/** B11 八-1②：是否存在勾选授权的附件文档（searchKB 注入判定，fail-closed 默认 false）。 */
+export function hasGrantedAttachmentDocs(userId: string): boolean {
+  const db = getDatabase();
+  const row = db
+    .prepare(
+      'SELECT 1 AS ok FROM kb_documents WHERE user_id = ? AND source_type = ? AND consent_granted = 1 LIMIT 1'
+    )
+    .get(userId, 'attachment') as { ok: number } | undefined;
+  return row != null;
 }
 
 /** 删除附件关联的 KB 文档（附件删除→清理 KB，B4 D3）。 */

@@ -45,7 +45,10 @@ export const FORCE_CONFIRM_TOOLS = new Set([
 /**
  * 按意图决定可用工具子集。
  * - ask_question_card 仅在有交互暂停/恢复回调时提供（避免无回调时 LLM 调用导致卡死）。
- * - searchKB 仅在「kbQa 意图 + 启用知识库」时提供。
+ * - searchKB 仅在「启用知识库 + (kbEgressAuthorized 或 勾选授权附件存在)」时提供。
+ *   B11 八-1②：`kbEgressAuthorized`（= allowSend）不变；`kbAttachmentEgressGranted`
+ *   表示该用户存在勾选授权的附件文档（勾选=该文档显式授权，不追溯放宽其他笔记）——
+ *   此时注入的 searchKB 结果由过滤层收敛到授权附件（agentTaskWorker.searchKb 闭包）。
  * - editBlocks 在 rewrite/create/tech 意图 + 有 currentDocument 时提供（create/tech 用于创作写入）。
  * - createFile/createFolder 在 create/tech 意图时提供（直接写盘）。
  * - listFiles/readFile/runSkill 在 create/tech 意图时提供，rewrite 意图也提供（需看文件才能改）。
@@ -56,8 +59,10 @@ export function toolsForIntent(
   kbEgressAuthorized: boolean,
   currentDocument?: string,
   hasInteractionSupport = false,
-  hasSearchConfig = false
+  hasSearchConfig = false,
+  kbAttachmentEgressGranted = false
 ): ToolDef[] {
+  const kbSearchAllowed = kbEgressAuthorized || kbAttachmentEgressGranted;
   const all = defineCoreTools();
   const names = new Set<string>();
 
@@ -101,7 +106,7 @@ export function toolsForIntent(
       }
       return buildToolListForPrompt(all.filter((t) => names.has(t.function.name)));
     case 'kbQa':
-      if (useKnowledgeBase && kbEgressAuthorized) {
+      if (useKnowledgeBase && kbSearchAllowed) {
         names.add('searchKB');
       }
       break;
@@ -114,7 +119,7 @@ export function toolsForIntent(
         names.add('editBlocks');
       }
       // Agentic RAG：rewrite 意图也可自主检索知识库
-      if (useKnowledgeBase && kbEgressAuthorized) {
+      if (useKnowledgeBase && kbSearchAllowed) {
         names.add('searchKB');
       }
       break;
@@ -132,14 +137,14 @@ export function toolsForIntent(
         names.add('editBlocks');
       }
       // Agentic RAG：create/tech 意图也可自主检索知识库
-      if (useKnowledgeBase && kbEgressAuthorized) {
+      if (useKnowledgeBase && kbSearchAllowed) {
         names.add('searchKB');
       }
       break;
     case 'web':
       // web_search 和 research_search 已在基础工具集中
       // Agentic RAG：web 意图也可自主检索知识库
-      if (useKnowledgeBase && kbEgressAuthorized) {
+      if (useKnowledgeBase && kbSearchAllowed) {
         names.add('searchKB');
       }
       break;

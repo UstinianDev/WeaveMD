@@ -89,11 +89,12 @@ const backfillMock = vi.hoisted(() => ({
 }));
 vi.mock('@main/ai/knowledge/vectorBackfill', () => backfillMock);
 
-import { DOCUMENT_PARSE_VERSION, type IDocumentParseResult } from '@shared/ai';
+import { DOCUMENT_PARSE_VERSION, type IDocumentParseResult, type IAttachmentMeta } from '@shared/ai';
 import type { ParsedAttachmentRecord } from '@main/db/attachments';
 import { IPC_CHANNELS } from '@shared/constants';
 import {
   importAttachmentAsKb,
+  importAttachmentsAsKb,
   importDirAsKb,
   registerKbHandlers,
 } from '@main/ai/ipc/kbHandlers';
@@ -654,5 +655,128 @@ describe('B7 — KB 通道 D 路线与 source_ref 真实页码接线', () => {
       'x'.repeat(100),
       expect.objectContaining({ pageOffsets: [0, 50] })
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B11 八-1②：勾选授权（consent_granted）贯通与发送链路批量入 KB
+// ---------------------------------------------------------------------------
+
+describe('importAttachmentAsKb — 勾选授权标记（B11 八-1②）', () => {
+  beforeEach(() => {
+    kbIndexerMock.indexImportedText.mockResolvedValue({
+      docId: 'd1',
+      title: 'report',
+      chunks: 1,
+      status: 'done' as const,
+    });
+  });
+
+  it('勾选授权（consentGranted=true）→ 贯通 indexImportedText opts', async () => {
+    attachmentsMock.getParsedAttachment.mockReturnValue(
+      attachmentRecord({ fileName: 'report.pdf', content: 'PDF 正文' })
+    );
+
+    await importAttachmentAsKb('u1', 'att1', { consentGranted: true });
+
+    expect(kbIndexerMock.indexImportedText).toHaveBeenCalledWith(
+      'u1',
+      'report',
+      'PDF 正文',
+      expect.objectContaining({ consentGranted: true })
+    );
+  });
+
+  it('缺省调用 → opts 不含 consentGranted（DB DEFAULT 0，fail-closed 未授权）', async () => {
+    attachmentsMock.getParsedAttachment.mockReturnValue(
+      attachmentRecord({ fileName: 'report.pdf', content: 'PDF 正文' })
+    );
+
+    await importAttachmentAsKb('u1', 'att1');
+
+    const opts = kbIndexerMock.indexImportedText.mock.calls[0][3] as Record<string, unknown>;
+    expect('consentGranted' in opts).toBe(false);
+  });
+
+  it('KB_IMPORT_FILE payload.consentGranted=true → 贯通附件入 KB', async () => {
+    attachmentsMock.getParsedAttachment.mockReturnValue(
+      attachmentRecord({ fileName: 'report.pdf', content: 'PDF 正文' })
+    );
+    const fn = electronMock.handlers.get(IPC_CHANNELS.KB_IMPORT_FILE);
+    if (!fn) throw new Error('KB_IMPORT_FILE not registered');
+
+    const res = (await fn({}, {
+      userId: 'u1',
+      attachmentId: 'att1',
+      consentGranted: true,
+    })) as { success: boolean };
+
+    expect(res.success).toBe(true);
+    expect(kbIndexerMock.indexImportedText).toHaveBeenCalledWith(
+      'u1',
+      'report',
+      'PDF 正文',
+      expect.objectContaining({ consentGranted: true })
+    );
+  });
+
+  it('KB_IMPORT_FILE 缺省 consentGranted → 不含键（默认未授权，fail-closed）', async () => {
+    attachmentsMock.getParsedAttachment.mockReturnValue(
+      attachmentRecord({ fileName: 'report.pdf', content: 'PDF 正文' })
+    );
+    const fn = electronMock.handlers.get(IPC_CHANNELS.KB_IMPORT_FILE);
+    if (!fn) throw new Error('KB_IMPORT_FILE not registered');
+
+    await fn({}, { userId: 'u1', attachmentId: 'att1' });
+
+    const opts = kbIndexerMock.indexImportedText.mock.calls[0][3] as Record<string, unknown>;
+    expect('consentGranted' in opts).toBe(false);
+  });
+});
+
+describe('importAttachmentsAsKb — 发送链路勾选批量入 KB（B11 八-1②）', () => {
+  beforeEach(() => {
+    kbIndexerMock.indexImportedText.mockResolvedValue({
+      docId: 'd1',
+      title: 'report',
+      chunks: 1,
+      status: 'done' as const,
+    });
+  });
+
+  const doneFile: IAttachmentMeta = { id: 'a1', type: 'file', name: 'report.pdf', parseStatus: 'done' };
+  const pendingFile: IAttachmentMeta = { id: 'a2', type: 'file', name: 'mid.pdf', parseStatus: 'pending' };
+  const doneImage: IAttachmentMeta = { id: 'a3', type: 'image', name: 'pic.png', parseStatus: 'done' };
+
+  it('勾选且 file+done → 入 KB 且带 consentGranted=true', async () => {
+    attachmentsMock.getParsedAttachment.mockReturnValue(
+      attachmentRecord({ id: 'a1', fileName: 'report.pdf', content: 'PDF 正文' })
+    );
+
+    await importAttachmentsAsKb('u1', [doneFile], true);
+
+    expect(kbIndexerMock.indexImportedText).toHaveBeenCalledTimes(1);
+    expect(kbIndexerMock.indexImportedText).toHaveBeenCalledWith(
+      'u1',
+      'report',
+      'PDF 正文',
+      expect.objectContaining({ consentGranted: true })
+    );
+  });
+
+  it('图片/未解析完成附件不入 KB（只允许 file+done）', async () => {
+    await importAttachmentsAsKb('u1', [pendingFile, doneImage], true);
+    expect(kbIndexerMock.indexImportedText).not.toHaveBeenCalled();
+    expect(kbIndexerMock.recordImportFailure).not.toHaveBeenCalled();
+  });
+
+  it('未勾选（consentGranted=false）→ 不入 KB（勾选是入 KB 唯一触发）', async () => {
+    await importAttachmentsAsKb('u1', [doneFile], false);
+    expect(kbIndexerMock.indexImportedText).not.toHaveBeenCalled();
+  });
+
+  it('空载荷 → 零调用', async () => {
+    await importAttachmentsAsKb('u1', [], true);
+    expect(kbIndexerMock.indexImportedText).not.toHaveBeenCalled();
   });
 });

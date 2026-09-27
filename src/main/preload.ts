@@ -180,6 +180,9 @@ export interface WeaveMDApi {
     listModels: (userId: string) => Promise<IpcResponse<string[]>>;
     getWriteMode: (userId: string) => Promise<IpcResponse<WriteMode>>;
     setWriteMode: (userId: string, mode: WriteMode) => Promise<IpcResponse<WriteMode>>;
+    /** B11 Q2/D5：勾选「加入知识库」默认值（默认勾选）。 */
+    getUploadKbDefault: (userId: string) => Promise<IpcResponse<boolean>>;
+    setUploadKbDefault: (userId: string, enabled: boolean) => Promise<IpcResponse<boolean>>;
     /** R3: 用户提交 ask_question_card 答案后恢复暂停的任务。 */
     resumeInteraction: (sessionId: string, answers: Record<string, string>) => Promise<IpcResponse<{ resumed: boolean }>>;
     /** R4: 重试失败的任务。 */
@@ -410,6 +413,9 @@ const api: WeaveMDApi = {
     listModels: (userId) => ipcRenderer.invoke(IPC_CHANNELS.AI_LIST_MODELS, userId),
     getWriteMode: (userId) => ipcRenderer.invoke(IPC_CHANNELS.AI_GET_WRITE_MODE, userId),
     setWriteMode: (userId, mode) => ipcRenderer.invoke(IPC_CHANNELS.AI_SET_WRITE_MODE, { userId, mode }),
+    getUploadKbDefault: (userId) => ipcRenderer.invoke(IPC_CHANNELS.AI_GET_UPLOAD_KB_DEFAULT, userId),
+    setUploadKbDefault: (userId, enabled) =>
+      ipcRenderer.invoke(IPC_CHANNELS.AI_SET_UPLOAD_KB_DEFAULT, { userId, enabled }),
     resumeInteraction: (sessionId, answers) =>
       ipcRenderer.invoke(IPC_CHANNELS.AGENT_RESUME_INTERACTION, { sessionId, answers }),
     retryTask: (taskId) =>

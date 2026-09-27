@@ -12,10 +12,20 @@ const fakeDbMock = vi.hoisted(() => {
   const calls: Array<{ method: 'get' | 'all' | 'run'; sql: string; args: unknown[] }> = [];
   // B4：按 attachment_id lookup 的注入行（默认 undefined → INSERT 分支）
   let attachmentRow: Record<string, unknown> | undefined;
+  // B11：all() 查询注入行（授权附件 docId 集合映射用）
+  let allRows: Record<string, unknown>[] = [];
+  // B11：get() 授权存在性查询注入行（hasGrantedAttachmentDocs）
+  let grantedRow: Record<string, unknown> | undefined;
   return {
     calls,
     setAttachmentRow: (row: Record<string, unknown> | undefined) => {
       attachmentRow = row;
+    },
+    setAllRows: (rows: Record<string, unknown>[]) => {
+      allRows = rows;
+    },
+    setGrantedRow: (row: Record<string, unknown> | undefined) => {
+      grantedRow = row;
     },
     prepare: vi.fn().mockImplementation((sql: string) => {
       const stmt: FakeStatement = {
@@ -39,11 +49,15 @@ const fakeDbMock = vi.hoisted(() => {
               created_at: 'now',
             };
           }
+          // B11：授权附件存在性查询（hasGrantedAttachmentDocs）
+          if (sql.includes('AS ok FROM kb_documents')) {
+            return grantedRow;
+          }
           return undefined;
         },
         all: (...args) => {
           calls.push({ method: 'all', sql, args });
-          return [];
+          return allRows;
         },
         run: (...args) => {
           calls.push({ method: 'run', sql, args });
@@ -56,6 +70,8 @@ const fakeDbMock = vi.hoisted(() => {
       calls.length = 0;
       fakeDbMock.prepare.mockClear();
       attachmentRow = undefined;
+      allRows = [];
+      grantedRow = undefined;
     },
   };
 });
@@ -82,9 +98,11 @@ import {
   deleteKbDocumentByAttachment,
   deleteKbDocumentByFile,
   getChunksByDoc,
+  getGrantedAttachmentDocIds,
   getKbDocument,
   getKbDocumentByAttachment,
   getKbDocumentByFile,
+  hasGrantedAttachmentDocs,
   insertChunk,
   insertChunksBatch,
   listKbDocumentsByUser,
@@ -294,5 +312,107 @@ describe('kb DAO — heading_path 写入（D4）', () => {
     ]);
     const insert = callOf('run', 'INSERT INTO kb_chunks');
     expect(insert?.args[5]).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B11 八-1②：consent_granted 勾选授权标记（外发过滤键的写入与读取方）
+// ---------------------------------------------------------------------------
+describe('kb DAO — consent_granted 勾选授权（D5b 写入方 + 过滤白名单读取）', () => {
+  it('INSERT 带 consentGranted=true → 尾列写 1', () => {
+    upsertKbDocument('u1', {
+      fileId: null,
+      title: 'report',
+      sourceType: 'attachment',
+      attachmentId: 'att1',
+      consentGranted: true,
+    });
+    const insert = callOf('run', 'INSERT INTO kb_documents');
+    expect(insert?.sql).toContain('consent_granted');
+    // 列序 (id, user_id, file_id, source_type, title, pinned, status, attachment_id, consent_granted)
+    expect(insert?.args[8]).toBe(1);
+  });
+
+  it('INSERT 缺省 consentGranted → 写 0（fail-closed 未授权）', () => {
+    upsertKbDocument('u1', {
+      fileId: null,
+      title: 'report',
+      sourceType: 'attachment',
+      attachmentId: 'att1',
+    });
+    const insert = callOf('run', 'INSERT INTO kb_documents');
+    expect(insert?.args[8]).toBe(0);
+  });
+
+  it('UPDATE 显式传 consentGranted → 写 consent_granted 列', () => {
+    fakeDbMock.setAttachmentRow({
+      id: 'doc-att',
+      user_id: 'u1',
+      file_id: null,
+      attachment_id: 'att1',
+      source_type: 'attachment',
+      title: 'old',
+      pinned: 0,
+      status: 'error',
+      consent_granted: 0,
+      created_at: 'now',
+    });
+    upsertKbDocument('u1', {
+      fileId: null,
+      title: 'report',
+      sourceType: 'attachment',
+      attachmentId: 'att1',
+      status: 'done',
+      consentGranted: true,
+    });
+    const update = callOf('run', 'UPDATE kb_documents');
+    expect(update?.sql).toContain('consent_granted');
+    // 列序 (title, source_type, pinned, status, consent_granted, id, user_id)
+    expect(update?.args[4]).toBe(1);
+  });
+
+  it('UPDATE 缺省 consentGranted → 不触碰既有授权（漏传不撤销，SQL 无该列）', () => {
+    fakeDbMock.setAttachmentRow({
+      id: 'doc-att',
+      user_id: 'u1',
+      file_id: null,
+      attachment_id: 'att1',
+      source_type: 'attachment',
+      title: 'old',
+      pinned: 0,
+      status: 'error',
+      created_at: 'now',
+    });
+    upsertKbDocument('u1', {
+      fileId: null,
+      title: 'report',
+      sourceType: 'attachment',
+      attachmentId: 'att1',
+      status: 'done',
+    });
+    const update = callOf('run', 'UPDATE kb_documents');
+    expect(update?.sql).not.toContain('consent_granted');
+  });
+
+  it('getGrantedAttachmentDocIds 参数化过滤 user_id + source_type + consent_granted=1', () => {
+    fakeDbMock.setAllRows([{ id: 'd1' }, { id: 'd2' }]);
+    const ids = getGrantedAttachmentDocIds('u1');
+    const stmt = callOf('all', 'FROM kb_documents');
+    expect(stmt?.sql).toMatch(/WHERE user_id = \? AND source_type = \? AND consent_granted = 1/);
+    expect(stmt?.args).toEqual(['u1', 'attachment']);
+    expect(ids).toEqual(new Set(['d1', 'd2']));
+  });
+
+  it('hasGrantedAttachmentDocs 有行 → true；无行 → false（fail-closed）', () => {
+    fakeDbMock.setGrantedRow({ ok: 1 });
+    expect(hasGrantedAttachmentDocs('u1')).toBe(true);
+    fakeDbMock.setGrantedRow(undefined);
+    expect(hasGrantedAttachmentDocs('u1')).toBe(false);
+  });
+
+  it('回读行缺 consent_granted（D5b 迁移前旧库形态）→ consentGranted 归一 false', () => {
+    const doc = getKbDocument('u1', 'doc1');
+    expect(doc).not.toBeNull();
+    expect(doc?.consentGranted).toBe(false);
   });
 });

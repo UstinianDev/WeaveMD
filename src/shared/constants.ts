@@ -169,10 +169,6 @@ export const IPC_CHANNELS = {
   AGENT_GLOBAL_FILES_SET: 'agent:global-files:set',
   AGENT_GLOBAL_FILES_DEFAULT: 'agent:global-files:default',
 
-  // AI — Agent 附件/图片（阶段 2）
-  AGENT_UPLOAD_ATTACHMENT: 'agent:upload:attachment',
-  AGENT_UPLOAD_IMAGE: 'agent:upload:image',
-
   // AI — 附件引用跳转原文（B8 六-2 citation 回链；按 attachmentId 服务端解析路径）
   ATTACHMENT_OPEN_SOURCE: 'attachment:open-source',
 
@@ -185,6 +181,10 @@ export const IPC_CHANNELS = {
   // AI — write mode（写模式 auto/manual）
   AI_GET_WRITE_MODE: 'ai:get:writeMode',
   AI_SET_WRITE_MODE: 'ai:set:writeMode',
+
+  // AI — 上传勾选「加入知识库」默认值（B11 Q2 / D5：ai_config.upload_kb_default）
+  AI_GET_UPLOAD_KB_DEFAULT: 'ai:get:uploadKbDefault',
+  AI_SET_UPLOAD_KB_DEFAULT: 'ai:set:uploadKbDefault',
 
   // AI — message edit（编辑用户消息并删除后续消息）
   AI_MESSAGE_EDIT: 'ai:message:edit',

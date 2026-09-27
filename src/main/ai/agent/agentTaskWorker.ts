@@ -24,7 +24,8 @@ import * as sessionDao from '../../db/agentSessionDao';
 import { AgentTaskQueue } from './agentTaskQueue';
 import { AgentSessionStateMachine } from './agentSession';
 import { runAgentFlow } from './agentLoop';
-import { searchKB } from '../knowledge/kbSearch';
+import { searchKB, filterKbEgressResults } from '../knowledge/kbSearch';
+import { getGrantedAttachmentDocIds } from '../../db/kb';
 import { persistAndSend, persistOnly } from './agentEventStore';
 import { createSnapshot } from './agentSnapshot';
 import {
@@ -385,15 +386,25 @@ export class AgentTaskWorker {
       pinnedWeight: kbSettings?.pinnedWeight ?? row?.kbPinnedWeight,
     });
     return {
-      searchKb: (u: string, q: string, opts?: { topK?: number; queryVector?: number[]; searchMode?: 'fts5' | 'vector' | 'hybrid' }) =>
-        searchKB(u, q, {
+      searchKb: async (u: string, q: string, opts?: { topK?: number; queryVector?: number[]; searchMode?: 'fts5' | 'vector' | 'hybrid' }) => {
+        const res = await searchKB(u, q, {
           topK: opts?.topK ?? persisted.topK,
           fuse: persisted.fuse,
           pinnedWeight: persisted.pinnedWeight,
           threshold: persisted.threshold,
           queryVector: opts?.queryVector,
           searchMode: opts?.searchMode,
-        }),
+        });
+        // B11 八-1②：allowSend=false → 外发结果过滤到仅勾选授权附件（fail-closed）。
+        // 这是 searchKB 结果走向 LLM 的唯一出口（preloader/citation 均继承此闭包）。
+        if (consent.allowSend) return res;
+        try {
+          return filterKbEgressResults(res, false, getGrantedAttachmentDocIds(u));
+        } catch {
+          // 授权集合查询失败 → 空白名单兜底（笔记与未授权附件全滤，不放宽 allowSend）
+          return filterKbEgressResults(res, false, new Set());
+        }
+      },
       consent,
       db: this.db,
       sessionId,

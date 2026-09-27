@@ -5,7 +5,7 @@
 import fs from 'fs';
 import { ipcMain } from 'electron';
 import { IPC_CHANNELS } from '@shared/constants';
-import type { AIErrorCode, IKbSettings, KbImportDirRequest } from '@shared/ai';
+import type { AIErrorCode, IAttachmentMeta, IKbSettings, KbImportDirRequest } from '@shared/ai';
 import { DEFAULT_KB_SETTINGS, normalizeKbSettings } from '@shared/ai';
 import { getAiConfig, upsertAiConfig, updateKbExtendedSettings } from '../../db/ai';
 import { listKbDocumentsByUser, listKbDocumentsWithChunkCount } from '../../db/kb';
@@ -50,12 +50,18 @@ export function registerKbHandlers(): void {
         attachmentId?: string;
         /** B7 二-6②：单文件 PDF 导入的页码偏移。 */
         pageOffsets?: number[];
+        /** B11 八-1②：勾选授权（该文档显式外发授权）；缺省 = 未授权（fail-closed）。 */
+        consentGranted?: boolean;
       }
     ) => {
       try {
         // IPC 边界二选一（B4 四-3②）：attachmentId → 附件入 KB；否则 title+content 文本导入
         if (typeof payload.attachmentId === 'string' && payload.attachmentId) {
-          const result = await importAttachmentAsKb(payload.userId, payload.attachmentId);
+          const result = await importAttachmentAsKb(
+            payload.userId,
+            payload.attachmentId,
+            payload.consentGranted === true ? { consentGranted: true } : undefined
+          );
           return { success: true, data: result };
         }
         if (!payload.title || typeof payload.content !== 'string') {
@@ -355,11 +361,15 @@ export async function importDirAsKb(
  * 附件入 KB（四-3②）：读 `parsed_attachments` 解析产物（content 列），
  * 以 `source_type='attachment'` + `attachment_id` 入索引；删除附件经 removeByAttachment 清理 KB。
  * 附件不存在（跨用户/已删）→ error 结果且不落库（不产生孤儿行）。
+ * B11 八-1②：`opts.consentGranted` 为勾选授权标记（该文档显式外发授权，外发过滤键）；
+ * 缺省不传 → 不写授权键（DB DEFAULT 0，fail-closed）。
  */
 export async function importAttachmentAsKb(
   userId: string,
-  attachmentId: string
+  attachmentId: string,
+  opts?: { consentGranted?: boolean }
 ): Promise<IKbImportResult> {
+  const consentGranted = opts?.consentGranted;
   const att = getParsedAttachment(attachmentId, userId); // 参数化 + user_id 归属过滤
   if (!att) {
     return {
@@ -378,20 +388,45 @@ export async function importAttachmentAsKb(
       sourceType: 'attachment',
       attachmentId,
       error: 'attachment not parsed',
+      ...(consentGranted !== undefined ? { consentGranted } : {}),
     });
   }
 
-  const opts = kbIndexOpts(userId);
+  const indexOpts = kbIndexOpts(userId);
   const result = await indexImportedText(userId, title, att.content, {
-    ...opts,
+    ...indexOpts,
     sourceType: 'attachment',
     attachmentId,
     // 二-6②：附件结构页码偏移 → source_ref 真实页码
     ...(att.structure?.pageOffsets ? { pageOffsets: att.structure.pageOffsets } : {}),
+    // B11 八-1②：勾选授权标记贯通（undefined 不加键，不因漏传撤销既有授权）
+    ...(consentGranted !== undefined ? { consentGranted } : {}),
   });
   // 附件入 KB 也触发向量回填（同三入口语义）
   scheduleVectorBackfill(userId);
   return result;
+}
+
+/**
+ * 发送链路勾选批量入 KB（B11 八-1②）：
+ * 仅「勾选（consentGranted=true）+ file + 解析完成」的附件入 KB——勾选是入 KB 唯一触发，
+ * 图片与未解析完成附件跳过（错误可见性由 parseStatus 三态渲染承担）。
+ * 调用方（AGENT_RUN / AI_CHAT）fire-and-forget，不阻塞发送。
+ */
+export async function importAttachmentsAsKb(
+  userId: string,
+  metas: readonly IAttachmentMeta[],
+  consentGranted: boolean
+): Promise<void> {
+  if (!consentGranted) return;
+  for (const meta of metas) {
+    if (meta.type !== 'file' || meta.parseStatus !== 'done') continue;
+    try {
+      await importAttachmentAsKb(userId, meta.id, { consentGranted: true });
+    } catch {
+      /* 单附件失败不阻断其余（importAttachmentAsKb 内部已落 error 行） */
+    }
+  }
 }
 
 /** KB 重索引：以文件系统笔记（files 表）重建该 fileId 的知识库文档。 */

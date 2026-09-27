@@ -18,6 +18,8 @@ interface AiConfigRowFixture {
   kb_pinned_weight?: number | null;
   kb_embedding_host?: string | null;
   kb_embedding_model?: string | null;
+  /** B11 D5：勾选「加入知识库」默认值（0/1/缺省） */
+  upload_kb_default?: number | null;
 }
 
 const fakeDbMock = vi.hoisted(() => {
@@ -30,6 +32,8 @@ const fakeDbMock = vi.hoisted(() => {
   let aiConfigRow: AiConfigRowFixture | undefined;
   let aiConfigGetCount = 0;
   let skipFirst = false;
+  // B11：run() 返回的 changes 可注入（0 → 触发 setUploadKbDefault 的 INSERT 补建分支）
+  let runChanges = 1;
   return {
     calls,
     setAiConfigRow: (row: AiConfigRowFixture | undefined): void => {
@@ -41,6 +45,9 @@ const fakeDbMock = vi.hoisted(() => {
     },
     setMessageRows: (rows: Record<string, unknown>[]): void => {
       messageRows = rows;
+    },
+    setRunChanges: (n: number): void => {
+      runChanges = n;
     },
     prepare: vi.fn().mockImplementation((sql: string) => {
       const stmt: FakeStatement = {
@@ -94,6 +101,7 @@ const fakeDbMock = vi.hoisted(() => {
               kb_pinned_weight: aiConfigRow.kb_pinned_weight ?? undefined,
               kb_embedding_host: aiConfigRow.kb_embedding_host ?? undefined,
               kb_embedding_model: aiConfigRow.kb_embedding_model ?? undefined,
+              upload_kb_default: aiConfigRow.upload_kb_default ?? undefined,
             };
           }
           return undefined;
@@ -106,7 +114,7 @@ const fakeDbMock = vi.hoisted(() => {
         },
         run: (...args) => {
           calls.push({ method: 'run', sql, args });
-          return { changes: 1 };
+          return { changes: runChanges };
         },
       };
       return stmt;
@@ -136,7 +144,9 @@ import {
   deleteConversation,
   getAiConfig,
   getMessagesByConversation,
+  getUploadKbDefault,
   listConversationsByUser,
+  setUploadKbDefault,
   updateConversationSummary,
   upsertAiConfig,
 } from '@main/db/ai';
@@ -152,6 +162,7 @@ beforeEach(() => {
   fakeDbMock.reset();
   fakeDbMock.setAiConfigRow(undefined);
   fakeDbMock.setSkipFirstAiConfigGet(false);
+  fakeDbMock.setRunChanges(1);
 });
 
 describe('ai DAO — SQL 参数化与归属过滤行为', () => {
@@ -415,5 +426,47 @@ describe('ai DAO — SQL 参数化与归属过滤行为', () => {
 
     fakeDbMock.setAiConfigRow({ user_id: 'u1' });
     expect(getAiConfig('u1')?.protocol).toBe('openai');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B11 Q2/D5：ai_config.upload_kb_default 勾选默认值读写
+// ---------------------------------------------------------------------------
+describe('ai DAO — upload_kb_default（勾选「加入知识库」默认值）', () => {
+  it('GET：值 1 → true；值 0 → false', () => {
+    fakeDbMock.setAiConfigRow({ user_id: 'u1', upload_kb_default: 1 });
+    expect(getUploadKbDefault('u1')).toBe(true);
+    fakeDbMock.setAiConfigRow({ user_id: 'u1', upload_kb_default: 0 });
+    expect(getUploadKbDefault('u1')).toBe(false);
+  });
+
+  it('GET：列 NULL/缺省（D5 迁移前旧库）→ 默认勾选 true', () => {
+    fakeDbMock.setAiConfigRow({ user_id: 'u1', upload_kb_default: null });
+    expect(getUploadKbDefault('u1')).toBe(true);
+    fakeDbMock.setAiConfigRow({ user_id: 'u1' });
+    expect(getUploadKbDefault('u1')).toBe(true);
+  });
+
+  it('GET：行不存在（从未保存配置）→ 默认勾选 true', () => {
+    fakeDbMock.setAiConfigRow(undefined);
+    expect(getUploadKbDefault('u1')).toBe(true);
+  });
+
+  it('SET：UPDATE 参数化写入 0/1 + user_id', () => {
+    expect(setUploadKbDefault('u1', false)).toBe(true);
+    const upd = callOf('run', 'UPDATE ai_config SET upload_kb_default');
+    expect(upd).toBeTruthy();
+    expect(upd?.sql).toMatch(/upload_kb_default = \?, updated_at = datetime\('now'\) WHERE user_id = \?/);
+    expect(upd?.args).toEqual([0, 'u1']);
+  });
+
+  it('SET：行不存在（UPDATE 0 行）→ INSERT 补建最小行（参数化 + uuid）', () => {
+    fakeDbMock.setRunChanges(0);
+    expect(setUploadKbDefault('u1', true)).toBe(true);
+    const ins = callOf('run', 'INSERT INTO ai_config (id, user_id, upload_kb_default)');
+    expect(ins).toBeTruthy();
+    expect(ins?.args[0]).toEqual(expect.stringMatching(/[0-9a-f-]{36}/));
+    expect(ins?.args[1]).toBe('u1');
+    expect(ins?.args[2]).toBe(1);
   });
 });

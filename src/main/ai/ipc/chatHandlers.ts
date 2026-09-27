@@ -41,6 +41,7 @@ import { streamChatCompletion } from '../llm/llmClient';
 import { streamAnthropicCompletion } from '../llm/anthropicClient';
 import { activeStreams, DEFAULT_AI_CONFIG, DEFAULT_CONSENT, sendStream, toIAIConfig, toIAIConsent } from './shared';
 import { exportConversationToMarkdown } from '../files/conversationExport';
+import { importAttachmentsAsKb } from './kbHandlers';
 
 interface ChatReqPayload {
   userId: string;
@@ -48,6 +49,8 @@ interface ChatReqPayload {
   message: string;
   /** 发送附件载荷（解析产物随行；主进程落两表，一-4②）。 */
   attachments?: IAttachmentPayload[];
+  /** B11 八-1②：勾选「加入知识库」（勾选=该文档显式授权；缺省 false 不入 KB）。 */
+  uploadToKb?: boolean;
 }
 
 export function registerChatHandlers(): void {
@@ -307,6 +310,11 @@ async function runChatFlow(
       } catch {
         // 识别链路异常不阻断发送（失败态已由内部回写）
       }
+    }
+    // B11 八-1②：勾选「加入知识库」→ 附件入 KB（fire-and-forget 不阻塞发送；
+    // 仅 file+done 且勾选授权，勾选是入 KB 唯一触发）
+    if (payload.uploadToKb === true && attachmentMetas.length > 0) {
+      void importAttachmentsAsKb(userId, attachmentMetas, true);
     }
     if (attachmentMetas.length === 0) attachmentMetas = undefined;
   }

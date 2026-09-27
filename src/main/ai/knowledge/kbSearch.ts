@@ -413,6 +413,28 @@ export async function conditionalRerank(
 }
 
 // ---------------------------------------------------------------------------
+// B11 八-1②：外发结果过滤（Q1「入 KB + 过滤」取舍的过滤层）
+// ---------------------------------------------------------------------------
+
+/**
+ * KB 外发结果过滤（八-1② 硬规则：不放宽 `allowSend` 语义）：
+ * - `allowSend=true` → 原样返回（既有行为零回归）；
+ * - `allowSend=false` → 仅放行 `grantedAttachmentDocIds`（勾选授权附件，source_type='attachment'
+ *   且 consent_granted=1）内的命中；笔记与未授权附件一律滤除，best 同步收敛。
+ * 数据层白名单由 `db/kb.getGrantedAttachmentDocIds` 提供（仅含附件授权行，笔记永不入列）。
+ * 调用点：`agentTaskWorker.buildAgentDeps` 的 searchKb 闭包（LLM 外发唯一出口）。
+ */
+export function filterKbEgressResults<
+  T extends { best: IKbSearchResult | null; results: IKbSearchResult[] },
+>(res: T, allowSend: boolean, grantedAttachmentDocIds: ReadonlySet<string>): T {
+  if (allowSend) return res;
+  const results = res.results.filter((r) => grantedAttachmentDocIds.has(r.docId));
+  const best =
+    res.best && grantedAttachmentDocIds.has(res.best.docId) ? res.best : (results[0] ?? null);
+  return { ...res, results, best };
+}
+
+// ---------------------------------------------------------------------------
 // searchKB — 对外契约
 // ---------------------------------------------------------------------------
 

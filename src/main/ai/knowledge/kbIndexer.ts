@@ -404,6 +404,11 @@ export interface KbIndexOpts {
    * 提供时 source_ref 写真实页码 page（替代 60 字符行号近似）。
    */
   pageOffsets?: number[];
+  /**
+   * B11 八-1②：勾选授权标记（写入 kb_documents.consent_granted，外发过滤键）。
+   * undefined = 不改既有授权；true = 勾选入 KB 即该文档显式授权。
+   */
+  consentGranted?: boolean;
 }
 
 const EMBED_BATCH_SIZE = 20;
@@ -614,6 +619,8 @@ export async function indexImportedText(
       title,
       sourceType: opts.sourceType ?? 'import',
       status: 'importing',
+      // B11 八-1②：勾选授权标记随索引落库（undefined 不改既有授权）
+      ...(opts.consentGranted !== undefined ? { consentGranted: opts.consentGranted } : {}),
     });
     docId = doc.id;
     // S3: 获取旧 chunk ID 列表，用于精确失效缓存
@@ -645,7 +652,13 @@ export async function indexImportedText(
 export function recordImportFailure(
   userId: string,
   title: string,
-  opts?: { sourceType?: KbSourceType; attachmentId?: string; error?: string }
+  opts?: {
+    sourceType?: KbSourceType;
+    attachmentId?: string;
+    error?: string;
+    /** B11 八-1②：勾选授权标记（error 行也保留授权意图，UI 可见）。 */
+    consentGranted?: boolean;
+  }
 ): IKbImportResult {
   let docId = '';
   let finalTitle = title;
@@ -656,6 +669,7 @@ export function recordImportFailure(
       title,
       sourceType: opts?.sourceType ?? 'import',
       status: 'error',
+      ...(opts?.consentGranted !== undefined ? { consentGranted: opts.consentGranted } : {}),
     });
     docId = doc.id;
     finalTitle = doc.title;

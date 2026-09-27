@@ -13,6 +13,7 @@ import type {
 } from '@shared/ai';
 import { appendMessage, getConversation, getMessagesByConversationPaginated } from '../../db/ai';
 import { listFiles } from '../../db/files';
+import { hasGrantedAttachmentDocs } from '../../db/kb';
 import { getEmbeddingConfig } from '../../db/embeddingConfig';
 import { decryptApiKey } from '../secureConfig';
 import { classifyIntent } from '../intentRouter';
@@ -297,8 +298,15 @@ export function prepareAgentContext(
     generateHydeVector,
   };
 
-  // KB 检索外发授权
+  // KB 检索外发授权（B11 八-1②：该计算不放宽——仍恒等于 !allowSend）
   const kbEgressAuthorized = !needsKbSendConsent(config, consent);
+  // B11 八-1②：勾选授权附件存在性（勾选=该文档显式授权；查询失败视为无授权，fail-closed）
+  let kbAttachmentEgressGranted = false;
+  if (!kbEgressAuthorized) {
+    try {
+      kbAttachmentEgressGranted = hasGrantedAttachmentDocs(userId);
+    } catch { /* DB 未初始化时视为无勾选授权附件（不注入） */ }
+  }
   // 搜索配置检查：未配置时不注入 web_search，避免 LLM 调用注定失败的工具
   let hasSearchConfig = false;
   try {
@@ -310,7 +318,8 @@ export function prepareAgentContext(
     kbEgressAuthorized,
     payload.currentDocument,
     !!deps.waitForInteraction,
-    hasSearchConfig
+    hasSearchConfig,
+    kbAttachmentEgressGranted
   );
 
   const summary = ownedConv?.summary || '';

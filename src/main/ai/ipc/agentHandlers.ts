@@ -21,6 +21,7 @@ import { replayFromSeq } from '../agent/agentEventStore';
 import { rollbackToSnapshot } from '../agent/agentSnapshot';
 import { getGlobalAgentFiles, setGlobalAgentFiles, getDefaultAgentFileContent } from '../files/globalAgentFiles';
 import { activeStreams, DEFAULT_AI_CONFIG, DEFAULT_CONSENT, toIAIConfig, toIAIConsent } from './shared';
+import { importAttachmentsAsKb } from './kbHandlers';
 
 /** 内置 skills 名称列表（不暴露给 UI，仅 agent 内部使用）。 */
 const BUILTIN_SKILL_NAMES = new Set(['polish_rewrite', 'tech_organize', 'kb_qa_guide']);
@@ -169,6 +170,11 @@ export function registerAgentHandlers(): void {
           extra.attachments = resolvedAttachments;
         } else {
           resolvedAttachments = undefined;
+        }
+        // B11 八-1②：勾选「加入知识库」→ 附件入 KB（fire-and-forget 不阻塞入队；
+        // 仅 file+done 且勾选授权，勾选是入 KB 唯一触发）
+        if (payload.uploadToKb === true && resolvedAttachments) {
+          void importAttachmentsAsKb(userId, resolvedAttachments, true);
         }
       }
 
