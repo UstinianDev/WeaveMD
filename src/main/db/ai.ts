@@ -9,6 +9,8 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'crypto';
 import { getDatabase } from './index';
+// R7：消息删除级联清理附件（唯一删除点，内含 KB 关联行 + 落盘图片清理）
+import { removeParsedAttachment } from './attachments';
 // B6 五-2：图片附件存相对路径、读取时重建绝对路径（electron 不可用时原样透传）
 import {
   isRelativeAttachmentPath,
@@ -729,7 +731,13 @@ export function assertConversationOwned(conversationId: string, userId: string):
 // 消息编辑 / 删除后续
 // ---------------------------------------------------------------------------
 
-/** 删除指定消息之后的所有消息（按 created_at 排序）。返回被删除行数。 */
+/**
+ * 删除指定消息之后的所有消息（按 created_at 排序）。返回被删除行数。
+ * R7（裁定：消息级级联，不做 chip 独立删除）：删除前收集受影响行的
+ * attachments_json 附件 id，删除后逐 id 调 removeParsedAttachment ——
+ * 级联清理 parsed_attachments 行 + KB 关联（removeByAttachment）+ 落盘图片。
+ * 无附件行零副作用；坏 JSON 容错跳过。
+ */
 export function deleteMessagesAfter(
   conversationId: string,
   messageId: string
@@ -739,8 +747,37 @@ export function deleteMessagesAfter(
     .get(messageId, conversationId) as { created_at: string } | undefined;
   if (!target) return 0;
 
+  // 先收集将删行的附件 id（user_id 随行取值，跨用户不可能：行已按 conversation 归属）
+  const affected = cachedPrepare(
+    db,
+    'SELECT user_id, attachments_json FROM ai_messages WHERE conversation_id = ? AND created_at > ?'
+  ).all(conversationId, target.created_at) as Array<{
+    user_id: string;
+    attachments_json: string | null;
+  }>;
+
   const info = cachedPrepare(db, 'DELETE FROM ai_messages WHERE conversation_id = ? AND created_at > ?')
     .run(conversationId, target.created_at);
+
+  for (const row of affected) {
+    if (!row.attachments_json) continue;
+    try {
+      const arr: unknown = JSON.parse(row.attachments_json);
+      if (!Array.isArray(arr)) continue;
+      for (const item of arr) {
+        const id = (item as { id?: unknown } | null)?.id;
+        if (typeof id === 'string' && id) {
+          try {
+            removeParsedAttachment(id, row.user_id);
+          } catch {
+            // 单附件级联失败不断批（其余附件照常清理）
+          }
+        }
+      }
+    } catch {
+      /* 坏 JSON 容错：跳过该行 */
+    }
+  }
   return info.changes;
 }
 

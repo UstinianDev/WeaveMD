@@ -26,6 +26,8 @@ const fakeDbMock = vi.hoisted(() => {
   const calls: Array<{ method: 'get' | 'all' | 'run'; sql: string; args: unknown[] }> = [];
   // getMessagesByConversation 的可注入行（B3：attachments_json 解析映射用）
   let messageRows: Record<string, unknown>[] = [];
+  // R7：deleteMessagesAfter 目标行 get 结果（undefined=默认命中行；显式 null=目标不存在）
+  let aiMessageTarget: Record<string, unknown> | null | undefined = undefined;
   // 供 getAiConfig SELECT 注入自定义行（覆盖默认 undefined）→ 触发 UPDATE 分支 / mapConfigRow
   // 第一次 ai_config SELECT 用于 upsert 前置判断；之后为 post-write 回读。用计数区分：
   // skipFirst=false 时所有读取都返回该行；skipFirst=true 时首次返回 undefined（触发 INSERT）。
@@ -45,6 +47,9 @@ const fakeDbMock = vi.hoisted(() => {
     },
     setMessageRows: (rows: Record<string, unknown>[]): void => {
       messageRows = rows;
+    },
+    setMessageTarget: (row: Record<string, unknown> | null): void => {
+      aiMessageTarget = row;
     },
     setRunChanges: (n: number): void => {
       runChanges = n;
@@ -66,6 +71,7 @@ const fakeDbMock = vi.hoisted(() => {
             };
           }
           if (sql.includes('FROM ai_messages')) {
+            if (aiMessageTarget !== undefined) return aiMessageTarget;
             return {
               id: args[0],
               conversation_id: 'c1',
@@ -122,6 +128,7 @@ const fakeDbMock = vi.hoisted(() => {
     reset: () => {
       calls.length = 0;
       messageRows = [];
+      aiMessageTarget = undefined;
       fakeDbMock.prepare.mockClear();
     },
   };
@@ -137,11 +144,17 @@ vi.mock('better-sqlite3', () => ({ default: FakeDatabase }));
 vi.mock('@main/db/index', () => ({
   getDatabase: () => new FakeDatabase(),
 }));
+// R7：deleteMessagesAfter 级联附件删除（断言调用；附件 DAO 自身行为由 attachments.test 锁定）
+const attachmentsCascadeMock = vi.hoisted(() => ({
+  removeParsedAttachment: vi.fn(() => true),
+}));
+vi.mock('@main/db/attachments', () => attachmentsCascadeMock);
 
 import {
   appendMessage,
   createConversation,
   deleteConversation,
+  deleteMessagesAfter,
   getAiConfig,
   getMessagesByConversation,
   getUploadKbDefault,
@@ -163,6 +176,7 @@ beforeEach(() => {
   fakeDbMock.setAiConfigRow(undefined);
   fakeDbMock.setSkipFirstAiConfigGet(false);
   fakeDbMock.setRunChanges(1);
+  attachmentsCascadeMock.removeParsedAttachment.mockClear();
 });
 
 describe('ai DAO — SQL 参数化与归属过滤行为', () => {
@@ -468,5 +482,59 @@ describe('ai DAO — upload_kb_default（勾选「加入知识库」默认值）
     expect(ins?.args[0]).toEqual(expect.stringMatching(/[0-9a-f-]{36}/));
     expect(ins?.args[1]).toBe('u1');
     expect(ins?.args[2]).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// R7 消息级附件级联：删除消息（deleteMessagesAfter，AI_MESSAGE_EDIT 唯一删除路径）
+// 时按受影响行 attachments_json 逐 id 调 removeParsedAttachment（唯一删除点，
+// 内含 KB removeByAttachment + 落盘图片清理）。裁定：不做附件 chip 独立删除。
+// ---------------------------------------------------------------------------
+
+describe('ai DAO — R7 deleteMessagesAfter 消息级附件级联', () => {
+  function msgRow(attachmentsJson: string | null, userId = 'u1'): Record<string, unknown> {
+    return { user_id: userId, attachments_json: attachmentsJson };
+  }
+
+  it('受影响行含附件 → 逐 id 调 removeParsedAttachment（user_id 随行取值）', () => {
+    fakeDbMock.setMessageRows([
+      msgRow(JSON.stringify([{ id: 'a1' }, { id: 'a2' }])),
+      msgRow(null),
+      msgRow(JSON.stringify([{ id: 'a3' }])),
+    ]);
+    const deleted = deleteMessagesAfter('c1', 'm0');
+    expect(deleted).toBe(1);
+    expect(attachmentsCascadeMock.removeParsedAttachment).toHaveBeenCalledTimes(3);
+    expect(attachmentsCascadeMock.removeParsedAttachment).toHaveBeenCalledWith('a1', 'u1');
+    expect(attachmentsCascadeMock.removeParsedAttachment).toHaveBeenCalledWith('a2', 'u1');
+    expect(attachmentsCascadeMock.removeParsedAttachment).toHaveBeenCalledWith('a3', 'u1');
+    // DELETE 语句仍参数化（conversation_id + created_at）
+    const del = callOf('run', 'DELETE FROM ai_messages');
+    expect(del?.sql).toContain('created_at > ?');
+    expect(del?.args).toEqual(['c1', 'now']);
+  });
+
+  it('受影响行无附件 → 不触发级联（无副作用）', () => {
+    fakeDbMock.setMessageRows([msgRow(null), msgRow(null)]);
+    deleteMessagesAfter('c1', 'm0');
+    expect(attachmentsCascadeMock.removeParsedAttachment).not.toHaveBeenCalled();
+  });
+
+  it('目标消息不存在 → 返回 0 且不查/不删/不级联', () => {
+    fakeDbMock.setMessageTarget(null);
+    expect(deleteMessagesAfter('c1', 'missing')).toBe(0);
+    expect(attachmentsCascadeMock.removeParsedAttachment).not.toHaveBeenCalled();
+    expect(callOf('run', 'DELETE FROM ai_messages')).toBeUndefined();
+  });
+
+  it('坏 JSON attachments_json 容错：跳过该行不抛错，其余行照常级联', () => {
+    fakeDbMock.setMessageRows([
+      msgRow('{broken json'),
+      msgRow(JSON.stringify([{ id: 'ok1' }])),
+      msgRow(JSON.stringify([{ id: 42, name: '非字符串 id 跳过' }])),
+    ]);
+    expect(() => deleteMessagesAfter('c1', 'm0')).not.toThrow();
+    expect(attachmentsCascadeMock.removeParsedAttachment).toHaveBeenCalledTimes(1);
+    expect(attachmentsCascadeMock.removeParsedAttachment).toHaveBeenCalledWith('ok1', 'u1');
   });
 });
