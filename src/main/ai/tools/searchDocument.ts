@@ -34,7 +34,28 @@ function checkParsed(rec: ParsedAttachmentRecord): AttachmentTargetResult {
 }
 
 /**
- * 解析工具入参指向的附件：attachment_id 精确归属（user_id 过滤）→
+ * R3 外发双检（L4 fail-closed，裁定语义）——四工具共用：
+ * ① 裁定豁免：当前会话用户主动上传且落库的附件（conversation_id 与当前会话一致）
+ *    视为用户知情同意，不受 allowSend 闸拦截（附件问答主场景不受损）；
+ * ② 外发闸：非本会话附件且 attachmentEgressAllowed 非 true（allowSend 与
+ *    勾选授权均未开，或 ToolCtx 缺字段）→ 拒「附件外发未授权」；
+ * ③ 会话边界：非本会话附件即使已外发授权 → 恒拒「附件不属于当前会话」（拦跨会话读）。
+ */
+export function checkAttachmentEgress(
+  rec: ParsedAttachmentRecord,
+  ctx: ToolCtx
+): AttachmentTargetResult {
+  const inCurrentSession =
+    !!ctx.currentConversationId && rec.conversationId === ctx.currentConversationId;
+  if (inCurrentSession) return { ok: true, record: rec };
+  if (ctx.attachmentEgressAllowed !== true) {
+    return { ok: false, error: '附件外发未授权（allowSend 未开启且无勾选授权）' };
+  }
+  return { ok: false, error: '附件不属于当前会话（跨会话附件禁止访问）' };
+}
+
+/**
+ * 解析工具入参指向的附件：attachment_id 精确归属（user_id 过滤 + R3 外发双检）→
  * file_name 会话内按名匹配 → 无提示时取当前会话唯一已解析附件
  * （0 个 / 多个均给出可操作错误，引导重试）。
  */
@@ -48,6 +69,9 @@ export function resolveAttachmentTarget(
   if (attachmentId) {
     const rec = getParsedAttachment(attachmentId, ctx.userId);
     if (!rec) return { ok: false, error: `附件不存在或不属于当前用户: ${attachmentId}` };
+    // R3：跨会话/未授权附件在读取正文前拦截（fail-closed）
+    const gate = checkAttachmentEgress(rec, ctx);
+    if (!gate.ok) return gate;
     return checkParsed(rec);
   }
 
@@ -61,6 +85,8 @@ export function resolveAttachmentTarget(
       const available = list.map((a) => a.fileName).join(', ') || '无';
       return { ok: false, error: `当前会话未找到附件「${fileName}」（可用: ${available}）` };
     }
+    const gate = checkAttachmentEgress(rec, ctx);
+    if (!gate.ok) return gate;
     return checkParsed(rec);
   }
 
@@ -68,8 +94,11 @@ export function resolveAttachmentTarget(
     return { ok: false, error: '缺少 attachment_id/file_name 参数（无当前会话可解析）' };
   }
   const list = listParsedAttachmentsByConversation(conversationId, ctx.userId);
-  const ready = list.filter((a) => a.parseStatus === 'done' && a.content.trim());
-  if (ready.length === 1) return { ok: true, record: ready[0] };
+  const ready = list.filter(
+    (a) =>
+      a.parseStatus === 'done' && a.content.trim() && checkAttachmentEgress(a, ctx).ok
+  );
+  if (ready.length === 1) return checkParsed(ready[0]);
   if (ready.length === 0) {
     return {
       ok: false,

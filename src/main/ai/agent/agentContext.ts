@@ -286,6 +286,16 @@ export function prepareAgentContext(
     }
   };
 
+  // KB 检索外发授权（B11 八-1②：该计算不放宽——仍恒等于 !allowSend）
+  const kbEgressAuthorized = !needsKbSendConsent(config, consent);
+  // B11 八-1②：勾选授权附件存在性（勾选=该文档显式授权；查询失败视为无授权，fail-closed）
+  let kbAttachmentEgressGranted = false;
+  if (!kbEgressAuthorized) {
+    try {
+      kbAttachmentEgressGranted = hasGrantedAttachmentDocs(userId);
+    } catch { /* DB 未初始化时视为无勾选授权附件（不注入） */ }
+  }
+
   const toolCtx: ToolCtx = {
     userId,
     searchKb: deps.searchKb,
@@ -296,17 +306,10 @@ export function prepareAgentContext(
     currentConversationId: payload.conversationId,
     fileTreePaths: payload.fileTreePaths,
     generateHydeVector,
+    // R3（L4）：附件外发授权 = allowSend ∨ 勾选授权（fail-closed，
+    // searchDocument 四工具在 resolveAttachmentTarget 双检中消费）
+    attachmentEgressAllowed: kbEgressAuthorized || kbAttachmentEgressGranted,
   };
-
-  // KB 检索外发授权（B11 八-1②：该计算不放宽——仍恒等于 !allowSend）
-  const kbEgressAuthorized = !needsKbSendConsent(config, consent);
-  // B11 八-1②：勾选授权附件存在性（勾选=该文档显式授权；查询失败视为无授权，fail-closed）
-  let kbAttachmentEgressGranted = false;
-  if (!kbEgressAuthorized) {
-    try {
-      kbAttachmentEgressGranted = hasGrantedAttachmentDocs(userId);
-    } catch { /* DB 未初始化时视为无勾选授权附件（不注入） */ }
-  }
   // 搜索配置检查：未配置时不注入 web_search，避免 LLM 调用注定失败的工具
   let hasSearchConfig = false;
   try {

@@ -61,6 +61,14 @@ export interface ToolCtx {
    * 输入用户原始查询，输出假设性文档的 embedding 向量。
    */
   generateHydeVector?: (query: string) => Promise<number[] | null>;
+  /**
+   * R3 附件外发授权（L4 fail-closed）：由 agentContext 组装 toolCtx 时写入
+   * `kbEgressAuthorized || kbAttachmentEgressGranted`（allowSend 或勾选授权）。
+   * searchDocument/readPage/extractTable/analyzeChart 四工具在
+   * resolveAttachmentTarget 中消费：本会话附件豁免（裁定），非本会话附件
+   * 该字段缺失或 false 一律拒「附件外发未授权」。
+   */
+  attachmentEgressAllowed?: boolean;
 }
 
 /** 工具处理器签名。 */

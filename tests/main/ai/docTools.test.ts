@@ -392,6 +392,111 @@ describe('searchDocument — 关键词检索与页码/章节定位', () => {
 });
 
 // ---------------------------------------------------------------------------
+// R3 searchDocument 外发闸 + 会话边界（L4 fail-closed）
+// 裁定：当前会话用户主动上传且落库的附件豁免 allowSend 闸；跨会话/未授权恒拒。
+// ToolCtx 缺 attachmentEgressAllowed 字段视为 false（fail-closed）。
+// ---------------------------------------------------------------------------
+
+describe('R3 外发双检矩阵 — allowSend × 本会话/跨会话 × 勾选授权（L4）', () => {
+  interface MatrixCell {
+    allowSend: boolean;
+    granted: boolean;
+    inCurrentSession: boolean;
+    expectOk: boolean;
+    reason?: string;
+  }
+  const CELLS: MatrixCell[] = [
+    // 本会话：裁定豁免 —— 不受 allowSend / 授权状态影响，恒放行
+    { allowSend: true, granted: true, inCurrentSession: true, expectOk: true },
+    { allowSend: true, granted: false, inCurrentSession: true, expectOk: true },
+    { allowSend: false, granted: true, inCurrentSession: true, expectOk: true },
+    { allowSend: false, granted: false, inCurrentSession: true, expectOk: true },
+    // 跨会话：恒拒（外发未授权时报外发原因，已授权时报会话边界原因）
+    { allowSend: true, granted: true, inCurrentSession: false, expectOk: false, reason: '不属于当前会话' },
+    { allowSend: true, granted: false, inCurrentSession: false, expectOk: false, reason: '不属于当前会话' },
+    { allowSend: false, granted: true, inCurrentSession: false, expectOk: false, reason: '不属于当前会话' },
+    { allowSend: false, granted: false, inCurrentSession: false, expectOk: false, reason: '外发未授权' },
+  ];
+
+  for (const cell of CELLS) {
+    const label = [
+      `allowSend=${cell.allowSend ? 'T' : 'F'}`,
+      cell.inCurrentSession ? '本会话' : '跨会话',
+      cell.granted ? '勾选授权' : '未授权',
+      cell.expectOk ? '→ 放行' : `→ 拦截「${cell.reason ?? ''}」`,
+    ].join(' × ');
+    it(label, async () => {
+      attachMock.getParsedAttachment.mockReturnValue(
+        makePdfAttachment({
+          conversationId: cell.inCurrentSession ? 'c1' : 'c-other',
+        })
+      );
+      // 外发标志 = allowSend ∨ 勾选授权（agentContext 同口径：kbEgressAuthorized || kbAttachmentEgressGranted）
+      const res = await executeTool(
+        'searchDocument',
+        JSON.stringify({ query: '收入', attachment_id: 'att-pdf' }),
+        makeCtx({ attachmentEgressAllowed: cell.allowSend || cell.granted })
+      );
+      if (cell.expectOk) {
+        expect(res.status).toBe('ok');
+      } else {
+        expect(res.status).toBe('error');
+        expect(res.errorDesc).toContain(cell.reason ?? '');
+      }
+    });
+  }
+
+  it('ToolCtx 缺 attachmentEgressAllowed → 跨会话附件 fail-closed 拒「外发未授权」', async () => {
+    attachMock.getParsedAttachment.mockReturnValue(
+      makePdfAttachment({ conversationId: 'c-other' })
+    );
+    const res = await executeTool(
+      'searchDocument',
+      JSON.stringify({ query: '收入', attachment_id: 'att-pdf' }),
+      makeCtx({ attachmentEgressAllowed: undefined })
+    );
+    expect(res.status).toBe('error');
+    expect(res.errorDesc).toContain('外发未授权');
+  });
+
+  it('ToolCtx 缺 attachmentEgressAllowed → 本会话附件仍按裁定豁免放行', async () => {
+    attachMock.getParsedAttachment.mockReturnValue(
+      makePdfAttachment({ conversationId: 'c1' })
+    );
+    const res = await executeTool(
+      'searchDocument',
+      JSON.stringify({ query: '收入', attachment_id: 'att-pdf' }),
+      makeCtx({ attachmentEgressAllowed: undefined })
+    );
+    expect(res.status).toBe('ok');
+  });
+
+  it('跨用户 attachment_id（DAO user_id 过滤为 null）→ 先拒归属，不进外发闸', async () => {
+    attachMock.getParsedAttachment.mockReturnValue(null);
+    const res = await executeTool(
+      'searchDocument',
+      JSON.stringify({ query: 'x', attachment_id: 'foreign' }),
+      makeCtx({ attachmentEgressAllowed: true })
+    );
+    expect(res.status).toBe('error');
+    expect(res.errorDesc).toContain('附件不存在');
+  });
+
+  it('四工具同洞共闸：readPage 同样被会话边界拦截', async () => {
+    attachMock.getParsedAttachment.mockReturnValue(
+      makePdfAttachment({ conversationId: 'c-other' })
+    );
+    const res = await executeTool(
+      'readPage',
+      JSON.stringify({ attachment_id: 'att-pdf', page: 1 }),
+      makeCtx({ attachmentEgressAllowed: true })
+    );
+    expect(res.status).toBe('error');
+    expect(res.errorDesc).toContain('不属于当前会话');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // readPage
 // ---------------------------------------------------------------------------
 
