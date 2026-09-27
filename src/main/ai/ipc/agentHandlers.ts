@@ -196,12 +196,17 @@ export function registerAgentHandlers(): void {
       });
 
       // 立即返回任务 ID，实际结果通过 SSE 推送（attachments 回执供渲染层回填乐观状态）
+      // R4：回执边界统一 resolve —— 图片相对路径转绝对，渲染层 toImgSrc 才能生成 media://
+      // （落库仍存相对：extra.attachments 为原引用，serializeAttachments 归一不受影响）
+      const receiptAttachments = resolvedAttachments?.map((a) =>
+        a.type === 'image' && a.path ? { ...a, path: resolveStoredPath(a.path) } : a
+      );
       return {
         success: true,
         data: {
           taskId: task.id,
           status: 'queued' as const,
-          ...(resolvedAttachments ? { attachments: resolvedAttachments } : {}),
+          ...(receiptAttachments ? { attachments: receiptAttachments } : {}),
         },
       };
     } catch (err) {

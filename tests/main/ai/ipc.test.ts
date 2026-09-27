@@ -154,6 +154,8 @@ const imageStorageMock = vi.hoisted(() => ({
 vi.mock('@main/ai/image/imageStorage', () => imageStorageMock);
 
 import type { CoreSkill } from '@main/ai/skills/skillLoader';
+// R4 回执断言：相对路径 resolve 后须被 toImgSrc 转成 media://（渲染层真实判定函数）
+import { toImgSrc } from '@render/editor/kernel/inlineRenderer';
 
 const skillLoaderMock = vi.hoisted(() => ({
   listSkillsForUi: vi.fn(() => [
@@ -805,6 +807,49 @@ describe('ai:ipc handlers', () => {
     expect(attachmentsPersistMock.persistIncomingAttachments).not.toHaveBeenCalled();
     const enqueued = queueMock.enqueue.mock.calls[0][0] as { payloadJson: string };
     expect(JSON.parse(enqueued.payloadJson).attachments).toBeUndefined();
+  });
+
+  it('AGENT_RUN 回执：图片相对路径 resolve 成绝对（R4，toImgSrc 转 media:// 不再 404）', async () => {
+    initQueue();
+    const resolved = [
+      {
+        id: 'i1',
+        type: 'image' as const,
+        name: 'a.png',
+        path: 'attachments/u1/c1/i1.png',
+        parseStatus: 'done' as const,
+      },
+      {
+        id: 'f1',
+        type: 'file' as const,
+        name: 'r.pdf',
+        path: 'C:/docs/r.pdf',
+        parseStatus: 'done' as const,
+      },
+    ];
+    attachmentsPersistMock.persistIncomingAttachments.mockResolvedValue(resolved);
+    // 图片项走 resolveStoredPath（mock：相对 → 绝对）；文件附件不经 resolve
+    imageStorageMock.resolveStoredPath.mockReturnValue(
+      'C:/Users/u/AppData/Roaming/WeaveMD/attachments/u1/c1/i1.png'
+    );
+    const result = (await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
+      userId: 'u1',
+      conversationId: 'c1',
+      message: '[图片: a.pdf]',
+      attachments: [{ id: 'i1', fileName: 'a.png', fileType: 'image' as const }],
+    })) as { success: boolean; data: { attachments?: typeof resolved } };
+    expect(result.success).toBe(true);
+    const receipt = result.data.attachments ?? [];
+    expect(receipt[0].path).toBe('C:/Users/u/AppData/Roaming/WeaveMD/attachments/u1/c1/i1.png');
+    expect(toImgSrc(receipt[0].path ?? '')).toMatch(/^media:\/\//);
+    // 文件附件路径原样（本就绝对，不触 resolve）
+    expect(receipt[1].path).toBe('C:/docs/r.pdf');
+    // 落库载荷保持相对（extra.attachments 不被回执 resolve 污染，DB 侧 serialize 归一）
+    const enqueued = queueMock.enqueue.mock.calls[0][0] as { payloadJson: string };
+    expect(JSON.parse(enqueued.payloadJson).attachments[0].path).toBe('attachments/u1/c1/i1.png');
+    expect(imageStorageMock.resolveStoredPath).toHaveBeenCalledTimes(1);
+    // 恢复默认实现，避免 mockReturnValue 泄漏到后续用例
+    imageStorageMock.resolveStoredPath.mockImplementation((p: string) => p);
   });
 
   it('AI_CHAT 带附件：落两表后用户消息 appendMessage 携带附件元数据', async () => {
