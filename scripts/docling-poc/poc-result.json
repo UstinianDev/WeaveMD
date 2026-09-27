@@ -1,0 +1,122 @@
+{
+  "sample": "sample.pdf",
+  "truth": {
+    "pages": 4,
+    "markers": 40,
+    "tables": 2
+  },
+  "evaluation": {
+    "aRoute": {
+      "readingOrder": {
+        "accuracy": 1,
+        "pass": 39,
+        "pairs": 39,
+        "missing": 0,
+        "sampleMiss": []
+      },
+      "tables": {
+        "accuracy": 1,
+        "matched": 57,
+        "total": 57,
+        "detail": [
+          {
+            "name": "table1-page2",
+            "found": true,
+            "rows": 4,
+            "hit": 12,
+            "cells": 12
+          },
+          {
+            "name": "table2-p3p4-crosspage",
+            "found": true,
+            "rows": 9,
+            "hit": 45,
+            "cells": 45
+          }
+        ]
+      },
+      "timing": {
+        "coldMs": 50.1,
+        "warmMs": 50.1,
+        "pageCount": 4,
+        "warmMsPerPage": 12.5
+      },
+      "markdownBytes": 2677,
+      "notes": [
+        "liteparse=36.2ms layout=13.9ms pages=4",
+        "signals={\"noTextLayer\":false,\"columnDetectFailed\":false,\"tableConfidence\":1,\"totalChars\":2373}",
+        "headersFooters=[]"
+      ]
+    },
+    "docling": {
+      "readingOrder": {
+        "accuracy": 1,
+        "pass": 39,
+        "pairs": 39,
+        "missing": 0,
+        "sampleMiss": []
+      },
+      "tables": {
+        "accuracy": 0.6491228070175439,
+        "matched": 37,
+        "total": 57,
+        "detail": [
+          {
+            "name": "table1-page2",
+            "found": true,
+            "rows": 4,
+            "hit": 12,
+            "cells": 12
+          },
+          {
+            "name": "table2-p3p4-crosspage",
+            "found": true,
+            "rows": 5,
+            "hit": 25,
+            "cells": 45
+          }
+        ]
+      },
+      "timing": {
+        "coldMs": 10232.6,
+        "warmMs": 20001.5,
+        "pageCount": 4,
+        "warmMsPerPage": 5000.4
+      },
+      "markdownBytes": 2917,
+      "notes": [
+        "deps={\"home\":\"D:\\\\software\\\\WeaveMD\\\\scripts\\\\docling-poc\",\"ready\":true,\"missing\":[]}",
+        "cold(one-shot, 含管线+模型加载)=10232.6ms",
+        "pipeline 首次(加载)=33195.0ms warm=20001.5ms"
+      ]
+    }
+  },
+  "size": {
+    "packaged": {
+      "docling.rs (JS壳, unpacked)": 0.09,
+      "docling.rs-win32-x64-msvc (原生件, unpacked)": 53.27,
+      "原生件 gzip -9 (安装包增量估算下限)": 18.89,
+      "进包合计 (unpacked)": 53.36,
+      "安装包增量估算": 18.98
+    },
+    "devOnly": {
+      ".models (模型, 零进包)": 407.82,
+      ".pdfium (pdfium, 零进包)": 14.08
+    },
+    "baseline": {
+      "当前 Setup (实测)": 99.16,
+      "当前 win-unpacked (实测)": 368.96
+    },
+    "projection": {
+      "Setup + 增量估算": 118.14,
+      "Setup 门禁 500MB": {
+        "pass": true
+      },
+      "win-unpacked + 增量": 422.32,
+      "win-unpacked 门禁 1GB": {
+        "pass": true
+      }
+    }
+  },
+  "generatedAt": "2026-09-27T09:31:26.985Z"
+}

@@ -1,0 +1,6 @@
+# PoC 隔离依赖与按需下载的模型/pdfium —— 一个字节不进仓库也不进安装包
+node_modules/
+.models/
+.pdfium/
+*.part
+download_dependencies.sh

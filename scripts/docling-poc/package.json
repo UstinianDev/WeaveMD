@@ -1,0 +1,11 @@
+{
+  "name": "weavemd-docling-poc",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "doc-pipeline B12 Docling PoC — isolated deps, never packaged (scripts/ not in build.files)",
+  "dependencies": {
+    "docling.rs": "^1.69.2",
+    "pdf-lib": "^1.17.1"
+  }
+}
