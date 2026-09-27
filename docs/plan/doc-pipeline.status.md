@@ -222,12 +222,28 @@ pdfjs-dist(110)、@anthropic-ai/sdk(107)、electron-builder(308) —— 全部 c
 - **遗留**：`write_mode` 完整接线（auto 消费点）后续不阻塞；`useKnowledgeBase` 废弃开关维持 B 类裁定不得恢复；打包 sqlite-vec 未映射（旧包既有，已核实降级可用不修）；E2E 存量 31 failed 不属本批次。
 - **下一任务**：B12（Docling PoC，须先过七-3 体积门禁）——B10/B11 双 L4 已完成。
 
+### B12 完成（2026-09-27）
+
+- **范围**：二-5 Docling PoC（L2 仅验证、随时可停）——量化四项 + 工程评估 + 红线核对，不改 `parseDocument`、不动打包配置。
+- **状态**：✅ 完成，**结论=不达标 → 按 Q6 关闭本任务**，主线不受影响。证据：`docs/plan/doc-pipeline.docling-poc.md`（PoC 报告）+ `scripts/docling-poc/poc-result.json`（原始数据）。
+- **交付**：
+  - **包名核实**：需求所记 `docling-node` npm 404 → 实际包 **`docling.rs`** 1.69.2（docling-rs 官方 napi-rs 绑定，win32-x64 原生件 53.27MB）；依赖隔离在 `scripts/docling-poc/package.json`（独立 node_modules），主仓库 package.json 零改动。
+  - **可插拔后端 PoC**：`genSample.mjs`（4 页样例 + 真值：双栏 40 标记全序 / 单页表 4×3 / 跨页表 9×5）+ `runPoc.mjs`（`BACKENDS` 注册表，A 路线直接 bundle `pdfLayout.ts` 对照，`--backend` 可选）——**偏离**：计划写"接入 documentParser 试验分支"，按执行注意改在 runner 内实现，主链路零触碰。
+  - **量化四项（完整标准管线 layout+TableFormer+OCR-en，`checkDependencies ready=true`）**：双栏阅读顺序 A **100%** vs docling **100%**；表格行列 A **100%**（57/57，含跨页合并）vs docling **64.9%**（37/57，跨页续行退化为散文不合并）；单页耗时 A **12.5ms** vs docling warm **5000~5308ms**（约 400×，one-shot 冷 10.2~22s）；体积增量 **进包 53.36MB unpacked / 安装包估算 +18.98MB**（模型 407.82MB + pdfium 14.08MB **零进包**）。
+  - **工程评估（二-5② 全项）**：electron-builder 24.13.3 本地源码+release 实物——`.node` 打进 asar 可加载（better-sqlite3 现状实证），liteparse 因包内 pdfium.dll 被 auto-unpack（**项目无任何 asarUnpack 配置**）；转正建议显式 `asarUnpack` + sizeGate unpacked 断言。签名现状 N/A（win 未配证书），启用时须 `win.signExts: ['.node']`（`shouldSignFile` 源码实证）。体积投影双门禁通过（Setup 99.16→118.14/500MB、unpacked 368.96→422.32/1GB）；模型 cwd 解析 → 转正须改 `DOCLING_*`/`PDFIUM_DYNAMIC_LIB_PATH` 指 userData。
+  - **红线**：模型/pdfium 一个字节不进安装包（结构性成立，§1 自查表）；**替换 A 路线必须先实测重跑七-3（500MB/1GB），未过不得替换**——已写死在报告 §4.3/§6 与范围外清单。
+  - **网络坑入档**：GitHub 直连间歇封锁 → 模型改走 `api.github.com` asset 通道（octet-stream 直跳 objects.githubusercontent，按字节数校验）；上游下载脚本 Git-Bash `uname` 误判 Linux 分支不认 Windows pdfium → 复用根项目 liteparse 的 `pdfium.dll` 实测可用。
+- **门禁**：tsc 0 error / vitest 全绿（见本批门禁记录）/ lint 0 error / vite build exit 0 / E2E 基线 31 failed 零新增。PoC 文件不在 lint/tsc 覆盖范围（`scripts/` 非源码目录，`runPoc.mjs`/`genSample.mjs` 单跑 0 error 仅 no-console warn）。
+- **偏离记录**：见交付第 2 条（可插拔接口落 runner 而非 documentParser 试验分支）；另评分器初版把 markdown 分隔行计入数据行（两后端同被低估），修复后 A 路线恢复 57/57——属 PoC 工具 bug，非产品代码。
+- **遗留**：样例为合成单样例（真值可量化，但复杂真实版面对比属后续，如重启需另立任务）；docling 转正重启条件 = 需要真实复杂版面增益且**先重跑七-3**。
+- **下一任务**：doc-pipeline 12 批全部收口（B1~B12）；剩余为全量门禁复跑与收尾归档（如派发）。
+
 ## 进度总览
 
 | 模块 | 任务数 | 状态 |
 |---|---|---|
 | 一 会话附件上传 | 4 | **全部完成**（一-1/一-2/一-3=B2，一-4=B3） |
-| 二 文档解析层 | 6 | 二-1/二-2 完成（B1）；二-3/二-4/二-6落库 完成（B7）；二-5 随 B12 |
+| 二 文档解析层 | 6 | **全部完成**（二-1/二-2=B1，二-3/二-4/二-6落库=B7，二-5=B12 PoC 不达标关闭） |
 | 三 目录文件树 | 3 | **全部完成**（三-2=B5，三-1/三-3=B9） |
 | 四 知识库/RAG | 4 | **全部完成**（四-1/四-2=B5、四-3=B4、四-4=B8） |
 | 五 多模态图片 | 3 | **全部完成**（B6） |
