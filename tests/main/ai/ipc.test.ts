@@ -132,7 +132,7 @@ const attachmentsPersistMock = vi.hoisted(() => ({
   getParsedAttachment: vi.fn((..._args: unknown[]): unknown => null),
   // R7/R8：消息/会话删除级联清理（removeParsedAttachment 为附件唯一删除点）
   listParsedAttachmentsByConversation: vi.fn((): Array<{ id: string }> => []),
-  removeParsedAttachment: vi.fn(() => true),
+  removeParsedAttachment: vi.fn((_id?: unknown, _userId?: unknown) => true),
 }));
 vi.mock('@main/db/attachments', () => attachmentsPersistMock);
 
@@ -403,6 +403,79 @@ describe('ai:ipc handlers', () => {
     expect(attachmentsPersistMock.removeParsedAttachment).not.toHaveBeenCalled();
   });
 
+  it('R8 附件列表查询抛错 → 不阻断会话删除（catch 容错）', async () => {
+    attachmentsPersistMock.listParsedAttachmentsByConversation
+      .mockReset()
+      .mockImplementation(() => {
+        throw new Error('db locked');
+      });
+    dbMock.deleteConversation.mockReturnValue(true);
+    const result = (await getHandler(IPC_CHANNELS.AI_CONVERSATION_DELETE)(
+      makeEvent(),
+      'c1',
+      'u1'
+    )) as { success: boolean; data: { deleted: boolean } };
+    expect(result.success).toBe(true);
+    expect(result.data.deleted).toBe(true);
+    expect(attachmentsPersistMock.removeParsedAttachment).not.toHaveBeenCalled();
+    // 落盘图片兜底清理仍执行
+    expect(imageStorageMock.deleteConversationImages).toHaveBeenCalledWith('u1', 'c1');
+  });
+
+  it('R8 单附件级联抛错 → 不断批：其余附件与图片清理照常', async () => {
+    attachmentsPersistMock.listParsedAttachmentsByConversation.mockReset().mockReturnValue([
+      { id: 'pa1' },
+      { id: 'pa2' },
+    ]);
+    attachmentsPersistMock.removeParsedAttachment
+      .mockReset()
+      .mockImplementation((id: unknown) => {
+        if (id === 'pa1') throw new Error('kb row locked');
+        return true;
+      });
+    dbMock.deleteConversation.mockReturnValue(true);
+    const result = (await getHandler(IPC_CHANNELS.AI_CONVERSATION_DELETE)(
+      makeEvent(),
+      'c1',
+      'u1'
+    )) as { success: boolean; data: { deleted: boolean } };
+    expect(result.success).toBe(true);
+    expect(attachmentsPersistMock.removeParsedAttachment).toHaveBeenCalledTimes(2);
+    expect(imageStorageMock.deleteConversationImages).toHaveBeenCalledWith('u1', 'c1');
+    imageStorageMock.deleteConversationImages.mockImplementation(() => 0);
+  });
+
+  it('R8 落盘图片清理抛错 → 不影响删除结果（catch 容错）', async () => {
+    attachmentsPersistMock.listParsedAttachmentsByConversation.mockReset().mockReturnValue([]);
+    dbMock.deleteConversation.mockReturnValue(true);
+    imageStorageMock.deleteConversationImages.mockImplementation(() => {
+      throw new Error('rm failed');
+    });
+    const result = (await getHandler(IPC_CHANNELS.AI_CONVERSATION_DELETE)(
+      makeEvent(),
+      'c1',
+      'u1'
+    )) as { success: boolean; data: { deleted: boolean } };
+    expect(result.success).toBe(true);
+    expect(result.data.deleted).toBe(true);
+    imageStorageMock.deleteConversationImages.mockImplementation(() => 0);
+  });
+
+  it('R8 deleteConversation 抛错 → 返回 success:false（外层 catch）', async () => {
+    attachmentsPersistMock.listParsedAttachmentsByConversation.mockReset().mockReturnValue([]);
+    dbMock.deleteConversation.mockImplementation(() => {
+      throw new Error('db gone');
+    });
+    const result = (await getHandler(IPC_CHANNELS.AI_CONVERSATION_DELETE)(
+      makeEvent(),
+      'c1',
+      'u1'
+    )) as { success: boolean };
+    expect(result.success).toBe(false);
+    expect(attachmentsPersistMock.removeParsedAttachment).not.toHaveBeenCalled();
+    dbMock.deleteConversation.mockReturnValue(true);
+  });
+
   it('AI_GET_CONFIG never leaks api key — only exposes hasApiKey flag', async () => {
     dbMock.getAiConfig.mockReturnValue({
       ...dbMock.getAiConfig(),
@@ -444,6 +517,17 @@ describe('ai:ipc handlers', () => {
       'u1',
       expect.objectContaining({ visionOverride: true })
     );
+  });
+
+  it('AI_SET_CONFIG 未传 visionOverride → 不携带该键（缺省不回写语义）', async () => {
+    dbMock.upsertAiConfig.mockReturnValue({ ...dbMock.getAiConfig() });
+    const result = (await getHandler(IPC_CHANNELS.AI_SET_CONFIG)(makeEvent(), {
+      userId: 'u1',
+      config: { model: 'm1' },
+    })) as { success: boolean };
+    expect(result.success).toBe(true);
+    const arg = dbMock.upsertAiConfig.mock.calls[0][1] as Record<string, unknown>;
+    expect(arg).not.toHaveProperty('visionOverride');
   });
 
   it('AI_CHAT streams chunk/done via webContents.send and persists assistant message', async () => {
@@ -888,6 +972,31 @@ describe('ai:ipc handlers', () => {
     expect(attachmentsPersistMock.persistIncomingAttachments).not.toHaveBeenCalled();
     const enqueued = queueMock.enqueue.mock.calls[0][0] as { payloadJson: string };
     expect(JSON.parse(enqueued.payloadJson).attachments).toBeUndefined();
+  });
+
+  it('AGENT_RUN 载荷带附件但落库结果为空 → payloadJson 不带 attachments 键', async () => {
+    initQueue();
+    attachmentsPersistMock.persistIncomingAttachments.mockResolvedValue([]);
+    const result = (await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
+      userId: 'u1',
+      conversationId: 'c1',
+      message: '[文件: x.pdf]',
+      attachments: [{ id: 'a1', fileName: 'x.pdf', fileType: 'file' as const }],
+    })) as { success: boolean };
+    expect(result.success).toBe(true);
+    const enqueued = queueMock.enqueue.mock.calls[0][0] as { payloadJson: string };
+    expect(JSON.parse(enqueued.payloadJson).attachments).toBeUndefined();
+  });
+
+  it('AGENT_RUN 队列未初始化 → 同步返回 network 错误', async () => {
+    // 不调 initQueue（afterEach cleanup 后 worker/queue 已清空）
+    const result = (await getHandler(IPC_CHANNELS.AGENT_RUN)(makeEvent(), {
+      userId: 'u1',
+      conversationId: 'c1',
+      message: 'hello',
+    })) as { success: boolean; code?: string };
+    expect(result.success).toBe(false);
+    expect(result.code).toBe('network');
   });
 
   it('AGENT_RUN 回执：图片相对路径 resolve 成绝对（R4，toImgSrc 转 media:// 不再 404）', async () => {
@@ -1486,6 +1595,20 @@ describe('attachment:open-source（B8 六-2）', () => {
     })) as { success: boolean; message?: string };
     expect(res.success).toBe(false);
     expect(res.message).toContain('File not found');
+  });
+
+  it('路径查询抛错 → success:false 透传（异常不外泄）', async () => {
+    dbMock.findAttachmentFilePath.mockImplementation(() => {
+      throw new Error('db error');
+    });
+    const handler = getHandler(IPC_CHANNELS.ATTACHMENT_OPEN_SOURCE);
+    const res = (await handler(makeEvent(), {
+      attachmentId: 'att-1',
+      userId: 'u1',
+    })) as { success: boolean; message?: string };
+    expect(res.success).toBe(false);
+    expect(res.message).toContain('db error');
+    expect(electronMock.shellOpenPath).not.toHaveBeenCalled();
   });
 });
 

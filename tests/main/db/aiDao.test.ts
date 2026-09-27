@@ -585,4 +585,18 @@ describe('ai DAO — vision_override 三态（D8）', () => {
     expect(row.visionOverride).toBe(true);
     expect(visionParam()).toBe(1);
   });
+
+  it('upsertAiConfig：既有 vision_override=0 且未传 → 保留 0（false 分支参数化）', () => {
+    fakeDbMock.setAiConfigRow({ user_id: 'u1', vision_override: 0 });
+    const row = upsertAiConfig('u1', { model: 'm1' });
+    expect(row.visionOverride).toBe(false);
+    expect(visionParam()).toBe(0);
+  });
+
+  it('upsertAiConfig：既有 NULL 且未传 → 回写 null（保持自动三态）', () => {
+    fakeDbMock.setAiConfigRow({ user_id: 'u1', vision_override: null });
+    const row = upsertAiConfig('u1', { model: 'm1' });
+    expect(row.visionOverride).toBeNull();
+    expect(visionParam()).toBeNull();
+  });
 });
