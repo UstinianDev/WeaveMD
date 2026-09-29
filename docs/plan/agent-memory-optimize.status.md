@@ -306,6 +306,17 @@
 | R4 Anthropic 丢 `tool` 行（L12） | **留第二批（另立）** | plan §2.2 / req §四 已明确划出本批范围 |
 | Electron smoke（`scripts/agent-smoke.cjs`） | **未验证，不硬跑** | 需 npx electron + 真实 key；plan §4「本批不新增 cjs」。status 剩余风险 4「fake DB 盲区」仍成立 |
 
+**R1/R2 修复结果（阶段 6.5 收尾，2026-09-29）**：
+
+| 项 | 改动 | RED（实测） | GREEN |
+|---|---|---|---|
+| R2 | `AgentTab.tsx` +32/−32 —— `isBlankToolTurn = role==='assistant' && hasToolCalls && content.trim()===''` 命中时只渲染 `AgentWorkflowCard`，气泡 JSX 由 `{!isBlankToolTurn && …}` 包裹；`:43`/`:51` 分页计数不变（卡片占同一槽位，每消息仍 1 个可见块） | `expected 4 to be 1` | `AIPanelSession.test.tsx` +2（正例 `toHaveLength(1)` / 反例 `toHaveLength(0)`） |
+| R1 | `queryPlanner.ts` +4 —— `extractEntityFromHistory` 循环内 `if (PRONOUN_RE.test(content)) continue;`（`PRONOUN_RE` 声明于 `:212`、函数体后，调用期求值无 TDZ） | 自指字符串 `not.toContain('知识库里的表现如何的')` | `searchKBHandler.test.ts` +41（自指反例 + 防过度修复守卫：`≥2` 条历史时改写仍生效）、`queryPlannerEnhanced.test.ts` +13 |
+
+**R1 方案取舍**：候选 A（`history.slice(0,-1)` 剔除当前问题）**已否决** —— 实测会打红 `searchKBHandler.test.ts:72-88`、`queryPlannerEnhanced.test.ts:83-88`/`:91-97` 共 3 条既有单条夹具断言（切尾后 history 为空，改写失效）；无条件跳过末位则打红 4 条直调用例。最终取「跳过自身以指代词开头的消息」，并以「≥2 条历史仍改写」的守卫防过度修复。
+
+**修复后实跑**：子集 **70 文件 / 1297 例**全绿（改动涉及的 3 个测试文件 + 关联子集），typecheck 0 error / eslint 0 error / `vite build` exit 0；全量口径以阶段 8 实跑为准（168 文件 / 3986 例）。覆盖要点见阶段 8 第 6 行：`queryPlanner.ts:144` s=27、`AgentTab.tsx:115/:125/:156` s=10。
+
 ## 阶段 7 合规核对（2026-09-29）
 
 产物 `agent-memory-optimize.compliance.md`（148 行）。**37 条：通过 31 / ❌ 不一致 2 / ⚠️ 需关注 4**。diff 基线经 `git log` 确认为 `968e056`（`dd19c47 ← 968e056`），权威口径 `git diff 968e056` = 54 文件 / +4298 −190。

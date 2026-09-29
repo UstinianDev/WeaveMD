@@ -66,7 +66,7 @@
   1. `agentContext.ts:321-334` 构建 `ToolCtx` 时注入主流程已读出的 `ConversationMessage[]`（`toolTypes.ts:40-72` 增加 `history` 字段）；
   2. `searchKBHandler` 把 history 传给 `detectAmbiguities`（`queryPlanner.ts` 的 `!history` 门 —— 行号随 B-d 实现漂移，实测在 `:460` / `:476`，不再是核验期的 `:432-434` —— 随之自然放行），并给 `detectAmbiguities` 内的 `length<2` 判定一并加上下文门（与 P0-3 口径一致）；
   3. 主管线在调 `detectAmbiguities` 前先 `resolveReferences(query, history)`，位置在 `sanitizeFtsQuery` **之前**且**纳入 cacheKey**；
-  4. **回退收紧**：历史空恒等返回；解不出明确实体则原样返回并标 unresolved，**取消 `extractRecentTopic` 的「最近 3 条 user 文本硬拼 `${topic}的`」回退**；改写结果仍含指代词或长度 <2 则不启用；
+  4. **回退收紧**：历史空恒等返回；解不出明确实体则原样返回并标 unresolved，**取消 `resolveReferences` 路径上的 `extractRecentTopic`「最近 3 条 user 文本硬拼 `${topic}的`」回退**（`extractRecentTopic` 函数本体保留给 `extractEntityFromHistory` 用，故该能力未从代码消失）；改写结果仍含指代词或长度 <2 则不启用。**（2026-09-29 追记）** 阶段 6.5 另修自指风险 R1：`extractEntityFromHistory` 跳过「自身以指代词开头」的消息，避免把当前问题当实体拼进改写结果；
   5. **双路召回**：原 query 与改写 query 走既有 `expandedQueries` + RRF 融合，不二选一。
 - **不改**：`knowledgeClarify.ts` 本体（见 P0-7）。
 - **风险**：L3

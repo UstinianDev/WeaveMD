@@ -4,6 +4,25 @@
 
 ## 已完成
 
+### agent-memory-optimize 第一批（2026-09-28 ~ 2026-09-29）
+
+L 级 / TDD strict，devflow 阶段 0~8 全完成，**门禁通过、阻塞 0**。修「指代追问被反问它指什么」的五条根因（P0-1~P0-7）。
+
+| 项 | 交付 |
+|----|------|
+| P0-1 | chat 意图保留历史与摘要（`agentContext` 删 `isChat` 双闸，与非 chat 统一窗口） |
+| P0-2 | 四处「忽略之前所有对话」反上下文文案同批改写（`agentPromptBuilder` 核心规则 + `CHAT_SYSTEM_PROMPT`、`contextManager` 摘要前缀、`agentContext:449`），防串题由「只回答最后一条」承担 |
+| P0-3 | `classifyIntent(input, ctx?: {hasHistory})` —— 长度门仅在无历史时生效，`confidence<0.7` 无条件保留 |
+| P0-4 | `tool_calls` 单事务落库：`appendToolTurnWithAssistant`（assistant upsert + tool `INSERT OR IGNORE`，id 带 `runId` 盐）+ 回读透传 `tool_calls` + 新建 `repairToolTurnPairing` + **拆掉渲染侧 6 处回写** |
+| P0-5 | 读取按轮次：`getRecentMessagesByRounds(3 轮, {byteBudget:45_000})`，20 行降为水位线、`rowid DESC` 兜底，取消行数硬上限 |
+| P0-6 | `searchKB` 接入历史代词改写：`toolCtx.history` 注入 + `resolveReferencesDetailed` 进主管线 + `expandedQueries` 双路 RRF 召回 |
+| P0-7 | `knowledgeClarify` 补 28 例测试（**源文件 0 改动**） |
+| 连带 | 阶段 6.5 修复两条本批引入回归：重载态空气泡（`AgentTab`）+ 指代改写自指（`queryPlanner`）—— **计划外改动，待用户追认** |
+
+**门禁实测**：typecheck 0 error / vitest 168 文件 3986 例（1 既知 flaky 隔离复核判过）/ eslint 0 error 106 warning / vite build 成功 / E2E 31f·103p·1s 与基线逐项相等 + 新增 2 条 passed / **改动行覆盖 19 文件 589/589 = 100%**。
+
+> 详见 [req](./requirements/agent-memory-optimize.req.md)（Q1~Q18 全对齐）/ [status](./plan/agent-memory-optimize.status.md) / [connectivity](./plan/agent-memory-optimize.connectivity.md)（12 链 0 断裂）/ [compliance](./plan/agent-memory-optimize.compliance.md) / [TDD 报告](./testing/agent-memory-optimize.tdd.md)
+
 ### doc-pipeline 文档处理流水线（2026-09-26 ~ 2026-09-27）
 
 M 级，8 模块 29 任务全量交付 + 遗留修复批次；需求见 [doc-pipeline.req](./requirements/doc-pipeline.req.md)。
@@ -162,7 +181,6 @@ L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/ar
 
 | 优先级 | 任务 | 说明 |
 |------|------|------|
-| 🔲 P0 | **Agent Memory 优化方向**（第一批） | 指代追问被反问"它指什么"的五条根因修复：chat 丢历史 / 「忽略之前所有对话」注入 / 短文本误判澄清 / tool_calls 不落库 / KB 代词消解无历史；7 模块 30 任务路线图、红线与逐任务拷问见 [direction](./plan/agent-memory-optimize.direction.md) |
 | 🔲 | vision 开关设置页 UI | `vision_override` 三态列与读写通道已通（D8），缺设置页开关；当前只能改库 |
 | 🔲 | anthropic 主循环分流 | `ai_config.protocol=anthropic` 时主循环仍按 OpenAI 形状调用（agent-cost-optimize 已建 `anthropicClient` 与 6 处非工具调用点分流，主循环未分流）——另立 issue |
 | 🔲 | OCR | doc-pipeline 决策基线明确本期无 OCR，无文本层 PDF 只能走 D 路线多模态 |
@@ -184,7 +202,11 @@ L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/ar
 | `allowSend` 无可达设置入口（R2） | `filterKbEgressResults` 生产不执行，仅数据层 fail-closed 兜底；`ai.settings.allowSend` 为孤儿 i18n 键 |
 | Linux AppImage 与 liteparse 排除互斥（R9） | `build.files` 排除 Linux 原生件是 Windows 瘦身手段，执行 Linux 打包前须先移除这两条排除（见 [packaging](./guide/packaging.md)） |
 | `AI_CHAT` 附件/入 KB 链休眠（R10） | 主进程 `ChatReqPayload` 有 `attachments`/`uploadToKb`，preload 类型缺字段，渲染层零调用方（Chat 模式已废弃） |
-| anthropic 主循环不分流 | `protocol=anthropic` 时主循环仍走 OpenAI 形状，已建的 `anthropicClient` 未接入主循环（另立 issue） |
+| anthropic 主循环不分流 + 丢 `tool` 行 | `protocol=anthropic` 时主循环仍走 OpenAI 形状；`anthropicClient.ts:217-234` / `anthropicCompat.ts:89-105` 静默丢 `tool` 角色与 `tool_calls`（agent-memory **R4**，agent-memory 另立 issue 范围） |
+| `AI_CHAT` 读到空 assistant 行 | 主进程 `chatHandlers.ts:345-353` 不透传 `tool_calls`，本批新形状会送 `content:''`；渲染层零调用点**当前不可达**（agent-memory **R3**，留第二批） |
+| `AI_CONVERSATION_GET` 未校验 `event.sender` | 以渲染进程传入 `userId` 为权威（`chatHandlers.ts:73-83`）——既有问题，agent-memory 阶段 7 A7 提出、非本批引入，留第二批 |
+| `getMessagesByConversationPaginated` 已无 `src/` 调用点 | 本批 P0-5 接线改用 `getRecentMessagesByRounds` 后成死代码（`db/ai.ts:948`）；`e2e/ai-agent-panel.spec.ts:371` 残留 `updateMessageToolCalls` mock（无行为影响，改动需重跑 E2E） |
+| fake DB 未验真实 `transaction()`/`iterate()` 语义 | better-sqlite3 在系统 Node 下 ABI 不兼容，vitest 只能用 fake；本批按 plan 未新增 cjs，`scripts/agent-smoke.cjs` 需 Electron + 真实 key 未跑 |
 | xlsx@0.18.5 依赖漏洞 | SheetJS 官方源修复版未发 npm，跟踪上游发布后再升级 |
 | v2 Normal 模式无查找高亮 | 编辑主区（Normal 模式） |
 | 撤销/重做后光标回到重建树首块 | 编辑主区（撤销/重做操作） |
