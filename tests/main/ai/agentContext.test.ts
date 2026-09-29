@@ -24,7 +24,9 @@ vi.mock('electron', () => ({
 const dbAiMock = vi.hoisted(() => ({
   appendMessage: vi.fn((m: Record<string, unknown>) => ({ id: 'm1', ...m })),
   getConversation: vi.fn(),
-  getMessagesByConversationPaginated: vi.fn(() => []),
+  getMessagesByConversationPaginated: vi.fn(
+    (): Array<{ role: string; content: string }> => []
+  ),
 }));
 vi.mock('@main/db/ai', () => dbAiMock);
 
@@ -44,6 +46,32 @@ vi.mock('@main/ai/secureConfig', () => ({
 
 // contextManager 用真实实现（依赖 llmClient/anthropicClient 已 mock；
 // agentMedia/mdImageResolver 还需其 KEEP_RECENT_IMAGES 导出）
+
+// A-b-1 P0-1：buildCompressed 透传真实实现，同时留出可断言的 spy 入口
+const contextManagerMock = vi.hoisted(() => ({ buildCompressed: vi.fn() }));
+vi.mock('@main/ai/contextManager', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@main/ai/contextManager')>();
+  return {
+    ...actual,
+    buildCompressed: (...args: Parameters<typeof actual.buildCompressed>) => {
+      contextManagerMock.buildCompressed(...args);
+      return actual.buildCompressed(...args);
+    },
+  };
+});
+
+// A-b-3 P0-3：classifyIntent 接线 hasHistory（长度门上下文门控）
+const intentRouterMock = vi.hoisted(() => ({ classifyIntent: vi.fn() }));
+vi.mock('@main/ai/intentRouter', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@main/ai/intentRouter')>();
+  return {
+    ...actual,
+    classifyIntent: (input: string, ctx?: { hasHistory?: boolean }) => {
+      intentRouterMock.classifyIntent(input, ctx);
+      return actual.classifyIntent(input, ctx);
+    },
+  };
+});
 
 vi.mock('@main/ai/llm/llmClient', () => ({
   streamChatCompletionWithRetry: vi.fn(),
@@ -73,6 +101,7 @@ vi.mock('@main/ai/toolRegistry', () => ({
 }));
 
 import { prepareAgentContext } from '@main/ai/agent/agentContext';
+import { buildCompressed } from '@main/ai/contextManager';
 import { classifyIntent } from '@main/ai/intentRouter';
 import { CHAT_SYSTEM_PROMPT } from '@main/ai/agent/agentPromptBuilder';
 import type { IAIConfig, IAttachmentMeta } from '@shared/ai';
@@ -380,5 +409,149 @@ describe('Bug B — prepareAgentContext 注入/降级判定链', () => {
     );
     const atts = lastAppendedAttachments();
     expect(atts?.[0].error).toBe('图片保存失败');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A-b-1：历史读取上提 + P0-1 chat 取数统一 + :449 反上下文行改写
+// ---------------------------------------------------------------------------
+
+describe('A-b-1 — chat 历史取数统一与 :449 反上下文行', () => {
+  const ALLOW_ALL = {
+    consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+  };
+
+  beforeEach(() => {
+    contextManagerMock.buildCompressed.mockClear();
+    dbAiMock.getConversation.mockReturnValue({
+      id: 'c1',
+      userId: 'u1',
+      mode: 'agent',
+      summary: '此前讨论了 WeaveMD 的导出能力与 MIME 映射',
+      createdAt: 'now',
+      updatedAt: 'now',
+    });
+    // 2 轮历史（user/assistant × 2），当前 user 消息由 prepareAgentContext 落库
+    dbAiMock.getMessagesByConversationPaginated.mockReturnValue([
+      { role: 'user', content: '上一轮问题一' },
+      { role: 'assistant', content: '上一轮回答一' },
+      { role: 'user', content: '上一轮问题二' },
+      { role: 'assistant', content: '上一轮回答二' },
+    ]);
+  });
+
+  it('P0-1：chat 意图下 buildCompressed 收到 history.length > 1 且 summary 非空', () => {
+    const ctx = runPrepare(makePayload(), ALLOW_ALL);
+    expect(ctx.intent.intent).toBe('chat');
+    expect(contextManagerMock.buildCompressed).toHaveBeenCalledTimes(1);
+    const args = contextManagerMock.buildCompressed.mock.calls[0] as Parameters<typeof buildCompressed>;
+    const historyArg = args[0];
+    expect(historyArg.length).toBeGreaterThan(1);
+    expect(historyArg.filter((m) => m.role === 'user').length).toBeGreaterThan(1);
+    expect(String(args[1])).toContain('导出能力');
+    // 端到端：历史确实进了发给 LLM 的消息序列
+    const flat = ctx.llmMessages
+      .map((m) => (typeof m.content === 'string' ? m.content : ''))
+      .join('\n');
+    expect(flat).toContain('上一轮问题一');
+    expect(flat).toContain('上一轮回答二');
+  });
+
+  it('历史读取发生在 classifyIntent / appendMessage 之前（读取上提）', () => {
+    runPrepare(makePayload(), ALLOW_ALL);
+    const readOrder = dbAiMock.getMessagesByConversationPaginated.mock.invocationCallOrder[0];
+    const appendOrder = dbAiMock.appendMessage.mock.invocationCallOrder[0];
+    expect(readOrder).toBeLessThan(appendOrder);
+  });
+
+  it(':449 反上下文行改写：不含「忽略之前的所有对话」，保留 :444 分隔行', () => {
+    const ctx = runPrepare(makePayload(), ALLOW_ALL);
+    const separator = ctx.llmMessages.filter(
+      (m) => m.role === 'system' && m.content === '=== 当前用户问题（必须回答此问题）==='
+    );
+    expect(separator).toHaveLength(1);
+
+    const anchor = ctx.llmMessages.filter(
+      (m) =>
+        m.role === 'system' &&
+        typeof m.content === 'string' &&
+        m.content.startsWith('【重要】')
+    );
+    expect(anchor).toHaveLength(1);
+    const text = String(anchor[0].content);
+    expect(text).not.toContain('忽略之前的所有对话');
+    expect(text).not.toContain('全新的独立问题');
+    expect(text).toContain('历史与摘要仅用于理解当前问题中的指代与上下文');
+    expect(text).toContain('只回答');
+  });
+
+  it('非 chat 意图仍走同一取数与压缩路径（零回归）', () => {
+    const ctx = runPrepare(makePayload({ message: '请帮我写一篇关于 SQLite 的技术文章' }), ALLOW_ALL);
+    expect(ctx.intent.intent).not.toBe('chat');
+    expect(contextManagerMock.buildCompressed).toHaveBeenCalledTimes(1);
+    const args = contextManagerMock.buildCompressed.mock.calls[0] as Parameters<typeof buildCompressed>;
+    expect(args[0].length).toBeGreaterThan(1);
+    expect(String(args[1])).toContain('导出能力');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A-b-3：classifyIntent(message, { hasHistory }) 接线（P0-3）
+// hasHistory 基于上提后的原始读取行（含 assistant 行），不基于 cleanup 之后的数组。
+// ---------------------------------------------------------------------------
+
+describe('A-b-3 — classifyIntent 接线 { hasHistory }', () => {
+  const ALLOW_ALL = {
+    consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+  };
+  // 零关键词命中 → 走 chat 兜底分支，长度门在 hasHistory 下失效
+  const SHORT_QUERY = '它有什么优势';
+
+  beforeEach(() => {
+    intentRouterMock.classifyIntent.mockClear();
+  });
+
+  it('会话含历史 assistant 行 → 以 { hasHistory:true } 调用，长度不触发澄清', () => {
+    dbAiMock.getMessagesByConversationPaginated.mockReturnValue([
+      { role: 'user', content: '上一轮问题' },
+      { role: 'assistant', content: '上一轮回答' },
+    ]);
+    const ctx = runPrepare(makePayload({ message: SHORT_QUERY }), ALLOW_ALL);
+    expect(intentRouterMock.classifyIntent).toHaveBeenCalledTimes(1);
+    expect(intentRouterMock.classifyIntent).toHaveBeenCalledWith(SHORT_QUERY, { hasHistory: true });
+    // 端到端：needsClarification 未因字数置位 → 仍走 CHAT_SYSTEM_PROMPT
+    expect(ctx.intent.needsClarification).not.toBe(true);
+    expect(ctx.llmMessages[0].content).toBe(CHAT_SYSTEM_PROMPT);
+  });
+
+  it('仅 user 孤立历史行（无 assistant）→ { hasHistory:false }，长度门照旧', () => {
+    dbAiMock.getMessagesByConversationPaginated.mockReturnValue([
+      { role: 'user', content: '上一轮问题' },
+    ]);
+    const ctx = runPrepare(makePayload({ message: SHORT_QUERY }), ALLOW_ALL);
+    expect(intentRouterMock.classifyIntent).toHaveBeenCalledWith(SHORT_QUERY, { hasHistory: false });
+    expect(ctx.intent.needsClarification).toBe(true);
+    expect(ctx.llmMessages[0].content).not.toBe(CHAT_SYSTEM_PROMPT);
+  });
+
+  it('空会话首轮 → { hasHistory:false }，行为与现状一致（澄清置位 → Agent 提示）', () => {
+    dbAiMock.getMessagesByConversationPaginated.mockReturnValue([]);
+    const ctx = runPrepare(makePayload({ message: SHORT_QUERY }), ALLOW_ALL);
+    expect(intentRouterMock.classifyIntent).toHaveBeenCalledWith(SHORT_QUERY, { hasHistory: false });
+    expect(ctx.intent.intent).toBe('chat');
+    expect(ctx.intent.needsClarification).toBe(true);
+    expect(ctx.llmMessages[0].content).not.toBe(CHAT_SYSTEM_PROMPT);
+    expect(String(ctx.llmMessages[0].content)).toContain('ask_question_card');
+  });
+
+  it('有历史时闲聊意图零回归：正常长度消息仍走 CHAT_SYSTEM_PROMPT', () => {
+    dbAiMock.getMessagesByConversationPaginated.mockReturnValue([
+      { role: 'assistant', content: '上一轮回答' },
+    ]);
+    const ctx = runPrepare(makePayload({ message: '你好，今天天气怎么样？' }), ALLOW_ALL);
+    expect(intentRouterMock.classifyIntent).toHaveBeenCalledWith('你好，今天天气怎么样？', {
+      hasHistory: true,
+    });
+    expect(ctx.llmMessages[0].content).toBe(CHAT_SYSTEM_PROMPT);
   });
 });

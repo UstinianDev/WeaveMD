@@ -684,7 +684,6 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
     searchConversations: async () => createSuccessResult([]),
     exportConversation: async () => ({ success: false }),
     editMessage: async () => ({ success: false, deletedMessages: 0, cancelledTasks: 0 }),
-    updateMessageToolCalls: async () => ({ success: false }),
     updateConversationSummary: async () => ({ success: false }),
     runAgent: async () => ({ success: false }),
     agentAbort: async () => ({ success: true }),

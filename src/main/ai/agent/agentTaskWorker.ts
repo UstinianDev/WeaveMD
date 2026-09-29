@@ -386,7 +386,7 @@ export class AgentTaskWorker {
       pinnedWeight: kbSettings?.pinnedWeight ?? row?.kbPinnedWeight,
     });
     return {
-      searchKb: async (u: string, q: string, opts?: { topK?: number; queryVector?: number[]; searchMode?: 'fts5' | 'vector' | 'hybrid' }) => {
+      searchKb: async (u: string, q: string, opts?: { topK?: number; queryVector?: number[]; searchMode?: 'fts5' | 'vector' | 'hybrid'; expandedQueries?: string[] }) => {
         const res = await searchKB(u, q, {
           topK: opts?.topK ?? persisted.topK,
           fuse: persisted.fuse,
@@ -394,6 +394,8 @@ export class AgentTaskWorker {
           threshold: persisted.threshold,
           queryVector: opts?.queryVector,
           searchMode: opts?.searchMode,
+          // P0-6 双路召回：原 query 必须透传，否则改写后的双路融合被静默丢弃
+          expandedQueries: opts?.expandedQueries,
         });
         // B11 八-1②：allowSend=false → 外发结果过滤到仅勾选授权附件（fail-closed）。
         // 这是 searchKB 结果走向 LLM 的唯一出口（preloader/citation 均继承此闭包）。

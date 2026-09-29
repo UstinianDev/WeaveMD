@@ -705,14 +705,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
           },
         ],
       }));
-      // 持久化 toolCalls 到 DB（主进程已落库 assistant 消息，此处补充 tool_calls 列）
-      if (hasToolCalls && conversationId) {
-        void window.weaveMD.ai
-          .updateMessageToolCalls(conversationId, currentToolCalls)
-          .catch((err) => {
-            console.warn('[agentStore] persist toolCalls failed:', err);
-          });
-      }
+      // P0-4/Q7：tool_calls 由主进程写入工具轮时落库，渲染侧不再回写（仅保留内存快照供本轮渲染）
     };
 
     const mgr = createStreamManager({

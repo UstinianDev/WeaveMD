@@ -218,52 +218,80 @@ const PRONOUN_RE = /^(它|这个|那个|前者|后者|上面提到的|该|那篇
 const CROSS_DOC_RE = /(那[篇个项]|前者|后者|它|该)(?:的)?(作者|创建|修改|内容|标题|属性|信息)/i;
 
 /**
- * 指代消解：替换代词为最近主题词或历史实体。
- * S12: 支持中文指代词扩展 + 跨文档引用实体提取。
+ * 指代消解结果。
+ * resolved=false 时 query 必为原样输入（未启用改写）。
  */
-export function resolveReferences(query: string, history?: ConversationMessage[]): string {
-  if (!history || history.length === 0) return query;
+export interface ResolvedQuery {
+  /** 用于检索的 query（未启用改写时等于入参）。 */
+  query: string;
+  /** 是否发生了有效改写。 */
+  resolved: boolean;
+}
+
+/**
+ * 判定一次改写是否可用（Q12 回退收紧）：
+ * - 改写结果长度 < 2 → 不启用
+ * - 去掉被替换的指代词后，残余部分仍以指代词开头 → 不启用（仍需澄清）
+ */
+function isUsableRewrite(replaced: string, residual: string): boolean {
+  if (replaced.trim().length < 2) return false;
+  if (PRONOUN_RE.test(residual.trim())) return false;
+  return true;
+}
+
+/**
+ * 指代消解（带是否改写的判定）：替换代词为历史中的明确实体。
+ * S12: 支持中文指代词扩展 + 跨文档引用实体提取。
+ *
+ * Q12 回退收紧：
+ * - 历史空 → 恒等返回
+ * - 解不出明确实体 → 原样返回 + resolved:false（**已取消** extractRecentTopic
+ *   「最近 3 条 user 文本硬拼 `${topic}的`」回退）
+ * - 改写结果仍含指代词或长度 <2 → 不启用
+ */
+export function resolveReferencesDetailed(
+  query: string,
+  history?: ConversationMessage[]
+): ResolvedQuery {
+  if (!history || history.length === 0) return { query, resolved: false };
 
   const q = query.trim();
 
   // S12: 跨文档引用检测
   const crossMatch = q.match(CROSS_DOC_RE);
   if (crossMatch) {
-    const pronoun = crossMatch[1];
-    const entity = extractEntityFromHistory(history, pronoun);
+    const entity = extractEntityFromHistory(history, crossMatch[1]);
     if (entity) {
-      const attribute = crossMatch[2];
-      // 替换整个跨文档引用模式
-      const replaced = q.replace(CROSS_DOC_RE, `${entity}的${attribute}`);
-      if (replaced !== q) return replaced;
-    }
-  }
-
-  // 原有指代词替换 + 扩展
-  const topic = extractRecentTopic(history);
-  if (!topic) {
-    // S12: 如果没有简单主题，尝试从历史中提取实体
-    const pronounMatch = q.match(PRONOUN_RE);
-    if (pronounMatch) {
-      const entity = extractEntityFromHistory(history, pronounMatch[1]);
-      if (entity) {
-        return q.replace(PRONOUN_RE, `${entity}的`);
+      const replaced = q.replace(CROSS_DOC_RE, `${entity}的${crossMatch[2]}`);
+      const residual = q.replace(CROSS_DOC_RE, '');
+      if (replaced !== q && isUsableRewrite(replaced, residual)) {
+        return { query: replaced, resolved: true };
       }
     }
-    return q;
   }
 
-  // 如果查询以指代词开头，替换为主题词
-  if (PRONOUN_RE.test(q)) {
-    // S12: "前者"/"后者" 使用更精确的实体提取
-    const pronounMatch = q.match(PRONOUN_RE);
-    if (pronounMatch && /^(前者|后者)$/.test(pronounMatch[1].trim())) {
-      const entity = extractEntityFromHistory(history, pronounMatch[1].trim());
-      if (entity) return q.replace(PRONOUN_RE, `${entity}的`);
+  // 原有指代词替换 + 扩展（仅接受能解出明确实体的结果）
+  const pronounMatch = q.match(PRONOUN_RE);
+  if (pronounMatch) {
+    const entity = extractEntityFromHistory(history, pronounMatch[1].trim());
+    if (entity) {
+      const residual = q.replace(PRONOUN_RE, '');
+      const replaced = `${entity}的${residual}`;
+      if (replaced !== q && isUsableRewrite(replaced, residual)) {
+        return { query: replaced, resolved: true };
+      }
     }
-    return q.replace(PRONOUN_RE, `${topic}的`);
   }
-  return q;
+
+  return { query, resolved: false };
+}
+
+/**
+ * 指代消解（向后兼容）：只返回改写后的 query。
+ * S12: 委托 resolveReferencesDetailed。
+ */
+export function resolveReferences(query: string, history?: ConversationMessage[]): string {
+  return resolveReferencesDetailed(query, history).query;
 }
 
 // ---------------------------------------------------------------------------
@@ -444,8 +472,8 @@ export function detectAmbiguities(query: string, history?: ConversationMessage[]
     ambiguities.push('broad_scope');
   }
 
-  // 太短
-  if (q.length < 2) {
+  // 太短（P0-6 / 与 P0-3 口径一致：有历史时上下文补足主语，不再置位）
+  if (q.length < 2 && (!history || history.length === 0)) {
     ambiguities.push('too_short');
   }
 

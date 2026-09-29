@@ -754,6 +754,64 @@ describe('agentStore agent 模式', () => {
     expect(lastAssistant?.toolCalls?.[0]?.status).toBe('ok');
   });
 
+  it('B-e（Q7）：done 后不再回写 tool_calls 到 DB，内存快照保留', async () => {
+    let streamCb: ((evt: IAgentStreamEvent) => void) | null = null;
+    (
+      window.weaveMD.ai.onStream as unknown as { mockImplementation: (fn: (...a: unknown[]) => unknown) => void }
+    ).mockImplementation((cb: unknown) => {
+      streamCb = cb as (evt: IAgentStreamEvent) => void;
+      return () => {
+        streamCb = null;
+      };
+    });
+    // 本地 spy：即便 tests/setup.ts 已删该 mock 项，仍能断言「回写未被调用」
+    const updateSpy = vi.fn(async () => ({ success: true }));
+    (window.weaveMD.ai as unknown as Record<string, unknown>).updateMessageToolCalls = updateSpy;
+
+    (window.weaveMD.ai as unknown as { createConversation: ReturnType<typeof vi.fn> }).createConversation.mockResolvedValue({
+      success: true,
+      data: { id: 'agent-conv-3', userId: 'u1', mode: 'agent', summary: '', createdAt: '', updatedAt: '' },
+    });
+    (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent.mockResolvedValue({
+      success: true,
+      data: { conversationId: 'agent-conv-3', assistantId: 'a1', roundsUsed: 1, intent: null },
+    });
+
+    useAgentStore.setState({
+      config: remoteConfig,
+      modelConfigs: mockModelConfigs,
+      embeddingConfig: mockEmbeddingConfig,
+      embeddingConnectionOk: true,
+      searchConfig: mockSearchConfig,
+      searchConnectionOk: true,
+      consent: grantedConsent,
+      activeMode: 'agent',
+    });
+    const sendPromise = useAgentStore.getState().sendAgentMessage('查找');
+    await new Promise((r) => setTimeout(r, 0));
+
+    const emit = (evt: IAgentStreamEvent) => streamCb?.(evt);
+    emit({
+      type: 'tool',
+      conversationId: 'agent-conv-3',
+      toolCallId: 'tc1',
+      name: 'searchKB',
+      args: '{"query":"weavemd"}',
+      status: 'ok',
+      result: '{"fileName":"a.md"}',
+    });
+    emit({ type: 'done', conversationId: 'agent-conv-3' });
+    await sendPromise;
+
+    // P0-4 / Q7：渲染侧回写链已拆除，不再出现第二处写入点
+    expect(updateSpy).not.toHaveBeenCalled();
+    // 内存 toolCalls 快照保留（agentStore.ts:704）
+    const lastAssistant = useAgentStore.getState().messages.filter((m) => m.role === 'assistant').at(-1);
+    expect(lastAssistant?.toolCalls).toHaveLength(1);
+    expect(lastAssistant?.toolCalls?.[0]?.name).toBe('searchKB');
+    delete (window.weaveMD.ai as unknown as Record<string, unknown>).updateMessageToolCalls;
+  });
+
   it('reset 清空 agent 扩展状态（toolCalls/intentCard/kbStatus）', () => {
     useAgentStore.setState({
       toolCalls: [{ toolCallId: 'tc1', name: 'searchKB', args: '{}', status: 'ok' }],

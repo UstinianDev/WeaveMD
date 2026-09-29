@@ -28,6 +28,10 @@ export const KEEP_RECENT_IMAGES = 3;
 export const IMAGE_DEGRADED_PLACEHOLDER =
   '[图片已省略：超出上下文压缩保留上限（最近 3 张），如需查看请重新发送该图片]';
 
+/** P0-2：摘要前缀统一措辞——历史仅供指代消解，不再下达反上下文指令。 */
+export const SUMMARY_USAGE_NOTE =
+  '历史与摘要仅用于理解当前问题中的指代与上下文，不要延续上一轮未完成的作答';
+
 /** content → 文本（估算/摘要用；图片 part 计为 [图片] 占位）。 */
 export function contentToText(content: MessageContent): string {
   if (typeof content === 'string') return content;
@@ -132,7 +136,7 @@ export function buildCompressed(
   const head: LlmMessage[] = summary
     ? [{
         role: 'system',
-        content: `以下为历史摘要（仅供参考，不要延续之前的问题回答）：${summary}`,
+        content: `以下为历史摘要（${SUMMARY_USAGE_NOTE}）：${summary}`,
       }]
     : [];
   return [...head, ...tail];

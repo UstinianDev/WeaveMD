@@ -71,7 +71,16 @@ describe('contextManager.buildCompressed', () => {
 
   it('returns only summary system when no keep rounds', () => {
     const out = buildCompressed([], 'S', 0);
-    expect(out).toEqual([{ role: 'system', content: '以下为历史摘要（仅供参考，不要延续之前的问题回答）：S' }]);
+    expect(out).toHaveLength(1);
+    const head = out[0];
+    expect(head.role).toBe('system');
+    expect(head.content).toContain('以下为历史摘要');
+    expect(head.content).toContain('S');
+    // P0-2：摘要前缀改为统一措辞，移除反上下文表述
+    expect(head.content).toContain('历史与摘要仅用于理解当前问题中的指代与上下文，不要延续上一轮未完成的作答');
+    expect(head.content).not.toContain('忽略之前的所有对话');
+    expect(head.content).not.toContain('独立的新');
+    expect(head.content).not.toContain('不要延续之前的问题回答');
   });
 
   it('keeps recent N rounds of user/assistant original text below summary', () => {

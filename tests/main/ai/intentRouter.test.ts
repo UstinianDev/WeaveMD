@@ -86,4 +86,33 @@ describe('intentRouter.classifyIntent', () => {
     expect(res.intent).toBe('rewrite');
     expect(res.confidence).toBeGreaterThanOrEqual(0.5);
   });
+
+  it('P0-3: 有历史时零命中 chat 兜底不再被长度门触发', () => {
+    // 「它有什么优势」6 字，零关键词命中 -> 落 chat 兜底；有历史可依时不得仅凭字数置位
+    const res = classifyIntent('它有什么优势', { hasHistory: true });
+    expect(res.intent).toBe('chat');
+    expect(res.needsClarification ?? false).toBe(false);
+  });
+
+  it('P0-3: 无历史 / 缺省调用保持现状（仍需澄清）', () => {
+    expect(classifyIntent('它有什么优势', { hasHistory: false }).needsClarification).toBe(true);
+    expect(classifyIntent('它有什么优势').needsClarification).toBe(true);
+  });
+
+  it('P0-3: length<6 长度门仅在无历史时生效', () => {
+    // 单关键词命中，confidence=1
+    expect(classifyIntent('改一下', { hasHistory: false }).needsClarification).toBe(true);
+    expect(classifyIntent('改一下').needsClarification).toBe(true);
+    expect(classifyIntent('改一下', { hasHistory: true }).needsClarification ?? false).toBe(false);
+  });
+
+  it('P0-3: confidence<0.85 && length<10 长度门仅在无历史时生效', () => {
+    // 修改/优化/整理 3 命中 + tech 1 命中 -> 0.75，长度 8
+    expect(classifyIntent('修改优化整理代码', { hasHistory: false }).needsClarification).toBe(true);
+    expect(classifyIntent('修改优化整理代码', { hasHistory: true }).needsClarification ?? false).toBe(false);
+  });
+
+  it('P0-3: confidence < 0.7 在有历史时无条件保留', () => {
+    expect(classifyIntent('写一个 react 组件', { hasHistory: true }).needsClarification).toBe(true);
+  });
 });

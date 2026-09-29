@@ -24,7 +24,6 @@ import {
   listConversationsByUser,
   searchConversations,
   updateConversationSummary,
-  updateLatestAssistantToolCalls,
   updateMessageContent,
 } from '../../db/ai';
 import { cancelPendingByConversation } from '../../db/agentTaskDao';
@@ -207,21 +206,6 @@ export function registerChatHandlers(): void {
         return {
           success: false,
           message: `Edit message failed: ${error instanceof Error ? error.message : String(error)}`,
-        };
-      }
-    }
-  );
-
-  // --- update tool_calls snapshot on the latest assistant message ---
-  ipcMain.handle(
-    IPC_CHANNELS.AI_MESSAGE_UPDATE_TOOL_CALLS,
-    (_event, { conversationId, toolCalls }: { conversationId: string; toolCalls: unknown[] }) => {
-      try {
-        return { success: updateLatestAssistantToolCalls(conversationId, toolCalls as never) };
-      } catch (error) {
-        return {
-          success: false,
-          message: `Update toolCalls failed: ${error instanceof Error ? error.message : String(error)}`,
         };
       }
     }

@@ -214,7 +214,6 @@ export function prepareAgentContext(
     throw Object.assign(new Error('Conversation not found'), { code: 'config_incomplete' });
   }
 
-  const intent = classifyIntent(message);
   const baseUrl = config.remoteBaseUrl;
   const model = config.model?.trim() || 'deepseek-chat';
   let apiKey: string | undefined;
@@ -225,6 +224,35 @@ export function prepareAgentContext(
   // Bug B 发送前最终判定链：visionOverride 覆盖 → 已知能力表 → 未知乐观注入
   // （注入与识别两链路统一经 resolveVisionSupport，来源一致）
   const supportsImages = resolveVisionSupport(model, config.visionOverride);
+
+  // ---- A-b-1：历史读取上提（先于 classifyIntent，以便后续拿到「是否存在历史」）----
+  // 当前 user 消息此时尚未 appendMessage，故 dbRows 全部是历史行；
+  // injectImagesIntoMessages 显式传 treatLastAsCurrent:false（末行不再代表当前轮，
+  // 当前轮图片由下方 currentUserImages 全量注入）。
+  // B6 五-1/五-3：图片 part 注入（历史限最近 3 张）
+  const summary = ownedConv?.summary || '';
+  const dbRows = getMessagesByConversationPaginated(convId, userId, 20, 0)
+    .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
+    .map((m) => ({
+      role: m.role,
+      content: m.content,
+      ...(m.toolCallId ? { tool_call_id: m.toolCallId } : {}),
+      ...(m.attachments ? { attachments: m.attachments } : {}),
+    }));
+  const historyInjection = injectImagesIntoMessages(dbRows, {
+    supportsVision: supportsImages,
+    treatLastAsCurrent: false,
+  });
+  const rawDbMessages = historyInjection.messages.filter(
+    (m) => contentToText(m.content).trim().length > 0
+  );
+
+  // A-b-3 P0-3：hasHistory 读原始读取行（dbRows，含本轮之前的全部行），
+  // 不读 cleanupIncompleteMessages 之后的数组 —— 清理会删孤立 user 行，
+  // 且当前 user 消息尚未落库，故新会话首轮恒为 false（与现状一致）。
+  const hasHistory = dbRows.some((m) => m.role === 'assistant');
+
+  const intent = classifyIntent(message, { hasHistory });
 
   // Bug B 降级上屏：模型不支持 vision 时，当前轮图片附件补写失败态与原因
   // （识别链已标过的保留原错误；识别链异常被吞时由本处兜底）→ attachments_json
@@ -347,28 +375,6 @@ export function prepareAgentContext(
     kbAttachmentEgressGranted
   );
 
-  const summary = ownedConv?.summary || '';
-
-  // chat 意图：不加载历史对话和摘要，每次独立回答（避免历史错误答案污染）
-  const isChat = intent.intent === 'chat';
-
-  // 从 DB 加载消息（性能优化：分页加载最近 20 条，避免长对话时全表扫描）
-  // 当前 user 消息已由 appendMessage 保存，会出现在查询结果中
-  // B6 五-1/五-3：图片 part 注入（当前轮全量，历史限最近 3 张）；
-  // supportsImages 已在 appendMessage 前按 Bug B 判定链算出
-  const dbRows = getMessagesByConversationPaginated(convId, userId, 20, 0)
-    .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
-    .map((m) => ({
-      role: m.role,
-      content: m.content,
-      ...(m.toolCallId ? { tool_call_id: m.toolCallId } : {}),
-      ...(m.attachments ? { attachments: m.attachments } : {}),
-    }));
-  const historyInjection = injectImagesIntoMessages(dbRows, { supportsVision: supportsImages });
-  const rawDbMessages = historyInjection.messages.filter(
-    (m) => contentToText(m.content).trim().length > 0
-  );
-
   // 当前轮消息：图片全量注入（不受历史限额影响）
   const currentUserImages = buildImageParts(
     (payload.attachments ?? []).filter((a) => a.type === 'image'),
@@ -403,25 +409,19 @@ export function prepareAgentContext(
     ? `${message}\n\n${mdImageContext.notes.join('\n')}`
     : message;
 
-  // 关键修复：cleanupIncompleteMessages 会移除末尾无 assistant 跟随的 user 消息，
-  // 但当前 user 消息（刚由 appendMessage 保存）还没有 assistant 回复，
-  // 会被当作"孤立消息"移除。因此需要先提取当前 user 消息，清理后重新添加。
+  // A-b-1：历史读取已上提到 appendMessage 之前，dbRows 不含当前 user 消息，
+  // 故不再需要 slice(0,-1) 剔除末行 —— 恒走 cleanupIncompleteMessages
+  // （清理上一轮崩溃残留、末尾无 assistant 跟随的孤立 user），再追加当前消息。
   const currentUserMsg: LlmMessage = currentParts.length
     ? { role: 'user', content: [{ type: 'text', text: userText }, ...currentParts] }
     : { role: 'user', content: userText };
-  const historyMsgs = rawDbMessages.length > 0 && rawDbMessages[rawDbMessages.length - 1].role === 'user'
-    ? cleanupIncompleteMessages(rawDbMessages.slice(0, -1))  // 移除最后一条（当前 user），清理后再加回
-    : cleanupIncompleteMessages(rawDbMessages);
+  const historyMsgs = cleanupIncompleteMessages(rawDbMessages);
   const allDbMessages = [...historyMsgs, currentUserMsg];
 
-  // chat 意图：只保留当前用户消息（最后一条 user 消息），丢弃历史
-  const history: LlmMessage[] = isChat
-    ? [currentUserMsg]
-    : allDbMessages;
-
-  let llmMessages: AgentLlmMessage[] = (!isChat && summary)
-    ? buildCompressed(history, summary, KEEP_RECENT_ROUNDS)
-    : [...history];
+  // P0-1（Q5=A）：chat 与其他意图统一取数与压缩路径 —— 历史与摘要一律进上下文，
+  // 防串题改由注入块的「只回答最后一条」条款承担。
+  const history: LlmMessage[] = allDbMessages;
+  let llmMessages: AgentLlmMessage[] = buildCompressed(history, summary, KEEP_RECENT_ROUNDS);
 
   // Attention Anchoring 技术（来自 OpenAI/LangChain 最佳实践）：
   // 1. 在最后一条 user 消息前注入分隔标记（recency bias：最近的 token 权重更高）
@@ -446,7 +446,7 @@ export function prepareAgentContext(
     // 在最后一条 user 消息后插入强调指令（recency bias：最后的指令权重最高）
     llmMessages.splice(lastUserIdx + 2, 0, {
       role: 'system',
-      content: '【重要】请只回答上面的用户问题。忽略之前的所有对话内容和历史摘要。这是全新的独立问题。',
+      content: '【重要】请只回答最后一条用户消息。历史与摘要仅用于理解当前问题中的指代与上下文，不要延续上一轮未完成的作答。',
     });
   }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   classifyIntent,
   resolveReferences,
+  resolveReferencesDetailed,
   detectAmbiguities,
   expandQuery,
   understandQuery,
@@ -95,13 +96,15 @@ describe('S12 指代消解增强', () => {
     expect(resolved).toContain('作者');
   });
 
-  it('"它的" 代指消解（跨文档引用）', () => {
+  it('"它的" 代指消解（跨文档引用）→ 解不出明确实体则原样返回 + resolved:false（Q12 取消硬拼回退）', () => {
     const history: ConversationMessage[] = [
       { role: 'user', content: 'WeaveMD项目的架构是怎样的？' },
     ];
-    const resolved = resolveReferences('它的主要模块有哪些？', history);
-    expect(resolved).not.toBe('它的主要模块有哪些？');
-    expect(resolved).toContain('WeaveMD');
+    // 历史里没有可提取的明确实体（无 关于/对于/在/讨论、无并列/书名号结构）
+    expect(resolveReferences('它的主要模块有哪些？', history)).toBe('它的主要模块有哪些？');
+    const detailed = resolveReferencesDetailed('它的主要模块有哪些？', history);
+    expect(detailed.query).toBe('它的主要模块有哪些？');
+    expect(detailed.resolved).toBe(false);
   });
 
   it('无历史时，指代词查询原样返回', () => {
@@ -361,5 +364,86 @@ describe('S12 向后兼容：原 5 类意图不退化', () => {
     expect(result.intents.length).toBeGreaterThan(1);
     // 无歧义 + 多意图 = 0.75
     expect(result.confidence).toBe(0.75);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 测试 7: resolveReferencesDetailed（P0-6 / Q12 回退收紧）
+// ---------------------------------------------------------------------------
+
+describe('resolveReferencesDetailed（P0-6 Q12 回退收紧）', () => {
+  it('历史空 → 恒等返回 + resolved:false', () => {
+    expect(resolveReferencesDetailed('它的优势是什么？')).toEqual({
+      query: '它的优势是什么？',
+      resolved: false,
+    });
+    expect(resolveReferencesDetailed('它的优势是什么？', [])).toEqual({
+      query: '它的优势是什么？',
+      resolved: false,
+    });
+  });
+
+  it('解不出明确实体 → 恒等返回 + resolved:false（不再用最近主题词硬拼）', () => {
+    const history: ConversationMessage[] = [
+      { role: 'user', content: 'WeaveMD项目的架构是怎样的？' },
+    ];
+    expect(resolveReferencesDetailed('它有什么优势', history)).toEqual({
+      query: '它有什么优势',
+      resolved: false,
+    });
+  });
+
+  it('能解出明确实体 → 改写并 resolved:true', () => {
+    const history: ConversationMessage[] = [
+      { role: 'user', content: '请帮我分析关于WeaveMD' },
+    ];
+    const detailed = resolveReferencesDetailed('它有什么优势', history);
+    expect(detailed.resolved).toBe(true);
+    expect(detailed.query).toContain('WeaveMD');
+    expect(detailed.query).not.toBe('它有什么优势');
+  });
+
+  it('改写残余仍含指代词 → 不启用（恒等返回）', () => {
+    const history: ConversationMessage[] = [
+      { role: 'user', content: '请帮我分析关于WeaveMD' },
+    ];
+    const detailed = resolveReferencesDetailed('它这个有什么优势', history);
+    expect(detailed.resolved).toBe(false);
+    expect(detailed.query).toBe('它这个有什么优势');
+  });
+
+  it('resolveReferences 委托 resolveReferencesDetailed（返回 query 字段）', () => {
+    const history: ConversationMessage[] = [
+      { role: 'user', content: '请帮我分析关于WeaveMD' },
+    ];
+    expect(resolveReferences('它有什么优势', history)).toBe(
+      resolveReferencesDetailed('它有什么优势', history).query
+    );
+    expect(resolveReferences('它有什么优势')).toBe('它有什么优势');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 测试 8: too_short 上下文门（P0-6，与 P0-3 口径一致）
+// ---------------------------------------------------------------------------
+
+describe('detectAmbiguities — too_short 上下文门', () => {
+  it('无历史 → 过短查询仍标记 too_short', () => {
+    expect(detectAmbiguities('它')).toContain('too_short');
+  });
+
+  it('有历史 → 过短查询不再标记 too_short', () => {
+    const history: ConversationMessage[] = [
+      { role: 'user', content: 'React和Vue有什么区别？' },
+    ];
+    expect(detectAmbiguities('它', history)).not.toContain('too_short');
+  });
+
+  it('missing_subject 判定不受 history 影响（保持原状）', () => {
+    const history: ConversationMessage[] = [
+      { role: 'user', content: 'React和Vue有什么区别？' },
+    ];
+    expect(detectAmbiguities('abc', history)).toContain('missing_subject');
+    expect(detectAmbiguities('abc')).toContain('missing_subject');
   });
 });

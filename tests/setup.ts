@@ -68,7 +68,6 @@ const mockWeaveMD = {
     createConversation: vi.fn(),
     deleteConversation: vi.fn(),
     updateConversationSummary: vi.fn(),
-    updateMessageToolCalls: vi.fn(async () => ({ success: true })),
     runAgent: vi.fn(),
     agentAbort: vi.fn(),
     rewritePreview: vi.fn(),

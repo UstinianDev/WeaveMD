@@ -11,3 +11,10 @@
 - [doc-pipeline B10 完成与打包验证坑](doc-pipeline-b10-done.md) — B10 三 commit 至 bc34ef3、下一任务 B11/B12；asar 288→85.93MB、Q5 验证通过、v24 排除双口径 + sqlite-vec 打包降级遗留
 - [doc-pipeline B11 完成与外发过滤结构](doc-pipeline-b11-done.md) — B11 两 commit 至 b1ed1f1、下一任务 B12；过滤必须包 deps.searchKb（preloader 覆盖 toolCtx）+ D5b 计划缺口 + FakeDb run 的 sql 是闭包变量
 - [doc-pipeline remedial 完成与裁定/fs-mock 坑](doc-pipeline-remedial-done.md) — remedial 11 commit 至 e6bdb6e、R3 本会话豁免跨会话恒拦；vi.mock('fs') 打不进 agentMedia 用真文件
+- [devflow 批次并行子代理的门禁归属](project_devflow_parallel_subagents.md) — 同工作树并行改；typecheck 报错先按路径归属自己 vs 他人
+- [intentRouter 造用例的子串命中坑](project_intentrouter_test_input_pitfall.md) — 「缩写/扩写」被 create 单字「写」命中拉低 confidence；false 断言用 ?? false
+- [全量跑的耗时断言 flaky](project_fullsuite_flaky_perf_tests.md) — cacheMonitor「10万次<50ms」并行下偶发红，单跑必绿→复跑判过
+- [agent-memory A-a(P0-2) 完成与措辞取舍](agent-memory-a-a-done.md) — 统一句四处落位、规则3/4 填充理由、摘要前缀不含防串题条款
+- [A-b-3 hasHistory 接线完成与断言形态坑](project_ab3_haspitfalls.md) — dbRows 判 assistant 行；chat 兜底分支返回显式 false 非省略
+- [agent-memory B-f(P0-7) 完成与口径坑](agent-memory-optimize-b-f-done.md) — 模板是「」非『』；0.5/0.6 两阈值独立；两个不可达分支别为覆盖率改源码
+- [agent-memory B-d(P0-6) 完成与回退取舍](agent-memory-b-d-done.md) — 代词闸判残余串非整串；Q12「它的」改恒等+resolved:false；coverage.include 须空格形式 + reportsDirectory 隔离

@@ -3,6 +3,7 @@
 // ============================================
 
 import type { IKbSearchResult } from '@shared/ai';
+import type { ConversationMessage } from './knowledge/queryPlanner';
 
 export type ToolStatus = 'ok' | 'error';
 
@@ -28,6 +29,8 @@ export type SearchKbFn = (
     queryVector?: number[];
     /** 搜索模式：fts5 / vector / hybrid。 */
     searchMode?: 'fts5' | 'vector' | 'hybrid';
+    /** P0-6 双路召回：代词改写前的原 query，与改写结果一起走 RRF 融合。 */
+    expandedQueries?: string[];
   }
 ) => Promise<{
   refused: boolean;
@@ -69,6 +72,11 @@ export interface ToolCtx {
    * 该字段缺失或 false 一律拒「附件外发未授权」。
    */
   attachmentEgressAllowed?: boolean;
+  /**
+   * P0-6 / Q10：主流程已读出的对话历史（由 agentContext 注入，工具内零额外 DB 读）。
+   * searchKB 据此做代词改写与歧义检测的历史门控。
+   */
+  history?: ConversationMessage[];
 }
 
 /** 工具处理器签名。 */

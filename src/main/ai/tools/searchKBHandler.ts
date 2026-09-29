@@ -1,6 +1,7 @@
 import type { ToolCtx, ToolResult } from '../toolTypes';
 import type { IQueryUnderstanding } from '@shared/ai/kb';
-import { detectAmbiguities, classifyIntent } from '../knowledge/queryPlanner';
+import type { ConversationMessage } from '../knowledge/queryPlanner';
+import { detectAmbiguities, classifyIntent, resolveReferencesDetailed } from '../knowledge/queryPlanner';
 import { buildClarificationContext } from '../knowledge/knowledgeClarify';
 import { getCachedHydeResult, setCachedHydeResult } from '../knowledge/searchCache';
 
@@ -12,6 +13,8 @@ import { getCachedHydeResult, setCachedHydeResult } from '../knowledge/searchCac
  * 从搜索结果构建最小化 IQueryUnderstanding。
  * 用于在搜索被拒或无结果时触发澄清检测。
  * confidence 基于最佳搜索得分（0~1 映射），歧义检测走 queryPlanner 规则引擎。
+ *
+ * P0-6：history 透传 detectAmbiguities（代词/过短判定的历史门控随之放行）。
  */
 function buildMinimalUnderstanding(
   query: string,
@@ -20,9 +23,10 @@ function buildMinimalUnderstanding(
     threshold: number;
     best: { score: number } | null;
     results: Array<{ score: number }>;
-  }
+  },
+  history?: ConversationMessage[]
 ): IQueryUnderstanding {
-  const ambiguities = detectAmbiguities(query);
+  const ambiguities = detectAmbiguities(query, history);
   const intents = classifyIntent(query);
   const primaryIntent = intents[0] ?? 'fact';
 
@@ -62,32 +66,37 @@ export async function handleSearchKB(args: Record<string, unknown>, ctx: ToolCtx
     : undefined;
   const hyde = args.hyde === true;
 
+  // P0-6: 代词改写必须发生在 sanitizeFtsQuery 之前（kbSearch 内部清洗），并作为检索 query
+  const { query: effectiveQuery, resolved } = resolveReferencesDetailed(query, ctx.history);
+
   // HyDE：先生成假设性文档 embedding，再用于向量检索
   let queryVector: number[] | undefined;
   if (hyde && ctx.generateHydeVector) {
     // S9: HyDE 结果缓存（10 分钟 TTL），缓存键 = userId + query
-    const cached = getCachedHydeResult(ctx.userId, query);
+    const cached = getCachedHydeResult(ctx.userId, effectiveQuery);
     if (cached) {
       queryVector = cached;
     } else {
-      const vec = await ctx.generateHydeVector(query);
+      const vec = await ctx.generateHydeVector(effectiveQuery);
       if (vec) {
         queryVector = vec;
-        setCachedHydeResult(ctx.userId, query, vec);
+        setCachedHydeResult(ctx.userId, effectiveQuery, vec);
       }
     }
   }
 
-  const res = await ctx.searchKb(ctx.userId, query, {
+  const res = await ctx.searchKb(ctx.userId, effectiveQuery, {
     topK,
     queryVector,
     searchMode,
+    // P0-6 双路召回：改写发生时原 query 走 expandedQueries + RRF，不二选一
+    expandedQueries: resolved ? [query] : undefined,
   });
 
   // R4: 搜索被拒或无结果时，检测是否需要澄清
   let clarificationContext: string | null = null;
   if (res.refused || (res.results && res.results.length === 0)) {
-    const understanding = buildMinimalUnderstanding(query, res);
+    const understanding = buildMinimalUnderstanding(effectiveQuery, res, ctx.history);
     clarificationContext = buildClarificationContext(understanding, res.refused || false);
   }
 

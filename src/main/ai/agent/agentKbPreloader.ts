@@ -163,6 +163,12 @@ export function createPreloadedSearchKb(
   })();
 
   const searchKb: SearchKbFn = async (uid, query, opts) => {
+    // P0-6: 改写查询带 expandedQueries（双路召回），预载缓存是按原消息预载的，
+    // 键必然不匹配 → 绕过模糊预载缓存，直调 original 保证双路融合生效。
+    if (opts?.expandedQueries && opts.expandedQueries.length > 0) {
+      getCacheMonitor().recordMiss('kbPreload');
+      return original(uid, query, opts);
+    }
     // S11: 模糊匹配遍历缓存（支持子串 / token 交集命中）
     for (const [key, entry] of cache) {
       if (Date.now() - entry.timestamp < KB_PRELOAD_TTL_MS && isFuzzyMatch(query, key)) {

@@ -10,6 +10,7 @@ import {
   buildAgentSystemPrompt,
   buildDocumentContext,
   shouldInjectDocumentContext,
+  CHAT_SYSTEM_PROMPT,
   FILE_OP_NARRATION_TOKEN_LIMIT,
   FILE_OP_NARRATION_TOKEN_LIMITS,
 } from '@main/ai/agent/agentPromptBuilder';
@@ -294,5 +295,54 @@ describe('B9 三-1 — buildDocumentContext 文件引用模式', () => {
     const out = buildDocumentContext(oneLine, { name: 'big.md', path: '/ws/big.md' }) ?? '';
     expect(out.length).toBeLessThan(2500);
     expect(out).toContain('big.md');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// P0-2 — 反上下文文案移除（四处同批；本文件覆盖三处：核心规则 / 澄清变体 / CHAT）
+// ---------------------------------------------------------------------------
+
+/** P0-2 统一措辞（四处同批改写的目标文案）。 */
+const UNIFIED_WORDING = '历史与摘要仅用于理解当前问题中的指代与上下文，不要延续上一轮未完成的作答';
+
+describe('P0-2 — 去反上下文统一措辞', () => {
+  const targets: Array<[string, string]> = [
+    ['buildAgentSystemPrompt', buildAgentSystemPrompt('', '', false)],
+    ['buildAgentSystemPrompt(需澄清)', buildAgentSystemPrompt('', '', true)],
+    ['CHAT_SYSTEM_PROMPT', CHAT_SYSTEM_PROMPT],
+  ];
+
+  for (const [name, text] of targets) {
+    it(`${name} 不含反上下文表述`, () => {
+      expect(text).not.toContain('忽略之前的所有对话');
+      expect(text).not.toContain('独立的新');
+      expect(text).not.toContain('不要延续之前的问题');
+    });
+
+    it(`${name} 保留防串题条款 + 统一措辞`, () => {
+      expect(text).toContain('必须且只能回答用户的最后一条消息');
+      expect(text).toContain(UNIFIED_WORDING);
+    });
+  }
+
+  it('核心规则条目编号与其余规则不动', () => {
+    expect(prompt).toContain('【核心规则】');
+    expect(prompt).toContain('1. 你必须且只能回答用户的最后一条消息');
+    expect(prompt).toContain(`2. ${UNIFIED_WORDING}`);
+    expect(prompt).toContain('3. 用户消息中的指代词（如“它”“这个”）结合历史与摘要理解所指对象');
+    expect(prompt).toContain('4. 当看到 "=== 当前用户问题 ===" 标记时，那是你必须回答的问题');
+  });
+
+  it('CHAT 核心规则条目编号不动', () => {
+    expect(CHAT_SYSTEM_PROMPT).toContain('1. 你必须且只能回答用户的最后一条消息');
+    expect(CHAT_SYSTEM_PROMPT).toContain(`2. ${UNIFIED_WORDING}`);
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/\n3\. /);
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/\n4\. /);
+  });
+
+  it('CHAT 注意力锚点与工具禁令保持不变', () => {
+    expect(CHAT_SYSTEM_PROMPT).toContain('【核心规则】');
+    expect(CHAT_SYSTEM_PROMPT).toContain('【注意力锚点】');
+    expect(CHAT_SYSTEM_PROMPT).toContain('不要提及工具、文件或文档');
   });
 });

@@ -1,6 +1,6 @@
 # TODO
 
-> 最后更新：2026-09-27
+> 最后更新：2026-09-28
 
 ## 已完成
 
@@ -162,6 +162,7 @@ L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/ar
 
 | 优先级 | 任务 | 说明 |
 |------|------|------|
+| 🔲 P0 | **Agent Memory 优化方向**（第一批） | 指代追问被反问"它指什么"的五条根因修复：chat 丢历史 / 「忽略之前所有对话」注入 / 短文本误判澄清 / tool_calls 不落库 / KB 代词消解无历史；7 模块 30 任务路线图、红线与逐任务拷问见 [direction](./plan/agent-memory-optimize.direction.md) |
 | 🔲 | vision 开关设置页 UI | `vision_override` 三态列与读写通道已通（D8），缺设置页开关；当前只能改库 |
 | 🔲 | anthropic 主循环分流 | `ai_config.protocol=anthropic` 时主循环仍按 OpenAI 形状调用（agent-cost-optimize 已建 `anthropicClient` 与 6 处非工具调用点分流，主循环未分流）——另立 issue |
 | 🔲 | OCR | doc-pipeline 决策基线明确本期无 OCR，无文本层 PDF 只能走 D 路线多模态 |

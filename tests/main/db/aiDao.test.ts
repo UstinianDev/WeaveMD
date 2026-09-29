@@ -23,6 +23,13 @@ interface AiConfigRowFixture {
   upload_kb_default?: number | null;
   /** remedial D8：vision 覆盖三态（NULL=自动 / 1=强制支持 / 0=强制不支持） */
   vision_override?: number | null;
+  /** R2~R10：扩展 KB 布尔列（NULL → normalizeKbSettings 兜底默认） */
+  kb_enable_query_understanding?: number | null;
+  kb_enable_conditional_rerank?: number | null;
+  kb_enable_clarify?: number | null;
+  kb_enable_evidence_grading?: number | null;
+  kb_enable_research_loop?: number | null;
+  kb_enable_document_context?: number | null;
 }
 
 const fakeDbMock = vi.hoisted(() => {
@@ -112,6 +119,12 @@ const fakeDbMock = vi.hoisted(() => {
               kb_embedding_model: aiConfigRow.kb_embedding_model ?? undefined,
               upload_kb_default: aiConfigRow.upload_kb_default ?? undefined,
               vision_override: aiConfigRow.vision_override ?? undefined,
+              kb_enable_query_understanding: aiConfigRow.kb_enable_query_understanding ?? undefined,
+              kb_enable_conditional_rerank: aiConfigRow.kb_enable_conditional_rerank ?? undefined,
+              kb_enable_clarify: aiConfigRow.kb_enable_clarify ?? undefined,
+              kb_enable_evidence_grading: aiConfigRow.kb_enable_evidence_grading ?? undefined,
+              kb_enable_research_loop: aiConfigRow.kb_enable_research_loop ?? undefined,
+              kb_enable_document_context: aiConfigRow.kb_enable_document_context ?? undefined,
             };
           }
           return undefined;
@@ -393,6 +406,32 @@ describe('ai DAO — SQL 参数化与归属过滤行为', () => {
     expect(config?.kbFuse).toBe(DEFAULT_KB_SETTINGS.fuse);
     expect(config?.kbThreshold).toBe(DEFAULT_KB_SETTINGS.threshold);
     expect(config?.kbPinnedWeight).toBe(DEFAULT_KB_SETTINGS.pinnedWeight);
+  });
+
+  it('mapConfigRow：扩展 KB 布尔列 NULL → 兜底默认；非 NULL → 透出持久化值', () => {
+    // NULL/缺省（旧库）→ 默认值（本例与上例共同覆盖三元两侧）
+    fakeDbMock.setAiConfigRow({ user_id: 'u1' });
+    const defaults = getAiConfig('u1');
+    expect(defaults?.kbEnableQueryUnderstanding).toBe(DEFAULT_KB_SETTINGS.enableQueryUnderstanding);
+    expect(defaults?.kbEnableDocumentContext).toBe(DEFAULT_KB_SETTINGS.enableDocumentContext);
+
+    // 非 NULL → 0/1 分别落 false/true
+    fakeDbMock.setAiConfigRow({
+      user_id: 'u1',
+      kb_enable_query_understanding: 1,
+      kb_enable_conditional_rerank: 0,
+      kb_enable_clarify: 0,
+      kb_enable_evidence_grading: 1,
+      kb_enable_research_loop: 0,
+      kb_enable_document_context: 1,
+    });
+    const persisted = getAiConfig('u1');
+    expect(persisted?.kbEnableQueryUnderstanding).toBe(true);
+    expect(persisted?.kbEnableConditionalRerank).toBe(false);
+    expect(persisted?.kbEnableClarify).toBe(false);
+    expect(persisted?.kbEnableEvidenceGrading).toBe(true);
+    expect(persisted?.kbEnableResearchLoop).toBe(false);
+    expect(persisted?.kbEnableDocumentContext).toBe(true);
   });
 
   it('mapConfigRow：KB 列有值时保留持久化值（非法/缺失才兜底）', () => {

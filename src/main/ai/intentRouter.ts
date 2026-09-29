@@ -70,8 +70,11 @@ const RULES: IntentRule[] = [
  * 规则启发式意图分类。
  * 返回：intent + confidence + 可选 candidates（模糊/低置信）。
  * confidence 最高 1；多意图接近时视为模糊并给出候选。
+ * ctx.hasHistory=true 时长度门失效（仅保留低置信度门）；缺省行为与历史一致。
  */
-export function classifyIntent(input: string): IIntent {
+export function classifyIntent(input: string, ctx?: { hasHistory?: boolean }): IIntent {
+  // 有历史可依时，纯长度门不参与澄清判定；缺省等价 ctx 未传（保持既有行为）
+  const lengthGateEnabled = !ctx?.hasHistory;
   const text = (input ?? '').trim();
   if (!text) {
     return { intent: 'chat', confidence: 0.5, reason: 'empty input' };
@@ -112,7 +115,7 @@ export function classifyIntent(input: string): IIntent {
       confidence: 0.7,
       candidates: ['chat'],
       reason: hitReasons.join(',') || 'chat fallback',
-      needsClarification: text.length < 10,
+      needsClarification: lengthGateEnabled && text.length < 10,
     };
   }
 
@@ -137,8 +140,10 @@ export function classifyIntent(input: string): IIntent {
     confidence = 0.9;
   }
 
+  // 低置信度门无条件保留；两处长度门仅在无历史时生效
   const needsClarification =
-    confidence < 0.7 || text.length < 6 || (confidence < 0.85 && text.length < 10);
+    confidence < 0.7 ||
+    (lengthGateEnabled && (text.length < 6 || (confidence < 0.85 && text.length < 10)));
 
   return {
     intent: top[0],

@@ -628,6 +628,222 @@ function mapMessageRow(row: AiMessageDbRow): IAIMessage {
   };
 }
 
+// ---------------------------------------------------------------------------
+// B-a（P0-5 / Q13 / Q15）：按轮流式读取窗口
+// ---------------------------------------------------------------------------
+
+/** UTF-8 字节长度（不依赖 Buffer，主进程与测试环境皆可用）。 */
+function utf8Length(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/** 参与轮窗口计算的行（IAIMessage 满足该结构）。 */
+export interface RoundWindowRow {
+  role: string;
+  content?: string;
+  toolCalls?: unknown;
+}
+
+export interface RoundWindowOptions {
+  /** 保留的最近轮数（默认 3，对应 KEEP_RECENT_ROUNDS） */
+  rounds?: number;
+  /** 软字节预算（UTF-8 字节）：超预算在轮边界停，但至少保留最近 1 轮；缺省不限制 */
+  byteBudget?: number;
+  /** 行数水位线（默认 20）：20 是下限不是上限，轮数满足后不足该行数继续向前补 */
+  watermarkRows?: number;
+  /** 单行字节数算法（缺省：正文 + tool_calls JSON 的 UTF-8 字节数） */
+  sizeOf?: (row: RoundWindowRow) => number;
+}
+
+/** 最近轮数缺省值。 */
+export const DEFAULT_WINDOW_ROUNDS = 3;
+/** 行数水位线缺省值（Q15：由上限降为下限）。 */
+export const DEFAULT_WATERMARK_ROWS = 20;
+
+function defaultRowBytes(row: RoundWindowRow): number {
+  const content = typeof row.content === 'string' ? row.content : '';
+  const toolCalls = row.toolCalls ? JSON.stringify(row.toolCalls) : '';
+  return utf8Length(content) + utf8Length(toolCalls);
+}
+
+/**
+ * 按轮窗口构建器（纯内存、不触库，便于单测）。
+ * 输入行序为「新 → 旧」（对应 `ORDER BY created_at DESC, rowid DESC`），`build()` 输出时间正序。
+ * 轮边界 = user 行（与 `contextManager.keepRecentTail` 口径一致，tool 归属其 assistant 轮）。
+ * 停机条件（均在轮边界判定，任一满足即停）：
+ *  1. 累计字节 > byteBudget —— 首轮无条件保留，故至少留最近 1 轮；
+ *  2. 已取轮数 ≥ rounds 且已取行数 ≥ watermarkRows —— 即 max(最近 3 轮全量, 20 行)。
+ * 注：会话必有 user 行（用户消息先落库），故轮边界必然出现，不存在无边界长读。
+ */
+export class RoundWindowBuilder<T extends RoundWindowRow> {
+  private readonly rounds: number;
+  private readonly watermarkRows: number;
+  private readonly byteBudget: number | undefined;
+  private readonly sizeOf: (row: RoundWindowRow) => number;
+  private readonly groups: T[][] = [];
+  private current: T[] = [];
+  private bytesTotal = 0;
+  private bytesCurrent = 0;
+  private rowCount = 0;
+
+  constructor(options: RoundWindowOptions = {}) {
+    this.rounds = options.rounds ?? DEFAULT_WINDOW_ROUNDS;
+    this.watermarkRows = options.watermarkRows ?? DEFAULT_WATERMARK_ROWS;
+    this.byteBudget = options.byteBudget;
+    this.sizeOf = options.sizeOf ?? defaultRowBytes;
+  }
+
+  /** 推入一行（新 → 旧）；返回 false 表示窗口已满，调用方应停止迭代。 */
+  push(row: T): boolean {
+    this.current.push(row);
+    this.bytesCurrent += this.sizeOf(row);
+    this.rowCount += 1;
+    if (row.role !== 'user') return true; // 轮未闭合，继续读
+    this.groups.push(this.current);
+    this.bytesTotal += this.bytesCurrent;
+    this.current = [];
+    this.bytesCurrent = 0;
+    if (this.byteBudget !== undefined && this.bytesTotal > this.byteBudget) return false;
+    if (this.groups.length >= this.rounds && this.rowCount >= this.watermarkRows) return false;
+    return true;
+  }
+
+  /** 收尾：最早端残缺轮（无前置 user 行）原样并入，返回时间正序。 */
+  build(): T[] {
+    const groups = this.current.length > 0 ? [...this.groups, this.current] : this.groups;
+    return groups.flat().reverse();
+  }
+}
+
+/** 纯函数包装：数组（新 → 旧）→ 窗口（时间正序）。 */
+export function buildRoundWindow<T extends RoundWindowRow>(
+  rows: readonly T[],
+  options: RoundWindowOptions = {}
+): T[] {
+  const builder = new RoundWindowBuilder<T>(options);
+  for (const row of rows) {
+    if (!builder.push(row)) break;
+  }
+  return builder.build();
+}
+
+/**
+ * 按轮读取会话历史（P0-5）：流式累加字节预算、超预算在轮边界停，取 max(最近 rounds 轮全量, 20 行)。
+ * 不设行数硬上限；返回时间正序。
+ * @param options.byteBudget 软字节闸（UTF-8 字节），缺省不限制
+ */
+export function getRecentMessagesByRounds(
+  conversationId: string,
+  userId: string,
+  rounds: number = DEFAULT_WINDOW_ROUNDS,
+  options: { byteBudget?: number } = {}
+): IAIMessage[] {
+  const db = getDatabase();
+  // created_at 为毫秒 ISO 串，同轮批量写会并列 → rowid DESC 兜底，防止切出半截轮
+  const stmt = cachedPrepare(db,
+    `SELECT * FROM ai_messages
+      WHERE conversation_id = ? AND user_id = ?
+      ORDER BY created_at DESC, rowid DESC`
+  );
+  const builder = new RoundWindowBuilder<IAIMessage>({ rounds, byteBudget: options.byteBudget });
+  // 迭代器关闭：for-of 的 break / 循环体抛错按 ES 规范调用 iterator.return()（→ 解锁语句），
+  // 正常耗尽时 better-sqlite3 在 next() 收到 SQLITE_DONE 后已自行 Cleanup —— 两条路径都
+  // 不可再手动 return()，否则二次递减 iterators 计数；显式再调一次反而会重复关闭。
+  for (const row of stmt.iterate(conversationId, userId)) {
+    if (!builder.push(mapMessageRow(row as AiMessageDbRow))) break;
+  }
+  return builder.build();
+}
+
+// ---------------------------------------------------------------------------
+// 工具轮单事务写入（P0-4 / Q7 / Q14）
+// ---------------------------------------------------------------------------
+
+/** 本轮一条 tool 结果（数组下标即确定性 id 的 index）。 */
+export interface ToolTurnToolWrite {
+  toolCallId: string;
+  content: string;
+}
+
+export interface ToolTurnWriteInput {
+  conversationId: string;
+  userId: string;
+  /** 工具轮序号（确定性 id 的组成部分） */
+  round: number;
+  /** assistant 正文（流式收敛前可为空串） */
+  assistantContent: string;
+  /** 本轮 assistant 的工具调用轨迹（落 tool_calls 列） */
+  toolCalls: IAIMessage['toolCalls'];
+  /** 本轮 tool 结果，顺序即 `t_${conv}_${round}_${index}` 的 index */
+  tools: ToolTurnToolWrite[];
+}
+
+export interface ToolTurnWriteResult {
+  assistantId: string;
+  toolIds: string[];
+}
+
+const ASSISTANT_UPSERT_SQL =
+  'INSERT INTO ai_messages (id, conversation_id, user_id, role, content, refs_json, tool_call_id, tool_calls, attachments_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET content = excluded.content, tool_calls = excluded.tool_calls';
+
+const TOOL_INSERT_SQL =
+  'INSERT OR IGNORE INTO ai_messages (id, conversation_id, user_id, role, content, refs_json, tool_call_id, tool_calls, attachments_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+
+/**
+ * 一个工具轮的原子写入（P0-4）：事务边界 = 本轮 assistant(tool_calls) 行 + N 条 tool 行。
+ * - 先 upsert assistant（确定性 id `aturn_${conv}_${round}`，`ON CONFLICT DO UPDATE` 不重复落库、
+ *   不改 created_at 以保持行序），再 `INSERT OR IGNORE` 本轮 tool 行（`t_${conv}_${round}_${index}`）；
+ * - 任一语句抛出即整体回滚，不产生半截轮；
+ * - IPC 发送不在事务内（避免同步 IPC 阻塞持有事务）。
+ */
+export function appendToolTurnWithAssistant(input: ToolTurnWriteInput): ToolTurnWriteResult {
+  const db = getDatabase();
+  const assistantId = `aturn_${input.conversationId}_${input.round}`;
+  const toolIds = input.tools.map(
+    (_tool, index) => `t_${input.conversationId}_${input.round}_${index}`
+  );
+  const toolCallsJson =
+    input.toolCalls && input.toolCalls.length > 0 ? JSON.stringify(input.toolCalls) : null;
+  // 同轮共用一个时间戳：行序由 assistant 先写（rowid 更小）保证
+  const createdAt = new Date().toISOString();
+
+  const writeTurn = db.transaction(() => {
+    cachedPrepare(db, ASSISTANT_UPSERT_SQL).run(
+      assistantId,
+      input.conversationId,
+      input.userId,
+      'assistant',
+      input.assistantContent,
+      null,
+      null,
+      toolCallsJson,
+      null,
+      createdAt
+    );
+    for (let index = 0; index < input.tools.length; index += 1) {
+      const tool = input.tools[index];
+      cachedPrepare(db, TOOL_INSERT_SQL).run(
+        toolIds[index],
+        input.conversationId,
+        input.userId,
+        'tool',
+        tool.content,
+        null,
+        tool.toolCallId,
+        null,
+        null,
+        createdAt
+      );
+    }
+    cachedPrepare(db,
+      "UPDATE ai_conversations SET updated_at = datetime('now') WHERE id = ? AND user_id = ?"
+    ).run(input.conversationId, input.userId);
+  });
+  writeTurn();
+
+  return { assistantId, toolIds };
+}
+
 export function appendMessage(msg: {
   conversationId: string;
   userId: string;
@@ -707,10 +923,11 @@ export function getMessagesByConversation(
 ): IAIMessage[] {
   const db = getDatabase();
   // userId 已由上游 prepareAgentContext 校验会话归属，此处无需 JOIN
+  // created_at 同毫秒批写（同轮 assistant + tool 行）并列 → rowid ASC 兜底保序
   const rows = cachedPrepare(db,
       `SELECT * FROM ai_messages
         WHERE conversation_id = ? AND user_id = ?
-        ORDER BY created_at ASC`
+        ORDER BY created_at ASC, rowid ASC`
     )
     .all(conversationId, userId) as AiMessageDbRow[];
   return rows.map(mapMessageRow);
@@ -813,7 +1030,11 @@ export function updateMessageContent(
   return info.changes > 0;
 }
 
-/** 更新指定消息的 tool_calls JSON 快照。返回是否成功。 */
+/**
+ * 更新指定消息的 tool_calls JSON 快照。返回是否成功。
+ * （渲染侧「按会话更新最新一条 assistant」的回写入口已随 Q7 拆除：
+ *  tool_calls 由 appendToolTurnWithAssistant 在写入轮次时一并落库，不再有第二处写入点。）
+ */
 export function updateMessageToolCalls(
   messageId: string,
   toolCalls: IAIMessage['toolCalls']
@@ -823,25 +1044,6 @@ export function updateMessageToolCalls(
   const info = cachedPrepare(db, 'UPDATE ai_messages SET tool_calls = ? WHERE id = ?')
     .run(json, messageId);
   return info.changes > 0;
-}
-
-/**
- * 更新会话中最新一条 assistant 消息的 tool_calls。
- * 渲染进程不知道主进程生成的 DB 消息 ID，故按 conversationId + role 定位。
- */
-export function updateLatestAssistantToolCalls(
-  conversationId: string,
-  toolCalls: IAIMessage['toolCalls']
-): boolean {
-  const db = getDatabase();
-  const row = cachedPrepare(db,
-      `SELECT id FROM ai_messages
-       WHERE conversation_id = ? AND role = 'assistant'
-       ORDER BY created_at DESC LIMIT 1`
-    )
-    .get(conversationId) as { id: string } | undefined;
-  if (!row) return false;
-  return updateMessageToolCalls(row.id, toolCalls);
 }
 
 // ---------------------------------------------------------------------------
