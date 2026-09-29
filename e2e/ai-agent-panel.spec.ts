@@ -1945,3 +1945,97 @@ test('B2 粘贴图片：clipboardData 图片项（方式1）→ 图片 chip 出�
   await expect(panel.getByText(/^clipboard-[a-z0-9]+\.png$/)).toBeVisible({ timeout: 5000 });
   expect(errors.length).toBe(0);
 });
+
+// ============================================================
+// agent-memory-optimize P0 第一批 — 指代三场景 E2E（场景①②；场景③经 Q2 裁定留第二批）
+//
+// 诚实前提（写用例与读用例都按此口径）：
+//   E2E 是 renderer-only（playwright.config 只起 vite，不启 Electron），
+//   主进程 intentRouter / agentContext 根本不参与；QuestionCard 仅在
+//   AIPanelSession 的 pendingInteraction 存在时渲染，而 pendingInteraction
+//   由 mock runAgent 侧推送。
+//   因此下面两条是**现象层回归护栏**，断言「渲染层不会自行合成提问卡」
+//   「前序气泡不被清空」，**不是根因证明** —— 根因证明在 vitest
+//   （tests/main/ai/intentRouter.test.ts / agentContext.test.ts）。
+// ============================================================
+
+/** 第一轮 RAG 式问题（场景①先行词的先行句）。 */
+const RAG_QUESTION = 'WeaveMD 的知识库怎么用';
+/** 第二轮短指代追问（方向文档 七.1 场景①原文口径）。 */
+const FOLLOW_UP = '它有什么优势';
+
+/**
+ * 发送一条消息并等待其 assistant 回复完整落显（mock runAgent 回复恒为 `Agent 完成：<原文>`）。
+ * 沿用本文件既有交互：composer 填充 → 点「发送」。
+ */
+async function sendAndWaitReply(
+  panel: ReturnType<typeof aiPanel>,
+  text: string
+): Promise<void> {
+  await panel.locator('.composer-tiptap-editor').first().fill(text);
+  await panel.getByText('发送', { exact: true }).click();
+  await expect(panel.getByText(`Agent 完成：${text}`)).toBeVisible({ timeout: 5000 });
+}
+
+test('场景① 短指代追问：两轮会话后问「它有什么优势」→ 不自发弹提问卡 + 第二轮回答落显', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  // 不设 agentResult.intentCard → runAgent 返回 intent:null，渲染侧不会产生任何待交互状态
+  await page.addInitScript(installWeaveMDMock, { backend: 'remote', consented: true });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await page.getByTitle('AI', { exact: true }).click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+
+  // 第一轮：RAG 式问答，等 assistant 落显
+  await sendAndWaitReply(panel, RAG_QUESTION);
+  // 第二轮：短指代追问
+  await sendAndWaitReply(panel, FOLLOW_UP);
+
+  // 主进程意图判定（needsClarification 分支）不在 E2E 覆盖范围 ——
+  // 本例只锁「渲染层不自发生成 pendingInteraction，因而不挂载提问卡」
+  await expect(panel.getByTestId('question-card')).toHaveCount(0);
+
+  // 第二轮 assistant 已落显；气泡数 ≥3（user×2 + assistant×2，计数只可能被祖先节点抬高，取下界）
+  await expect(panel.getByText(`Agent 完成：${FOLLOW_UP}`)).toBeVisible();
+  const userBubbles =
+    (await panel.getByText(RAG_QUESTION, { exact: true }).count()) +
+    (await panel.getByText(FOLLOW_UP, { exact: true }).count());
+  const assistantBubbles = await panel.getByText(/^Agent 完成：/).count();
+  expect(userBubbles + assistantBubbles).toBeGreaterThanOrEqual(3);
+
+  expect(errors).toEqual([]);
+});
+
+test('场景② chat 意图下历史仍存在：追问后第一轮 user/assistant 气泡仍在 DOM', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await page.addInitScript(installWeaveMDMock, { backend: 'remote', consented: true });
+  await page.goto('/');
+  await page.waitForSelector('header');
+  await page.getByTitle('AI', { exact: true }).click();
+  await page.waitForTimeout(300);
+  const panel = aiPanel(page);
+
+  // 第一轮落显后先持有第一轮气泡 locator（nth(1) 跳过同文案的 session-title，与既有用例同口径）
+  await sendAndWaitReply(panel, RAG_QUESTION);
+  const firstUserBubble = panel.getByText(RAG_QUESTION, { exact: true }).nth(1);
+  const firstAssistantBubble = panel.getByText(`Agent 完成：${RAG_QUESTION}`);
+  await expect(firstUserBubble).toBeVisible();
+  await expect(firstAssistantBubble).toBeVisible();
+
+  // 第二轮发送（历史上「丢历史」发生在主进程上下文拼装，渲染层气泡本就累积）
+  await sendAndWaitReply(panel, FOLLOW_UP);
+
+  // 第一轮的 user 与 assistant 气泡仍在 DOM（现象层护栏，非根因证明）
+  await expect(firstUserBubble).toBeVisible();
+  await expect(firstAssistantBubble).toBeVisible();
+  await expect(panel.getByText(`Agent 完成：${FOLLOW_UP}`)).toBeVisible();
+
+  expect(errors).toEqual([]);
+});

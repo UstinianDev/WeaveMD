@@ -132,4 +132,39 @@ describe('AIPanelSession', () => {
     composerOnSend?.();
     expect(onSend).toHaveBeenCalled();
   });
+
+  // ============================================================
+  // 缺口 2：QuestionCard 挂载条件的正向兜底（E2E 场景① 只有 toHaveCount(0) 负向断言）
+  // 挂载条件：isAgentMode && pendingInteraction（AIPanelSession.tsx:115）
+  // ============================================================
+
+  it('pendingInteraction 存在 → 挂载 question-card（count 1）', () => {
+    useAgentStore.setState({
+      conversations: [conv('c1', '标题')],
+      activeConversationId: 'c1',
+      activeMode: 'agent',
+      useKnowledgeBase: false,
+      pendingInteraction: {
+        sessionId: 'sess-1',
+        conversationId: 'c1',
+        questions: [{ id: 'q1', text: '你想写什么主题？', type: 'text' }],
+        round: 1,
+        totalRounds: 3,
+      },
+    });
+    render(<AIPanelSession draft="" setDraft={() => undefined} onCloseConversation={closeFn} />);
+    expect(screen.getAllByTestId('question-card')).toHaveLength(1);
+  });
+
+  it('pendingInteraction 不存在 → 不挂载 question-card（count 0）', () => {
+    useAgentStore.setState({
+      conversations: [conv('c1', '标题')],
+      activeConversationId: 'c1',
+      activeMode: 'agent',
+      useKnowledgeBase: false,
+      pendingInteraction: null,
+    });
+    render(<AIPanelSession draft="" setDraft={() => undefined} onCloseConversation={closeFn} />);
+    expect(screen.queryAllByTestId('question-card')).toHaveLength(0);
+  });
 });

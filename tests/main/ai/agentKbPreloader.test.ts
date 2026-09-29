@@ -273,4 +273,36 @@ describe('createPreloadedSearchKb', () => {
     // 预加载 key 为空不执行预加载；miss 后走原始
     expect(callCount()).toBe(1);
   });
+
+  // --- P0-6 双路召回：expandedQueries 必须绕过预载缓存 ---
+
+  it('expandedQueries 非空 → 绕过预载缓存直调 original（P0-6）', async () => {
+    const { fn, callCount } = makeMockSearchKb();
+    const message = 'React 状态管理';
+
+    const { searchKb, preloadPromise } = createPreloadedSearchKb(fn, 'user-1', message);
+    await preloadPromise;
+
+    // 预载 key 与本次 query 完全一致：不带 expandedQueries 时本应命中缓存（callCount 停在 1）
+    const result = await searchKb('user-1', 'React 状态管理', {
+      topK: 5,
+      expandedQueries: ['React 状态管理'],
+    });
+    expect(result.results[0].content).toContain('React 状态管理');
+    // 预载 1 次 + 绕过缓存直调 original 1 次 = 2
+    expect(callCount()).toBe(2);
+  });
+
+  it('expandedQueries 为空数组 → 不绕过，仍走预载缓存（P0-6）', async () => {
+    const { fn, callCount } = makeMockSearchKb();
+    const message = 'React 状态管理';
+
+    const { searchKb, preloadPromise } = createPreloadedSearchKb(fn, 'user-1', message);
+    await preloadPromise;
+
+    const result = await searchKb('user-1', 'React 状态管理', { topK: 5, expandedQueries: [] });
+    expect(result.results[0].content).toContain('React 状态管理');
+    // 空数组不触发绕过 → 缓存命中，original 仅预载时的 1 次
+    expect(callCount()).toBe(1);
+  });
 });

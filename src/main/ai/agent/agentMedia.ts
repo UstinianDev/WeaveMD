@@ -11,6 +11,8 @@ import type { IAttachmentMeta } from '@shared/ai';
 import type { ContentImagePart, ContentPart, MessageContent } from '../llm/llmClient';
 import { KEEP_RECENT_IMAGES } from '../contextManager';
 import { resolveStoredPath } from '../image/imageStorage';
+// 仅类型依赖（编译期擦除，无运行期环）：回读链的 tool_calls 与发给 LLM 的同形
+import type { AgentLlmMessage } from './agentLoop';
 
 export interface MediaInfo {
   type: 'image' | 'document' | 'unknown';
@@ -190,6 +192,8 @@ export interface InjectedImageRow {
   role: string;
   content: MessageContent;
   tool_call_id?: string;
+  /** P0-4：assistant 的工具调用轨迹，回读链路透传给 LLM（不随图片注入丢失）。 */
+  tool_calls?: AgentLlmMessage['tool_calls'];
 }
 
 export interface InjectImagesResult {
@@ -207,7 +211,13 @@ export interface InjectImagesResult {
  * - vision 不支持：不注入任何 part 并返回 degraded，绝不静默丢图
  */
 export function injectImagesIntoMessages(
-  rows: Array<{ role: string; content: string; attachments?: IAttachmentMeta[]; tool_call_id?: string }>,
+  rows: Array<{
+    role: string;
+    content: string;
+    attachments?: IAttachmentMeta[];
+    tool_call_id?: string;
+    tool_calls?: AgentLlmMessage['tool_calls'];
+  }>,
   opts: { supportsVision: boolean; keepImages?: number; treatLastAsCurrent?: boolean }
 ): InjectImagesResult {
   const keepImages = opts.keepImages ?? KEEP_RECENT_IMAGES;
@@ -223,6 +233,8 @@ export function injectImagesIntoMessages(
       role: row.role,
       content: row.content,
       ...(row.tool_call_id ? { tool_call_id: row.tool_call_id } : {}),
+      // P0-4：tool_calls 透传（无图片的早退分支也必须带上，否则回读丢轨迹）
+      ...(row.tool_calls ? { tool_calls: row.tool_calls } : {}),
     };
     const images = (row.attachments ?? []).filter((a) => a.type === 'image');
     if (images.length === 0) return base;

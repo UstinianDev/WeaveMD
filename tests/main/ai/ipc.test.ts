@@ -1726,6 +1726,16 @@ describe('八-1 searchKb 外发过滤接线（buildAgentDeps，allowSend × 过�
     expect(kbDaoMock.getGrantedAttachmentDocIds).not.toHaveBeenCalled();
     expect(kbSearchMock.filterKbEgressResults).not.toHaveBeenCalled();
   });
+
+  it('P0-6：searchKb 透传 expandedQueries 到底层 searchKB（双路召回）', async () => {
+    const deps = buildWorkerDeps({ kbTopK: 5, kbFuse: 0.5, kbThreshold: 0.6, kbPinnedWeight: 1.5 });
+    await deps.searchKb('u1', '改写后的 query', { expandedQueries: ['原query'] });
+    expect(kbSearchMock.searchKB).toHaveBeenCalledWith(
+      'u1',
+      '改写后的 query',
+      expect.objectContaining({ expandedQueries: ['原query'] })
+    );
+  });
 });
 
 describe('八-1 发送链路 uploadToKb 勾选入 KB（AGENT_RUN / AI_CHAT）', () => {

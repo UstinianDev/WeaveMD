@@ -39,6 +39,9 @@ metadata:
 - `vitest.config.ts` 的 `test.coverage.include` 写死了编辑器 5 个文件；CLI 覆盖必须用**空格形式**
   `--coverage.include "src/main/ai/knowledge/queryPlanner.ts"`（`--coverage.include=x` 等号形式不生效，
   报告仍走 config 的 include）。
+  **2026-09-29 更正**：等号形式实测**有效**——`npx vitest run --coverage --coverage.include='a.ts'
+  --coverage.include='b.ts' --coverage.include='c.ts' --coverage.reportsDirectory=coverage-fix`
+  出的报告只含这 3 个文件（config 的 5 个未出现）。等号/空格两种写法都可，重复传 flag 也行。
 - 多个子代理**并行跑 vitest 会抢 `coverage/.tmp`**，症状是 `ENOENT coverage-0.json` 或整表 0%。
   必须加 `--coverage.reportsDirectory=coverage/<自定义目录>` 隔离，跑完删掉。
 - 实测口径：`queryPlanner.ts` 96.58% lines / 89.62% branch，`searchKBHandler.ts` 94.61% lines / 68.75% branch。

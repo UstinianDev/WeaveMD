@@ -768,13 +768,15 @@ export interface ToolTurnToolWrite {
 export interface ToolTurnWriteInput {
   conversationId: string;
   userId: string;
+  /** 本次 agent 运行的唯一盐（round 每次运行从 0 重计，需运行维度防撞 id） */
+  runId: string;
   /** 工具轮序号（确定性 id 的组成部分） */
   round: number;
   /** assistant 正文（流式收敛前可为空串） */
   assistantContent: string;
   /** 本轮 assistant 的工具调用轨迹（落 tool_calls 列） */
   toolCalls: IAIMessage['toolCalls'];
-  /** 本轮 tool 结果，顺序即 `t_${conv}_${round}_${index}` 的 index */
+  /** 本轮 tool 结果，顺序即 `t_${conv}_${runId}_${round}_${index}` 的 index */
   tools: ToolTurnToolWrite[];
 }
 
@@ -791,16 +793,17 @@ const TOOL_INSERT_SQL =
 
 /**
  * 一个工具轮的原子写入（P0-4）：事务边界 = 本轮 assistant(tool_calls) 行 + N 条 tool 行。
- * - 先 upsert assistant（确定性 id `aturn_${conv}_${round}`，`ON CONFLICT DO UPDATE` 不重复落库、
- *   不改 created_at 以保持行序），再 `INSERT OR IGNORE` 本轮 tool 行（`t_${conv}_${round}_${index}`）；
+ * - 先 upsert assistant（确定性 id `aturn_${conv}_${runId}_${round}`，`ON CONFLICT DO UPDATE` 不重复落库、
+ *   不改 created_at 以保持行序），再 `INSERT OR IGNORE` 本轮 tool 行（`t_${conv}_${runId}_${round}_${index}`）；
+ * - runId 为整轮运行的唯一盐（round 每次运行都从 0 重计），避免同一会话第二次运行撞掉首次运行的行；
  * - 任一语句抛出即整体回滚，不产生半截轮；
  * - IPC 发送不在事务内（避免同步 IPC 阻塞持有事务）。
  */
 export function appendToolTurnWithAssistant(input: ToolTurnWriteInput): ToolTurnWriteResult {
   const db = getDatabase();
-  const assistantId = `aturn_${input.conversationId}_${input.round}`;
+  const assistantId = `aturn_${input.conversationId}_${input.runId}_${input.round}`;
   const toolIds = input.tools.map(
-    (_tool, index) => `t_${input.conversationId}_${input.round}_${index}`
+    (_tool, index) => `t_${input.conversationId}_${input.runId}_${input.round}_${index}`
   );
   const toolCallsJson =
     input.toolCalls && input.toolCalls.length > 0 ? JSON.stringify(input.toolCalls) : null;

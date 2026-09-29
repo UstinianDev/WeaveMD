@@ -161,15 +161,30 @@ describe('getRecentMessagesByRounds — 按轮流式读取（P0-5）', () => {
 
   it('多 tool 单轮 25 行完整取回（行数不设硬上限），返回时间正序', () => {
     // 1 user + 1 assistant + 23 tool = 25 行，全部属同一轮
-    fakeDbMock.setMessageRows(roundRowsDesc(1, 23));
+    // 夹具给出互不相同的 created_at（注入序=新→旧），使「时间正序」断言具备判别力
+    const base = Date.parse('2026-09-28T00:00:00.000Z');
+    const rows = roundRowsDesc(1, 23).map((row, i) => ({
+      ...row,
+      created_at: new Date(base - i).toISOString(),
+    }));
+    fakeDbMock.setMessageRows(rows);
     const msgs = read();
     expect(msgs).toHaveLength(25);
     expect(msgs[0].role).toBe('user');
     expect(msgs[0].id).toBe('u1');
     expect(msgs[1].role).toBe('assistant');
     expect(msgs[24].role).toBe('tool');
-    // 时间正序：末尾 reverse 后首行是最旧的 user 行
-    expect(msgs[0].createdAt <= msgs[24].createdAt).toBe(true);
+    // 行序：注入序（t1_22…t1_0, a1, u1）反转为 u1 → a1 → t1_0…t1_22，
+    // 同毫秒 rowid 兜底顺序随行序一起保留
+    expect(msgs.map((m) => m.id)).toEqual([
+      'u1',
+      'a1',
+      ...Array.from({ length: 23 }, (_, i) => `t1_${i}`),
+    ]);
+    // 时间正序：首行必须是最旧的 user 行、末行是最新的 tool 行（严格判别，非恒真）
+    expect(msgs[0].createdAt).toBe(new Date(base - 24).toISOString());
+    expect(msgs[24].createdAt).toBe(new Date(base).toISOString());
+    expect(msgs[0].createdAt < msgs[24].createdAt).toBe(true);
   });
 
   it('跨 3 轮 60 行取回 3 轮（20 是水位线不是上限）', () => {

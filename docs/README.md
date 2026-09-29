@@ -80,8 +80,8 @@ npm run build
 - [modules/](./modules/) — 各模块详细文档（11 个模块）
 - [specs/](./specs/) — 编辑主区/AI 面板规格与实施记录（14 篇主文档 + 7 篇分册）
 - [requirements/](./requirements/) — devflow 需求文档（当前 5 篇 + archive 12 篇）
-- [testing/](./testing/) — TDD 测试报告（20 篇）
-- [plan/](./plan/) — 实施计划与状态（当前 23 篇主文档 + 4 篇分册 + archive 32 篇）
+- [testing/](./testing/) — TDD 测试报告（21 篇）
+- [plan/](./plan/) — 实施计划与状态（当前 25 篇主文档 + 4 篇分册 + archive 32 篇）
 - [guide/packaging](./guide/packaging.md) — 打包与发布指南
 
 ### 查阅规则

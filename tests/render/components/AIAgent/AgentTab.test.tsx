@@ -141,6 +141,38 @@ describe('AgentTab (消息流展示区)', () => {
     expect(screen.queryByText('预览写入文档')).not.toBeInTheDocument();
   });
 
+  it('R2: 空 content 且带 toolCalls 的 assistant 只渲染工作流卡片，不渲染空气泡', () => {
+    // 重载态：DB 中 assistant(content:'', toolCalls) 每条都是一轮工作流，
+    // 在线态只有 1 个答案气泡 → 重载态必须同样是「N 卡片 + 1 气泡」
+    const blankTurn = (id: string, callId: string): IAIMessage => ({
+      id,
+      conversationId: 'c1',
+      role: 'assistant',
+      content: '',
+      refsJson: null,
+      createdAt: '2026-08-14T00:00:02Z',
+      toolCalls: [{ ...toolCall, toolCallId: callId }],
+    });
+    const answerMsg: IAIMessage = {
+      ...assistantMsg,
+      id: 'm5',
+      content: '最终答案',
+      toolCalls: [{ ...toolCall, toolCallId: 'tc5' }],
+    };
+
+    useAgentStore.setState({
+      ...defaultState,
+      messages: [blankTurn('b1', 'tc1'), blankTurn('b2', 'tc2'), blankTurn('b3', 'tc3'), answerMsg],
+    });
+    const { container } = render(<AgentTab />);
+
+    // 4 条 assistant 各带 toolCalls → 4 张工作流卡片
+    expect(container.querySelectorAll('.glow-card').length).toBe(4);
+    // 气泡仅剩「答案」那 1 条（修复前 3 条空气泡 + 1 条答案 = 4）
+    expect(container.querySelectorAll('.rounded-2xl.rounded-tl-md').length).toBe(1);
+    expect(screen.getByText('最终答案')).toBeInTheDocument();
+  });
+
   it('A1c: 未打开文档 → assistant 消息不显示「预览写入文档」按钮', () => {
     useEditorStore.setState({ currentFile: null, content: '' });
     useAgentStore.setState({ ...defaultState, messages: [assistantMsg] });

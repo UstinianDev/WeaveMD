@@ -12,6 +12,7 @@ import {
   buildImageParts,
   formatImageForLlm,
   imagePartFromPath,
+  injectImagesIntoMessages,
   processMedia,
   selectRecentImageIds,
 } from '@main/ai/agent/agentMedia';
@@ -130,5 +131,57 @@ describe('agentMedia 媒体读取（processMedia / formatImageForLlm 接活）',
 
   it('imagePartFromPath keeps the local path (resolved at send time by llmClient)', () => {
     expect(imagePartFromPath(png)).toEqual({ type: 'image_url', image_url: { url: png } });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B-c P0-4：injectImagesIntoMessages 的 tool_calls 透传（回读链路第二跳）
+// ---------------------------------------------------------------------------
+describe('agentMedia.injectImagesIntoMessages — tool_calls 透传', () => {
+  const CALL = {
+    id: 'call_0_0',
+    type: 'function' as const,
+    function: { name: 'searchKB', arguments: '{"query":"SQLite 优势"}' },
+  };
+
+  it('无图片的 assistant(tool_calls) 行原样透传（早退分支不丢字段）', () => {
+    const res = injectImagesIntoMessages(
+      [{ role: 'assistant', content: '', tool_calls: [CALL] }],
+      { supportsVision: false, treatLastAsCurrent: false }
+    );
+    expect(res.messages).toHaveLength(1);
+    expect(res.messages[0].tool_calls).toEqual([CALL]);
+  });
+
+  it('带图片的行同样透传 tool_calls（base 展开后随 part 组装保留）', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'weavemd-media3-'));
+    const png = join(dir, 'shot.png');
+    writeFileSync(png, PNG_BYTES);
+    try {
+      const res = injectImagesIntoMessages(
+        [
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: [CALL],
+            attachments: [imgMeta(png, 'shot.png', 'i9')],
+          },
+        ],
+        { supportsVision: true, treatLastAsCurrent: false }
+      );
+      expect(Array.isArray(res.messages[0].content)).toBe(true);
+      expect(res.messages[0].tool_calls).toEqual([CALL]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('tool 行的 tool_call_id 既有透传零回归', () => {
+    const res = injectImagesIntoMessages(
+      [{ role: 'tool', content: '结果', tool_call_id: 'call_0_0' }],
+      { supportsVision: false, treatLastAsCurrent: false }
+    );
+    expect(res.messages[0].tool_call_id).toBe('call_0_0');
+    expect(res.messages[0].tool_calls).toBeUndefined();
   });
 });

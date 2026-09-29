@@ -17,9 +17,12 @@ vi.mock('electron', () => ({
 // --- db/ai mock ---
 const dbMock = vi.hoisted(() => ({
   appendMessage: vi.fn(),
+  appendToolTurnWithAssistant: vi.fn(),
   getConversation: vi.fn(),
   getMessagesByConversation: vi.fn(() => []),
   getMessagesByConversationPaginated: vi.fn(() => []),
+  // B-c / P0-5：历史读取按轮
+  getRecentMessagesByRounds: vi.fn(() => []),
   updateConversationSummary: vi.fn(),
 }));
 vi.mock('@main/db/ai', () => dbMock);
@@ -100,6 +103,8 @@ vi.mock('@main/ai/agent/agentEventStore', () => eventStoreMock);
 
 // --- agentLoopGuard mock (R7a) ---
 const guardMock = vi.hoisted(() => {
+  // 测试注入口：forceSameResult=true 时 checkSameResult 恒判死循环（缺口1/流式路径用）
+  const state = { forceSameResult: false };
   class FakeDeadLoopDetector {
     private maxRounds: number;
     constructor(config?: { maxRounds?: number }) {
@@ -112,7 +117,9 @@ const guardMock = vi.hoisted(() => {
       return false;
     }
     checkSameResult(_result: unknown) {
-      return { detected: false };
+      return state.forceSameResult
+        ? { detected: true, message: 'Dead loop detected: same result repeated' }
+        : { detected: false };
     }
     checkConsecutiveFailure(_toolName: string, _success: boolean, _argsHash?: string) {
       return { detected: false };
@@ -126,7 +133,7 @@ const guardMock = vi.hoisted(() => {
       };
     }
   }
-  return { DeadLoopDetector: FakeDeadLoopDetector };
+  return { DeadLoopDetector: FakeDeadLoopDetector, state };
 });
 vi.mock('@main/ai/agent/agentLoopGuard', () => guardMock);
 
@@ -139,6 +146,7 @@ vi.mock('@main/ai/agent/agentCheckpoint', () => checkpointMock);
 
 import { runAgentFlow } from '@main/ai/agent/agentLoop';
 import { collectCitations, mergeCitations, type CitationEntry } from '@main/ai/agent/agentToolExecutor';
+import { getCostTracker } from '@main/ai/costTracker';
 import { IPC_CHANNELS } from '@shared/constants';
 import type { IAIConfig } from '@shared/ai';
 
@@ -177,6 +185,17 @@ beforeEach(() => {
     refsJson: null,
     createdAt: 'now',
   }));
+  dbMock.appendToolTurnWithAssistant.mockReset().mockImplementation((input: {
+    conversationId: string;
+    runId: string;
+    round: number;
+    tools: unknown[];
+  }) => ({
+    assistantId: `aturn_${input.conversationId}_${input.runId}_${input.round}`,
+    toolIds: input.tools.map(
+      (_t, i) => `t_${input.conversationId}_${input.runId}_${input.round}_${i}`
+    ),
+  }));
   dbMock.getConversation.mockReset().mockReturnValue({
     id: 'c1',
     userId: 'u1',
@@ -198,6 +217,7 @@ beforeEach(() => {
   intentMock.classifyIntent.mockReset().mockReturnValue({ intent: 'create', confidence: 0.9 });
   eventStoreMock.persistAndSend.mockReset();
   checkpointMock.saveCheckpoint.mockReset();
+  guardMock.state.forceSameResult = false;
 });
 
 describe('runAgentFlow', () => {
@@ -230,12 +250,25 @@ describe('runAgentFlow', () => {
     // 工具被调用并回填
     expect(toolMock.executeTool).toHaveBeenCalledTimes(1);
     expect(llmMock.streamChatCompletion).toHaveBeenCalledTimes(2);
-    // role:'tool' 落库
-    const toolWrites = dbMock.appendMessage.mock.calls.filter(
-      (c) => c[0].role === 'tool'
-    );
-    expect(toolWrites.length).toBe(1);
-    expect(toolWrites[0][0].content).toContain('文件内容');
+    // P0-4：流式工具轮次单次事务落库（assistant(tool_calls) + 本轮 tool 行）
+    expect(dbMock.appendToolTurnWithAssistant).toHaveBeenCalledTimes(1);
+    const turnInput = dbMock.appendToolTurnWithAssistant.mock.calls[0][0];
+    expect(turnInput).toMatchObject({ conversationId: 'c1', userId: 'u1', round: 0 });
+    expect(turnInput.tools).toEqual([{ toolCallId: 'call_0_0', content: '文件内容' }]);
+    expect(turnInput.toolCalls).toEqual([
+      {
+        toolCallId: 'call_0_0',
+        name: 'readFile',
+        args: '{"file_id":"f1"}',
+        status: 'ok',
+        result: '文件内容',
+        loopIndex: 0,
+      },
+    ]);
+    // 旧逐条写入已停用：tool 行零 appendMessage
+    expect(
+      dbMock.appendMessage.mock.calls.filter((c) => c[0].role === 'tool')
+    ).toHaveLength(0);
     // assistant 落库
     expect(
       dbMock.appendMessage.mock.calls.some(
@@ -295,6 +328,68 @@ describe('runAgentFlow', () => {
     expect(res.roundsUsed).toBe(12);
   });
 
+  // ============================================================
+  // 缺口 1（B-b / plan §7 风险 2）：生产流式路径 processStreamingToolRound
+  // 死循环提前 break 时，本轮 appendToolTurnWithAssistant 落库先于提前返回
+  // ============================================================
+
+  it('流式路径同结果死循环：提前 break 且本轮落库先于提前返回（processStreamingToolRound）', async () => {
+    // STREAMING_TOOL_EXEC_ENABLED=true → 生产唯一路径是 processStreamingToolRound
+    guardMock.state.forceSameResult = true;
+    // LLM 每轮返回同一工具调用（若未提前 break 将一路重复到 maxRounds）
+    llmMock.streamChatCompletion.mockImplementation(() =>
+      (async function* () {
+        yield {
+          delta: '',
+          toolCalls: [{ index: 0, name: 'readFile', arguments: '{"file_id":"f1"}' }],
+        };
+      })()
+    );
+    toolMock.executeTool.mockResolvedValue({ content: '同一结果', status: 'ok' });
+
+    const res = await runAgentFlow(makeEvent(), payload(), makeConfig(), 'enc:key', new AbortController(), {
+      consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+    });
+
+    // 1) 提前 break：首轮即中断（对照上面 maxRounds=12 的兜底上限用例）
+    expect(llmMock.streamChatCompletion).toHaveBeenCalledTimes(1);
+    expect(res.roundsUsed).toBe(1);
+
+    // 2) 提前返回之前已完成本轮唯一一次落库（先落库再 break）
+    expect(dbMock.appendToolTurnWithAssistant).toHaveBeenCalledTimes(1);
+    const pending = dbMock.appendToolTurnWithAssistant.mock.calls[0][0];
+    expect(pending.round).toBe(0);
+    expect(pending.tools).toEqual([{ toolCallId: 'call_0_0', content: '同一结果' }]);
+    expect(pending.toolCalls).toEqual([
+      expect.objectContaining({ name: 'readFile', status: 'ok', result: '同一结果' }),
+    ]);
+    // 旧逐条写入已停用：本轮 tool 行零 appendMessage
+    expect(dbMock.appendMessage.mock.calls.filter((c) => c[0].role === 'tool')).toHaveLength(0);
+
+    // 3) plan §5：IPC 发送留在原位置（不在事务内）——工具事件与 loop_detected 在落库前发出，
+    //    收敛 done 在落库后发出
+    const sendCalls = electronMock.webContentsSend.mock.calls as unknown[][];
+    const sendOrders = electronMock.webContentsSend.mock.invocationCallOrder;
+    const flushOrder = dbMock.appendToolTurnWithAssistant.mock.invocationCallOrder[0];
+    const toolIdx = sendCalls.findIndex(
+      (c) =>
+        c[0] === IPC_CHANNELS.AI_STREAM_TOOL &&
+        (c[1] as { toolCallId?: string }).toolCallId === 'call_0_0'
+    );
+    const errorIdx = sendCalls.findIndex(
+      (c) =>
+        c[0] === IPC_CHANNELS.AI_STREAM_ERROR &&
+        (c[1] as { code?: string }).code === 'loop_detected'
+    );
+    const doneIdx = sendCalls.findIndex((c) => c[0] === IPC_CHANNELS.AI_STREAM_DONE);
+    expect(toolIdx).toBeGreaterThanOrEqual(0);
+    expect(errorIdx).toBeGreaterThanOrEqual(0);
+    expect(doneIdx).toBeGreaterThanOrEqual(0);
+    expect(sendOrders[toolIdx]).toBeLessThan(flushOrder);
+    expect(sendOrders[errorIdx]).toBeLessThan(flushOrder);
+    expect(sendOrders[doneIdx]).toBeGreaterThan(flushOrder);
+  });
+
   it('degrades to direct answer + hint when a tool fails', async () => {
     let call = 0;
     llmMock.streamChatCompletion.mockImplementation(() => {
@@ -321,12 +416,16 @@ describe('runAgentFlow', () => {
     await runAgentFlow(makeEvent(), payload(), makeConfig(), 'enc:key', controller, {
       consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
     });
-    // 失败工具：tool 落库含失败标记 + tool 事件 status:error
-    const toolWrites = dbMock.appendMessage.mock.calls.filter(
-      (c) => c[0].role === 'tool'
-    );
-    expect(toolWrites.length).toBe(1);
-    expect(toolWrites[0][0].content).toContain('失败');
+    // 失败工具：本轮单次落库含失败标记 + tool 事件 status:error
+    expect(dbMock.appendToolTurnWithAssistant).toHaveBeenCalledTimes(1);
+    const failTurn = dbMock.appendToolTurnWithAssistant.mock.calls[0][0];
+    expect(failTurn.round).toBe(0);
+    expect(failTurn.tools[0].toolCallId).toBe('call_0_0');
+    expect(failTurn.tools[0].content).toContain('失败');
+    expect(failTurn.toolCalls[0].status).toBe('error');
+    expect(
+      dbMock.appendMessage.mock.calls.filter((c) => c[0].role === 'tool')
+    ).toHaveLength(0);
     expect(electronMock.webContentsSend).toHaveBeenCalledWith(
       IPC_CHANNELS.AI_STREAM_TOOL,
       expect.objectContaining({ status: 'error' })
@@ -770,6 +869,93 @@ describe('runAgentFlow', () => {
     // executeTool 被调用 2 次（while 循环退出后执行 1 次 + 外层循环 round 1 执行 1 次）
     expect(toolMock.executeTool).toHaveBeenCalledTimes(2);
     expect(res.roundsUsed).toBe(2);
+  });
+
+  it('上下文超阈值 → 压缩分支执行（摘要落库 + 重建消息）', async () => {
+    contextMock.summarizeViaLlm.mockClear();
+    contextMock.shouldCompress.mockReturnValueOnce(true);
+    llmMock.streamChatCompletion.mockImplementation(() =>
+      (async function* () {
+        yield { delta: '压缩后作答' };
+      })()
+    );
+
+    const res = await runAgentFlow(makeEvent(), payload(), makeConfig(), 'enc:key', new AbortController(), {
+      consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+    });
+
+    expect(contextMock.summarizeViaLlm).toHaveBeenCalledTimes(1);
+    expect(dbMock.updateConversationSummary).toHaveBeenCalledWith('c1', 'u1', 'S');
+    expect(res.assistantId).toBeTruthy();
+    contextMock.shouldCompress.mockReturnValue(false);
+  });
+
+  it('流式 usage 非空 → 本轮 token 记入成本追踪（S16）', async () => {
+    // 成本追踪入口为模块级单例，读真实状态做真断言（不用 mock）
+    const before = getCostTracker().getConversationStats('c1').length;
+    llmMock.streamChatCompletion.mockImplementation(() =>
+      (async function* () {
+        yield {
+          delta: '带 usage 的作答',
+          usage: { promptTokens: 120, completionTokens: 30, reasoningTokenCount: null },
+        };
+      })()
+    );
+
+    const res = await runAgentFlow(makeEvent(), payload(), makeConfig(), 'enc:key', new AbortController(), {
+      consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+    });
+
+    expect(res.assistantId).toBeTruthy();
+    expect(
+      dbMock.appendMessage.mock.calls.some((c) => c[0].role === 'assistant')
+    ).toBe(true);
+
+    // S16 真断言：usage 分支必须调用 getCostTracker().recordUsage，且字段透传正确
+    const entries = getCostTracker().getConversationStats('c1');
+    expect(entries).toHaveLength(before + 1);
+    expect(entries[entries.length - 1]).toMatchObject({
+      conversationId: 'c1',
+      userId: 'u1',
+      model: 'deepseek-chat',
+      roundCount: 1,
+      intent: 'create',
+      usage: { promptTokens: 120, completionTokens: 30 },
+    });
+  });
+
+  it('LLM 调用失败 → 发送 AI_STREAM_ERROR(code:network) 并向上抛出', async () => {
+    llmMock.streamChatCompletion.mockImplementation(() => {
+      throw new Error('网络中断');
+    });
+
+    await expect(
+      runAgentFlow(makeEvent(), payload(), makeConfig(), 'enc:key', new AbortController(), {
+        consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+      })
+    ).rejects.toThrow('网络中断');
+
+    expect(electronMock.webContentsSend).toHaveBeenCalledWith(
+      IPC_CHANNELS.AI_STREAM_ERROR,
+      expect.objectContaining({ code: 'network', message: '网络中断' })
+    );
+  });
+
+  it('请求被 abort → 发送 AI_STREAM_ERROR(code:aborted) 并抛 aborted', async () => {
+    llmMock.streamChatCompletion.mockImplementation(() => {
+      throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+    });
+
+    await expect(
+      runAgentFlow(makeEvent(), payload(), makeConfig(), 'enc:key', new AbortController(), {
+        consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+      })
+    ).rejects.toMatchObject({ code: 'aborted' });
+
+    expect(electronMock.webContentsSend).toHaveBeenCalledWith(
+      IPC_CHANNELS.AI_STREAM_ERROR,
+      expect.objectContaining({ code: 'aborted' })
+    );
   });
 });
 

@@ -111,6 +111,8 @@ const MessageList: React.FC<MessageListProps> = React.memo(({ messages, isAgentM
         // Bug 1 修复：从消息自身的 toolCalls 快照渲染（历史轮次独立保留）
         const msgToolCalls = isAgentMode ? (m.toolCalls ?? []) : [];
         const hasToolCalls = msgToolCalls.length > 0;
+        // R2：重载态 assistant(content:'') 是工作流占位行，只画卡片，不画空气泡（对齐在线态）
+        const isBlankToolTurn = m.role === 'assistant' && hasToolCalls && m.content.trim() === '';
 
         return (
           <div key={m.id}>
@@ -120,36 +122,38 @@ const MessageList: React.FC<MessageListProps> = React.memo(({ messages, isAgentM
                 <AgentWorkflowCard toolCalls={msgToolCalls} isStreaming={false} />
               </div>
             )}
-            <AIMessageBubble
-              role={m.role}
-              content={m.content}
-              refsJson={isAgentMode ? m.refsJson : null}
-              responseTime={m.responseTime}
-              createdAt={m.createdAt}
-              attachments={m.attachments}
-              onCopy={() => handleCopy(m.content)}
-              onEdit={
-                m.role === 'user'
-                  ? () => handleEdit(m.id)
-                  : undefined
-              }
-              onSaveEdit={
-                m.role === 'user'
-                  ? (newContent) => void handleSaveEdit(m.id, newContent)
-                  : undefined
-              }
-              onCancelEdit={
-                m.role === 'user'
-                  ? handleCancelEdit
-                  : undefined
-              }
-              isEditing={m.role === 'user' && editingId === m.id}
-              onRetry={
-                m.role === 'assistant' && idx >= 2
-                  ? () => handleRetry(idx)
-                  : undefined
-              }
-            />
+            {!isBlankToolTurn && (
+              <AIMessageBubble
+                role={m.role}
+                content={m.content}
+                refsJson={isAgentMode ? m.refsJson : null}
+                responseTime={m.responseTime}
+                createdAt={m.createdAt}
+                attachments={m.attachments}
+                onCopy={() => handleCopy(m.content)}
+                onEdit={
+                  m.role === 'user'
+                    ? () => handleEdit(m.id)
+                    : undefined
+                }
+                onSaveEdit={
+                  m.role === 'user'
+                    ? (newContent) => void handleSaveEdit(m.id, newContent)
+                    : undefined
+                }
+                onCancelEdit={
+                  m.role === 'user'
+                    ? handleCancelEdit
+                    : undefined
+                }
+                isEditing={m.role === 'user' && editingId === m.id}
+                onRetry={
+                  m.role === 'assistant' && idx >= 2
+                    ? () => handleRetry(idx)
+                    : undefined
+                }
+              />
+            )}
           </div>
         );
       })}

@@ -36,9 +36,19 @@ vi.mock('electron', () => ({
 // --- db/ai mock ---
 const dbMock = vi.hoisted(() => ({
   appendMessage: vi.fn(),
+  appendToolTurnWithAssistant: vi.fn(
+    (input: { conversationId: string; runId: string; round: number; tools: unknown[] }) => ({
+      assistantId: `aturn_${input.conversationId}_${input.runId}_${input.round}`,
+      toolIds: input.tools.map(
+        (_t, i) => `t_${input.conversationId}_${input.runId}_${input.round}_${i}`
+      ),
+    })
+  ),
   getConversation: vi.fn(),
   getMessagesByConversation: vi.fn(() => []),
   getMessagesByConversationPaginated: vi.fn(() => []),
+  // B-c / P0-5：历史读取按轮
+  getRecentMessagesByRounds: vi.fn(() => []),
   updateConversationSummary: vi.fn(),
 }));
 vi.mock('@main/db/ai', () => dbMock);
@@ -466,6 +476,17 @@ function resetAllMocks(): void {
     refsJson: null,
     createdAt: 'now',
   }));
+  dbMock.appendToolTurnWithAssistant.mockReset().mockImplementation((input: {
+    conversationId: string;
+    runId: string;
+    round: number;
+    tools: unknown[];
+  }) => ({
+    assistantId: `aturn_${input.conversationId}_${input.runId}_${input.round}`,
+    toolIds: input.tools.map(
+      (_t, i) => `t_${input.conversationId}_${input.runId}_${input.round}_${i}`
+    ),
+  }));
   dbMock.getConversation.mockReset().mockReturnValue({
     id: 'c1',
     userId: 'u1',
@@ -476,6 +497,7 @@ function resetAllMocks(): void {
   });
   dbMock.getMessagesByConversation.mockReset().mockReturnValue([]);
   dbMock.getMessagesByConversationPaginated.mockReset().mockReturnValue([]);
+  dbMock.getRecentMessagesByRounds.mockReset().mockReturnValue([]);
   dbFilesMock.listFiles.mockReset().mockReturnValue([]);
   llmMock.streamChatCompletion.mockReset();
   llmMock.streamChatCompletionWithRetry.mockReset().mockImplementation(

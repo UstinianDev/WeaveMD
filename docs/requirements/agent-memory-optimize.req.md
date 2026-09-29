@@ -1,7 +1,7 @@
 # agent-memory-optimize — 需求文档（第一批 / P0）
 
 > 日期：2026-09-28 | 档位：L | 基于：`docs/plan/agent-memory-optimize.direction.md` + grill-me 三轮对齐 + P0 代码锚点核验
-> 状态：**11 项全部对齐**（Q1~Q11）
+> 状态：**18 项全部对齐**（Q1~Q15 需求对齐 + Q16~Q18 实施期新增裁定）
 
 ## 一、目标
 
@@ -64,7 +64,7 @@
 - **根因**：`queryPlanner.ts:427 detectAmbiguities(query, history?)` 与 `:224 resolveReferences(query, history?)` 签名**早已带可选 history**，`searchKBHandler.ts:25` 未传；更根本的是 `resolveReferences`/`understandQuery` **在检索主管线从未被调用**（仅 `queryPlanner.ts:471` 内部与 `planQuery` 用），检索 query 至今未被改写。
 - **范围（Q10=A / Q11=A / Q12=A）**：
   1. `agentContext.ts:321-334` 构建 `ToolCtx` 时注入主流程已读出的 `ConversationMessage[]`（`toolTypes.ts:40-72` 增加 `history` 字段）；
-  2. `searchKBHandler` 把 history 传给 `detectAmbiguities`（`queryPlanner.ts:432-434` 的 `!history` 门随之自然放行），并给 `detectAmbiguities` 内的 `length<2` 判定一并加上下文门（与 P0-3 口径一致）；
+  2. `searchKBHandler` 把 history 传给 `detectAmbiguities`（`queryPlanner.ts` 的 `!history` 门 —— 行号随 B-d 实现漂移，实测在 `:460` / `:476`，不再是核验期的 `:432-434` —— 随之自然放行），并给 `detectAmbiguities` 内的 `length<2` 判定一并加上下文门（与 P0-3 口径一致）；
   3. 主管线在调 `detectAmbiguities` 前先 `resolveReferences(query, history)`，位置在 `sanitizeFtsQuery` **之前**且**纳入 cacheKey**；
   4. **回退收紧**：历史空恒等返回；解不出明确实体则原样返回并标 unresolved，**取消 `extractRecentTopic` 的「最近 3 条 user 文本硬拼 `${topic}的`」回退**；改写结果仍含指代词或长度 <2 则不启用；
   5. **双路召回**：原 query 与改写 query 走既有 `expandedQueries` + RRF 融合，不二选一。
@@ -121,6 +121,9 @@ TDD 强度：**L / strict**（RED 实测 → 最小实现 GREEN → 重构 → �
 | Q13 | 一.5 字节预算 | **A**：SQL 端流式累加字节预算、超预算即停再反转（无行数上限、有软字节闸）；排序加 `rowid DESC` 防同毫秒切半截轮 |
 | Q14 | 一.4 孤儿兜底 | **A**：单事务写入（assistant(tool_calls)+本轮 tool 行）+ 读取侧配对修复；**不新增**中断主动合成 tool 结果路径；配对修复须新建，不得复用不校验配对的 `cleanupIncompleteMessages` |
 | Q15 | 一.5 与红线的张力 | **A**：取 `max(最近 3 轮全量, 20 行)`——20 由上限降为**水位线（下限）**，轮数保下界、字节闸管上界；不新增魔数 |
+| Q16 | **实施期新增**：P0-4 确定性 id 缺运行维度（`round` 每次运行从 0 重计，同会话第二条消息撞 id → 历史错配） | **A**：加运行级 `runId` 盐，`prepareAgentContext` 每运行 `randomUUID()` 一次；id 改 `aturn_${conv}_${runId}_${round}` / `t_${conv}_${runId}_${round}_${index}`。否决「改随机 UUID（丢幂等）」与「锚定用户消息行 id（拿不到就得多传参）」 |
+| Q17 | **实施期新增**：plan 所述「透传 `tool_calls`」与实际形状不符 | **批准**：DB 存 `IAgentToolCall[]`、provider 要 `{id,type:'function',function:{...}}`，须在 DB→LLM map 处做 `toLlmToolCalls` 转换，否则必然 400。属 P0-4 唯一可行实现，不扩范围 |
+| Q18 | **实施期新增**：Gate B 覆盖率口径（整文件 ≥80 导致 6 个文件未达标，其中 5 个本任务只做了删除、`preload.ts` vitest 结构性加载不到） | **A**：改为**改动行覆盖 ≥80%**——删除行不计、`preload.ts` 与 `toolTypes.ts` 判不适用、未覆盖的新增行补测。保留 strict TDD 本意（新代码必须有测），不为本任务未写的代码造测 |
 
 ## 七、事实核验修正（方向文档有误处，以本表为准）
 

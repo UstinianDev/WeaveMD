@@ -421,6 +421,19 @@ describe('resolveReferencesDetailed（P0-6 Q12 回退收紧）', () => {
     );
     expect(resolveReferences('它有什么优势')).toBe('它有什么优势');
   });
+
+  it('R1: history 末位为当前问题（自身带指代词）时不从当前问题自抽实体', () => {
+    const history: ConversationMessage[] = [
+      { role: 'user', content: 'SQLite 的优势' },
+      { role: 'user', content: '它在知识库里的表现如何' },
+    ];
+    const detailed = resolveReferencesDetailed('它在知识库里的表现如何', history);
+    // 修复前：通用实体分支在当前问题里命中「在」→ 拼出「知识库里的表现如何的在…」
+    expect(detailed.query).not.toContain('知识库里的表现如何的');
+    // 历史里解不出明确实体 → 恒等返回
+    expect(detailed.resolved).toBe(false);
+    expect(detailed.query).toBe('它在知识库里的表现如何');
+  });
 });
 
 // ---------------------------------------------------------------------------

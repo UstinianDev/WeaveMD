@@ -139,6 +139,10 @@ export function extractEntityFromHistory(
     const content = recent[i].content;
     if (!content) continue;
 
+    // R1：以指代词开头的消息自身仍是未消解的指代（toolCtx.history 末位即当前问题），
+    // 从它身上抽实体必然自指（通用分支会在当前问题里命中「在」等虚词），跳过
+    if (PRONOUN_RE.test(content)) continue;
+
     // 根据指代词类型匹配不同实体模式
     if (/前者/.test(pronoun)) {
       // "前者" → 提取并列结构中的第一个

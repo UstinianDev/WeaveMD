@@ -70,11 +70,12 @@
 
 按任务成套存放，同一任务的四件套同名前缀：`{task}.req.md`（需求）、`{task}.plan.md` / `{task}.status.md`（计划与状态）、`{task}.*.tdd.md`（测试证据），另有 connectivity（连通性）与 compliance（合规）报告。
 
-| 需求（`requirements/`，当前 5 篇 + archive 12 篇） | 计划与状态（`plan/`，当前 23 篇主文档 + 4 篇分册 + archive 32 篇） | 测试报告（`testing/`，20 篇） |
+| 需求（`requirements/`，当前 5 篇 + archive 12 篇） | 计划与状态（`plan/`，当前 25 篇主文档 + 4 篇分册 + archive 32 篇） | 测试报告（`testing/`，21 篇） |
 |---|---|---|
 | [doc-pipeline.req](./requirements/doc-pipeline.req.md) | [doc-pipeline.plan](./plan/doc-pipeline.plan.md) / [status](./plan/doc-pipeline.status.md) / [connectivity](./plan/doc-pipeline.connectivity.md) / [compliance](./plan/doc-pipeline.compliance.md) / [docling-poc](./plan/doc-pipeline.docling-poc.md) / [remedial.diagnosis](./plan/doc-pipeline.remedial.diagnosis.md) | `doc-pipeline-b1` ~ `doc-pipeline-b11` + `doc-pipeline-remedial` + `doc-pipeline.final` |
 | [agent-cost-optimize.req](./requirements/agent-cost-optimize.req.md) | [plan](./plan/agent-cost-optimize.plan.md) / [status](./plan/agent-cost-optimize.status.md) | `agent-cost-optimize.tdd` |
 | [agent-perf-optimize.req](./requirements/agent-perf-optimize.req.md) | [plan](./plan/agent-perf-optimize.plan.md) / [phase2](./plan/agent-perf-optimize.phase2.plan.md) / [status](./plan/agent-perf-optimize.status.md) / [connectivity](./plan/agent-perf-optimize.connectivity.md) | — |
+| [agent-memory-optimize.req](./requirements/agent-memory-optimize.req.md) | [plan](./plan/agent-memory-optimize.plan.md) / [status](./plan/agent-memory-optimize.status.md) / [connectivity](./plan/agent-memory-optimize.connectivity.md) / [compliance](./plan/agent-memory-optimize.compliance.md) | `agent-memory-optimize.tdd` |
 | [agent-md-kb-optimize.req](./requirements/agent-md-kb-optimize.req.md) | [plan](./plan/agent-md-kb-optimize.plan.md) / [status](./plan/agent-md-kb-optimize.status.md) | — |
 | [agent-memory-optimize.req](./requirements/agent-memory-optimize.req.md)（P0 第一批，进行中） | [direction](./plan/agent-memory-optimize.direction.md)（7 模块 30 任务路线图） / [plan](./plan/agent-memory-optimize.plan.md) / [status](./plan/agent-memory-optimize.status.md) | — |
 | — | 6 篇 doc-pipeline 调研（`plan/doc-pipeline.research-*.md`：parse / pdf-multimodal / storage / chunking / packaging / tools） | `spec-edit-ft` ~ `ft4` / `cbtp` / `dsf`（编辑器规格 TDD 6 篇） |

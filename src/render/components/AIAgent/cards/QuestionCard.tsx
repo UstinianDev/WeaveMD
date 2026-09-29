@@ -490,6 +490,7 @@ const QuestionCard: React.FC<QuestionCardProps> = ({
 
       {/* 底部滑出面板 */}
       <div
+        data-testid="question-card"
         className="absolute bottom-0 left-0 right-0 z-50 rounded-t-card border border-border border-b-0 bg-bg-secondary shadow-[0_-4px_24px_rgba(0,0,0,0.15),0_-1px_8px_rgba(0,0,0,0.1)] transition-transform duration-300 ease-out font-['Alibaba_PuHuiTi_2.0',Consolas,system-ui,sans-serif]"
         style={{
           transform: visible ? 'translateY(0)' : 'translateY(100%)',

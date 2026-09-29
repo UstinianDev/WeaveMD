@@ -21,12 +21,11 @@ vi.mock('electron', () => ({
 }));
 
 // --- DB mock（prepareAgentContext 只读会话/消息 + 落用户消息） ---
+// B-c / P0-5：历史读取改走 getRecentMessagesByRounds（按轮 + 软字节闸）
 const dbAiMock = vi.hoisted(() => ({
   appendMessage: vi.fn((m: Record<string, unknown>) => ({ id: 'm1', ...m })),
   getConversation: vi.fn(),
-  getMessagesByConversationPaginated: vi.fn(
-    (): Array<{ role: string; content: string }> => []
-  ),
+  getRecentMessagesByRounds: vi.fn((): unknown[] => []),
 }));
 vi.mock('@main/db/ai', () => dbAiMock);
 
@@ -100,11 +99,17 @@ vi.mock('@main/ai/toolRegistry', () => ({
   buildToolListForPrompt: vi.fn((tools: unknown[]) => tools),
 }));
 
-import { prepareAgentContext } from '@main/ai/agent/agentContext';
+import {
+  prepareAgentContext,
+  repairToolTurnPairing,
+  MISSING_TOOL_RESULT_PLACEHOLDER,
+} from '@main/ai/agent/agentContext';
 import { buildCompressed } from '@main/ai/contextManager';
+import type { LlmMessage } from '@main/ai/contextManager';
+import type { AgentLlmMessage } from '@main/ai/agent/agentLoop';
 import { classifyIntent } from '@main/ai/intentRouter';
 import { CHAT_SYSTEM_PROMPT } from '@main/ai/agent/agentPromptBuilder';
-import type { IAIConfig, IAttachmentMeta } from '@shared/ai';
+import type { IAIConfig, IAttachmentMeta, IAIMessage, IAgentToolCall } from '@shared/ai';
 import type { AgentReqPayload } from '@main/ai/agent/agentLoop';
 
 function makeConfig(over: Partial<IAIConfig> = {}): IAIConfig {
@@ -156,7 +161,7 @@ beforeEach(() => {
     createdAt: 'now',
     updatedAt: 'now',
   });
-  dbAiMock.getMessagesByConversationPaginated.mockReset().mockReturnValue([]);
+  dbAiMock.getRecentMessagesByRounds.mockReset().mockReturnValue([]);
   dbKbMock.hasGrantedAttachmentDocs.mockReset().mockReturnValue(false);
 });
 
@@ -432,7 +437,7 @@ describe('A-b-1 — chat 历史取数统一与 :449 反上下文行', () => {
       updatedAt: 'now',
     });
     // 2 轮历史（user/assistant × 2），当前 user 消息由 prepareAgentContext 落库
-    dbAiMock.getMessagesByConversationPaginated.mockReturnValue([
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue([
       { role: 'user', content: '上一轮问题一' },
       { role: 'assistant', content: '上一轮回答一' },
       { role: 'user', content: '上一轮问题二' },
@@ -459,7 +464,7 @@ describe('A-b-1 — chat 历史取数统一与 :449 反上下文行', () => {
 
   it('历史读取发生在 classifyIntent / appendMessage 之前（读取上提）', () => {
     runPrepare(makePayload(), ALLOW_ALL);
-    const readOrder = dbAiMock.getMessagesByConversationPaginated.mock.invocationCallOrder[0];
+    const readOrder = dbAiMock.getRecentMessagesByRounds.mock.invocationCallOrder[0];
     const appendOrder = dbAiMock.appendMessage.mock.invocationCallOrder[0];
     expect(readOrder).toBeLessThan(appendOrder);
   });
@@ -512,7 +517,7 @@ describe('A-b-3 — classifyIntent 接线 { hasHistory }', () => {
   });
 
   it('会话含历史 assistant 行 → 以 { hasHistory:true } 调用，长度不触发澄清', () => {
-    dbAiMock.getMessagesByConversationPaginated.mockReturnValue([
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue([
       { role: 'user', content: '上一轮问题' },
       { role: 'assistant', content: '上一轮回答' },
     ]);
@@ -525,7 +530,7 @@ describe('A-b-3 — classifyIntent 接线 { hasHistory }', () => {
   });
 
   it('仅 user 孤立历史行（无 assistant）→ { hasHistory:false }，长度门照旧', () => {
-    dbAiMock.getMessagesByConversationPaginated.mockReturnValue([
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue([
       { role: 'user', content: '上一轮问题' },
     ]);
     const ctx = runPrepare(makePayload({ message: SHORT_QUERY }), ALLOW_ALL);
@@ -535,7 +540,7 @@ describe('A-b-3 — classifyIntent 接线 { hasHistory }', () => {
   });
 
   it('空会话首轮 → { hasHistory:false }，行为与现状一致（澄清置位 → Agent 提示）', () => {
-    dbAiMock.getMessagesByConversationPaginated.mockReturnValue([]);
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue([]);
     const ctx = runPrepare(makePayload({ message: SHORT_QUERY }), ALLOW_ALL);
     expect(intentRouterMock.classifyIntent).toHaveBeenCalledWith(SHORT_QUERY, { hasHistory: false });
     expect(ctx.intent.intent).toBe('chat');
@@ -545,7 +550,7 @@ describe('A-b-3 — classifyIntent 接线 { hasHistory }', () => {
   });
 
   it('有历史时闲聊意图零回归：正常长度消息仍走 CHAT_SYSTEM_PROMPT', () => {
-    dbAiMock.getMessagesByConversationPaginated.mockReturnValue([
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue([
       { role: 'assistant', content: '上一轮回答' },
     ]);
     const ctx = runPrepare(makePayload({ message: '你好，今天天气怎么样？' }), ALLOW_ALL);
@@ -553,5 +558,351 @@ describe('A-b-3 — classifyIntent 接线 { hasHistory }', () => {
       hasHistory: true,
     });
     expect(ctx.llmMessages[0].content).toBe(CHAT_SYSTEM_PROMPT);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B-b-fix：运行维度盐（工具轮确定性 id 的 runId 维度）
+// ---------------------------------------------------------------------------
+
+describe('B-b-fix — runId 运行维度盐', () => {
+  const DEPS = { consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null } };
+
+  it('每次 prepareAgentContext 生成唯一 runId（同一会话二次运行不撞 id）', () => {
+    const first = runPrepare(makePayload(), DEPS);
+    const second = runPrepare(makePayload(), DEPS);
+    expect(typeof first.runId).toBe('string');
+    expect(first.runId.length).toBeGreaterThan(0);
+    expect(second.runId).not.toBe(first.runId);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B-c：P0-5 按轮读取 + P0-4 回读 tool_calls / 空 content 放行 + P0-6 toolCtx.history
+// ---------------------------------------------------------------------------
+
+/** DB 行夹具（`getRecentMessagesByRounds` 返回的 IAIMessage 形状）。 */
+function dbRow(
+  id: string,
+  role: IAIMessage['role'],
+  content: string,
+  over: Partial<IAIMessage> = {}
+): IAIMessage {
+  return {
+    id,
+    conversationId: 'c1',
+    userId: 'u1',
+    role,
+    content,
+    refsJson: null,
+    createdAt: `2026-09-29T00:00:00.${id}`,
+    ...over,
+  };
+}
+
+const TOOL_CALL_FIXTURE: IAgentToolCall = {
+  toolCallId: 'call_0_0',
+  name: 'searchKB',
+  args: '{"query":"SQLite 优势"}',
+  status: 'ok',
+};
+
+/** 一个完整工具轮：user → assistant(tool_calls) → tool → assistant 正文。 */
+function toolRoundRows(): IAIMessage[] {
+  return [
+    dbRow('u1', 'user', '帮我查一下 SQLite 的优势'),
+    dbRow('a1', 'assistant', '', { toolCalls: [TOOL_CALL_FIXTURE] }),
+    dbRow('t1', 'tool', 'SQLite 优势：零配置、单文件、嵌入式', {
+      toolCallId: TOOL_CALL_FIXTURE.toolCallId,
+    }),
+    dbRow('a2', 'assistant', 'SQLite 的优势包括零配置与嵌入式部署。'),
+  ];
+}
+
+/** buildCompressed 收到的入参（压缩前的完整历史，含当前 user 消息）。 */
+function preCompressedHistory(): LlmMessage[] {
+  const calls = contextManagerMock.buildCompressed.mock.calls;
+  return calls[calls.length - 1][0] as LlmMessage[];
+}
+
+describe('B-c P0-5 — 上下文按轮读取（getRecentMessagesByRounds）', () => {
+  const ALLOW_ALL = {
+    consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+  };
+
+  it('以 KEEP_RECENT_ROUNDS(3) 轮 + 45_000 字节预算读取（轮数与预算均为具名常量）', () => {
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue(toolRoundRows());
+    runPrepare(makePayload(), ALLOW_ALL);
+    expect(dbAiMock.getRecentMessagesByRounds).toHaveBeenCalledTimes(1);
+    expect(dbAiMock.getRecentMessagesByRounds).toHaveBeenCalledWith('c1', 'u1', 3, {
+      byteBudget: 45_000,
+    });
+  });
+
+  it('单轮 25 条工具结果完整取回（行数上限已取消，P0-5 验收）', () => {
+    const ids = Array.from({ length: 25 }, (_, i) => `call_0_${i}`);
+    const toolCalls: IAgentToolCall[] = ids.map((id) => ({
+      toolCallId: id,
+      name: 'searchDocument',
+      args: `{"query":"q${id}"}`,
+      status: 'ok',
+    }));
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue([
+      dbRow('u1', 'user', '把这批文档全读一遍'),
+      dbRow('a1', 'assistant', '', { toolCalls }),
+      ...ids.map((id, i) =>
+        dbRow(`t${i}`, 'tool', `结果 ${i}`, { toolCallId: id })
+      ),
+      dbRow('a2', 'assistant', '已读完。'),
+    ]);
+    const ctx = runPrepare(makePayload(), ALLOW_ALL);
+    expect(preCompressedHistory().filter((m) => m.role === 'tool')).toHaveLength(25);
+    expect(ctx.llmMessages.filter((m) => m.role === 'tool')).toHaveLength(25);
+  });
+
+  it('跨 3 轮的 user/assistant 全部取回（轮次不减少）', () => {
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue([
+      dbRow('u1', 'user', '第一轮问题'),
+      dbRow('a1', 'assistant', '第一轮回答'),
+      dbRow('u2', 'user', '第二轮问题'),
+      dbRow('a2', 'assistant', '第二轮回答'),
+      dbRow('u3', 'user', '第三轮问题'),
+      dbRow('a3', 'assistant', '第三轮回答'),
+    ]);
+    const ctx = runPrepare(makePayload(), ALLOW_ALL);
+    const history = preCompressedHistory();
+    const texts = history
+      .map((m) => (typeof m.content === 'string' ? m.content : ''))
+      .join('|');
+    // 3 轮历史 + 当前 user 消息 = 4 条 user
+    expect(history.filter((m) => m.role === 'user')).toHaveLength(4);
+    for (const t of ['第一轮问题', '第二轮问题', '第三轮问题', '第一轮回答', '第三轮回答']) {
+      expect(texts).toContain(t);
+    }
+  });
+});
+
+describe('B-c P0-4 — 回读携带 tool_calls + 空 content 行放行', () => {
+  const ALLOW_ALL = {
+    consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+  };
+
+  function assistantToolCalls(ctx: ReturnType<typeof runPrepare>) {
+    return ctx.llmMessages.filter(
+      (m) => m.role === 'assistant' && !!m.tool_calls && m.tool_calls.length > 0
+    );
+  }
+
+  it('chat 意图：回读 assistant 行携带 tool_calls（OpenAI 形状，与 assembleToolTurn 对齐）', () => {
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue(toolRoundRows());
+    const ctx = runPrepare(makePayload(), ALLOW_ALL);
+    expect(ctx.intent.intent).toBe('chat');
+    const withCalls = assistantToolCalls(ctx);
+    expect(withCalls).toHaveLength(1);
+    expect(withCalls[0].tool_calls).toEqual([
+      {
+        id: 'call_0_0',
+        type: 'function',
+        function: { name: 'searchKB', arguments: '{"query":"SQLite 优势"}' },
+      },
+    ]);
+    // 配对 tool 行保留且 tool_call_id 一致
+    const toolRows = ctx.llmMessages.filter((m) => m.role === 'tool');
+    expect(toolRows).toHaveLength(1);
+    expect(toolRows[0].tool_call_id).toBe('call_0_0');
+  });
+
+  it('非 chat 意图同样携带 tool_calls（P0-4 与意图无关）', () => {
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue(toolRoundRows());
+    const ctx = runPrepare(
+      makePayload({ message: '请帮我写一篇关于 SQLite 的技术文章' }),
+      ALLOW_ALL
+    );
+    expect(ctx.intent.intent).not.toBe('chat');
+    expect(assistantToolCalls(ctx)).toHaveLength(1);
+    expect(assistantToolCalls(ctx)[0].tool_calls?.[0].function.name).toBe('searchKB');
+  });
+
+  it("content:'' 的 assistant(tool_calls) 行不被滤掉（否则该轮整体丢失）", () => {
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue(toolRoundRows());
+    const ctx = runPrepare(makePayload(), ALLOW_ALL);
+    const emptyContentCalls = ctx.llmMessages.filter(
+      (m) => m.role === 'assistant' && !!m.tool_calls && m.content === ''
+    );
+    expect(emptyContentCalls).toHaveLength(1);
+  });
+
+  it('纯空白噪音行仍被滤掉（无 tool_calls/tool_call_id 且内容全空白）', () => {
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue([
+      dbRow('u1', 'user', '上一轮问题'),
+      dbRow('a0', 'assistant', '   '),
+      dbRow('t0', 'tool', '\n\t  '),
+      dbRow('a1', 'assistant', '上一轮回答'),
+    ]);
+    const ctx = runPrepare(makePayload(), ALLOW_ALL);
+    const texts = ctx.llmMessages
+      .map((m) => (typeof m.content === 'string' ? m.content : ''))
+      .join('|');
+    // 纯空白行（无 tool_calls/tool_call_id）仍被滤掉
+    expect(ctx.llmMessages.some((m) => m.content === '   ')).toBe(false);
+    expect(ctx.llmMessages.some((m) => m.content === '\n\t  ')).toBe(false);
+    expect(ctx.llmMessages.some((m) => m.content === '上一轮回答')).toBe(true);
+    expect(texts).toContain('上一轮问题');
+  });
+});
+
+describe('B-c P0-6 — toolCtx.history 注入（零额外 DB 读）', () => {
+  const ALLOW_ALL = {
+    consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+  };
+
+  it('注入 history：仅 user/assistant 角色、含当前问题、全文与 LLM 一致', () => {
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue(toolRoundRows());
+    const ctx = runPrepare(makePayload(), ALLOW_ALL);
+    expect(dbAiMock.getRecentMessagesByRounds).toHaveBeenCalledTimes(1); // Q10 零额外 DB 读
+    const history = ctx.toolCtx.history;
+    expect(history).toBeDefined();
+    expect(history!.length).toBeGreaterThan(0);
+    expect(history!.every((m) => m.role === 'user' || m.role === 'assistant')).toBe(true);
+    const roles: string[] = history!.map((m) => m.role);
+    expect(roles.some((r) => r === 'tool' || r === 'system')).toBe(false);
+    const texts = history!.map((m) => m.content).join('|');
+    expect(texts).toContain('帮我查一下 SQLite 的优势');
+    expect(texts).toContain('SQLite 的优势包括零配置与嵌入式部署。');
+    // 当前问题也在内（与 LLM 看到的上下文一致）
+    expect(texts).toContain('你好，今天天气怎么样？');
+    // 配对修复之后：占位 tool 行被角色过滤挡在 history 之外
+    expect(history!.some((m) => m.content.includes('工具结果缺失'))).toBe(false);
+  });
+
+  it('带图片的历史行 content 经 contentToText 还原为文本（[图片] 占位）', () => {
+    const tmpImage = join(tmpdir(), `weavemd-bc-history-${process.pid}.png`);
+    writeFileSync(tmpImage, Buffer.from('89504e470d0a1a0a', 'hex'));
+    try {
+      dbAiMock.getRecentMessagesByRounds.mockReturnValue([
+        dbRow('u1', 'user', '看这张图', {
+          attachments: [
+            { id: 'i1', type: 'image', name: 'shot.png', path: tmpImage } as IAttachmentMeta,
+          ],
+        }),
+        dbRow('a1', 'assistant', '这是一张截图。'),
+      ]);
+      const ctx = runPrepare(makePayload(), ALLOW_ALL, makeConfig({ model: 'claude-sonnet-4' }));
+      const imgRow = ctx.toolCtx.history!.find((m) => m.content.includes('看这张图'));
+      expect(imgRow).toBeDefined();
+      expect(imgRow!.content).toContain('[图片]');
+      expect(typeof imgRow!.content).toBe('string');
+    } finally {
+      rmSync(tmpImage, { force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B-c P0-4：repairToolTurnPairing —— 三条规则（纯内存、永不写库、不复用 cleanup）
+// ---------------------------------------------------------------------------
+
+describe('B-c P0-4 — repairToolTurnPairing 配对修复', () => {
+  const ALLOW_ALL = {
+    consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+  };
+  const CALL_A = {
+    id: 'call_0_0',
+    type: 'function' as const,
+    function: { name: 'searchKB', arguments: '{"query":"SQLite"}' },
+  };
+  const CALL_B = {
+    id: 'call_0_1',
+    type: 'function' as const,
+    function: { name: 'readLocalFile', arguments: '{"path":"a.md"}' },
+  };
+
+  it('规则 1：assistant 有 tool_calls 缺配对 tool 行 → 合成占位 tool 行（锁文案），不剥 tool_calls', () => {
+    const out = repairToolTurnPairing([
+      { role: 'user', content: '查一下' },
+      { role: 'assistant', content: '', tool_calls: [CALL_A] },
+      { role: 'assistant', content: '正文回答' },
+    ] as AgentLlmMessage[]);
+    expect(out).toHaveLength(4);
+    const placeholder = out[2];
+    expect(placeholder.role).toBe('tool');
+    expect(placeholder.tool_call_id).toBe('call_0_0');
+    // 文案逐字锁定（plan §5 / 风险 6）
+    expect(placeholder.content).toBe('[工具结果缺失：会话在该工具完成前中断，结果不可恢复]');
+    expect(placeholder.content).toBe(MISSING_TOOL_RESULT_PLACEHOLDER);
+    // 不剥 tool_calls：该轮不因缺结果整体丢失
+    expect(out[1].tool_calls).toEqual([CALL_A]);
+  });
+
+  it('规则 2：孤儿 tool 行（前置无该 tool_call_id 的 assistant.tool_calls）→ 丢弃', () => {
+    const out = repairToolTurnPairing([
+      { role: 'user', content: '查一下' },
+      { role: 'tool', tool_call_id: 'call_ghost', content: '孤儿结果' },
+      { role: 'assistant', content: '正文回答' },
+    ] as AgentLlmMessage[]);
+    expect(out.some((m) => m.role === 'tool')).toBe(false);
+    expect(out).toHaveLength(2);
+  });
+
+  it('规则 3：老数据纯文本 assistant 行（无 tool_calls）→ 原样保留', () => {
+    const input = [
+      { role: 'user', content: '老问题' },
+      { role: 'assistant', content: '老回答' },
+    ] as AgentLlmMessage[];
+    const out = repairToolTurnPairing(input);
+    expect(out).toEqual(input);
+    expect(out[1].tool_calls).toBeUndefined();
+  });
+
+  it('双向：完整配对不改动（含既有 tool 内容），输入数组不被原地改写', () => {
+    const input = [
+      { role: 'user', content: '查一下' },
+      { role: 'assistant', content: '', tool_calls: [CALL_A] },
+      { role: 'tool', tool_call_id: 'call_0_0', content: '真实结果' },
+      { role: 'assistant', content: '正文回答' },
+    ] as AgentLlmMessage[];
+    const snapshot = JSON.parse(JSON.stringify(input)) as AgentLlmMessage[];
+    const out = repairToolTurnPairing(input);
+    expect(out).toEqual(snapshot);
+    expect(JSON.parse(JSON.stringify(input))).toEqual(snapshot);
+    expect(out[2].content).toBe('真实结果');
+  });
+
+  it('双向：多 tool 单轮只补缺失的那一条（部分配对）', () => {
+    const out = repairToolTurnPairing([
+      { role: 'user', content: '查两个' },
+      { role: 'assistant', content: '', tool_calls: [CALL_A, CALL_B] },
+      { role: 'tool', tool_call_id: 'call_0_1', content: 'B 的结果' },
+      { role: 'assistant', content: '正文回答' },
+    ] as AgentLlmMessage[]);
+    const tools = out.filter((m) => m.role === 'tool');
+    expect(tools).toHaveLength(2);
+    expect(tools.find((t) => t.tool_call_id === 'call_0_0')?.content).toBe(
+      '[工具结果缺失：会话在该工具完成前中断，结果不可恢复]'
+    );
+    expect(tools.find((t) => t.tool_call_id === 'call_0_1')?.content).toBe('B 的结果');
+  });
+
+  it('接线：孤儿 tool 行不进 LLM 上下文；缺配对的轮补出占位 tool 行', () => {
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue([
+      dbRow('u1', 'user', '查一下 SQLite'),
+      dbRow('o1', 'tool', '孤儿结果', { toolCallId: 'call_ghost' }),
+      dbRow('a1', 'assistant', '', { toolCalls: [TOOL_CALL_FIXTURE] }),
+      dbRow('a2', 'assistant', '正文回答'),
+    ]);
+    const ctx = runPrepare(makePayload(), ALLOW_ALL);
+    expect(
+      ctx.llmMessages.some((m) => m.role === 'tool' && m.tool_call_id === 'call_ghost')
+    ).toBe(false);
+    const placeholder = ctx.llmMessages.find(
+      (m) => m.role === 'tool' && m.tool_call_id === 'call_0_0'
+    );
+    expect(placeholder?.content).toBe(
+      '[工具结果缺失：会话在该工具完成前中断，结果不可恢复]'
+    );
+    // assistant(tool_calls) 仍在（该轮未丢失）
+    expect(
+      ctx.llmMessages.some((m) => m.role === 'assistant' && !!m.tool_calls)
+    ).toBe(true);
   });
 });

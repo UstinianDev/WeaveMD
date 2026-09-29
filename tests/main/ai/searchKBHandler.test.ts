@@ -121,6 +121,47 @@ describe('handleSearchKB — P0-6 代词改写接线', () => {
   });
 });
 
+describe('handleSearchKB — R1 指代改写不得自指（history 含当前问题）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('history 末位为当前问题 → 不把当前问题自身当实体拼接出垃圾 query', async () => {
+    // 末位 = 当前问题（agentContext 注入的 toolCtx.history 含当前问题）
+    const history: ConversationMessage[] = [
+      { role: 'user', content: 'SQLite 的优势' },
+      { role: 'user', content: '它在知识库里的表现如何' },
+    ];
+    const searchKb = makeSearchKb(() => okResults());
+    await handleSearchKB(
+      { query: '它在知识库里的表现如何' },
+      makeCtx({ searchKb, history })
+    );
+
+    const q = searchKb.mock.calls[0][1];
+    // 修复前：实体被从当前问题自身抽出「知识库里的表现如何」→ 拼出自指碎片
+    expect(q).not.toContain('知识库里的表现如何的');
+    expect(q).not.toContain('知识库里的表现如何的在');
+  });
+
+  it('历史 ≥2 条且前一条含明确实体 → 改写仍生效（不因修复被整体关掉）', async () => {
+    const history: ConversationMessage[] = [
+      { role: 'user', content: '请帮我分析关于SQLite' },
+      { role: 'user', content: '它的主要模块有哪些？' },
+    ];
+    const searchKb = makeSearchKb(() => okResults());
+    await handleSearchKB(
+      { query: '它的主要模块有哪些？' },
+      makeCtx({ searchKb, history })
+    );
+
+    const q = searchKb.mock.calls[0][1];
+    expect(q).toContain('SQLite');
+    expect(q).not.toMatch(/^它/);
+    expect(searchKb.mock.calls[0][2]?.expandedQueries).toEqual(['它的主要模块有哪些？']);
+  });
+});
+
 describe('handleSearchKB — history 透传 detectAmbiguities', () => {
   beforeEach(() => {
     vi.clearAllMocks();

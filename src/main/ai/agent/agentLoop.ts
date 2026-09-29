@@ -51,6 +51,7 @@ import {
   executeOneTool,
   executeToolRound,
   extractThinkingText,
+  flushPendingToolWrite,
   handleInteractionPause,
   mergeResultsWithBudget,
   processToolResultsLoop,
@@ -660,8 +661,9 @@ export async function runAgentFlow(
  * 处理 StreamingToolExecutor 收集的结果：
  * 1. 去重 ask_question_card
  * 2. 等待安全工具结果 + 串行执行非安全工具（含 force_confirm/ask_question_card 特殊处理）
- * 3. 按 handleToolResult 管道处理所有结果（DB 写入、IPC 事件、死循环检测）
- * 4. ask_question_card 交互暂停
+ * 3. 按 handleToolResult 管道处理所有结果（收集待写批次、IPC 事件、死循环检测）
+ * 4. 循环结束后单次事务落库（P0-4）
+ * 5. ask_question_card 交互暂停
  *
  * 产物格式与 executeToolRound 一致，确保 contextManager 向后兼容。
  */
@@ -719,9 +721,12 @@ async function processStreamingToolRound(
   const loopResult = processToolResultsLoop(
     dedupedToolCalls, resultMap, ctx, round, thinkingText, deps, toolTurn, executionSegments,
   );
+
+  // 8. P0-4：本轮单事务落库（与兜底路径 executeToolRound 同规则，死循环中断也先落库）
+  flushPendingToolWrite(loopResult.pending);
   if (loopResult.deadLoopBreak) return { toolTurn, deadLoopBreak: true };
 
-  // 8. ask_question_card 交互暂停
+  // 9. ask_question_card 交互暂停
   await handleInteractionPause(dedupedToolCalls, toolTurn, round, deps);
 
   return { toolTurn, deadLoopBreak: false };

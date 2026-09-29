@@ -4,7 +4,7 @@
 
 import { IPC_CHANNELS } from '@shared/constants';
 import type { IAgentToolCall, IClarifyQuestion } from '@shared/ai';
-import { appendMessage } from '../../db/ai';
+import { appendToolTurnWithAssistant, type ToolTurnToolWrite, type ToolTurnWriteResult } from '../../db/ai';
 import { executeTool } from '../toolRegistry';
 import { WRITE_TOOLS, FORCE_CONFIRM_TOOLS } from './agentToolSelector';
 import { isToolConcurrencySafe, safeParseArgs } from './concurrencyDefs';
@@ -41,6 +41,48 @@ export interface ToolExecResult {
   tc: ToolCall;
   toolCallId: string;
   result: { content: string; status: 'ok' | 'error'; errorDesc?: string };
+}
+
+/**
+ * 一个工具轮的待写批次（P0-4）：循环内只收集，循环结束后单次事务落库。
+ * `toolCalls` 形状与回读侧 `mapMessageRow` 解析出的 `IAIMessage['toolCalls']` 对齐。
+ */
+export interface PendingToolWrite {
+  conversationId: string;
+  userId: string;
+  /** 本次运行的唯一盐（确定性 id `aturn_${conv}_${runId}_${round}` 的运行维度） */
+  runId: string;
+  /** 工具轮序号（确定性 id 的组成部分） */
+  round: number;
+  /** 与 llmMessages 的 assembleToolTurn 一致（content: ''），不写入本轮流式正文 */
+  assistantContent: string;
+  toolCalls: IAgentToolCall[];
+  tools: ToolTurnToolWrite[];
+}
+
+/**
+ * 新建本轮待写批次。assistant 正文取空串，保证落库行与内存中发给 LLM 的
+ * assistant(tool_calls) 消息完全一致（否则重载会话后上下文与在线时不一致）。
+ */
+export function createPendingToolWrite(ctx: AgentContext, round: number): PendingToolWrite {
+  return {
+    conversationId: ctx.convId,
+    userId: ctx.userId,
+    runId: ctx.runId,
+    round,
+    assistantContent: '',
+    toolCalls: [],
+    tools: [],
+  };
+}
+
+/**
+ * 单次落库（P0-4）：本轮 assistant(tool_calls) + N 条 tool 行同一事务提交。
+ * 本轮无 tool 行时不写，避免产生缺配对的孤立 assistant(tool_calls) 行。
+ */
+export function flushPendingToolWrite(pending: PendingToolWrite): ToolTurnWriteResult | null {
+  if (pending.tools.length === 0) return null;
+  return appendToolTurnWithAssistant(pending);
 }
 
 // ---------------------------------------------------------------------------
@@ -218,7 +260,7 @@ export async function mergeResultsWithBudget(
 
 /**
  * 遍历去重后的工具调用，按 index 从 resultMap 取结果并通过 handleToolResult 处理。
- * 返回 deadLoopBreak 标志。
+ * 返回 deadLoopBreak 标志与本轮待写批次（调用方在循环结束后单次落库）。
  */
 export function processToolResultsLoop<T extends ToolCall>(
   dedupedToolCalls: T[],
@@ -229,14 +271,15 @@ export function processToolResultsLoop<T extends ToolCall>(
   deps: AgentLoopDeps,
   toolTurn: AgentLlmMessage[],
   executionSegments: ExecutionSegment[],
-): { deadLoopBreak: boolean } {
+): { deadLoopBreak: boolean; pending: PendingToolWrite } {
+  const pending = createPendingToolWrite(ctx, round);
   for (const tc of dedupedToolCalls) {
     const entry = resultMap.get(tc.index);
     if (!entry) continue;
-    const check = handleToolResult(entry, ctx, round, thinkingText, deps, toolTurn, executionSegments);
-    if (check.deadLoopBreak) return { deadLoopBreak: true };
+    const check = handleToolResult(entry, ctx, round, thinkingText, deps, toolTurn, executionSegments, pending);
+    if (check.deadLoopBreak) return { deadLoopBreak: true, pending };
   }
-  return { deadLoopBreak: false };
+  return { deadLoopBreak: false, pending };
 }
 
 /**
@@ -412,7 +455,7 @@ export async function executeOneTool(
 // ---------------------------------------------------------------------------
 
 /**
- * 处理单个工具结果：发送事件、持久化、死循环检测。
+ * 处理单个工具结果：发送事件、收集本轮待写批次（P0-4，不在此处写库）、死循环检测。
  * 返回 deadLoopBreak 标志。
  */
 export function handleToolResult(
@@ -422,7 +465,8 @@ export function handleToolResult(
   thinkingText: string | undefined,
   deps: AgentLoopDeps,
   toolTurn: AgentLlmMessage[],
-  executionSegments: ExecutionSegment[]
+  executionSegments: ExecutionSegment[],
+  pending: PendingToolWrite
 ): { deadLoopBreak: boolean } {
   const { tc, toolCallId, result } = entry;
 
@@ -495,15 +539,15 @@ export function handleToolResult(
       ? (result.content ? result.content : `[工具 ${tc.name} 失败] ${result.errorDesc}`)
       : result.content);
 
-  appendMessage({
-    conversationId: ctx.convId,
-    userId: ctx.userId,
-    role: 'tool',
+  // P0-4：不在循环内逐条写库，改收集到本轮批次，由调用方循环结束后单次事务落库。
+  // tool 行 content 沿用原 appendMessage 的取值规则（errorDesc 分支）。
+  pending.tools.push({
+    toolCallId,
     content: result.errorDesc && !interactionAnswers
       ? (result.content ? result.content : `[工具 ${tc.name} 失败] ${result.errorDesc}`)
       : toolResultContent,
-    toolCallId,
   });
+  pending.toolCalls.push(toolEvent);
   toolTurn.push({
     role: 'tool',
     tool_call_id: toolCallId,
@@ -610,9 +654,12 @@ export async function executeToolRound(
   const loopResult = processToolResultsLoop(
     dedupedToolCalls, resultMap, ctx, round, thinkingText, deps, toolTurn, executionSegments,
   );
+
+  // 7. P0-4：本轮单事务落库（死循环中断也须先落库，保持与原逐条写入一致的结果可见性）
+  flushPendingToolWrite(loopResult.pending);
   if (loopResult.deadLoopBreak) return { toolTurn, deadLoopBreak: true };
 
-  // 7. ask_question_card 交互暂停
+  // 8. ask_question_card 交互暂停
   await handleInteractionPause(dedupedToolCalls, toolTurn, round, deps);
 
   return { toolTurn, deadLoopBreak: false };

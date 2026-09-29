@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 // ============================================
@@ -134,6 +134,8 @@ const baseInput = {
   conversationId: 'c1',
   userId: 'u1',
   round: 3,
+  // B-b-fix：运行维度盐（同一会话二次运行的 round 0 不再撞第一次运行的 id）
+  runId: 'run-1',
   assistantContent: '',
   toolCalls: [
     { toolCallId: 'call_1', name: 'searchKB', args: '{}', status: 'ok' as const },
@@ -169,11 +171,44 @@ describe('appendToolTurnWithAssistant — 一个工具轮的 assistant + N 条 t
     expect(assistantIdx).toBeLessThan(firstToolIdx);
   });
 
-  it('确定性 id：assistant = aturn_${conv}_${round}，tool = t_${conv}_${round}_${index}', () => {
+  it('确定性 id：assistant = aturn_${conv}_${runId}_${round}，tool = t_${conv}_${runId}_${round}_${index}', () => {
     const result = appendToolTurnWithAssistant(baseInput);
-    expect(result.assistantId).toBe('aturn_c1_3');
-    expect(result.toolIds).toEqual(['t_c1_3_0', 't_c1_3_1']);
-    expect([...rows.keys()]).toEqual(['aturn_c1_3', 't_c1_3_0', 't_c1_3_1']);
+    expect(result.assistantId).toBe('aturn_c1_run-1_3');
+    expect(result.toolIds).toEqual(['t_c1_run-1_3_0', 't_c1_run-1_3_1']);
+    expect([...rows.keys()]).toEqual(['aturn_c1_run-1_3', 't_c1_run-1_3_0', 't_c1_run-1_3_1']);
+  });
+
+  it('运行维度：同会话同 round、不同 runId 两次写入 → 4 行（2 assistant + 2 tool，不覆盖、不丢）', () => {
+    appendToolTurnWithAssistant({ ...baseInput, tools: [baseInput.tools[0]] });
+    appendToolTurnWithAssistant({
+      ...baseInput,
+      runId: 'run-2',
+      assistantContent: '第二次运行正文',
+      toolCalls: [{ toolCallId: 'call_1', name: 'searchKB', args: '{}', status: 'ok' as const }],
+      tools: [{ toolCallId: 'call_1', content: '{"hits":9}' }],
+    });
+    expect(rows.size).toBe(4);
+    expect(rows.get('aturn_c1_run-1_3')?.content).toBe('');
+    expect(rows.get('aturn_c1_run-2_3')?.content).toBe('第二次运行正文');
+    // 第一次运行的 tool 行不被第二次运行冲掉
+    expect(rows.get('t_c1_run-1_3_0')?.content).toBe('{"hits":1}');
+    expect(rows.get('t_c1_run-2_3_0')?.content).toBe('{"hits":9}');
+  });
+
+  it('运行维度幂等：同 runId + 同 round 重跑 → 仍是 2 行', () => {
+    appendToolTurnWithAssistant({
+      ...baseInput,
+      tools: [{ toolCallId: 'call_1', content: '{"hits":1}' }],
+    });
+    expect(rows.size).toBe(2);
+    appendToolTurnWithAssistant({
+      ...baseInput,
+      assistantContent: '收敛正文',
+      tools: [{ toolCallId: 'call_1', content: '{"hits":2}' }],
+    });
+    expect(rows.size).toBe(2);
+    expect(rows.get('aturn_c1_run-1_3')?.content).toBe('收敛正文');
+    expect(rows.get('t_c1_run-1_3_0')?.content).toBe('{"hits":1}');
   });
 
   it('幂等：同参数重跑不增行，且 tool_calls 与正文被覆盖为最新值', () => {
@@ -187,13 +222,13 @@ describe('appendToolTurnWithAssistant — 一个工具轮的 assistant + N 条 t
       tools: [{ toolCallId: 'call_1', content: '{"hits":2}' }],
     });
     expect(rows.size).toBe(3);
-    const assistant = rows.get('aturn_c1_3');
+    const assistant = rows.get('aturn_c1_run-1_3');
     expect(assistant?.content).toBe('已收敛正文');
     expect(JSON.parse(String(assistant?.tool_calls))).toEqual([
       { toolCallId: 'call_1', name: 'searchKB', args: '{}', status: 'ok' },
     ]);
     // 第二轮 tool 行保持原值（INSERT OR IGNORE 不覆盖已有结果）
-    expect(rows.get('t_c1_3_1')?.content).toBe('{"path":"a.md"}');
+    expect(rows.get('t_c1_run-1_3_1')?.content).toBe('{"path":"a.md"}');
   });
 
   it('参数化写入：assistant 行带 role/tool_calls，tool 行带 tool_call_id，绝无 SQL 拼接', () => {
@@ -201,7 +236,7 @@ describe('appendToolTurnWithAssistant — 一个工具轮的 assistant + N 条 t
     const writes = runWrites();
     const assistantWrite = writes[0];
     expect(assistantWrite.args).toEqual([
-      'aturn_c1_3',
+      'aturn_c1_run-1_3',
       'c1',
       'u1',
       'assistant',
@@ -212,12 +247,12 @@ describe('appendToolTurnWithAssistant — 一个工具轮的 assistant + N 条 t
       null,
       expect.any(String),
     ]);
-    expect(assistantWrite.sql).not.toContain('aturn_c1_3');
+    expect(assistantWrite.sql).not.toContain('aturn_c1_run-1_3');
     expect(assistantWrite.sql).toContain('ON CONFLICT(id) DO UPDATE');
 
     const toolWrite = writes[1];
     expect(toolWrite.args).toEqual([
-      't_c1_3_0',
+      't_c1_run-1_3_0',
       'c1',
       'u1',
       'tool',
@@ -257,6 +292,31 @@ describe('appendToolTurnWithAssistant — 一个工具轮的 assistant + N 条 t
     expect(sqls.every((s) => s === 'transaction' || s.includes('ai_messages') || s.includes('ai_conversations'))).toBe(
       true
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B-b-fix 运行维度：旧 id 拼接静态验收
+// ---------------------------------------------------------------------------
+
+describe('B-b-fix 运行维度 — 静态验收', () => {
+  /** 旧拼接（无 runId 维度），出现即说明实现回退 */
+  const OLD_ASSISTANT_ID = 'aturn_${input.conversationId}_${input.round}';
+
+  function collectSourceFiles(dir: string, out: string[] = []): string[] {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) collectSourceFiles(full, out);
+      else if (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) out.push(full);
+    }
+    return out;
+  }
+
+  it('src/ 下不再出现旧拼接 aturn_${conv}_${round}（无运行维度）', () => {
+    const hits = collectSourceFiles(path.resolve(process.cwd(), 'src')).filter((file) =>
+      readFileSync(file, 'utf8').includes(OLD_ASSISTANT_ID)
+    );
+    expect(hits, `以下文件仍含旧 id 拼接：${hits.join(', ')}`).toEqual([]);
   });
 });
 

@@ -13,8 +13,9 @@
 - [doc-pipeline remedial 完成与裁定/fs-mock 坑](doc-pipeline-remedial-done.md) — remedial 11 commit 至 e6bdb6e、R3 本会话豁免跨会话恒拦；vi.mock('fs') 打不进 agentMedia 用真文件
 - [devflow 批次并行子代理的门禁归属](project_devflow_parallel_subagents.md) — 同工作树并行改；typecheck 报错先按路径归属自己 vs 他人
 - [intentRouter 造用例的子串命中坑](project_intentrouter_test_input_pitfall.md) — 「缩写/扩写」被 create 单字「写」命中拉低 confidence；false 断言用 ?? false
-- [全量跑的耗时断言 flaky](project_fullsuite_flaky_perf_tests.md) — cacheMonitor「10万次<50ms」并行下偶发红，单跑必绿→复跑判过
+- [并行跑的耗时断言 flaky + 覆盖率坑](project_fullsuite_flaky_perf_tests.md) — cacheMonitor/ab-test 并行必红单跑必绿；覆盖率 run 有红用例不落报告→`--exclude='**/{a,b}.test.ts'`
 - [agent-memory A-a(P0-2) 完成与措辞取舍](agent-memory-a-a-done.md) — 统一句四处落位、规则3/4 填充理由、摘要前缀不含防串题条款
 - [A-b-3 hasHistory 接线完成与断言形态坑](project_ab3_haspitfalls.md) — dbRows 判 assistant 行；chat 兜底分支返回显式 false 非省略
 - [agent-memory B-f(P0-7) 完成与口径坑](agent-memory-optimize-b-f-done.md) — 模板是「」非『』；0.5/0.6 两阈值独立；两个不可达分支别为覆盖率改源码
 - [agent-memory B-d(P0-6) 完成与回退取舍](agent-memory-b-d-done.md) — 代词闸判残余串非整串；Q12「它的」改恒等+resolved:false；coverage.include 须空格形式 + reportsDirectory 隔离
+- [agent-memory B-c(P0-4/5/6 读取) 完成与形状坑](agent-memory-optimize-b-c-done.md) — DB tool_calls 是 IAgentToolCall[] 须转 LLM 形状；repair 接 cleanup 之后；db/ai mock key 级联

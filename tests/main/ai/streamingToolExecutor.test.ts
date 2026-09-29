@@ -32,6 +32,8 @@ function makeFakeCtx(overrides: Record<string, unknown> = {}) {
   return {
     convId: 'test-conv-1',
     userId: 'u1',
+    // B-b-fix：本次运行的唯一盐（确定性 id 的运行维度）
+    runId: 'run-x',
     send: vi.fn(),
     intent: { intent: 'create', confidence: 0.9 },
     baseUrl: 'https://fake.api',

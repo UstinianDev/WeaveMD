@@ -2,6 +2,7 @@
 // WeaveMD — Agent 上下文准备
 // ============================================
 
+import { randomUUID } from 'crypto';
 import { BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '@shared/constants';
 import type {
@@ -11,7 +12,7 @@ import type {
   IIntent,
   ToolDef,
 } from '@shared/ai';
-import { appendMessage, getConversation, getMessagesByConversationPaginated } from '../../db/ai';
+import { appendMessage, getConversation, getRecentMessagesByRounds } from '../../db/ai';
 import { listFiles } from '../../db/files';
 import { hasGrantedAttachmentDocs } from '../../db/kb';
 import { getEmbeddingConfig } from '../../db/embeddingConfig';
@@ -58,6 +59,8 @@ import type { CitationEntry } from './agentToolExecutor';
 export interface AgentContext {
   convId: string;
   userId: string;
+  /** 本次 agent 运行的唯一盐，用于工具轮确定性 id 的运行维度，整轮运行内稳定 */
+  runId: string;
   send: (channel: string, payload: unknown) => void;
   intent: IIntent;
   baseUrl: string;
@@ -93,6 +96,13 @@ export const CHANNEL_TO_EVENT_TYPE: Record<string, string> = {
   [IPC_CHANNELS.AI_STREAM_DONE]: 'done',
   [IPC_CHANNELS.AI_STREAM_ERROR]: 'error',
 };
+
+/**
+ * P0-5 历史读取软字节闸（UTF-8 字节）。
+ * 出处：plan §7 风险 3 —— 取消行数上限后用「字节预算 + buildCompressed 阈值 +
+ * CONTEXT_WINDOW=64_000」三闸控上界，预算初值 45_000 **[待按 64000 实测调优]**。
+ */
+const HISTORY_BYTE_BUDGET = 45_000;
 
 // ---------------------------------------------------------------------------
 // IPC 发送
@@ -165,6 +175,69 @@ export function cleanupIncompleteMessages(messages: LlmMessage[]): LlmMessage[] 
   return messages.slice(0, lastAssistantIdx + 1);
 }
 
+/** P0-4 配对修复合成占位 tool 行的文案（plan §5，测试锁文案，勿改）。 */
+export const MISSING_TOOL_RESULT_PLACEHOLDER =
+  '[工具结果缺失：会话在该工具完成前中断，结果不可恢复]';
+
+/**
+ * DB `tool_calls` 列（`IAgentToolCall[]`）→ LLM 线上 tool_calls。
+ * 与 `assembleToolTurn` 产出同形（`{id,type:'function',function:{name,arguments}}`），
+ * 保证重载会话后发给 provider 的 assistant 轮与在线时一致。
+ */
+function toLlmToolCalls(
+  toolCalls: IAgentToolCall[] | undefined
+): AgentLlmMessage['tool_calls'] {
+  if (!toolCalls || toolCalls.length === 0) return undefined;
+  return toolCalls.map((tc) => ({
+    id: tc.toolCallId,
+    type: 'function' as const,
+    function: { name: tc.name, arguments: tc.args },
+  }));
+}
+
+/**
+ * 工具轮配对修复（P0-4 / Q14）：**纯内存、永不写库**，且不复用
+ * `cleanupIncompleteMessages`（后者只按「最后一条 assistant」截断，不校验 id 配对）。
+ * plan §5 三条规则：
+ * 1. assistant 有 `tool_calls` 缺配对 tool 行 → 合成占位 tool 行（不剥 `tool_calls`，避免丢该轮）；
+ * 2. 孤儿 tool 行（前置无含该 `tool_call_id` 的 `assistant.tool_calls`）→ 丢弃
+ *    （无法重建 `function.name`，provider 必拒）；
+ * 3. 老数据纯文本 assistant 行（本就无 `tool_calls`）→ 原样保留。
+ */
+export function repairToolTurnPairing(messages: AgentLlmMessage[]): AgentLlmMessage[] {
+  // 第一遍：按出现顺序声明 id，孤儿 tool 行就地丢弃
+  const declared = new Set<string>();
+  const kept: AgentLlmMessage[] = [];
+  for (const m of messages) {
+    if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+      for (const tc of m.tool_calls) declared.add(tc.id);
+    }
+    if (m.role === 'tool') {
+      if (!m.tool_call_id || !declared.has(m.tool_call_id)) continue;
+    }
+    kept.push(m);
+  }
+
+  // 第二遍：为缺配对的 assistant(tool_calls) 合成占位 tool 行
+  const out: AgentLlmMessage[] = [];
+  for (let i = 0; i < kept.length; i++) {
+    const m = kept[i];
+    out.push(m);
+    if (m.role !== 'assistant' || !m.tool_calls || m.tool_calls.length === 0) continue;
+    // 收集其后紧邻的本轮 tool 行
+    let end = i + 1;
+    while (end < kept.length && kept[end].role === 'tool') end++;
+    const paired = kept.slice(i + 1, end);
+    for (let x = i + 1; x < end; x++) out.push(kept[x]);
+    for (const tc of m.tool_calls) {
+      if (paired.some((t) => t.tool_call_id === tc.id)) continue;
+      out.push({ role: 'tool', tool_call_id: tc.id, content: MISSING_TOOL_RESULT_PLACEHOLDER });
+    }
+    i = end - 1;
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // 阶段 1：准备 Agent 上下文
 // ---------------------------------------------------------------------------
@@ -183,6 +256,8 @@ export function prepareAgentContext(
 ): AgentContext {
   const { userId } = payload;
   const convId = payload.conversationId ?? '';
+  // B-b-fix：整轮运行唯一的 id 盐（round 每次运行都从 0 重计，必须叠加运行维度）
+  const runId = randomUUID();
   const send = createSend(event, deps, convId);
 
   // 联网同意闸已停用（needsConsent 恒 false）：三配置齐全即视为联网许可，保留调用点兼容。
@@ -231,21 +306,34 @@ export function prepareAgentContext(
   // 当前轮图片由下方 currentUserImages 全量注入）。
   // B6 五-1/五-3：图片 part 注入（历史限最近 3 张）
   const summary = ownedConv?.summary || '';
-  const dbRows = getMessagesByConversationPaginated(convId, userId, 20, 0)
+  // P0-5：按轮读取（KEEP_RECENT_ROUNDS 轮 + 软字节闸），DAO 返回时间正序；
+  // 行数水位线 20 由上限降为下限，在 DAO 内部处理，调用方不传。
+  const dbRows = getRecentMessagesByRounds(convId, userId, KEEP_RECENT_ROUNDS, {
+    byteBudget: HISTORY_BYTE_BUDGET,
+  })
     .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
-    .map((m) => ({
-      role: m.role,
-      content: m.content,
-      ...(m.toolCallId ? { tool_call_id: m.toolCallId } : {}),
-      ...(m.attachments ? { attachments: m.attachments } : {}),
-    }));
+    .map((m) => {
+      const toolCalls = toLlmToolCalls(m.toolCalls);
+      return {
+        role: m.role,
+        content: m.content,
+        ...(m.toolCallId ? { tool_call_id: m.toolCallId } : {}),
+        // P0-4：DB tool_calls 列 → LLM 线上形状（此前在此二次丢弃）
+        ...(toolCalls ? { tool_calls: toolCalls } : {}),
+        ...(m.attachments ? { attachments: m.attachments } : {}),
+      };
+    });
   const historyInjection = injectImagesIntoMessages(dbRows, {
     supportsVision: supportsImages,
     treatLastAsCurrent: false,
   });
-  const rawDbMessages = historyInjection.messages.filter(
-    (m) => contentToText(m.content).trim().length > 0
-  );
+  // P0-4：content:'' 的 assistant(tool_calls) 行必须放行（assembleToolTurn 产出即空串，
+  // 过滤掉会让整轮工具调用在重载后消失）；只丢「无 tool_calls 且无 tool_call_id 且正文全空白」的噪音行。
+  const rawDbMessages = historyInjection.messages.filter((m) => {
+    if (m.tool_calls && m.tool_calls.length > 0) return true;
+    if (m.tool_call_id) return true;
+    return contentToText(m.content).trim().length > 0;
+  });
 
   // A-b-3 P0-3：hasHistory 读原始读取行（dbRows，含本轮之前的全部行），
   // 不读 cleanupIncompleteMessages 之后的数组 —— 清理会删孤立 user 行，
@@ -415,7 +503,8 @@ export function prepareAgentContext(
   const currentUserMsg: LlmMessage = currentParts.length
     ? { role: 'user', content: [{ type: 'text', text: userText }, ...currentParts] }
     : { role: 'user', content: userText };
-  const historyMsgs = cleanupIncompleteMessages(rawDbMessages);
+  // P0-4：cleanup（截断崩溃残留）之后做配对修复（补占位/丢孤儿），纯内存不写库
+  const historyMsgs = repairToolTurnPairing(cleanupIncompleteMessages(rawDbMessages));
   const allDbMessages = [...historyMsgs, currentUserMsg];
 
   // P0-1（Q5=A）：chat 与其他意图统一取数与压缩路径 —— 历史与摘要一律进上下文，
@@ -500,12 +589,21 @@ export function prepareAgentContext(
     }
   }
 
+  // P0-6（Q10 零额外 DB 读）：把主流程已读出的历史注入 toolCtx。
+  // 取数位置：清理/配对修复之后、且取自 LLM 实际看到的 llmMessages ——
+  // 工具看到的上下文与模型看到的同源同序（含当前问题），仅保留 user/assistant
+  // 并经 contentToText 归一为纯文本（图片 part → [图片] 占位）。
+  toolCtx.history = llmMessages
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .map((m) => ({ role: m.role as 'user' | 'assistant', content: contentToText(m.content) }));
+
   // 初始 token 统计
   const initTokens = llmMessages.reduce((sum, m) => sum + estimateContentTokens(m.content), 0);
 
   return {
     convId,
     userId,
+    runId,
     send,
     intent,
     baseUrl,

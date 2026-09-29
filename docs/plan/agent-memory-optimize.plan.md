@@ -56,6 +56,10 @@
 | B-a | 同上 | `:832-845` | 删除 `updateLatestAssistantToolCalls`（保留 `:817` 的 `updateMessageToolCalls`） | P0-4 | L3 删能力 |
 | B-b | `src/main/ai/agent/agentToolExecutor.ts` | `:498-506` | `handleToolResult` 不再 `appendMessage`，改为产出 `PendingToolWrite`；`:223-240` 收集；`:550-619` 循环后单次调新 DAO；IPC 发送留在原处 | P0-4 | L3 写时序 |
 | B-b | `src/main/ai/agent/agentLoop.ts` | `:668-728` | `processStreamingToolRound` 同样改为循环后单次调新 DAO | P0-4 | L3 流式漏写 |
+| B-b-fix | `src/main/ai/agent/agentContext.ts` | `:63` / `:190` | **Q16**：`AgentContext` 增 `runId`，`prepareAgentContext` 用 `randomUUID()` 生成一次（唯一构造点已确认） | P0-4 | L3 id 碰撞 |
+| B-b-fix | `src/main/db/ai.ts` | `:772` `:804-806` | **Q16**：`ToolTurnWriteInput` 增 `runId`；id 改 `aturn_${conv}_${runId}_${round}` / `t_${conv}_${runId}_${round}_${index}` | P0-4 | L3 id 碰撞 |
+| B-b-fix | `src/main/ai/agent/agentToolExecutor.ts` | `:53-54` `:71` | **Q16**：`PendingToolWrite` 增 `runId`，`createPendingToolWrite` 取 `ctx.runId` | P0-4 | L2 |
+| B-c | `src/main/ai/agent/agentContext.ts` | `:239` | **P0-5 接线**（原清单漏列，按 §5 回读路径首环归入 B-c）：`getMessagesByConversationPaginated(convId,userId,20,0)` → `getRecentMessagesByRounds(convId,userId,KEEP_RECENT_ROUNDS,{ byteBudget: 45_000 })` | P0-5 | L3 读窗口 |
 | B-c | `src/main/ai/agent/agentContext.ts` | `:361-366` | map 透传 `tool_calls` | P0-4 | L3 |
 | B-c | 同上 | `:368-370` | 空 content 过滤改为「无 `tool_calls` 且无 `tool_call_id` 且 content 空才丢」 | P0-4 | L3 放行 `content:''` |
 | B-c | 同上 | 新增 `repairToolTurnPairing(messages)` | 在 `cleanupIncompleteMessages` 之后调用，纯内存、不写库、**不复用** `cleanupIncompleteMessages` | P0-4 | L3 |
@@ -73,6 +77,8 @@
 | B-e | `src/render/utils/weaveMDBridge.ts` | `:687` | 删该 noop（否则对象字面量对 `WeaveMDApi` 触发多余属性错） | P0-4 | L2 必删 |
 | B-e | `tests/setup.ts` | `:71` | 删 mock 项 | P0-4 | L1 |
 | B-c | `src/render/components/AIAgent/cards/QuestionCard.tsx` | 根节点 `:493` | 加 `data-testid="question-card"`（1 行测试钩子，E2E 需要） | P0-x 验收 | L1 |
+| 6.5-R2 | `src/render/components/AIAgent/AgentTab.tsx` | `:118-123` 消息映射 | **计划外，阶段 6.5 发现的本批引入回归**：新增 `isBlankToolTurn = role==='assistant' && hasToolCalls && content.trim()===''`，命中时只渲染 `AgentWorkflowCard`、跳过 `AIMessageBubble`。根因：P0-4 首次把 `assistant('')` 落库（`db/ai.ts:802`）+ Q7 拆渲染侧回写 → 重载态每个该类行得到「卡片 + 空气泡」，与在线态（`agentStore.ts:704` 单条答案气泡）不一致。分页计数 `:43`/`:51` 未改（卡片占位等价）。**待用户追认** | P0-4 连带 | L3 显示层 |
+| 6.5-R1 | `src/main/ai/knowledge/queryPlanner.ts` | `extractEntityFromHistory` 循环 | **计划外，阶段 6.5 发现的本批引入风险**：跳过「自身以指代词开头」的消息，避免把当前问题自身当实体（否则 `它在知识库里的表现如何` 走 `:178` 通用 `/(?:关于\|对于\|在\|讨论)/` 会拼出 `知识库里的表现如何的在知识库里的表现如何`）。选型：候选 A（调用点 `history.slice(0,-1)`）实测会打红 3 条既有单条夹具断言，故否决；纯 B（无条件跳末位）同样打红 4 条直调断言，故用「按指代词前缀跳过」变体。**待用户追认** | P0-6 连带 | L3 检索 |
 | — | `vitest.config.ts` | `:17-22` `coverage.include` | 覆盖面换成本批改动文件 | 门禁 | L1 |
 
 ### 2.2 明确不动的文件（计划外改动一律不列）
@@ -106,11 +112,12 @@
 
 L/strict：**RED 实测（记录红）→ 最小实现 GREEN → 重构 → coverage ≥80%**，证据落 `docs/testing/agent-memory-optimize.tdd.md`。
 
-**必须改动的既有断言（4 处）**
+**必须改动的既有断言（5 处）**
 1. `contextManager.test.ts:72-75` — 摘要前缀硬断言，P0-2 必改。
-2. `queryPlannerEnhanced.test.ts:101-106` — 「它的」依赖 `extractRecentTopic` 硬拼，P0-6 删回退后必红，**改为断言恒等返回 + `resolved:false`**（能力回退已在 req Q12 明示）。
+2. `queryPlannerEnhanced.test.ts:101-106`（**改前行号**；改写后整体 +2 漂移为 `:103-108`，status B-d 所记为改后行号）— 「它的」依赖 `extractRecentTopic` 硬拼，P0-6 删回退后必红，**改为断言恒等返回 + `resolved:false`**（能力回退已在 req Q12 明示）。
 3. `tests/setup.ts:71`、`weaveMDBridge.ts:687` — 回写通道删除的连带。
-4. mock 面：`agentContext.test.ts:24-28`、`tests/benchmarks/agent-perf-benchmark.test.ts:458-488`、`tests/main/ai/agentLoop.test.ts:19-22` 的 `@main/db/ai` mock **须补新增 DAO 导出**，否则 `vi.mock` 缺 key 报错。
+4. `tests/main/ai/agentLoop.test.ts` — 2 处 `role:'tool'` 落库断言（`appendMessage.mock.calls` 过滤 tool 行共 12 行删除）随写路径切到 `appendToolTurnWithAssistant` 必然改写；**原清单漏列，2026-09-29 按 `git diff 968e056` 实测补录**。
+5. mock 面：`agentContext.test.ts:24-28`、`tests/benchmarks/agent-perf-benchmark.test.ts:458-488`、`tests/main/ai/agentLoop.test.ts:19-22` 的 `@main/db/ai` mock **须补新增 DAO 导出**，否则 `vi.mock` 缺 key 报错。
 
 **必须保持不变的既有断言**：`queryPlannerEnhanced.test.ts:107-110`（无历史恒等，`:225` 守护）、`:112-124`；`contextManager.test.ts:77-107` 轮/tool 切分；`toolRegistry.test.ts` 全部 searchKB 用例；`kbSearch.test.ts` 三红线；`agentPromptBuilder.test.ts` 36 例中不涉文案者；`intentRouter.test.ts` `:71-82` 兜底语义；`migrations.test.ts` 全量（本批无迁移）；`agentKbPreloader.test.ts` 预载缓存（无 `expandedQueries` 时行为不变）。
 
@@ -128,7 +135,8 @@ L/strict：**RED 实测（记录红）→ 最小实现 GREEN → 重构 → cove
 
 **目标写时序**：一轮工具 → 收集全部 `PendingToolWrite` → **单次** `appendToolTurnWithAssistant`：`db.transaction()`（better-sqlite3 同步事务，先 upsert assistant 带 `tool_calls`，再 `INSERT OR IGNORE` 本轮全部 tool 行）→ 原子提交。
 - **事务边界** = 一个工具轮的 assistant + N 条 tool 行；任一语句抛出即整体回滚，内存态由上层重试/报错处理。
-- **幂等**：assistant id 取 `aturn_${convId}_${round}`，tool id 取 `t_${convId}_${round}_${index}`，重试 `ON CONFLICT DO UPDATE` / `INSERT OR IGNORE` 不产生重复行。
+- **幂等**：assistant id 取 `aturn_${convId}_${runId}_${round}`，tool id 取 `t_${convId}_${runId}_${round}_${index}`，同轮重试 `ON CONFLICT DO UPDATE` / `INSERT OR IGNORE` 不产生重复行。
+  - **`runId` 为运行级盐（Q16 修正，2026-09-29）**：原方案只有 `${convId}_${round}`，而 `runAgentFlow` 的 `for (let round = 0; ...)` **每次运行都从 0 重计**（`agentLoop.ts:254`），同会话第二条消息的 round 0 会撞上第一次的 id —— assistant 行被覆盖、tool 行 `INSERT OR IGNORE` 保留旧内容，导致第二次的工具结果整体丢失、历史 assistant/tool 错配。`runId` 由 `prepareAgentContext` 每次运行生成一次（`crypto.randomUUID()`），挂 `AgentContext.runId`，整轮运行内稳定。
 - **IPC 发送留在原位置**，不在事务内（避免同步 IPC 阻塞持有事务）。
 - **不在事务内**的既有写（用户行、最终 assistant 行）保持不变。
 
@@ -149,7 +157,10 @@ L/strict：**RED 实测（记录红）→ 最小实现 GREEN → 重构 → cove
 3. `npx eslint src/ --ext .ts,.tsx`（**不带 `--fix`**）— 0 error。
 4. `npx vite build` — 成功（不用 `npm run build`，其含 electron-builder）。
 
-覆盖率：`npx vitest run --coverage`，先改 `vitest.config.ts:17-22` 的 `coverage.include` 为本批改动文件，逐文件 ≥80%。
+覆盖率：**本任务新增/修改行 ≥80%（改动行口径，Q18 裁定 2026-09-29）**。
+- 原述「改 `vitest.config.ts:17-22` 的 `coverage.include` 为本批改动文件，逐文件 ≥80%」为**整文件口径**，Gate B 实测 6 个文件未达标（`preload.ts` 0.00 / `agentTaskWorker.ts` 50.69 / `QuestionCard.tsx` 54.68 / `agentStore.ts` 56.41 / `chatHandlers.ts` 74.31 / `weaveMDBridge.ts` 76.04），其中 **5 个文件本任务只做了删除**（`preload.ts` 0 增 6 删、`weaveMDBridge` 0/1、`chatHandlers` 0/16、`agentStore` 1 行注释/8、`QuestionCard` 1/0），`preload.ts` 是 Electron contextBridge 脚本、`tests/` 无引用，**vitest 结构性加载不到，0% 无法靠补测改变**。
+- 改为：**删除行不计**（无覆盖概念）；`preload.ts`（vitest 无加载路径）与 `toolTypes.ts`（纯类型、v8 无运行时语句条目）判**不适用**；其余按 `git diff` 新增/行号与 `--coverage.reporter=json` 行级数据交叉核对，未覆盖的新增行**补测**。
+- 仍**不改 `vitest.config.ts`**（其 include 属上一批口径），用 CLI `--coverage.include` 临时覆盖，报告目录用完删除。
 
 E2E：`npx playwright test` 对 **基线零新增**（实测 31 failed / 101 passed / 1 skipped、unexplained=0，逐 spec 不新增失败）。新增 2 条在 `e2e/ai-agent-panel.spec.ts`：
 - 场景①：两轮会话后发「它有什么优势」→ `data-testid="question-card"` 不可见 + assistant 气泡渲染 + `pageerror` 无异常。
