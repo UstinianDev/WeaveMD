@@ -89,7 +89,7 @@ kb_documents(id, user_id, file_id, source_type, title, pinned, status, created_a
              -- 删除附件经 removeParsedAttachment → removeByAttachment 清理关联 KB 文档
 kb_chunks(id, document_id, seq, content, vector BLOB, embedding_model, source_ref, created_at)
              -- vector 由 kbIndexer 在配置了 embedding 时写入；未配置则为 NULL
-kb_chunks_fts -- FTS5 虚拟表（jieba 分词，触发器同步）
+kb_chunks_fts -- FTS5 虚拟表（jieba 分词，触发器同步；增删改均走标准 INSERT/DELETE，见 database.md）
 kb_documents_fts -- FTS5 文档级虚拟表
 kb_images(id, document_id, source_ref, mime_type, embedding_model, created_at)
 images_vec -- vec0 虚拟表，仅图片向量（sqlite-vec 可用时创建）

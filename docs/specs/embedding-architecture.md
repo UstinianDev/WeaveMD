@@ -73,10 +73,19 @@ const results = mode === 'hybrid'
 
 ### 3.3 数据流
 
+> **状态标注（2026-10-01，agent-memory-optimize-3 D6 实测）：本节是设计稿，未落地。**
+> - `ai_embedding_config.search_mode` 字段**已建**（`addColumnIfMissing`，默认 `'hybrid'`）
+>   但**全仓零消费**：`embeddingConfig.searchMode` 不向 `agentTaskWorker` 传递，
+>   也不存在所谓的 `searchKb wrapper` 中转层；
+> - 实际链路是 `agentTaskWorker` → `searchKBHandler` → `searchKB(userId, query, opts)`，
+>   `opts.searchMode` 由**调用方显式传入**（缺省 `hybrid`），不读配置表；
+> - 因此下图仅表达**目标形态**；按红线「searchMode 降级行为不变」，本批只改文档不改代码，
+>   字段消费记 TODO。
+
 ```
 用户配置 searchMode
        ↓
-embeddingConfig.searchMode → agentTaskWorker → searchKb wrapper
+embeddingConfig.searchMode → agentTaskWorker → searchKb wrapper   ← 设计未实现（字段已建未消费）
        ↓
 searchKB(userId, query, { searchMode, queryVector })
        ↓
@@ -119,5 +128,8 @@ searchKB(userId, query, { searchMode, queryVector })
 1. 配置 `searchMode: 'fts5'` 时，搜索只走 FTS5 + 标题匹配
 2. 配置 `searchMode: 'vector'` 时，搜索只走向量 + 标题匹配
 3. 配置 `searchMode: 'hybrid'` 时，搜索走三路 RRF（现有行为）
-4. 无 Embedding 配置时，任意模式都降级到 FTS5 + 标题匹配
+4. 无 Embedding 配置时的降级**按模式分叉**（2026-10-01 实测口径，与当前代码一致）：
+   - `fts5` / `hybrid`（默认）：降级到 FTS5 + 标题匹配；
+   - `vector`：**不回退 FTS5**（模式门禁在无 `queryVector` 时直接挡掉 FTS5 路），
+     只剩标题匹配 → 无候选时按规范拒答（threshold 0.6），**不降级**。
 5. 所有现有测试通过（tsc 0 | vitest 通过 | lint 0 error）

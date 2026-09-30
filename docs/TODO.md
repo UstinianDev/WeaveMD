@@ -189,11 +189,26 @@ L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/ar
 | 08-06~19 | 编辑主区 v2：块树内核、前缀即时转换、浮动工具栏、跨块拖选、可编辑表格块、media:// 协议 |
 | 更早 | 认证系统、文件管理、8 格式导出、三语言国际化、深色主题、Frameless 窗口 |
 
+## 进行中
+
+### agent-memory-optimize 第三批（2026-09-30 开工）
+
+P2 远期能力共 6 项，档位 **L（含 2 处 L4 迁移）**，Q1~Q7 已裁定（全按推荐）。三 Gate：
+
+| Gate | 任务 | 状态 |
+|------|------|------|
+| D | 二.3 指代触发率接入 diagnostics（S）+ 五.4 遗忘/过期机制（M，含 L4 补列） | **D1/D2 并行实施中** |
+| E | 六.1 轨迹→Skill 提炼（L）→ 六.2 结构化存储+任务类型注入（M）→ 六.3 防膨胀三防线（M） | 未开始 |
+| F | 三.3 向量化经验库（L，**独立表**） | 未开始（**顺序从方向文档第 2 位挪到最后**，Q2） |
+
+**对方向文档的两处调整（已裁定）**：① 三.3 推迟到 Gate F（经验结构未定就建向量库会建错重来）；② 六.1 走**半自动**（草稿态 + 设置页人工确认）且轨迹源用 `ai_messages`。
+
+> 需求 [agent-memory-optimize-3.req](./requirements/agent-memory-optimize-3.req.md)（Q1~Q7 + §七事实核验 14 条修正）/ 计划 [plan](./plan/agent-memory-optimize-3.plan.md)
+
 ## 待开发
 
 | 优先级 | 任务 | 说明 |
 |------|------|------|
-| 🔲 | **agent-memory 第三批（P2）** | 方向文档第三批：模块六（执行轨迹 → 可复用 Skill 提炼）、二.3、三.3、五.4（遗忘/过期机制，接 `memoryPolicy.evictStale`）—— 第二批已把三/四/五/七.1~7.3 交付完，见 [req §四](./requirements/agent-memory-optimize-2.req.md) |
 | 🔲 | vision 开关设置页 UI | `vision_override` 三态列与读写通道已通（D8），缺设置页开关；当前只能改库 |
 | 🔲 | anthropic 主循环分流 | `ai_config.protocol=anthropic` 时主循环仍按 OpenAI 形状调用（agent-cost-optimize 已建 `anthropicClient` 与 6 处非工具调用点分流，主循环未分流）——另立 issue |
 | 🔲 | OCR | doc-pipeline 决策基线明确本期无 OCR，无文本层 PDF 只能走 D 路线多模态 |
@@ -234,3 +249,9 @@ L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/ar
 | 同组多条 manual 记忆会并存 | `mergeConflicts` 按「manual 恒免」绝对口径执行 → 组内多条 manual 行不关闭（短期不可达：表内 manual 写入方要到 C3 才存在）；届时若需「组内只留一条」再改 |
 | **全仓 IPC handler 均无 `event.sender` 校验** | `SECURITY.md` 明确「IPC handler 必须验证调用来源和参数」，但核查确认**此前零落实**（`chatHandlers.ts:73-83` 以渲染进程传入 `userId` 为权威即其一）；`memoryHandlers.ts` 是**第一个**按该规则落地的范式（`isTrustedSender` + JWT + `findById` + fail-closed）。其余 handler 待逐个补齐——**既有问题，非 agent-memory-2 引入** |
 | `getJwtSecret` 存在双份副本 | `memoryHandlers.ts` 与 `ipc-handlers.ts` 各一份 `sha256(userData)` 推导（导入会成循环 + 拉大测试 import 图），两处已互相注释「改动需两处同步」；抽取独立 auth 模块属重构，agent-memory-2 裁定本批不做 |
+| `AgentTaskQueue.enqueue` supersede 不分任务类型 | `memory_extract` 与 `skill_distill` 同点入队会**互相顶掉**（队列自动 supersede 同会话旧 pending）。D3 用「同会话任意 pending 即跳过」规避 → 提炼给 memory 让位，**首轮必然延后 1 轮**（agent-memory-3 D3，记 TODO） |
+| 提炼技能草稿不按 `user_id` 分目录 | 纯文件系统选型的固有结果：`userData/skills/_auto/` 与 `_drafts/` 单机共用，IPC 已按 C3 四条鉴权但多账号共享草稿列表（agent-memory-3 D3，单机桌面可接受） |
+| D3/D4 渲染侧改动行无单测 | `SkillsPanel.tsx`「提炼技能」栏与 `agentStore` 的 `loadSkillDrafts/approveSkillDraft/rejectSkillDraft`、D4 经验注入渲染侧均未纳入覆盖（主进程侧 D3 88% / D4 96.6%），待 Gate E 收口评估 |
+| chat 分支经验块生产恒空 | `useAgentPrompt = !isChatIntent || ...` ⇒ 走 `buildChatSystemPrompt` 的唯一条件就是 `intent==='chat'`，而 D4 裁定 3「chat 一律不注入」→ **生产上第 3 参恒收 `''`**。能力完整有 4 条单测；待 `intentRouter` 能区分「闲聊 / 未知任务类型」后即生效 |
+| `approveDraftSkill` 全非法 `intents` 报错不具体 | `parseSkillMarkdown` 先把非法值滤成 `[]` → `assertValidSkillDraft` 抛「不能为空数组」，人工确认失败时**不提示具体非法值**（agent-memory-3 D4，低风险，文案可细化） |
+| `isFallthrough` 语义取自 agent 任务路由 | D1 按裁定实现为 `intentRouter.classifyIntent(query).intent === 'chat'`，实测大部分 KB 检索 query 不命中该路由关键词表 → 多为 `true`。若需按 KB 侧 `detectQueryIntent` 的 keyword 默认分支判定，改一行即可（agent-memory-3 D1） |

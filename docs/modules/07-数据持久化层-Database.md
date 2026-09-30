@@ -239,7 +239,7 @@ app.on('before-quit')
 |------|------|
 | `kb_documents` | 文档元数据（路径、类型、哈希） |
 | `kb_chunks` | 文档分块（文本、embedding） |
-| `kb_chunks_fts` | FTS5 虚拟表（全文检索） |
+| `kb_chunks_fts` | FTS5 虚拟表（全文检索，触发器同步：增用 INSERT、删改用 `DELETE ... WHERE rowid = old.rowid`） |
 
 ### 9.3 Agent 表
 

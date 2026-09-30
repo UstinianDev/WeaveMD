@@ -211,7 +211,7 @@
 - `agent_run_events(session_id, seq)` / `(conversation_id, seq)` — 事件回放
 - `kb_chunks(document_id, chunk_index)` — 文档分块
 - `kb_images(document_id)` — 图片索引回查
-- `kb_chunks_fts` / `kb_documents_fts` — FTS5 全文索引（jieba 分词，触发器同步）
+- `kb_chunks_fts` / `kb_documents_fts` — FTS5 全文索引（jieba 分词，触发器同步；**插入用 `INSERT INTO ... VALUES(new.rowid,...)`，删除/更新走标准 `DELETE FROM <fts> WHERE rowid = old.rowid`** —— 普通（非 contentless）fts5 表不接受仅限 contentless 的 `'delete'` 特殊命令，2026-09-30 D7 修复，见 `agent-memory-optimize-3` req §二 D7）
 
 ## DAO 层
 
