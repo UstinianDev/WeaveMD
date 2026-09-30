@@ -27,7 +27,7 @@
 - `src/main/ai/` — AI 主进程服务（remote-only）：`llm/`（llmClient/anthropicClient/modelList）+
   `agent/`（agentLoop/agentSession/agentTaskQueue/agentContext）+ `knowledge/`（kbIndexer/kbSearch）+
   `files/`（documentParser/multimodalParse/pdfLayout/mdImageResolver/conversationExport/parseLimiter）+
-  `skills/` + `tools/`（28 个工具：5 核心 + 23 延迟）+
+  `skills/` + `tools/`（30 个工具：5 核心 + 25 延迟）+
   `ipc/` 按域拆分（11 个 handler 模块 + index + shared）
 - `src/render/components/AIAgent/` — AI 面板三视图外壳（home/session/settings）+
   AIPanelComposer（TipTap contentEditable + /@标签 chip）+ AgentTab 消息流 +
@@ -102,7 +102,7 @@
 - `src/main/export/imageInline.ts` — 图片 base64 内联（media:// / http(s) / 本地路径）
 - `src/main/export/exportService.ts` — 8 格式分发器（md/html/doc/docx/pdf/png/jpg/jpeg）
 - `src/main/mediaMime.ts` — 项目唯一 MIME 映射表（合并 3 处重复定义）
-- `src/main/ai/toolRegistry.ts` — Agent 工具注册（28 工具：5 核心 + 23 延迟，含 deleteLocalFile）
+- `src/main/ai/toolRegistry.ts` — Agent 工具注册（30 工具：5 核心 + 25 延迟，含 deleteLocalFile / memory_read / memory_write）
 - `src/main/ai/agent/agentLoop.ts` — Agent 循环（WRITE_TOOLS + toolsForIntent + 确认流程）
 - `src/main/ai/agent/agentTaskWorker.ts` — 后台任务执行器（交互事件持久化 + IPC 发送）
 - `src/main/ai/agent/agentEventStore.ts` — 事件持久化（persistAndSend + persistOnly + replayFromSeq）
@@ -137,7 +137,7 @@
 - [architecture/](../docs/architecture/) — 按技术层分类（10 篇：前端/编辑器/后端/AI/知识库/数据库/IPC/安全/测试/构建）
 - [modules/](../docs/modules/) — 各模块文档（11 个模块）
 - [specs/](../docs/specs/) — 编辑器/AI 面板/自动更新规格文档（14 篇主文档 + 7 篇分册）
-- [testing/](../docs/testing/) — TDD 测试报告（21 篇）
+- [testing/](../docs/testing/) — TDD 测试报告（22 篇）
 - [requirements/](../docs/requirements/) — devflow 需求文档（当前 6 篇 + archive 12 篇）
 - [plan/](../docs/plan/) — 实施计划与状态（当前 26 篇主文档 + 4 篇分册）
 - [plan/archive/](../docs/plan/archive/) — 已完成的实施状态归档（32 篇）

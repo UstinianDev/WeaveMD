@@ -19,7 +19,7 @@
 |------|------|
 | [frontend](./architecture/frontend.md) | 前端渲染层（React / 8 个 store / 11 个 hooks / Tailwind） |
 | [editor](./architecture/editor.md) | 编辑器内核（块树 / 双向转换 / 9 类控制器 / Outline） |
-| [backend](./architecture/backend.md) | 主进程（Electron / AI 服务 / 11 个 IPC handler 模块 / 28 工具） |
+| [backend](./architecture/backend.md) | 主进程（Electron / AI 服务 / 11 个 IPC handler 模块 / 30 工具） |
 | [ai-agent](./architecture/ai-agent.md) | AI/Agent 系统（循环 / 工具 / 意图 / 写控制 / 标题编号） |
 | [knowledge](./architecture/knowledge.md) | 知识库（FTS5 索引 / BM25 搜索 / HyDE / Agentic RAG / 附件关联） |
 | [database](./architecture/database.md) | 数据库（SQLite / 25 表：22 实表 + 3 虚拟表 / D1~D8 迁移） |
@@ -70,7 +70,7 @@
 
 按任务成套存放，同一任务的四件套同名前缀：`{task}.req.md`（需求）、`{task}.plan.md` / `{task}.status.md`（计划与状态）、`{task}.*.tdd.md`（测试证据），另有 connectivity（连通性）与 compliance（合规）报告。
 
-| 需求（`requirements/`，当前 6 篇 + archive 12 篇） | 计划与状态（`plan/`，当前 26 篇主文档 + 4 篇分册 + archive 32 篇） | 测试报告（`testing/`，21 篇） |
+| 需求（`requirements/`，当前 6 篇 + archive 12 篇） | 计划与状态（`plan/`，当前 26 篇主文档 + 4 篇分册 + archive 32 篇） | 测试报告（`testing/`，22 篇） |
 |---|---|---|
 | [doc-pipeline.req](./requirements/doc-pipeline.req.md) | [doc-pipeline.plan](./plan/doc-pipeline.plan.md) / [status](./plan/doc-pipeline.status.md) / [connectivity](./plan/doc-pipeline.connectivity.md) / [compliance](./plan/doc-pipeline.compliance.md) / [docling-poc](./plan/doc-pipeline.docling-poc.md) / [remedial.diagnosis](./plan/doc-pipeline.remedial.diagnosis.md) | `doc-pipeline-b1` ~ `doc-pipeline-b11` + `doc-pipeline-remedial` + `doc-pipeline.final` |
 | [agent-cost-optimize.req](./requirements/agent-cost-optimize.req.md) | [plan](./plan/agent-cost-optimize.plan.md) / [status](./plan/agent-cost-optimize.status.md) | `agent-cost-optimize.tdd` |
@@ -78,7 +78,7 @@
 | [agent-memory-optimize.req](./requirements/agent-memory-optimize.req.md) | [plan](./plan/agent-memory-optimize.plan.md) / [status](./plan/agent-memory-optimize.status.md) / [connectivity](./plan/agent-memory-optimize.connectivity.md) / [compliance](./plan/agent-memory-optimize.compliance.md) | `agent-memory-optimize.tdd` |
 | [agent-md-kb-optimize.req](./requirements/agent-md-kb-optimize.req.md) | [plan](./plan/agent-md-kb-optimize.plan.md) / [status](./plan/agent-md-kb-optimize.status.md) | — |
 | [agent-memory-optimize.req](./requirements/agent-memory-optimize.req.md)（P0 第一批，已完成） | [direction](./plan/agent-memory-optimize.direction.md)（7 模块 30 任务路线图） / [plan](./plan/agent-memory-optimize.plan.md) / [status](./plan/agent-memory-optimize.status.md) / [connectivity](./plan/agent-memory-optimize.connectivity.md) / [compliance](./plan/agent-memory-optimize.compliance.md) | `agent-memory-optimize.tdd` |
-| [agent-memory-optimize-2.req](./requirements/agent-memory-optimize-2.req.md)（P1 第二批，进行中） | [plan](./plan/agent-memory-optimize-2.plan.md) | — |
+| [agent-memory-optimize-2.req](./requirements/agent-memory-optimize-2.req.md)（P1 第二批，**已完成**） | [plan](./plan/agent-memory-optimize-2.plan.md)（§6 为三 Gate 实施记录） | `agent-memory-optimize-2.tdd` |
 | — | 6 篇 doc-pipeline 调研（`plan/doc-pipeline.research-*.md`：parse / pdf-multimodal / storage / chunking / packaging / tools） | `spec-edit-ft` ~ `ft4` / `cbtp` / `dsf`（编辑器规格 TDD 6 篇） |
 
 > 历史任务的计划与需求已归档至 `plan/archive/`、`requirements/archive/`，不在上表展开。

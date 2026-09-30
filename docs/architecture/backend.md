@@ -56,7 +56,7 @@ src/main/
 │   │   ├── multimodalParse.ts # 复杂版面远程多模态截图
 │   │   ├── pdfLayout.ts       # PDF 坐标版面还原
 │   │   └── mdImageResolver.ts # md 相对路径图片基准与越界拦截
-│   ├── tools/                 # 工具处理器（28 个）
+│   ├── tools/                 # 工具处理器（30 个）
 │   │   ├── webSearch.ts       # web_search 联网搜索
 │   │   ├── webSearchHandler.ts
 │   │   ├── searchKBHandler.ts
@@ -90,7 +90,7 @@ src/main/
 
 ### 工具系统
 
-工具注册表 `toolRegistry.ts`（`handlerMap`）维护 **28 个工具**（5 核心 + 23 延迟加载）：
+工具注册表 `toolRegistry.ts`（`handlerMap`）维护 **30 个工具**（5 核心 + 25 延迟加载）：
 
 | 类别 | 工具 | 说明 |
 |------|------|------|

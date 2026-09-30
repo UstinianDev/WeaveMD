@@ -9,7 +9,7 @@ AI/Agent 系统是 WeaveMD 的智能创作辅助模块，**remote-only**（Ollam
 按 `ai_config.protocol` 分流到 **OpenAI 兼容** 或 **Anthropic** 两条协议，提供：
 
 - 函数调用循环（Agent Loop）
-- 28 个工具（5 核心 + 23 延迟加载；只读/写入/交互/搜索）
+- 30 个工具（5 核心 + 25 延迟加载；只读/写入/交互/搜索）
 - 意图路由（规则启发式 6 类）
 - 上下文压缩
 - Skills 体系
@@ -95,7 +95,7 @@ LLM 流式调用（带 tools 定义）
 
 | 意图 | 关键词示例 | 可用工具 |
 |------|-----------|----------|
-| chat | 闲聊/通用问题 | 无工具 |
+| chat | 闲聊/通用问题 | 无意图特有工具（仍拿基础区全量：listFiles 等 15 个 + memory_read / memory_write，再加本行外的 ask_question_card） |
 | rewrite | 修改/润色/删除 | editBlocks + 文件操作 + searchKB |
 | create | 写/创作/新建 | createFile + editBlocks + searchKB |
 | tech | 代码/技术问题 | 同 create |
@@ -106,8 +106,8 @@ LLM 流式调用（带 tools 定义）
 
 ## 工具系统
 
-工具注册表 `toolRegistry.ts`（`handlerMap`）维护 **28 个工具** —— 5 个核心工具发送完整 JSON Schema，
-23 个延迟工具仅发名称 stub + `defer_loading: true`，被选中时再补 schema 重发（上限 3 次）：
+工具注册表 `toolRegistry.ts`（`handlerMap`）维护 **30 个工具** —— 5 个核心工具发送完整 JSON Schema，
+25 个延迟工具仅发名称 stub + `defer_loading: true`，被选中时再补 schema 重发（上限 3 次）：
 
 ### 只读工具
 
@@ -124,6 +124,7 @@ LLM 流式调用（带 tools 定义）
 | check_links | 内部链接检查 |
 | get_task_activity | 任务活动查询 |
 | list_skills / get_skill_details | 技能系统 |
+| memory_read | 读取 `agent_memory` 当前有效记忆（kind / subject / keyword 过滤，带 user_id 隔离） |
 | searchDocument / readPage / extractTable / analyzeChart | 附件文档工具（B8：关键词+页码检索 / 按页读取 / 抽表 CSV / 图表定位分析） |
 
 ### 写入工具
@@ -138,6 +139,7 @@ LLM 流式调用（带 tools 定义）
 | preview_file_revision | 全文修订预览 | manual |
 | preview_patch_files | 多文件补丁预览 | manual |
 | renameFile / moveFile / deleteFile | 文件操作 | auto/manual |
+| memory_write | 写入记忆（upsert，恒 `source='auto'`，同轮去重 + 单轮 10 条自限） | 不进 FORCE_CONFIRM（铁律一仅约束笔记写入） |
 
 > **B11 八-2② 实现现状**：`auto/manual` 为设计意图档位。截至 B11，主进程工具执行路径对
 > `write_mode=auto` **无消费点**（该值仅由 UI toggle 与 `AI_GET/SET_WRITE_MODE` 持久化到

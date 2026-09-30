@@ -1,26 +1,6 @@
 # Agent Memory Index
 
-- [doc-pipeline B2 完成与共享通道坑](doc-pipeline-b2-done.md) — B2 commit da7ceaa、下一任务 B3；DIALOG_OPEN_FILE 双消费方耦合改契约前必查
-- [doc-pipeline B3 完成与真库迁移工作流](doc-pipeline-b3-done.md) — B3 commit d55002b、下一任务 B4；vitest 不能实例化 better-sqlite3→走 electron smoke
-- [doc-pipeline B4 完成与覆盖率口径坑](doc-pipeline-b4-done.md) — B4 commit 064cc3e、下一任务 B5；coverage fail 不落报告 + 附件唯一删除点收口
-- [doc-pipeline B5 完成与分支核实坑](doc-pipeline-b5-done.md) — B5 commit 26816af、下一任务 B6(L4 需二次确认)；kbIndexOpts→resolveEmbedding 单点 + 提交前核实当前分支
-- [doc-pipeline B6 完成与 mock/性能用例坑](doc-pipeline-b6-done.md) — B6 四 commit 至 e35ea78、下一任务 B7；contextManager 局部 mock 缺 key 运行期炸 + 性能断言负载 flaky
-- [doc-pipeline B7 完成与选型/算法坑](doc-pipeline-b7-done.md) — B7 四 commit 至 e606ca9、下一任务 B8；liteparse 坐标实测不引 pdfjs-dist + gutter/字号/覆盖率补测/JSON 转义坑
-- [doc-pipeline B8 完成与四个环境坑](doc-pipeline-b8-done.md) — B8 四 commit 至 9fbcfdc、下一任务 B9；vitest path.isAbsolute 是 posix、bm25 负分、路径转义吃字、段聚合干扰 top1
-- [doc-pipeline B9 完成与引用模式取舍](doc-pipeline-b9-done.md) — B9 两 commit 至 67372f8、下一任务 B10/B11（L4 需二次确认）；发送构造在 agentStore 非 FileTreePanel + 越界判定先于存在性检查
-- [doc-pipeline B10 完成与打包验证坑](doc-pipeline-b10-done.md) — B10 三 commit 至 bc34ef3、下一任务 B11/B12；asar 288→85.93MB、Q5 验证通过、v24 排除双口径 + sqlite-vec 打包降级遗留
-- [doc-pipeline B11 完成与外发过滤结构](doc-pipeline-b11-done.md) — B11 两 commit 至 b1ed1f1、下一任务 B12；过滤必须包 deps.searchKb（preloader 覆盖 toolCtx）+ D5b 计划缺口 + FakeDb run 的 sql 是闭包变量
-- [doc-pipeline remedial 完成与裁定/fs-mock 坑](doc-pipeline-remedial-done.md) — remedial 11 commit 至 e6bdb6e、R3 本会话豁免跨会话恒拦；vi.mock('fs') 打不进 agentMedia 用真文件
-- [devflow 批次并行子代理的门禁归属](project_devflow_parallel_subagents.md) — 同工作树并行改；typecheck 报错先按路径归属自己 vs 他人
-- [intentRouter 造用例的子串命中坑](project_intentrouter_test_input_pitfall.md) — 「缩写/扩写」被 create 单字「写」命中拉低 confidence；false 断言用 ?? false
-- [并行跑的耗时断言 flaky + 覆盖率坑](project_fullsuite_flaky_perf_tests.md) — cacheMonitor/ab-test 并行必红单跑必绿；覆盖率 run 有红用例不落报告→`--exclude='**/{a,b}.test.ts'`
-- [agent-memory A-a(P0-2) 完成与措辞取舍](agent-memory-a-a-done.md) — 统一句四处落位、规则3/4 填充理由、摘要前缀不含防串题条款
-- [A-b-3 hasHistory 接线完成与断言形态坑](project_ab3_haspitfalls.md) — dbRows 判 assistant 行；chat 兜底分支返回显式 false 非省略
-- [agent-memory B-f(P0-7) 完成与口径坑](agent-memory-optimize-b-f-done.md) — 模板是「」非『』；0.5/0.6 两阈值独立；两个不可达分支别为覆盖率改源码
-- [agent-memory B-d(P0-6) 完成与回退取舍](agent-memory-b-d-done.md) — 代词闸判残余串非整串；Q12「它的」改恒等+resolved:false；coverage.include 须空格形式 + reportsDirectory 隔离
-- [agent-memory B-c(P0-4/5/6 读取) 完成与形状坑](agent-memory-optimize-b-c-done.md) — DB tool_calls 是 IAgentToolCall[] 须转 LLM 形状；repair 接 cleanup 之后；db/ai mock key 级联
-- [agent-memory-optimize-2 A1/A2 完成与空行坑](agent-memory-optimize-2-a1a2-done.md) — 三文件注入 2000 token 截断 + 摘要先行词两处同改；prompt 数组 filter(Boolean) 使 `''` 不产生空行
-- [agent-memory A3 完成与三个坑](agent-memory-a3-done.md) — expandByIntent 放 queryPlanner、fact/summary 不扩展；hasReference 裸拉丁字母误判 follow_up + P0-6 逐值锁
-- [agent-memory-optimize-2 B3 完成与三个迁移坑](agent-memory-optimize-2-b3-done.md) — B3 三文件未提交；源码 DDL 比对须归一化 CRLF + exec 多语句拆分 + 行尾注释毁列名解析
-- [agent-memory-optimize-2 B1 完成与 upsert 口径](agent-memory-optimize-2-b1-done.md) — B1 两文件未提交；AgentMemoryRow 是 camelCase + fake SQL 引擎须靠变异验证
-- [agent-memory-optimize-2 B2 完成与裁定落地](agent-memory-optimize-2-b2-done.md) — B2 四文件未提交、下一任务 B4；closeMemory 幂等闸 + merge 里 manual 败者不关 + 别跨 .test.ts import
+- [agent-memory-optimize-2 B4 完成](agent-memory-optimize-2-b4-done.md) — 画像层已实现未提交、五层 token 实测表、db 来源口径、下一任务 Gate B/C1
+- [agent-memory-optimize-2 C3 完成](agent-memory-optimize-2-c3-done.md) — 设置页自动记忆 tab、首个 event.sender 校验范式、JWT 鉴权口径、门禁 100% 改动行覆盖
+- [agent-memory-optimize-2 C4 完成](agent-memory-optimize-2-c4-done.md) — 场景③ E2E 两段式（Node 段真压缩 + 渲染段 mock 注入），纯新增 198 行、连跑 3 绿、未提交
+- [WeaveMD 测试环境六坑](weavemd-test-env-pitfalls.md) — better-sqlite3 需 mock、coverage.include 重复传参、有红不出覆盖报告、提示词 sha256/「画像」护栏、两处 flaky、E2E 内加载主进程纯函数
