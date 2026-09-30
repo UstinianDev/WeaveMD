@@ -1,8 +1,24 @@
 # TODO
 
-> 最后更新：2026-09-30
+> 最后更新：2026-10-01
 
 ## 已完成
+
+### agent-memory-optimize 第三批（2026-09-30 ~ 2026-10-01）
+
+P2 远期能力 6 项 + **1 项范围扩张（D7）+ 1 项实施期追加授权（D6.1/Q9）** = 9 个交付任务，档位 **L（含 2 处 L4 迁移 + 1 处改既有 DDL）**，Q1~Q9 全对齐。三 Gate **全部通过**。
+
+| Gate | 任务 | 门禁实测 |
+|------|------|------|
+| D | D1 二.3 指代触发率接入 diagnostics（L2）+ D2 五.4 遗忘/过期机制（L3+L4 补列） | tsc 0 / vitest 4234·4235（1 flaky 单跑复核绿）/ eslint 0 err·108 warn / vite build 0 / **真库 smoke 五态 EXIT 0** / E2E 31f·104p·1s |
+| E | D3 六.1 轨迹→Skill 提炼 → D4 六.2 结构化存储+任务类型注入 → D5 六.3 防膨胀三防线 → **D7 知识库 FTS 触发器修复** | 两轮六件套：**4418 例 0 failed** → **4430 例 0 failed** / **真库 smoke 六态 + fts5 删除态 EXIT 0** / E2E 31f·104p·1s 零新增 |
+| F | D6 三.3 向量化经验库（**Q8=A：加列而非新建表**）+ D6.1 Q9 `memory_read` 语义可达 | 两轮六件套：**4491 例 0 failed** → **4507·4508（1 flaky 单跑 22 绿）** / **真库 smoke 七态 + fts5 EXIT 0** / E2E 31f·104p·1s 零新增 |
+
+**验收要点**：五轮 E2E 失败清单**逐条相同、零新增**（基线 136）；**55 处变异全部变红后还原复绿**；`vitest.config.ts` 全程零改动；计划外 `src/` 改动经 25 类逐项追认后为 **0**；测试规模 175 文件 4191 例 → **189 文件 4508 例（+14/+317）**。
+
+**🔴 本批最有价值的发现（范围扩张 D7）**：知识库的**删除与更新路径此前整体报错回滚** —— `kb_chunks_fts_ad`/`kb_documents_fts_ad`/`kb_documents_fts_au` 在普通（非 contentless）fts5 表上用了仅限 contentless 的 `'delete'` 特殊命令，实测 `DELETE/UPDATE = FAILED: SQL logic error` 且回滚；生产 `db/kb.ts` 5 处删除 + 全部 `UPDATE kb_documents` 受影响；既有 `fts5-smoke` 只验插入查询故从未暴露。已修 3 处触发器为标准 `DELETE ... WHERE rowid = old.rowid`，并补删除/更新态。
+
+> 需求 [req](./requirements/agent-memory-optimize-3.req.md)（Q1~Q9 + §七 事实核验 14 条）/ 计划与三 Gate 实施记录 [plan](./plan/agent-memory-optimize-3.plan.md) §6 / TDD 证据 [tdd](./testing/agent-memory-optimize-3.tdd.md)
 
 ### agent-memory-optimize 第二批（2026-09-29 ~ 2026-09-30）
 
@@ -189,22 +205,6 @@ L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/ar
 | 08-06~19 | 编辑主区 v2：块树内核、前缀即时转换、浮动工具栏、跨块拖选、可编辑表格块、media:// 协议 |
 | 更早 | 认证系统、文件管理、8 格式导出、三语言国际化、深色主题、Frameless 窗口 |
 
-## 进行中
-
-### agent-memory-optimize 第三批（2026-09-30 开工）
-
-P2 远期能力共 6 项，档位 **L（含 2 处 L4 迁移）**，Q1~Q7 已裁定（全按推荐）。三 Gate：
-
-| Gate | 任务 | 状态 |
-|------|------|------|
-| D | 二.3 指代触发率接入 diagnostics（S）+ 五.4 遗忘/过期机制（M，含 L4 补列） | **D1/D2 并行实施中** |
-| E | 六.1 轨迹→Skill 提炼（L）→ 六.2 结构化存储+任务类型注入（M）→ 六.3 防膨胀三防线（M） | 未开始 |
-| F | 三.3 向量化经验库（L，**独立表**） | 未开始（**顺序从方向文档第 2 位挪到最后**，Q2） |
-
-**对方向文档的两处调整（已裁定）**：① 三.3 推迟到 Gate F（经验结构未定就建向量库会建错重来）；② 六.1 走**半自动**（草稿态 + 设置页人工确认）且轨迹源用 `ai_messages`。
-
-> 需求 [agent-memory-optimize-3.req](./requirements/agent-memory-optimize-3.req.md)（Q1~Q7 + §七事实核验 14 条修正）/ 计划 [plan](./plan/agent-memory-optimize-3.plan.md)
-
 ## 待开发
 
 | 优先级 | 任务 | 说明 |
@@ -255,3 +255,6 @@ P2 远期能力共 6 项，档位 **L（含 2 处 L4 迁移）**，Q1~Q7 已裁�
 | chat 分支经验块生产恒空 | `useAgentPrompt = !isChatIntent || ...` ⇒ 走 `buildChatSystemPrompt` 的唯一条件就是 `intent==='chat'`，而 D4 裁定 3「chat 一律不注入」→ **生产上第 3 参恒收 `''`**。能力完整有 4 条单测；待 `intentRouter` 能区分「闲聊 / 未知任务类型」后即生效 |
 | `approveDraftSkill` 全非法 `intents` 报错不具体 | `parseSkillMarkdown` 先把非法值滤成 `[]` → `assertValidSkillDraft` 抛「不能为空数组」，人工确认失败时**不提示具体非法值**（agent-memory-3 D4，低风险，文案可细化） |
 | `isFallthrough` 语义取自 agent 任务路由 | D1 按裁定实现为 `intentRouter.classifyIntent(query).intent === 'chat'`，实测大部分 KB 检索 query 不命中该路由关键词表 → 多为 `true`。若需按 KB 侧 `detectQueryIntent` 的 keyword 默认分支判定，改一行即可（agent-memory-3 D1） |
+| **D6 首个升级版本可能有一次批量 embedding 成本** | 启动回填（`scheduleMemoryVectorBackfill`）在 embedding 已配置时对存量 `vector IS NULL` 行发起批量 API 调用（分批 20 / 限速 300ms / 上限 100 批，失败静默）；未配置时零成本空转。**建议生产观察调用频次**（agent-memory-3 D6） |
+| `memory_read` 的 hyde 引导未进工具提示词 | D6.1 只在工具 schema 的 `description` 里说明「传 query + hyde:true 走语义混合召回」，**未在 `agentPromptBuilder` 的工具规则段追加引导**（该文件属 D4、D6.1 未获授权）。LLM 是否主动传 `hyde` 取决于 schema description 的表达力 |
+| D7 未重建旧库 FTS 内容 | 3 处触发器已修为标准 DELETE，但回填仍是 `rowid NOT IN` **只补不删**（红线禁 DROP/重建）。因删除历史从未成功、基表无孤儿行，实测风险低；若历史库已有 FTS 残留条目需人工核对 |

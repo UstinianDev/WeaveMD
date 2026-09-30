@@ -137,7 +137,7 @@
 - [architecture/](../docs/architecture/) — 按技术层分类（10 篇：前端/编辑器/后端/AI/知识库/数据库/IPC/安全/测试/构建）
 - [modules/](../docs/modules/) — 各模块文档（11 个模块）
 - [specs/](../docs/specs/) — 编辑器/AI 面板/自动更新规格文档（14 篇主文档 + 7 篇分册）
-- [testing/](../docs/testing/) — TDD 测试报告（22 篇）
+- [testing/](../docs/testing/) — TDD 测试报告（23 篇）
 - [requirements/](../docs/requirements/) — devflow 需求文档（当前 7 篇 + archive 12 篇）
 - [plan/](../docs/plan/) — 实施计划与状态（当前 27 篇主文档 + 4 篇分册）
 - [plan/archive/](../docs/plan/archive/) — 已完成的实施状态归档（32 篇）

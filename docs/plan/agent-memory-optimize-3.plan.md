@@ -280,6 +280,76 @@ Gate D 两路并行的文件所有权：D1 动 `kbSearch`/`toolTypes`/`searchKBH
 
 **残余风险**：① `scripts/fts5-smoke.cjs` 的 `FTS5_MIGRATION_SQL` 副本**必须与 src 常量双向同步**（新增漂移守卫会把「只改 src 不同步脚本」判红，属新增行为非回归）；② `extractKbDocumentsFtsSql` 依赖 `function ...[\s\S]*?\n}` 与模板字符串 exec 的形状，将来改用非模板 exec 会抽取失败（已用 4 个 must 关键字守卫，漏了 FAILED 而非静默通过）；③ **不重建旧库 FTS 内容**（红线禁 DROP，回填仍 `rowid NOT IN` 只补不删）—— 因删除历史从未成功、基表无孤儿行，实测风险低；④ `kb_documents_fts_au` 仍是无条件 `AFTER UPDATE`（裁定只要求改 DELETE，`setKbDocStatus` 仍触发一次索引重建，行为与修复前一致只是不再报错）；⑤ `db/kb.ts` 5 处删除调用**未加 try/catch 或用户提示**（触发器修好后不再抛错，但异常仍上抛到 IPC 层 —— 属既有形态）。
 
+### Gate F（三.3，2026-10-01）
+
+#### D6 = 三.3 向量化经验库（L4 加列，**Q8=A 取代 Q3 的「新建 `exp_*`」**）—— 交付完成
+
+**改动范围**：`src/main/db/index.ts` **+29 / −0（本任务纯新增**；numstat 的 7 行删除全属 D7）；`db/agentMemory.ts` D6 段 +271；`knowledge/vectorBackfill.ts` **+177（计划外文件，已追认）**；`tools/memoryRead.ts` +56−4；`tools/memoryWrite.ts` +22；`agent/memoryWriter.ts` +25−1；`ipc/agentHandlers.ts` +15（隐含授权，已追认）；新建 4 个测试文件 **61 例**；smoke **追加态7**（+562，**态1~6 代码零改动**）；`docs/specs/embedding-architecture.md` +14−2（授权的 2 处）。
+
+**交付**
+- **迁移（L4）**：新函数 `addAgentMemoryVectorColumns`（`addColumnIfMissing` ×2：`vector BLOB DEFAULT NULL`、`embedding_model TEXT`）+ `runMigrations` 内 `addAgentMemoryFts` 之后一行调用；**4 个既有迁移函数本体一行未改**（测试 + smoke 双重断言其函数体不含 `vector`/`embedding_model`）
+- **不建 `idx_agent_memory_user_vector`**（JSDoc 写明理由：排序键是 `vec_distance_cosine` 标量函数结果，B-Tree 用不上；`user_id` 前缀已有 4 个既有索引可收敛单用户行集，再建只增 upsert 写放大）
+- **DAO**：`upsertMemoryVector` / `hasMemoryVector`（写入前置短路，同指纹去重时不重复打 API）/ `searchMemories`；**融合 = 加权 RRF**（注释写明理由：trigram 窗口计数与余弦相似度**量纲不可比**，RRF 只用名次无需跨量纲标定，与笔记侧 `rrfFusion` 同思路）；导出 7 个常量（`MEMORY_SEARCH_RRF_K=60` / `FTS_WEIGHT` / `VEC_WEIGHT` / `VEC_SCORE_THRESHOLD=0.2` / `CANDIDATE_MULTIPLIER=4` / `DEFAULT_LIMIT=20` / `MAX_LIMIT=100`），**全部标「无实测数据、待校准」**
+- **分流**：有 `queryVector` → FTS5 + 向量双通道 RRF；无向量 / sqlite-vec 缺失 / 向量列未迁移 / 全 NULL → **只走 D5 的 trigram FTS5，不报错不抛**；两通道均带 `user_id = ?` 与 `valid_to IS NULL`
+- **两个设计决定（均注释写明理由）**：`merge_skip` **不参与过滤**（该标记只禁自动合并，被否的是合并动作不是记忆本身，过滤会让有效记忆从召回消失）；**不按 `embedding_model` 过滤**（切换模型由回填按 `embedding_model IS NOT ?` 重算，查询侧过滤会让切换瞬间召回归零）
+- 相似度用 `1 - distance`（真库实测 `vec_distance_cosine` = 1 − cos），**与笔记侧 `1 - distance/2` 口径不同并注明**（笔记侧按红线不动）
+- **写入接线（异步 + 静默降级，三处）**：C1 `memoryWrite` / C2 `memoryWriter` / **启动 `agentHandlers.ts`**（复用 D2 三处触发点，`listMemoryOwners` → 逐用户 `scheduleMemoryVectorBackfill`，**不新建定时器**）；回填分批 20 / 限速 300ms / 上限 100 批；三条失败路径一律 `console.warn` 一条后返回、**永不 reject、不重试、向量保持 NULL**
+
+**TDD RED → GREEN**：迁移三态 `5 failed (5)`（`addAgentMemoryVectorColumns is not a function`）；`searchMemories` **`17 failed (17)`**；写入/回填/接线 **`28 failed | 7 passed (35)`**；真库 smoke 态7 首版开发期 RED `FAILED: [态7] FTS ORDER BY rank 相关度序不符，实际 [2,1]` → **GREEN：全量 `188 文件 4491 例`、4 新文件 `61 passed`、tsc 0、eslint 0 err·108 warn、vite build 0、`agent-memory-smoke` 七态 EXIT 0、`fts5-smoke` EXIT 0（D7 态仍绿）**。
+**变异 6 处**：去两通道 `user_id` → **`12 failed`**；去向量通道 `valid_to IS NULL` → **首版 0 红**（发现 fake 自己硬编码过滤 → 补「SQL 文本必须含 `valid_to IS NULL`」守卫后 `4 failed`）；去向量通道 try/catch → `1 failed`（`no such function: vec_...`）；C1 向量失败上抛 → `2 failed`；融合去向量分量 → `2 failed`；迁移去 `embedding_model` → `4 failed`。
+
+**改动行覆盖 316/317 = 99.7%**（`agentMemory` D6 段 170/170、`vectorBackfill` D6 段 125/125、`memoryRead` 46/46、`memoryWrite` 4/4、`memoryWriter` 9/9、`agentHandlers` 6/6 全 100%；唯一未覆盖 = `runMigrations` 内调用行，**D2/D5 同位置同样未覆盖，属既有范式**，由 smoke 源码正则断言 + 迁移三态兜底）。
+
+**笔记侧零影响核验**：`git diff` 对 `filterKbEgressResults`/`searchMode` **为空**、`kbSearchFts.ts` **为空**、`vitest.config.ts` **为空**；`kbSearch`/`kbDao`/`kbFtsTriggerDelete`/`migrations`(既有 30 例)/`memoryPolicy`/`memoryTools`/`agentContext` 等**零改动且全绿**；拒答 0.6 / 置顶 ×1.5 / `searchMode` 三模式未触碰。
+
+**实施期实测修正 2 处**：① 列演进实为 **11 → 13(D2) → 14(D5 `merge_skip`) → 16(D6)**，任务书写的「11→13→15」漏算 D5（smoke 态7 按 16 断言）；② FTS5 `ORDER BY rank` **升序 = 相关度从高到低**经真库探针确认 —— 早期用 3 行数据断言方向得错误结论（小语料 bm25 IDF 为负会反序），探针改为「10 条填充 + 全量命中 + 单命中」形态写进 smoke。
+
+**追认 2 项计划外改动**：`knowledge/vectorBackfill.ts` **+177（首次进入本批改动集）** —— 任务书点名复用该文件的 `resolveEmbedding` 但未点名放 D6 导出，选择理由 = 全局规范「新增 src 文件需先批准」+ 该文件本就是向量回填唯一归属、不新建文件（副作用：该模块 import 图新增 `db/agentMemory`，实测 188 文件全绿无连带红）；`ipc/agentHandlers.ts` +15 —— 任务书「回填启动时机复用 D2 三处触发」必经该文件但正文未点名。
+
+**残余风险**：① **`memory_read` 生产侧查询向量未接** → 语义通道死代码（**已立 D6.1/Q9 修复，见下**）；② 启动回填在 embedding 已配置时对存量缺口行发起批量 API 调用，**首个升级版本可能有一次批量 embedding 成本**（未配置时零成本空转、在途去重、失败静默）→ 建议生产观察；③ `searchMemories` 的 `total` 在语义路径 = DAO 内部 top-N 条数（与既有「过滤后总数」口径略有差异，测试注释已标明）；④ 7 个阈值/权重常量未实测标定；⑤ 一次 `vitest --coverage` 出现 1 红且**未捕获到文件名**，随后两次全量 4491/4491 全绿（判断为两条 flaky 在 coverage 插桩慢速下的时序波动，未改被测代码）。
+
+#### Gate F 第一轮（D6 基线，2026-10-01）—— 通过
+
+| # | 门禁 | 实测 | 判定 |
+|---|---|---|---|
+| 1 | `npm run typecheck` | exit **0** | 通过 |
+| 2 | `npx vitest run` | **188 文件 / 4491 例 → `0 failed`** | 通过 |
+| 3 | `npx eslint src/ --ext .ts,.tsx` | **`0 errors, 108 warnings`**（= 基线） | 通过 |
+| 4 | `npx vite build` | exit **0** | 通过 |
+| 5a | **`agent-memory-migration-smoke`** | **七态全绿、`EXIT=0`**（B3 四态 + D2 补列 + D5 FTS/驳回列 + **D6 向量列 14→16 列 + 真库混合检索 SQL**） | 通过 |
+| 5b | **`fts5-smoke`** | **`EXIT=0`**（既有态 + D7 删除/更新态） | 通过 |
+| 6 | `npx playwright test` | **31 failed / 104 passed / 1 skipped = 136**（计数行直接捕获） | 通过 |
+
+> 本轮为 **D6 的基线验证**；D6.1（Q9）实施后**再跑一轮 Gate F 作最终收口**。
+
+#### D6.1 = Q9 `memory_read` 语义通道生产可达（L3，实施期追加授权）—— 交付完成
+
+**改动范围**：`src/main/ai/tools/memoryRead.ts` **+61/−4（本任务唯一 `src/` 改动，计划外 `src/` 改动 0 行）** + 新建 `tests/main/ai/memoryReadHyde.test.ts`（17 例）。`docs/` 零改动。
+
+**命名裁定（对齐既有）**：参数取 **`hyde?: boolean`** 而非 `semantic` —— `searchKB` 已用 `hyde: {type:'boolean'}`（`toolRegistry.ts:142`），且本任务复用**同一套生成器**（`ctx.generateHydeVector`）+ **同一份缓存**（`searchCache` 的 `getCachedHydeResult`/`setCachedHydeResult`），语义同构。
+
+**交付**
+- schema 加 `hyde` 可选参数（`required` 不变）+ 工具与 `query` 描述补一句「传 `query` + `hyde:true` 现场生成查询向量走语义混合召回」（**让 LLM 生产上真的会传**）
+- `generateHydeQueryVector(userId, query, generate)`：先读既有 HyDE 缓存 → 未命中才调生成器 → `parseQueryVector` 校验 → 写回同一份缓存；**任何失败（null / 抛错 / 非 Error / 含非有限分量）一律 `console.warn` 一条、返回 null、不抛、不重试**，回落纯 FTS-only（对齐 D6 三处接线语义）
+- **触发条件三与**：`args.hyde === true && query 非空 && 未显式传 queryVector && ctx.generateHydeVector 存在` —— 缺一即**零 embedding 成本**
+- handler 同步 → `async`（`ToolHandler` 本就允许 `Promise<ToolResult> | ToolResult`）；既有路径逐字未动
+
+**TDD RED → GREEN**：首版 9 红（其中 2 红系测试自身断言写错，改正测试侧未改被测代码）→ 最终 RED **`7 failed | 6 passed (13)`**（`spy to be called 1 times, but got 0`、`expected "warn" to be called 1 times, but got 0` ×3、`expected undefined to be 'boolean'`）→ GREEN `13 passed` → 补 4 例 **`17 passed (17)`**。
+**核心用例**：`夜间配色` 对 `用户偏好深色的界面主题` **关键词零重合** → FTS-only 召回 0 条、`hyde:true` 后召回 1 条（**同一 DAO、同一 fake DB，差分即证明向量通道生效**）。
+**变异 5 处**：去 opt-in 判断（恒生成）→ `3 failed`（`spy to not be called at all, but actually been called`）；去掉失败降级（`throw`）→ `3 failed`；参数必填化 → `1 failed`（`expected ['hyde'] to deeply equal []`）；生成结果不传给 `searchMemories` → **`4 failed`**；去掉缓存复用 → `1 failed`（`spy to be called 1 times, but got 2 times`）。
+
+**D6.1 单元门禁**：tsc exit 0 / **全量 `189 文件 4508 例 0 failed`**（D6 基线 188/4491 → +1 文件 +17 例）/ eslint `0 errors, 108 warnings` = 基线（新测试文件单独 lint 0 problem）/ vite build exit 0 / 改动行覆盖 **`memoryRead.ts` Stmts·Branch·Funcs·Lines 全 100%（无 uncovered 行）** / **既有 `memoryTools` + `memoryVectorWiring` 合并 `41 passed`，两文件 `git diff` 为空**。
+> flaky：全量第 1 轮唯一红为 `ab-test djb2`（**完整输出已捕获文件名与用例名**，未改被测代码）→ 单跑 **`22 passed` × 3** → 全量复跑 `189/4508` 全绿。
+
+**追认 3 项实现取舍**
+1. **不 import `vectorBackfill.resolveEmbedding`** —— 既有 `memoryVectorWiring.test.ts:39` 用 `vi.mock('@main/ai/knowledge/vectorBackfill', ...)` 只提供 2 个导出，memoryRead 若 import 该模块会**打破既有 D6 用例**（违反「零改动全绿」）。改走 `ctx.generateHydeVector`（`agentContext.ts:562-565` **先判 `getEmbeddingConfig` 再返回 null，未配置时一个 API 都不发**）→ 任务书「配置了 embedding 才调 API」由生成器内部满足。
+2. **不自建第二套缓存** —— 直接复用 `searchCache` 的 HyDE LRU(50)/TTL(10min)，与 `searchKB` 同一份。
+3. **handler 改 `async`** —— 已 grep 确认全仓无未知同步调用方（仅 `toolRegistry.ts:97` 注册 + 两处测试调用），typecheck + 41 例既有用例全绿。
+
+**残余风险**：① **`agentPromptBuilder` 的工具提示词未为 `memory_read` 追加 hyde 引导**（属 D4 文件、不在授权范围），目前仅靠工具 schema 的 `description` 传达 —— 记 TODO；② HyDE 缓存与 `searchKB` 共享 → `cacheMonitor` 的 `hyde` 命中统计口径含 `memory_read` 调用（监控数字含义略扩，`cacheMonitor.test.ts` 全绿）；③ 成本：`hyde:true` 每个**新** query 一次 LLM 假设文档 + 一次 embedding（10 分钟 LRU 50 条兜底），未配置 embedding 零 API 调用 → 建议生产观察频次；④ 查询向量与存量向量维度不一致时（用户中途切换 embedding 模型）`vec_distance_cosine` 抛错 → 已被 DAO 侧 try/catch 吞掉降级 FTS-only（D6 既有行为，非本任务引入）。
+
+
+
 
 
 
