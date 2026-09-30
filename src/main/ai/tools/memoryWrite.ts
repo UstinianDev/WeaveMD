@@ -14,6 +14,8 @@
 import { createHash } from 'crypto';
 import type { ToolDef } from '@shared/ai';
 import type { ToolHandler, ToolResult } from '../toolTypes';
+import { runMemoryPolicy } from '../agent/memoryPolicy';
+import { writeMemoryVectorAsync } from '../knowledge/vectorBackfill';
 import {
   getActiveBySubject,
   upsertMemory,
@@ -198,6 +200,39 @@ export const handleMemoryWrite: ToolHandler = (args, ctx): ToolResult => {
   });
   state.written.set(key, id);
   state.count += 1;
+
+  // D6 写入接线①：写入成功后**异步**补向量（不 await → 不阻塞工具返回、不改返回结构）。
+  // 失败语义与 D2/D3 一致：同步异常走 try/catch、Promise 拒绝走 .catch，
+  // 两条都只 console.warn，向量保持 NULL（检索侧自动降级为 FTS5）。
+  try {
+    void writeMemoryVectorAsync(ctx.db, ctx.userId, id, subject, content).catch(
+      (error: unknown) => {
+        console.warn('[memoryWrite] 记忆向量生成失败（不影响本次工具返回）', {
+          userId: ctx.userId,
+          subject,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    );
+  } catch (error) {
+    console.warn('[memoryWrite] 记忆向量写入调度异常（不影响本次工具返回）', {
+      userId: ctx.userId,
+      subject,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  // D2 触发时机②：C1 写入成功后跑一次记忆策略（与后台提取路径同口径）。
+  // 失败必须被吞掉 —— 策略是清理动作，绝不改变工具返回结构、绝不把 error 抛回调用方。
+  try {
+    runMemoryPolicy(ctx.db, ctx.userId);
+  } catch (error) {
+    console.warn('[memoryWrite] 写入后记忆策略执行失败（不影响本次工具返回）', {
+      userId: ctx.userId,
+      subject,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   return {
     content: JSON.stringify({ written: true, id, kind, subject, source: 'auto' }),

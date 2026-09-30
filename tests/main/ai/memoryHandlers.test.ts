@@ -191,6 +191,32 @@ function runDelete(sql: string, args: unknown[]): { changes: number; lastInsertR
   return { changes: before - store.length, lastInsertRowid: 0 };
 }
 
+/**
+ * D2 补列后 `listActiveMemories` / `getActiveProfile` 会顺带 `UPDATE ... access_count`。
+ * 只加语句能力、不改任何断言：SET 仅接受 `col = ?`，WHERE 走既有 parseWhere（归属过滤）。
+ */
+function runUpdate(sql: string, args: unknown[]): { changes: number; lastInsertRowid: number } {
+  const m = /^\s*UPDATE\s+agent_memory\s+SET\s+([\s\S]*?)\s+WHERE\s+([\s\S]*)$/i.exec(sql);
+  if (!m) throw new Error(`fakeDb: 无法解析 UPDATE → ${sql}`);
+  const setCols = m[1].split(',').map((s) => {
+    const sm = /^([a-z_]+)\s*=\s*\?$/i.exec(s.trim());
+    if (!sm) throw new Error(`fakeDb: UPDATE SET 只允许 col = ? → ${s.trim()}`);
+    return sm[1] as keyof FakeRow;
+  });
+  const conds = parseWhere(m[2]);
+  const setArgs = args.slice(0, setCols.length);
+  const whereArgs = args.slice(setCols.length);
+  let changes = 0;
+  for (const row of store) {
+    if (!matchWhere(conds, row, whereArgs)) continue;
+    setCols.forEach((col, i) => {
+      (row as unknown as Record<string, Cell>)[col] = setArgs[i] as Cell;
+    });
+    changes += 1;
+  }
+  return { changes, lastInsertRowid: 0 };
+}
+
 const fakeDb = {
   prepare(sql: string) {
     return {
@@ -204,6 +230,7 @@ const fakeDb = {
       },
       run: (...args: unknown[]): { changes: number; lastInsertRowid: number } => {
         assertBound(sql, args);
+        if (/^\s*UPDATE\s+agent_memory/i.test(sql)) return runUpdate(sql, args);
         return runDelete(sql, args);
       },
     };

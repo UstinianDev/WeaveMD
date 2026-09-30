@@ -20,7 +20,12 @@ import type {
 } from '@shared/ai';
 import { normalizeKbSettings } from '@shared/ai';
 import { IPC_CHANNELS } from '@shared/constants';
-import { getAiConfig, getRecentMessagesByRounds } from '../../db/ai';
+import {
+  getAiConfig,
+  getRecentMessagesByRounds,
+  getConversationMessagesPage,
+  hasCompletedAgentTask,
+} from '../../db/ai';
 import * as sessionDao from '../../db/agentSessionDao';
 import { AgentTaskQueue } from './agentTaskQueue';
 import { AgentSessionStateMachine } from './agentSession';
@@ -37,6 +42,16 @@ import {
   type MemoryLlmCall,
   type MemoryRoundMessage,
 } from './memoryWriter';
+import {
+  isSkillDistillTask,
+  maybeEnqueueSkillDistillation,
+  runSkillDistillJob,
+  defaultDraftWriter,
+  SKILL_DISTILL_TASK_TYPE,
+  SKILL_DISTILL_TIMEOUT_MS,
+  SKILL_DISTILL_TRAJECTORY_LIMIT,
+  type TrajectoryMessage,
+} from '../skills/skillDistiller';
 import { streamChatCompletionWithRetry } from '../llm/llmClient';
 import { streamAnthropicCompletion } from '../llm/anthropicClient';
 import { decryptApiKey } from '../secureConfig';
@@ -72,6 +87,20 @@ function readRecentRoundsForExtraction(
     .filter((m) => m.role === 'user' || m.role === 'assistant')
     .filter((m) => typeof m.content === 'string' && m.content.trim().length > 0)
     .map((m) => ({ role: m.role, content: m.content as string }));
+}
+
+/**
+ * 提炼用的轨迹读取（D3 六.1）：走新增的按会话分页查询（rowid 游标、参数化、user_id 隔离）。
+ * 与主上下文的 `getRecentMessagesByRounds`（按轮窗口）互不影响，后者零改动。
+ */
+function readTrajectoryPage(conversationId: string, userId: string): TrajectoryMessage[] {
+  return getConversationMessagesPage(conversationId, userId, {
+    limit: SKILL_DISTILL_TRAJECTORY_LIMIT,
+  }).messages.map((message) => ({
+    role: message.role,
+    content: message.content,
+    toolCalls: message.toolCalls,
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +261,12 @@ export class AgentTaskWorker {
       return;
     }
 
+    // D3 六.1：技能提炼任务同样复用队列与并发闸，不走 runAgentFlow
+    if (isSkillDistillTask(task)) {
+      await this.processSkillDistillTask(task);
+      return;
+    }
+
     const abortController = new AbortController();
     this.activeTasks.set(task.id, abortController);
     this.conversationTaskMap.set(task.conversationId, task.id);
@@ -381,10 +416,54 @@ export class AgentTaskWorker {
   }
 
   /**
+   * 处理技能提炼任务（D3 六.1）。
+   * 复用同一队列与并发闸，但完全独立于 runAgentFlow：
+   * - 所有异常在 runSkillDistillJob 内收敛 → 落 failed 不重试、不 reject；
+   * - 这里再兜一层 catch，保证 worker 自身永不因提炼而抛出（不阻塞用户下一轮提问）；
+   * - 不写 conversationTaskMap：提炼不该被 AGENT_ABORT 当作当前会话的作答任务取消。
+   */
+  private async processSkillDistillTask(task: AgentTask): Promise<void> {
+    const abortController = new AbortController();
+    this.activeTasks.set(task.id, abortController);
+
+    try {
+      await runSkillDistillJob(
+        {
+          readPage: readTrajectoryPage,
+          hasCompletedTask: hasCompletedAgentTask,
+          llm: this.buildMemoryLlm(task.userId, abortController.signal, SKILL_DISTILL_TIMEOUT_MS),
+          writeDraft: defaultDraftWriter,
+        },
+        { conversationId: task.conversationId, userId: task.userId },
+        (status, errorCode, errorMessage) => {
+          this.queue.updateStatus(task.id, status, errorCode, errorMessage);
+        },
+      );
+    } catch (error) {
+      // 兜底：runSkillDistillJob 承诺不抛，这里仍落 failed 且只记日志
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[AgentTaskWorker] Skill distillation crashed:', task.id, error);
+      try {
+        this.queue.updateStatus(task.id, 'failed', SKILL_DISTILL_TASK_TYPE, message);
+      } catch (statusError) {
+        console.error('[AgentTaskWorker] Failed to mark skill distill task failed:', statusError);
+      }
+    } finally {
+      this.activeTasks.delete(task.id);
+      abortController.abort();
+      void this.poll();
+    }
+  }
+
+  /**
    * 构造后台记忆提取的 LLM 调用（按配置协议分流，非流式累积为整段文本）。
    * 任何缺配置/解密失败都会让返回的函数抛错 → 由 runMemoryExtractionJob 落 failed。
    */
-  private buildMemoryLlm(userId: string, signal: AbortSignal): MemoryLlmCall {
+  private buildMemoryLlm(
+    userId: string,
+    signal: AbortSignal,
+    timeoutMs: number = MEMORY_EXTRACT_TIMEOUT_MS,
+  ): MemoryLlmCall {
     let baseUrl = '';
     let model = '';
     let apiKey: string | null = null;
@@ -407,7 +486,7 @@ export class AgentTaskWorker {
         model,
         apiKey: apiKey ?? undefined,
         messages,
-        timeoutMs: MEMORY_EXTRACT_TIMEOUT_MS,
+        timeoutMs,
         signal,
       };
       const gen =
@@ -499,7 +578,7 @@ export class AgentTaskWorker {
       pinnedWeight: kbSettings?.pinnedWeight ?? row?.kbPinnedWeight,
     });
     return {
-      searchKb: async (u: string, q: string, opts?: { topK?: number; queryVector?: number[]; searchMode?: 'fts5' | 'vector' | 'hybrid'; expandedQueries?: string[] }) => {
+      searchKb: async (u: string, q: string, opts?: { topK?: number; queryVector?: number[]; searchMode?: 'fts5' | 'vector' | 'hybrid'; expandedQueries?: string[]; hadPronounRef?: boolean }) => {
         const res = await searchKB(u, q, {
           topK: opts?.topK ?? persisted.topK,
           fuse: persisted.fuse,
@@ -509,6 +588,8 @@ export class AgentTaskWorker {
           searchMode: opts?.searchMode,
           // P0-6 双路召回：原 query 必须透传，否则改写后的双路融合被静默丢弃
           expandedQueries: opts?.expandedQueries,
+          // D1 二.3：指代改写标志透传，否则 kbSearch 层 diagnostics 恒 false（闭包重建 opts 会丢参）
+          hadPronounRef: opts?.hadPronounRef,
         });
         // B11 八-1②：allowSend=false → 外发结果过滤到仅勾选授权附件（fail-closed）。
         // 这是 searchKB 结果走向 LLM 的唯一出口（preloader/citation 均继承此闭包）。
@@ -583,6 +664,15 @@ export class AgentTaskWorker {
       // maybeEnqueueMemoryExtraction 自身同步快速返回并吞掉全部异常（节流 + 同会话 pending
       // 去重 + 入队，绝不在此调 LLM），因此这里无需再包一层 try/catch，不会影响完成事件。
       maybeEnqueueMemoryExtraction(
+        { queue: this.queue },
+        { conversationId: task.conversationId, userId: task.userId },
+      );
+
+      // D3 六.1：AI_STREAM_DONE 之后入队技能提炼（与 memory_writer 同点）。
+      // maybeEnqueueSkillDistillation 自身同步快速返回并吞掉全部异常（节流 + 同会话 pending
+      // 去重 + 入队，绝不在此调 LLM），且 pending 去重会挡住 memory_extract 刚入队的 pending，
+      // 避免 AgentTaskQueue.enqueue 的 supersede 误伤别的后台任务 —— 这里无需再包 try/catch。
+      maybeEnqueueSkillDistillation(
         { queue: this.queue },
         { conversationId: task.conversationId, userId: task.userId },
       );

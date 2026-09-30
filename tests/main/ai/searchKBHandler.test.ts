@@ -9,12 +9,23 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { handleSearchKB, buildMinimalUnderstanding } from '@main/ai/tools/searchKBHandler';
 import type { SearchKbFn, ToolCtx } from '@main/ai/toolTypes';
 import type { ConversationMessage } from '@main/ai/knowledge/queryPlanner';
+import { detectAmbiguities } from '@main/ai/knowledge/queryPlanner';
+import type { IKbDiagnostics, IKbSearchResult } from '@shared/ai';
 
 // ---------------------------------------------------------------------------
 // 夹具
 // ---------------------------------------------------------------------------
 
 type SearchKbOpts = NonNullable<Parameters<SearchKbFn>[2]>;
+
+/** searchKb 返回体夹具（D1：可选 diagnostics）。 */
+interface SearchKbResultFixture {
+  refused: boolean;
+  threshold: number;
+  best: IKbSearchResult | null;
+  results: IKbSearchResult[];
+  diagnostics?: IKbDiagnostics;
+}
 
 function makeCtx(over: Partial<ToolCtx> = {}): ToolCtx {
   return { userId: 'u1', ...over };
@@ -45,7 +56,7 @@ function refusedResult() {
 }
 
 function makeSearchKb(
-  impl: (q: string, opts?: SearchKbOpts) => ReturnType<typeof okResults> | ReturnType<typeof refusedResult>
+  impl: (q: string, opts?: SearchKbOpts) => SearchKbResultFixture
 ) {
   return vi.fn(async (_uid: string, q: string, opts?: SearchKbOpts) => impl(q, opts));
 }
@@ -302,5 +313,203 @@ describe('A3 — 失败旁路 buildMinimalUnderstanding 透传 history', () => {
   it('无历史 → 仍判 fact（既有语义不回退）', () => {
     const understanding = buildMinimalUnderstanding('它的主要模块有哪些？', refusedResult());
     expect(understanding.intents[0]).toBe('fact');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D1：diagnostics 作为 content 独立小节（指代触发率 / 澄清触发率可观测）
+// ---------------------------------------------------------------------------
+
+/** 可控 diagnostics 夹具（仅 queryUnderstanding 可变，其余按真实形状给值）。 */
+function makeDiagnostics(over?: { hadPronounRef?: boolean }): IKbDiagnostics {
+  return {
+    timings: {
+      fts5Ms: 1,
+      vectorMs: 0,
+      titleMs: 0,
+      rrfMs: 0,
+      weightingMs: 0,
+      aggregationMs: 0,
+      rerankMs: 0,
+      totalMs: 2,
+    },
+    counts: {
+      fts5Candidates: 1,
+      vectorCandidates: 0,
+      titleCandidates: 0,
+      mergedCandidates: 1,
+      afterWeighting: 1,
+      afterAggregation: 1,
+      finalResults: 1,
+    },
+    cacheSnapshot: { searchResultHit: 0, rerankHit: 0 },
+    queryUnderstanding: {
+      intentType: 'fact',
+      isFallthrough: false,
+      hadPronounRef: over?.hadPronounRef ?? false,
+    },
+  };
+}
+
+describe('D1 — diagnostics 作为 content 独立小节', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('成功分支：content = { results, diagnostics }，results 内容与改前一致', async () => {
+    const searchKb = makeSearchKb(() => ({ ...okResults(), diagnostics: makeDiagnostics() }));
+    const res = await handleSearchKB({ query: 'FTS5 分词器怎么配置' }, makeCtx({ searchKb }));
+
+    expect(res.status).toBe('ok');
+    const parsed = JSON.parse(res.content) as Record<string, unknown>;
+    expect(Array.isArray(parsed.results)).toBe(true);
+    const results = parsed.results as Array<{ chunkId: string; score: number }>;
+    expect(results).toHaveLength(1);
+    expect(results[0].chunkId).toBe('c1');
+    expect(results[0].score).toBe(0.9);
+    expect(parsed.diagnostics).toBeDefined();
+    expect(
+      (parsed.diagnostics as IKbDiagnostics).queryUnderstanding?.hadPronounRef
+    ).toBe(false);
+  });
+
+  it('成功分支：既有键集合 = 改前的 results + 新增 diagnostics，不新增多余键', async () => {
+    const searchKb = makeSearchKb(() => ({ ...okResults(), diagnostics: makeDiagnostics() }));
+    const res = await handleSearchKB({ query: 'FTS5 分词器怎么配置' }, makeCtx({ searchKb }));
+    const parsed = JSON.parse(res.content) as Record<string, unknown>;
+    expect(Object.keys(parsed).sort()).toEqual(['diagnostics', 'results']);
+  });
+
+  it('refused 分支：既有 6 键逐键不动，只新增 diagnostics', async () => {
+    const searchKb = makeSearchKb(() => ({ ...refusedResult(), diagnostics: makeDiagnostics() }));
+    const res = await handleSearchKB({ query: '它的主要模块有哪些？' }, makeCtx({ searchKb }));
+
+    const parsed = JSON.parse(res.content) as Record<string, unknown>;
+    expect(parsed.refused).toBe(true);
+    expect(parsed.threshold).toBe(0.6);
+    expect(parsed.best).toBeNull();
+    expect(typeof parsed.message).toBe('string');
+    expect(typeof parsed.clarificationContext).toBe('string');
+    const baseline = Object.keys(parsed).filter((k) => k !== 'diagnostics').sort();
+    expect(baseline).toEqual([
+      'best',
+      'clarificationContext',
+      'clarificationNeeded',
+      'message',
+      'refused',
+      'threshold',
+    ]);
+    expect(parsed.diagnostics).toBeDefined();
+  });
+
+  it('无澄清的成功分支：既有键 results + 新增 diagnostics', async () => {
+    const searchKb = makeSearchKb(() => ({ ...okResults(), diagnostics: makeDiagnostics() }));
+    const res = await handleSearchKB({ query: '它的主要模块有哪些？' }, makeCtx({ searchKb }));
+    const parsed = JSON.parse(res.content) as Record<string, unknown>;
+    expect(Object.keys(parsed).sort()).toEqual(['diagnostics', 'results']);
+    expect(parsed.clarificationContext).toBeUndefined();
+  });
+});
+
+describe('D1 — hadPronounRef 三态传递（有改写 / 无改写 / 无 history）', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('有改写（resolved:true）→ opts.hadPronounRef 传 true，content 内归一为 true', async () => {
+    // 夹具刻意回传 false：模拟下游闭包未透传入参时，handler 仍以本次 resolved 为准
+    const searchKb = makeSearchKb(() => ({
+      ...okResults(),
+      diagnostics: makeDiagnostics({ hadPronounRef: false }),
+    }));
+    const res = await handleSearchKB(
+      { query: '它的主要模块有哪些？' },
+      makeCtx({ searchKb, history: HISTORY_WITH_ENTITY })
+    );
+
+    expect(searchKb.mock.calls[0][2]?.hadPronounRef).toBe(true);
+    const parsed = JSON.parse(res.content) as Record<string, unknown>;
+    const qu = (parsed.diagnostics as IKbDiagnostics).queryUnderstanding;
+    expect(qu?.hadPronounRef).toBe(true);
+  });
+
+  it('无改写（有历史但解不出实体）→ opts 传 false，content 内为 false', async () => {
+    const searchKb = makeSearchKb(() => ({
+      ...okResults(),
+      diagnostics: makeDiagnostics({ hadPronounRef: true }),
+    }));
+    const res = await handleSearchKB(
+      { query: '它的主要模块有哪些？' },
+      makeCtx({ searchKb, history: HISTORY_UNRESOLVABLE })
+    );
+
+    expect(searchKb.mock.calls[0][2]?.hadPronounRef).toBe(false);
+    const parsed = JSON.parse(res.content) as Record<string, unknown>;
+    expect((parsed.diagnostics as IKbDiagnostics).queryUnderstanding?.hadPronounRef).toBe(false);
+  });
+
+  it('无 history → 恒 resolved:false，opts 传 false，content 内为 false', async () => {
+    const searchKb = makeSearchKb(() => ({ ...okResults(), diagnostics: makeDiagnostics() }));
+    const res = await handleSearchKB(
+      { query: '它的主要模块有哪些？' },
+      makeCtx({ searchKb })
+    );
+
+    expect(searchKb.mock.calls[0][2]?.hadPronounRef).toBe(false);
+    const parsed = JSON.parse(res.content) as Record<string, unknown>;
+    expect((parsed.diagnostics as IKbDiagnostics).queryUnderstanding?.hadPronounRef).toBe(false);
+  });
+});
+
+describe('D1 — 反向指标反例：hadPronounRef 与 pronoun_reference 不可互推', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('有指代词 + 有历史 → hadPronounRef:true（入分子），但不触发 pronoun_reference', async () => {
+    const searchKb = makeSearchKb(() => ({ ...okResults(), diagnostics: makeDiagnostics() }));
+    await handleSearchKB(
+      { query: '它的主要模块有哪些？' },
+      makeCtx({ searchKb, history: HISTORY_WITH_ENTITY })
+    );
+
+    expect(searchKb.mock.calls[0][2]?.hadPronounRef).toBe(true);
+    expect(detectAmbiguities('它的主要模块有哪些？', HISTORY_WITH_ENTITY)).not.toContain(
+      'pronoun_reference'
+    );
+  });
+
+  it('有指代词 + 无历史 → hadPronounRef:false（不入分子），pronoun_reference 反向触发', async () => {
+    const searchKb = makeSearchKb(() => ({ ...okResults(), diagnostics: makeDiagnostics() }));
+    await handleSearchKB({ query: '它的主要模块有哪些？' }, makeCtx({ searchKb }));
+
+    expect(searchKb.mock.calls[0][2]?.hadPronounRef).toBe(false);
+    expect(detectAmbiguities('它的主要模块有哪些？')).toContain('pronoun_reference');
+  });
+});
+
+describe('D1 — 澄清触发率分子：clarificationContext 与 diagnostics 同 sink', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('拒答 + 澄清 → content 同时含 clarificationContext 与 diagnostics', async () => {
+    const searchKb = makeSearchKb(() => ({ ...refusedResult(), diagnostics: makeDiagnostics() }));
+    const res = await handleSearchKB({ query: '它的主要模块有哪些？' }, makeCtx({ searchKb }));
+
+    const parsed = JSON.parse(res.content) as Record<string, unknown>;
+    expect(parsed.clarificationContext).toBeTruthy();
+    expect(parsed.diagnostics).toBeDefined();
+    expect(
+      (parsed.diagnostics as IKbDiagnostics).queryUnderstanding?.hadPronounRef
+    ).toBe(false);
+  });
+
+  it('searchKb 未回传 diagnostics（旧实现/mock）→ content 保持改前的裸数组形状，不报错', async () => {
+    const searchKb = makeSearchKb(() => okResults());
+    const res = await handleSearchKB({ query: 'FTS5 分词器怎么配置' }, makeCtx({ searchKb }));
+    const parsed = JSON.parse(res.content) as unknown;
+    expect(Array.isArray(parsed)).toBe(true);
+    expect((parsed as Array<{ chunkId: string }>)[0].chunkId).toBe('c1');
   });
 });

@@ -10,14 +10,17 @@ import type { AIErrorCode, AgentRunPayload, IAttachmentMeta } from '@shared/ai';
 import { IMAGE_UPLOAD_EXTS, isSupportedDocFile, normalizeKbSettings } from '@shared/ai';
 import { findAttachmentFilePath, getAiConfig, getConversation } from '../../db/ai';
 import { persistIncomingAttachments } from '../../db/attachments';
+import { listMemoryOwners } from '../../db/agentMemory';
 import { recognizeImageAttachments } from '../image/imageRecognition';
 import { isRelativeAttachmentPath, resolveStoredPath } from '../image/imageStorage';
 import { needsConsent } from '../consent';
 import { runAgentFlow } from '../agent/agentLoop';
 import { searchKB } from '../knowledge/kbSearch';
+import { scheduleMemoryVectorBackfill } from '../knowledge/vectorBackfill';
 import { listSkillsForUi, loadUserSkillsFromDirs } from '../skills/skillLoader';
 import { AgentTaskQueue } from '../agent/agentTaskQueue';
 import { AgentTaskWorker } from '../agent/agentTaskWorker';
+import { runMemoryPolicyForAllUsers } from '../agent/memoryPolicy';
 import { replayFromSeq } from '../agent/agentEventStore';
 import { rollbackToSnapshot } from '../agent/agentSnapshot';
 import { getGlobalAgentFiles, setGlobalAgentFiles, getDefaultAgentFileContent } from '../files/globalAgentFiles';
@@ -52,6 +55,31 @@ export function initAgentQueue(db: BetterSqlite3Database, mainWindow: BrowserWin
   taskWorker = new AgentTaskWorker(db, taskQueue);
   taskWorker.setMainWindow(mainWindow);
   taskWorker.start();
+
+  // D2 触发时机①：应用启动跑一次每用户记忆策略（复用既有队列初始化点，
+  // 不新建定时器、不入队）。内部已按用户 try/catch，这里再兜一层，
+  // 保证任何异常都不阻塞启动、不改变 initAgentQueue 的签名与语义。
+  try {
+    runMemoryPolicyForAllUsers(db);
+  } catch (error) {
+    console.warn('[AgentHandlers] 启动期记忆策略执行失败（不影响启动）', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  // D6 回填触发：复用 D2 的启动触发点为存量 active 记忆补向量（不新建定时器）。
+  // 调度即返回（在途去重 + 未配置 embedding 时空转），内部永不 reject；这里再兜一层，
+  // 保证任何异常都不阻塞启动、不改变 initAgentQueue 的签名与语义。
+  try {
+    for (const ownerId of listMemoryOwners(db)) {
+      void scheduleMemoryVectorBackfill(db, ownerId);
+    }
+  } catch (error) {
+    console.warn('[AgentHandlers] 启动期记忆向量回填调度失败（不影响启动）', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   console.log('[AgentHandlers] Agent task queue initialized');
 }
 

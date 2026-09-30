@@ -9,6 +9,7 @@ vi.mock('electron', () => ({
 }));
 
 import {
+  addAgentMemoryAccessColumns,
   addAgentMemoryTables,
   addAttachmentColumns,
   addB7AttachmentStructureColumn,
@@ -726,5 +727,198 @@ describe('addAgentMemoryTables — agent-memory B3 迁移三断言（FakeDb 驱�
     const rm = /function runMigrations\([\s\S]*?\n}/.exec(src);
     expect(rm).not.toBeNull();
     expect(rm?.[0]).toMatch(/addAgentMemoryTables\(database\);/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// agent-memory-optimize-3 D2：addAgentMemoryAccessColumns 幂等补列三断言
+// （态1 空库首建含 13 列 / 态2 旧库 11 列升级补齐且旧行取 DEFAULT / 态3 重复执行零 DDL）。
+// 真库语义由 scripts/agent-memory-migration-smoke.cjs 的「态5」在 Electron 运行时真验；
+// 本 describe 用「可探测列 + 可模拟 DEFAULT 回填」的 FakeDb 驱动真实迁移函数。
+// 既有 addAgentMemoryTables describe（11 列规格）零改动 —— D2 只新增独立函数，既有迁移本体不触碰。
+// ---------------------------------------------------------------------------
+
+/** D2 终态：既有 11 列 + access_count + last_read_at = 13 列。 */
+const AGENT_MEMORY_ACCESS_COLUMNS = [
+  ...AGENT_MEMORY_COLUMNS,
+  'access_count',
+  'last_read_at',
+] as const;
+
+/** D2 追加的 written_at 时间索引（evictStale / 容量排序的时间过滤前提）。 */
+const AGENT_MEMORY_ACCESS_INDEX = 'idx_agent_memory_user_written';
+
+interface AccessFakeDb {
+  columns: Map<string, string[]>;
+  rows: Map<string, Record<string, unknown>[]>;
+  indexes: Set<string>;
+  alters: string[];
+  execs: string[];
+  prepare: (sql: string) => { get: (name: string) => { c: number } | undefined };
+  exec: (sql: string) => void;
+}
+
+/** 从列定义里解析常量 DEFAULT（无 DEFAULT → null，与 SQLite 补列回填同口径）。 */
+function parseColumnDefault(ddl: string): unknown {
+  const m = /\bDEFAULT\s+('(?:[^']*)'|-?\d+(?:\.\d+)?|NULL)/i.exec(ddl);
+  if (!m) return null;
+  const raw = m[1];
+  if (/^'[\s\S]*'$/.test(raw)) return raw.slice(1, -1);
+  if (/^NULL$/i.test(raw)) return null;
+  return Number(raw);
+}
+
+/**
+ * 可探测列 / 可建表建索引 / 可模拟 DEFAULT 回填的 FakeDb：
+ * - exec 按括号深度拆多语句，出现 DROP|DELETE|UPDATE 直接抛错（迁移红线）；
+ * - 重复 CREATE TABLE IF NOT EXISTS 为 no-op；重复 ALTER 抛「重复列」（真库同样报错）；
+ * - ALTER 补列会按 DEFAULT 给既有行回填，用于断言「旧行取 DEFAULT」。
+ */
+function makeAccessFakeDb(seed?: Record<string, string[]>): AccessFakeDb {
+  const columns = new Map<string, string[]>(
+    Object.entries(seed ?? {}).map(([t, cols]) => [t, [...cols]])
+  );
+  const rows = new Map<string, Record<string, unknown>[]>(
+    Object.keys(seed ?? {}).map((t) => [t, [] as Record<string, unknown>[]])
+  );
+  const indexes = new Set<string>();
+  const alters: string[] = [];
+  const execs: string[] = [];
+
+  const exec = (raw: string): void => {
+    execs.push(raw);
+    if (/DROP|DELETE|UPDATE/i.test(raw)) {
+      throw new Error(`迁移禁止破坏性语句: ${raw.slice(0, 60)}`);
+    }
+    for (const stmt of splitStatements(raw)) {
+      const t = /CREATE TABLE IF NOT EXISTS (\w+)\s*\(/.exec(stmt);
+      if (t) {
+        if (!columns.has(t[1])) {
+          columns.set(t[1], parseCreateColumns(extractCreateBody(stmt)));
+          rows.set(t[1], []);
+        }
+        continue;
+      }
+      const i = /CREATE INDEX IF NOT EXISTS (\w+)/.exec(stmt);
+      if (i) {
+        indexes.add(i[1]);
+        continue;
+      }
+      const a = /^ALTER TABLE (\w+) ADD COLUMN ([\s\S]+)$/i.exec(stmt.trim());
+      if (a) {
+        const table = a[1];
+        const colName = a[2].trim().split(/\s+/)[0];
+        const cols = columns.get(table);
+        if (!cols) throw new Error(`表不存在: ${table}`);
+        if (cols.includes(colName)) throw new Error(`重复列: ${table}.${colName}`);
+        columns.set(table, [...cols, colName]);
+        const value = parseColumnDefault(a[2]);
+        for (const row of rows.get(table) ?? []) row[colName] = value;
+        alters.push(stmt.trim());
+        continue;
+      }
+      throw new Error(`未识别的迁移语句: ${stmt.slice(0, 60)}`);
+    }
+  };
+
+  return {
+    columns,
+    rows,
+    indexes,
+    alters,
+    execs,
+    exec,
+    prepare: (sql: string) => ({
+      get: (name: string) => {
+        const m = /pragma_table_info\('([^']+)'\)/.exec(sql);
+        if (!m) throw new Error(`unexpected pragma sql: ${sql}`);
+        return (columns.get(m[1]) ?? []).includes(name) ? { c: 1 } : undefined;
+      },
+    }),
+  } as AccessFakeDb;
+}
+
+/** pre-D2 既有库：agent_memory 已是 11 列（既有迁移终态），可选塞一条历史行。 */
+function preD2AgentMemoryDb(row?: Record<string, unknown>): AccessFakeDb {
+  const db = makeAccessFakeDb({ agent_memory: [...AGENT_MEMORY_COLUMNS] });
+  if (row) db.rows.get('agent_memory')?.push(row);
+  return db;
+}
+
+/** pre-D2 的一条历史数据行（内容与双时间均为第二批写入的形态）。 */
+function preD2Row(): Record<string, unknown> {
+  return {
+    id: 1, user_id: 'u1', kind: 'fact', subject: 'city', content: '上海',
+    source: 'auto', conversation_id: null, fingerprint: 'fp1',
+    valid_from: '2026-01-01 00:00:00', valid_to: null, written_at: '2026-01-01 00:00:00',
+  };
+}
+
+describe('addAgentMemoryAccessColumns — D2 补列迁移三断言（FakeDb 驱动真实迁移函数）', () => {
+  it('态1 空库首建：既有建表 + 本迁移 → 13 列 + 4 索引，两条 ALTER DDL 精确匹配', () => {
+    const db = makeAccessFakeDb();
+    addAgentMemoryTables(db as never);
+    addAgentMemoryAccessColumns(db as never);
+
+    expect(db.columns.get('agent_memory')).toEqual([...AGENT_MEMORY_ACCESS_COLUMNS]);
+    expect([...db.indexes]).toEqual([...AGENT_MEMORY_INDEXES, AGENT_MEMORY_ACCESS_INDEX]);
+    expect(db.alters).toEqual([
+      'ALTER TABLE agent_memory ADD COLUMN access_count INTEGER DEFAULT 0',
+      'ALTER TABLE agent_memory ADD COLUMN last_read_at TEXT',
+    ]);
+    expect(db.execs.filter((sql) => /^CREATE TABLE/.test(sql.trim()))).toHaveLength(1);
+    expect(db.execs.some((sql) => /DROP|DELETE|UPDATE/i.test(sql))).toBe(false);
+  });
+
+  it('态2 旧库升级：11 列 → 13 列，旧行 access_count 取 DEFAULT 0、last_read_at 为 NULL 且既有字段不动', () => {
+    const db = preD2AgentMemoryDb(preD2Row());
+
+    addAgentMemoryAccessColumns(db as never);
+
+    expect(db.columns.get('agent_memory')).toEqual([...AGENT_MEMORY_ACCESS_COLUMNS]);
+    // 既有 11 列顺序原样保留，新列只追加在末尾
+    expect(db.columns.get('agent_memory')?.slice(0, AGENT_MEMORY_COLUMNS.length)).toEqual([
+      ...AGENT_MEMORY_COLUMNS,
+    ]);
+    const row = db.rows.get('agent_memory')?.[0];
+    expect(row?.access_count).toBe(0);
+    expect(row?.last_read_at).toBeNull();
+    expect(row?.content).toBe('上海');
+    expect(row?.valid_to).toBeNull();
+    expect(row?.written_at).toBe('2026-01-01 00:00:00');
+    expect(db.execs.every((sql) => /^(ALTER TABLE|CREATE INDEX)/.test(sql.trim()))).toBe(true);
+    expect(db.execs.some((sql) => /DROP|DELETE|UPDATE/i.test(sql))).toBe(false);
+  });
+
+  it('态3 重复执行：第二遍零 ALTER、零新索引，数据不变', () => {
+    const db = preD2AgentMemoryDb(preD2Row());
+    addAgentMemoryAccessColumns(db as never);
+    const snapshot = {
+      columns: [...(db.columns.get('agent_memory') ?? [])],
+      indexes: [...db.indexes],
+      alters: db.alters.length,
+    };
+
+    addAgentMemoryAccessColumns(db as never);
+
+    expect(db.alters).toHaveLength(snapshot.alters);
+    expect(db.columns.get('agent_memory')).toEqual(snapshot.columns);
+    expect([...db.indexes]).toEqual(snapshot.indexes);
+    expect(db.rows.get('agent_memory')).toHaveLength(1);
+    expect(db.rows.get('agent_memory')?.[0].access_count).toBe(0);
+    expect(db.execs.some((sql) => /DROP|DELETE|UPDATE/i.test(sql))).toBe(false);
+  });
+
+  it('红线与接线：addAgentMemoryTables 本体零改动，runMigrations 已接线本函数', () => {
+    const src = readFileSync(path.resolve(process.cwd(), 'src', 'main', 'db', 'index.ts'), 'utf8');
+    const fn = /export function addAgentMemoryTables[\s\S]*?\n}/.exec(src)?.[0] ?? '';
+    expect(fn).not.toBe('');
+    // 既有迁移本体一行不改：D2 的列与新函数名都不得出现在其中
+    expect(fn).not.toMatch(/access_count|last_read_at|addAgentMemoryAccessColumns/);
+    expect(fn).toMatch(/idx_agent_memory_user_fp/);
+
+    const rm = /function runMigrations\([\s\S]*?\n}/.exec(src);
+    expect(rm).not.toBeNull();
+    expect(rm?.[0]).toMatch(/addAgentMemoryAccessColumns\(database\);/);
   });
 });

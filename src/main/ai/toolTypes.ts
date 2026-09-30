@@ -2,7 +2,7 @@
 // WeaveMD — Tool 类型定义（从 toolRegistry 提取，避免循环依赖）
 // ============================================
 
-import type { IKbSearchResult } from '@shared/ai';
+import type { IKbDiagnostics, IKbSearchResult } from '@shared/ai';
 import type { ConversationMessage } from './knowledge/queryPlanner';
 
 export type ToolStatus = 'ok' | 'error';
@@ -31,12 +31,19 @@ export type SearchKbFn = (
     searchMode?: 'fts5' | 'vector' | 'hybrid';
     /** P0-6 双路召回：代词改写前的原 query，与改写结果一起走 RRF 融合。 */
     expandedQueries?: string[];
+    /**
+     * D1 指代触发率：本次检索是否发生了有效代词改写（由 searchKBHandler 传入）。
+     * 既有调用方（预载闭包、子查询）可不传，缺省在 kbSearch 侧保守记 false。
+     */
+    hadPronounRef?: boolean;
   }
 ) => Promise<{
   refused: boolean;
   threshold: number;
   best: IKbSearchResult | null;
   results: IKbSearchResult[];
+  /** D1：检索管线诊断（含 queryUnderstanding），由 searchKBHandler 挂进工具 content。 */
+  diagnostics?: IKbDiagnostics;
 }>;
 
 /** 工具执行上下文（由 agentLoop 注入，toolHandler 按需消费）。 */

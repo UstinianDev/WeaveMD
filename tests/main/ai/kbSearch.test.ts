@@ -729,3 +729,118 @@ describe('kbSearch.searchKB — 未传 threshold 默认 0.6 红线（A4③）', 
     expect(result.refused).toBe(true);
   });
 });
+
+// --- D1：queryUnderstanding 三字段真实赋值（指代触发率可观测） -------------------
+
+describe('kbSearch.searchKB — D1 queryUnderstanding 三字段赋值', () => {
+  const row = (id: string): Record<string, unknown> => ({
+    chunkId: id,
+    documentId: `${id}-doc`,
+    content: '内容',
+    seq: 0,
+    sourceRef: null,
+    pinned: 0,
+    bm: -2,
+    fileName: 'x.md',
+    headingPath: null,
+  });
+
+  it('主路径：queryUnderstanding 三字段齐全，hadPronounRef 取本次调用入参 true', async () => {
+    fakeRows.value = [row('d1-main-true')];
+    const res = await searchKB('u1', 'D1查询理解主路径探针', {
+      topK: 3,
+      threshold: 0.001,
+      hadPronounRef: true,
+    });
+    const qu = res.diagnostics?.queryUnderstanding;
+    expect(qu).toBeDefined();
+    expect(qu!.hadPronounRef).toBe(true);
+    expect(typeof qu!.intentType).toBe('string');
+    expect(typeof qu!.isFallthrough).toBe('boolean');
+  });
+
+  it('未传 hadPronounRef → 保守默认 false（既有调用方零回归）', async () => {
+    fakeRows.value = [row('d1-main-undef')];
+    const res = await searchKB('u1', 'D1查询理解缺省探针', { topK: 3, threshold: 0.001 });
+    expect(res.diagnostics?.queryUnderstanding?.hadPronounRef).toBe(false);
+  });
+
+  it('显式传 false → false', async () => {
+    fakeRows.value = [row('d1-main-false')];
+    const res = await searchKB('u1', 'D1查询理解显式假探针', {
+      topK: 3,
+      threshold: 0.001,
+      hadPronounRef: false,
+    });
+    expect(res.diagnostics?.queryUnderstanding?.hadPronounRef).toBe(false);
+  });
+
+  it('intentType 走 detectQueryIntent → mapIntentToType：命令式查询 → procedure', async () => {
+    fakeRows.value = [row('d1-intent-cmd')];
+    const res = await searchKB('u1', '帮我列出所有置顶笔记', { topK: 3, threshold: 0.001 });
+    expect(res.diagnostics?.queryUnderstanding?.intentType).toBe('procedure');
+  });
+
+  it('intentType：关键词式查询 → fact', async () => {
+    fakeRows.value = [row('d1-intent-kw')];
+    const res = await searchKB('u1', '杜鹃花期与土壤酸碱度关系', { topK: 3, threshold: 0.001 });
+    expect(res.diagnostics?.queryUnderstanding?.intentType).toBe('fact');
+  });
+
+  it('isFallthrough：意图规则零命中 → chat fallback → true', async () => {
+    fakeRows.value = [row('d1-fall-yes')];
+    const res = await searchKB('u1', '杜鹃花期与土壤酸碱度关系', { topK: 3, threshold: 0.001 });
+    expect(res.diagnostics?.queryUnderstanding?.isFallthrough).toBe(true);
+  });
+
+  it('isFallthrough：意图规则命中（kbQa 关键词）→ false', async () => {
+    fakeRows.value = [row('d1-fall-no')];
+    const res = await searchKB('u1', '知识库里杜鹃花期资料', { topK: 3, threshold: 0.001 });
+    expect(res.diagnostics?.queryUnderstanding?.isFallthrough).toBe(false);
+  });
+
+  it('早退路径①：cleaned 为空 → emptyResponse 仍带 diagnostics + queryUnderstanding', async () => {
+    const res = await searchKB('u1', '   ', { hadPronounRef: true });
+    expect(res.refused).toBe(true);
+    expect(res.results).toEqual([]);
+    expect(res.diagnostics).toBeDefined();
+    expect(res.diagnostics?.timings).toBeDefined();
+    expect(res.diagnostics?.counts).toBeDefined();
+    expect(res.diagnostics?.queryUnderstanding?.hadPronounRef).toBe(true);
+    expect(typeof res.diagnostics?.queryUnderstanding?.intentType).toBe('string');
+  });
+
+  it('早退路径②：候选为空 → emptyResponse 仍带 diagnostics + queryUnderstanding', async () => {
+    fakeRows.value = [];
+    const res = await searchKB('u1', 'D1候选为空早退探针', {
+      searchMode: 'vector',
+      topK: 3,
+      hadPronounRef: true,
+    });
+    expect(res.refused).toBe(true);
+    expect(res.results).toEqual([]);
+    expect(res.diagnostics?.queryUnderstanding?.hadPronounRef).toBe(true);
+    expect(typeof res.diagnostics?.queryUnderstanding?.isFallthrough).toBe('boolean');
+  });
+
+  it('缓存命中路径计入分母：diagnostics 齐全且 hadPronounRef 取本次调用实际值', async () => {
+    fakeRows.value = [row('d1-cache-hit')];
+    const first = await searchKB('u1', 'D1缓存命中分母探针', {
+      topK: 3,
+      threshold: 0.001,
+      hadPronounRef: false,
+    });
+    const second = await searchKB('u1', 'D1缓存命中分母探针', {
+      topK: 3,
+      threshold: 0.001,
+      hadPronounRef: true,
+    });
+    expect(first.diagnostics?.cacheSnapshot?.searchResultHit).toBe(0);
+    expect(second.diagnostics?.cacheSnapshot?.searchResultHit).toBe(1);
+    // 缓存命中也计入分母，且 hadPronounRef 取本次调用实际值（非缓存写入时的旧值）
+    expect(second.diagnostics?.queryUnderstanding?.hadPronounRef).toBe(true);
+    expect(second.diagnostics?.queryUnderstanding?.intentType).toBe(
+      first.diagnostics?.queryUnderstanding?.intentType
+    );
+  });
+});

@@ -47,6 +47,9 @@ export function initDatabase(): Database.Database {
  *   作 FTS5 rowid，`doc_id` 冗余存 TEXT uuid（new.id）供回查 join kb_chunks。
  * - 幂等：CREATE VIRTUAL TABLE IF NOT EXISTS + DROP TRIGGER IF EXISTS 前置。
  * - BM25 查询通过 `kb_chunks_fts JOIN kb_chunks ON kb_chunks.rowid = kb_chunks_fts.rowid` 回查。
+ * - agent-memory-optimize-3 D7：删除同步用标准 `DELETE FROM kb_chunks_fts WHERE rowid = old.rowid`，
+ *   **不用** fts5 contentless 表专用的 `'delete'` 特殊命令——普通表执行即报 `SQL logic error`，
+ *   AFTER DELETE 抛错导致整条 DELETE 回滚（基表行删不掉 + FTS 索引残留），实测结论见 addAgentMemoryFts。
  * 此常量亦被 scripts/fts5-smoke.cjs 引用（Electron 运行时真验），须保持一致。 */
 export const FTS5_MIGRATION_SQL = `
   CREATE VIRTUAL TABLE IF NOT EXISTS kb_chunks_fts USING fts5(
@@ -63,8 +66,7 @@ export const FTS5_MIGRATION_SQL = `
 
   DROP TRIGGER IF EXISTS kb_chunks_fts_ad;
   CREATE TRIGGER kb_chunks_fts_ad AFTER DELETE ON kb_chunks BEGIN
-    INSERT INTO kb_chunks_fts(kb_chunks_fts, rowid, content, doc_id)
-    VALUES ('delete', old.rowid, old.content, old.id);
+    DELETE FROM kb_chunks_fts WHERE rowid = old.rowid;
   END;
 `;
 
@@ -292,6 +294,21 @@ function runMigrations(database: Database.Database): void {
   // agent-memory-optimize 第二批 B3：agent_memory 单表 + 双时间（Q6=B）
   // 追加式迁移，禁止 DROP/DELETE/UPDATE；历史迁移零改动，导出供迁移三断言测试。
   addAgentMemoryTables(database);
+
+  // agent-memory-optimize 第三批 D2：agent_memory 访问计数补列 + written_at 索引
+  // （追加式、独立函数，必须在 addAgentMemoryTables 之后；不改既有迁移本体）。
+  addAgentMemoryAccessColumns(database);
+
+  // agent-memory-optimize 第三批 D5（六.3 防线一）：agent_memory 关键词索引 FTS5 虚拟表
+  // + ai/ad/au 3 触发器（追加式、独立函数，必须在 addAgentMemoryAccessColumns 之后）。
+  addAgentMemoryFts(database);
+
+  // agent-memory-optimize 第三批 D6（三.3 向量化经验库）：agent_memory 向量列幂等补列
+  // （追加式、独立函数，必须在 addAgentMemoryFts 之后；不改既有迁移本体）。
+  addAgentMemoryVectorColumns(database);
+
+  // agent-memory-optimize 第三批 D5（六.3 防线二）：相似合并驳回标记列（追加式、独立函数）。
+  addAgentMemoryMergeSkipColumn(database);
 }
 
 /**
@@ -666,8 +683,12 @@ function addParsedAttachmentsTable(database: Database.Database): void {
 }
 
 /** 性能优化：kb_documents 标题 FTS5 索引（加速标题匹配检索）。 */
-function addKbDocumentsFtsIndex(database: Database.Database): void {
+// 导出供 tests/main/db/kbFtsTriggerDelete.test.ts 用 FakeDb 捕获实际 exec 的触发器 SQL
+// （vitest 内无法加载 better-sqlite3 ABI，真库语义另由 scripts/fts5-smoke.cjs 删除/更新态验证）。
+export function addKbDocumentsFtsIndex(database: Database.Database): void {
   // FTS5 虚拟表：索引 title 和 file_path 列
+  // 注（agent-memory-optimize-3 D7）：ad/au 用标准 DELETE 同步删除，理由同 FTS5_MIGRATION_SQL 头注
+  //（contentless 专用的 'delete' 特殊命令在普通 fts5 表上抛 SQL logic error → 回滚）。
   database.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS kb_documents_fts USING fts5(
       title,
@@ -690,8 +711,7 @@ function addKbDocumentsFtsIndex(database: Database.Database): void {
   database.exec(`
     DROP TRIGGER IF EXISTS kb_documents_fts_ad;
     CREATE TRIGGER kb_documents_fts_ad AFTER DELETE ON kb_documents BEGIN
-      INSERT INTO kb_documents_fts(kb_documents_fts, rowid, title, file_path, user_id)
-      VALUES ('delete', old.rowid, old.title, old.file_path, old.user_id);
+      DELETE FROM kb_documents_fts WHERE rowid = old.rowid;
     END;
   `);
 
@@ -699,8 +719,7 @@ function addKbDocumentsFtsIndex(database: Database.Database): void {
   database.exec(`
     DROP TRIGGER IF EXISTS kb_documents_fts_au;
     CREATE TRIGGER kb_documents_fts_au AFTER UPDATE ON kb_documents BEGIN
-      INSERT INTO kb_documents_fts(kb_documents_fts, rowid, title, file_path, user_id)
-      VALUES ('delete', old.rowid, old.title, old.file_path, old.user_id);
+      DELETE FROM kb_documents_fts WHERE rowid = old.rowid;
       INSERT INTO kb_documents_fts(rowid, title, file_path, user_id)
       VALUES (new.rowid, new.title, new.file_path, new.user_id);
     END;
@@ -726,6 +745,12 @@ function addKbDocumentsFtsIndex(database: Database.Database): void {
  *   `datetime('now')` 秒级默认与 `toISOString()` 毫秒双格式并存，字典序跨格式不可靠；
  * - 不建 FTS 虚拟表、不建 VIEW（B2 的 Views 走 DAO 查询函数）、不预留未使用列
  *   （将来需要新列走 addColumnIfMissing 幂等补列）。
+ * - **agent-memory-optimize-3 D5 追加说明（不删上条，仅记录改判）**：本批为六.3「防膨胀
+ *   三防线」的**跨 subject 语义合并**新建 `agent_memory_fts`（FTS5 关键词重合度）。
+ *   改判理由 = 三.3 之前仓内**没有任何两文本相似度设施**（fingerprint 是 sha256 精确相等、
+ *   向量是检索设施不是去重设施），**关键词重合度是唯一不依赖 embedding 的可行起点**
+ *   （向量归 Gate F 三.3）。虚拟表与 3 触发器由独立的 `addAgentMemoryFts` 追加式创建，
+ *   本函数仍只管基表与 3 索引，**本体一行未改**。
  * 幂等由 `IF NOT EXISTS` 保证：空库首建与旧库升级同路径收敛，重复执行 no-op。
  * 三断言：tests/main/db/migrations.test.ts + scripts/agent-memory-migration-smoke.cjs（真库）。
  */
@@ -748,4 +773,132 @@ export function addAgentMemoryTables(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_agent_memory_user_subject ON agent_memory(user_id, subject);
     CREATE INDEX IF NOT EXISTS idx_agent_memory_user_fp ON agent_memory(user_id, fingerprint);
   `);
+}
+
+/**
+ * agent-memory-optimize 第三批 D2（五.4 遗忘/过期机制）：agent_memory 访问计数幂等补列 + 时间索引。
+ * - `access_count INTEGER DEFAULT 0`：读取即访问的累计次数，容量上限按其升序淘汰的排序键；
+ * - `last_read_at TEXT`：最近一次被读取的时刻（NULL = 从未被读），供人工复核观测；
+ * - `idx_agent_memory_user_written`：evictStale / 容量排序按 `written_at` 过滤与排序的索引
+ *   （既有 3 个索引无一覆盖 written_at，时间过滤此前只能在 TS 侧全量遍历）。
+ * **独立函数、追加式迁移**：不改 `addAgentMemoryTables` 本体（第二批已提交的迁移），
+ * 旧库由 PRAGMA 探测缺列后逐列 ADD，旧行按常量 DEFAULT 回填（0 / NULL），重复执行 no-op。
+ * 三断言：tests/main/db/migrations.test.ts + scripts/agent-memory-migration-smoke.cjs（真库态5）。
+ */
+export function addAgentMemoryAccessColumns(database: Database.Database): void {
+  addColumnIfMissing(database, 'agent_memory', 'access_count', 'access_count INTEGER DEFAULT 0');
+  addColumnIfMissing(database, 'agent_memory', 'last_read_at', 'last_read_at TEXT');
+  database.exec(
+    'CREATE INDEX IF NOT EXISTS idx_agent_memory_user_written ON agent_memory(user_id, written_at)'
+  );
+}
+
+/**
+ * agent-memory-optimize-3 D5（六.3 防线一）：agent_memory 关键词索引 FTS5 虚拟表 + 3 触发器。
+ *
+ * 为什么建（**推翻第二批「不建 FTS」的改判，理由见 addAgentMemoryTables 头注**）：
+ * 六.3 要做**跨 subject 的语义相似合并**，而仓内此前只有 sha256 精确相等去重，
+ * 关键词重合度是唯一不依赖 embedding 的可行起点（向量归 Gate F 三.3）。
+ *
+ * 设计口径：
+ * - **只索引 `subject` + `content`**：`user_id` / `kind` 不进 FTS，靠普通查询
+ *   `m.user_id = ? AND m.kind = ? AND m.valid_to IS NULL` 过滤后再取候选
+ *   （见 `db/agentMemory.querySimilarMemoryCandidates`）；
+ * - **`tokenize = 'trigram'`**：unicode61 会把整段连续汉字并成**一个** token
+ *   （实测 `用户偏好深色主题` 只产出 1 词），中文相似度检索等于不可用；
+ *   trigram 按 3 字窗口切分，中英文通用，代价是**大小写敏感**
+ *   （查询侧因此同时提交原文与小写两套 trigram，见 buildMemoryMatchQuery）；
+ * - 触发器用 `agent_memory` 内部 rowid（= id，`INTEGER PRIMARY KEY`）作 FTS5 rowid，
+ *   回查 join 不需要冗余列；
+ * - **同步删除走 `DELETE FROM agent_memory_fts WHERE rowid = old.rowid`，不用 fts5
+ *   特殊命令 `INSERT INTO x(x, ...) VALUES('delete', ...)`** —— 实测（SQLite 3.49.2 /
+ *   项目锁定的 better-sqlite3）后者在**普通（非 contentless）fts5 表**上报
+ *   `SQL logic error`，只有 contentless / external content 表才接受该命令
+ *   （同批 `delete-all` 的报错文案已点明该限制）。普通表的标准 DELETE 才是正确同步方式。
+ * - **au 触发器限定 `AFTER UPDATE OF subject, content`**：`closeMemory`（置 valid_to）、
+ *   `markAccessed`（access_count/last_read_at）、`markMergeSkipped`（merge_skip）都会
+ *   频繁 UPDATE 基表，而这些列**不进 FTS**，逐次重建索引纯属浪费
+ *   （FTS join 侧的 `valid_to IS NULL` 过滤已在 SQL 里完成，无需靠触发器同步）。
+ * - 幂等：`CREATE VIRTUAL TABLE IF NOT EXISTS` + 三条 `DROP TRIGGER IF EXISTS` 前置
+ *   + 回填带 `WHERE rowid NOT IN (SELECT rowid FROM agent_memory_fts)` 守卫。
+ *
+ * **独立函数、追加式迁移**：不改 `addAgentMemoryTables` / `addAgentMemoryAccessColumns`
+ * 本体；不 DROP / 不 DELETE FROM / 不 ALTER 既有表。
+ * 断言：tests/main/db/agentMemoryFtsMigration.test.ts（三态）+
+ *       scripts/agent-memory-migration-smoke.cjs 态6（真库触发器同步 + user_id 隔离）。
+ */
+export function addAgentMemoryFts(database: Database.Database): void {
+  database.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS agent_memory_fts USING fts5(
+      subject,
+      content,
+      tokenize = 'trigram'
+    );
+
+    DROP TRIGGER IF EXISTS agent_memory_fts_ai;
+    CREATE TRIGGER agent_memory_fts_ai AFTER INSERT ON agent_memory BEGIN
+      INSERT INTO agent_memory_fts(rowid, subject, content)
+      VALUES (new.rowid, new.subject, new.content);
+    END;
+
+    DROP TRIGGER IF EXISTS agent_memory_fts_ad;
+    CREATE TRIGGER agent_memory_fts_ad AFTER DELETE ON agent_memory BEGIN
+      DELETE FROM agent_memory_fts WHERE rowid = old.rowid;
+    END;
+
+    DROP TRIGGER IF EXISTS agent_memory_fts_au;
+    CREATE TRIGGER agent_memory_fts_au AFTER UPDATE OF subject, content ON agent_memory BEGIN
+      DELETE FROM agent_memory_fts WHERE rowid = old.rowid;
+      INSERT INTO agent_memory_fts(rowid, subject, content)
+      VALUES (new.rowid, new.subject, new.content);
+    END;
+
+    INSERT INTO agent_memory_fts(rowid, subject, content)
+    SELECT rowid, subject, content FROM agent_memory
+    WHERE rowid NOT IN (SELECT rowid FROM agent_memory_fts);
+  `);
+}
+
+/**
+ * agent-memory-optimize-3 D5（六.3 防线二）：相似合并**驳回**标记列幂等补列。
+ * - `merge_skip TEXT`：NULL = 未驳回；非空 = 该行参与过的相似组已被用户驳回
+ *   （存驳回时刻）。**打过标记的行不再参与任何自动相似合并、也不再出现在建议列表**——
+ *   保守口径：宁可漏合并，也不合并用户明确否掉的记忆；
+ * - 撤销入口不在本批范围（要撤销须先在设置页删除相关记忆后重写）。
+ *
+ * **独立函数、追加式迁移**：不塞进 `addAgentMemoryAccessColumns`
+ * （既有真库 smoke 态5 的源码正则要求该函数恰好 2 条补列），不改既有迁移本体。
+ * 断言：tests/main/db/agentMemoryFtsMigration.test.ts。
+ */
+export function addAgentMemoryMergeSkipColumn(database: Database.Database): void {
+  addColumnIfMissing(database, 'agent_memory', 'merge_skip', 'merge_skip TEXT');
+}
+
+/**
+ * agent-memory-optimize-3 D6（三.3 向量化经验库，**Q8 裁定 A**）：agent_memory 向量列幂等补列。
+ *
+ * 为什么加列而不新建表：Q3 批「独立表 `exp_*`」时 agent_memory 尚不存在；现已由 D2 建成
+ * 13 列独立表（本就不与笔记同表，Q3 的实质诉求已满足）+ D5 建成 trigram FTS，D3/D4 又把
+ * 「经验」落成 skill 文件 —— 再建 `exp_*` 会与两者重复且对接不明（req §六 Q8）。
+ *
+ * 两列口径（复用 `kb_chunks` 的 `vector` + `embedding_model` 范式）：
+ * - `vector BLOB DEFAULT NULL`：Float32 序列化 BLOB（`Buffer.from(new Float32Array(v).buffer)`），
+ *   **NULL = 尚未生成**（未配置 embedding 的存量行恒为 NULL，检索侧据此只走 FTS5）；
+ * - `embedding_model TEXT`：生成该向量的模型名，切换模型后由回填按 `embedding_model IS NOT ?` 重算。
+ *
+ * **不建 `idx_agent_memory_user_vector`**：向量检索形态是
+ * `WHERE user_id = ? AND valid_to IS NULL AND vector IS NOT NULL ORDER BY vec_distance_cosine(...)`
+ * —— 排序键是标量函数结果，B-Tree 索引无法参与（`vec_distance_cosine` 全表扫描），
+ * 而 `user_id` 前缀已有 4 个既有索引（`idx_agent_memory_user_kind` 等）可直接收敛到单用户行集，
+ * 再建只会给每次 upsert 增加写放大。**故只补列、不建索引。**
+ *
+ * **独立函数、追加式迁移**：不改 `addAgentMemoryTables` / `addAgentMemoryAccessColumns` /
+ * `addAgentMemoryFts` / `addAgentMemoryMergeSkipColumn` 本体；旧库由 PRAGMA 探测缺列后逐列 ADD，
+ * 旧行按常量 DEFAULT 回填 NULL，重复执行 no-op。
+ * 三断言：tests/main/db/agentMemoryVectorMigration.test.ts +
+ *       scripts/agent-memory-migration-smoke.cjs 态7（真库）。
+ */
+export function addAgentMemoryVectorColumns(database: Database.Database): void {
+  addColumnIfMissing(database, 'agent_memory', 'vector', 'vector BLOB DEFAULT NULL');
+  addColumnIfMissing(database, 'agent_memory', 'embedding_model', 'embedding_model TEXT');
 }

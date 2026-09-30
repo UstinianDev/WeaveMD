@@ -1,5 +1,5 @@
 import type { ToolCtx, ToolResult } from '../toolTypes';
-import type { IQueryUnderstanding } from '@shared/ai/kb';
+import type { IKbDiagnostics, IQueryUnderstanding } from '@shared/ai/kb';
 import type { ConversationMessage } from '../knowledge/queryPlanner';
 import { detectAmbiguities, classifyIntent, resolveReferencesDetailed, expandByIntent } from '../knowledge/queryPlanner';
 import { buildClarificationContext } from '../knowledge/knowledgeClarify';
@@ -65,6 +65,23 @@ function mergeExpandedQueries(base: string[] | undefined, additions: string[]): 
   return merged.size > 0 ? Array.from(merged) : undefined;
 }
 
+/**
+ * D1：把本次 `resolved` 结果归一到 diagnostics.queryUnderstanding.hadPronounRef。
+ * 改写判定只发生在本层（kbSearch 不持有 history），下游闭包/预载缓存可能未透传
+ * `opts.hadPronounRef`，落库 sink（工具 content）必须以本次实际改写结果为准。
+ * diagnostics 缺失时原样返回 undefined，content 保持改前形状。
+ */
+function withPronounFlag(
+  diagnostics: IKbDiagnostics | undefined,
+  hadPronounRef: boolean
+): IKbDiagnostics | undefined {
+  if (!diagnostics || !diagnostics.queryUnderstanding) return diagnostics;
+  return {
+    ...diagnostics,
+    queryUnderstanding: { ...diagnostics.queryUnderstanding, hadPronounRef },
+  };
+}
+
 export async function handleSearchKB(args: Record<string, unknown>, ctx: ToolCtx): Promise<ToolResult> {
   if (!ctx.searchKb) {
     return { content: '', status: 'error', errorDesc: 'searchKB: 知识库未就绪' };
@@ -110,7 +127,12 @@ export async function handleSearchKB(args: Record<string, unknown>, ctx: ToolCtx
     // P0-6 双路召回：改写发生时原 query 走 expandedQueries + RRF，不二选一；
     // A3: 意图扩展与原 query 回退叠加
     expandedQueries: mergeExpandedQueries(resolved ? [query] : undefined, intentExpansions),
+    // D1 指代触发率：把本次改写结果交给 kbSearch 记进 diagnostics（缺省由本层归一兜底）
+    hadPronounRef: resolved,
   });
+
+  // D1: 以本次 resolved 为准归一 hadPronounRef（下游闭包可能未透传该入参）
+  const diagnostics = withPronounFlag(res.diagnostics, resolved);
 
   // R4: 搜索被拒或无结果时，检测是否需要澄清
   let clarificationContext: string | null = null;
@@ -130,12 +152,20 @@ export async function handleSearchKB(args: Record<string, unknown>, ctx: ToolCtx
       resultObj.clarificationNeeded = true;
       resultObj.clarificationContext = clarificationContext;
     }
+    // D1: diagnostics 作为独立小节挂进 content（既有 6 键逐键不动）
+    if (diagnostics) resultObj.diagnostics = diagnostics;
     return { content: JSON.stringify(resultObj), status: 'ok' };
   }
 
-  // 无澄清需求时保持原有数组格式（向后兼容）
+  // 无澄清需求时保持原有数组格式（向后兼容）；有 diagnostics 时以独立小节挂载
   if (!clarificationContext) {
-    return { content: JSON.stringify(res.results), status: 'ok' };
+    if (!diagnostics) {
+      return { content: JSON.stringify(res.results), status: 'ok' };
+    }
+    return {
+      content: JSON.stringify({ results: res.results, diagnostics }),
+      status: 'ok',
+    };
   }
 
   return {
@@ -143,6 +173,7 @@ export async function handleSearchKB(args: Record<string, unknown>, ctx: ToolCtx
       results: res.results,
       clarificationNeeded: true,
       clarificationContext,
+      ...(diagnostics ? { diagnostics } : {}),
     }),
     status: 'ok',
   };

@@ -19,6 +19,7 @@ import { createHash } from 'crypto';
 import type { Database as BetterSqlite3Database } from 'better-sqlite3';
 
 import { upsertMemory, type AgentMemoryKind } from '../../db/agentMemory';
+import { writeMemoryVectorAsync } from '../knowledge/vectorBackfill';
 import { runMemoryPolicy } from './memoryPolicy';
 
 // ---------------------------------------------------------------------------
@@ -377,7 +378,7 @@ export async function runMemoryExtractionJob(
 
     let written = 0;
     for (const item of items) {
-      upsertMemory(deps.db, {
+      const id = upsertMemory(deps.db, {
         userId: ctx.userId,
         kind: item.kind,
         subject: item.subject,
@@ -387,6 +388,29 @@ export async function runMemoryExtractionJob(
         conversationId: ctx.conversationId,
       });
       written += 1;
+      // D6 写入接线②：后台提取写入成功后**异步**补向量（不 await → 不拖慢任务收尾）。
+      // 失败只 console.warn，绝不让本任务落 failed、绝不动 upsert / runMemoryPolicy 结果。
+      try {
+        void writeMemoryVectorAsync(
+          deps.db,
+          ctx.userId,
+          id,
+          item.subject,
+          item.content
+        ).catch((error: unknown) => {
+          console.warn('[memoryWriter] 记忆向量生成失败（不影响任务终态）', {
+            conversationId: ctx.conversationId,
+            subject: item.subject,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        });
+      } catch (error) {
+        console.warn('[memoryWriter] 记忆向量写入调度异常（不影响任务终态）', {
+          conversationId: ctx.conversationId,
+          subject: item.subject,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
 
     // Q10 冲突清洗：直接调 B2 的 runMemoryPolicy（时间新者赢 + manual 恒赢 + 置 valid_to）

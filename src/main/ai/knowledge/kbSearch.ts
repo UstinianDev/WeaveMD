@@ -16,8 +16,10 @@ import type {
   IKbSearchResult,
   IKbSearchDetailedResponse,
   IKbDiagnostics,
+  IKbDiagnosticsQueryUnderstanding,
   QueryIntentType,
 } from '@shared/ai';
+import { classifyIntent } from '../intentRouter';
 import {
   getSearchCacheKey,
   getCachedSearchResult,
@@ -80,6 +82,12 @@ export interface KbSearchOptions {
   enableConditionalRerank?: boolean;
   /** LLM 重排函数（可选注入，避免直接依赖 llmClient）。 */
   rerankFn?: (query: string, results: IKbSearchResult[]) => Promise<IKbSearchResult[]>;
+  /**
+   * D1 指代触发率：本次检索是否由调用方完成的有效代词改写驱动。
+   * kbSearch 不持有对话历史（改写发生在 searchKBHandler 层），故只能由入参驱动；
+   * 缺省 undefined → 保守记 false（计入分母、不计入分子）。
+   */
+  hadPronounRef?: boolean;
 }
 
 /** 向后兼容的简单响应类型。 */
@@ -363,6 +371,23 @@ function mapIntentToType(intent: 'question' | 'command' | 'keyword'): QueryInten
 }
 
 /**
+ * D1：构造查询理解诊断（三条检索路径共用：主路径 / 缓存命中 / 两条早退）。
+ * - `intentType`：独立调用 `detectQueryIntent` 取值，不复用 rerank 局部变量（早退路径也必须可用）
+ * - `isFallthrough`：意图规则零命中 → chat fallback
+ * - `hadPronounRef`：由入参驱动（kbSearch 不持有 history），缺省保守 false
+ */
+function buildQueryUnderstanding(
+  query: string,
+  hadPronounRef: boolean | undefined
+): IKbDiagnosticsQueryUnderstanding {
+  return {
+    intentType: mapIntentToType(detectQueryIntent(query)),
+    isFallthrough: classifyIntent(query).intent === 'chat',
+    hadPronounRef: hadPronounRef === true,
+  };
+}
+
+/**
  * 条件重排（R6）：满足触发条件时调用 LLM 对 top-N 评分。
  * 使用内存 5 分钟 TTL 缓存。
  */
@@ -460,13 +485,28 @@ export async function searchKB(
   let cacheRerankHit = 0;
 
   const cleaned = sanitizeFtsQuery(query);
-  const emptyResponse: IKbSearchDetailedResponse = {
+  // D1: 两条早退路径同样回传 diagnostics（澄清最常触发的场景正是这两条）
+  const buildEmptyResponse = (): IKbSearchDetailedResponse => ({
     refused: true,
     threshold,
     best: null,
     results: [],
-  };
-  if (!cleaned) return emptyResponse;
+    diagnostics: {
+      timings: {
+        fts5Ms: 0, vectorMs: 0, titleMs: 0, rrfMs: 0,
+        weightingMs: 0, aggregationMs: 0, rerankMs: 0,
+        totalMs: performance.now() - t0,
+      },
+      counts: {
+        fts5Candidates: 0, vectorCandidates: 0, titleCandidates: 0,
+        mergedCandidates: 0, afterWeighting: 0, afterAggregation: 0,
+        finalResults: 0,
+      },
+      cacheSnapshot: { searchResultHit: 0, rerankHit: 0 },
+      queryUnderstanding: buildQueryUnderstanding(query, opts.hadPronounRef),
+    },
+  });
+  if (!cleaned) return buildEmptyResponse();
 
   // 缓存检查：跳过 expandedQueries（LLM 动态生成，每次不同）
   const hasExpandedQueries = opts.expandedQueries && opts.expandedQueries.length > 0;
@@ -475,7 +515,8 @@ export async function searchKB(
     const cachedResult = getCachedSearchResult(cacheKey);
     if (cachedResult) {
       cacheSearchResultHit = 1;
-      // P1-3: 缓存命中时附加精简诊断（仅 totalMs + cacheSnapshot）
+      // P1-3: 缓存命中时附加精简诊断（totalMs + cacheSnapshot + queryUnderstanding）
+      // D1: queryUnderstanding 按本次调用实际值重算，保证缓存命中同样计入指代触发率分母
       const cachedWithDiag: IKbSearchDetailedResponse = {
         ...cachedResult,
         diagnostics: {
@@ -490,6 +531,7 @@ export async function searchKB(
             finalResults: cachedResult.results.length,
           },
           cacheSnapshot: { searchResultHit: 1, rerankHit: 0 },
+          queryUnderstanding: buildQueryUnderstanding(query, opts.hadPronounRef),
         },
       };
       return cachedWithDiag;
@@ -680,7 +722,7 @@ export async function searchKB(
     titleScore: titleScores.get(r.documentId) ?? 0,
     isHeading: !!r.headingPath,
   }));
-  if (candidates.length === 0) return emptyResponse;
+  if (candidates.length === 0) return buildEmptyResponse();
 
   // P1-3: RRF 融合耗时
   const tRrf = performance.now();
@@ -761,6 +803,7 @@ export async function searchKB(
       searchResultHit: cacheSearchResultHit,
       rerankHit: cacheRerankHit,
     },
+    queryUnderstanding: buildQueryUnderstanding(query, opts.hadPronounRef),
   };
 
   console.debug('[KB diagnostics]', JSON.stringify(diagnostics));
