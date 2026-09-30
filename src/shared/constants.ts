@@ -173,6 +173,17 @@ export const IPC_CHANNELS = {
   AI_MEMORY_LIST: 'ai:memory:list',
   AI_MEMORY_DELETE: 'ai:memory:delete',
 
+  // AI — 记忆相似合并三态审核（agent-memory-optimize-3 D5 六.3 防线二：
+  //       列合并建议 / 确认采纳 / 驳回，鉴权四条与 C3 同范式）
+  AI_MEMORY_SIMILAR_LIST: 'ai:memory:similar:list',
+  AI_MEMORY_SIMILAR_ACCEPT: 'ai:memory:similar:accept',
+  AI_MEMORY_SIMILAR_REJECT: 'ai:memory:similar:reject',
+
+  // AI — 提炼技能草稿（agent-memory-optimize-3 D3 六.1：列草稿 / 人工确认 / 驳回）
+  AI_SKILL_DRAFT_LIST: 'ai:skilldraft:list',
+  AI_SKILL_DRAFT_APPROVE: 'ai:skilldraft:approve',
+  AI_SKILL_DRAFT_REJECT: 'ai:skilldraft:reject',
+
   // AI — 附件引用跳转原文（B8 六-2 citation 回链；按 attachmentId 服务端解析路径）
   ATTACHMENT_OPEN_SOURCE: 'attachment:open-source',
 

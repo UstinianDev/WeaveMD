@@ -100,6 +100,10 @@ const mockWeaveMD = {
     memory: {
       list: vi.fn(),
       delete: vi.fn(),
+      // D5 六.3 防线二：三态审核（列合并建议 / 采纳 / 驳回）
+      similarList: vi.fn(),
+      acceptSimilar: vi.fn(),
+      rejectSimilar: vi.fn(),
     },
   },
   kb: {

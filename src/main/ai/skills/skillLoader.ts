@@ -8,9 +8,11 @@
 
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
-import type { AgentSkillInfo } from '@shared/ai';
+import type { AgentSkillInfo, IntentName } from '@shared/ai';
 import { streamChatCompletion } from '../llm/llmClient';
 import { streamAnthropicCompletion } from '../llm/anthropicClient';
+import { EXPERIENCE_INTENTS } from '../agent/agentPromptBuilder';
+import { AUTO_SKILLS_DIR_NAME, getDefaultSkillDirs } from './skillPaths';
 
 /** 单技能定义：执行时把 instructions 注入 role:'system' 片段。 */
 export interface CoreSkill {
@@ -20,6 +22,18 @@ export interface CoreSkill {
   instructions: string;
   /** 可选参数 JSON Schema（OpenAI parameters）。 */
   argsSchema?: Record<string, unknown>;
+  /**
+   * 提炼状态（六.1 草稿态）：`draft` = 未确认，**绝不生效**；`active` = 已确认生效。
+   * 内置 core 与普通手写技能不写该字段（undefined 视为生效，兼容既有格式）。
+   */
+  status?: 'draft' | 'active';
+  /**
+   * 任务类型标注（六.2 / D4）：该技能适用于哪些意图，值取自
+   * {@link EXPERIENCE_INTENTS}（5 个显式规则意图，**不含 chat**）。
+   * - `undefined` = 未标注 → 注入侧按 description/name 关键词推断；
+   * - `[]` = 标注了但无合法值 → 视为「已标注却不适用」，不注入也不推断。
+   */
+  intents?: IntentName[];
 }
 
 /** runSkill 所需的 LLM 调用上下文（与工具执行器解耦）。 */
@@ -78,44 +92,75 @@ export const CORE_SKILLS: CoreSkill[] = [
   },
 ];
 
-/** 从 userData/skills 目录加载用户扩展技能（SKILL.md front-matter + 正文）。 */
-export function loadSkills(userDataSkillsDir?: string): CoreSkill[] {
-  const userExt = userDataSkillsDir ? scanUserSkillsDir(userDataSkillsDir) : [];
-  return [...CORE_SKILLS, ...userExt];
+/**
+ * 归一化扫描目录入参。
+ * - 不传 → 默认目录（`getDefaultSkillDirs()`，必含 userData/skills；非 Electron 环境为 []）
+ * - 传字符串 → 单目录；传数组 → 按序扫描
+ */
+function normalizeDirs(dirs?: string | string[]): string[] {
+  if (dirs === undefined) return getDefaultSkillDirs();
+  if (typeof dirs === 'string') return dirs ? [dirs] : [];
+  return dirs;
 }
 
-/** 扫描多个目录下的用户扩展技能，去重（按 name）。 */
-export function loadUserSkillsFromDirs(dirs: string[]): CoreSkill[] {
+/**
+ * 同名冲突检测：保留**先出现**的技能，跳过后出现者并 `console.warn`。
+ * 顺序 = 内置 core → 各扫描目录（目录内 mode1 子目录 → mode2 扁平 → mode3 `_auto`）。
+ * req Q5：`scanUserSkillsDir` 原本不去重，冲突静默覆盖会造成「改了文件却不生效」的假象。
+ */
+function dedupeSkills(skills: CoreSkill[], where: string): CoreSkill[] {
   const seen = new Set<string>();
+  const out: CoreSkill[] = [];
+  for (const skill of skills) {
+    if (seen.has(skill.name)) {
+      console.warn(`[skillLoader] 技能名冲突，跳过重复项: ${skill.name}`, { where });
+      continue;
+    }
+    seen.add(skill.name);
+    out.push(skill);
+  }
+  return out;
+}
+
+/**
+ * 加载技能：内置 core + 用户/提炼技能。
+ * `dirs` 缺省时走默认目录 —— 这是「3 处无参 loadSkills() 只拿到内置 3 个」的根因修复：
+ * agentContext / skillManager 由此才看得到 userData/skills（含 `_auto/`）里的技能。
+ */
+export function loadSkills(dirs?: string | string[]): CoreSkill[] {
+  const scanDirs = normalizeDirs(dirs);
+  const userExt = scanDirs.length > 0 ? loadUserSkillsFromDirs(scanDirs) : [];
+  return dedupeSkills([...CORE_SKILLS, ...userExt], 'loadSkills');
+}
+
+/** 扫描多个目录下的用户扩展技能，去重（按 name，重名 console.warn 后跳过后者）。 */
+export function loadUserSkillsFromDirs(dirs: string[]): CoreSkill[] {
   const skills: CoreSkill[] = [];
   for (const dir of dirs) {
-    for (const skill of scanUserSkillsDir(dir)) {
-      if (!seen.has(skill.name)) {
-        seen.add(skill.name);
-        skills.push(skill);
-      }
-    }
+    skills.push(...scanUserSkillsDir(dir));
   }
-  return skills;
+  return dedupeSkills(skills, 'loadUserSkillsFromDirs');
 }
 
 /**
  * 渲染侧技能清单（第 7 期 B1 补全菜单数据源）。
- * 返回 [{name, description}]——仅名称+描述，**不含 instructions/argsSchema**，
+ * 返回 [{name, description}]——仅名称+描述，**不含 instructions/argsSchema/status**，
  * 避免把执行指令/参数细节经 IPC 外泄到渲染进程。
- * userDataSkillsDir 缺省时仅返回内置 core skill（用户目录不可读/不存在不抛错）。
+ * 目录缺省时走默认目录；目录不可读/不存在不抛错。
  */
-export function listSkillsForUi(userDataSkillsDir?: string): AgentSkillInfo[] {
-  const skills = loadSkills(userDataSkillsDir);
+export function listSkillsForUi(dirs?: string | string[]): AgentSkillInfo[] {
+  const skills = loadSkills(dirs);
   return skills.map((s) => ({ name: s.name, description: s.description }));
 }
 
 /**
- * 扫描用户 skills 目录，支持两种结构：
+ * 扫描用户 skills 目录，支持三种结构：
  * 1. `<dir>/<name>/SKILL.md` — 子目录 + SKILL.md（标准格式）
  * 2. `<dir>/<name>.md` — 扁平 .md 文件（文件名即 skill 名）
+ * 3. `<dir>/_auto/<name>.md` — 提炼生效技能（**仅 status: active 生效**；`_auto/_drafts/` 不扫）
  * front-matter 格式：开篇 `---` 块，`name:` / `description:` 键；正文作 instructions；
- * 可选 `args:` 块（JSON Schema）。
+ * 可选 `args:` 块（JSON Schema）、`status:`（draft | active）与 `intents:`（任务类型标注，D4）。
+ * 任意位置的 `status: draft` 一律不加载 —— 草稿绝不进入 prompt / list_skills / runSkill。
  */
 function scanUserSkillsDir(dir: string): CoreSkill[] {
   let entries: import('fs').Dirent[];
@@ -145,6 +190,41 @@ function scanUserSkillsDir(dir: string): CoreSkill[] {
     }
   }
 
+  // 模式 3：_auto/ 提炼生效技能（子目录 `_drafts` 不在 readdir 的 isFile 分支，天然被排除）
+  skills.push(...scanAutoSkillsDir(join(dir, AUTO_SKILLS_DIR_NAME)));
+
+  // 草稿（status: draft）一律不生效；冲突检测与去重由上层 dedupeSkills 统一处理。
+  // 此处静默跳过（草稿是预期内状态，每次加载都 warn 会刷屏；异常态 warn 在 scanAutoSkillsDir）
+  return skills.filter((skill) => skill.status !== 'draft');
+}
+
+/**
+ * 扫描 `_auto/` 目录：**只有 `status: active` 才生效**（req 双重防线 ——
+ * 草稿目录本身表示 draft，文件被手工挪进 `_auto/` 也必须 status 才算生效）。
+ * 只读 `_auto/` 自身的 `.md` 文件，不递归子目录（`_drafts/` 因此永不进入）。
+ */
+function scanAutoSkillsDir(autoDir: string): CoreSkill[] {
+  let entries: import('fs').Dirent[];
+  try {
+    entries = readdirSync(autoDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const skills: CoreSkill[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+    const skillName = entry.name.slice(0, -3);
+    const skill = parseSkillFile(skillName, join(autoDir, entry.name));
+    if (!skill) continue;
+    if (skill.status !== 'active') {
+      console.warn(`[skillLoader] _auto 目录内技能未标 status: active，不生效`, {
+        name: skill.name,
+        autoDir,
+      });
+      continue;
+    }
+    skills.push(skill);
+  }
   return skills;
 }
 
@@ -155,15 +235,78 @@ function parseSkillFile(dirName: string, filePath: string): CoreSkill | null {
   } catch {
     return null; // 无 SKILL.md 或不可读 -> 跳过
   }
+  return parseSkillMarkdown(raw, dirName);
+}
+
+/**
+ * 解析一份技能 Markdown（front-matter + 正文）—— skillLoader 与 skillAutoStore 共用同一口径。
+ * @param fallbackName front-matter 缺 `name:` 时的兜底（扁平 .md 用文件名、子目录用目录名）
+ */
+export function parseSkillMarkdown(raw: string, fallbackName = ''): CoreSkill | null {
   const front = parseFrontMatter(raw);
-  const name = (front.meta.name || dirName).trim();
+  const name = (front.meta.name || fallbackName).trim();
   if (!name) return null;
   const description = (front.meta.description || '').trim();
   const argsRaw = front.meta.args && front.meta.args.trim() ? front.meta.args : undefined;
   const argsSchema = argsRaw
     ? (safeJsonParse(argsRaw) as Record<string, unknown> | null) ?? undefined
     : undefined;
-  return { name, description, instructions: front.body.trim(), argsSchema };
+  const status = parseStatus(front.meta.status);
+  const intents = parseIntents(front.meta.intents, name);
+  return {
+    name,
+    description,
+    instructions: front.body.trim(),
+    argsSchema,
+    ...(status ? { status } : {}),
+    ...(intents ? { intents } : {}),
+  };
+}
+
+/**
+ * 解析 front-matter 的可选 `intents:`（六.2 / D4 任务类型标注）。
+ * 两种写法等价：逗号分隔 `rewrite, kbQa` 或 JSON 数组 `["rewrite","kbQa"]`
+ * （统一去括号去引号后按逗号切分，与本文件既有的轻量解析风格一致，不引入 JSON 依赖）。
+ *
+ * - 值必须落在 {@link EXPERIENCE_INTENTS} 白名单（**5 个显式规则意图，chat 不合法**——
+ *   它是无规则 fallback，注入侧一律不注入，裁定 3）；
+ * - **非法值忽略并 `console.warn`**，合法值保留；
+ * - **字段缺失 → `undefined`**（未标注 → 注入侧按 description/name 推断）；
+ * - 字段存在但全部非法 → `[]`（已标注却不适用 → 不注入也不推断，避免误推断）。
+ */
+function parseIntents(raw: string | undefined, skillName: string): IntentName[] | undefined {
+  const text = (raw ?? '').trim();
+  if (!text) return undefined;
+
+  const body = text.replace(/^\[/, '').replace(/\]$/, '');
+  const allowed = EXPERIENCE_INTENTS as readonly string[];
+  const out: IntentName[] = [];
+  const invalid: string[] = [];
+  for (const piece of body.split(',')) {
+    const value = piece.replace(/^["'\s]+|["'\s]+$/g, '');
+    if (!value) continue;
+    if (allowed.includes(value)) {
+      if (!out.includes(value as IntentName)) out.push(value as IntentName);
+    } else {
+      invalid.push(value);
+    }
+  }
+  if (invalid.length > 0) {
+    console.warn('[skillLoader] intents 含非法或不可注入的值，已忽略', {
+      skill: skillName,
+      ignored: invalid,
+      allowed,
+    });
+  }
+  return out;
+}
+
+/** front-matter `status:` 白名单解析：只认 draft / active，其余一律视为未声明。 */
+function parseStatus(raw: string | undefined): 'draft' | 'active' | undefined {
+  const value = (raw ?? '').trim().toLowerCase();
+  if (value === 'draft') return 'draft';
+  if (value === 'active') return 'active';
+  return undefined;
 }
 
 function parseFrontMatter(raw: string): { meta: Record<string, string>; body: string } {

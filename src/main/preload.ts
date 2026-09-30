@@ -27,7 +27,9 @@ import type {
   IDocumentParseResult,
   IEmbeddingConfig,
   IGlobalAgentFiles,
+  IMemoryMergeGroup,
   ISearchConfig,
+  ISkillDraft,
   IKbDocumentStatus,
   IKbImportResult,
   IKbSettings,
@@ -256,6 +258,23 @@ export interface WeaveMDApi {
     memory: {
       list: (authToken: string) => Promise<IpcResponse<IAgentMemory[]>>;
       delete: (authToken: string, id: number) => Promise<IpcResponse<{ deleted: boolean }>>;
+      // D5 六.3 防线二：三态审核（列合并建议 / 确认采纳 / 驳回）。
+      // authToken = 当前登录用户的 JWT（主进程解出 userId，渲染层不传 userId，
+      // 见 src/main/ai/ipc/memoryHandlers.ts）；ids 只是组内行 id，服务端会重算相似组。
+      similarList: (authToken: string) => Promise<IpcResponse<IMemoryMergeGroup[]>>;
+      acceptSimilar: (
+        authToken: string,
+        ids: number[]
+      ) => Promise<IpcResponse<{ merged: number; winnerId: number }>>;
+      rejectSimilar: (authToken: string, ids: number[]) => Promise<IpcResponse<{ rejected: number }>>;
+    };
+    // D3 六.1：提炼技能草稿人工确认入口（列草稿 / 确认 / 驳回）。
+    // authToken = 当前登录用户的 JWT（主进程解出 userId，渲染层不传 userId，
+    // 见 src/main/ai/ipc/skillDraftHandlers.ts）；name 由主进程做正则 + 路径前缀双重校验。
+    skillDraft: {
+      list: (authToken: string) => Promise<IpcResponse<ISkillDraft[]>>;
+      approve: (authToken: string, name: string) => Promise<IpcResponse<{ approved: boolean }>>;
+      reject: (authToken: string, name: string) => Promise<IpcResponse<{ rejected: boolean }>>;
     };
   };
   kb: {
@@ -554,6 +573,19 @@ const api: WeaveMDApi = {
       list: (authToken) => ipcRenderer.invoke(IPC_CHANNELS.AI_MEMORY_LIST, authToken),
       delete: (authToken, id) =>
         ipcRenderer.invoke(IPC_CHANNELS.AI_MEMORY_DELETE, authToken, id),
+      similarList: (authToken) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_MEMORY_SIMILAR_LIST, authToken),
+      acceptSimilar: (authToken, ids) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_MEMORY_SIMILAR_ACCEPT, authToken, ids),
+      rejectSimilar: (authToken, ids) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_MEMORY_SIMILAR_REJECT, authToken, ids),
+    },
+    skillDraft: {
+      list: (authToken) => ipcRenderer.invoke(IPC_CHANNELS.AI_SKILL_DRAFT_LIST, authToken),
+      approve: (authToken, name) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_SKILL_DRAFT_APPROVE, authToken, name),
+      reject: (authToken, name) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_SKILL_DRAFT_REJECT, authToken, name),
     },
   },
   kb: {

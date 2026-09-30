@@ -35,6 +35,7 @@ import { getGlobalAgentFiles } from '../files/globalAgentFiles';
 import { type ToolCtx } from '../toolRegistry';
 import { resolveSearchConfig } from '../tools/webSearch';
 import { loadSkills, type CoreSkill, type SkillRunnerCtx } from '../skills/skillLoader';
+import { getDefaultSkillDirs } from '../skills/skillPaths';
 import { persistAndSend } from './agentEventStore';
 import { DeadLoopDetector } from './agentLoopGuard';
 import {
@@ -44,6 +45,7 @@ import {
   buildAttachmentManifest,
   buildAgentSystemPrompt,
   buildChatSystemPrompt,
+  isExperienceIntent,
   shouldInjectDocumentContext,
 } from './agentPromptBuilder';
 import { toolsForIntent } from './agentToolSelector';
@@ -346,6 +348,74 @@ function readActiveProfileBlock(userId: string, db?: import('better-sqlite3').Da
   }
 }
 
+// ---------------------------------------------------------------------------
+// 经验注入（agent-memory-optimize-3 D4 六.2：结构化经验 + 任务类型识别注入）
+// ---------------------------------------------------------------------------
+
+/** 经验块稳定小节标题（注入位置断言的锚点）。 */
+const EXPERIENCE_HEADER = '【可复用经验】';
+
+/**
+ * 经验块的技能输入子集（结构兼容 `CoreSkill`）。
+ * 用结构类型而非直接引 `CoreSkill`：本函数只消费 4 个字段，且便于单测传夹具。
+ */
+interface ExperienceSkillInput {
+  name: string;
+  description: string;
+  instructions: string;
+  /**
+   * front matter 的原始标注：`undefined` = 未标注、`[]` = 标注了但全非法。
+   * 合法性在此再按白名单过滤一次（不信任文件层）。
+   */
+  intents?: readonly string[];
+}
+
+/**
+ * 按当前意图挑选技能并拼经验块（六.2，总指挥裁定 3/4）。
+ *
+ * 匹配规则：
+ * 1. 意图不在 {@link isExperienceIntent} 白名单（**含 `chat`**）→ 空串，一律不注入；
+ * 2. 技能显式标了 `intents` → **只看显式命中**，不回落推断（`[]` = 已标注却不适用）；
+ * 3. 未标 `intents` → 用 `name + description` 跑一次 `classifyIntent` 推断
+ *    （**复用 intentRouter 既有关键词规则表**，不改其判定逻辑），推断不中就不注入；
+ * 4. 无匹配 / 无技能 → 空串，零占位噪音（与 A1/B4 同口径）。
+ *
+ * 排序：显式命中在前、推断命中在后，两组内部保持 `skills` 原顺序 ——
+ * 注入顺序可预测，且块内 instructions 原文按序拼接（顺序语义不被洗乱）。
+ */
+export function buildExperienceBlock(
+  skills: readonly ExperienceSkillInput[] | undefined,
+  intent?: string
+): string {
+  if (!skills || skills.length === 0) return '';
+  if (!isExperienceIntent(intent)) return '';
+
+  const explicit: ExperienceSkillInput[] = [];
+  const inferred: ExperienceSkillInput[] = [];
+  for (const skill of skills) {
+    if (!skill || !skill.instructions || !skill.instructions.trim()) continue;
+    if (skill.intents !== undefined) {
+      if ((skill.intents as readonly string[]).includes(intent as string)) explicit.push(skill);
+      continue;
+    }
+    const label = `${skill.name} ${skill.description}`.trim();
+    if (!label) continue;
+    if (classifyIntent(label, { hasHistory: true }).intent === intent) inferred.push(skill);
+  }
+
+  const matched = [...explicit, ...inferred];
+  if (matched.length === 0) return '';
+
+  const parts = [
+    `${EXPERIENCE_HEADER}以下为与当前任务类型匹配的既有经验（来自技能库），按原步骤顺序执行，不要调整步骤次序。`,
+  ];
+  for (const skill of matched) {
+    const head = `【技能 ${skill.name}】${skill.description}`.trim();
+    parts.push('', head, skill.instructions.trim());
+  }
+  return parts.join('\n');
+}
+
 /**
  * 准备 Agent 运行上下文：consent 闸 + 校验 + 消息组装 + 工具选择。
  * consent 未授权即抛 consent_required。
@@ -482,7 +552,9 @@ export function prepareAgentContext(
     timeoutMs: 180_000,
     signal: controller.signal,
   };
-  const skills: CoreSkill[] = loadSkills();
+  // D3：显式传默认扫描目录（含 userData/skills 与 _auto/ 生效技能）——
+  // 原无参调用只拿到内置 3 个，导致 runSkill / list_skills 看不到用户与提炼技能
+  const skills: CoreSkill[] = loadSkills(getDefaultSkillDirs());
 
   // HyDE 向量生成器：LLM 生成假设性文档 → embedding → 返回向量
   const generateHydeVector = async (query: string): Promise<number[] | null> => {
@@ -679,6 +751,9 @@ export function prepareAgentContext(
   // 两分支各传一次；画像未就绪（无 db / 查询抛错 / 空画像）一律空串，零占位噪音。
   const globalFilesBlock = readGlobalAgentFilesBlock();
   const profileBlock = readActiveProfileBlock(userId, deps.db);
+  // D4（六.2）：按当前意图从技能库挑经验块 —— 读取只做一次，两分支各传一次（与 A1/B4 同口径）；
+  // 无匹配 / chat 意图 / 无技能 → 空串，输出与不传参时逐字一致、零占位噪音。
+  const experienceBlock = buildExperienceBlock(skills, intent.intent);
   const agentSystemPrompt = useAgentPrompt
     ? buildAgentSystemPrompt(
         fileListSnapshot,
@@ -686,9 +761,10 @@ export function prepareAgentContext(
         needsClarification,
         attachmentManifest,
         globalFilesBlock,
-        profileBlock
+        profileBlock,
+        experienceBlock
       )
-    : buildChatSystemPrompt(globalFilesBlock, profileBlock);
+    : buildChatSystemPrompt(globalFilesBlock, profileBlock, experienceBlock);
   llmMessages = [{ role: 'system', content: agentSystemPrompt }, ...llmMessages];
 
   // 文档上下文注入：仅 rewrite/create/tech 三个写作意图（B1 意图门控）。

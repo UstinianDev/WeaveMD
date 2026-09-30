@@ -17,6 +17,8 @@ import {
   FILE_OP_NARRATION_TOKEN_LIMITS,
   GLOBAL_FILES_TOKEN_LIMIT,
   PROFILE_TOKEN_LIMIT,
+  EXPERIENCE_TOKEN_LIMIT,
+  EXPERIENCE_INTENTS,
 } from '@main/ai/agent/agentPromptBuilder';
 import { estimateTokens } from '@main/ai/utils/tokenEstimator';
 
@@ -626,6 +628,159 @@ describe('B4 chat — buildChatSystemPrompt 画像层', () => {
   it('画像仅注入时锚点仍在最后一行（recency bias 不被挤走）', () => {
     const out = buildChatSystemPrompt('', PROFILE_BLOCK);
     expect(out).toContain(PROFILE_HEADER);
+    expect(out.endsWith('那是你必须回答的问题。')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D4 — 经验块 experienceBlock 注入（六.2，总指挥裁定 2/3/5/6）
+// 块位置：核心规则 → 三文件 → 画像 → **经验** → ## 工作流（chat 侧 → 锚点前）
+// ---------------------------------------------------------------------------
+
+/** 经验块稳定小节标题（位置断言锚点，与 agentContext `buildExperienceBlock` 同款产出）。 */
+const EXPERIENCE_HEADER = '【可复用经验】';
+
+/** 经验块样例：指令正文天然保持顺序（步骤序号用于顺序断言）。 */
+const EXPERIENCE_BLOCK = [
+  `${EXPERIENCE_HEADER}以下为与当前任务类型匹配的既有经验，按原步骤顺序执行。`,
+  '',
+  '【技能 auto_outline_notes】把零散笔记整理成大纲',
+  '1. 先读取原文件',
+  '2. 再提取标题层级',
+  '3. 最后输出大纲',
+  '避坑：不要直接改写原文件',
+].join('\n');
+
+describe('D4 — 经验块 experienceBlock 注入（buildAgentSystemPrompt 第 7 参）', () => {
+  const GLOBAL_BLOCK = ['【全局 Agent 文件】以下为用户配置的全局 Agent 文件。', 'SOUL_D4'].join('\n');
+
+  it('经验内容进输出，且位于画像块之后、## 工作流 之前', () => {
+    const out = buildAgentSystemPrompt('', '', false, '', GLOBAL_BLOCK, PROFILE_BLOCK, EXPERIENCE_BLOCK);
+    const idxProfile = out.indexOf(PROFILE_HEADER);
+    const idxExperience = out.indexOf(EXPERIENCE_HEADER);
+    const idxWorkflow = out.indexOf('## 工作流');
+    expect(idxProfile).toBeGreaterThan(-1);
+    expect(idxExperience).toBeGreaterThan(idxProfile); // 紧跟画像块
+    expect(idxWorkflow).toBeGreaterThan(idxExperience); // 不得插到工作流之后
+    expect(out).toContain('【技能 auto_outline_notes】');
+  });
+
+  it('经验块整块逐字出现（instructions 步骤顺序未被洗乱）', () => {
+    const out = buildAgentSystemPrompt('', '', false, '', '', '', EXPERIENCE_BLOCK);
+    expect(out).toContain(EXPERIENCE_BLOCK);
+    const i1 = out.indexOf('1. 先读取原文件');
+    const i2 = out.indexOf('2. 再提取标题层级');
+    const i3 = out.indexOf('3. 最后输出大纲');
+    expect(i1).toBeGreaterThan(-1);
+    expect(i2).toBeGreaterThan(i1);
+    expect(i3).toBeGreaterThan(i2);
+    expect(out.indexOf('避坑：不要直接改写原文件')).toBeGreaterThan(i3);
+  });
+
+  it('不传第 7 参 / 传空串 / 传纯空白 → 输出与改动前逐字一致（sha256 护栏）', () => {
+    expect(sha256(buildAgentSystemPrompt('', '', false))).toBe(BASELINE_SHA256.plain);
+    expect(sha256(buildAgentSystemPrompt('', '', true))).toBe(BASELINE_SHA256.clarify);
+    expect(sha256(buildAgentSystemPrompt('FILELIST', 'TREE', false, 'ATTMANIFEST'))).toBe(
+      BASELINE_SHA256.withSnapshots
+    );
+    expect(sha256(buildAgentSystemPrompt('', '', false, '', '', ''))).toBe(BASELINE_SHA256.plain);
+    // 三文件块 + 画像在、经验缺省/为空 → 与改动前逐字一致（等价降级）
+    const withProfile = sha256(
+      buildAgentSystemPrompt('', '', false, '', GLOBAL_BLOCK, PROFILE_BLOCK)
+    );
+    expect(
+      sha256(buildAgentSystemPrompt('', '', false, '', GLOBAL_BLOCK, PROFILE_BLOCK, undefined))
+    ).toBe(withProfile);
+    expect(sha256(buildAgentSystemPrompt('', '', false, '', GLOBAL_BLOCK, PROFILE_BLOCK, ''))).toBe(
+      withProfile
+    );
+    expect(
+      sha256(buildAgentSystemPrompt('', '', false, '', GLOBAL_BLOCK, PROFILE_BLOCK, '  \n  '))
+    ).toBe(withProfile);
+  });
+
+  it('空经验块不产生占位噪音与空行残留（经验标题/技能行都不出现）', () => {
+    const out = buildAgentSystemPrompt('', '', false, '', '', '', '');
+    expect(out).not.toContain(EXPERIENCE_HEADER);
+    expect(out).not.toContain('【技能');
+    expect(out).toContain(
+      '4. 当看到 "=== 当前用户问题 ===" 标记时，那是你必须回答的问题\n## 工作流'
+    );
+  });
+
+  it('经验块超 EXPERIENCE_TOKEN_LIMIT 触发截断并在块尾标注', () => {
+    const huge = `${EXPERIENCE_HEADER}\n${'很长的经验步骤'.repeat(4000)}`;
+    expect(estimateTokens(huge)).toBeGreaterThan(EXPERIENCE_TOKEN_LIMIT);
+    const out = buildAgentSystemPrompt('', '', false, '', '', '', huge);
+    expect(out).toContain('经验过长已截断');
+    const seg = out.slice(out.indexOf(EXPERIENCE_HEADER), out.indexOf('## 工作流')).trim();
+    expect(estimateTokens(seg)).toBeLessThanOrEqual(EXPERIENCE_TOKEN_LIMIT);
+    expect(estimateTokens(seg)).toBeGreaterThan(0);
+  });
+
+  it('经验在上限内不截断（标注不出现）', () => {
+    const small = `${EXPERIENCE_HEADER}\n【技能 auto_x】描述\n1. 第一步`;
+    expect(estimateTokens(small)).toBeLessThanOrEqual(EXPERIENCE_TOKEN_LIMIT);
+    const out = buildAgentSystemPrompt('', '', false, '', '', '', small);
+    expect(out).toContain('1. 第一步');
+    expect(out).not.toContain('经验过长已截断');
+  });
+
+  it('EXPERIENCE_TOKEN_LIMIT 导出且为 64000 窗口下的实测调优值', () => {
+    expect(EXPERIENCE_TOKEN_LIMIT).toBeGreaterThan(0);
+    // CONTEXT_WINDOW = 64000（agentHelpers）：经验块单独不得超过窗口 5%
+    expect(EXPERIENCE_TOKEN_LIMIT).toBeLessThanOrEqual(Math.floor(64000 * 0.05));
+    // 三层个性化块（三文件 + 画像 + 经验）合计 ≤6000 token = 9.4% 窗口（与 A1/B4 同一预算刻度）
+    expect(
+      GLOBAL_FILES_TOKEN_LIMIT + PROFILE_TOKEN_LIMIT + EXPERIENCE_TOKEN_LIMIT
+    ).toBeLessThanOrEqual(6000);
+  });
+
+  it('EXPERIENCE_INTENTS 为 5 个显式规则意图且不含 chat（裁定 3）', () => {
+    expect([...EXPERIENCE_INTENTS].sort()).toEqual(['create', 'kbQa', 'rewrite', 'tech', 'web']);
+    expect(EXPERIENCE_INTENTS).not.toContain('chat');
+  });
+});
+
+describe('D4 chat — buildChatSystemPrompt 经验块（第 3 参）', () => {
+  const GLOBAL_BLOCK = ['【全局 Agent 文件】以下为用户配置的全局 Agent 文件。', 'SOUL_D4_CHAT'].join('\n');
+
+  it('经验出现在全局文件块/画像块之后、【注意力锚点】之前，锚点仍居末行', () => {
+    const out = buildChatSystemPrompt(GLOBAL_BLOCK, PROFILE_BLOCK, EXPERIENCE_BLOCK);
+    const idxGlobal = out.indexOf('SOUL_D4_CHAT');
+    const idxProfile = out.indexOf(PROFILE_HEADER);
+    const idxExperience = out.indexOf(EXPERIENCE_HEADER);
+    const idxAnchor = out.indexOf('【注意力锚点】');
+    expect(idxProfile).toBeGreaterThan(idxGlobal);
+    expect(idxExperience).toBeGreaterThan(idxProfile);
+    expect(idxAnchor).toBeGreaterThan(idxExperience);
+    expect(out.endsWith('那是你必须回答的问题。')).toBe(true);
+  });
+
+  it('chat 缺省 / 空经验块 → 与改动前逐字一致（sha256 基线 + 等价降级）', () => {
+    expect(sha256(buildChatSystemPrompt())).toBe(BASELINE_SHA256.chat);
+    expect(sha256(buildChatSystemPrompt('', '', ''))).toBe(BASELINE_SHA256.chat);
+    expect(sha256(buildChatSystemPrompt(GLOBAL_BLOCK, PROFILE_BLOCK, undefined))).toBe(
+      sha256(buildChatSystemPrompt(GLOBAL_BLOCK, PROFILE_BLOCK))
+    );
+    expect(sha256(buildChatSystemPrompt(GLOBAL_BLOCK, PROFILE_BLOCK, '   \n  '))).toBe(
+      sha256(buildChatSystemPrompt(GLOBAL_BLOCK, PROFILE_BLOCK))
+    );
+    // 空块零占位噪音
+    expect(buildChatSystemPrompt('', '', '')).not.toContain(EXPERIENCE_HEADER);
+  });
+
+  it('chat 侧经验块同样受 EXPERIENCE_TOKEN_LIMIT 硬上限约束并带截断标注', () => {
+    const huge = `${EXPERIENCE_HEADER}\n${'很长的经验步骤'.repeat(4000)}`;
+    const out = buildChatSystemPrompt('', '', huge);
+    expect(out).toContain('经验过长已截断');
+    const seg = out.slice(out.indexOf(EXPERIENCE_HEADER), out.indexOf('【注意力锚点】')).trim();
+    expect(estimateTokens(seg)).toBeLessThanOrEqual(EXPERIENCE_TOKEN_LIMIT);
+  });
+
+  it('chat 侧经验块整块逐字出现且锚点不被挤走', () => {
+    const out = buildChatSystemPrompt('', '', EXPERIENCE_BLOCK);
+    expect(out).toContain(EXPERIENCE_BLOCK);
     expect(out.endsWith('那是你必须回答的问题。')).toBe(true);
   });
 });

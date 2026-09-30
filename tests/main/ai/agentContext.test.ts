@@ -126,13 +126,20 @@ import {
   MISSING_TOOL_RESULT_PLACEHOLDER,
   buildGlobalAgentFilesBlock,
   buildProfileBlock,
+  buildExperienceBlock,
 } from '@main/ai/agent/agentContext';
 import type { AgentMemoryRow } from '@main/db/agentMemory';
-import { buildCompressed } from '@main/ai/contextManager';
+import { buildCompressed, estimateTokens } from '@main/ai/contextManager';
 import type { LlmMessage } from '@main/ai/contextManager';
 import type { AgentLlmMessage } from '@main/ai/agent/agentLoop';
 import { classifyIntent } from '@main/ai/intentRouter';
-import { CHAT_SYSTEM_PROMPT, buildChatSystemPrompt, buildAgentSystemPrompt } from '@main/ai/agent/agentPromptBuilder';
+import {
+  CHAT_SYSTEM_PROMPT,
+  EXPERIENCE_TOKEN_LIMIT,
+  PROFILE_TOKEN_LIMIT,
+  buildChatSystemPrompt,
+  buildAgentSystemPrompt,
+} from '@main/ai/agent/agentPromptBuilder';
 import type { IAIConfig, IAttachmentMeta, IAIMessage, IAgentToolCall } from '@shared/ai';
 import type { AgentReqPayload } from '@main/ai/agent/agentLoop';
 
@@ -1304,5 +1311,188 @@ describe('B4 — 画像层接入 prepareAgentContext', () => {
     expect(
       String(runPrepare(makePayload({ message: CHAT_MSG }), ALLOW_ALL).llmMessages[0].content)
     ).toBe(expected);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D4 — buildExperienceBlock（意图 → 经验匹配，六.2 总指挥裁定 3/4）
+// ---------------------------------------------------------------------------
+
+/** 技能夹具（结构兼容 `CoreSkill`，只取经验块消费的字段）。 */
+interface ExpSkillFixture {
+  name: string;
+  description: string;
+  instructions: string;
+  intents?: string[];
+}
+
+const EXPLICIT_SKILL: ExpSkillFixture = {
+  name: 'auto_outline_notes',
+  description: '把零散笔记整理成大纲',
+  instructions: '1. 先读取原文件\n2. 再提取标题层级\n3. 最后输出大纲\n避坑：不要直接改写原文件',
+  intents: ['rewrite'],
+};
+
+const LEGACY_SKILL: ExpSkillFixture = {
+  name: 'auto_polish_flow',
+  description: '把零散笔记润色成流畅段落',
+  instructions: '1. 通读全段\n2. 修正语病\n3. 输出润色结果',
+};
+
+describe('D4 — buildExperienceBlock（意图 → 经验匹配）', () => {
+  it('显式标注命中意图 → 经验内容进块，且含稳定小节标题与技能名', () => {
+    const block = buildExperienceBlock([EXPLICIT_SKILL], 'rewrite');
+    expect(block.startsWith('【可复用经验】')).toBe(true);
+    expect(block).toContain('【技能 auto_outline_notes】');
+    expect(block).toContain('1. 先读取原文件');
+    expect(block).toContain('避坑：不要直接改写原文件');
+  });
+
+  it('指令步骤顺序逐字保持（注入不洗乱 instructions 原顺序）', () => {
+    const block = buildExperienceBlock([EXPLICIT_SKILL], 'rewrite');
+    const i1 = block.indexOf('1. 先读取原文件');
+    const i2 = block.indexOf('2. 再提取标题层级');
+    const i3 = block.indexOf('3. 最后输出大纲');
+    expect(i1).toBeGreaterThan(-1);
+    expect(i2).toBeGreaterThan(i1);
+    expect(i3).toBeGreaterThan(i2);
+    expect(block.indexOf('避坑：不要直接改写原文件')).toBeGreaterThan(i3);
+  });
+
+  it('显式标注但意图不匹配 → 空串（零占位噪音）', () => {
+    expect(buildExperienceBlock([EXPLICIT_SKILL], 'kbQa')).toBe('');
+    expect(buildExperienceBlock([EXPLICIT_SKILL], 'tech')).toBe('');
+  });
+
+  it('chat 意图一律不注入（无规则 fallback，裁定 3）', () => {
+    expect(buildExperienceBlock([EXPLICIT_SKILL], 'chat')).toBe('');
+    // 即便技能被硬塞 chat 标注也不注入
+    expect(buildExperienceBlock([{ ...EXPLICIT_SKILL, intents: ['chat'] }], 'chat')).toBe('');
+    expect(buildExperienceBlock([{ ...LEGACY_SKILL, intents: ['chat'] }], 'rewrite')).toBe('');
+  });
+
+  it('无技能 / 意图缺省 → 空串', () => {
+    expect(buildExperienceBlock([], 'rewrite')).toBe('');
+    expect(buildExperienceBlock(undefined as unknown as ExpSkillFixture[], 'rewrite')).toBe('');
+    expect(buildExperienceBlock([EXPLICIT_SKILL], undefined)).toBe('');
+    expect(buildExperienceBlock([EXPLICIT_SKILL], '')).toBe('');
+  });
+
+  it('老技能无 intents → 走关键词推断，推断命中才注入', () => {
+    // description 含「润色」→ classifyIntent 判 rewrite → 与当前意图一致
+    expect(buildExperienceBlock([LEGACY_SKILL], 'rewrite')).toContain('2. 修正语病');
+    // 同一技能对别的意图推断不中 → 不注入
+    expect(buildExperienceBlock([LEGACY_SKILL], 'kbQa')).toBe('');
+    expect(buildExperienceBlock([LEGACY_SKILL], 'web')).toBe('');
+  });
+
+  it('非法 intents 值（不在 5 个显式规则意图白名单内）→ 视为不匹配，不注入', () => {
+    const bad = [{ ...EXPLICIT_SKILL, intents: ['notAnIntent'] }];
+    expect(buildExperienceBlock(bad, 'rewrite')).toBe('');
+    const empty = [{ ...EXPLICIT_SKILL, intents: [] }];
+    expect(buildExperienceBlock(empty, 'rewrite')).toBe('');
+  });
+
+  it('显式标注命中优先于推断命中，且各自保持技能数组原顺序', () => {
+    const other = { ...LEGACY_SKILL, name: 'auto_polish_second' };
+    const block = buildExperienceBlock([LEGACY_SKILL, other, EXPLICIT_SKILL], 'rewrite');
+    // 显式标注排前（即便在数组里最后）
+    expect(block.indexOf('【技能 auto_outline_notes】')).toBeLessThan(
+      block.indexOf('【技能 auto_polish_flow】')
+    );
+    // 两个推断命中之间保持数组原顺序
+    expect(block.indexOf('【技能 auto_polish_flow】')).toBeLessThan(
+      block.indexOf('【技能 auto_polish_second】')
+    );
+    // 每条 instructions 原样出现
+    expect(block).toContain('1. 通读全段');
+    expect(block).toContain('1. 先读取原文件');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D5 — 防膨胀三防线：复核淘汰后的经验不再进入任何提示词（req §二 D5 验收 2）
+//
+// 链路：策略淘汰（closeMemory 置 valid_to）→ getActiveProfile / listActiveMemories
+//       只回 active 行 → buildProfileBlock / buildExperienceBlock 不含该内容
+//       → buildAgentSystemPrompt 最终提示同样不含。
+// DAO 侧的 valid_to 过滤断言在 tests/main/ai/memorySimilarMerge.test.ts（真 fake DB）；
+// 本文件断言提示词侧，并用「混入已淘汰行」的对照组证明断言不是恒真。
+// ---------------------------------------------------------------------------
+
+describe('D5 — 复核淘汰后的内容不再进入提示词', () => {
+  const EVICTED = 'D5_EVICTED_被淘汰的深色主题记忆';
+  const KEPT = 'D5_KEPT_保留的深色主题记忆';
+
+  const KEPT_ROW = profileRow(1, '外观设置', KEPT, '2026-09-30 00:00:00');
+  const EVICTED_ROW: AgentMemoryRow = {
+    ...profileRow(2, '主题偏好', EVICTED, '2026-01-01 00:00:00'),
+    validTo: '2026-09-30 12:00:00',
+  };
+
+  const EXP_SKILL: ExpSkillFixture = {
+    name: 'auto_note_outline',
+    description: '把零散笔记整理成大纲',
+    instructions: '1. 读取原文件\n2. 提取标题层级\n3. 输出大纲',
+    intents: ['rewrite'],
+  };
+
+  it('画像块：active 集合不含被淘汰行 → 块内无该内容（对照组证明断言有区分力）', () => {
+    const activeRows = [KEPT_ROW];
+    const block = buildProfileBlock(activeRows);
+    expect(block).not.toContain(EVICTED);
+    expect(block).toContain(KEPT);
+    // 对照：把已淘汰行混进集合内容就会出现 → 说明「不含」不是恒真
+    expect(buildProfileBlock([KEPT_ROW, EVICTED_ROW])).toContain(EVICTED);
+  });
+
+  it('经验块：被淘汰的记忆内容不出现（经验块只吃 active _auto 技能，与记忆淘汰链路隔离）', () => {
+    const block = buildExperienceBlock([EXP_SKILL], 'rewrite');
+    expect(block).toContain('1. 读取原文件');
+    expect(block).not.toContain(EVICTED);
+  });
+
+  it('最终系统提示：画像块与经验块双侧都不含被淘汰内容', () => {
+    const prompt = buildAgentSystemPrompt(
+      '',
+      '',
+      false,
+      '',
+      '',
+      buildProfileBlock([KEPT_ROW]),
+      buildExperienceBlock([EXP_SKILL], 'rewrite')
+    );
+    expect(prompt).not.toContain(EVICTED);
+    expect(prompt).toContain(KEPT);
+    expect(prompt).toContain('【可复用经验】');
+  });
+
+  it('验收 1：50 条画像合并后条数 ≤ 40 且不超 PROFILE_TOKEN_LIMIT', () => {
+    const rows = Array.from({ length: 50 }, (_, i) =>
+      profileRow(i + 1, `主题${i}`, `内容${i}`, '2026-09-01 00:00:00')
+    );
+    const block = buildProfileBlock(rows);
+    const entries = block.split('\n').filter((l) => l.startsWith('- '));
+    expect(entries).toHaveLength(40);
+    expect(estimateTokens(block)).toBeLessThanOrEqual(PROFILE_TOKEN_LIMIT);
+    expect(estimateTokens(block)).toBeLessThanOrEqual(2000);
+  });
+
+  it('验收 1：50 条经验叠加 → 进提示词的部分被截断到 EXPERIENCE_TOKEN_LIMIT 预算内', () => {
+    const skills = Array.from({ length: 50 }, (_, i) => ({
+      name: `auto_note_${i}`,
+      description: `整理笔记第 ${i} 版`,
+      instructions:
+        '1. 读取原文件\n2. 提取标题层级\n3. 输出大纲\n避坑：不要直接改写原文件，务必先另存备份，' +
+        `再按章节逐段整理第 ${i} 版内容，避免覆盖用户已有修改`,
+      intents: ['rewrite'],
+    }));
+    const block = buildExperienceBlock(skills, 'rewrite');
+    expect(block.split('【技能 ').length - 1).toBe(50);
+    const prompt = buildAgentSystemPrompt('', '', false, '', '', '', block);
+    expect(prompt).toContain('(经验过长已截断)');
+    // 截断后最末一条技能不再出现在提示词里
+    expect(prompt).not.toContain('【技能 auto_note_49】');
+    expect(EXPERIENCE_TOKEN_LIMIT).toBe(2000);
   });
 });

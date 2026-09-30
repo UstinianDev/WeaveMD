@@ -22,10 +22,12 @@ import type {
   IGlobalAgentFiles,
   IAgentMemory,
   IIntent,
+  IMemoryMergeGroup,
   IKbDocumentStatus,
   IKbSettings,
   IPatchProposal,
   ISearchConfig,
+  ISkillDraft,
   KbStatusResponse,
   WriteMode,
 } from '@shared/ai';
@@ -149,6 +151,30 @@ interface AgentStore {
   loadMemories: () => Promise<void>;
   /** 单条删除（物理 DELETE）。返回是否真的删除。 */
   deleteMemory: (id: number) => Promise<boolean>;
+
+  // —— 相似合并三态审核（agent-memory-optimize-3 D5 六.3 防线二） ——
+  /** 跨 subject 相似合并建议组（已驳回的组不再返回）。 */
+  mergeSuggestions: IMemoryMergeGroup[];
+  mergeSuggestionsLoading: boolean;
+  /** 最近一次建议列表加载失败的原因（null = 无错误）。 */
+  mergeSuggestionsError: string | null;
+  loadMergeSuggestions: () => Promise<void>;
+  /** 确认采纳：执行合并。返回是否成功。 */
+  acceptMergeSuggestion: (ids: number[]) => Promise<boolean>;
+  /** 驳回：打 merge_skip 标记，此后不再自动合并、不再出现在建议列表。 */
+  rejectMergeSuggestion: (ids: number[]) => Promise<boolean>;
+
+  // —— 提炼技能草稿（agent-memory-optimize-3 D3 六.1：设置页人工确认入口） ——
+  /** 后台提炼产出的草稿（未确认，不进技能可见范围）。 */
+  skillDrafts: ISkillDraft[];
+  skillDraftsLoading: boolean;
+  /** 最近一次草稿列表加载失败的原因（null = 无错误）。 */
+  skillDraftsError: string | null;
+  loadSkillDrafts: () => Promise<void>;
+  /** 确认草稿 → 生效（唯一 draft → active 路径）。 */
+  approveSkillDraft: (name: string) => Promise<boolean>;
+  /** 驳回草稿（删除文件）。 */
+  rejectSkillDraft: (name: string) => Promise<boolean>;
 
   // —— 断线重连 ——
   /** 最后收到的事件序列号（replay 时用于补发丢失事件）。 */
@@ -281,6 +307,12 @@ const RESET_FIELDS: Pick<
   | 'memories'
   | 'memoriesLoading'
   | 'memoriesError'
+  | 'mergeSuggestions'
+  | 'mergeSuggestionsLoading'
+  | 'mergeSuggestionsError'
+  | 'skillDrafts'
+  | 'skillDraftsLoading'
+  | 'skillDraftsError'
   | 'processStatus'
   | 'writeMode'
   | 'uploadKbDefault'
@@ -318,6 +350,12 @@ const RESET_FIELDS: Pick<
   memories: [],
   memoriesLoading: false,
   memoriesError: null,
+  mergeSuggestions: [],
+  mergeSuggestionsLoading: false,
+  mergeSuggestionsError: null,
+  skillDrafts: [],
+  skillDraftsLoading: false,
+  skillDraftsError: null,
   processStatus: 'idle',
   writeMode: 'auto',
   // Q2 默认勾选（init 从 ai_config 回读覆盖；读取失败保持勾选）
@@ -1632,6 +1670,144 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       return false;
     } catch (err) {
       console.error('[agentStore] deleteMemory failed:', err);
+      return false;
+    }
+  },
+
+  // —— 相似合并三态审核（D5 六.3 防线二） ——
+
+  async loadMergeSuggestions() {
+    const ai = getAi();
+    if (!ai?.memory) {
+      set({
+        mergeSuggestions: [],
+        mergeSuggestionsLoading: false,
+        mergeSuggestionsError: 'memory api unavailable',
+      });
+      return;
+    }
+    set({ mergeSuggestionsLoading: true, mergeSuggestionsError: null });
+    try {
+      // 只传当前登录认证上下文，不传 userId（主进程由 JWT 解出，SECURITY.md IPC 条）
+      const authToken = useAuthStore.getState().token ?? '';
+      const res = await ai.memory.similarList(authToken);
+      if (res?.success && Array.isArray(res.data)) {
+        set({ mergeSuggestions: res.data, mergeSuggestionsLoading: false });
+      } else {
+        set({
+          mergeSuggestions: [],
+          mergeSuggestionsLoading: false,
+          mergeSuggestionsError: res?.message ?? 'Failed to load merge suggestions',
+        });
+      }
+    } catch (err) {
+      set({
+        mergeSuggestionsLoading: false,
+        mergeSuggestionsError: err instanceof Error ? err.message : String(err),
+      });
+    }
+  },
+
+  async acceptMergeSuggestion(ids: number[]) {
+    const ai = getAi();
+    if (!ai?.memory) return false;
+    try {
+      const authToken = useAuthStore.getState().token ?? '';
+      const res = await ai.memory.acceptSimilar(authToken, ids);
+      if (res?.success) {
+        // 合并改变了 active 集合 → 记忆列表与建议列表都重新拉，避免展示陈旧行
+        await get().loadMemories();
+        await get().loadMergeSuggestions();
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('[agentStore] acceptMergeSuggestion failed:', err);
+      return false;
+    }
+  },
+
+  async rejectMergeSuggestion(ids: number[]) {
+    const ai = getAi();
+    if (!ai?.memory) return false;
+    try {
+      const authToken = useAuthStore.getState().token ?? '';
+      const res = await ai.memory.rejectSimilar(authToken, ids);
+      if (res?.success) {
+        await get().loadMergeSuggestions();
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('[agentStore] rejectMergeSuggestion failed:', err);
+      return false;
+    }
+  },
+
+  // —— 提炼技能草稿（D3 六.1 设置页人工确认入口） ——
+
+  async loadSkillDrafts() {
+    const ai = getAi();
+    if (!ai?.skillDraft) {
+      set({
+        skillDrafts: [],
+        skillDraftsLoading: false,
+        skillDraftsError: 'skillDraft api unavailable',
+      });
+      return;
+    }
+    set({ skillDraftsLoading: true, skillDraftsError: null });
+    try {
+      // 只传当前登录认证上下文，不传 userId（主进程由 JWT 解出，SECURITY.md IPC 条）
+      const authToken = useAuthStore.getState().token ?? '';
+      const res = await ai.skillDraft.list(authToken);
+      if (res?.success && Array.isArray(res.data)) {
+        set({ skillDrafts: res.data, skillDraftsLoading: false });
+      } else {
+        set({
+          skillDrafts: [],
+          skillDraftsLoading: false,
+          skillDraftsError: res?.message ?? 'Failed to load skill drafts',
+        });
+      }
+    } catch (err) {
+      set({
+        skillDraftsLoading: false,
+        skillDraftsError: err instanceof Error ? err.message : String(err),
+      });
+    }
+  },
+
+  async approveSkillDraft(name: string) {
+    const ai = getAi();
+    if (!ai?.skillDraft) return false;
+    try {
+      const authToken = useAuthStore.getState().token ?? '';
+      const res = await ai.skillDraft.approve(authToken, name);
+      if (res?.success && res.data?.approved) {
+        set({ skillDrafts: get().skillDrafts.filter((d) => d.name !== name) });
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('[agentStore] approveSkillDraft failed:', err);
+      return false;
+    }
+  },
+
+  async rejectSkillDraft(name: string) {
+    const ai = getAi();
+    if (!ai?.skillDraft) return false;
+    try {
+      const authToken = useAuthStore.getState().token ?? '';
+      const res = await ai.skillDraft.reject(authToken, name);
+      if (res?.success && res.data?.rejected) {
+        set({ skillDrafts: get().skillDrafts.filter((d) => d.name !== name) });
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('[agentStore] rejectSkillDraft failed:', err);
       return false;
     }
   },

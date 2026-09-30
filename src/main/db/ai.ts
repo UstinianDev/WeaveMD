@@ -963,6 +963,85 @@ export function getMessagesByConversationPaginated(
   return rows.reverse().map(mapMessageRow);
 }
 
+// ---------------------------------------------------------------------------
+// 六.1（agent-memory-optimize-3 D3）：按会话的轨迹分页读取 + 成功终态判定
+// ---------------------------------------------------------------------------
+
+/** 分页读取的单行：消息体 + 隐式 rowid（游标用）。 */
+export interface ConversationMessagePageRow extends IAIMessage {
+  /** SQLite 隐式 rowid（插入序，单调递增）—— `beforeId` 游标即取此值。 */
+  rowId: number;
+}
+
+export interface ConversationMessagesPage {
+  /** 时间正序的一段消息（与按轮流式读取同口径，便于直接格式化成轨迹）。 */
+  messages: ConversationMessagePageRow[];
+  /** 下一页游标（= 本页最旧一行的 rowId，下一页取 rowid < 该值）；null = 已到头。 */
+  nextBeforeId: number | null;
+}
+
+export interface ConversationMessagesPageOptions {
+  /** 单页条数上限（默认 20）。 */
+  limit?: number;
+  /** 游标：只取 rowid 严格小于该值的行（倒序推进），缺省从最新一页开始。 */
+  beforeId?: number;
+}
+
+/** 单页条数上限（六.1 轨迹读取：够一轮 agent 的 user/assistant/tool 全量即可）。 */
+export const DEFAULT_MESSAGE_PAGE_LIMIT = 20;
+
+/** `agent_task_queue.status` 的成功终态（与 `AgentTaskStatus` 的 'completed' 对应）。 */
+export const AGENT_TASK_STATUS_COMPLETED = 'completed';
+
+/**
+ * 按会话分页读取消息（六.1 轨迹源）。
+ * - 参数化 SQL + `user_id` 归属过滤（SECURITY.md 数据库条：用户数据严格按 user_id 过滤）；
+ * - **游标用隐式 rowid**：`ai_messages.id` 是 TEXT 主键（UUID / 确定性串），无法做数字上界，
+ *   而 rowid 单调递增且唯一，`beforeId` 即「rowid < ?」的上界（不含）；
+ * - 倒序取 `limit` 条再反转为时间正序，保证翻页稳定不重不漏；
+ * - 与 `getRecentMessagesByRounds`（按轮窗口，主上下文专用）互不影响，后者零改动。
+ */
+export function getConversationMessagesPage(
+  conversationId: string,
+  userId: string,
+  options: ConversationMessagesPageOptions = {}
+): ConversationMessagesPage {
+  const db = getDatabase();
+  const limit = options.limit ?? DEFAULT_MESSAGE_PAGE_LIMIT;
+  const beforeId = options.beforeId ?? Number.MAX_SAFE_INTEGER;
+  const rows = cachedPrepare(
+    db,
+    `SELECT rowid AS row_id, * FROM ai_messages
+      WHERE conversation_id = ? AND user_id = ? AND rowid < ?
+      ORDER BY rowid DESC
+      LIMIT ?`
+  ).all(conversationId, userId, beforeId, limit) as Array<AiMessageDbRow & { row_id: number }>;
+
+  const messages = rows
+    .map((row) => ({ ...mapMessageRow(row), rowId: row.row_id }))
+    .reverse();
+  // 取满一页才可能还有下一页（未取满 = 已到最早端）
+  const nextBeforeId =
+    rows.length === limit && rows.length > 0 ? rows[rows.length - 1].row_id : null;
+  return { messages, nextBeforeId };
+}
+
+/**
+ * 轨迹筛选口径（req 六.1 条 4）：只提炼 **成功终态** 会话的轨迹。
+ * `agent_task_queue` 是成败的权威来源（`agent_task_queue.status`），轨迹本身不带成败列。
+ * 参数化 SQL + conversation_id + user_id + status 三重过滤。
+ */
+export function hasCompletedAgentTask(conversationId: string, userId: string): boolean {
+  const db = getDatabase();
+  const row = cachedPrepare(
+    db,
+    `SELECT 1 AS c FROM agent_task_queue
+      WHERE conversation_id = ? AND user_id = ? AND status = ?
+      LIMIT 1`
+  ).get(conversationId, userId, AGENT_TASK_STATUS_COMPLETED) as { c: number } | undefined;
+  return row !== undefined;
+}
+
 /** 校验会话归属后追加用户消息（供 IPC App 组装消息） */
 export function assertConversationOwned(conversationId: string, userId: string): boolean {
   return getConversation(conversationId, userId) !== null;

@@ -12,7 +12,13 @@ vi.mock('@main/ai/llm/anthropicClient', () => ({
   streamAnthropicCompletion: llmMock.streamAnthropicCompletion,
 }));
 
-import { CORE_SKILLS, listSkillsForUi, loadSkills, runSkill } from '@main/ai/skills/skillLoader';
+import {
+  CORE_SKILLS,
+  listSkillsForUi,
+  loadSkills,
+  parseSkillMarkdown,
+  runSkill,
+} from '@main/ai/skills/skillLoader';
 
 /** 构造临时的 userData/skills 目录并返回其路径（测试结束自动清理）。 */
 function makeSkillsDir(content: Record<string, string>): string {
@@ -199,5 +205,69 @@ describe('skillLoader.runSkill', () => {
     });
     expect(res.status).toBe('error');
     expect(res.errorDesc).toContain('boom');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D4 — front matter `intents` 解析（六.2 任务类型标注，总指挥裁定 2/4）
+// ---------------------------------------------------------------------------
+
+/** 组一份 front matter + 正文的技能文件文本。 */
+function skillFile(frontExtra: string[] = []): string {
+  return [
+    '---',
+    'name: auto_flow',
+    'description: 示例技能',
+    ...frontExtra,
+    '---',
+    '1. 第一步',
+    '2. 第二步',
+  ].join('\n');
+}
+
+describe('skillLoader front matter intents 解析（D4）', () => {
+  it('逗号分隔 → 解析为意图数组', () => {
+    const skill = parseSkillMarkdown(skillFile(['intents: rewrite, kbQa']));
+    expect(skill?.intents).toEqual(['rewrite', 'kbQa']);
+  });
+
+  it('JSON 数组 → 解析为意图数组', () => {
+    const skill = parseSkillMarkdown(skillFile(['intents: ["rewrite", "tech"]']));
+    expect(skill?.intents).toEqual(['rewrite', 'tech']);
+  });
+
+  it('无 intents 字段 → 不带该键（视为未标注，走注入侧推断）', () => {
+    const skill = parseSkillMarkdown(skillFile());
+    expect(skill).not.toHaveProperty('intents');
+    expect(skill?.intents).toBeUndefined();
+  });
+
+  it('非法值被忽略并 console.warn，合法值保留', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const skill = parseSkillMarkdown(skillFile(['intents: foo, rewrite, bar']));
+    expect(skill?.intents).toEqual(['rewrite']);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('chat 不可注入（裁定 3）→ 忽略并 warn', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const skill = parseSkillMarkdown(skillFile(['intents: chat, rewrite']));
+    expect(skill?.intents).toEqual(['rewrite']);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('标注了但全部非法 → 空数组（已标注却不注入，不回落到推断）', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const skill = parseSkillMarkdown(skillFile(['intents: chat, nope']));
+    expect(skill?.intents).toEqual([]);
+    warn.mockRestore();
+  });
+
+  it('解析出的 intents 只在技能对象上出现一次且正文不受影响', () => {
+    const skill = parseSkillMarkdown(skillFile(['intents: tech']));
+    expect(skill?.instructions).toBe('1. 第一步\n2. 第二步');
+    expect(skill?.description).toBe('示例技能');
   });
 });

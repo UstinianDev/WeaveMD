@@ -6,6 +6,7 @@
 
 import type { CoreSkill } from './skillLoader';
 import { loadSkills } from './skillLoader';
+import { getDefaultSkillDirs } from './skillPaths';
 
 export interface ManagedSkill extends CoreSkill {
   /** 是否启用。 */
@@ -21,7 +22,8 @@ const skillStates = new Map<string, boolean>();
 
 /** 获取所有管理的 Skills。 */
 export function getManagedSkills(): ManagedSkill[] {
-  const skills = loadSkills();
+  // D3：显式传默认扫描目录（含 userData/skills 与 _auto/）—— 无参调用曾只拿到内置 3 个
+  const skills = loadSkills(getDefaultSkillDirs());
 
   return skills.map((skill) => ({
     ...skill,
@@ -32,7 +34,8 @@ export function getManagedSkills(): ManagedSkill[] {
 
 /** 获取单个 Skill。 */
 export function getManagedSkill(name: string): ManagedSkill | null {
-  const skills = loadSkills();
+  // D3：显式传默认扫描目录（含 userData/skills 与 _auto/）—— 无参调用曾只拿到内置 3 个
+  const skills = loadSkills(getDefaultSkillDirs());
   const skill = skills.find((s) => s.name === name);
   if (!skill) return null;
 
@@ -45,7 +48,8 @@ export function getManagedSkill(name: string): ManagedSkill | null {
 
 /** 启用/禁用 Skill。 */
 export function setSkillEnabled(name: string, enabled: boolean): boolean {
-  const skills = loadSkills();
+  // D3：显式传默认扫描目录（含 userData/skills 与 _auto/）—— 无参调用曾只拿到内置 3 个
+  const skills = loadSkills(getDefaultSkillDirs());
   const skill = skills.find((s) => s.name === name);
   if (!skill) return false;
 

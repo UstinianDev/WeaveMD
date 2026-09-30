@@ -5,7 +5,7 @@
 // 纯函数，不依赖 IPC / 数据库（listFiles 由调用方注入快照）。
 // 性能优化：文件列表缓存（避免每次 Agent 调用都查询 DB）。
 
-import type { IAttachmentMeta } from '@shared/ai';
+import type { IAttachmentMeta, IntentName } from '@shared/ai';
 import { estimateTokens } from '../utils/tokenEstimator';
 
 // ---------------------------------------------------------------------------
@@ -77,6 +77,56 @@ const PROFILE_CUT_MARKER = '\n(画像过长已截断)';
 /** 画像块超限截断（口径同 A1，标注改为画像语义）。 */
 function truncateProfileBlock(block: string): string {
   return truncateBlockWithMarker(block, PROFILE_TOKEN_LIMIT, PROFILE_CUT_MARKER);
+}
+
+// ---------------------------------------------------------------------------
+// 经验注入（agent-memory-optimize-3 D4 六.2：结构化经验 + 任务类型识别注入）
+// ---------------------------------------------------------------------------
+
+/**
+ * 可注入经验块的任务类型白名单 —— **5 个有关键词规则的显式意图**（总指挥裁定 3）。
+ *
+ * `chat` 不在其中：它是 `intentRouter` 的**无规则 fallback**（`scores.size===0` 即落 chat），
+ * 无法区分「闲聊」与「未知任务类型」，故一律不注入，绕开该歧义。
+ *
+ * 本常量是**唯一口径**：注入侧（agentContext.buildExperienceBlock）与技能侧
+ * （skillLoader front matter 解析、skillAutoStore 草稿校验）共用，避免两份白名单漂移。
+ */
+export const EXPERIENCE_INTENTS: readonly IntentName[] = [
+  'rewrite',
+  'kbQa',
+  'tech',
+  'web',
+  'create',
+] as const;
+
+/** 判断某意图是否允许注入经验块（chat / 未知值一律 false）。 */
+export function isExperienceIntent(intent: string | undefined): boolean {
+  return !!intent && (EXPERIENCE_INTENTS as readonly string[]).includes(intent);
+}
+
+/**
+ * 经验块 token 硬上限（D4 六.2）。
+ *
+ * 取值依据（**按 `CONTEXT_WINDOW = 64000` 实测调优，非照抄外部资料**；实测工具
+ * `estimateTokens`，CJK 0.75 token/字）：
+ * 1. **同一预算刻度**：与 A1 `GLOBAL_FILES_TOKEN_LIMIT` / B4 `PROFILE_TOKEN_LIMIT` 同为 2000，
+ *    三层个性化块合计 ≤6000 token = **9.4% 窗口**（B4 注释的「两块合计 ≤4000」自然续接）；
+ * 2. **实测量级**：典型提炼技能 instructions ≈ **188 token**（含 4 步 + 避坑小节），
+ *    2000 可容纳约 10 条典型经验或多技能叠加；单条技能 `SKILL_INSTRUCTIONS_MAX_CHARS = 4000`
+ *    字的极限体现实测 **2521 token** → 保留前 2000（约 79%），尾部由截断标注兜底；
+ * 3. **窗口实测**：主提示无三块 **1563 token**、三块典型满载 **3150（4.92%，余量 60850）**、
+ *    三块全部顶格最坏 **7562（11.8%，余量 56438）** —— 距 64000 仍有 5 万余量；
+ * 4. **[待校准]**：单次会话内匹配到的技能条数分布尚无线上实测数据，超限统一走截断 + 标注。
+ */
+export const EXPERIENCE_TOKEN_LIMIT = 2000;
+
+/** 经验块超限截断后的块尾标注（D4）。 */
+const EXPERIENCE_CUT_MARKER = '\n(经验过长已截断)';
+
+/** 经验块超限截断（口径同 A1/B4）。 */
+function truncateExperienceBlock(block: string): string {
+  return truncateBlockWithMarker(block, EXPERIENCE_TOKEN_LIMIT, EXPERIENCE_CUT_MARKER);
 }
 
 // ---------------------------------------------------------------------------
@@ -329,6 +379,10 @@ export function buildAttachmentManifest(
  * @param profileBlock 用户画像块（B1 视图 getActiveProfile 产出，agent-memory-optimize-2 B4）
  *   —— 与 globalFilesBlock 同通道、紧跟其后（两者同属「用户个性化层」）；
  *   未就绪时由调用方传空串，输出与不传参时逐字一致，不留占位噪音。
+ * @param experienceBlock 经验块（六.2 任务类型匹配的既有经验，agent-memory-optimize-3 D4）
+ *   —— 与前两块同通道、**紧跟画像块之后**（核心规则 → 三文件 → 画像 → 经验 → ## 工作流）；
+ *   无匹配经验/意图不合法时由调用方传空串，输出与不传参时逐字一致，不留占位噪音；
+ *   超 {@link EXPERIENCE_TOKEN_LIMIT} 截断并标注。
  */
 export function buildAgentSystemPrompt(
   fileListSnapshot: string,
@@ -336,7 +390,8 @@ export function buildAgentSystemPrompt(
   needsClarification?: boolean,
   attachmentManifest?: string,
   globalFilesBlock?: string,
-  profileBlock?: string
+  profileBlock?: string,
+  experienceBlock?: string
 ): string {
   const clarificationPrefix = needsClarification
     ? [
@@ -350,6 +405,7 @@ export function buildAgentSystemPrompt(
     GLOBAL_FILES_TOKEN_LIMIT
   );
   const profile = truncateProfileBlock((profileBlock ?? '').trim());
+  const experience = truncateExperienceBlock((experienceBlock ?? '').trim());
 
   return [
     '你是 WeaveMD 的 AI 写作助手。',
@@ -363,6 +419,7 @@ export function buildAgentSystemPrompt(
     '',
     ...(globalFiles ? [globalFiles, ''] : []),
     ...(profile ? [profile, ''] : []),
+    ...(experience ? [experience, ''] : []),
     '## 工作流',
     '0. 【关键】收到用户消息后，先规划完成任务需要哪些工具，然后立即调用工具获取信息，拿到工具返回结果后再基于结果输出文本回答。不要在调用工具前输出大段文字——文本应出现在工具结果之后。',
     '1. 简单问题（计算/闲聊/通用知识）直接回答，不调工具。',
@@ -460,25 +517,29 @@ export const CHAT_SYSTEM_PROMPT = [...CHAT_HEAD_LINES, '', CHAT_ANCHOR_LINE].joi
 
 /**
  * 组装 Chat 系统提示：基线正文 + 可选全局 Agent 文件块（soul/memory/style）
- * + 可选用户画像块（B4）。
+ * + 可选用户画像块（B4）+ 可选经验块（D4 六.2）。
  * 与 `buildAgentSystemPrompt` 同款处理：trim 后为空不注入（输出与
  * `CHAT_SYSTEM_PROMPT` 逐字一致）、超各自 token 上限截断并标注。
- * 块插在【核心规则】之后（画像紧跟三文件块）、【注意力锚点】之前 —— 锚点仍居末行。
+ * 块插在【核心规则】之后（画像紧跟三文件块、经验紧跟画像块）、【注意力锚点】之前
+ * —— 锚点仍居末行。
  */
 export function buildChatSystemPrompt(
   globalFilesBlock?: string,
-  profileBlock?: string
+  profileBlock?: string,
+  experienceBlock?: string
 ): string {
   const globalFiles = truncateGlobalFilesBlock(
     (globalFilesBlock ?? '').trim(),
     GLOBAL_FILES_TOKEN_LIMIT
   );
   const profile = truncateProfileBlock((profileBlock ?? '').trim());
-  if (!globalFiles && !profile) return CHAT_SYSTEM_PROMPT;
+  const experience = truncateExperienceBlock((experienceBlock ?? '').trim());
+  if (!globalFiles && !profile && !experience) return CHAT_SYSTEM_PROMPT;
   // 个性化层块之间与锚点之前各留一空行；单块时结构与 A1 逐字一致
   const parts: string[] = [...CHAT_HEAD_LINES];
   if (globalFiles) parts.push(globalFiles, '');
   if (profile) parts.push(profile, '');
+  if (experience) parts.push(experience, '');
   parts.push(CHAT_ANCHOR_LINE);
   return parts.join('\n');
 }

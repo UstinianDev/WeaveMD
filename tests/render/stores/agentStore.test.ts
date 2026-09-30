@@ -9,6 +9,7 @@ import {
   useAgentStore,
 } from '@render/stores/agentStore';
 import { useEditorStore } from '@render/stores/editorStore';
+import { useAuthStore } from '@render/stores/authStore';
 import type {
   AIStreamEvent,
   IAgentStreamEvent,
@@ -1148,5 +1149,193 @@ describe('agentStore 自动记忆（C3 可见性入口）', () => {
     } finally {
       holder.memory = backup;
     }
+  });
+});
+
+// ---- agent-memory-optimize-3 D5 六.3 防线二：相似合并三态审核 store 动作 ----
+
+describe('agentStore 相似合并建议（D5 防线二）', () => {
+  const member = (id: number, subject: string) => ({
+    id,
+    kind: 'profile' as const,
+    subject,
+    content: '用户偏好深色主题，界面使用暗色背景',
+    source: 'auto' as const,
+    validFrom: '2026-01-01 00:00:00',
+    validTo: null,
+    writtenAt: '2026-09-01 00:00:00',
+  });
+  const group = {
+    key: '1,3',
+    kind: 'profile' as const,
+    score: 0.78,
+    winnerId: 3,
+    members: [member(1, '主题偏好'), member(3, '外观设置')],
+  };
+
+  beforeEach(() => {
+    useAgentStore.setState({
+      mergeSuggestions: [],
+      mergeSuggestionsLoading: false,
+      mergeSuggestionsError: null,
+      memories: [],
+      memoriesLoading: false,
+      memoriesError: null,
+    });
+    useAuthStore.setState({ token: 'tok' } as never);
+  });
+
+  it('loadMergeSuggestions 成功 → 组落库、loading 清零、无错误，且只传认证上下文', async () => {
+    const spy = vi
+      .spyOn(window.weaveMD.ai.memory, 'similarList')
+      .mockResolvedValue({ success: true, data: [group] });
+
+    await useAgentStore.getState().loadMergeSuggestions();
+    expect(spy).toHaveBeenCalledWith('tok');
+    spy.mockRestore();
+
+    const s = useAgentStore.getState();
+    expect(s.mergeSuggestions).toEqual([group]);
+    expect(s.mergeSuggestionsLoading).toBe(false);
+    expect(s.mergeSuggestionsError).toBeNull();
+  });
+
+  it('loadMergeSuggestions 被拒 → mergeSuggestionsError 落 message', async () => {
+    const spy = vi
+      .spyOn(window.weaveMD.ai.memory, 'similarList')
+      .mockResolvedValue({ success: false, message: 'unauthorized' });
+
+    await useAgentStore.getState().loadMergeSuggestions();
+    spy.mockRestore();
+
+    const s = useAgentStore.getState();
+    expect(s.mergeSuggestions).toEqual([]);
+    expect(s.mergeSuggestionsLoading).toBe(false);
+    expect(s.mergeSuggestionsError).toBe('unauthorized');
+  });
+
+  it('loadMergeSuggestions 抛错 → 走 catch 分支，loading 不残留', async () => {
+    const spy = vi
+      .spyOn(window.weaveMD.ai.memory, 'similarList')
+      .mockRejectedValue(new Error('ipc down'));
+
+    await useAgentStore.getState().loadMergeSuggestions();
+    spy.mockRestore();
+
+    const s = useAgentStore.getState();
+    expect(s.mergeSuggestionsLoading).toBe(false);
+    expect(s.mergeSuggestionsError).toBe('ipc down');
+  });
+
+  it('ai.memory 缺失 → 早退置 unavailable 且不发 IPC', async () => {
+    const holder = window.weaveMD.ai as unknown as Record<string, unknown>;
+    const backup = holder.memory;
+    const spy = vi.spyOn(window.weaveMD.ai.memory, 'similarList');
+    delete holder.memory;
+    try {
+      await useAgentStore.getState().loadMergeSuggestions();
+      expect(useAgentStore.getState().mergeSuggestionsError).toBe('memory api unavailable');
+      expect(spy).not.toHaveBeenCalled();
+      expect(await useAgentStore.getState().acceptMergeSuggestion([1, 3])).toBe(false);
+      expect(await useAgentStore.getState().rejectMergeSuggestion([1, 3])).toBe(false);
+    } finally {
+      holder.memory = backup;
+    }
+  });
+
+  it('acceptMergeSuggestion 成功 → 回传 token+ids，并重拉记忆与建议', async () => {
+    const accept = vi
+      .spyOn(window.weaveMD.ai.memory, 'acceptSimilar')
+      .mockResolvedValue({ success: true, data: { merged: 1, winnerId: 3 } });
+    const list = vi.spyOn(window.weaveMD.ai.memory, 'list').mockResolvedValue({ success: true, data: [] });
+    const similarList = vi
+      .spyOn(window.weaveMD.ai.memory, 'similarList')
+      .mockResolvedValue({ success: true, data: [] });
+
+    const ok = await useAgentStore.getState().acceptMergeSuggestion([1, 3]);
+    expect(ok).toBe(true);
+    expect(accept).toHaveBeenCalledWith('tok', [1, 3]);
+    expect(list).toHaveBeenCalled();
+    expect(similarList).toHaveBeenCalled();
+    accept.mockRestore();
+    list.mockRestore();
+    similarList.mockRestore();
+  });
+
+  it('acceptMergeSuggestion 被拒 → false 且不重拉列表', async () => {
+    const accept = vi
+      .spyOn(window.weaveMD.ai.memory, 'acceptSimilar')
+      .mockResolvedValue({ success: false, message: 'not a similar group' });
+    const list = vi.spyOn(window.weaveMD.ai.memory, 'list');
+
+    const ok = await useAgentStore.getState().acceptMergeSuggestion([1, 3]);
+    accept.mockRestore();
+
+    expect(ok).toBe(false);
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it('rejectMergeSuggestion 成功 → 回传 token+ids 并重拉建议', async () => {
+    const reject = vi
+      .spyOn(window.weaveMD.ai.memory, 'rejectSimilar')
+      .mockResolvedValue({ success: true, data: { rejected: 2 } });
+    const similarList = vi
+      .spyOn(window.weaveMD.ai.memory, 'similarList')
+      .mockResolvedValue({ success: true, data: [] });
+
+    const ok = await useAgentStore.getState().rejectMergeSuggestion([1, 3]);
+    expect(ok).toBe(true);
+    expect(reject).toHaveBeenCalledWith('tok', [1, 3]);
+    expect(similarList).toHaveBeenCalled();
+    reject.mockRestore();
+    similarList.mockRestore();
+  });
+
+  it('rejectMergeSuggestion 抛错 → false（console.error 分支）', async () => {
+    const reject = vi
+      .spyOn(window.weaveMD.ai.memory, 'rejectSimilar')
+      .mockRejectedValue(new Error('ipc down'));
+
+    const ok = await useAgentStore.getState().rejectMergeSuggestion([1, 3]);
+    reject.mockRestore();
+
+    expect(ok).toBe(false);
+  });
+});
+
+describe('agentStore 相似合并建议 — 剩余分支（catch / 服务端拒绝）', () => {
+  beforeEach(() => {
+    useAgentStore.setState({
+      mergeSuggestions: [],
+      mergeSuggestionsLoading: false,
+      mergeSuggestionsError: null,
+      memories: [],
+      memoriesLoading: false,
+      memoriesError: null,
+    });
+    useAuthStore.setState({ token: 'tok' } as never);
+  });
+
+  it('acceptMergeSuggestion 抛错 → false（console.error 分支）', async () => {
+    const accept = vi
+      .spyOn(window.weaveMD.ai.memory, 'acceptSimilar')
+      .mockRejectedValue(new Error('ipc down'));
+
+    const ok = await useAgentStore.getState().acceptMergeSuggestion([1, 3]);
+    accept.mockRestore();
+
+    expect(ok).toBe(false);
+  });
+
+  it('rejectMergeSuggestion 被服务端拒绝 → false 且不重拉建议', async () => {
+    const reject = vi
+      .spyOn(window.weaveMD.ai.memory, 'rejectSimilar')
+      .mockResolvedValue({ success: false, message: 'not a similar group' });
+    const similarList = vi.spyOn(window.weaveMD.ai.memory, 'similarList');
+
+    const ok = await useAgentStore.getState().rejectMergeSuggestion([1, 3]);
+    expect(ok).toBe(false);
+    expect(similarList).not.toHaveBeenCalled();
+    reject.mockRestore();
   });
 });

@@ -22,6 +22,7 @@ import { registerModelConfigHandlers } from './modelConfigHandlers';
 import { registerEmbeddingConfigHandlers } from './embeddingConfigHandlers';
 import { registerSearchConfigHandlers } from './searchConfigHandlers';
 import { registerMemoryHandlers } from './memoryHandlers';
+import { registerSkillDraftHandlers } from './skillDraftHandlers';
 
 export { initAgentQueue, cleanupAgentQueue } from './agentHandlers';
 
@@ -38,4 +39,5 @@ export function registerAiIpcHandlers(): void {
   registerEmbeddingConfigHandlers(); // 新增：Embedding 配置 CRUD
   registerSearchConfigHandlers();    // 新增：搜索配置 CRUD
   registerMemoryHandlers();          // 新增：自动记忆列表 / 单条删除（C3 可见性入口）
+  registerSkillDraftHandlers();      // 新增：提炼技能草稿列表 / 人工确认 / 驳回（D3 六.1）
 }

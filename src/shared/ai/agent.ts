@@ -136,6 +136,23 @@ export interface AgentRollbackResult {
   errors: string[];
 }
 
+/**
+ * AI_SKILL_DRAFT_* 响应行（设置页「提炼技能」只读草稿列表，agent-memory-optimize-3 D3 六.1）。
+ * 刻意不下发任何磁盘绝对路径 —— 渲染层只按 name 操作，路径由主进程解析（防目录穿越）。
+ */
+export interface ISkillDraft {
+  /** 技能名（恒为 `auto_` 前缀小写标识）。 */
+  name: string;
+  description: string;
+  /** 提炼出的执行指令正文（含「避坑」小节）。 */
+  instructions: string;
+  status: 'draft' | 'active';
+  /** 来源标记：提炼技能恒为 'auto'。 */
+  source: string;
+  /** 文件修改时间（ISO），供列表排序。 */
+  updatedAt: string;
+}
+
 /** 自动记忆类别（与 agent_memory.kind 一一对应；此处内联字面量，避免与 @main/db 同名类型冲突）。 */
 export type AgentMemoryKindValue = 'profile' | 'fact' | 'entity';
 
@@ -154,4 +171,21 @@ export interface IAgentMemory {
   /** null = 当前有效；非空 = 已失效（Ledger 关闭，列表仍展示供审计） */
   validTo: string | null;
   writtenAt: string;
+}
+
+/**
+ * AI_MEMORY_SIMILAR_LIST 响应行（设置页「自动记忆」栏的**合并建议组**，D5 六.3 防线二）。
+ * `key` 只是给渲染层做 React key / 回传用的展示值 —— 主进程收到采纳/驳回后
+ * **按 ids 在服务端重算相似组**，不信任该 key。
+ */
+export interface IMemoryMergeGroup {
+  /** 组内 id 升序逗号连接（仅作展示与回传锚点，非授权凭据）。 */
+  key: string;
+  kind: AgentMemoryKindValue;
+  /** 相似度 0~1（FTS5 同口径 trigram 交集/并集比）。 */
+  score: number;
+  /** 采纳后会保留 active 的胜者 id。 */
+  winnerId: number;
+  /** 组内成员，按 id 升序。 */
+  members: IAgentMemory[];
 }

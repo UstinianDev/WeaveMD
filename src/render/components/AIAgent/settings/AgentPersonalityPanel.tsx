@@ -2,16 +2,19 @@
 // WeaveMD — 设置·Agent 个性面板（1:1 复刻 Notus）
 // ============================================
 // 四个 tab：soul.md（Agent 性格）/ style.md（写作风格）/ memory.md（全局记忆）
-//          + 「自动记忆」（agent-memory-optimize 第二批 C3：只读列表 + 单条删除）。
+//          + 「自动记忆」（agent-memory-optimize 第二批 C3：只读列表 + 单条删除；
+//            第三批 D5 追加「相似合并建议」三态审核：采纳 / 驳回）。
 // UI：SegmentedTabs 切换 + textarea 编辑 + 字符计数 + 保存/取消/恢复默认。
 // 数据流：agentStore.loadGlobalFiles / updateGlobalFiles → IPC → ~/.weavemd/agent/*.md；
-//        自动记忆：agentStore.loadMemories / deleteMemory → IPC → SQLite agent_memory。
+//        自动记忆：agentStore.loadMemories / deleteMemory → IPC → SQLite agent_memory；
+//        合并建议：loadMergeSuggestions / acceptMergeSuggestion / rejectMergeSuggestion
+//        → ai:memory:similar:* 三通道（主进程按 ids 重算相似组，不信任渲染层）。
 // 无 dangerouslySetInnerHTML、无 any、新增区域无内联 style（走 Tailwind + CSS 变量）。
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { useI18n } from '@render/i18n';
 import { useAgentStore } from '@render/stores/agentStore';
-import type { AgentMemoryKindValue } from '@shared/ai';
+import type { AgentMemoryKindValue, IMemoryMergeGroup } from '@shared/ai';
 import Icon from '../../Common/Icon';
 
 // ---- 常量 ----
@@ -166,6 +169,13 @@ const AgentPersonalityPanel: React.FC = () => {
   const memoriesError = useAgentStore((s) => s.memoriesError);
   const loadMemories = useAgentStore((s) => s.loadMemories);
   const deleteMemory = useAgentStore((s) => s.deleteMemory);
+  // 相似合并建议（D5 六.3 防线二：三态审核）
+  const mergeSuggestions = useAgentStore((s) => s.mergeSuggestions);
+  const mergeSuggestionsLoading = useAgentStore((s) => s.mergeSuggestionsLoading);
+  const mergeSuggestionsError = useAgentStore((s) => s.mergeSuggestionsError);
+  const loadMergeSuggestions = useAgentStore((s) => s.loadMergeSuggestions);
+  const acceptMergeSuggestion = useAgentStore((s) => s.acceptMergeSuggestion);
+  const rejectMergeSuggestion = useAgentStore((s) => s.rejectMergeSuggestion);
 
   const [activeFile, setActiveFile] = useState<PanelTab>('soul');
   const [content, setContent] = useState('');
@@ -173,6 +183,8 @@ const AgentPersonalityPanel: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  /** 正在提交的合并建议组 key（采纳 / 驳回按钮的 disabled 与文案态）。 */
+  const [actingKey, setActingKey] = useState<string | null>(null);
 
   const activeOption = FILE_OPTIONS.find((o) => o.value === activeFile);
   const activeLabel = activeOption?.label ?? '';
@@ -193,11 +205,12 @@ const AgentPersonalityPanel: React.FC = () => {
     }
   }, [globalFiles, activeFile]);
 
-  // 进入「自动记忆」tab 时拉取列表
+  // 进入「自动记忆」tab 时拉取列表 + 合并建议（D5 三态审核）
   useEffect(() => {
     if (activeFile !== AUTO_MEMORY_TAB) return;
     void loadMemories();
-  }, [activeFile, loadMemories]);
+    void loadMergeSuggestions();
+  }, [activeFile, loadMemories, loadMergeSuggestions]);
 
   // 保存
   const handleSave = useCallback(async () => {
@@ -256,8 +269,47 @@ const AgentPersonalityPanel: React.FC = () => {
     [deleteMemory, t]
   );
 
-  const hasChanges = content !== savedContent;
-  const overRecommended = content.length > (activeOption?.recommendedChars ?? 0);
+  // 采纳合并建议（window.confirm 二次确认后才发 IPC，与既有删除交互一致）
+  const handleAcceptMerge = useCallback(
+    async (group: IMemoryMergeGroup) => {
+      const confirmed = window.confirm(
+        t(
+          'ai.personality.memory.mergeAcceptConfirm',
+          '确认采纳合并？较旧的记忆会被标记为已失效（仍可在上方列表查看）。'
+        )
+      );
+      if (!confirmed) return;
+      setActingKey(group.key);
+      try {
+        await acceptMergeSuggestion(group.members.map((m) => m.id));
+      } finally {
+        setActingKey(null);
+      }
+    },
+    [acceptMergeSuggestion, t]
+  );
+
+  // 驳回合并建议：此后这组记忆不再自动合并、不再出现在建议列表
+  const handleRejectMerge = useCallback(
+    async (group: IMemoryMergeGroup) => {
+      const confirmed = window.confirm(
+        t(
+          'ai.personality.memory.mergeRejectConfirm',
+          '确认驳回？这组记忆此后不再自动合并，也不再出现在建议列表。'
+        )
+      );
+      if (!confirmed) return;
+      setActingKey(group.key);
+      try {
+        await rejectMergeSuggestion(group.members.map((m) => m.id));
+      } finally {
+        setActingKey(null);
+      }
+    },
+    [rejectMergeSuggestion, t]
+  );
+
+  const hasChanges = content !== savedContent;  const overRecommended = content.length > (activeOption?.recommendedChars ?? 0);
 
   return (
     <div className="space-y-4" style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}>
@@ -477,6 +529,102 @@ const AgentPersonalityPanel: React.FC = () => {
                 </button>
               </div>
             ))}
+          </div>
+
+          {/* 相似合并建议（D5 六.3 防线二：三态审核 —— 采纳 / 驳回），全 Tailwind + CSS 变量 */}
+          <div className="border-t border-[var(--border-color)]">
+            <div className="min-h-[48px] px-[18px] py-3 flex items-center justify-between gap-3 flex-wrap bg-[var(--bg-secondary)]">
+              <div className="text-[12px] text-[var(--text-sub)]">
+                {t('ai.personality.memory.mergeTitle', '相似合并建议')}
+                <span className="mx-1.5">·</span>
+                {t('ai.personality.memory.mergeNote', '采纳后旧记忆标记失效，驳回后不再建议')}
+              </div>
+              <button
+                type="button"
+                disabled={mergeSuggestionsLoading}
+                onClick={() => void loadMergeSuggestions()}
+                className="shrink-0 text-[12px] px-3 py-1.5 rounded-lg border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-40"
+              >
+                {t('ai.personality.memory.mergeRefresh', '刷新建议')}
+              </button>
+            </div>
+
+            <div className="max-h-[320px] overflow-y-auto">
+              {mergeSuggestionsLoading && (
+                <p className="px-[18px] py-6 text-[13px] text-center text-[var(--text-sub)]">
+                  {t('ai.personality.memory.mergeLoading', '正在读取合并建议...')}
+                </p>
+              )}
+
+              {!mergeSuggestionsLoading && mergeSuggestionsError && (
+                <div className="px-[18px] py-6 text-center">
+                  <p className="text-[13px] text-[var(--danger,#A6533C)]">
+                    {t('ai.personality.memory.mergeLoadFailed', '合并建议读取失败')}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void loadMergeSuggestions()}
+                    className="mt-2 text-[12px] px-3 py-1.5 rounded-lg border border-[var(--border-color)] text-[var(--text-sub)] hover:text-[var(--text-primary)] transition-colors"
+                  >
+                    {t('ai.personality.memory.mergeRetry', '重试建议')}
+                  </button>
+                </div>
+              )}
+
+              {!mergeSuggestionsLoading && !mergeSuggestionsError && mergeSuggestions.length === 0 && (
+                <p className="px-[18px] py-6 text-[13px] text-center text-[var(--text-sub)]">
+                  {t('ai.personality.memory.mergeEmpty', '暂无相似合并建议')}
+                </p>
+              )}
+
+              {mergeSuggestions.map((group) => {
+                const busy = actingKey === group.key;
+                return (
+                  <div
+                    key={group.key}
+                    className="px-[18px] py-3 border-b border-[var(--border-color)] last:border-b-0"
+                  >
+                    <div className="text-[11px] text-[var(--text-muted)]">
+                      {t(KIND_LABELS[group.kind].i18nKey, KIND_LABELS[group.kind].fallback)}
+                      <span className="mx-1.5">·</span>
+                      {t('ai.personality.memory.mergeSimilarity', '相似度')}{' '}
+                      {Math.round(group.score * 100)}%
+                      <span className="mx-1.5">·</span>
+                      {group.members.length} {t('ai.personality.memory.items', '条')}
+                    </div>
+                    {group.members.map((m) => (
+                      <div key={m.id} className="mt-1.5 text-[12px] leading-5">
+                        <span className="font-medium text-[var(--text-primary)] break-words">
+                          {m.subject}
+                        </span>
+                        <span className="mx-1.5 text-[var(--text-muted)]">—</span>
+                        <span className="text-[var(--text-sub)] break-words">{m.content}</span>
+                      </div>
+                    ))}
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={busy || mergeSuggestionsLoading}
+                        onClick={() => void handleAcceptMerge(group)}
+                        className="text-[12px] px-3 py-1 rounded-lg border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-40"
+                      >
+                        {busy
+                          ? t('ai.personality.memory.mergeWorking', '处理中...')
+                          : t('ai.personality.memory.mergeAccept', '采纳合并')}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy || mergeSuggestionsLoading}
+                        onClick={() => void handleRejectMerge(group)}
+                        className="text-[12px] px-3 py-1 rounded-lg border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--danger,#A6533C)] hover:border-[var(--danger,#A6533C)] transition-colors disabled:opacity-40"
+                      >
+                        {t('ai.personality.memory.mergeReject', '驳回')}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}

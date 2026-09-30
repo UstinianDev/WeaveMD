@@ -738,6 +738,25 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
     memory: {
       list: async () => ({ success: false, message: 'browser mode: memory storage unavailable' }),
       delete: async () => ({ success: false, message: 'browser mode: memory storage unavailable' }),
+      // D5 六.3 防线二：三态审核同样无本地存储 → 受控失败
+      similarList: async () => ({
+        success: false,
+        message: 'browser mode: memory storage unavailable',
+      }),
+      acceptSimilar: async () => ({
+        success: false,
+        message: 'browser mode: memory storage unavailable',
+      }),
+      rejectSimilar: async () => ({
+        success: false,
+        message: 'browser mode: memory storage unavailable',
+      }),
+    },
+    // D3 六.1：浏览器模式无本地技能目录 → 受控失败（不假装成功）
+    skillDraft: {
+      list: async () => ({ success: false, message: 'browser mode: skill drafts unavailable' }),
+      approve: async () => ({ success: false, message: 'browser mode: skill drafts unavailable' }),
+      reject: async () => ({ success: false, message: 'browser mode: skill drafts unavailable' }),
     },
   },
   kb: {
