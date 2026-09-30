@@ -16,6 +16,7 @@ import {
   FILE_OP_NARRATION_TOKEN_LIMIT,
   FILE_OP_NARRATION_TOKEN_LIMITS,
   GLOBAL_FILES_TOKEN_LIMIT,
+  PROFILE_TOKEN_LIMIT,
 } from '@main/ai/agent/agentPromptBuilder';
 import { estimateTokens } from '@main/ai/utils/tokenEstimator';
 
@@ -358,11 +359,13 @@ describe('P0-2 — 去反上下文统一措辞', () => {
 /** Q4：全局 Agent 文件块 token 硬上限。 */
 const TOKEN_LIMIT = 2000;
 
-/** TDD 前实测的改动前基线（sha256 逐字比对，防「不传参输出变了」）。 */
+/** TDD 前实测的改动前基线（sha256 逐字比对，防「不传参输出变了」）。
+ *  C1（memory-2 子批）在【工具规则】新增 memory_read/memory_write 一条 →
+ *  plain/clarify/withSnapshots 三个 agent 提示基线按新文案重测；chat 基线不含工具规则，保持不变。 */
 const BASELINE_SHA256 = {
-  plain: '9ba9bb48319e34411a5c1eb057e7ef6f87a4ce7b7aaa6ad3b114355e378b0c50',
-  clarify: 'e2986c850b0fe424530966fa22b8ddca5217ae0f38c4d698b6449ed1f902b940',
-  withSnapshots: '69cf1b0deeb73754b0d03200a36dcca7791bd61f59392a5d0e990a503de00aaa',
+  plain: '68df4ba5b41d3cbc3a4a627164020e53d4b66377bea8fe2b2b35990ff484907e',
+  clarify: '1ff5fd335de174add360069553ad7b36662d1bc47e029eb5ed75855ad020618e',
+  withSnapshots: 'a5d8ba19ccec43f0438f1d82798edb0b0dd6c68e0acac1d98b797ad41fd278ea',
   chat: '5fe8db450e65ee999f8ea943b730d6577194db0c50997e1ebc55bcefa101210d',
 };
 
@@ -501,5 +504,128 @@ describe('A1 chat — buildChatSystemPrompt 全局 Agent 文件注入', () => {
     for (const line of CHAT_SYSTEM_PROMPT.split('\n')) {
       if (line.trim().length > 0) expect(stripped).toContain(line);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B4 — 画像层（profileBlock）注入（req §二 B4 / 总指挥裁定 1~3）
+// 落点与 A1 的 globalFilesBlock 同通道，紧跟其后；两者同属「用户个性化层」。
+// ---------------------------------------------------------------------------
+
+/** 画像块稳定小节标题（位置断言与占位噪音断言共用锚点）。 */
+const PROFILE_HEADER = '【用户画像】';
+
+/** 画像块样例（agentContext `buildProfileBlock` 同款产出格式）。 */
+const PROFILE_BLOCK = [
+  `${PROFILE_HEADER}以下为从长期记忆读出的当前有效画像，用于个性化作答。`,
+  '- 用户职业：后端工程师',
+  '- 常用技术栈：TypeScript / SQLite',
+].join('\n');
+
+describe('B4 — 画像层 profileBlock 注入（buildAgentSystemPrompt）', () => {
+  const GLOBAL_BLOCK = ['【全局 Agent 文件】以下为用户配置的全局 Agent 文件。', '', '=== soul.md（性格） ===\nSOUL_B4_MARKER'].join('\n');
+
+  it('画像内容进输出，且位于【核心规则】之后、全局文件块之后、## 工作流 之前', () => {
+    const out = buildAgentSystemPrompt('', '', false, '', GLOBAL_BLOCK, PROFILE_BLOCK);
+    const idxCore = out.indexOf('【核心规则】');
+    const idxGlobal = out.indexOf('SOUL_B4_MARKER');
+    const idxProfile = out.indexOf(PROFILE_HEADER);
+    const idxWorkflow = out.indexOf('## 工作流');
+    expect(idxCore).toBeGreaterThan(-1);
+    expect(idxGlobal).toBeGreaterThan(idxCore);
+    expect(idxProfile).toBeGreaterThan(idxGlobal); // 紧跟 A1 块之后
+    expect(idxWorkflow).toBeGreaterThan(idxProfile);
+    expect(out).toContain('- 用户职业：后端工程师');
+    expect(out).toContain('- 常用技术栈：TypeScript / SQLite');
+  });
+
+  it('画像仅有一个段落（单个小节标题，不产生重复/嵌套噪音）', () => {
+    const out = buildAgentSystemPrompt('', '', false, '', '', PROFILE_BLOCK);
+    expect(out.split(PROFILE_HEADER).length - 1).toBe(1);
+  });
+
+  it('不传第 6 参 / 传空串 / 传纯空白 → 输出与改动前逐字一致（sha256 基线）', () => {
+    expect(sha256(buildAgentSystemPrompt('', '', false))).toBe(BASELINE_SHA256.plain);
+    expect(sha256(buildAgentSystemPrompt('', '', true))).toBe(BASELINE_SHA256.clarify);
+    expect(sha256(buildAgentSystemPrompt('FILELIST', 'TREE', false, 'ATTMANIFEST'))).toBe(
+      BASELINE_SHA256.withSnapshots
+    );
+    // 三文件块在、画像缺省/为空 → 与只传三文件块时逐字一致（等价降级）
+    const withGlobal = sha256(buildAgentSystemPrompt('', '', false, '', GLOBAL_BLOCK));
+    expect(sha256(buildAgentSystemPrompt('', '', false, '', GLOBAL_BLOCK, undefined))).toBe(withGlobal);
+    expect(sha256(buildAgentSystemPrompt('', '', false, '', GLOBAL_BLOCK, ''))).toBe(withGlobal);
+    // 三文件块也缺省 + 画像空 → 回到 A1 之前的纯基线
+    expect(sha256(buildAgentSystemPrompt('', '', false, '', '', ''))).toBe(BASELINE_SHA256.plain);
+    expect(sha256(buildAgentSystemPrompt('', '', false, '', '', '  \n  '))).toBe(BASELINE_SHA256.plain);
+  });
+
+  it('空画像不产生占位噪音与空行残留（与 A1 未配置文件时一致）', () => {
+    const out = buildAgentSystemPrompt('', '', false, '', '', '');
+    expect(out).not.toContain(PROFILE_HEADER);
+    expect(out).not.toContain('画像');
+    expect(out).toContain('4. 当看到 "=== 当前用户问题 ===" 标记时，那是你必须回答的问题\n## 工作流');
+  });
+
+  it('画像块超 PROFILE_TOKEN_LIMIT 触发截断并在块尾标注', () => {
+    const huge = `${PROFILE_HEADER}\n${'很长的画像内容'.repeat(4000)}`;
+    expect(estimateTokens(huge)).toBeGreaterThan(PROFILE_TOKEN_LIMIT);
+    const out = buildAgentSystemPrompt('', '', false, '', '', huge);
+    expect(out).toContain('画像过长已截断');
+    const seg = out.slice(out.indexOf(PROFILE_HEADER), out.indexOf('## 工作流')).trim();
+    expect(estimateTokens(seg)).toBeLessThanOrEqual(PROFILE_TOKEN_LIMIT);
+    expect(estimateTokens(seg)).toBeGreaterThan(0);
+  });
+
+  it('PROFILE_TOKEN_LIMIT 导出为 2000（与 A1 同一口径）', () => {
+    expect(PROFILE_TOKEN_LIMIT).toBe(2000);
+    expect(PROFILE_TOKEN_LIMIT).toBe(GLOBAL_FILES_TOKEN_LIMIT);
+  });
+
+  it('画像在 2000 token 内不截断（无标注）', () => {
+    const small = `${PROFILE_HEADER}\n- 用户职业：后端工程师`;
+    const out = buildAgentSystemPrompt('', '', false, '', '', small);
+    expect(out).toContain('- 用户职业：后端工程师');
+    expect(out).not.toContain('画像过长已截断');
+  });
+});
+
+describe('B4 chat — buildChatSystemPrompt 画像层', () => {
+  it('画像出现在【核心规则】之后、全局文件块之后、【注意力锚点】之前，锚点仍居末行', () => {
+    const globalBlock = ['【全局 Agent 文件】以下为用户配置的全局 Agent 文件。', 'SOUL_CHAT_B4'].join('\n');
+    const out = buildChatSystemPrompt(globalBlock, PROFILE_BLOCK);
+    const idxCore = out.indexOf('【核心规则】');
+    const idxGlobal = out.indexOf('SOUL_CHAT_B4');
+    const idxProfile = out.indexOf(PROFILE_HEADER);
+    const idxAnchor = out.indexOf('【注意力锚点】');
+    expect(idxProfile).toBeGreaterThan(idxGlobal);
+    expect(idxGlobal).toBeGreaterThan(idxCore);
+    expect(idxAnchor).toBeGreaterThan(idxProfile);
+    expect(out.endsWith('那是你必须回答的问题。')).toBe(true);
+  });
+
+  it('chat 缺省画像 / 画像为空 → 与 A1 改动后输出逐字一致', () => {
+    const globalBlock = ['【全局 Agent 文件】以下为用户配置的全局 Agent 文件。', 'SOUL_CHAT_B4'].join('\n');
+    const withGlobal = buildChatSystemPrompt(globalBlock);
+    expect(buildChatSystemPrompt(globalBlock, undefined)).toBe(withGlobal);
+    expect(buildChatSystemPrompt(globalBlock, '')).toBe(withGlobal);
+    expect(buildChatSystemPrompt(globalBlock, '   \n ')).toBe(withGlobal);
+    // 三文件块也缺省 → A1 基线（sha256 锁定）
+    expect(sha256(buildChatSystemPrompt(undefined, PROFILE_BLOCK))).not.toBe(BASELINE_SHA256.chat);
+    expect(sha256(buildChatSystemPrompt())).toBe(BASELINE_SHA256.chat);
+    expect(sha256(buildChatSystemPrompt('', ''))).toBe(BASELINE_SHA256.chat);
+  });
+
+  it('chat 侧画像同样受 token 硬上限约束并带截断标注', () => {
+    const huge = `${PROFILE_HEADER}\n${'很长的画像内容'.repeat(4000)}`;
+    const out = buildChatSystemPrompt('', huge);
+    expect(out).toContain('画像过长已截断');
+    const seg = out.slice(out.indexOf(PROFILE_HEADER), out.indexOf('【注意力锚点】')).trim();
+    expect(estimateTokens(seg)).toBeLessThanOrEqual(PROFILE_TOKEN_LIMIT);
+  });
+
+  it('画像仅注入时锚点仍在最后一行（recency bias 不被挤走）', () => {
+    const out = buildChatSystemPrompt('', PROFILE_BLOCK);
+    expect(out).toContain(PROFILE_HEADER);
+    expect(out.endsWith('那是你必须回答的问题。')).toBe(true);
   });
 });

@@ -17,6 +17,7 @@ import { appendMessage, getConversation, getRecentMessagesByRounds } from '../..
 import { listFiles } from '../../db/files';
 import { hasGrantedAttachmentDocs } from '../../db/kb';
 import { getEmbeddingConfig } from '../../db/embeddingConfig';
+import { getActiveProfile, type AgentMemoryRow } from '../../db/agentMemory';
 import { decryptApiKey } from '../secureConfig';
 import { classifyIntent } from '../intentRouter';
 import { buildCompressed, contentToText, estimateContentTokens, type LlmMessage } from '../contextManager';
@@ -270,6 +271,76 @@ export function buildGlobalAgentFilesBlock(files: IGlobalAgentFiles): string {
 function readGlobalAgentFilesBlock(): string {
   try {
     return buildGlobalAgentFilesBlock(getGlobalAgentFiles());
+  } catch {
+    return '';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// B4：用户画像注入块（agent-memory-optimize-2 req §二 B4 / 总指挥裁定 2~4）
+// ---------------------------------------------------------------------------
+
+/** 画像块稳定小节标题（注入位置与占位噪音判定的锚点）。 */
+const PROFILE_HEADER = '【用户画像】';
+
+/**
+ * 画像条数上限（裁定 3③）：超出按 writtenAt 新者优先保留，并在块尾标注省略条数。
+ * 取 40 的理由：画像为 subject/content 短条目，40 条已远超单用户典型画像量级，
+ * 既防极端库把个性化层撑爆，也避免与 2000 token 截断重复兜底 —— 本批无画像条数
+ * 实测分布，故按裁定取值，不做进一步压缩。
+ */
+const PROFILE_MAX_ENTRIES = 40;
+
+/** 归一为单行可读文本（多行/连续空白折叠，避免破坏条目列表结构）。 */
+function normalizeEntryText(value: string | null | undefined): string {
+  return (value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * 当前有效画像 → 注入块（纯函数，便于单测）。
+ * - 以稳定小节标题开头，每条含 subject 与 content（裁定 3①/②）；
+ * - 按 writtenAt 新者优先排序，条数超上限截断并标注省略条数（裁定 ③）；
+ * - 无可用条目返回空串（连标题都不留，与 A1 未配置文件时同口径，裁定 2）。
+ */
+export function buildProfileBlock(rows: AgentMemoryRow[]): string {
+  const valid = (rows ?? []).filter(
+    (row) => normalizeEntryText(row.subject) || normalizeEntryText(row.content)
+  );
+  if (valid.length === 0) return '';
+
+  const sorted = [...valid].sort((a, b) => {
+    if (a.writtenAt !== b.writtenAt) return a.writtenAt < b.writtenAt ? 1 : -1;
+    return b.id - a.id; // 同一写入时刻按 id 新者优先（稳定 tie-break）
+  });
+  const kept = sorted.slice(0, PROFILE_MAX_ENTRIES);
+  const omitted = sorted.length - kept.length;
+
+  const lines = kept.map((row) => {
+    const subject = normalizeEntryText(row.subject);
+    const content = normalizeEntryText(row.content);
+    return subject && content ? `- ${subject}：${content}` : `- ${subject || content}`;
+  });
+  const parts = [
+    `${PROFILE_HEADER}以下为从长期记忆读出的当前有效画像，用于个性化作答；与用户当面陈述冲突时以用户当面陈述为准。`,
+    ...lines,
+  ];
+  if (omitted > 0) {
+    parts.push(`(画像超过 ${PROFILE_MAX_ENTRIES} 条，已省略 ${omitted} 条较旧条目)`);
+  }
+  return parts.join('\n');
+}
+
+/**
+ * B4：读取当前有效画像并拼注入块。
+ * db 由调用方传入（生产链路由后台 worker 注入 `AgentLoopDeps.db`）——
+ * 未注入即视为 DB 未初始化，直接降级空串且不发起查询；
+ * 表缺失 / 查询抛错由 try/catch 兜住；userId 缺失同样降级
+ * （画像必须按 user_id 归属读取，SECURITY.md）。
+ */
+function readActiveProfileBlock(userId: string, db?: import('better-sqlite3').Database): string {
+  if (!userId || !db) return '';
+  try {
+    return buildProfileBlock(getActiveProfile(db, userId));
   } catch {
     return '';
   }
@@ -604,16 +675,20 @@ export function prepareAgentContext(
   const attachmentManifest = buildAttachmentManifest(payload.attachments);
   // A1（Q2/Q3）：soul/memory/style 三文件同批注入，落点在【核心规则】之后
   // （Attention Anchoring，不放文档上下文之后）；chat 分支同样注入，读取只做一次。
+  // B4（裁定 1/4）：画像块与三文件块同通道、紧跟其后（同属「用户个性化层」），
+  // 两分支各传一次；画像未就绪（无 db / 查询抛错 / 空画像）一律空串，零占位噪音。
   const globalFilesBlock = readGlobalAgentFilesBlock();
+  const profileBlock = readActiveProfileBlock(userId, deps.db);
   const agentSystemPrompt = useAgentPrompt
     ? buildAgentSystemPrompt(
         fileListSnapshot,
         localFileTreeSnapshot,
         needsClarification,
         attachmentManifest,
-        globalFilesBlock
+        globalFilesBlock,
+        profileBlock
       )
-    : buildChatSystemPrompt(globalFilesBlock);
+    : buildChatSystemPrompt(globalFilesBlock, profileBlock);
   llmMessages = [{ role: 'system', content: agentSystemPrompt }, ...llmMessages];
 
   // 文档上下文注入：仅 rewrite/create/tech 三个写作意图（B1 意图门控）。

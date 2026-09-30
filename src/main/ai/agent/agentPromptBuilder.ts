@@ -35,23 +35,48 @@ export const GLOBAL_FILES_TOKEN_LIMIT = 2000;
 const GLOBAL_FILES_CUT_MARKER = '\n(已截断，完整内容见设置页)';
 
 /**
- * 全局 Agent 文件块超限截断：按 token 上限二分裁剪，块尾追加截断标注。
+ * 通用超限截断：按 token 上限二分裁剪，块尾追加截断标注。
  * 保证返回值 `estimateTokens(结果) <= limit`（标注计入上限）。
  */
-function truncateGlobalFilesBlock(block: string, limit: number): string {
+function truncateBlockWithMarker(block: string, limit: number, marker: string): string {
   if (estimateTokens(block) <= limit) return block;
   // 前缀越短 token 越少 → 谓词单调，二分取满足上限的最大前缀
   let lo = 0;
   let hi = block.length;
   while (lo < hi) {
     const mid = Math.ceil((lo + hi) / 2);
-    if (estimateTokens(block.slice(0, mid) + GLOBAL_FILES_CUT_MARKER) <= limit) {
+    if (estimateTokens(block.slice(0, mid) + marker) <= limit) {
       lo = mid;
     } else {
       hi = mid - 1;
     }
   }
-  return `${block.slice(0, lo)}${GLOBAL_FILES_CUT_MARKER}`;
+  return `${block.slice(0, lo)}${marker}`;
+}
+
+/** 全局 Agent 文件块截断（A1 口径，标注指向设置页）。 */
+function truncateGlobalFilesBlock(block: string, limit: number): string {
+  return truncateBlockWithMarker(block, limit, GLOBAL_FILES_CUT_MARKER);
+}
+
+// ---------------------------------------------------------------------------
+// 用户画像注入（agent-memory-optimize-2 B4）
+// ---------------------------------------------------------------------------
+
+/**
+ * 画像块 token 硬上限（B4）：与 A1 的 `GLOBAL_FILES_TOKEN_LIMIT` 同为 2000。
+ * 取值理由：画像与三文件块同属「用户个性化层」、走同一注入通道，共用同一预算
+ * 刻度便于叠加核算（两块合计 ≤4000 token，仍在 64000 窗口内）；本批没有画像
+ * 体量的实测数据，故不凭空另设更小值 —— 数量侧已先由条数上限 40 兜住。
+ */
+export const PROFILE_TOKEN_LIMIT = 2000;
+
+/** 画像块超限截断后的块尾标注（B4）。 */
+const PROFILE_CUT_MARKER = '\n(画像过长已截断)';
+
+/** 画像块超限截断（口径同 A1，标注改为画像语义）。 */
+function truncateProfileBlock(block: string): string {
+  return truncateBlockWithMarker(block, PROFILE_TOKEN_LIMIT, PROFILE_CUT_MARKER);
 }
 
 // ---------------------------------------------------------------------------
@@ -301,13 +326,17 @@ export function buildAttachmentManifest(
  * @param globalFilesBlock 全局 Agent 文件块（soul/memory/style，agent-memory-optimize-2 A1）
  *   —— 空串/纯空白不注入，输出与不传参时逐字一致；超 2000 token 截断并标注。
  *   位置紧跟【核心规则】（Attention Anchoring，不放文档上下文之后）。
+ * @param profileBlock 用户画像块（B1 视图 getActiveProfile 产出，agent-memory-optimize-2 B4）
+ *   —— 与 globalFilesBlock 同通道、紧跟其后（两者同属「用户个性化层」）；
+ *   未就绪时由调用方传空串，输出与不传参时逐字一致，不留占位噪音。
  */
 export function buildAgentSystemPrompt(
   fileListSnapshot: string,
   localFileTreeSnapshot: string,
   needsClarification?: boolean,
   attachmentManifest?: string,
-  globalFilesBlock?: string
+  globalFilesBlock?: string,
+  profileBlock?: string
 ): string {
   const clarificationPrefix = needsClarification
     ? [
@@ -320,6 +349,7 @@ export function buildAgentSystemPrompt(
     (globalFilesBlock ?? '').trim(),
     GLOBAL_FILES_TOKEN_LIMIT
   );
+  const profile = truncateProfileBlock((profileBlock ?? '').trim());
 
   return [
     '你是 WeaveMD 的 AI 写作助手。',
@@ -332,6 +362,7 @@ export function buildAgentSystemPrompt(
     '4. 当看到 "=== 当前用户问题 ===" 标记时，那是你必须回答的问题',
     '',
     ...(globalFiles ? [globalFiles, ''] : []),
+    ...(profile ? [profile, ''] : []),
     '## 工作流',
     '0. 【关键】收到用户消息后，先规划完成任务需要哪些工具，然后立即调用工具获取信息，拿到工具返回结果后再基于结果输出文本回答。不要在调用工具前输出大段文字——文本应出现在工具结果之后。',
     '1. 简单问题（计算/闲聊/通用知识）直接回答，不调工具。',
@@ -367,6 +398,7 @@ export function buildAgentSystemPrompt(
     '- 本地文件 → readLocalFile/editLocalFile/listLocalDirectory，返回绝对路径后续直接使用。',
     '- 检索 → searchKB：当用户问题可能与笔记/文档相关时，主动检索知识库。首次用宽泛关键词，后续换不同角度，最多 2-3 次。信息不足时如实说明。传 hyde:true 可启用假设性文档检索（适合语义复杂的查询）。',
     '- 文档附件 → searchDocument/readPage/extractTable/analyzeChart：查当前会话上传附件的原文（关键词命中含页码、按页读取、抽取表格 CSV、图表数据定位）。跨文档/笔记检索用 searchKB；原始本地文件用 readLocalFile。',
+    '- 记忆 → memory_read/memory_write：跨会话记住用户特征（profile）、已确认事实（fact）与实体（entity）。**先读后写**：断言「你之前说过」之前必须先 memory_read；写入仅限用户明确表达或本会话已确认的内容，subject 用稳定短标签、content 一句话陈述，同轮同主题只写一次（单轮最多 10 条），不要把一次性问答写成记忆。用户手写的记忆不会被本工具覆盖，写入被拒绝时照实说明即可。',
     '- 联网搜索 → web_search：搜索互联网获取最新信息。搜索结果包含 title、url、snippet（摘要）。**必须基于搜索结果回答问题**，不得声称"没有找到信息"。如果结果中有相关内容，直接引用并注明来源 URL；如果结果确实不相关，尝试换关键词重新搜索。',
     '- **URL 查询规则**：当用户提供 URL 并询问网站信息时，**必须调用 web_search 工具**搜索该网站的相关信息。不要仅从 URL 提取域名返回 JSON，必须搜索网站的实际内容、功能、背景等信息并用自然语言回答。',
     '- 提问 → ask_question_card（支持 text/choice/confirm 三种类型），暂停等待回答。每次向用户提问都必须使用此工具，不可在回复文本中直接提问。',
@@ -427,16 +459,26 @@ const CHAT_ANCHOR_LINE =
 export const CHAT_SYSTEM_PROMPT = [...CHAT_HEAD_LINES, '', CHAT_ANCHOR_LINE].join('\n');
 
 /**
- * 组装 Chat 系统提示：基线正文 + 可选全局 Agent 文件块（soul/memory/style）。
+ * 组装 Chat 系统提示：基线正文 + 可选全局 Agent 文件块（soul/memory/style）
+ * + 可选用户画像块（B4）。
  * 与 `buildAgentSystemPrompt` 同款处理：trim 后为空不注入（输出与
- * `CHAT_SYSTEM_PROMPT` 逐字一致）、超 2000 token 截断并标注。
- * 块插在【核心规则】之后、【注意力锚点】之前 —— 锚点仍居末行。
+ * `CHAT_SYSTEM_PROMPT` 逐字一致）、超各自 token 上限截断并标注。
+ * 块插在【核心规则】之后（画像紧跟三文件块）、【注意力锚点】之前 —— 锚点仍居末行。
  */
-export function buildChatSystemPrompt(globalFilesBlock?: string): string {
+export function buildChatSystemPrompt(
+  globalFilesBlock?: string,
+  profileBlock?: string
+): string {
   const globalFiles = truncateGlobalFilesBlock(
     (globalFilesBlock ?? '').trim(),
     GLOBAL_FILES_TOKEN_LIMIT
   );
-  if (!globalFiles) return CHAT_SYSTEM_PROMPT;
-  return [...CHAT_HEAD_LINES, globalFiles, '', CHAT_ANCHOR_LINE].join('\n');
+  const profile = truncateProfileBlock((profileBlock ?? '').trim());
+  if (!globalFiles && !profile) return CHAT_SYSTEM_PROMPT;
+  // 个性化层块之间与锚点之前各留一空行；单块时结构与 A1 逐字一致
+  const parts: string[] = [...CHAT_HEAD_LINES];
+  if (globalFiles) parts.push(globalFiles, '');
+  if (profile) parts.push(profile, '');
+  parts.push(CHAT_ANCHOR_LINE);
+  return parts.join('\n');
 }

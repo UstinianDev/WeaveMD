@@ -96,6 +96,15 @@ const globalAgentFilesMock = vi.hoisted(() => ({
 }));
 vi.mock('@main/ai/files/globalAgentFiles', () => globalAgentFilesMock);
 
+// B4：画像层读取（kind='profile' 且 active 的 DAO 视图，db 首参注入）
+const agentMemoryMock = vi.hoisted(() => ({
+  getActiveProfile: vi.fn((): unknown[] => []),
+}));
+vi.mock('@main/db/agentMemory', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@main/db/agentMemory')>()),
+  getActiveProfile: agentMemoryMock.getActiveProfile,
+}));
+
 /** 全局 Agent 文件夹具（mock 默认返回值，断言与注入内容同源）。 */
 const GLOBAL_FILES_FIXTURE = {
   soul: 'SOUL_E2E_保持直接冷静',
@@ -116,12 +125,14 @@ import {
   repairToolTurnPairing,
   MISSING_TOOL_RESULT_PLACEHOLDER,
   buildGlobalAgentFilesBlock,
+  buildProfileBlock,
 } from '@main/ai/agent/agentContext';
+import type { AgentMemoryRow } from '@main/db/agentMemory';
 import { buildCompressed } from '@main/ai/contextManager';
 import type { LlmMessage } from '@main/ai/contextManager';
 import type { AgentLlmMessage } from '@main/ai/agent/agentLoop';
 import { classifyIntent } from '@main/ai/intentRouter';
-import { CHAT_SYSTEM_PROMPT, buildChatSystemPrompt } from '@main/ai/agent/agentPromptBuilder';
+import { CHAT_SYSTEM_PROMPT, buildChatSystemPrompt, buildAgentSystemPrompt } from '@main/ai/agent/agentPromptBuilder';
 import type { IAIConfig, IAttachmentMeta, IAIMessage, IAgentToolCall } from '@shared/ai';
 import type { AgentReqPayload } from '@main/ai/agent/agentLoop';
 
@@ -151,6 +162,8 @@ function makePayload(over: Partial<AgentReqPayload> = {}): AgentReqPayload {
 interface DepsLike {
   consent: { allowNetwork: boolean; allowSend: boolean; consentUpdatedAt: string | null };
   waitForInteraction?: unknown;
+  /** B4：画像层读取的 db 来源（生产由后台 worker 注入 deps.db）。 */
+  db?: unknown;
 }
 
 function runPrepare(payload: AgentReqPayload, deps: DepsLike, config = makeConfig()) {
@@ -178,6 +191,8 @@ beforeEach(() => {
   dbKbMock.hasGrantedAttachmentDocs.mockReset().mockReturnValue(false);
   // A1：全局文件默认返回夹具（mockReset 顺带清掉用例残留的 mockImplementationOnce）
   globalAgentFilesMock.getGlobalAgentFiles.mockReset().mockReturnValue(GLOBAL_FILES_FIXTURE);
+  // B4：画像默认为空（未配置画像 → 注入空串，与 A1 未配置文件同口径）
+  agentMemoryMock.getActiveProfile.mockReset().mockReturnValue([]);
 });
 
 describe('R3 — toolCtx.attachmentEgressAllowed 注入（allowSend ∨ 勾选授权）', () => {
@@ -1050,5 +1065,244 @@ describe('A1 — 全局 Agent 文件注入 system prompt', () => {
   it('buildGlobalAgentFilesBlock：全空返回空串（调用方 filter(Boolean) 零注入）', () => {
     expect(buildGlobalAgentFilesBlock({ soul: '', memory: '', style: '' })).toBe('');
     expect(buildGlobalAgentFilesBlock({ soul: '   ', memory: '\n', style: '' })).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B4 — 分层 Prompt：画像层（agent-memory-optimize-2 req §二 B4 / 裁定 1~4）
+// 画像 = B1 视图 getActiveProfile 读出的当前有效画像；
+// 未就绪（无 db / 表缺失 / 查询抛错 / 画像为空）一律降级空串，不留占位噪音。
+// ---------------------------------------------------------------------------
+
+/** 画像行夹具（AgentMemoryRow，camelCase 字段）。 */
+function profileRow(
+  id: number,
+  subject: string,
+  content: string,
+  writtenAt: string
+): AgentMemoryRow {
+  return {
+    id,
+    userId: 'u1',
+    kind: 'profile',
+    subject,
+    content,
+    source: 'auto',
+    conversationId: null,
+    fingerprint: `fp-${id}`,
+    validFrom: '2026-09-01 00:00:00',
+    validTo: null,
+    writtenAt,
+  };
+}
+
+describe('B4 — buildProfileBlock（画像 → 注入块）', () => {
+  it('空数组 → 空串（连小节标题都不留）', () => {
+    expect(buildProfileBlock([])).toBe('');
+  });
+
+  it('以稳定小节标题开头，每条含 subject 与 content', () => {
+    const block = buildProfileBlock([
+      profileRow(1, '职业', '后端工程师', '2026-09-01 00:00:00'),
+      profileRow(2, '常用技术栈', 'TypeScript / SQLite', '2026-09-02 00:00:00'),
+    ]);
+    expect(block.startsWith('【用户画像】')).toBe(true);
+    expect(block).toContain('职业');
+    expect(block).toContain('后端工程师');
+    expect(block).toContain('常用技术栈');
+    expect(block).toContain('TypeScript / SQLite');
+  });
+
+  it('按 writtenAt 新者优先排序（旧条目不挤掉新条目）', () => {
+    const block = buildProfileBlock([
+      profileRow(1, '旧主题', '旧内容', '2026-01-01 00:00:00'),
+      profileRow(2, '新主题', '新内容', '2026-09-30 00:00:00'),
+    ]);
+    expect(block.indexOf('新主题')).toBeLessThan(block.indexOf('旧主题'));
+  });
+
+  it('writtenAt 相同 → 按 id 新者优先（稳定 tie-break）', () => {
+    const block = buildProfileBlock([
+      profileRow(1, '先写入的同刻条目', '内容一', '2026-09-01 00:00:00'),
+      profileRow(9, '后写入的同刻条目', '内容二', '2026-09-01 00:00:00'),
+    ]);
+    expect(block.indexOf('后写入的同刻条目')).toBeLessThan(block.indexOf('先写入的同刻条目'));
+  });
+
+  it('条数上限 40：超出截断并在块尾标注省略条数（新者保留）', () => {
+    const rows = Array.from({ length: 45 }, (_, i) =>
+      profileRow(i + 1, `主题${i}`, `内容${i}`, `2026-09-01 00:00:${String(i).padStart(2, '0')}`)
+    );
+    const block = buildProfileBlock(rows);
+    const entryLines = block.split('\n').filter((l) => l.startsWith('- '));
+    expect(entryLines).toHaveLength(40);
+    expect(block).toContain('已省略 5 条');
+    expect(block).toContain('- 主题44：'); // 最新一条在
+    expect(block).not.toContain('- 主题0：'); // 最旧一条被截掉
+    // 块尾是省略标注（截断信息可读）
+    expect(block.trimEnd().endsWith(')')).toBe(true);
+  });
+
+  it('40 条以内不出现省略标注', () => {
+    const rows = Array.from({ length: 40 }, (_, i) =>
+      profileRow(i + 1, `主题${i}`, `内容${i}`, `2026-09-01 00:00:${String(i).padStart(2, '0')}`)
+    );
+    expect(buildProfileBlock(rows)).not.toContain('已省略');
+  });
+
+  it('字段为空/null 的行：空 subject 回退到 content、全空行剔除、结构不破', () => {
+    const block = buildProfileBlock([
+      profileRow(1, '只有主题', null as unknown as string, '2026-09-01 00:00:00'),
+      profileRow(2, '', '仅有内容的条目', '2026-09-02 00:00:00'),
+      profileRow(3, '   ', '   ', '2026-09-03 00:00:00'), // 全空白 → 不进块
+    ]);
+    expect(block).toContain('- 只有主题');
+    expect(block).toContain('- 仅有内容的条目');
+    expect(block.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(2);
+  });
+
+  it('入参为空（undefined）→ 返回空串不抛错（调用方 try/catch 之外的兜底）', () => {
+    expect(buildProfileBlock(undefined as unknown as AgentMemoryRow[])).toBe('');
+  });
+
+  it('多行 content 归一为单行（不破坏条目结构）', () => {
+    const block = buildProfileBlock([
+      profileRow(1, '备注', '第一行\n第二行', '2026-09-01 00:00:00'),
+    ]);
+    expect(block.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1);
+    expect(block).toContain('第一行 第二行');
+  });
+});
+
+describe('B4 — 画像层接入 prepareAgentContext', () => {
+  const ALLOW_ALL = {
+    consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+  };
+  const AGENT_MSG = '请帮我写一篇关于 SQLite 的技术文章';
+  const CHAT_MSG = '你好，今天天气怎么样？';
+  /** 注入的 db（DAO 已 mock，此处只验证透传与归属）。 */
+  const FAKE_DB = { tag: 'fake-db' };
+  const DEPS_WITH_DB = { ...ALLOW_ALL, db: FAKE_DB };
+  const ROWS = [
+    profileRow(1, '职业', '后端工程师', '2026-09-01 00:00:00'),
+    profileRow(2, '常用技术栈', 'TypeScript / SQLite', '2026-09-02 00:00:00'),
+  ];
+
+  /**
+   * 「只带三文件块」的期望输出：画像层为空时的逐字等价对象。
+   * 澄清前缀取自本次 classifyIntent 结果（避免用例被意图置信度绑架）。
+   */
+  function expectedAgentPrompt(ctx: ReturnType<typeof runPrepare>): string {
+    return buildAgentSystemPrompt(
+      '',
+      '',
+      ctx.intent.needsClarification === true,
+      '',
+      buildGlobalAgentFilesBlock(GLOBAL_FILES_FIXTURE)
+    );
+  }
+
+  it('画像进首条 system 消息，位于【核心规则】之后、全局文件块之后、## 工作流 之前', () => {
+    agentMemoryMock.getActiveProfile.mockReturnValue(ROWS);
+    const ctx = runPrepare(makePayload({ message: AGENT_MSG }), DEPS_WITH_DB);
+    expect(ctx.intent.intent).not.toBe('chat');
+    const text = String(ctx.llmMessages[0].content);
+    const idxCore = text.indexOf('【核心规则】');
+    const idxGlobal = text.indexOf(GLOBAL_FILES_FIXTURE.memory);
+    const idxProfile = text.indexOf('【用户画像】');
+    const idxWorkflow = text.indexOf('## 工作流');
+    expect(idxProfile).toBeGreaterThan(idxGlobal);
+    expect(idxGlobal).toBeGreaterThan(idxCore);
+    expect(idxWorkflow).toBeGreaterThan(idxProfile);
+    expect(text).toContain('职业');
+    expect(text).toContain('后端工程师');
+    expect(agentMemoryMock.getActiveProfile).toHaveBeenCalledTimes(1);
+  });
+
+  it('DAO 收到注入的 db 与当前 userId（user_id 归属过滤在 DAO 侧）', () => {
+    agentMemoryMock.getActiveProfile.mockReturnValue(ROWS);
+    runPrepare(makePayload({ message: AGENT_MSG, userId: 'u7' }), DEPS_WITH_DB);
+    expect(agentMemoryMock.getActiveProfile).toHaveBeenCalledWith(FAKE_DB, 'u7');
+  });
+
+  it('chat 意图同样注入画像（Q15 同口径），且位于【核心规则】与【注意力锚点】之间', () => {
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue([
+      { role: 'assistant', content: '上一轮回答' },
+    ]);
+    agentMemoryMock.getActiveProfile.mockReturnValue(ROWS);
+    const ctx = runPrepare(makePayload({ message: CHAT_MSG }), DEPS_WITH_DB);
+    expect(ctx.intent.intent).toBe('chat');
+    const text = String(ctx.llmMessages[0].content);
+    const idxCore = text.indexOf('【核心规则】');
+    const idxGlobal = text.indexOf(GLOBAL_FILES_FIXTURE.memory);
+    const idxProfile = text.indexOf('【用户画像】');
+    const idxAnchor = text.indexOf('【注意力锚点】');
+    expect(idxGlobal).toBeGreaterThan(idxCore);
+    expect(idxProfile).toBeGreaterThan(idxGlobal);
+    expect(idxAnchor).toBeGreaterThan(idxProfile);
+    expect(text.endsWith('那是你必须回答的问题。')).toBe(true);
+    expect(text).toContain('后端工程师');
+  });
+
+  it('画像为空 → 无占位噪音，输出与「只带三文件块」逐字一致', () => {
+    agentMemoryMock.getActiveProfile.mockReturnValue([]);
+    const ctx = runPrepare(makePayload({ message: AGENT_MSG }), DEPS_WITH_DB);
+    const text = String(ctx.llmMessages[0].content);
+    expect(ctx.intent.intent).not.toBe('chat');
+    expect(text).not.toContain('【用户画像】');
+    expect(text).not.toContain('画像');
+    expect(text).toBe(expectedAgentPrompt(ctx));
+    // 核心规则 → 个性化层 → 工作流之间不留空行残渣（filter(Boolean) 口径）
+    expect(text).toContain(
+      '4. 当看到 "=== 当前用户问题 ===" 标记时，那是你必须回答的问题\n【全局 Agent 文件】'
+    );
+    expect(text).not.toContain('问题\n\n');
+    expect(text.indexOf('【全局 Agent 文件】')).toBeLessThan(text.indexOf('## 工作流'));
+  });
+
+  it('DAO 查询抛错 → 静默降级空串，prompt 组装与三文件注入均不受影响', () => {
+    agentMemoryMock.getActiveProfile.mockImplementationOnce(() => {
+      throw new Error('SqliteError: no such table: agent_memory');
+    });
+    const ctx = runPrepare(makePayload({ message: AGENT_MSG }), DEPS_WITH_DB);
+    const text = String(ctx.llmMessages[0].content);
+    expect(agentMemoryMock.getActiveProfile).toHaveBeenCalledTimes(1);
+    expect(text).toContain('【核心规则】');
+    expect(text).toContain(GLOBAL_FILES_FIXTURE.soul);
+    expect(text).not.toContain('【用户画像】');
+    expect(text).toBe(expectedAgentPrompt(ctx));
+  });
+
+  it('未注入 db（DB 未初始化）→ 降级空串且不发起查询', () => {
+    agentMemoryMock.getActiveProfile.mockReturnValue(ROWS);
+    const ctx = runPrepare(makePayload({ message: AGENT_MSG }), ALLOW_ALL);
+    expect(agentMemoryMock.getActiveProfile).not.toHaveBeenCalled();
+    const text = String(ctx.llmMessages[0].content);
+    expect(text).not.toContain('【用户画像】');
+    expect(text).toContain('【核心规则】');
+    expect(text).toBe(expectedAgentPrompt(ctx));
+  });
+
+  it('chat 分支：画像为空 / 抛错 / 无 db → 输出与 CHAT 基线块逐字一致', () => {
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue([
+      { role: 'assistant', content: '上一轮回答' },
+    ]);
+    const expected = buildChatSystemPrompt(buildGlobalAgentFilesBlock(GLOBAL_FILES_FIXTURE));
+
+    agentMemoryMock.getActiveProfile.mockReturnValue([]);
+    expect(
+      String(runPrepare(makePayload({ message: CHAT_MSG }), DEPS_WITH_DB).llmMessages[0].content)
+    ).toBe(expected);
+
+    agentMemoryMock.getActiveProfile.mockImplementationOnce(() => {
+      throw new Error('SqliteError: no such table: agent_memory');
+    });
+    expect(
+      String(runPrepare(makePayload({ message: CHAT_MSG }), DEPS_WITH_DB).llmMessages[0].content)
+    ).toBe(expected);
+
+    expect(
+      String(runPrepare(makePayload({ message: CHAT_MSG }), ALLOW_ALL).llmMessages[0].content)
+    ).toBe(expected);
   });
 });
