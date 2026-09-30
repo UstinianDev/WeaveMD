@@ -175,7 +175,17 @@ L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/ar
 
 ## 进行中
 
-（无）
+### agent-memory-optimize 第二批（2026-09-29 开工）
+
+P1 主干，路线图「模块四 → 三 → 五 → 二.4 → 七.1/七.2/七.3」共 9 任务，档位 **L（含 L4 迁移）**，Q1~Q15 已裁定。三子批三 Gate：
+
+| 子批 | 任务 | Gate | 状态 |
+|------|------|------|------|
+| A 提示词/检索层 | 四.1 三文件注入、四.3 摘要保留先行词、二.4 classifyIntent 接主管线、七.3 红线护栏补测 | Gate A（五门禁） | **通过（2026-09-29）**：tsc 0 / vitest 4037 passed（1 既知 flaky 单跑复核绿）/ eslint 0 error·106 warning / vite build 成功 / E2E 31f·103p·1s 与基线相等；改动行覆盖 **195/195 = 100%** |
+| B 存储层 | 三.1 单表 `agent_memory`+双时间、三.2 Ledger/Views/Policy、三.4 迁移双路径、四.2 分层 Prompt | Gate B（L4，含真库 smoke） | **B3/B1/B2 完成并验收**（迁移三态 + 真库 smoke 四态 `SMOKE_EXIT=0`、DAO 24 例、Policy 14 例；B2 收尾全量 170 文件 4080 例全绿）；**B4 待重新派**（中途停止、零代码改动）→ 后跑 Gate B 五门禁 |
+| C 读写工具层 | 五.1 两工具、五.2 后台写入+冲突清洗、五.3 可见入口、七.1 场景③+七.2 门禁 | Gate C（全量+E2E） | 未开始 |
+
+> 需求 [agent-memory-optimize-2.req](./requirements/agent-memory-optimize-2.req.md) / 计划 [plan](./plan/agent-memory-optimize-2.plan.md)（§6 为 Gate A 实施记录）
 
 ## 待开发
 
@@ -214,3 +224,6 @@ L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/ar
 | `classifyIntent` 未接入 searchKB 主管线 | queryPlanner 意图分类与 kbSearch 独立运行 |
 | E2E 全量 31 failed（基线 112） | 其中 **10 条为已知/预期失败**：`ai-agent-panel` 4 条选区改写（保留作证据）+ `drag-selection-markers` 5 条（标题自带「当前 RED」）+ `floating-toolbar:222` 1 条（同属已移除的 AI 改写能力）；**其余 21 条属其他 spec 的既有问题**，不在 agent-cost-optimize 范围 |
 | 选区改写链路零 E2E 覆盖 | document scope 的预览/应用/撤销/stale/unchanged/失败条已覆盖；选区侧因 `startSelectionRewrite` 无调用方而不可测 |
+| `searchMode:'vector'` 无向量即拒答 | `kbSearch.ts:508` FTS5 分支只认 `fts5\|hybrid`，`vector` 模式不传 `queryVector`（未开 HyDE）→ 候选空 → `:683` 规范拒答，**无关键词兜底**；`kbSearch.ts:443` JSDoc 称「无 queryVector 降级 FTS5+标题」对 `vector` 不成立（agent-memory-2 A4 实测发现，降级只在默认 hybrid 路径成立） |
+| KB 搜索缓存键缺参 | `searchCache.ts:118-124` 键只含 `topK/currentFileId/threshold/searchMode`，**不含 `pinnedWeight` 与 `queryVector`**；且仅 `kbIndexer` 索引事件触发失效、设置变更不失效 → 3min TTL 内改置顶权重或切换向量开关会复用旧排序（A4 实测发现） |
+| `rankCandidates` 死参数 | `kbSearchFts.ts:193-198` 的 `pinnedWeight` 形参函数体内零使用（×1.5 只在 `applyWeighting`），既有用例 `:165` 已注明分工 |

@@ -19,3 +19,8 @@
 - [agent-memory B-f(P0-7) 完成与口径坑](agent-memory-optimize-b-f-done.md) — 模板是「」非『』；0.5/0.6 两阈值独立；两个不可达分支别为覆盖率改源码
 - [agent-memory B-d(P0-6) 完成与回退取舍](agent-memory-b-d-done.md) — 代词闸判残余串非整串；Q12「它的」改恒等+resolved:false；coverage.include 须空格形式 + reportsDirectory 隔离
 - [agent-memory B-c(P0-4/5/6 读取) 完成与形状坑](agent-memory-optimize-b-c-done.md) — DB tool_calls 是 IAgentToolCall[] 须转 LLM 形状；repair 接 cleanup 之后；db/ai mock key 级联
+- [agent-memory-optimize-2 A1/A2 完成与空行坑](agent-memory-optimize-2-a1a2-done.md) — 三文件注入 2000 token 截断 + 摘要先行词两处同改；prompt 数组 filter(Boolean) 使 `''` 不产生空行
+- [agent-memory A3 完成与三个坑](agent-memory-a3-done.md) — expandByIntent 放 queryPlanner、fact/summary 不扩展；hasReference 裸拉丁字母误判 follow_up + P0-6 逐值锁
+- [agent-memory-optimize-2 B3 完成与三个迁移坑](agent-memory-optimize-2-b3-done.md) — B3 三文件未提交；源码 DDL 比对须归一化 CRLF + exec 多语句拆分 + 行尾注释毁列名解析
+- [agent-memory-optimize-2 B1 完成与 upsert 口径](agent-memory-optimize-2-b1-done.md) — B1 两文件未提交；AgentMemoryRow 是 camelCase + fake SQL 引擎须靠变异验证
+- [agent-memory-optimize-2 B2 完成与裁定落地](agent-memory-optimize-2-b2-done.md) — B2 四文件未提交、下一任务 B4；closeMemory 幂等闸 + merge 里 manual 败者不关 + 别跨 .test.ts import
