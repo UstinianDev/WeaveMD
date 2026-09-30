@@ -60,6 +60,7 @@ vi.mock('@main/db/embeddingConfig', () => embConfigMock);
 
 import {
   aggregateAndExpand,
+  applyWeighting,
   rankCandidates,
   sanitizeFtsQuery,
   searchKB,
@@ -497,5 +498,234 @@ describe('kbSearch — 固定 query 集命中率回归（B8 六-3）', () => {
       if (!res.refused && res.results[0]?.chunkId === fq.expectTop) hits += 1;
     }
     expect(hits).toBe(FIXED_QUERIES.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A4（agent-memory-optimize-2）：知识库红线行为级护栏补测
+// 红线：拒答 0.6 / 置顶 ×1.5 / searchMode 三模式降级行为不变（只动 tests/）
+// 性质：给既有正确行为补护栏 → 【补测】（无 RED），每条断言均做 src 变异验证
+// ---------------------------------------------------------------------------
+
+// --- A4① 置顶 ×1.5 ---------------------------------------------------------
+
+describe('kbSearch.applyWeighting — 置顶 ×1.5 红线（A4①）', () => {
+  function makeWeightInput(pinned: boolean, score = 0.02): IKbSearchResult {
+    return {
+      docId: 'd1',
+      chunkId: pinned ? 'w-pin' : 'w-plain',
+      fileName: 'n.md',
+      content: '内容',
+      seq: 0,
+      score,
+      pinned,
+      sourceRef: null,
+    };
+  }
+
+  const pinnedRows = (): Array<Record<string, unknown>> => [
+    {
+      chunkId: 'a4-pin',
+      documentId: 'a4-doc-pin',
+      content: '置顶内容',
+      seq: 0,
+      sourceRef: null,
+      pinned: 1,
+      bm: 10,
+      fileName: 'pin.md',
+      headingPath: null,
+    },
+    {
+      chunkId: 'a4-plain',
+      documentId: 'a4-doc-plain',
+      content: '普通内容',
+      seq: 0,
+      sourceRef: null,
+      pinned: 0,
+      bm: -3,
+      fileName: 'plain.md',
+      headingPath: null,
+    },
+  ];
+
+  it('pinned 结果按 pinnedWeight 乘法放大；未传 pinnedWeight 时等价 1.5，非置顶不放大', () => {
+    expect(applyWeighting(makeWeightInput(true), {}).score).toBeCloseTo(0.03, 10);
+    expect(applyWeighting(makeWeightInput(true), { pinnedWeight: 2 }).score).toBeCloseTo(0.04, 10);
+    expect(applyWeighting(makeWeightInput(false), {}).score).toBeCloseTo(0.02, 10);
+  });
+
+  it('searchKB 端到端：pinned=1 候选被 ×1.5 放大并反超更高 RRF 排名的非置顶候选', async () => {
+    fakeRows.value = pinnedRows();
+    const result = await searchKB('u1', 'A4置顶红线探针甲', { topK: 5, threshold: 0.001 });
+    expect(result.refused).toBe(false);
+    expect(result.results).toHaveLength(2);
+    // 未放大基准：plain bm=-3 → FTS rank1 → 1/61；pin bm=10 → rank2 → 1/62
+    expect(result.results[1].chunkId).toBe('a4-plain');
+    expect(result.results[1].score).toBeCloseTo(1 / 61, 6);
+    expect(result.results[0].chunkId).toBe('a4-pin');
+    expect(result.results[0].pinned).toBe(true);
+    expect(result.results[0].score).toBeCloseTo((1 / 62) * 1.5, 6);
+  });
+
+  it('searchKB 不传 pinnedWeight 与显式传 1.5 行为等价（?? 1.5 默认）', async () => {
+    const rows = pinnedRows();
+    fakeRows.value = rows;
+    const implicit = await searchKB('u1', 'A4置顶红线探针乙', { topK: 5, threshold: 0.001 });
+    fakeRows.value = rows;
+    const explicit = await searchKB('u1', 'A4置顶红线探针丙', {
+      topK: 5,
+      threshold: 0.001,
+      pinnedWeight: 1.5,
+    });
+    expect(implicit.results.map((r) => r.chunkId)).toEqual(explicit.results.map((r) => r.chunkId));
+    expect(implicit.results[0].score).toBeCloseTo(explicit.results[0].score, 10);
+    expect(implicit.results[0].score).toBeCloseTo((1 / 62) * 1.5, 6);
+  });
+});
+
+// --- A4② searchMode 三模式分支与降级语义 -----------------------------------
+
+describe('kbSearch.searchKB — searchMode 三模式分支与降级语义（A4②）', () => {
+  const ftsRow = (): Record<string, unknown> => ({
+    chunkId: 'a4-fts',
+    documentId: 'a4-doc-x',
+    content: '内容',
+    seq: 0,
+    sourceRef: null,
+    pinned: 0,
+    bm: -2,
+    fileName: 'x.md',
+    headingPath: null,
+  });
+
+  it("searchMode:'fts5' → 只发 chunk FTS5 召回，携带 queryVector 也不走向量路径", async () => {
+    fakeRows.value = [ftsRow()];
+    const result = await searchKB('u1', 'A4模式探针fts5', {
+      searchMode: 'fts5',
+      queryVector: [0.1, 0.2],
+      topK: 3,
+      threshold: 0.001,
+    });
+    expect(result.refused).toBe(false);
+    expect(result.results.length).toBeGreaterThan(0);
+    expect(callOf('all', 'kb_chunks_fts')).toBeDefined();
+    expect(callOf('all', 'vec_distance_cosine')).toBeUndefined();
+    expect(result.diagnostics?.counts.fts5Candidates).toBe(1);
+    expect(result.diagnostics?.counts.vectorCandidates).toBe(0);
+  });
+
+  it("searchMode:'vector' + queryVector → 只走向量召回，不发 chunk FTS5 SQL", async () => {
+    fakeRows.value = [
+      {
+        chunkId: 'a4-vec',
+        documentId: 'a4-doc-v',
+        content: '内容',
+        seq: 0,
+        sourceRef: null,
+        pinned: 0,
+        bm: 0,
+        fileName: 'v.md',
+        headingPath: null,
+        updatedAt: null,
+        distance: 0.2,
+      },
+    ];
+    const result = await searchKB('u1', 'A4模式探针vector', {
+      searchMode: 'vector',
+      queryVector: [0.1, 0.2],
+      topK: 3,
+      threshold: 0.001,
+    });
+    expect(result.refused).toBe(false);
+    expect(result.results.length).toBeGreaterThan(0);
+    expect(callOf('all', 'vec_distance_cosine')).toBeDefined();
+    expect(callOf('all', 'kb_chunks_fts')).toBeUndefined();
+    expect(result.diagnostics?.counts.vectorCandidates).toBe(1);
+    expect(result.diagnostics?.counts.fts5Candidates).toBe(0);
+  });
+
+  it("searchMode:'vector' + queryVector 但 embedding 未配置 → 不报错，向量召回仍返回结果（无模型过滤）", async () => {
+    embConfigMock.getEmbeddingConfig.mockReturnValue(null);
+    fakeRows.value = [
+      {
+        chunkId: 'a4-vec-noemb',
+        documentId: 'a4-doc-v2',
+        content: '内容',
+        seq: 0,
+        sourceRef: null,
+        pinned: 0,
+        bm: 0,
+        fileName: 'v2.md',
+        headingPath: null,
+        updatedAt: null,
+        distance: 0.2,
+      },
+    ];
+    const result = await searchKB('u1', 'A4降级探针vector未配置embedding', {
+      searchMode: 'vector',
+      queryVector: [0.1, 0.2],
+      topK: 3,
+      threshold: 0.001,
+    });
+    expect(result.refused).toBe(false);
+    expect(result.results.length).toBeGreaterThan(0);
+    expect(embConfigMock.getEmbeddingConfig).toHaveBeenCalledWith('u1');
+    const vecStmt = callOf('all', 'vec_distance_cosine');
+    expect(vecStmt).toBeDefined();
+    expect(vecStmt!.sql).not.toContain('embedding_model = ?');
+  });
+
+  it('未传 searchMode 且无 queryVector（embedding 未配置）→ 降级 FTS5+标题，不发向量 SQL、不报错', async () => {
+    fakeRows.value = [ftsRow()];
+    const result = await searchKB('u1', 'A4降级探针默认', { topK: 3, threshold: 0.001 });
+    expect(result.refused).toBe(false);
+    expect(result.results.length).toBeGreaterThan(0);
+    expect(callOf('all', 'kb_chunks_fts')).toBeDefined();
+    expect(callOf('all', 'vec_distance_cosine')).toBeUndefined();
+  });
+
+  it("searchMode:'vector' 但未传 queryVector → 不报错，按当前行为返回规范空响应", async () => {
+    fakeRows.value = [ftsRow()];
+    const result = await searchKB('u1', 'A4降级探针vector无向量', {
+      searchMode: 'vector',
+      topK: 3,
+    });
+    // 当前实现：vector 分支须同时满足 searchMode 与 queryVector；
+    // 无 queryVector 时 chunk FTS5 路不回退 → 无候选 → 规范拒答空响应（不抛错）。
+    expect(result.threshold).toBe(0.6);
+    expect(result.results).toEqual([]);
+    expect(result.best).toBeNull();
+    expect(result.refused).toBe(true);
+  });
+});
+
+// --- A4③ 未传 threshold 时默认 0.6 ------------------------------------------
+
+describe('kbSearch.searchKB — 未传 threshold 默认 0.6 红线（A4③）', () => {
+  it('不传 threshold → 返回体 threshold === 0.6，拒答判定按 0.6 执行', async () => {
+    fakeRows.value = [
+      {
+        chunkId: 'a4-thr',
+        documentId: 'a4-doc-t',
+        content: '内容',
+        seq: 0,
+        sourceRef: null,
+        pinned: 0,
+        bm: -2,
+        fileName: 't.md',
+        headingPath: null,
+      },
+    ];
+    const result = await searchKB('u1', 'A4阈值默认探针', { topK: 5 });
+    expect(result.threshold).toBe(0.6);
+    // RRF 单候选 ≈ 1/61 ≈ 0.0164 < 0.6 → 拒答，best 仍回传 top1
+    expect(result.refused).toBe(true);
+    expect(result.best?.chunkId).toBe('a4-thr');
+  });
+
+  it('空查询早退路径同样回传默认 threshold 0.6', async () => {
+    const result = await searchKB('u1', '   ', {});
+    expect(result.threshold).toBe(0.6);
+    expect(result.refused).toBe(true);
   });
 });

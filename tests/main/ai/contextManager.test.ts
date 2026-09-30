@@ -166,11 +166,13 @@ describe('contextManager.summarizeViaLlm', () => {
       expect(msgs[i]).toEqual(sampleMessages[i]);
     }
 
-    // 验证末尾追加了压缩指令 user message
+    // 验证末尾追加了压缩指令 user message（A2：含指代先行词保留条款）
     const lastMsg = msgs[msgs.length - 1];
     expect(lastMsg.role).toBe('user');
     expect(lastMsg.content).toContain('请将以上对话压缩为不超过150字的中文摘要');
-    expect(lastMsg.content).toContain('只保留主题和关键结论');
+    expect(lastMsg.content).toContain('指代先行词');
+    expect(lastMsg.content).toContain('用户已确认的决策');
+    expect(lastMsg.content).toContain('关键结论');
   });
 
   // --- Test 2: 回退模式（无 parentTools） ---
@@ -191,6 +193,10 @@ describe('contextManager.summarizeViaLlm', () => {
     expect(msgs[0].role).toBe('system');
     expect(msgs[0].content).toContain('你是对话摘要助手');
     expect(msgs[0].content).toContain('控制在 150 字以内');
+    // A2：回退路径同样保留指代先行词 / 决策 / 结论
+    expect(msgs[0].content).toContain('指代先行词');
+    expect(msgs[0].content).toContain('用户已确认的决策');
+    expect(msgs[0].content).toContain('关键结论');
 
     // 后续消息 = 原始消息（含原始 system prompt）
     for (let i = 0; i < sampleMessages.length; i++) {
@@ -283,6 +289,83 @@ describe('contextManager.summarizeViaLlm', () => {
     expect(result).toBe('');
   });
 });
+// ============================================
+// A2 — 摘要 prompt 保留关键事实与指代先行词（两处同改、语义一致）
+// ============================================
+
+describe('contextManager A2 — 摘要 prompt 保留指代先行词', () => {
+  const sampleTools: ToolDef[] = [
+    { type: 'function', function: { name: 'readFile', description: '读文件', parameters: {} } },
+  ];
+  const sampleMessages = [
+    { role: 'system', content: '你是WeaveMD的AI写作助手。' },
+    { role: 'user', content: '帮我优化文档。' },
+    { role: 'assistant', content: '好的，我来帮你优化。' },
+  ];
+  const ctx = {
+    baseUrl: 'https://api.example.com',
+    model: 'test-model',
+    apiKey: 'sk-test',
+    timeoutMs: 30_000,
+    signal: new AbortController().signal,
+  };
+
+  /** 两路径必须同时具备的保留条款（语义一致 = 主路径与回退路径不许分叉）。 */
+  const KEEP_TERMS = ['指代先行词', '用户已确认的决策', '关键结论'];
+
+  beforeEach(() => {
+    llmClientMock.reset();
+    llmClientMock.streamChatCompletionWithRetry.mockClear();
+  });
+
+  /** 路径 A（cache-safe fork）：末尾 user 压缩指令。 */
+  async function pathAInstruction(): Promise<string> {
+    await summarizeViaLlm(sampleMessages, ctx, sampleTools);
+    const opts = llmClientMock.getLastOpts()!;
+    const msgs = opts.messages as Array<{ role: string; content: string }>;
+    return String(msgs[msgs.length - 1].content);
+  }
+
+  /** 路径 B（回退模式）：首条 system 摘要助手 prompt。 */
+  async function pathBInstruction(): Promise<string> {
+    await summarizeViaLlm(sampleMessages, ctx);
+    const opts = llmClientMock.getLastOpts()!;
+    const msgs = opts.messages as Array<{ role: string; content: string }>;
+    return String(msgs[0].content);
+  }
+
+  for (const term of KEEP_TERMS) {
+    it(`路径 A（主路径）压缩指令含「${term}」`, async () => {
+      expect(await pathAInstruction()).toContain(term);
+    });
+
+    it(`路径 B（回退）system prompt 含「${term}」`, async () => {
+      expect(await pathBInstruction()).toContain(term);
+    });
+  }
+
+  it('两处措辞语义一致：共享同一组保留条款，且都不再只讲「主题和结论」', async () => {
+    const a = await pathAInstruction();
+    const b = await pathBInstruction();
+    for (const term of KEEP_TERMS) {
+      expect(a).toContain(term);
+      expect(b).toContain(term);
+    }
+    // 指代可回指的具体要求（压缩后追问「它有什么优势」能对上先行词）
+    expect(a).toMatch(/它有什么优势|所指对象|上文/);
+    expect(b).toMatch(/它有什么优势|所指对象|上文/);
+  });
+
+  it('保留 150 字上限与「不抄录具体问答」的既有约束', async () => {
+    const a = await pathAInstruction();
+    const b = await pathBInstruction();
+    expect(a).toContain('150字');
+    expect(b).toContain('150');
+    expect(a).toMatch(/问题和答案|问题与答案/);
+    expect(b).toMatch(/问题和答案|问题与答案/);
+  });
+});
+
 // ============================================
 // B6 五-1 / Q4：content 数组 + 压缩丢图策略
 // ============================================

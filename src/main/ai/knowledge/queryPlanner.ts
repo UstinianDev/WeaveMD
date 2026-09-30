@@ -354,6 +354,65 @@ export function expandQuery(query: string, intents: QueryIntentType[]): string[]
 }
 
 // ---------------------------------------------------------------------------
+// A3：意图 → 查询扩展策略（searchKB 主管线接入）
+// ---------------------------------------------------------------------------
+
+/**
+ * A3: follow_up 真实指代词。
+ * 与 classifyIntent 内部的宽泛 hasReference 判定（含拉丁字母，易误命中）刻意区分：
+ * 扩展只在出现**真实指代词**时才替换，避免把任意英文查询误判为指代。
+ */
+const FOLLOW_UP_PRONOUN_RE = /(它|这个|那个|前者|后者|上面提到的|上面的|刚才的|之前的|该|这|那|\bthis\b|\bthat\b|\bit\b)/i;
+
+/** 单次意图扩展产出上限，防止 expandedQueries 使 kbSearch 的 UNION ALL 过大。 */
+const MAX_INTENT_EXPANSIONS = 6;
+
+/**
+ * A3: 按意图产出查询扩展（只增不改，返回值不含入参 query 自身，且已去重 + 限量）。
+ *
+ * 分工（Q12：classifyIntent 只驱动扩展策略，不碰 searchMode / topK / threshold）：
+ * - comparison / procedure → 复用既有 `expandQuery` 的对比词 / 步骤词扩展
+ * - fact / summary → 不扩展（最小召回口径）
+ * - follow_up → 用历史实体替换查询中的剩余指代词，与 P0-6 代词改写**叠加**、不覆盖主 query
+ *
+ * @param query 改写后的检索 query（effectiveQuery）
+ * @param intents classifyIntent 的分类结果
+ * @param history 对话历史（follow_up 解实体用，与 classifyIntent 同源）
+ */
+export function expandByIntent(
+  query: string,
+  intents: QueryIntentType[],
+  history?: ConversationMessage[]
+): string[] {
+  const q = query.trim();
+  if (!q || intents.length === 0) return [];
+
+  const expansions = new Set<string>();
+
+  // 对比词 / 步骤词扩展（复用既有 expandQuery；fact / summary 不在此扩展）
+  const expandable = intents.filter((i) => i === 'comparison' || i === 'procedure');
+  if (expandable.length > 0) {
+    for (const expanded of expandQuery(q, expandable)) {
+      if (expanded !== q) expansions.add(expanded);
+    }
+  }
+
+  // follow_up：保留历史实体 —— 解出实体后替换查询中残留的指代词
+  if (intents.includes('follow_up') && history && history.length > 0) {
+    const pronoun = q.match(FOLLOW_UP_PRONOUN_RE)?.[1];
+    if (pronoun) {
+      const entity = extractEntityFromHistory(history, pronoun);
+      if (entity) {
+        const replaced = q.split(pronoun).join(entity);
+        if (replaced !== q) expansions.add(replaced);
+      }
+    }
+  }
+
+  return Array.from(expansions).slice(0, MAX_INTENT_EXPANSIONS);
+}
+
+// ---------------------------------------------------------------------------
 // 模糊检测（S12 扩展：语义歧义）
 // ---------------------------------------------------------------------------
 

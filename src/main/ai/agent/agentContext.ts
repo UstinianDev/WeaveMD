@@ -9,6 +9,7 @@ import type {
   IAIConfig,
   IAIConsent,
   IAgentToolCall,
+  IGlobalAgentFiles,
   IIntent,
   ToolDef,
 } from '@shared/ai';
@@ -29,6 +30,7 @@ import {
   VISION_DEGRADED_NOTICE,
 } from './agentMedia';
 import { buildMdImageContext } from '../files/mdImageResolver';
+import { getGlobalAgentFiles } from '../files/globalAgentFiles';
 import { type ToolCtx } from '../toolRegistry';
 import { resolveSearchConfig } from '../tools/webSearch';
 import { loadSkills, type CoreSkill, type SkillRunnerCtx } from '../skills/skillLoader';
@@ -40,8 +42,8 @@ import {
   buildLocalTreeSnapshot,
   buildAttachmentManifest,
   buildAgentSystemPrompt,
+  buildChatSystemPrompt,
   shouldInjectDocumentContext,
-  CHAT_SYSTEM_PROMPT,
 } from './agentPromptBuilder';
 import { toolsForIntent } from './agentToolSelector';
 import { getRoundsForIntent, KEEP_RECENT_ROUNDS } from './agentHelpers';
@@ -241,6 +243,37 @@ export function repairToolTurnPairing(messages: AgentLlmMessage[]): AgentLlmMess
 // ---------------------------------------------------------------------------
 // 阶段 1：准备 Agent 上下文
 // ---------------------------------------------------------------------------
+
+/**
+ * A1（Q2 三文件同批 / Q4 上限）：把 soul / memory / style 三段内容拼成
+ * system prompt 注入块。三段全空白 → 返回空串（调用方 filter(Boolean) 零注入）。
+ * token 截断在 agentPromptBuilder 内做（硬上限 2000，Q4）。
+ */
+export function buildGlobalAgentFilesBlock(files: IGlobalAgentFiles): string {
+  const sections: string[] = [];
+  const push = (title: string, content: string): void => {
+    const text = (content ?? '').trim();
+    if (text) sections.push(`${title}\n${text}`);
+  };
+  push('=== soul.md（性格） ===', files.soul);
+  push('=== memory.md（记忆） ===', files.memory);
+  push('=== style.md（风格） ===', files.style);
+  if (sections.length === 0) return '';
+  return [
+    '【全局 Agent 文件】以下为用户在设置页配置的全局 Agent 文件：遵循其中的人格、长期记忆与写作风格设定。',
+    '',
+    sections.join('\n\n'),
+  ].join('\n');
+}
+
+/** A1：读取三文件并拼注入块；读取失败返回空串（不影响主流程）。 */
+function readGlobalAgentFilesBlock(): string {
+  try {
+    return buildGlobalAgentFilesBlock(getGlobalAgentFiles());
+  } catch {
+    return '';
+  }
+}
 
 /**
  * 准备 Agent 运行上下文：consent 闸 + 校验 + 消息组装 + 工具选择。
@@ -569,14 +602,18 @@ export function prepareAgentContext(
   // Bug A-1：本会话附件清单（文件名+绝对路径+attachment_id+状态）随 system 段注入，
   // LLM 拿到真实路径/附件 id 后才能正确给 readLocalFile/searchDocument 传参
   const attachmentManifest = buildAttachmentManifest(payload.attachments);
+  // A1（Q2/Q3）：soul/memory/style 三文件同批注入，落点在【核心规则】之后
+  // （Attention Anchoring，不放文档上下文之后）；chat 分支同样注入，读取只做一次。
+  const globalFilesBlock = readGlobalAgentFilesBlock();
   const agentSystemPrompt = useAgentPrompt
     ? buildAgentSystemPrompt(
         fileListSnapshot,
         localFileTreeSnapshot,
         needsClarification,
-        attachmentManifest
+        attachmentManifest,
+        globalFilesBlock
       )
-    : CHAT_SYSTEM_PROMPT;
+    : buildChatSystemPrompt(globalFilesBlock);
   llmMessages = [{ role: 'system', content: agentSystemPrompt }, ...llmMessages];
 
   // 文档上下文注入：仅 rewrite/create/tech 三个写作意图（B1 意图门控）。

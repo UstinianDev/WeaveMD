@@ -5,6 +5,7 @@ import {
   resolveReferencesDetailed,
   detectAmbiguities,
   expandQuery,
+  expandByIntent,
   understandQuery,
   planQuery,
   extractEntityFromHistory,
@@ -458,5 +459,64 @@ describe('detectAmbiguities — too_short 上下文门', () => {
     ];
     expect(detectAmbiguities('abc', history)).toContain('missing_subject');
     expect(detectAmbiguities('abc')).toContain('missing_subject');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A3: expandByIntent — 意图 → 查询扩展策略（searchKB 主管线）
+// ---------------------------------------------------------------------------
+
+describe('A3 expandByIntent（意图 → 查询扩展策略）', () => {
+  const HISTORY_WITH_ENTITY: ConversationMessage[] = [
+    { role: 'user', content: '请帮我分析关于SQLite' },
+  ];
+  const HISTORY_UNRESOLVABLE: ConversationMessage[] = [
+    { role: 'user', content: 'WeaveMD项目的架构是怎样的？' },
+  ];
+
+  it('comparison → 对比词扩展，且不返回入参 query 自身', () => {
+    const exp = expandByIntent('React和Vue的区别', ['comparison']);
+    expect(exp.length).toBeGreaterThan(0);
+    expect(exp).not.toContain('React和Vue的区别');
+    expect(exp.some((e) => e.includes('优缺点') || e.includes('对比') || e.includes('优劣'))).toBe(true);
+  });
+
+  it('procedure → 步骤词/操作词扩展', () => {
+    const exp = expandByIntent('部署的步骤是什么', ['procedure']);
+    expect(exp.some((e) => e.includes('教程') || e.includes('指南') || e.includes('方法'))).toBe(true);
+  });
+
+  it('fact → 不扩展（最小召回口径）', () => {
+    expect(expandByIntent('什么是闭包', ['fact'], [])).toEqual([]);
+  });
+
+  it('summary → 不扩展（按需最小扩展）', () => {
+    expect(expandByIntent('总结一下这篇文章', ['summary'], [])).toEqual([]);
+  });
+
+  it('复合意图 fact+comparison → comparison 驱动扩展', () => {
+    const exp = expandByIntent('为什么React和Vue的区别这么大', ['fact', 'comparison']);
+    expect(exp.some((e) => e.includes('优缺点') || e.includes('对比') || e.includes('优劣'))).toBe(true);
+  });
+
+  it('follow_up → 用历史实体替换查询中的指代词', () => {
+    const exp = expandByIntent('对比它和Postgres的优缺点', ['follow_up'], HISTORY_WITH_ENTITY);
+    expect(exp).toEqual(['对比SQLite和Postgres的优缺点']);
+  });
+
+  it('follow_up → 历史解不出实体则不产出扩展', () => {
+    expect(
+      expandByIntent('它的主要模块有哪些？', ['follow_up'], HISTORY_UNRESOLVABLE)
+    ).toEqual([]);
+  });
+
+  it('follow_up → 无历史则不产出扩展', () => {
+    expect(expandByIntent('它的优势是什么？', ['follow_up'])).toEqual([]);
+  });
+
+  it('无重复且条数有上限（防 UNION ALL 过大）', () => {
+    const exp = expandByIntent('React和Vue的区别', ['comparison', 'procedure']);
+    expect(new Set(exp).size).toBe(exp.length);
+    expect(exp.length).toBeLessThanOrEqual(6);
   });
 });

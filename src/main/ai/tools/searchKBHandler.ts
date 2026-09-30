@@ -1,7 +1,7 @@
 import type { ToolCtx, ToolResult } from '../toolTypes';
 import type { IQueryUnderstanding } from '@shared/ai/kb';
 import type { ConversationMessage } from '../knowledge/queryPlanner';
-import { detectAmbiguities, classifyIntent, resolveReferencesDetailed } from '../knowledge/queryPlanner';
+import { detectAmbiguities, classifyIntent, resolveReferencesDetailed, expandByIntent } from '../knowledge/queryPlanner';
 import { buildClarificationContext } from '../knowledge/knowledgeClarify';
 import { getCachedHydeResult, setCachedHydeResult } from '../knowledge/searchCache';
 
@@ -15,8 +15,9 @@ import { getCachedHydeResult, setCachedHydeResult } from '../knowledge/searchCac
  * confidence 基于最佳搜索得分（0~1 映射），歧义检测走 queryPlanner 规则引擎。
  *
  * P0-6：history 透传 detectAmbiguities（代词/过短判定的历史门控随之放行）。
+ * A3：history 同步透传 classifyIntent（有历史时 follow_up 判定不再退化为 fact）。
  */
-function buildMinimalUnderstanding(
+export function buildMinimalUnderstanding(
   query: string,
   res: {
     refused: boolean;
@@ -27,7 +28,7 @@ function buildMinimalUnderstanding(
   history?: ConversationMessage[]
 ): IQueryUnderstanding {
   const ambiguities = detectAmbiguities(query, history);
-  const intents = classifyIntent(query);
+  const intents = classifyIntent(query, history);
   const primaryIntent = intents[0] ?? 'fact';
 
   // confidence 从最佳搜索得分推断
@@ -51,6 +52,18 @@ function buildMinimalUnderstanding(
 // ---------------------------------------------------------------------------
 // 工具处理器
 // ---------------------------------------------------------------------------
+
+/**
+ * 合并 P0-6 原 query 回退与 A3 意图扩展。
+ * 两者皆空时返回 undefined，保持改前语义（不传 expandedQueries）。
+ */
+function mergeExpandedQueries(base: string[] | undefined, additions: string[]): string[] | undefined {
+  const merged = new Set<string>(base ?? []);
+  for (const addition of additions) {
+    if (addition) merged.add(addition);
+  }
+  return merged.size > 0 ? Array.from(merged) : undefined;
+}
 
 export async function handleSearchKB(args: Record<string, unknown>, ctx: ToolCtx): Promise<ToolResult> {
   if (!ctx.searchKb) {
@@ -85,12 +98,18 @@ export async function handleSearchKB(args: Record<string, unknown>, ctx: ToolCtx
     }
   }
 
+  // A3: 用改写后的 effectiveQuery 做意图分类 —— 只驱动查询扩展策略，
+  // 绝不改 searchMode / topK / threshold / pinnedWeight（searchMode 仍由 LLM 入参决定）
+  const intents = classifyIntent(effectiveQuery, ctx.history);
+  const intentExpansions = expandByIntent(effectiveQuery, intents, ctx.history);
+
   const res = await ctx.searchKb(ctx.userId, effectiveQuery, {
     topK,
     queryVector,
     searchMode,
-    // P0-6 双路召回：改写发生时原 query 走 expandedQueries + RRF，不二选一
-    expandedQueries: resolved ? [query] : undefined,
+    // P0-6 双路召回：改写发生时原 query 走 expandedQueries + RRF，不二选一；
+    // A3: 意图扩展与原 query 回退叠加
+    expandedQueries: mergeExpandedQueries(resolved ? [query] : undefined, intentExpansions),
   });
 
   // R4: 搜索被拒或无结果时，检测是否需要澄清

@@ -22,6 +22,39 @@ const MAX_FILE_LIST = 50;
 const MAX_LOCAL_TREE = 30;
 
 // ---------------------------------------------------------------------------
+// 全局 Agent 文件注入（agent-memory-optimize-2 A1）
+// ---------------------------------------------------------------------------
+
+/**
+ * 全局 Agent 文件（soul/memory/style）注入块 token 硬上限（Q4 裁定 2000）。
+ * 设置页 recommendedChars 本批不改，此处为发送侧兜底闸。
+ */
+export const GLOBAL_FILES_TOKEN_LIMIT = 2000;
+
+/** 超限截断后的块尾标注（Q4）。 */
+const GLOBAL_FILES_CUT_MARKER = '\n(已截断，完整内容见设置页)';
+
+/**
+ * 全局 Agent 文件块超限截断：按 token 上限二分裁剪，块尾追加截断标注。
+ * 保证返回值 `estimateTokens(结果) <= limit`（标注计入上限）。
+ */
+function truncateGlobalFilesBlock(block: string, limit: number): string {
+  if (estimateTokens(block) <= limit) return block;
+  // 前缀越短 token 越少 → 谓词单调，二分取满足上限的最大前缀
+  let lo = 0;
+  let hi = block.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (estimateTokens(block.slice(0, mid) + GLOBAL_FILES_CUT_MARKER) <= limit) {
+      lo = mid;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return `${block.slice(0, lo)}${GLOBAL_FILES_CUT_MARKER}`;
+}
+
+// ---------------------------------------------------------------------------
 // 叙述长度上限（agent-cost-optimize A4）
 // ---------------------------------------------------------------------------
 
@@ -265,12 +298,16 @@ export function buildAttachmentManifest(
 /**
  * 组装 Agent 系统提示（非 chat 意图，或带附件/需澄清 —— Bug A-2）。
  * @param attachmentManifest 本会话附件清单（buildAttachmentManifest 产物，空串不注入）
+ * @param globalFilesBlock 全局 Agent 文件块（soul/memory/style，agent-memory-optimize-2 A1）
+ *   —— 空串/纯空白不注入，输出与不传参时逐字一致；超 2000 token 截断并标注。
+ *   位置紧跟【核心规则】（Attention Anchoring，不放文档上下文之后）。
  */
 export function buildAgentSystemPrompt(
   fileListSnapshot: string,
   localFileTreeSnapshot: string,
   needsClarification?: boolean,
-  attachmentManifest?: string
+  attachmentManifest?: string,
+  globalFilesBlock?: string
 ): string {
   const clarificationPrefix = needsClarification
     ? [
@@ -278,6 +315,11 @@ export function buildAgentSystemPrompt(
         '',
       ].join('\n')
     : '';
+
+  const globalFiles = truncateGlobalFilesBlock(
+    (globalFilesBlock ?? '').trim(),
+    GLOBAL_FILES_TOKEN_LIMIT
+  );
 
   return [
     '你是 WeaveMD 的 AI 写作助手。',
@@ -289,6 +331,7 @@ export function buildAgentSystemPrompt(
     '3. 用户消息中的指代词（如“它”“这个”）结合历史与摘要理解所指对象',
     '4. 当看到 "=== 当前用户问题 ===" 标记时，那是你必须回答的问题',
     '',
+    ...(globalFiles ? [globalFiles, ''] : []),
     '## 工作流',
     '0. 【关键】收到用户消息后，先规划完成任务需要哪些工具，然后立即调用工具获取信息，拿到工具返回结果后再基于结果输出文本回答。不要在调用工具前输出大段文字——文本应出现在工具结果之后。',
     '1. 简单问题（计算/闲聊/通用知识）直接回答，不调工具。',
@@ -365,8 +408,8 @@ export function buildAgentSystemPrompt(
   ].filter(Boolean).join('\n');
 }
 
-/** Chat 意图的简短系统提示。 */
-export const CHAT_SYSTEM_PROMPT = [
+/** Chat 意图系统提示的正文段（【核心规则】之前的引导 + 四条核心规则）。 */
+const CHAT_HEAD_LINES = [
   '你是 WeaveMD 的 AI 助手。直接、简洁地回答用户问题。不要提及工具、文件或文档。',
   '',
   '【核心规则】',
@@ -374,6 +417,26 @@ export const CHAT_SYSTEM_PROMPT = [
   '2. 历史与摘要仅用于理解当前问题中的指代与上下文，不要延续上一轮未完成的作答',
   '3. 用户消息中的指代词（如“它”“这个”）结合历史与摘要理解所指对象',
   '4. 与当前问题无关的历史话题不主动展开',
-  '',
-  '【注意力锚点】当看到 "=== 当前用户问题 ===" 标记时，那是你必须回答的问题。',
-].join('\n');
+];
+
+/** Chat 意图系统提示的收尾锚点（必须留在最后一行，recency bias）。 */
+const CHAT_ANCHOR_LINE =
+  '【注意力锚点】当看到 "=== 当前用户问题 ===" 标记时，那是你必须回答的问题。';
+
+/** Chat 意图的简短系统提示（A1 注入前的逐字基线，既有护栏断言对象）。 */
+export const CHAT_SYSTEM_PROMPT = [...CHAT_HEAD_LINES, '', CHAT_ANCHOR_LINE].join('\n');
+
+/**
+ * 组装 Chat 系统提示：基线正文 + 可选全局 Agent 文件块（soul/memory/style）。
+ * 与 `buildAgentSystemPrompt` 同款处理：trim 后为空不注入（输出与
+ * `CHAT_SYSTEM_PROMPT` 逐字一致）、超 2000 token 截断并标注。
+ * 块插在【核心规则】之后、【注意力锚点】之前 —— 锚点仍居末行。
+ */
+export function buildChatSystemPrompt(globalFilesBlock?: string): string {
+  const globalFiles = truncateGlobalFilesBlock(
+    (globalFilesBlock ?? '').trim(),
+    GLOBAL_FILES_TOKEN_LIMIT
+  );
+  if (!globalFiles) return CHAT_SYSTEM_PROMPT;
+  return [...CHAT_HEAD_LINES, globalFiles, '', CHAT_ANCHOR_LINE].join('\n');
+}

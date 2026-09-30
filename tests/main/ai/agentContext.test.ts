@@ -90,6 +90,18 @@ vi.mock('@main/ai/tools/webSearch', () => ({
 vi.mock('@main/ai/agent/agentEventStore', () => ({
   persistAndSend: vi.fn(),
 }));
+// A1：全局 Agent 文件（soul/memory/style）读取注入（内容可控）
+const globalAgentFilesMock = vi.hoisted(() => ({
+  getGlobalAgentFiles: vi.fn(),
+}));
+vi.mock('@main/ai/files/globalAgentFiles', () => globalAgentFilesMock);
+
+/** 全局 Agent 文件夹具（mock 默认返回值，断言与注入内容同源）。 */
+const GLOBAL_FILES_FIXTURE = {
+  soul: 'SOUL_E2E_保持直接冷静',
+  memory: 'MEMORY_E2E_用户偏好与已确认决策',
+  style: 'STYLE_E2E_写作风格保留事实',
+};
 // agentToolSelector 依赖 toolRegistry（24 工具全量链路）→ mock 最小工具集
 vi.mock('@main/ai/toolRegistry', () => ({
   defineCoreTools: vi.fn(() => [
@@ -103,12 +115,13 @@ import {
   prepareAgentContext,
   repairToolTurnPairing,
   MISSING_TOOL_RESULT_PLACEHOLDER,
+  buildGlobalAgentFilesBlock,
 } from '@main/ai/agent/agentContext';
 import { buildCompressed } from '@main/ai/contextManager';
 import type { LlmMessage } from '@main/ai/contextManager';
 import type { AgentLlmMessage } from '@main/ai/agent/agentLoop';
 import { classifyIntent } from '@main/ai/intentRouter';
-import { CHAT_SYSTEM_PROMPT } from '@main/ai/agent/agentPromptBuilder';
+import { CHAT_SYSTEM_PROMPT, buildChatSystemPrompt } from '@main/ai/agent/agentPromptBuilder';
 import type { IAIConfig, IAttachmentMeta, IAIMessage, IAgentToolCall } from '@shared/ai';
 import type { AgentReqPayload } from '@main/ai/agent/agentLoop';
 
@@ -163,6 +176,8 @@ beforeEach(() => {
   });
   dbAiMock.getRecentMessagesByRounds.mockReset().mockReturnValue([]);
   dbKbMock.hasGrantedAttachmentDocs.mockReset().mockReturnValue(false);
+  // A1：全局文件默认返回夹具（mockReset 顺带清掉用例残留的 mockImplementationOnce）
+  globalAgentFilesMock.getGlobalAgentFiles.mockReset().mockReturnValue(GLOBAL_FILES_FIXTURE);
 });
 
 describe('R3 — toolCtx.attachmentEgressAllowed 注入（allowSend ∨ 勾选授权）', () => {
@@ -293,10 +308,15 @@ describe('Bug A-2 — 附件消息不受 chat 意图提示词禁令锁死', () =
     expect(text).not.toBe(CHAT_SYSTEM_PROMPT);
   });
 
-  it('纯闲聊无附件 → 仍走 CHAT_SYSTEM_PROMPT（零回归）', () => {
+  it('纯闲聊无附件 → 仍走 chat 提示（基线正文逐字保留 + 全局文件块）', () => {
     const ctx = runPrepare(makePayload({ message: '你好，今天天气怎么样？' }), ALLOW_ALL);
     expect(ctx.llmMessages[0].role).toBe('system');
-    expect(ctx.llmMessages[0].content).toBe(CHAT_SYSTEM_PROMPT);
+    // 内容 = 基线 CHAT 正文 + 三文件块（引用方式变更，字符串基线未改）
+    expect(ctx.llmMessages[0].content).toBe(
+      buildChatSystemPrompt(buildGlobalAgentFilesBlock(GLOBAL_FILES_FIXTURE))
+    );
+    expect(String(ctx.llmMessages[0].content)).toContain('不要提及工具、文件或文档');
+    expect(String(ctx.llmMessages[0].content)).toContain(GLOBAL_FILES_FIXTURE.memory);
   });
 });
 
@@ -524,9 +544,12 @@ describe('A-b-3 — classifyIntent 接线 { hasHistory }', () => {
     const ctx = runPrepare(makePayload({ message: SHORT_QUERY }), ALLOW_ALL);
     expect(intentRouterMock.classifyIntent).toHaveBeenCalledTimes(1);
     expect(intentRouterMock.classifyIntent).toHaveBeenCalledWith(SHORT_QUERY, { hasHistory: true });
-    // 端到端：needsClarification 未因字数置位 → 仍走 CHAT_SYSTEM_PROMPT
+    // 端到端：needsClarification 未因字数置位 → 仍走 chat 提示（非 Agent 提示）
     expect(ctx.intent.needsClarification).not.toBe(true);
-    expect(ctx.llmMessages[0].content).toBe(CHAT_SYSTEM_PROMPT);
+    expect(ctx.llmMessages[0].content).toBe(
+      buildChatSystemPrompt(buildGlobalAgentFilesBlock(GLOBAL_FILES_FIXTURE))
+    );
+    expect(ctx.llmMessages[0].content).not.toContain('ask_question_card');
   });
 
   it('仅 user 孤立历史行（无 assistant）→ { hasHistory:false }，长度门照旧', () => {
@@ -557,7 +580,11 @@ describe('A-b-3 — classifyIntent 接线 { hasHistory }', () => {
     expect(intentRouterMock.classifyIntent).toHaveBeenCalledWith('你好，今天天气怎么样？', {
       hasHistory: true,
     });
-    expect(ctx.llmMessages[0].content).toBe(CHAT_SYSTEM_PROMPT);
+    expect(ctx.llmMessages[0].content).toBe(
+      buildChatSystemPrompt(buildGlobalAgentFilesBlock(GLOBAL_FILES_FIXTURE))
+    );
+    // 非 chat 提示（Agent 提示特有段落不出现）
+    expect(ctx.llmMessages[0].content).not.toContain('## 工作流');
   });
 });
 
@@ -904,5 +931,124 @@ describe('B-c P0-4 — repairToolTurnPairing 配对修复', () => {
     expect(
       ctx.llmMessages.some((m) => m.role === 'assistant' && !!m.tool_calls)
     ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A1 — soul/memory/style 三文件注入 system prompt（Q2 同批 / Q3 落点 / Q4 上限）
+// ---------------------------------------------------------------------------
+
+describe('A1 — 全局 Agent 文件注入 system prompt', () => {
+  const ALLOW_ALL = {
+    consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+  };
+  const AGENT_MSG = '请帮我写一篇关于 SQLite 的技术文章';
+  const CHAT_MSG = '你好，今天天气怎么样？';
+
+  it('三文件内容进首条 system 消息，且位于【核心规则】之后、## 工作流 之前', () => {
+    const ctx = runPrepare(makePayload({ message: AGENT_MSG }), ALLOW_ALL);
+    expect(ctx.intent.intent).not.toBe('chat');
+    const text = String(ctx.llmMessages[0].content);
+    const idxCore = text.indexOf('【核心规则】');
+    const idxWorkflow = text.indexOf('## 工作流');
+    expect(idxCore).toBeGreaterThan(-1);
+    expect(idxWorkflow).toBeGreaterThan(idxCore);
+    for (const marker of [GLOBAL_FILES_FIXTURE.soul, GLOBAL_FILES_FIXTURE.memory, GLOBAL_FILES_FIXTURE.style]) {
+      expect(text).toContain(marker);
+      expect(text.indexOf(marker)).toBeGreaterThan(idxCore);
+      expect(text.indexOf(marker)).toBeLessThan(idxWorkflow);
+    }
+    expect(text).toContain('【全局 Agent 文件】');
+    expect(globalAgentFilesMock.getGlobalAgentFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it('chat 意图（无附件、无澄清）→ 同样读三文件并注入，且位于【核心规则】与【注意力锚点】之间', () => {
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue([
+      { role: 'assistant', content: '上一轮回答' },
+    ]);
+    const ctx = runPrepare(makePayload({ message: CHAT_MSG }), ALLOW_ALL);
+    expect(ctx.intent.intent).toBe('chat');
+    expect(ctx.llmMessages[0].content).toBe(
+      buildChatSystemPrompt(buildGlobalAgentFilesBlock(GLOBAL_FILES_FIXTURE))
+    );
+    const text = String(ctx.llmMessages[0].content);
+    const idxCore = text.indexOf('【核心规则】');
+    const idxSoul = text.indexOf(GLOBAL_FILES_FIXTURE.soul);
+    const idxAnchor = text.indexOf('【注意力锚点】');
+    expect(idxSoul).toBeGreaterThan(idxCore);
+    expect(idxAnchor).toBeGreaterThan(idxSoul);
+    // 锚点仍在最后一行
+    expect(text.endsWith('那是你必须回答的问题。')).toBe(true);
+    expect(globalAgentFilesMock.getGlobalAgentFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it('chat 意图三段全空 → 输出逐字等于 CHAT_SYSTEM_PROMPT 基线（sha256）', () => {
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue([
+      { role: 'assistant', content: '上一轮回答' },
+    ]);
+    globalAgentFilesMock.getGlobalAgentFiles.mockReturnValue({
+      soul: '  ',
+      memory: '',
+      style: '\n',
+    });
+    const ctx = runPrepare(makePayload({ message: CHAT_MSG }), ALLOW_ALL);
+    expect(ctx.llmMessages[0].content).toBe(CHAT_SYSTEM_PROMPT);
+    expect(ctx.llmMessages[0].content).toBe(buildChatSystemPrompt());
+  });
+
+  it('chat 分支读取抛错 → 主流程不中断、降级为 CHAT_SYSTEM_PROMPT 基线', () => {
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue([
+      { role: 'assistant', content: '上一轮回答' },
+    ]);
+    globalAgentFilesMock.getGlobalAgentFiles.mockImplementationOnce(() => {
+      throw new Error('EIO: 全局文件读取失败');
+    });
+    const ctx = runPrepare(makePayload({ message: CHAT_MSG }), ALLOW_ALL);
+    expect(ctx.intent.intent).toBe('chat');
+    expect(ctx.llmMessages[0].content).toBe(CHAT_SYSTEM_PROMPT);
+    expect(String(ctx.llmMessages[0].content)).not.toContain('【全局 Agent 文件】');
+  });
+
+  it('三段全空/全空白 → 不注入块，也不留下多余空行', () => {
+    globalAgentFilesMock.getGlobalAgentFiles.mockReturnValue({
+      soul: '  ',
+      memory: '',
+      style: '\n\t',
+    });
+    const ctx = runPrepare(makePayload({ message: AGENT_MSG }), ALLOW_ALL);
+    const text = String(ctx.llmMessages[0].content);
+    expect(text).not.toContain('【全局 Agent 文件】');
+    // 核心规则与工作流之间不因注入失败多出空行（与改动前逐字一致）
+    expect(text).toContain(
+      '4. 当看到 "=== 当前用户问题 ===" 标记时，那是你必须回答的问题\n## 工作流'
+    );
+    expect(text).not.toContain('问题\n\n## 工作流');
+  });
+
+  it('读取抛错 → 主流程不中断、不注入块', () => {
+    globalAgentFilesMock.getGlobalAgentFiles.mockImplementationOnce(() => {
+      throw new Error('EIO: 全局文件读取失败');
+    });
+    const ctx = runPrepare(makePayload({ message: AGENT_MSG }), ALLOW_ALL);
+    const text = String(ctx.llmMessages[0].content);
+    expect(ctx.intent.intent).not.toBe('chat');
+    expect(text).toContain('【核心规则】');
+    expect(text).not.toContain('【全局 Agent 文件】');
+  });
+
+  it('buildGlobalAgentFilesBlock：三段拼装带文件名小节头', () => {
+    const block = buildGlobalAgentFilesBlock(GLOBAL_FILES_FIXTURE);
+    expect(block).toContain('【全局 Agent 文件】');
+    expect(block).toContain('soul.md');
+    expect(block).toContain('memory.md');
+    expect(block).toContain('style.md');
+    expect(block).toContain(GLOBAL_FILES_FIXTURE.memory);
+    expect(block.indexOf('soul.md')).toBeLessThan(block.indexOf('memory.md'));
+    expect(block.indexOf('memory.md')).toBeLessThan(block.indexOf('style.md'));
+  });
+
+  it('buildGlobalAgentFilesBlock：全空返回空串（调用方 filter(Boolean) 零注入）', () => {
+    expect(buildGlobalAgentFilesBlock({ soul: '', memory: '', style: '' })).toBe('');
+    expect(buildGlobalAgentFilesBlock({ soul: '   ', memory: '\n', style: '' })).toBe('');
   });
 });

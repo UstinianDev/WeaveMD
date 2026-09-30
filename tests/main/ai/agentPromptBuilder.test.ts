@@ -6,14 +6,18 @@
 // 质量护栏：豁免关键词必须在位
 
 import { describe, expect, it } from 'vitest';
+import { createHash } from 'crypto';
 import {
   buildAgentSystemPrompt,
+  buildChatSystemPrompt,
   buildDocumentContext,
   shouldInjectDocumentContext,
   CHAT_SYSTEM_PROMPT,
   FILE_OP_NARRATION_TOKEN_LIMIT,
   FILE_OP_NARRATION_TOKEN_LIMITS,
+  GLOBAL_FILES_TOKEN_LIMIT,
 } from '@main/ai/agent/agentPromptBuilder';
+import { estimateTokens } from '@main/ai/utils/tokenEstimator';
 
 const prompt = buildAgentSystemPrompt('', '', false);
 const clarificationPrompt = buildAgentSystemPrompt('', '', true);
@@ -344,5 +348,158 @@ describe('P0-2 — 去反上下文统一措辞', () => {
     expect(CHAT_SYSTEM_PROMPT).toContain('【核心规则】');
     expect(CHAT_SYSTEM_PROMPT).toContain('【注意力锚点】');
     expect(CHAT_SYSTEM_PROMPT).toContain('不要提及工具、文件或文档');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A1 — soul/memory/style 三文件注入 system prompt（Q2 三文件同批 / Q3 落点 / Q4 上限）
+// ---------------------------------------------------------------------------
+
+/** Q4：全局 Agent 文件块 token 硬上限。 */
+const TOKEN_LIMIT = 2000;
+
+/** TDD 前实测的改动前基线（sha256 逐字比对，防「不传参输出变了」）。 */
+const BASELINE_SHA256 = {
+  plain: '9ba9bb48319e34411a5c1eb057e7ef6f87a4ce7b7aaa6ad3b114355e378b0c50',
+  clarify: 'e2986c850b0fe424530966fa22b8ddca5217ae0f38c4d698b6449ed1f902b940',
+  withSnapshots: '69cf1b0deeb73754b0d03200a36dcca7791bd61f59392a5d0e990a503de00aaa',
+  chat: '5fe8db450e65ee999f8ea943b730d6577194db0c50997e1ebc55bcefa101210d',
+};
+
+function sha256(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+describe('A1 — 全局 Agent 文件（soul/memory/style）注入', () => {
+  const SOUL = 'SOUL_MARKER_保持直接冷静';
+  const MEMORY = 'MEMORY_MARKER_用户偏好与已确认决策';
+  const STYLE = 'STYLE_MARKER_写作风格保留事实';
+  const block = [
+    '【全局 Agent 文件】以下为用户配置的全局 Agent 文件。',
+    '',
+    [`=== soul.md（性格） ===\n${SOUL}`, `=== memory.md（记忆） ===\n${MEMORY}`, `=== style.md（风格） ===\n${STYLE}`].join('\n\n'),
+  ].join('\n');
+
+  it('三文件内容进输出，且位于【核心规则】之后、## 工作流 之前', () => {
+    const out = buildAgentSystemPrompt('', '', false, '', block);
+    const idxCore = out.indexOf('【核心规则】');
+    const idxBlock = out.indexOf(SOUL);
+    const idxWorkflow = out.indexOf('## 工作流');
+    expect(idxCore).toBeGreaterThan(-1);
+    expect(idxBlock).toBeGreaterThan(idxCore);
+    expect(idxWorkflow).toBeGreaterThan(idxBlock);
+    expect(out).toContain(MEMORY);
+    expect(out).toContain(STYLE);
+    expect(out).toContain('soul.md');
+    expect(out).toContain('memory.md');
+    expect(out).toContain('style.md');
+  });
+
+  it('不传第 5 参（或传空串）输出与改动前逐字一致（sha256 基线）', () => {
+    expect(sha256(buildAgentSystemPrompt('', '', false))).toBe(BASELINE_SHA256.plain);
+    expect(sha256(buildAgentSystemPrompt('', '', true))).toBe(BASELINE_SHA256.clarify);
+    expect(sha256(buildAgentSystemPrompt('FILELIST', 'TREE', false, 'ATTMANIFEST'))).toBe(
+      BASELINE_SHA256.withSnapshots
+    );
+    expect(sha256(CHAT_SYSTEM_PROMPT)).toBe(BASELINE_SHA256.chat);
+    // 空串与不传参等价（agentContext 读取失败时的降级路径）
+    expect(sha256(buildAgentSystemPrompt('', '', false, '', ''))).toBe(BASELINE_SHA256.plain);
+    // 纯空白块同样不注入（不产生空行噪音）
+    expect(sha256(buildAgentSystemPrompt('', '', false, '', '   \n  '))).toBe(
+      BASELINE_SHA256.plain
+    );
+  });
+
+  it('超过 2000 token 触发截断并在块尾标注', () => {
+    const huge = `【全局 Agent 文件】\n${'很长的记忆内容'.repeat(4000)}`;
+    expect(estimateTokens(huge)).toBeGreaterThan(TOKEN_LIMIT);
+    const out = buildAgentSystemPrompt('', '', false, '', huge);
+    expect(out).toContain('已截断');
+    expect(out).toContain('完整内容见设置页');
+    // 截断后的块（含标注）不超上限
+    const seg = out
+      .slice(out.indexOf('【全局 Agent 文件】'), out.indexOf('## 工作流'))
+      .trim();
+    expect(estimateTokens(seg)).toBeLessThanOrEqual(TOKEN_LIMIT);
+    expect(estimateTokens(seg)).toBeGreaterThan(0);
+  });
+
+  it('2000 token 以内的块不截断（标注不出现）', () => {
+    const small = `【全局 Agent 文件】\n${SOUL}`;
+    expect(estimateTokens(small)).toBeLessThanOrEqual(TOKEN_LIMIT);
+    const out = buildAgentSystemPrompt('', '', false, '', small);
+    expect(out).toContain(SOUL);
+    expect(out).not.toContain('已截断');
+  });
+
+  it('导出的 token 上限为 2000（Q4 裁定值）', () => {
+    expect(GLOBAL_FILES_TOKEN_LIMIT).toBe(2000);
+    expect(TOKEN_LIMIT).toBe(GLOBAL_FILES_TOKEN_LIMIT);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A1 追加（用户裁定）— chat 意图同样注入三文件：buildChatSystemPrompt
+// ---------------------------------------------------------------------------
+
+describe('A1 chat — buildChatSystemPrompt 全局 Agent 文件注入', () => {
+  const SOUL = 'SOUL_CHAT_MARKER_性格';
+  const MEMORY = 'MEMORY_CHAT_MARKER_记忆';
+  const STYLE = 'STYLE_CHAT_MARKER_风格';
+  const chatBlock = [
+    '【全局 Agent 文件】以下为用户配置的全局 Agent 文件。',
+    '',
+    [`=== soul.md（性格） ===\n${SOUL}`, `=== memory.md（记忆） ===\n${MEMORY}`, `=== style.md（风格） ===\n${STYLE}`].join('\n\n'),
+  ].join('\n');
+
+  it('不传参 / 传空串 / 传纯空白 → 与 CHAT_SYSTEM_PROMPT 逐字一致（sha256 基线）', () => {
+    expect(sha256(buildChatSystemPrompt())).toBe(BASELINE_SHA256.chat);
+    expect(sha256(buildChatSystemPrompt(''))).toBe(BASELINE_SHA256.chat);
+    expect(sha256(buildChatSystemPrompt('   \n  '))).toBe(BASELINE_SHA256.chat);
+    expect(buildChatSystemPrompt()).toBe(CHAT_SYSTEM_PROMPT);
+    // 常量本身也未被改动（既有 4 条护栏断言的对象）
+    expect(sha256(CHAT_SYSTEM_PROMPT)).toBe(BASELINE_SHA256.chat);
+  });
+
+  it('传块 → 三文件内容出现，且位于【核心规则】之后、【注意力锚点】之前', () => {
+    const out = buildChatSystemPrompt(chatBlock);
+    const idxCore = out.indexOf('【核心规则】');
+    const idxBlock = out.indexOf(SOUL);
+    const idxAnchor = out.indexOf('【注意力锚点】');
+    expect(idxCore).toBeGreaterThan(-1);
+    expect(idxBlock).toBeGreaterThan(idxCore);
+    expect(idxAnchor).toBeGreaterThan(idxBlock);
+    expect(out).toContain(MEMORY);
+    expect(out).toContain(STYLE);
+    // 基线正文逐字保留
+    expect(out).toContain('1. 你必须且只能回答用户的最后一条消息');
+    expect(out).toContain('4. 与当前问题无关的历史话题不主动展开');
+    // 锚点仍在最后一行（recency bias 不被块挤到中间）
+    expect(out.endsWith('那是你必须回答的问题。')).toBe(true);
+  });
+
+  it('chat 侧同样受 2000 token 硬上限约束并带截断标注', () => {
+    const huge = `【全局 Agent 文件】\n${'很长的记忆内容'.repeat(4000)}`;
+    const out = buildChatSystemPrompt(huge);
+    expect(out).toContain('已截断');
+    expect(out).toContain('完整内容见设置页');
+    const seg = out
+      .slice(out.indexOf('【全局 Agent 文件】'), out.indexOf('【注意力锚点】'))
+      .trim();
+    expect(estimateTokens(seg)).toBeLessThanOrEqual(TOKEN_LIMIT);
+  });
+
+  it('chat 块插入不改变基线正文本体（去块后与 CHAT_SYSTEM_PROMPT 一致）', () => {
+    const out = buildChatSystemPrompt(chatBlock);
+    const stripped = out
+      .split('\n')
+      .filter((l) => l !== SOUL && l !== MEMORY && l !== STYLE)
+      .join('\n');
+    expect(stripped).toContain('【核心规则】');
+    expect(stripped).toContain('【注意力锚点】当看到 "=== 当前用户问题 ===" 标记时，那是你必须回答的问题。');
+    // 基线的 9 行结构：4 条核心规则 + 锚点全部在位
+    for (const line of CHAT_SYSTEM_PROMPT.split('\n')) {
+      if (line.trim().length > 0) expect(stripped).toContain(line);
+    }
   });
 });

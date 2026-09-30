@@ -6,7 +6,7 @@
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-import { handleSearchKB } from '@main/ai/tools/searchKBHandler';
+import { handleSearchKB, buildMinimalUnderstanding } from '@main/ai/tools/searchKBHandler';
 import type { SearchKbFn, ToolCtx } from '@main/ai/toolTypes';
 import type { ConversationMessage } from '@main/ai/knowledge/queryPlanner';
 
@@ -191,5 +191,116 @@ describe('handleSearchKB — history 透传 detectAmbiguities', () => {
 
     const parsed = JSON.parse(res.content) as Record<string, unknown>;
     expect(String(parsed.clarificationContext)).toContain('你提到的「它的主要模块有哪些？」');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A3：classifyIntent 接入 searchKB 主管线（只驱动 expandedQueries，不碰 searchMode）
+// ---------------------------------------------------------------------------
+
+describe('A3 — classifyIntent 驱动查询扩展策略', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('comparison 意图 → expandedQueries 含对比扩展，主 query 与 searchMode 逐值不变', async () => {
+    const searchKb = makeSearchKb(() => okResults());
+    await handleSearchKB(
+      { query: 'React 和 Vue 的区别', searchMode: 'fts5', topK: 5 },
+      makeCtx({ searchKb })
+    );
+
+    const [uid, q, opts] = searchKb.mock.calls[0];
+    expect(uid).toBe('u1');
+    // 意图分类不改写主 query（改写只由 P0-6 代词改写负责）
+    expect(q).toBe('React 和 Vue 的区别');
+    // 红线：searchMode 由 LLM 入参决定，与意图分类无关
+    expect(opts?.searchMode).toBe('fts5');
+    expect(opts?.topK).toBe(5);
+    expect(opts?.threshold).toBeUndefined();
+    expect(opts?.pinnedWeight).toBeUndefined();
+
+    const exp = opts?.expandedQueries ?? [];
+    expect(exp.length).toBeGreaterThan(0);
+    expect(exp.some((e) => e.includes('优缺点') || e.includes('对比') || e.includes('优劣'))).toBe(true);
+  });
+
+  it('procedure 意图 → expandedQueries 含步骤词/操作词扩展', async () => {
+    const searchKb = makeSearchKb(() => okResults());
+    await handleSearchKB({ query: '部署的步骤是什么' }, makeCtx({ searchKb }));
+
+    const exp = searchKb.mock.calls[0][2]?.expandedQueries ?? [];
+    expect(exp.some((e) => e.includes('教程') || e.includes('指南') || e.includes('方法'))).toBe(true);
+  });
+
+  it('follow_up 意图 → 保留历史实体，且与 P0-6 原 query 回退叠加（不覆盖）', async () => {
+    const searchKb = makeSearchKb(() => okResults());
+    await handleSearchKB(
+      { query: '它的作者和它创建的时间' },
+      makeCtx({ searchKb, history: HISTORY_WITH_ENTITY })
+    );
+
+    const q = searchKb.mock.calls[0][1];
+    // P0-6：改写后的主 query 含历史实体
+    expect(q).toContain('WeaveMD');
+    const exp = searchKb.mock.calls[0][2]?.expandedQueries ?? [];
+    // 原 query 回退保留（叠加不覆盖）
+    expect(exp[0]).toBe('它的作者和它创建的时间');
+    // 历史实体被保留进扩展查询（替换掉改写后残留的指代词）
+    expect(exp.some((e) => e.includes('WeaveMD') && e !== q)).toBe(true);
+  });
+
+  it('follow_up 意图但历史解不出实体 → 不产出扩展（不制造噪声）', async () => {
+    const searchKb = makeSearchKb(() => okResults());
+    await handleSearchKB(
+      { query: '它的主要模块有哪些？' },
+      makeCtx({ searchKb, history: HISTORY_UNRESOLVABLE })
+    );
+
+    expect(searchKb.mock.calls[0][1]).toBe('它的主要模块有哪些？');
+    expect(searchKb.mock.calls[0][2]?.expandedQueries).toBeUndefined();
+  });
+
+  it('无历史新会话 + fact 意图 → 行为与改前逐值一致（无 expandedQueries）', async () => {
+    const searchKb = makeSearchKb(() => okResults());
+    await handleSearchKB(
+      { query: '什么是闭包', searchMode: 'vector', topK: 8 },
+      makeCtx({ searchKb })
+    );
+
+    const [uid, q, opts] = searchKb.mock.calls[0];
+    expect(uid).toBe('u1');
+    expect(q).toBe('什么是闭包');
+    expect(opts?.searchMode).toBe('vector');
+    expect(opts?.topK).toBe(8);
+    expect(opts?.expandedQueries).toBeUndefined();
+    expect(opts?.queryVector).toBeUndefined();
+  });
+
+  it('红线：comparison 意图下三种 searchMode 逐值透传，意图不改模式', async () => {
+    for (const mode of ['fts5', 'vector', 'hybrid'] as const) {
+      const searchKb = makeSearchKb(() => okResults());
+      await handleSearchKB(
+        { query: 'React 和 Vue 的区别', searchMode: mode },
+        makeCtx({ searchKb })
+      );
+      expect(searchKb.mock.calls[0][2]?.searchMode).toBe(mode);
+    }
+  });
+});
+
+describe('A3 — 失败旁路 buildMinimalUnderstanding 透传 history', () => {
+  it('带历史 → classifyIntent 判 follow_up（漏参修复前恒为 fact）', () => {
+    const understanding = buildMinimalUnderstanding(
+      '它的主要模块有哪些？',
+      refusedResult(),
+      HISTORY_WITH_ENTITY
+    );
+    expect(understanding.intents[0]).toBe('follow_up');
+  });
+
+  it('无历史 → 仍判 fact（既有语义不回退）', () => {
+    const understanding = buildMinimalUnderstanding('它的主要模块有哪些？', refusedResult());
+    expect(understanding.intents[0]).toBe('fact');
   });
 });
