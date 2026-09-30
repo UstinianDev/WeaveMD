@@ -12,6 +12,20 @@
 // ============================================
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+// C4 场景③：在 playwright 进程内复用主进程**纯函数**跑真实压缩链路
+// （contextManager / agentHelpers 全部相对导入，无 electron 依赖，已探针验证可加载）。
+import {
+  buildCompressed,
+  estimateContentTokens,
+  estimateTokens,
+  shouldCompress,
+  type LlmMessage,
+} from '../src/main/ai/contextManager';
+import {
+  CONTEXT_WINDOW,
+  getCompressThreshold,
+  KEEP_RECENT_ROUNDS,
+} from '../src/main/ai/agent/agentHelpers';
 
 interface AiMockOptions {
   backend?: 'remote';
@@ -40,6 +54,14 @@ interface AiMockOptions {
   /** 新建文档（Control+n 经 readDisk 打开）时注入的初始内容。
    *  用于改写用例：打开即含文本，undo 栈干净（openFile 重置），确保「一次撤销」只回退改写自身。 */
   seedContent?: string;
+  /** C4 场景③：注入「大历史会话」——预置一条 agent 会话及其全部历史消息，
+   *  `summary` 口径 = 主进程压缩后写 `ai_conversations.summary` 的摘要文本。
+   *  只加数据，不碰阈值（getCompressThreshold / KEEP_RECENT_ROUNDS 零改动）。 */
+  seedConversation?: {
+    id: string;
+    summary: string;
+    messages: Array<{ role: string; content: string }>;
+  };
   /** 模型下拉数据源（`ai.listModels` 返回；缺省返回两个内置模型名）。 */
   listModels?: string[];
   /** 模型配置内存库初值（`ai.modelConfigs.list`；缺省单条，供「删到空态」用例使用）。 */
@@ -130,6 +152,30 @@ function installWeaveMDMock(opts: AiMockOptions): void {
   }> = [];
   let seq = 1;
   const nextId = (p: string) => `${p}_${Date.now()}_${seq++}`;
+  // C4 场景③：大历史会话注入（放最前 → RECENT 排序首位稳定）
+  const seedConv = opts.seedConversation;
+  if (seedConv) {
+    const now = new Date().toISOString();
+    conversations.push({
+      id: seedConv.id,
+      userId: 'u1',
+      mode: 'agent',
+      summary: seedConv.summary,
+      createdAt: now,
+      updatedAt: now,
+    });
+    seedConv.messages.forEach((m, i) => {
+      messages.push({
+        id: `m_hist_${i}`,
+        conversationId: seedConv.id,
+        userId: 'u1',
+        role: m.role,
+        content: m.content,
+        refsJson: null,
+        createdAt: now,
+      });
+    });
+  }
   for (let i = 0; i < seed; i++) {
     const id = `c_pre_${i}`;
     conversations.push({
@@ -180,6 +226,8 @@ function installWeaveMDMock(opts: AiMockOptions): void {
     hasApiKey,
   };
   const win = window as unknown as Record<string, unknown>;
+  // C4 场景③：runAgent 上送口径记录（渲染层 → 主进程边界，仅供 E2E 断言读取）
+  win.__weaveMdAgentPayloads = [];
 
   const streamChunk = (
     conversationId: string,
@@ -329,6 +377,11 @@ function installWeaveMDMock(opts: AiMockOptions): void {
           payload.conversationId ??
           (conversations.find((c) => c.userId === payload.userId && c.mode === 'agent')?.id ??
             nextId('c'));
+        // C4 场景③：记录解析后的上送口径（含落到哪条会话），供 E2E 断言
+        (win.__weaveMdAgentPayloads as Array<Record<string, unknown>>).push({
+          ...payload,
+          conversationId: convId,
+        });
         const cb = streamCb;
         return new Promise((resolve) => {
           setTimeout(() => {
@@ -2036,6 +2089,151 @@ test('场景② chat 意图下历史仍存在：追问后第一轮 user/assistan
   await expect(firstUserBubble).toBeVisible();
   await expect(firstAssistantBubble).toBeVisible();
   await expect(panel.getByText(`Agent 完成：${FOLLOW_UP}`)).toBeVisible();
+
+  expect(errors).toEqual([]);
+});
+
+// ============================================================
+// agent-memory-optimize 第二批 C4 — 场景③「压缩触发后指代仍成立」
+//（第一批只交了①②；触发方式按总指挥裁定 = 注入大历史，绝不动阈值）
+//
+// 诚实前提（沿用本文件①②的口径，E2E 仍是 renderer-only）：
+//   真实压缩发生在主进程 agentLoop（shouldCompress → summarizeViaLlm →
+//   buildCompressed → updateConversationSummary），renderer-only E2E 不起 Electron，
+//   跑不到那条链。因此本例把「压缩」拆成两段，两段都打在真实数据上：
+//   [Node 段] playwright 进程内用**真实的** contextManager / agentHelpers 纯函数
+//             （src 一行未改）跑 shouldCompress + buildCompressed：注入大历史直到
+//             真实 token 估算跨过 shipped 阈值 0.85/64000，断言阈值仍是
+//             0.85/0.65、KEEP_RECENT_ROUNDS 仍为 3（本例没有调低阈值），
+//             并断言压缩产物 = 摘要置顶 system + 只留近 3 轮。
+//   [渲染段] 把主进程压缩后会写库的可见状态（ai_conversations.summary）与同会话
+//             大历史经既有 mock 注入，走真实渲染 + 发送链路，断言追问仍在同一会话
+//             发出、检索工具参数原样、摘要不丢、不出现「它指什么」式反问、
+//             不自发弹提问卡、无 pageerror。
+//   摘要文本由本例确定性合成（真实流程由 summarizeViaLlm 产出，E2E 不联网）；
+//   LLM 摘要生成与 agentLoop 内实际调用的根因证明在 vitest
+//   （tests/main/ai/contextManager.test.ts / agentLoop.test.ts），本例是现象层护栏。
+// ============================================================
+
+/** 场景③ 先行句（先行词 = WeaveMD 知识库）。 */
+const HISTORY_SEED_QUESTION = 'WeaveMD 的知识库怎么用';
+/** 场景③ 代词追问（带代词「它」）。 */
+const HISTORY_FOLLOW_UP = '它有什么优势';
+/** 单轮答复填充料：内容真实、长度足够，用于把 token 估算推过 shipped 阈值。 */
+const HISTORY_FILLER =
+  '知识库检索链路为 FTS5 BM25 召回 + 标题召回 + 置顶 ×1.5 加权，命中阈值 0.6 以下直接拒答，结果卡片可跳转出处段落；导入按 Markdown 解析分块，重建索引后即可检索。';
+/** 注入会话 id（mock 与断言共用）。 */
+const HISTORY_CONVERSATION_ID = 'c_hist_1';
+
+/**
+ * 构造大历史：一路加轮直到**真实 token 估算**跨过 shipped 阈值。
+ * 阈值（0.85 / 0.65）、窗口（64000）、保留轮次（3）全部读自 src，零改动。
+ */
+function buildLargeHistory(): LlmMessage[] {
+  const history: LlmMessage[] = [];
+  const target = getCompressThreshold(0) * CONTEXT_WINDOW;
+  let tokens = 0;
+  for (let round = 1; round <= 400 && tokens < target; round += 1) {
+    const question =
+      round === 1
+        ? HISTORY_SEED_QUESTION
+        : `第 ${round} 轮追问：上面那条方案的参数与失败处理再展开（第 ${round} 轮）。`;
+    const answer = `第 ${round} 轮答复：${HISTORY_FILLER.repeat(28)}`;
+    history.push({ role: 'user', content: question });
+    history.push({ role: 'assistant', content: answer });
+    tokens += estimateTokens(question) + estimateTokens(answer);
+  }
+  return history;
+}
+
+test('场景③ 压缩触发后指代仍成立：注入大历史跨过真实压缩阈值 → 追问「它有什么优势」同会话落显、工具参数原样、无反问', async ({
+  page,
+}) => {
+  // ============ Node 段：注入大历史 → 真实压缩链路（阈值零改动）============
+  const history = buildLargeHistory();
+  const historyTokens = estimateContentTokens(history);
+  const threshold = getCompressThreshold(0);
+
+  // 红线自检：本例靠注入大历史触发压缩，阈值/窗口/保留轮次必须仍是 shipped 值
+  expect(threshold).toBe(0.85);
+  expect(getCompressThreshold(2)).toBe(0.65);
+  expect(CONTEXT_WINDOW).toBe(64_000);
+  expect(KEEP_RECENT_ROUNDS).toBe(3);
+
+  // 大历史确实跨过 shipped 阈值（否则压缩根本不该触发）
+  expect(history.length).toBeGreaterThan(30);
+  expect(historyTokens).toBeGreaterThanOrEqual(threshold * CONTEXT_WINDOW);
+  expect(shouldCompress(historyTokens, CONTEXT_WINDOW, threshold)).toBe(true);
+
+  // 摘要须含先行词，代词追问才有据可依
+  const summary = `历史摘要：第 1 轮起围绕「${HISTORY_SEED_QUESTION}」讨论知识库导入、FTS5 检索与出处跳转，共 ${history.length} 条历史。`;
+  expect(summary).toContain(HISTORY_SEED_QUESTION);
+
+  // 压缩产物形态：摘要置顶为 system + 只保留近 KEEP_RECENT_ROUNDS 轮
+  const compressed = buildCompressed(history, summary, KEEP_RECENT_ROUNDS);
+  expect(compressed[0]?.role).toBe('system');
+  expect(String(compressed[0]?.content)).toContain(summary);
+  expect(compressed.length - 1).toBeLessThanOrEqual(KEEP_RECENT_ROUNDS * 2);
+  expect(compressed.length).toBeLessThan(history.length);
+
+  // ============ 渲染段：注入大历史 + 压缩后可见状态，走真实发送链路 ============
+  const errors: string[] = [];
+  page.on('pageerror', (err) => errors.push(String(err)));
+  await bootAiPanel(page, {
+    backend: 'remote',
+    consented: true,
+    agentResult: { withTool: true },
+    seedKbDocuments: 1,
+    seedConversation: {
+      id: HISTORY_CONVERSATION_ID,
+      summary,
+      messages: history.map((m) => ({ role: m.role, content: String(m.content) })),
+    },
+  });
+  const panel = aiPanel(page);
+
+  // 压缩摘要（主进程压缩后写 ai_conversations.summary）在渲染层可见：RECENT → 会话标题
+  const recentBtn = panel.getByTestId('home-recent-item').first();
+  await expect(recentBtn).toContainText(summary, { timeout: 5000 });
+  await recentBtn.click();
+  await expect(panel.getByTestId('session-title')).toHaveText(summary, { timeout: 5000 });
+
+  // 大历史已注入：近轮可见，最早的先行句已被可见窗口折叠（不是把历史整段塞进 DOM）
+  const recentUser = [...history].reverse().find((m) => m.role === 'user');
+  expect(recentUser?.content).toBeTruthy();
+  expect(recentUser?.content).not.toBe(HISTORY_SEED_QUESTION);
+  await expect(panel.getByText(String(recentUser?.content), { exact: true })).toHaveCount(1);
+  await expect(panel.getByText(HISTORY_SEED_QUESTION, { exact: true })).toHaveCount(0);
+
+  // 带代词的追问
+  await sendAndWaitReply(panel, HISTORY_FOLLOW_UP);
+
+  // 回答落显，且不出现「它指什么」式反问
+  const lastAssistant = panel.getByText(/^Agent 完成：/).last();
+  await expect(lastAssistant).toBeVisible({ timeout: 5000 });
+  const replyText = await lastAssistant.innerText();
+  expect(replyText).not.toMatch(/它指什么|指的是哪一个|你指的是|请问|请补充|不明确|指代不明/);
+
+  // 检索工具参数原样上送（追问未被渲染层改写/截断；轨迹按 i18n 摘要渲染）
+  await expect(panel.getByText('查询: "它有什么优势"')).toBeVisible({ timeout: 5000 });
+
+  // 追问走**同一会话**：主进程才会复用该会话的压缩后上下文，否则指代必然落空
+  const payloads = await page.evaluate(() => {
+    const w = window as unknown as {
+      __weaveMdAgentPayloads?: Array<Record<string, unknown>>;
+    };
+    return w.__weaveMdAgentPayloads ?? [];
+  });
+  expect(payloads).toHaveLength(1);
+  expect(payloads[0].message).toBe(HISTORY_FOLLOW_UP);
+  expect(payloads[0].conversationId).toBe(HISTORY_CONVERSATION_ID);
+  expect(payloads[0].mode).toBe('agent');
+
+  // 不自发弹提问卡；压缩摘要未被追问覆盖；近轮历史未被清空
+  await expect(panel.getByTestId('question-card')).toHaveCount(0);
+  await expect(panel.getByTestId('session-title')).toHaveText(summary);
+  await expect(panel.getByText(String(recentUser?.content), { exact: true })).toHaveCount(1);
+  await expect(panel.getByText(`Agent 完成：${HISTORY_FOLLOW_UP}`)).toBeVisible();
 
   expect(errors).toEqual([]);
 });
