@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import path from 'path';
+
 import { describe, expect, it, vi } from 'vitest';
 
 // --- 隔离 Electron app 依赖（index.ts 顶层 import electron；此处不需其 runtime） ---
@@ -6,6 +9,7 @@ vi.mock('electron', () => ({
 }));
 
 import {
+  addAgentMemoryTables,
   addAttachmentColumns,
   addB7AttachmentStructureColumn,
   addKbAttachmentColumns,
@@ -450,5 +454,277 @@ describe('addVisionOverrideColumn — remedial D8 迁移三断言', () => {
     expect(db.alters).toHaveLength(1);
     addVisionOverrideColumn(db as never);
     expect(db.alters).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// agent-memory-optimize-2 B3：agent_memory 单表 + 双时间迁移三断言
+// （态1 空库首建 / 态2 旧库升级 / 态3 重复执行 + anti-drift 源码列清单比对）。
+// 真库语义由 scripts/agent-memory-migration-smoke.cjs（Electron 运行时真 SQLite）验证；
+// 本文件用可建表的 FakeDb 驱动真实的 addAgentMemoryTables，断言列/索引终态、
+// 既有表数据行留存、幂等（重复执行零新增 DDL）与「只增不改」（无 DROP/DELETE/UPDATE）。
+// ---------------------------------------------------------------------------
+
+/** 规格列清单（Q6=B 单表 + 双时间，req §二 B1 裁定）：11 列，与源码 DDL 逐列比对。 */
+const AGENT_MEMORY_COLUMNS = [
+  'id', 'user_id', 'kind', 'subject', 'content', 'source',
+  'conversation_id', 'fingerprint', 'valid_from', 'valid_to', 'written_at',
+] as const;
+
+const AGENT_MEMORY_INDEXES = [
+  'idx_agent_memory_user_kind',
+  'idx_agent_memory_user_subject',
+  'idx_agent_memory_user_fp',
+] as const;
+
+interface AgentMemoryFakeTable {
+  columns: string[];
+  rows: Record<string, unknown>[];
+}
+
+interface AgentMemoryFakeDb {
+  tables: Map<string, AgentMemoryFakeTable>;
+  indexes: Set<string>;
+  execs: string[];
+  exec: (sql: string) => void;
+  seed: (table: string, columns: string[], rows: Record<string, unknown>[]) => void;
+}
+
+/** 从 CREATE TABLE 语句中截取括号体（先剥离行注释，再深度感知配对，DEFAULT (datetime('now')) 含嵌套括号）。 */
+function extractCreateBody(block: string): string {
+  const text = block.replace(/--[^\n]*/g, ' ');
+  const m = /CREATE TABLE IF NOT EXISTS \w+\s*\(/.exec(text);
+  if (!m) throw new Error(`CREATE TABLE 未找到: ${block.slice(0, 60)}`);
+  const start = m.index + m[0].length;
+  let depth = 1;
+  for (let i = start; i < text.length; i += 1) {
+    if (text[i] === '(') depth += 1;
+    else if (text[i] === ')') {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, i);
+    }
+  }
+  throw new Error('CREATE TABLE 括号未闭合');
+}
+
+/** 拆 CREATE TABLE 括号体为列名（跳过 PRIMARY/UNIQUE/CONSTRAINT 等表级约束）。 */
+function parseCreateColumns(body: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = '';
+  const flush = (): void => {
+    const seg = cur.trim();
+    cur = '';
+    if (!seg) return;
+    const first = seg.split(/\s+/)[0];
+    if (!/^(PRIMARY|UNIQUE|CONSTRAINT|CHECK|FOREIGN|KEY)$/i.test(first)) out.push(first);
+  };
+  for (const ch of body) {
+    if (ch === '(') {
+      depth += 1;
+      cur += ch;
+      continue;
+    }
+    if (ch === ')') {
+      depth -= 1;
+      cur += ch;
+      continue;
+    }
+    if (ch === ',' && depth === 0) {
+      flush();
+      continue;
+    }
+    cur += ch;
+  }
+  flush();
+  return out;
+}
+
+/** 从 src/main/db/index.ts 源码正则抽取 addAgentMemoryTables 内的 DDL（anti-drift 唯一来源）。 */
+function extractSourceAgentMemoryDdl(): string {
+  const src = readFileSync(path.resolve(process.cwd(), 'src', 'main', 'db', 'index.ts'), 'utf8');
+  const fn = /export function addAgentMemoryTables[\s\S]*?\n}/.exec(src);
+  if (!fn) throw new Error('addAgentMemoryTables 未在 src/main/db/index.ts 中找到');
+  const ddl = /database\.exec\(`([\s\S]*?)`\)/.exec(fn[0]);
+  if (!ddl) throw new Error('addAgentMemoryTables 内未找到 database.exec DDL');
+  return ddl[1];
+}
+
+/**
+ * 可建表 / 可存行的 FakeDb：
+ * - exec 按括号深度拆分多语句块，只接受 CREATE TABLE / CREATE INDEX / ALTER TABLE，
+ *   出现 DROP|DELETE|UPDATE 直接抛错；
+ * - 重复 CREATE TABLE IF NOT EXISTS 为 no-op（真库语义），既有表行不被触碰。
+ */
+function makeAgentMemoryDb(): AgentMemoryFakeDb {
+  const tables = new Map<string, AgentMemoryFakeTable>();
+  const indexes = new Set<string>();
+  const execs: string[] = [];
+  return {
+    tables,
+    indexes,
+    execs,
+    exec: (raw: string) => {
+      const sql = raw.trim();
+      execs.push(sql);
+      if (/DROP|DELETE|UPDATE/i.test(sql)) {
+        throw new Error(`迁移禁止破坏性语句: ${sql.slice(0, 60)}`);
+      }
+      for (const stmt of splitStatements(sql)) {
+        const t = /CREATE TABLE IF NOT EXISTS (\w+)\s*\(/.exec(stmt);
+        if (t) {
+          if (!tables.has(t[1])) {
+            tables.set(t[1], { columns: parseCreateColumns(extractCreateBody(stmt)), rows: [] });
+          }
+          continue;
+        }
+        const i = /CREATE INDEX IF NOT EXISTS (\w+)/.exec(stmt);
+        if (i) {
+          indexes.add(i[1]);
+          continue;
+        }
+        const a = /^ALTER TABLE (\w+) ADD COLUMN (\w+)/.exec(stmt);
+        if (a) {
+          const tb = tables.get(a[1]);
+          if (tb && !tb.columns.includes(a[2])) tb.columns.push(a[2]);
+          continue;
+        }
+        throw new Error(`未识别的迁移语句: ${stmt.slice(0, 60)}`);
+      }
+    },
+    seed: (table: string, columns: string[], rows: Record<string, unknown>[]) => {
+      if (tables.has(table)) throw new Error(`表已存在: ${table}`);
+      tables.set(table, { columns: [...columns], rows: rows.map((r) => ({ ...r })) });
+    },
+  };
+}
+
+/** 按括号深度为 0 处的分号拆分 SQL 块（先剥离行注释）。 */
+function splitStatements(block: string): string[] {
+  const text = block.replace(/--[^\n]*/g, '');
+  const out: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of text) {
+    if (ch === '(') depth += 1;
+    if (ch === ')') depth -= 1;
+    if (ch === ';' && depth === 0) {
+      if (cur.trim()) out.push(cur.trim());
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+/** pre-B3 形态的既有库：含既有表与数据行，但不含 agent_memory。 */
+function preB3AgentMemoryDb(): AgentMemoryFakeDb {
+  const db = makeAgentMemoryDb();
+  db.seed('users', ['id', 'username', 'password_hash', 'created_at'], [
+    { id: 'u1', username: 'tester', password_hash: 'x', created_at: '2026-01-01 00:00:00' },
+  ]);
+  db.seed(
+    'ai_messages',
+    ['id', 'conversation_id', 'user_id', 'role', 'content', 'refs_json', 'created_at'],
+    [
+      {
+        id: 'm1', conversation_id: 'c1', user_id: 'u1',
+        role: 'user', content: '旧消息', refs_json: null, created_at: '2026-01-01 00:00:00',
+      },
+    ]
+  );
+  return db;
+}
+
+describe('addAgentMemoryTables — agent-memory B3 迁移三断言（FakeDb 驱动真实迁移函数）', () => {
+  it('态1 空库首建：agent_memory 表 + 3 索引齐备，列集合精确等于规格 11 列', () => {
+    const db = makeAgentMemoryDb();
+    addAgentMemoryTables(db as never);
+
+    expect(db.tables.has('agent_memory')).toBe(true);
+    expect(db.tables.get('agent_memory')?.columns).toEqual([...AGENT_MEMORY_COLUMNS]);
+    expect([...db.indexes]).toEqual([...AGENT_MEMORY_INDEXES]);
+    expect(db.execs).toHaveLength(1);
+    expect(db.execs.every((sql) => /^CREATE TABLE|^CREATE INDEX|^ALTER TABLE/.test(sql))).toBe(true);
+    expect(db.execs.some((sql) => /DROP|DELETE|UPDATE/i.test(sql))).toBe(false);
+    // 不建 FTS 虚拟表、不建 VIEW、不预留未使用列（req §二 B1 明令）
+    expect([...db.tables.keys()]).toEqual(['agent_memory']);
+    expect(db.tables.get('agent_memory')?.columns).not.toContain('created_at');
+    expect(db.tables.get('agent_memory')?.columns).not.toContain('extra');
+  });
+
+  it('态2 旧库升级：agent_memory 出现，既有数据行留存（无 DROP/DELETE/UPDATE）', () => {
+    const db = preB3AgentMemoryDb();
+    const usersBefore = JSON.stringify(db.tables.get('users')?.rows);
+    const msgBefore = JSON.stringify(db.tables.get('ai_messages')?.rows);
+    expect(db.tables.has('agent_memory')).toBe(false);
+
+    addAgentMemoryTables(db as never);
+
+    expect(db.tables.has('agent_memory')).toBe(true);
+    expect(db.tables.get('agent_memory')?.columns).toEqual([...AGENT_MEMORY_COLUMNS]);
+    expect([...db.indexes]).toEqual([...AGENT_MEMORY_INDEXES]);
+    // 既有数据行原样留存（迁移不触碰既有表）
+    expect(JSON.stringify(db.tables.get('users')?.rows)).toBe(usersBefore);
+    expect(JSON.stringify(db.tables.get('ai_messages')?.rows)).toBe(msgBefore);
+    expect(db.tables.get('ai_messages')?.columns).toEqual([
+      'id', 'conversation_id', 'user_id', 'role', 'content', 'refs_json', 'created_at',
+    ]);
+    expect(db.execs.every((sql) => /^CREATE TABLE|^CREATE INDEX|^ALTER TABLE/.test(sql))).toBe(true);
+    expect(db.execs.some((sql) => /DROP|DELETE|UPDATE/i.test(sql))).toBe(false);
+  });
+
+  it('态3 重复执行：第二遍零新增 DDL（表/索引/列不重复），不抛错、数据不变', () => {
+    const db = makeAgentMemoryDb();
+    addAgentMemoryTables(db as never);
+    const snapshot = {
+      tables: db.tables.size,
+      columns: [...(db.tables.get('agent_memory')?.columns ?? [])],
+      indexes: [...db.indexes],
+    };
+    db.tables.get('agent_memory')?.rows.push({
+      id: 1, user_id: 'u1', kind: 'fact', subject: 'city', content: '上海',
+      source: 'auto', conversation_id: null, fingerprint: 'fp1',
+      valid_from: '2026-09-29 00:00:00', valid_to: null, written_at: '2026-09-29 00:00:00',
+    });
+
+    addAgentMemoryTables(db as never); // 第二遍
+
+    expect(db.tables.size).toBe(snapshot.tables);
+    expect(db.tables.get('agent_memory')?.columns).toEqual(snapshot.columns);
+    expect([...db.indexes]).toEqual(snapshot.indexes);
+    expect(db.tables.get('agent_memory')?.rows).toHaveLength(1);
+    expect(db.execs.every((sql) => /^CREATE TABLE|^CREATE INDEX|^ALTER TABLE/.test(sql))).toBe(true);
+    expect(db.execs.some((sql) => /DROP|DELETE|UPDATE/i.test(sql))).toBe(false);
+  });
+
+  it('anti-drift：测试列/索引清单与 src 源码 DDL 逐项一致，且实跑 SQL 逐字相同', () => {
+    const ddl = extractSourceAgentMemoryDdl();
+    expect(parseCreateColumns(extractCreateBody(ddl))).toEqual([...AGENT_MEMORY_COLUMNS]);
+
+    const idx: string[] = [];
+    const re = /CREATE INDEX IF NOT EXISTS (\w+)/g;
+    let m: RegExpExecArray | null = re.exec(ddl);
+    while (m !== null) {
+      idx.push(m[1]);
+      m = re.exec(ddl);
+    }
+    expect(idx).toEqual([...AGENT_MEMORY_INDEXES]);
+    expect(/DROP|DELETE|UPDATE/i.test(ddl)).toBe(false);
+
+    // 源码 DDL 与真实迁移函数实际执行的 SQL 逐字一致（源码 ↔ 行为闭环；统一 CRLF/LF 后比对）
+    const db = makeAgentMemoryDb();
+    addAgentMemoryTables(db as never);
+    expect(db.execs).toHaveLength(1);
+    const norm = (s: string): string => s.replace(/\r\n/g, '\n').trim();
+    expect(norm(db.execs[0])).toBe(norm(ddl));
+
+    // 接线防漂移：runMigrations 必须调用 addAgentMemoryTables（否则表永远不会被创建）
+    const src = readFileSync(path.resolve(process.cwd(), 'src', 'main', 'db', 'index.ts'), 'utf8');
+    const rm = /function runMigrations\([\s\S]*?\n}/.exec(src);
+    expect(rm).not.toBeNull();
+    expect(rm?.[0]).toMatch(/addAgentMemoryTables\(database\);/);
   });
 });

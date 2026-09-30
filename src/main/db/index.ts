@@ -288,6 +288,10 @@ function runMigrations(database: Database.Database): void {
 
   // 性能优化：kb_documents 标题 FTS5 索引（加速标题匹配检索）
   addKbDocumentsFtsIndex(database);
+
+  // agent-memory-optimize 第二批 B3：agent_memory 单表 + 双时间（Q6=B）
+  // 追加式迁移，禁止 DROP/DELETE/UPDATE；历史迁移零改动，导出供迁移三断言测试。
+  addAgentMemoryTables(database);
 }
 
 /**
@@ -712,4 +716,36 @@ function addKbDocumentsFtsIndex(database: Database.Database): void {
   } catch {
     // 重建失败时静默跳过（索引可能已存在）
   }
+}
+
+/**
+ * agent-memory-optimize 第二批 B3：agent_memory 事实表 + 3 索引（追加式迁移，禁止 DROP）。
+ * - Q6=B 单表承载三类记忆（kind 分区：'profile' | 'fact' | 'entity'），不建三张表；
+ * - 双时间：valid_from/valid_to（业务有效时间，NULL = 当前有效，置值 = Ledger 关闭不删行）
+ *   + written_at（系统写入时间）。**不加 created_at** —— ai_messages.created_at 存在
+ *   `datetime('now')` 秒级默认与 `toISOString()` 毫秒双格式并存，字典序跨格式不可靠；
+ * - 不建 FTS 虚拟表、不建 VIEW（B2 的 Views 走 DAO 查询函数）、不预留未使用列
+ *   （将来需要新列走 addColumnIfMissing 幂等补列）。
+ * 幂等由 `IF NOT EXISTS` 保证：空库首建与旧库升级同路径收敛，重复执行 no-op。
+ * 三断言：tests/main/db/migrations.test.ts + scripts/agent-memory-migration-smoke.cjs（真库）。
+ */
+export function addAgentMemoryTables(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS agent_memory (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      kind TEXT NOT NULL,            -- 'profile' | 'fact' | 'entity'
+      subject TEXT NOT NULL,
+      content TEXT NOT NULL,
+      source TEXT NOT NULL DEFAULT 'auto',   -- 'auto'(Agent 写) | 'manual'(用户手写)
+      conversation_id TEXT,
+      fingerprint TEXT NOT NULL,
+      valid_from TEXT NOT NULL DEFAULT (datetime('now')),
+      valid_to TEXT,                 -- NULL = 当前有效；置值 = Ledger 关闭（不删行）
+      written_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_user_kind ON agent_memory(user_id, kind, valid_to);
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_user_subject ON agent_memory(user_id, subject);
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_user_fp ON agent_memory(user_id, fingerprint);
+  `);
 }
