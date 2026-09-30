@@ -1,6 +1,6 @@
 # 主进程架构
 
-> 最后更新：2026-09-27
+> 最后更新：2026-10-01
 
 ## 技术栈
 
@@ -25,9 +25,10 @@ src/main/
 ├── media-protocol.ts          # media:// 本地图协议
 ├── mediaMime.ts               # 项目唯一 MIME 映射表
 ├── db/                        # 数据访问层
-│   ├── index.ts               # 数据库初始化 + 连接管理 + D1~D8 迁移
+│   ├── index.ts               # 数据库初始化 + 连接管理 + D1~D8 迁移 + agent_memory 5 个追加式迁移
 │   ├── files.ts               # 文件 CRUD
 │   ├── ai.ts                  # AI 会话/消息 DAO
+│   ├── agentMemory.ts         # 记忆 DAO（agent_memory / agent_memory_fts 相似候选 / 向量读写）
 │   ├── attachments.ts         # 附件解析产物 DAO
 │   ├── searchConfig.ts        # 搜索配置 DAO
 │   ├── embeddingConfig.ts     # Embedding 配置 DAO
@@ -45,7 +46,9 @@ src/main/
 │   │   ├── agentSession.ts    # 会话管理
 │   │   ├── agentTaskQueue.ts  # 任务队列
 │   │   ├── agentTaskWorker.ts # 后台任务执行器
-│   │   ├── agentContext.ts    # 上下文组装（附件清单 / vision 判定 / 外发闸）
+│   │   ├── agentContext.ts    # 上下文组装（附件清单 / vision 判定 / 外发闸 / 记忆画像·经验块）
+│   │   ├── memoryWriter.ts    # 后台记忆提取（队列类型 memory_extract）
+│   │   ├── memoryPolicy.ts    # 记忆策略（merge → evict → capacity，不写 SQL）
 │   │   └── agentEventStore.ts # 事件持久化
 │   ├── knowledge/             # 知识库
 │   │   ├── kbIndexer.ts       # 导入/分块/增量重索引
@@ -61,6 +64,8 @@ src/main/
 │   │   ├── webSearchHandler.ts
 │   │   ├── searchKBHandler.ts
 │   │   ├── searchDocument.ts  # 附件正文检索（B8）
+│   │   ├── memoryRead.ts      # memory_read 读记忆（C1）
+│   │   ├── memoryWrite.ts     # memory_write 写记忆（C1）
 │   │   ├── createFileHandler.ts
 │   │   ├── editLocalFileHandler.ts
 │   │   ├── deleteLocalFile.ts
@@ -69,11 +74,17 @@ src/main/
 │   ├── toolTypes.ts           # 工具类型定义
 │   ├── intentRouter.ts        # 意图路由（规则启发式）
 │   ├── contextManager.ts      # 上下文压缩
-│   ├── skillLoader.ts         # Skills 体系
+│   ├── skills/                # Skills 体系（目录即 `src/main/ai/skills/`）
+│   │   ├── skillLoader.ts     # 加载 + `_auto/` 模式 3 + `status` 过滤（草稿不进 prompt）
+│   │   ├── skillPaths.ts      # 默认技能目录推导（`userData/skills`）
+│   │   ├── skillAutoStore.ts  # 提炼草稿读写与双闸（正则 + 路径前缀）
+│   │   ├── skillDistiller.ts  # 后台提炼任务（队列类型 skill_distill）
+│   │   ├── skillManager.ts    # 技能管理（3 处 loadSkills 传目录）
+│   │   └── skillInstaller.ts  # 技能安装
 │   ├── searchClient.ts        # 多引擎搜索客户端
 │   ├── secureConfig.ts        # safeStorage 加密/解密
 │   ├── consent.ts             # 外发同意闸（needsKbSendConsent）
-│   └── ipc/                   # IPC handler 按域拆分（11 个 handler 模块 + index + shared）
+│   └── ipc/                   # IPC handler 按域拆分（13 个 handler 模块 + index + shared）
 │       ├── index.ts / shared.ts
 │       ├── agentHandlers.ts   # Agent 运行、附件落库、citation 回链
 │       ├── chatHandlers.ts    # Chat 载荷（渲染层零调用方）
@@ -81,7 +92,9 @@ src/main/
 │       ├── embeddingHandlers.ts + embeddingConfigHandlers.ts
 │       ├── modelHandlers.ts + modelConfigHandlers.ts
 │       ├── searchHandlers.ts + searchConfigHandlers.ts
-│       └── rewriteHandlers.ts + configConsentHandlers.ts
+│       ├── rewriteHandlers.ts + configConsentHandlers.ts
+│       ├── memoryHandlers.ts   # 自动记忆列表/删除 + 相似合并三态审核（ai:memory:*）
+│       └── skillDraftHandlers.ts # 提炼技能草稿列/采纳/驳回（ai:skilldraft:*）
 └── shared/                    # 跨进程共享类型
     └── ai.ts                  # AI 相关类型定义
 ```
@@ -98,9 +111,11 @@ src/main/
 | 只读 | searchKB, web_search, research_search | 检索 |
 | 只读 | searchDocument, readPage, extractTable, analyzeChart | 附件文档工具（B8） |
 | 只读 | analyze_folder, check_links, get_task_activity | 辅助 |
+| 只读 | memory_read | 读 `agent_memory` 当前有效记忆（kind/subject/keyword 过滤，`user_id` 隔离；传 `hyde:true` 走语义混合召回） |
 | 写入 | createFile, createFolder, editLocalFile, deleteLocalFile | 文件操作 |
 | 写入 | renameFile, moveFile, deleteFile | 文件重命名/移动/删除（`fileOperations.ts`） |
 | 写入 | editBlocks, preview_file_revision, preview_patch_files | 内容修改 |
+| 写入 | memory_write | 写 `agent_memory`（upsert，恒 `source='auto'`，同轮去重 + 单轮 10 条自限） |
 | 交互 | ask_question_card | 用户提问 |
 | 技能 | runSkill, list_skills, get_skill_details | 技能系统 |
 
@@ -110,7 +125,7 @@ src/main/
 
 | 意图 | 触发条件 | 可用工具 |
 |------|----------|----------|
-| chat | 闲聊/通用问题 | 无工具 |
+| chat | 闲聊/通用问题 | 无意图特有工具（仍拿基础区全量：15 个文件/辅助工具 + memory_read / memory_write = 17；`hasSearchConfig` 时再加 web_search / research_search，`hasInteractionSupport` 时加 ask_question_card） |
 | rewrite | 修改/润色/删除 | editBlocks + 文件操作 + searchKB |
 | create | 写/创作/新建 | createFile + editBlocks + searchKB |
 | tech | 代码/技术问题 | 同 create |
@@ -147,11 +162,11 @@ src/main/
 
 ## IPC 通信
 
-111 个通道常量，按域拆分为 11 组（`src/shared/constants.ts` 的 `IPC_CHANNELS`）：
+119 个通道常量，按域拆分为 11 组（`src/shared/constants.ts` 的 `IPC_CHANNELS`）：
 
 | 组 | 通道数 | 说明 |
 |----|--------|------|
-| AI | 64 | Agent 循环 / 工具 / 知识库 / 配置 / 事件推送（24 个子域注释块） |
+| AI | 72 | Agent 循环 / 工具 / 知识库 / 配置 / 记忆 / 提炼草稿 / 事件推送（27 个子域注释块） |
 | 文件与历史 | 16 | 文件 CRUD、历史、目录、导出 |
 | 认证与账号 | 6 | 登录 / 注册 / Token / 多账号 |
 | 应用与更新 | 6 | 版本检测、更新、通知 |
@@ -161,7 +176,9 @@ src/main/
 | 设置 | 2 | 配置读写 |
 | 剪贴板 / 链接 / 通知 | 3 | 剪贴板、外链、系统通知 |
 
-> 通道数与分组以 `IPC_CHANNELS` 常量为准；本页表格为聚合视图（合计 111）。
+> 通道数与分组以 `IPC_CHANNELS` 常量为准；本页表格为聚合视图（合计 119）。
+> agent-memory-optimize 新增 8 条：`ai:memory:list` / `ai:memory:delete`（第二批 C3）、
+> `ai:memory:similar:list|accept|reject`（第三批 D5）、`ai:skilldraft:list|approve|reject`（第三批 D3）。
 
 ## 安全规则
 

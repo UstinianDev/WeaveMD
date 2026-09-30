@@ -27,12 +27,12 @@ P1 主干，路线图「模块四 → 三 → 五 → 二.4 → 七.1/七.2/七.
 | 子批 | 任务 | Gate | 门禁实测 |
 |------|------|------|------|
 | A 提示词/检索层 | 四.1 三文件注入、四.3 摘要保留先行词、二.4 classifyIntent 接主管线、七.3 红线护栏补测 | Gate A | tsc 0 / vitest 4037·4038（1 flaky 单跑绿）/ eslint 0 err·106 warn / vite build 0 / E2E 31f·103p·1s；改动行覆盖 **195/195 = 100%** —— **已提交 `8fd28f1`** |
-| B 存储层 | 三.1 单表 `agent_memory`+双时间、三.2 Ledger/Views/Policy、三.4 迁移双路径、四.2 分层 Prompt | Gate B（**L4**） | tsc 0 / vitest 4106·4107 / eslint 0 err·106 warn / vite build 0 / **真库 smoke 四态 EXIT 0** / E2E 31f·103p·1s；B4 覆盖 129/129 —— **B3/B1/B2 已提交 `6ed0b4c`**，B4 未提交 |
+| B 存储层 | 三.1 单表 `agent_memory`+双时间、三.2 Ledger/Views/Policy、三.4 迁移双路径、四.2 分层 Prompt | Gate B（**L4**） | tsc 0 / vitest 4106·4107 / eslint 0 err·106 warn / vite build 0 / **真库 smoke 四态 EXIT 0** / E2E 31f·103p·1s；B4 覆盖 129/129 —— 已全部提交：`6ed0b4c`(B1/B2/B3)、`16d51a0`(B4)、`a4bf6e6`(C1/C2/C3)、`2de5c4c`(C4)、`f042784`(docs 收尾) |
 | C 读写工具层 | 五.1 两工具、五.2 后台写入+冲突清洗、五.3 可见入口、七.1 场景③+七.2 门禁 | Gate C | **vitest 175 文件 4191 例全绿 0 failed** / tsc 0 / eslint 0 err·108 warn / vite build 0 / 真库 smoke 四态 EXIT 0 / **E2E 31f·104p·1s = 136**（+1 即场景③，31 条失败清单零变化） |
 
 **验收要点**：三 Gate 六项门禁全绿；改动行覆盖 A 195/195、B4 129/129、C1 100%、C2 552/553、C3 419/419；**39 处变异全部变红后还原复绿**；`vitest.config.ts` 全程零改动；计划外 `src/` 改动 0 行。
 **安全交付**：`memoryHandlers.ts` 是全仓**第一个**按 `SECURITY.md` 校验 `event.sender` 的 IPC handler（此前零落实，已记已知问题）。
-**未提交**：B4 / C1 / C2 / C3 / C4 全部代码改动 + 本批文档（`8fd28f1`、`6ed0b4c`、`33c3763` 之外的部分）。
+**提交状态**：第二批 7 个提交已全部落库并推送 —— `8fd28f1`(A)、`6ed0b4c`(B1/B2/B3)、`33c3763`(docs)、`16d51a0`(B4)、`a4bf6e6`(C1/C2/C3)、`2de5c4c`(C4)、`f042784`(docs 收尾)；第三批 5 个提交见下。
 
 > 需求 [req](./requirements/agent-memory-optimize-2.req.md)（Q1~Q15）/ 计划与三 Gate 实施记录 [plan](./plan/agent-memory-optimize-2.plan.md) §6 / TDD 证据 [tdd](./testing/agent-memory-optimize-2.tdd.md)
 
@@ -49,7 +49,7 @@ L 级 / TDD strict，devflow 阶段 0~8 全完成，**门禁通过、阻塞 0**�
 | P0-5 | 读取按轮次：`getRecentMessagesByRounds(3 轮, {byteBudget:45_000})`，20 行降为水位线、`rowid DESC` 兜底，取消行数硬上限 |
 | P0-6 | `searchKB` 接入历史代词改写：`toolCtx.history` 注入 + `resolveReferencesDetailed` 进主管线 + `expandedQueries` 双路 RRF 召回 |
 | P0-7 | `knowledgeClarify` 补 28 例测试（**源文件 0 改动**） |
-| 连带 | 阶段 6.5 修复两条本批引入回归：重载态空气泡（`AgentTab`）+ 指代改写自指（`queryPlanner`）—— **计划外改动，待用户追认** |
+| 连带 | 阶段 6.5 修复两条本批引入回归：重载态空气泡（`AgentTab`）+ 指代改写自指（`queryPlanner`）—— 计划外改动，**已随 `f333bb8` 提交（用户追认）** |
 
 **门禁实测**：typecheck 0 error / vitest 168 文件 3986 例（1 既知 flaky 隔离复核判过）/ eslint 0 error 106 warning / vite build 成功 / E2E 31f·103p·1s 与基线逐项相等 + 新增 2 条 passed / **改动行覆盖 19 文件 589/589 = 100%**。
 
@@ -230,8 +230,8 @@ L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/ar
 | Linux AppImage 与 liteparse 排除互斥（R9） | `build.files` 排除 Linux 原生件是 Windows 瘦身手段，执行 Linux 打包前须先移除这两条排除（见 [packaging](./guide/packaging.md)） |
 | `AI_CHAT` 附件/入 KB 链休眠（R10） | 主进程 `ChatReqPayload` 有 `attachments`/`uploadToKb`，preload 类型缺字段，渲染层零调用方（Chat 模式已废弃） |
 | anthropic 主循环不分流 + 丢 `tool` 行 | `protocol=anthropic` 时主循环仍走 OpenAI 形状；`anthropicClient.ts:217-234` / `anthropicCompat.ts:89-105` 静默丢 `tool` 角色与 `tool_calls`（agent-memory **R4**，agent-memory 另立 issue 范围） |
-| `AI_CHAT` 读到空 assistant 行 | 主进程 `chatHandlers.ts:345-353` 不透传 `tool_calls`，本批新形状会送 `content:''`；渲染层零调用点**当前不可达**（agent-memory **R3**，留第二批） |
-| `AI_CONVERSATION_GET` 未校验 `event.sender` | 以渲染进程传入 `userId` 为权威（`chatHandlers.ts:73-83`）——既有问题，agent-memory 阶段 7 A7 提出、非本批引入，留第二批 |
+| `AI_CHAT` 读到空 assistant 行 | 主进程 `chatHandlers.ts:345-353` 不透传 `tool_calls`，本批新形状会送 `content:''`；渲染层零调用点**当前不可达**（agent-memory **R3**，第二/三批均未处理，留后续批次） |
+| `AI_CONVERSATION_GET` 未校验 `event.sender` | 以渲染进程传入 `userId` 为权威（`chatHandlers.ts:73-83`）——既有问题，agent-memory 阶段 7 A7 提出、非本批引入，第二/三批均未处理，留后续批次 |
 | `getMessagesByConversationPaginated` 已无 `src/` 调用点 | 本批 P0-5 接线改用 `getRecentMessagesByRounds` 后成死代码（`db/ai.ts:948`）；`e2e/ai-agent-panel.spec.ts:371` 残留 `updateMessageToolCalls` mock（无行为影响，改动需重跑 E2E） |
 | fake DB 未验真实 `transaction()`/`iterate()` 语义 | better-sqlite3 在系统 Node 下 ABI 不兼容，vitest 只能用 fake；本批按 plan 未新增 cjs，`scripts/agent-smoke.cjs` 需 Electron + 真实 key 未跑 |
 | xlsx@0.18.5 依赖漏洞 | SheetJS 官方源修复版未发 npm，跟踪上游发布后再升级 |
@@ -246,7 +246,7 @@ L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/ar
 | 记忆提取节流状态不持久化 | `memoryWriter.ts` 的 `Map<conversationId, {turn,lastEnqueuedTurn}>` 为进程内，**重启后节流失效**（首轮即提取）且会话数增长不回收；跨重启节流需加落库字段（涉迁移，agent-memory-2 C2 明令不改） |
 | pending 提取任务可能被 supersede 吞掉 | `agentTaskQueue` 既有语义：新 agent 任务 `enqueue` 会顶掉同会话仍 pending 的后台提取任务 → 一次提取可能被跳过（agent-memory-2 C2 复用队列不改该语义，Gate C 后评估实际频率） |
 | `MEMORY_EVICT_MAX_AGE_DAYS=90` 无实测依据 | `memoryPolicy.ts` 的时间衰减阈值为无数据的保守取值，注释已标「待实测校准（建议按 active 行 written_at 距今 P90）」 |
-| 同组多条 manual 记忆会并存 | `mergeConflicts` 按「manual 恒免」绝对口径执行 → 组内多条 manual 行不关闭（短期不可达：表内 manual 写入方要到 C3 才存在）；届时若需「组内只留一条」再改 |
+| 同组多条 manual 记忆会并存 | `mergeConflicts` 按「manual 恒免」绝对口径执行 → 组内多条 manual 行不关闭（短期不可达：**全仓尚无写入 `source='manual'` 的调用点**——C3 是可见性入口非写入方，`memoryWrite` 恒 `'auto'`）；届时若需「组内只留一条」再改 |
 | **全仓 IPC handler 均无 `event.sender` 校验** | `SECURITY.md` 明确「IPC handler 必须验证调用来源和参数」，但核查确认**此前零落实**（`chatHandlers.ts:73-83` 以渲染进程传入 `userId` 为权威即其一）；`memoryHandlers.ts` 是**第一个**按该规则落地的范式（`isTrustedSender` + JWT + `findById` + fail-closed）。其余 handler 待逐个补齐——**既有问题，非 agent-memory-2 引入** |
 | `getJwtSecret` 存在双份副本 | `memoryHandlers.ts` 与 `ipc-handlers.ts` 各一份 `sha256(userData)` 推导（导入会成循环 + 拉大测试 import 图），两处已互相注释「改动需两处同步」；抽取独立 auth 模块属重构，agent-memory-2 裁定本批不做 |
 | `AgentTaskQueue.enqueue` supersede 不分任务类型 | `memory_extract` 与 `skill_distill` 同点入队会**互相顶掉**（队列自动 supersede 同会话旧 pending）。D3 用「同会话任意 pending 即跳过」规避 → 提炼给 memory 让位，**首轮必然延后 1 轮**（agent-memory-3 D3，记 TODO） |

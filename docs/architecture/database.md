@@ -1,14 +1,14 @@
 # 数据库架构
 
-> 最后更新：2026-09-24
-> 表清单以 `src/main/db/index.ts` 建表语句为准（**22 实表 + 3 虚拟表 = 25**）；本页只展开常用表的字段，其余见 §「其他表索引」。
+> 最后更新：2026-10-01
+> 表清单以 `src/main/db/index.ts` 建表语句为准（**23 实表 + 4 虚拟表 = 27**）；本页只展开常用表的字段，其余见 §「其他表索引」。
 
 ## 技术栈
 
 | 类别 | 技术 | 说明 |
 |------|------|------|
 | 引擎 | SQLite | better-sqlite3 ^11 |
-| 全文检索 | FTS5 | jieba-wasm 分词 |
+| 全文检索 | FTS5 | 知识库 `kb_chunks_fts` / `kb_documents_fts` 用 jieba-wasm 分词；记忆 `agent_memory_fts` 用 **`tokenize='trigram'`**（unicode61 对中文整段并成 1 词，不可用；trigram 大小写敏感，查询侧同时提交原文与小写） |
 | 向量存储 | sqlite-vec（可选扩展） | `images_vec` 虚拟表（仅图片 embedding；扩展缺失时静默跳过） |
 
 ## 数据库文件
@@ -171,6 +171,45 @@
 |------|------|
 | content | 分块内容（jieba 分词） |
 
+### AI 记忆
+
+#### agent_memory（agent-memory-optimize 三批，2026-09-28 ~ 10-01）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INTEGER PK AUTOINCREMENT | 记忆 ID（同时作 `agent_memory_fts` 的 rowid） |
+| user_id | TEXT NOT NULL | 所属用户（读写隔离） |
+| kind | TEXT NOT NULL | `profile` / `fact` / `entity` |
+| subject | TEXT NOT NULL | 主题（与 `kind` 共同构成分组键，合并去重的键） |
+| content | TEXT NOT NULL | 记忆内容 |
+| source | TEXT | `auto`（Agent 写）/ `manual`（用户手写）；**C1 `memory_write` 恒写 `auto`** |
+| conversation_id | TEXT | 写入来源会话 |
+| fingerprint | TEXT NOT NULL | 归一化 content 的 sha256（精确相等去重） |
+| valid_from | TEXT | 生效时间（默认 `datetime('now')`） |
+| valid_to | TEXT | NULL=当前有效；置值 = **Ledger 关闭**（不删行） |
+| written_at | TEXT | 写入时间（`Y-m-d H:M:S` UTC，驱逐与容量排序键） |
+| access_count | INTEGER DEFAULT 0 | 读取计数（D2 补列，容量淘汰按其升序） |
+| last_read_at | TEXT | 最近被读时刻（D2 补列，当前只写不读） |
+| vector | BLOB DEFAULT NULL | Float32 向量（D6 补列，配置 embedding 时异步回填） |
+| embedding_model | TEXT | 生成该向量的模型（D6 补列，切模型按 `IS NOT ?` 重算） |
+| merge_skip | TEXT | NULL=未驳回；非空=该行所在相似组已被用户驳回（D5 补列，只禁自动合并、不过滤召回） |
+
+> **演进**：11 列（B3）→ 13（D2 补 `access_count`/`last_read_at`）→ 14（D5 补 `merge_skip`）→
+> **16 列**（D6 补 `vector`/`embedding_model`）。全部经 `addColumnIfMissing` 追加式补列，旧行按常量默认值回填。
+> **普通索引 4 个**：`(user_id, kind, valid_to)` / `(user_id, subject)` / `(user_id, fingerprint)` / `(user_id, written_at)`。
+> **不建向量索引**：排序键是 `vec_distance_cosine` 标量结果，B-Tree 用不上，且 `user_id` 前缀已有 4 索引收敛。
+
+#### agent_memory_fts（FTS5 虚拟表）
+
+| 字段 | 说明 |
+|------|------|
+| subject / content | 只索引这两列（`tokenize='trigram'`）；`user_id`/`kind` 不进 FTS，靠普通条件过滤后取候选 |
+
+- 触发器 `agent_memory_fts_ai` / `_ad` / `_au`：`ai` 标准 `INSERT VALUES(new.rowid,...)`；
+  `_ad` 走 **`DELETE FROM agent_memory_fts WHERE rowid = old.rowid`**（不用 fts5 特殊 `'delete'` 命令）；
+  `_au` 限定 `AFTER UPDATE OF subject, content`（`closeMemory`/`markAccessed`/`markMergeSkipped` 这类 UPDATE 不重建索引）。
+- 存量回填带 `WHERE rowid NOT IN (SELECT rowid FROM agent_memory_fts)` 守卫。
+
 #### images_vec（vec0 虚拟表）
 
 > 本表只存**图片** embedding（`imageIndexer.ts` → `kb_images` + 本表），仅在 sqlite-vec 扩展可用时创建
@@ -212,6 +251,27 @@
 - `kb_chunks(document_id, chunk_index)` — 文档分块
 - `kb_images(document_id)` — 图片索引回查
 - `kb_chunks_fts` / `kb_documents_fts` — FTS5 全文索引（jieba 分词，触发器同步；**插入用 `INSERT INTO ... VALUES(new.rowid,...)`，删除/更新走标准 `DELETE FROM <fts> WHERE rowid = old.rowid`** —— 普通（非 contentless）fts5 表不接受仅限 contentless 的 `'delete'` 特殊命令，2026-09-30 D7 修复，见 `agent-memory-optimize-3` req §二 D7）
+- `agent_memory` — 4 个普通索引：`(user_id, kind, valid_to)` / `(user_id, subject)` / `(user_id, fingerprint)` / `(user_id, written_at)`
+- `agent_memory_fts` — trigram FTS5，ai/ad/au 三触发器；`_ad` 与 `_au` 同样走标准 `DELETE ... WHERE rowid = old.rowid`，`_au` 限定 `AFTER UPDATE OF subject, content`
+
+## 迁移清单（追加式）
+
+本项目**无独立迁移目录**，全部内联在 `src/main/db/index.ts` 的 `runMigrations` 内，按序调用、
+一律 `IF NOT EXISTS` / `addColumnIfMissing` 幂等，**禁止 DROP / DELETE / UPDATE 既有结构**；
+断言由 `tests/main/db/migrations.test.ts`（三态）+ `scripts/agent-memory-migration-smoke.cjs`（真库七态）承担。
+
+agent-memory 相关的追加式迁移函数（顺序即调用顺序）：
+
+| 函数 | 批次 | 产物 |
+|------|------|------|
+| `addAgentMemoryTables` | 第二批 B3 | `agent_memory` 11 列 + 3 索引 |
+| `addAgentMemoryAccessColumns` | 第三批 D2 | 补 `access_count` / `last_read_at` + `idx_agent_memory_user_written` |
+| `addAgentMemoryFts` | 第三批 D5 | `agent_memory_fts` 虚拟表 + 3 触发器 + 存量回填 |
+| `addAgentMemoryVectorColumns` | 第三批 D6 | 补 `vector` / `embedding_model`（**不建向量索引**） |
+| `addAgentMemoryMergeSkipColumn` | 第三批 D5 | 补 `merge_skip` |
+
+同一函数族另修 `kb_chunks_fts_ad` / `kb_documents_fts_ad` / `kb_documents_fts_au` 三处触发器正文
+（改标准 DELETE，D7），`_ai` 未动；`addKbDocumentsFtsIndex` 随之 `export`（供 vitest 覆盖）。
 
 ## DAO 层
 
@@ -231,6 +291,7 @@
 | `searchConfig.ts` | `ai_search_config` 搜索配置 CRUD |
 | `embeddingConfig.ts` | `ai_embedding_config` 配置 CRUD |
 | `kb.ts` | **知识库统一 DAO**：`kb_documents` / `kb_chunks` / `kb_images` |
+| `agentMemory.ts` | **记忆 DAO**：`agent_memory` 读写 / Ledger 关闭（`closeMemory`）/ Views 查询 / 相似候选（走 `agent_memory_fts`）/ 向量读写（`upsertMemoryVector` / `searchMemories`） |
 | `agentSessionDao.ts` | `agent_sessions`（租约并发控制） |
 | `agentTaskDao.ts` | `agent_task_queue`（同会话串行出队） |
 | `agentEventDao.ts` | `agent_run_events`（事件回放） |

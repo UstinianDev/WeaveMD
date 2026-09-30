@@ -1,6 +1,6 @@
 # IPC 通信机制
 
-> 最后更新：2026-09-27
+> 最后更新：2026-10-01
 > 详细文档：[08-IPC通信机制.md](../modules/08-IPC通信机制.md)
 
 ## 通信模型
@@ -13,13 +13,13 @@
 - 所有 IPC 通信通过 `contextBridge` 暴露的 API
 - IPC handler 必须验证调用来源和参数合法性
 
-## 通道分组（11 组，111 通道）
+## 通道分组（11 组，119 通道）
 
-常量表 `src/shared/constants.ts` 的 `IPC_CHANNELS` 共 111 条：
+常量表 `src/shared/constants.ts` 的 `IPC_CHANNELS` 共 119 条（较 2026-09-27 的 111 条 **+8**，来自 agent-memory-optimize 三批）：
 
 | 组 | 通道数 | 说明 |
 |----|--------|------|
-| AI | 64 | Agent / 知识库 / 配置 / 事件推送（24 个子域注释块） |
+| AI | 72 | Agent / 知识库 / 配置 / 记忆 / 提炼草稿 / 事件推送（27 个子域注释块） |
 | 文件与历史 | 16 | 文件 CRUD、历史、目录、导出 |
 | 认证与账号 | 6 | 登录 / 注册 / Token / 多账号 |
 | 应用与更新 | 6 | 版本检测、更新、通知 |
@@ -42,6 +42,19 @@
 | `agent:interaction:question` | main → render | 交互提问 |
 | `agent:resume:interaction` | render → main | 提交答案 |
 | `agent:retry:task` | render → main | 重试任务 |
+| `ai:memory:list` | render → main | 自动记忆列表（第二批 C3） |
+| `ai:memory:delete` | render → main | 删除单条记忆（物理 DELETE，UI 二次确认） |
+| `ai:memory:similar:list` | render → main | 相似合并建议列表（第三批 D5 防线二） |
+| `ai:memory:similar:accept` | render → main | 采纳合并（服务端重算相似组后动手） |
+| `ai:memory:similar:reject` | render → main | 驳回合并（写 `merge_skip`） |
+| `ai:skilldraft:list` | render → main | 提炼技能草稿列表（第三批 D3） |
+| `ai:skilldraft:approve` | render → main | 采纳草稿 → `status: active` 进入生效目录 |
+| `ai:skilldraft:reject` | render → main | 驳回草稿 |
+
+> 上述 8 条新增通道的 handler 落在 `src/main/ai/ipc/memoryHandlers.ts`（前 5 条，复用 `registerMemoryHandlers`）
+> 与 `src/main/ai/ipc/skillDraftHandlers.ts`（后 3 条）。鉴权四条照抄 C3 范式：
+> `isTrustedSender(event)` + JWT 解 `userId`（`sha256(userData)` 派生）+ `findById` + fail-closed 返回 `unauthorized`，
+> 参数校验不过不落策略层。
 
 ## 事件持久化
 

@@ -13,7 +13,7 @@
 
 ## 目录结构（要点）
 
-- `src/main/` — Electron 主进程：window、ipc-handlers、db（better-sqlite3）
+- `src/main/` — Electron 主进程：window、ipc-handlers、db（better-sqlite3，含 `agentMemory.ts` 记忆 DAO / `agent_memory` 16 列）
 - `src/render/editor/` — **编辑主区 v2 内核（React-free）**：`kernel/`（blockTree、blockDetection、
   双向转换、行内渲染、选区、outline）+ `controllers/`（七类交互 + imageFormatCtrl + shared）
 - `src/render/hooks/` — 编辑器 hooks：useMonacoTheme / useGlobalShortcuts / useModeScrollPersistence / useDraftFlusher
@@ -25,10 +25,10 @@
 - `src/render/stores/ services/ styles/` — Zustand / markdown 服务 / globals.css
 - `src/main/export/` — 导出模块：exportService / imageInline / types + mediaMime（MIME 映射）
 - `src/main/ai/` — AI 主进程服务（remote-only）：`llm/`（llmClient/anthropicClient/modelList）+
-  `agent/`（agentLoop/agentSession/agentTaskQueue/agentContext）+ `knowledge/`（kbIndexer/kbSearch）+
+  `agent/`（agentLoop/agentSession/agentTaskQueue/agentContext/memoryWriter/memoryPolicy）+ `knowledge/`（kbIndexer/kbSearch）+
   `files/`（documentParser/multimodalParse/pdfLayout/mdImageResolver/conversationExport/parseLimiter）+
-  `skills/` + `tools/`（30 个工具：5 核心 + 25 延迟）+
-  `ipc/` 按域拆分（11 个 handler 模块 + index + shared）
+  `skills/`（skillLoader/skillPaths/skillAutoStore/skillDistiller/skillManager）+ `tools/`（30 个工具：5 核心 + 25 延迟，含 memoryRead/memoryWrite）+
+  `ipc/` 按域拆分（13 个 handler 模块 + index + shared）
 - `src/render/components/AIAgent/` — AI 面板三视图外壳（home/session/settings）+
   AIPanelComposer（TipTap contentEditable + /@标签 chip）+ AgentTab 消息流 +
   composer/extensions/（SkillTag/MentionTag/skillSuggestion/mentionSuggestion）+
@@ -72,8 +72,12 @@
 - 铁律一：**AI 写入必经确认**——红删绿增预览 → 用户确认 → `updateContent` 入 undo 栈
 - 铁律二：**笔记外发必须用户知情同意**（联网同意已停用——三配置齐全即视为许可）；key 用 safeStorage 加密存 SQLite
 - Agent 能力：toolRegistry + agentLoop（≤6 轮）+ skillLoader + intentRouter + contextManager
+- 自动记忆：`agent_memory` 16 列（+ `agent_memory_fts` trigram）+ `memory_read`/`memory_write` 两工具 +
+  后台 `memory_extract` 提取与轨迹提炼 `skill_distill`（`userData/skills/_auto/`，草稿需人工采纳）+
+  画像/经验块注入 prompt + 遗忘与容量上限（`access_count` LRU 淘汰，`manual` 永不关闭）+ 相似合并建议三态审核
 - 知识库：FTS5 BM25 召回 + 标题召回 + 拒答 0.6 + 出处可跳转 + 置顶 ×1.5；searchMode 三模式（fts5/vector/hybrid）
-  —— **向量为可选路径**：`kb_chunks.vector` 需配置 embedding 才写入，且 `queryVector` 仅在 `searchKB` 传 `hyde: true` 时生成，**默认调用降级为 FTS5+标题**
+  —— **向量为可选路径**：`kb_chunks.vector` 需配置 embedding 才写入，且 `queryVector` 仅在 `searchKB` 传 `hyde: true` 时生成，
+  **默认 hybrid 降级为 FTS5+标题；vector 模式无 `queryVector` 时不回退 FTS5**（只剩标题匹配，无候选按 0.6 拒答）
 - Agentic RAG：所有非 chat 意图均可自主调用 searchKB（LLM 决定是否检索）；HyDE 支持假设性文档 embedding 检索
 - 写控制：writeMode auto/manual + MD5 staleness detection + Agent 交互暂停/恢复 + 事件持久化
 - 三视图重构：home（RECENT 最近3）/ session（会话）/ settings（设置侧栏）
@@ -114,8 +118,8 @@
 
 ## UI 美化
 
-> 详细规范见 `docs/specs/editor-v2-features.md`（编辑器 UI）+
-> CLAUDE.md 同级 `memory/ui-beautify-2026-08-29.md`
+> 详细规范见 `docs/specs/editor-v2-features.md`（编辑器 UI + 工具栏 + 图片 + 表格）
+> （原引用的 `memory/ui-beautify-2026-08-29.md` 已不存在于记忆目录，2026-10-01 核对移除）
 
 - 字体：代码块 `Consolas + 阿里巴巴普惠体 B`；编辑主区 `Consolas + 阿里巴巴普惠体`
 - 工具栏毛玻璃：`backdrop-filter: blur(12px) saturate(180%)`
@@ -139,7 +143,7 @@
 - [specs/](../docs/specs/) — 编辑器/AI 面板/自动更新规格文档（14 篇主文档 + 7 篇分册）
 - [testing/](../docs/testing/) — TDD 测试报告（23 篇）
 - [requirements/](../docs/requirements/) — devflow 需求文档（当前 7 篇 + archive 12 篇）
-- [plan/](../docs/plan/) — 实施计划与状态（当前 27 篇主文档 + 4 篇分册）
+- [plan/](../docs/plan/) — 实施计划与状态（当前 27 篇主文档 + 7 篇分册）
 - [plan/archive/](../docs/plan/archive/) — 已完成的实施状态归档（32 篇）
 
 ### 查阅规则（渐进式披露）

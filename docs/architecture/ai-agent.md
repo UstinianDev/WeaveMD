@@ -1,6 +1,6 @@
 # AI/Agent 系统架构
 
-> 最后更新：2026-09-24
+> 最后更新：2026-10-01
 > 详细文档：[11-AI代理面板-Agent.md](../modules/11-AI代理面板-Agent.md)
 
 ## 系统概览
@@ -14,6 +14,7 @@ AI/Agent 系统是 WeaveMD 的智能创作辅助模块，**remote-only**（Ollam
 - 上下文压缩
 - Skills 体系
 - 写控制（auto/manual）
+- 自动记忆（`agent_memory` 16 列 + `memory_read`/`memory_write` + 后台 `memory_extract` 提取 + 轨迹提炼 `skill_distill`）
 
 ### 协议分流（2026-09-23 接线）
 
@@ -95,7 +96,7 @@ LLM 流式调用（带 tools 定义）
 
 | 意图 | 关键词示例 | 可用工具 |
 |------|-----------|----------|
-| chat | 闲聊/通用问题 | 无意图特有工具（仍拿基础区全量：listFiles 等 15 个 + memory_read / memory_write，再加本行外的 ask_question_card） |
+| chat | 闲聊/通用问题 | 无意图特有工具（仍拿基础区全量：15 个文件/辅助工具 + memory_read / memory_write = 17；`hasSearchConfig` 时再加 web_search / research_search，`hasInteractionSupport` 时加 ask_question_card） |
 | rewrite | 修改/润色/删除 | editBlocks + 文件操作 + searchKB |
 | create | 写/创作/新建 | createFile + editBlocks + searchKB |
 | tech | 代码/技术问题 | 同 create |
@@ -187,6 +188,26 @@ agentEventStore 持久化 + IPC 推送
 ### Session 状态
 
 created → queued → running → waiting_interaction / waiting_operation_confirmation → completed / failed / cancelled / superseded
+
+### 后台任务类型（agent-memory-optimize 三批）
+
+同一 `agent_task_queue` 内，除作答任务外还有两类**不进 `runAgentFlow`、不设 `conversationTaskMap`**
+（因而不会被 `AGENT_ABORT` 取消）的后台任务，均**永不 reject、失败 `done('failed')` 不重试**：
+
+| 类型 | 实现 | 触发 | 产物 |
+|------|------|------|------|
+| `memory_extract` | `agent/memoryWriter.ts` | `handleTaskSuccess` 里 `AI_STREAM_DONE` 之后同步判节流（`MEMORY_EXTRACT_MIN_ROUND_GAP=2`）→ 入队 | 读最近 3 轮 → LLM 结构化提取 → 校验 → `upsertMemory(source='auto')` → `runMemoryPolicy` 冲突清洗 |
+| `skill_distill` | `skills/skillDistiller.ts` | `agentTaskWorker` 内 `maybeEnqueueSkillDistillation`（节流 `SKILL_DISTILL_MIN_ROUND_GAP=4` + 同会话 pending 去重，**给 `memory_extract` 让位**） | 读 `ai_messages` 轨迹 → LLM 提炼 → 只写 `userData/skills/_auto/_drafts/`（front matter `status: draft`） |
+
+两类任务共用既有 1s 队列轮询，**未新建 `setInterval` / 未新建队列**；
+`enqueue` 的 supersede **不区分任务类型**，故用「同会话任意 pending 即跳过」规避互顶。
+
+### 记忆写入的三处触发
+
+1. C1 `memory_write` 工具（同步，同轮同 `kind+subject` 只留一条，单轮上限 10 条）
+2. 后台 `memory_extract`（异步）
+3. D2 起，`runMemoryPolicy` 另在**应用启动 / `memory_write` 成功后 / 既有 `memoryWriter.ts` 成功路径**三处触发
+   （merge → evict → capacity，`MAX_ACTIVE_MEMORIES=500`；`manual` 永不驱逐、永不满额关闭）
 
 ## 搜索配置
 

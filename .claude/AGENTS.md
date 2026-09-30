@@ -41,7 +41,7 @@
 1. **文档必须先于代码**：新增功能前先更新或创建 docs 中对应的设计文档。
 2. **测试必须通过**：每次功能完成后运行 `npm run test`，失败则修复再继续。
 3. **Git 提交到 GitHub**：遵循 `type(scope): message` 格式（如 `feat(auth): add login page`）。
-4. **Hooks 守护**：`.claude/settings.json` 中注册了任务钩子，确保流程不被绕过。
+4. **Hooks 守护**：钩子若存在则注册于**用户级** `~/.claude/settings.json`；仓库级 `.claude/settings.json` 当前为 `{}`（空对象）。执行流程主要靠本文档的规则约束，不要因仓库级为空而认定无 hooks。
 
 ---
 

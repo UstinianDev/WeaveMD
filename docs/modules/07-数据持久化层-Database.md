@@ -1,10 +1,10 @@
 # 07 — 数据持久化层
 
-> 最后更新：2026-08-30
+> 最后更新：2026-10-01
 
 ## 做什么
 
-使用 SQLite (better-sqlite3) 实现本地数据持久化。**共 25 张表 = 22 实表 + 3 虚拟表**（`kb_chunks_fts` / `kb_documents_fts` FTS5、`images_vec` vec0）。支持 WAL 模式、外键约束、数据隔离、级联删除。完整字段见 [database 架构](../architecture/database.md)。
+使用 SQLite (better-sqlite3) 实现本地数据持久化。**共 27 张表 = 23 实表 + 4 虚拟表**（`kb_chunks_fts` / `kb_documents_fts` / `agent_memory_fts` FTS5、`images_vec` vec0）。支持 WAL 模式、外键约束、数据隔离、级联删除。完整字段见 [database 架构](../architecture/database.md)。
 
 ## 架构
 
@@ -17,6 +17,7 @@ src/main/db/
 ├── settings.ts           ← 用户设置
 ├── ai.ts                 ← AI 配置 + 对话 + 消息
 ├── kb.ts                 ← 知识库（kb_documents + kb_chunks + kb_chunks_fts）
+├── agentMemory.ts        ← 自动记忆（agent_memory + agent_memory_fts + 向量读写）
 ├── agentTaskDao.ts       ← Agent 任务队列
 ├── agentSessionDao.ts    ← Agent 会话
 ├── agentSnapshotDao.ts   ← Agent 快照（回滚）
@@ -240,6 +241,7 @@ app.on('before-quit')
 | `kb_documents` | 文档元数据（路径、类型、哈希） |
 | `kb_chunks` | 文档分块（文本、embedding） |
 | `kb_chunks_fts` | FTS5 虚拟表（全文检索，触发器同步：增用 INSERT、删改用 `DELETE ... WHERE rowid = old.rowid`） |
+| `kb_documents_fts` | FTS5 虚拟表（文档级；`_ai` 用 `INSERT VALUES(new.rowid,...)`，`_ad`/`_au` 同样改标准 DELETE，2026-09-30 D7 修复） |
 
 ### 9.3 Agent 表
 
@@ -265,6 +267,43 @@ app.on('before-quit')
 | `knowledge_cache` | index.ts | 知识库查询/Embedding 缓存 |
 | `parsed_attachments` | index.ts | 附件解析结果缓存 |
 | `kb_images` | kb.ts | 知识库图片索引（→ `images_vec`） |
+
+### 9.5 记忆表（agent-memory-optimize 三批）
+
+| 表 | 文件 | 用途 |
+|------|------|------|
+| `agent_memory` | `agentMemory.ts` | 自动记忆单表（Ledger：关闭即置 `valid_to`，不删行） |
+| `agent_memory_fts` | `index.ts` | 记忆关键词索引 FTS5（`tokenize='trigram'`）+ 3 触发器 |
+
+**`agent_memory` 结构（16 列 = 11 基础 + 5 补列）**
+
+| 列 | 类型 | 说明 |
+|----|------|------|
+| id | INTEGER PK AUTOINCREMENT | 同时作 FTS rowid |
+| user_id | TEXT NOT NULL | 用户隔离 |
+| kind | TEXT NOT NULL | `profile` / `fact` / `entity` |
+| subject | TEXT NOT NULL | 主题（与 kind 构成分组键） |
+| content | TEXT NOT NULL | 内容 |
+| source | TEXT | `auto` / `manual`（`memory_write` 恒 `auto`） |
+| conversation_id | TEXT | 来源会话 |
+| fingerprint | TEXT NOT NULL | content sha256（精确去重） |
+| valid_from / valid_to | TEXT | 双时间；`valid_to` 非空 = 已关闭（Ledger） |
+| written_at | TEXT | 写入时间（驱逐/容量排序键） |
+| access_count | INTEGER DEFAULT 0 | 读取计数（D2 补列） |
+| last_read_at | TEXT | 最近读取时刻（D2 补列，当前只写不读） |
+| vector | BLOB DEFAULT NULL | Float32 向量（D6 补列） |
+| embedding_model | TEXT | 向量模型（D6 补列） |
+| merge_skip | TEXT | 相似组驳回标记（D5 补列） |
+
+- **普通索引 4 个**：`(user_id, kind, valid_to)`、`(user_id, subject)`、`(user_id, fingerprint)`、`(user_id, written_at)`
+- **迁移 5 个追加式函数**（顺序）：`addAgentMemoryTables` → `addAgentMemoryAccessColumns` → `addAgentMemoryFts` →
+  `addAgentMemoryVectorColumns` → `addAgentMemoryMergeSkipColumn`；全部 `IF NOT EXISTS` / `addColumnIfMissing`，不 DROP
+- **FTS 触发器**：`_ai` 标准 `INSERT VALUES(new.rowid,...)`；`_ad` 与 `_au` 走
+  **`DELETE FROM agent_memory_fts WHERE rowid = old.rowid`**（普通非 contentless fts5 表不接受特殊 `'delete'` 命令）；
+  `_au` 限定 `AFTER UPDATE OF subject, content`（关闭/计数/驳回类 UPDATE 不重建索引）；
+  存量回填带 `rowid NOT IN` 守卫
+- **断言**：`tests/main/db/migrations.test.ts`（三态）+ `agentMemoryFtsMigration.test.ts` +
+  真库 `scripts/agent-memory-migration-smoke.cjs`（**七态**）
 
 ## 10. 关键设计决策
 

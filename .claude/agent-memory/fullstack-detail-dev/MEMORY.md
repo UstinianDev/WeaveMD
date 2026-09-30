@@ -1,4 +1,8 @@
-# Agent Memory Index
+# Agent Memory Index（精选索引）
+
+> 本目录 64 个记忆中**只索引最近批次的 11 条**（未索引者不会自动加载，但文件仍在，可按文件名点名引用）。
+> 未索引的主要是：第一批 A/B 与 `agent-memory-*-done` 早期记录、`doc-pipeline-b1~b11-done`（该批已交付，权威版本见 `docs/testing/doc-pipeline-b*.tdd.md`）、以及 perf/cost/ux 等更早批次的执行记录。
+> **需要跨任务延续上下文时，优先看 `docs/`（tdd/plan/status），本索引只作最近批次的快捷入口。**
 
 - [agent-memory-optimize-2 B4 完成](agent-memory-optimize-2-b4-done.md) — 画像层已实现未提交、五层 token 实测表、db 来源口径、下一任务 Gate B/C1
 - [agent-memory-optimize-2 C3 完成](agent-memory-optimize-2-c3-done.md) — 设置页自动记忆 tab、首个 event.sender 校验范式、JWT 鉴权口径、门禁 100% 改动行覆盖

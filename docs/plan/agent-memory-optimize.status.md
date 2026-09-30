@@ -1,6 +1,6 @@
 # agent-memory-optimize — 状态与进度
 
-> 日期：2026-09-29 | 档位：**L** | 状态：**✅ 全阶段完成（0~8）· 门禁通过、阻塞 0 · 改动行覆盖 100% · 2 条计划外改动待用户追认**
+> 日期：2026-09-29 | 档位：**L** | 状态：**✅ 全阶段完成（0~8）· 门禁通过、阻塞 0 · 改动行覆盖 100% · 2 条计划外改动已随 `f333bb8` 提交（用户已追认）**
 > 关联：[direction](./agent-memory-optimize.direction.md)（路线图） / [req](../requirements/agent-memory-optimize.req.md)（需求与已对齐问题）
 
 ## 分级（阶段 0）
@@ -275,7 +275,7 @@
 
 探针改动全部复原（`grep SENSITIVITY-PROBE tests/` 无命中）。**改后实跑**：`tests/main/ai/ + tests/main/db/ + tests/render/` → **85 文件 / 1464 tests 全绿**；`npm run typecheck` 0 error；改动的 3 个文件单独 eslint → 0 error / 0 warning。
 
-**遗留（非本任务范围，不阻塞）**：`tests/main/ai/ipc.test.ts:582/1622/1624` 有 3 个 eslint error（`require-yield`、`no-var-requires`），属上一批未提交改动，仓库门禁只跑 `eslint src/` 故不挡 Gate——建议并入下一批 tests/ lint 清理。
+**遗留（非本任务范围，不阻塞）**：`tests/main/ai/ipc.test.ts:582/1622/1624` 有 3 个 eslint error（`require-yield`、`no-var-requires`），属历史遗留（2026-10-01 复核仍存在，行号未变；仓库门禁只跑 `eslint src/` 故不挡 Gate）——建议并入 tests/ lint 清理批次。
 
 ## 阶段 6.5 模块连通性验证（2026-09-29）
 

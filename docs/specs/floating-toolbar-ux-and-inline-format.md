@@ -62,6 +62,8 @@
 
 ### 2.5 问题 3：功能缺失
 
+> **注（2026-10-01 核对）**：本节「根因」为**实施前状态**，三项均已修复——下划线已入 `FORMAT_BUTTONS`（`FloatingToolbar.tsx:115-121`）、`inlineLexer.ts:260-281` 已实现 `<u>` 与 `$` 解析、`package.json:41` 已有 `katex@^0.18.1`。
+
 **根因**：`FORMAT_BUTTONS`（FloatingToolbar.tsx:55-90）仅 6 项（加粗/斜体/删除线/行内代码/
 链接/高亮），缺下划线、数学公式、图片、橡皮擦；`InlineFormatStyle`（formatCtrl.ts:11-17）
 与 `MARKERS`（:19-25）未含对应风格；`inlineRenderer` 未实现 `<u>` 与 `$` 标记解析；

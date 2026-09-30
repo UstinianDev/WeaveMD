@@ -1,6 +1,6 @@
 # 知识库系统架构
 
-> 最后更新：2026-09-09
+> 最后更新：2026-10-01
 
 ## 系统概览
 
@@ -61,9 +61,19 @@ pending → done → error
 > **向量路径的前提**：`kbSearch` 只有拿到 `queryVector` 才走向量分支
 > （`searchMode === 'vector' || 'hybrid'` **且** `opts.queryVector` 非空）。
 > 而 `queryVector` **只在 `searchKB` 工具传 `hyde: true` 且已配置 embedding 时才生成**
-> （`searchKBHandler.ts`）。因此**默认调用实际降级为 FTS5 + 标题匹配**
-> （`kbSearch.ts` 注释：无 queryVector 时降级到纯 FTS5 + 标题）。
+> （`searchKBHandler.ts`）。因此**默认（hybrid）调用实际降级为 FTS5 + 标题匹配**
+> （`kbSearch.ts:468` 注释：无 queryVector 时降级到纯 FTS5 + 标题）。
 > `vectorSearch` 对 `kb_chunks.vector` 用 sqlite-vec `vec_distance_cosine`，扩展缺失时 try/catch 静默降级。
+>
+> **三模式的降级口径（不一致，勿混写）**——条件是**两段独立的 `&&`**：
+>
+> | 模式 | 无 `queryVector` 时的实际行为 |
+> |------|------------------------------|
+> | `fts5` | FTS5 + 标题（本就不用向量） |
+> | `vector` | **不回退 FTS5**：路径 1（FTS5）与路径 2（向量）都不跑，**只剩路径 3 标题匹配**（及 agent 注入的 `expandedQueries` FTS）→ 无候选时按 0.6 阈值**规范拒答**，不降级 |
+> | `hybrid`（默认） | **降级为 FTS5 + 标题**（路径 2 跳过，路径 1/3 照跑） |
+>
+> 即「任意模式都降级」的说法与实现不符（`agent-memory-optimize-3` req §七 已按红线判为「改文档不改代码」）。
 
 ### 拒答机制
 
@@ -90,7 +100,7 @@ kb_documents(id, user_id, file_id, source_type, title, pinned, status, created_a
 kb_chunks(id, document_id, seq, content, vector BLOB, embedding_model, source_ref, created_at)
              -- vector 由 kbIndexer 在配置了 embedding 时写入；未配置则为 NULL
 kb_chunks_fts -- FTS5 虚拟表（jieba 分词，触发器同步；增删改均走标准 INSERT/DELETE，见 database.md）
-kb_documents_fts -- FTS5 文档级虚拟表
+kb_documents_fts -- FTS5 文档级虚拟表（增删改均走标准 INSERT/DELETE，见 database.md）
 kb_images(id, document_id, source_ref, mime_type, embedding_model, created_at)
 images_vec -- vec0 虚拟表，仅图片向量（sqlite-vec 可用时创建）
 ```

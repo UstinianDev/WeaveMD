@@ -1,16 +1,16 @@
 # 08 — IPC 通信机制
 
-> 最后更新：2026-09-27
+> 最后更新：2026-10-01
 
 ## 做什么
 
-Electron 主进程与渲染进程之间的安全通信桥梁。使用 `contextBridge` + `ipcRenderer.invoke`/`ipcMain.handle` 模式，`src/shared/constants.ts` 的 `IPC_CHANNELS` 共 **111 个通道**。
+Electron 主进程与渲染进程之间的安全通信桥梁。使用 `contextBridge` + `ipcRenderer.invoke`/`ipcMain.handle` 模式，`src/shared/constants.ts` 的 `IPC_CHANNELS` 共 **119 个通道**（11 组）。
 
 ## 架构
 
 ```
 src/main/ipc-handlers.ts          ← 主进程 IPC 处理器注册（基础通道）
-src/main/ai/ipc/                  ← AI 模块 IPC（11 个 handler 模块 + index + shared）
+src/main/ai/ipc/                  ← AI 模块 IPC（13 个 handler 模块 + index + shared）
 ├── index.ts / shared.ts          ← 注册入口与共享工具
 ├── agentHandlers.ts              ← Agent 运行、附件落库、citation 回链
 ├── chatHandlers.ts               ← Chat 载荷（渲染层零调用方）
@@ -22,9 +22,11 @@ src/main/ai/ipc/                  ← AI 模块 IPC（11 个 handler 模块 + in
 ├── searchHandlers.ts             ← 搜索调用
 ├── searchConfigHandlers.ts       ← 搜索配置 CRUD
 ├── rewriteHandlers.ts            ← 块级改写
-└── configConsentHandlers.ts      ← 配置 / 同意闸
+├── configConsentHandlers.ts      ← 配置 / 同意闸
+├── memoryHandlers.ts             ← 自动记忆列表/删除 + 相似合并三态审核（agent-memory-optimize C3 / D5）
+└── skillDraftHandlers.ts         ← 提炼技能草稿列/采纳/驳回（agent-memory-optimize-3 D3）
 src/main/preload.ts               ← 预加载脚本（暴露安全 API）
-src/shared/constants.ts           ← IPC 通道常量（111 通道）
+src/shared/constants.ts           ← IPC 通道常量（119 通道）
 ```
 
 ## 通道分组
@@ -168,6 +170,22 @@ src/shared/constants.ts           ← IPC 通道常量（111 通道）
 | `agent:replay:events` / `agent:rollback:snapshot` | 回放/回滚 |
 | `attachment:open-source` | 附件引用跳转原文（B8 六-2：按 attachmentId 服务端解析路径 + 白名单校验后打开） |
 
+### AI 记忆与提炼草稿（8 通道，agent-memory-optimize 三批新增）
+
+| 通道 | 用途 |
+|------|------|
+| `ai:memory:list` | 自动记忆列表（第二批 C3；设置页「自动记忆」tab） |
+| `ai:memory:delete` | 删除单条记忆（物理 DELETE，UI `window.confirm` 二次确认） |
+| `ai:memory:similar:list` | 相似合并建议列表（第三批 D5 防线二） |
+| `ai:memory:similar:accept` | 采纳合并（服务端按 ids 重算相似组：归属 + active + 同 kind + 连通相似度） |
+| `ai:memory:similar:reject` | 驳回合并（写 `merge_skip`，该行所在组不再自动合并） |
+| `ai:skilldraft:list` | 提炼技能草稿列表（第三批 D3，读 `_auto/_drafts/`） |
+| `ai:skilldraft:approve` | 采纳草稿 → `status: active` 进入生效目录（`intents` 全非法返回 `parse_error`） |
+| `ai:skilldraft:reject` | 驳回草稿 |
+
+> 鉴权四条照抄 C3 范式：`isTrustedSender(event)` + JWT 解 `userId`（`sha256(userData)` 派生）+
+> `findById` + 任一步失败 fail-closed 返回 `unauthorized`；参数校验（`isValidIdArray` 等）不过不落策略层。
+
 ### Mail / Notification（5 通道）
 
 | 通道 | 用途 |
@@ -190,7 +208,7 @@ window.weaveMD = {
   dialog: { openFile, saveFile, saveFilePath, openFolder, pickImage },
   account: { info, delete },
   folder: { readFolder, createFolder, deleteFolder },
-  ai: { getConfig, setConfig, getConsent, setConsent, chat, chatAbort, ... },
+  ai: { getConfig, setConfig, getConsent, setConsent, chat, chatAbort, ..., memory: { list, delete, similarList, acceptSimilar, rejectSimilar }, skillDraft: { list, approve, reject } },
   kb: { list, importFile, importDir, reindex, delete, status, ... },
   agent: { run, abort, skillsList, ... },
   mail: { get, set, send, pickImages },
@@ -210,6 +228,6 @@ window.weaveMD = {
 
 ## 注意事项
 
-- AI IPC 已拆分为 `src/main/ai/ipc/` 下 7 个模块，非单一 `ipc-handlers.ts`
+- AI IPC 已拆分为 `src/main/ai/ipc/` 下 13 个 handler 模块（+ index + shared），非单一 `ipc-handlers.ts`
 - 流式推送使用 `webContents.send`（main→render 单向），非 invoke/handle
 - 所有处理器包裹在 try-catch 中，统一 `IpcResponse<T>` 响应格式

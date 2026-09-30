@@ -1,6 +1,6 @@
 # WeaveMD 文档索引
 
-> 最后更新：2026-09-28
+> 最后更新：2026-10-01
 > 索引只列到「目录 / 任务」粒度；单篇文件清单由各目录的 README 或本文附录给出，避免索引本身膨胀。
 
 ## 核心文档
@@ -19,11 +19,11 @@
 |------|------|
 | [frontend](./architecture/frontend.md) | 前端渲染层（React / 8 个 store / 11 个 hooks / Tailwind） |
 | [editor](./architecture/editor.md) | 编辑器内核（块树 / 双向转换 / 9 类控制器 / Outline） |
-| [backend](./architecture/backend.md) | 主进程（Electron / AI 服务 / 11 个 IPC handler 模块 / 30 工具） |
-| [ai-agent](./architecture/ai-agent.md) | AI/Agent 系统（循环 / 工具 / 意图 / 写控制 / 标题编号） |
+| [backend](./architecture/backend.md) | 主进程（Electron / AI 服务 / 13 个 IPC handler 模块 / 30 工具） |
+| [ai-agent](./architecture/ai-agent.md) | AI/Agent 系统（循环 / 30 工具 / 意图 / 写控制 / 自动记忆 / 标题编号） |
 | [knowledge](./architecture/knowledge.md) | 知识库（FTS5 索引 / BM25 搜索 / HyDE / Agentic RAG / 附件关联） |
-| [database](./architecture/database.md) | 数据库（SQLite / 25 表：22 实表 + 3 虚拟表 / D1~D8 迁移） |
-| [ipc](./architecture/ipc.md) | IPC 通信（contextBridge / 111 通道 / 11 组 / 事件持久化） |
+| [database](./architecture/database.md) | 数据库（SQLite / 27 表：23 实表 + 4 虚拟表 / D1~D8 + agent_memory 5 追加式迁移） |
+| [ipc](./architecture/ipc.md) | IPC 通信（contextBridge / 119 通道 / 11 组 / 事件持久化） |
 | [security](./architecture/security.md) | 安全（JWT / bcrypt / safeStorage / 参数化查询 / 外发闸） |
 | [testing](./architecture/testing.md) | 测试（Vitest / Playwright / TDD / 质量门禁） |
 | [build](./architecture/build.md) | 构建与发布（Vite / electron-builder / sizeGate 体积门禁） |
@@ -38,11 +38,11 @@
 | [04-编辑主区](./modules/04-编辑主区-Editor.md) | v2 块树内核 + Outline 统一 + 浮动工具栏 |
 | [05-设置界面](./modules/05-设置界面-Settings.md) | UnifiedSettings 多 Tab + 主题系统 |
 | [06-窗口控制](./modules/06-窗口控制-Window.md) | Frameless 窗口 + 自动更新 |
-| [07-数据持久化层](./modules/07-数据持久化层-Database.md) | SQLite 25 表 + FTS5 + vec0 |
-| [08-IPC通信机制](./modules/08-IPC通信机制.md) | 111 通道（11 组）+ 事件持久化 |
+| [07-数据持久化层](./modules/07-数据持久化层-Database.md) | SQLite 27 表（含 agent_memory）+ FTS5 + vec0 |
+| [08-IPC通信机制](./modules/08-IPC通信机制.md) | 119 通道（11 组）+ 事件持久化 |
 | [09-国际化](./modules/09-国际化-i18n.md) | 中文简繁 + 英文（三语言） |
 | [10-导出功能](./modules/10-导出功能-Export.md) | 8 格式导出（md/html/doc/docx/pdf/png/jpg/jpeg） |
-| [11-AI代理面板](./modules/11-AI代理面板-Agent.md) | Agent / 知识库 / Agentic RAG + Composer 标签化 + 标题自动编号 |
+| [11-AI代理面板](./modules/11-AI代理面板-Agent.md) | Agent / 知识库 / Agentic RAG + Composer 标签化 + 标题自动编号 + 分册 4 篇（优化历史 / Diff 卡片 / 提问卡片 / 触发优化与提示词规则） |
 
 ## 规格文档（14 篇主文档 + 7 篇分册）
 
@@ -70,21 +70,20 @@
 
 按任务成套存放，同一任务的四件套同名前缀：`{task}.req.md`（需求）、`{task}.plan.md` / `{task}.status.md`（计划与状态）、`{task}.*.tdd.md`（测试证据），另有 connectivity（连通性）与 compliance（合规）报告。
 
-| 需求（`requirements/`，当前 7 篇 + archive 12 篇） | 计划与状态（`plan/`，当前 27 篇主文档 + 4 篇分册 + archive 32 篇） | 测试报告（`testing/`，23 篇） |
+| 需求（`requirements/`，当前 7 篇 + archive 12 篇） | 计划与状态（`plan/`，当前 27 篇主文档 + 7 篇分册 + archive 32 篇） | 测试报告（`testing/`，23 篇） |
 |---|---|---|
 | [doc-pipeline.req](./requirements/doc-pipeline.req.md) | [doc-pipeline.plan](./plan/doc-pipeline.plan.md) / [status](./plan/doc-pipeline.status.md) / [connectivity](./plan/doc-pipeline.connectivity.md) / [compliance](./plan/doc-pipeline.compliance.md) / [docling-poc](./plan/doc-pipeline.docling-poc.md) / [remedial.diagnosis](./plan/doc-pipeline.remedial.diagnosis.md) | `doc-pipeline-b1` ~ `doc-pipeline-b11` + `doc-pipeline-remedial` + `doc-pipeline.final` |
 | [agent-cost-optimize.req](./requirements/agent-cost-optimize.req.md) | [plan](./plan/agent-cost-optimize.plan.md) / [status](./plan/agent-cost-optimize.status.md) | `agent-cost-optimize.tdd` |
 | [agent-perf-optimize.req](./requirements/agent-perf-optimize.req.md) | [plan](./plan/agent-perf-optimize.plan.md) / [phase2](./plan/agent-perf-optimize.phase2.plan.md) / [status](./plan/agent-perf-optimize.status.md) / [connectivity](./plan/agent-perf-optimize.connectivity.md) | — |
-| [agent-memory-optimize.req](./requirements/agent-memory-optimize.req.md) | [plan](./plan/agent-memory-optimize.plan.md) / [status](./plan/agent-memory-optimize.status.md) / [connectivity](./plan/agent-memory-optimize.connectivity.md) / [compliance](./plan/agent-memory-optimize.compliance.md) | `agent-memory-optimize.tdd` |
 | [agent-md-kb-optimize.req](./requirements/agent-md-kb-optimize.req.md) | [plan](./plan/agent-md-kb-optimize.plan.md) / [status](./plan/agent-md-kb-optimize.status.md) | — |
-| [agent-memory-optimize.req](./requirements/agent-memory-optimize.req.md)（P0 第一批，已完成） | [direction](./plan/agent-memory-optimize.direction.md)（7 模块 30 任务路线图） / [plan](./plan/agent-memory-optimize.plan.md) / [status](./plan/agent-memory-optimize.status.md) / [connectivity](./plan/agent-memory-optimize.connectivity.md) / [compliance](./plan/agent-memory-optimize.compliance.md) | `agent-memory-optimize.tdd` |
+| [agent-memory-optimize.req](./requirements/agent-memory-optimize.req.md)（P0 第一批，已完成） | [direction](./plan/agent-memory-optimize.direction.md)（7 模块 **26 任务**路线图，三批已全部交付 + 分册 3 篇） / [plan](./plan/agent-memory-optimize.plan.md) / [status](./plan/agent-memory-optimize.status.md) / [connectivity](./plan/agent-memory-optimize.connectivity.md) / [compliance](./plan/agent-memory-optimize.compliance.md) | `agent-memory-optimize.tdd` |
 | [agent-memory-optimize-2.req](./requirements/agent-memory-optimize-2.req.md)（P1 第二批，**已完成**） | [plan](./plan/agent-memory-optimize-2.plan.md)（§6 为三 Gate 实施记录） | `agent-memory-optimize-2.tdd` |
 | [agent-memory-optimize-3.req](./requirements/agent-memory-optimize-3.req.md)（P2 第三批，**已完成**） | [plan](./plan/agent-memory-optimize-3.plan.md)（§6 为三 Gate 实施记录） | `agent-memory-optimize-3.tdd` |
 | — | 6 篇 doc-pipeline 调研（`plan/doc-pipeline.research-*.md`：parse / pdf-multimodal / storage / chunking / packaging / tools） | `spec-edit-ft` ~ `ft4` / `cbtp` / `dsf`（编辑器规格 TDD 6 篇） |
 
 > 历史任务的计划与需求已归档至 `plan/archive/`、`requirements/archive/`，不在上表展开。
-> 超长的 3 篇计划/状态已拆出分册（`plan/doc-pipeline.plan/`、`plan/doc-pipeline.status/`、
-> `plan/agent-cost-optimize.status/`）：主文档保留批次总表/决策基线/总览，逐批变更与逐批记录进分册。
+> 超长的 4 篇计划/状态已拆出分册（`plan/doc-pipeline.plan/`、`plan/doc-pipeline.status/`、
+> `plan/agent-cost-optimize.status/`、`plan/agent-memory-optimize.direction/`）：主文档保留批次总表/决策基线/总览，逐批变更与逐批记录进分册。
 
 ## 其他
 
