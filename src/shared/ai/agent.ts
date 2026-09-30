@@ -135,3 +135,23 @@ export interface AgentRollbackResult {
   restored: number;
   errors: string[];
 }
+
+/** 自动记忆类别（与 agent_memory.kind 一一对应；此处内联字面量，避免与 @main/db 同名类型冲突）。 */
+export type AgentMemoryKindValue = 'profile' | 'fact' | 'entity';
+
+/**
+ * AI_MEMORY_LIST 响应行（设置页「自动记忆」只读列表用）。
+ * 刻意不下发 userId / fingerprint / conversationId —— 渲染层只展示，不需要归属与去重字段。
+ */
+export interface IAgentMemory {
+  id: number;
+  kind: AgentMemoryKindValue;
+  subject: string;
+  content: string;
+  /** 'auto'（Agent 自动写）| 'manual'（用户手写） */
+  source: 'auto' | 'manual';
+  validFrom: string;
+  /** null = 当前有效；非空 = 已失效（Ledger 关闭，列表仍展示供审计） */
+  validTo: string | null;
+  writtenAt: string;
+}

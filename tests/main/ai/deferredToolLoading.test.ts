@@ -20,7 +20,7 @@ const CORE_TOOL_NAMES = new Set([
   'ask_question_card',
 ]);
 
-/** 延迟工具（23 个，B8 四文档工具 +4）。 */
+/** 延迟工具（25 个，B8 四文档工具 +4、C1 记忆两工具 +2）。 */
 const DEFERRED_TOOL_NAMES = new Set([
   'runSkill',
   'createFile',
@@ -45,6 +45,9 @@ const DEFERRED_TOOL_NAMES = new Set([
   'readPage',
   'extractTable',
   'analyzeChart',
+  // C1 记忆两工具
+  'memory_read',
+  'memory_write',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -54,8 +57,8 @@ const DEFERRED_TOOL_NAMES = new Set([
 describe('S5 deferred tool loading — defer_loading markers', () => {
   const allTools = defineCoreTools();
 
-  it('has exactly 28 tools total', () => {
-    expect(allTools).toHaveLength(28);
+  it('has exactly 30 tools total', () => {
+    expect(allTools).toHaveLength(30);
   });
 
   it('has exactly 5 core tools (defer_loading NOT true)', () => {
@@ -65,14 +68,14 @@ describe('S5 deferred tool loading — defer_loading markers', () => {
     expect(coreNames).toEqual(CORE_TOOL_NAMES);
   });
 
-  it('has exactly 23 deferred tools (defer_loading: true)', () => {
+  it('has exactly 25 deferred tools (defer_loading: true)', () => {
     const deferredTools = allTools.filter((t) => t.defer_loading);
-    expect(deferredTools).toHaveLength(23);
+    expect(deferredTools).toHaveLength(25);
     const deferredNames = new Set(deferredTools.map((t) => t.function.name));
     expect(deferredNames).toEqual(DEFERRED_TOOL_NAMES);
   });
 
-  it('isDeferredTool returns true for all 23 deferred tools', () => {
+  it('isDeferredTool returns true for all 25 deferred tools', () => {
     for (const name of DEFERRED_TOOL_NAMES) {
       expect(isDeferredTool(name)).toBe(true);
     }
@@ -186,7 +189,7 @@ describe('S5 buildToolListForPrompt', () => {
 
   it('converts deferred tools to stubs while keeping core tools unchanged', () => {
     const result = buildToolListForPrompt(allTools);
-    expect(result).toHaveLength(28);
+    expect(result).toHaveLength(30);
 
     // 核心工具：不携带 defer_loading 标记（falsy），与 stub 工具的 defer_loading:true 可区分
     const coreResults = result.filter((t) => !t.defer_loading);
@@ -250,7 +253,7 @@ describe('S5 buildToolListForPrompt', () => {
 // ---------------------------------------------------------------------------
 
 describe('S5 tool list order — S7 compatibility', () => {
-  it('all 28 tools are in alphabetical order by function.name', () => {
+  it('all 30 tools are in alphabetical order by function.name', () => {
     const allTools = defineCoreTools();
     const names = allTools.map((t) => t.function.name);
     const sorted = [...names].sort((a, b) => a.localeCompare(b));
@@ -269,8 +272,8 @@ describe('S5 tool list order — S7 compatibility', () => {
     const allTools = defineCoreTools();
     const names = allTools.map((t) => t.function.name);
     const unique = new Set(names);
-    expect(unique.size).toBe(28);
-    expect(names).toHaveLength(28);
+    expect(unique.size).toBe(30);
+    expect(names).toHaveLength(30);
   });
 });
 

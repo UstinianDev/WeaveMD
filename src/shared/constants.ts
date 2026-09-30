@@ -169,6 +169,10 @@ export const IPC_CHANNELS = {
   AGENT_GLOBAL_FILES_SET: 'agent:global-files:set',
   AGENT_GLOBAL_FILES_DEFAULT: 'agent:global-files:default',
 
+  // AI — Agent 自动记忆（agent-memory-optimize 第二批 C3：设置页可见性入口）
+  AI_MEMORY_LIST: 'ai:memory:list',
+  AI_MEMORY_DELETE: 'ai:memory:delete',
+
   // AI — 附件引用跳转原文（B8 六-2 citation 回链；按 attachmentId 服务端解析路径）
   ATTACHMENT_OPEN_SOURCE: 'attachment:open-source',
 

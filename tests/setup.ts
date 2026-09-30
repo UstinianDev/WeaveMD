@@ -97,6 +97,10 @@ const mockWeaveMD = {
       get: vi.fn(),
       set: vi.fn(),
     },
+    memory: {
+      list: vi.fn(),
+      delete: vi.fn(),
+    },
   },
   kb: {
     list: vi.fn(),

@@ -20,6 +20,7 @@ import type {
   IClarifyQuestion,
   IEmbeddingConfig,
   IGlobalAgentFiles,
+  IAgentMemory,
   IIntent,
   IKbDocumentStatus,
   IKbSettings,
@@ -138,6 +139,16 @@ interface AgentStore {
   globalFiles: IGlobalAgentFiles | null;
   loadGlobalFiles: () => Promise<void>;
   updateGlobalFiles: (updates: Partial<IGlobalAgentFiles>) => Promise<void>;
+
+  // —— 自动记忆（agent-memory-optimize 第二批 C3：设置页可见性入口） ——
+  /** 后台自动写入的记忆行（含已关闭，供展示「已失效」）。 */
+  memories: IAgentMemory[];
+  memoriesLoading: boolean;
+  /** 最近一次列表加载失败的原因（null = 无错误）。 */
+  memoriesError: string | null;
+  loadMemories: () => Promise<void>;
+  /** 单条删除（物理 DELETE）。返回是否真的删除。 */
+  deleteMemory: (id: number) => Promise<boolean>;
 
   // —— 断线重连 ——
   /** 最后收到的事件序列号（replay 时用于补发丢失事件）。 */
@@ -267,6 +278,9 @@ const RESET_FIELDS: Pick<
   | 'searchConfig'
   | 'searchConnectionOk'
   | 'globalFiles'
+  | 'memories'
+  | 'memoriesLoading'
+  | 'memoriesError'
   | 'processStatus'
   | 'writeMode'
   | 'uploadKbDefault'
@@ -301,6 +315,9 @@ const RESET_FIELDS: Pick<
   searchConfig: null,
   searchConnectionOk: false,
   globalFiles: null,
+  memories: [],
+  memoriesLoading: false,
+  memoriesError: null,
   processStatus: 'idle',
   writeMode: 'auto',
   // Q2 默认勾选（init 从 ai_config 回读覆盖；读取失败保持勾选）
@@ -1570,6 +1587,53 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
         set({ globalFiles: res.data });
       }
     } catch { /* 静默 */ }
+  },
+
+  // —— 自动记忆（C3 设置页可见性入口） ——
+
+  async loadMemories() {
+    const ai = getAi();
+    if (!ai?.memory) {
+      set({ memories: [], memoriesLoading: false, memoriesError: 'memory api unavailable' });
+      return;
+    }
+    set({ memoriesLoading: true, memoriesError: null });
+    try {
+      // 只传当前登录认证上下文，不传 userId（主进程由 JWT 解出，SECURITY.md IPC 条）
+      const authToken = useAuthStore.getState().token ?? '';
+      const res = await ai.memory.list(authToken);
+      if (res?.success && Array.isArray(res.data)) {
+        set({ memories: res.data, memoriesLoading: false });
+      } else {
+        set({
+          memories: [],
+          memoriesLoading: false,
+          memoriesError: res?.message ?? 'Failed to load memories',
+        });
+      }
+    } catch (err) {
+      set({
+        memoriesLoading: false,
+        memoriesError: err instanceof Error ? err.message : String(err),
+      });
+    }
+  },
+
+  async deleteMemory(id: number) {
+    const ai = getAi();
+    if (!ai?.memory) return false;
+    try {
+      const authToken = useAuthStore.getState().token ?? '';
+      const res = await ai.memory.delete(authToken, id);
+      if (res?.success && res.data?.deleted) {
+        set({ memories: get().memories.filter((m) => m.id !== id) });
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('[agentStore] deleteMemory failed:', err);
+      return false;
+    }
   },
 
   // —— R3: 交互提问恢复 ——

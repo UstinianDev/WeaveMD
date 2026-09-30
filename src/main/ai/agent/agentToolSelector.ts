@@ -88,6 +88,10 @@ export function toolsForIntent(
   names.add('readPage');
   names.add('extractTable');
   names.add('analyzeChart');
+  // C1（Q7）：记忆读写对所有意图无条件可用——记忆是跨意图的慢思考回路，
+  // chat 意图同样要能读回/写入画像，故放在 switch 之前的基础区
+  names.add('memory_read');
+  names.add('memory_write');
 
   // Agentic RAG：web_search 对所有非 chat 意图可用（与 searchKB 模式对齐）
   // 让 LLM 自主决定是否需要联网搜索，而非由意图路由硬性限制

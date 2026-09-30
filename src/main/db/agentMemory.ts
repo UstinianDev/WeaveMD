@@ -327,12 +327,17 @@ function listActiveByKindSubject(
 // ---------------------------------------------------------------------------
 
 /**
- * 记忆写入的 upsert 语义（req Q10 冲突清洗）：
+ * 记忆写入的 upsert 语义（req Q10 冲突清洗 + C2 裁定 6）：
  * 1. 同 user+kind+subject 存在 source='manual' 的 active 行 → **恒赢**，
  *    任何写入都不覆盖，直接返回该行 id 且不写库（manual 行的变更走 C3 物理删除后重写）；
- * 2. 否则同 kind+subject+fingerprint 的 active 行 → 关旧（closeMemory 置 valid_to）+ 插新；
- * 3. 无重复 → 直接插。
- * 注：同 subject 不同 fingerprint 的并存行不在本函数清洗（时间新者赢由 C2 memoryWriter 负责）。
+ * 2. 否则 source='auto' 且存在同 user+kind+subject+fingerprint 的 active 行 → **零写入**，
+ *    直接返回既有行 id（裁定 6：C1 工具写入与 C2 后台提取两条路径会重复写同一事实，
+ *    「关旧插新」对相同内容只会制造垃圾行，故必须真去重）；优先级在 manual 恒赢闸之后；
+ * 3. source='manual' 的首次写入仍走「关同指纹 auto 行 + 插 manual 行」——manual 必须落成
+ *    可见的手写行，不能被第 2 条的短路吞掉（Q10 manual 恒赢的落库前提）；
+ * 4. 无重复 → 直接插。
+ * 注：同 subject 不同 fingerprint 的并存行不在本函数清洗（时间新者赢由 C2 memoryWriter 调
+ *     runMemoryPolicy 负责）。
  */
 export function upsertMemory(db: BetterSqlite3Database, input: AgentMemoryUpsert): number {
   const source: AgentMemorySource = input.source ?? 'auto';
@@ -341,9 +346,17 @@ export function upsertMemory(db: BetterSqlite3Database, input: AgentMemoryUpsert
   const manual = activeSiblings.find((r) => r.source === 'manual');
   if (manual) return manual.id;
 
-  const validTo = nowStamp();
-  for (const dup of activeSiblings) {
-    if (dup.fingerprint === input.fingerprint) {
+  const sameFingerprint = activeSiblings.filter((r) => r.fingerprint === input.fingerprint);
+
+  if (source === 'auto') {
+    // 裁定 6：同指纹零写入（取 id 最大的一条，兼容本规则上线前遗留的重复行）
+    if (sameFingerprint.length > 0) {
+      return sameFingerprint.reduce((max, r) => (r.id > max.id ? r : max)).id;
+    }
+  } else {
+    // manual 首次写入：关掉同指纹 auto 行（Ledger 不删行），manual 行照常插入
+    const validTo = nowStamp();
+    for (const dup of sameFingerprint) {
       closeMemory(db, input.userId, dup.id, validTo);
     }
   }

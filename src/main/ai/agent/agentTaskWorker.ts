@@ -16,10 +16,11 @@ import type {
   IAttachmentMeta,
   IClarifyQuestion,
   IKbSettings,
+  ModelProtocol,
 } from '@shared/ai';
 import { normalizeKbSettings } from '@shared/ai';
 import { IPC_CHANNELS } from '@shared/constants';
-import { getAiConfig } from '../../db/ai';
+import { getAiConfig, getRecentMessagesByRounds } from '../../db/ai';
 import * as sessionDao from '../../db/agentSessionDao';
 import { AgentTaskQueue } from './agentTaskQueue';
 import { AgentSessionStateMachine } from './agentSession';
@@ -28,6 +29,17 @@ import { searchKB, filterKbEgressResults } from '../knowledge/kbSearch';
 import { getGrantedAttachmentDocIds } from '../../db/kb';
 import { persistAndSend, persistOnly } from './agentEventStore';
 import { createSnapshot } from './agentSnapshot';
+import {
+  isMemoryExtractTask,
+  maybeEnqueueMemoryExtraction,
+  runMemoryExtractionJob,
+  MEMORY_EXTRACT_TIMEOUT_MS,
+  type MemoryLlmCall,
+  type MemoryRoundMessage,
+} from './memoryWriter';
+import { streamChatCompletionWithRetry } from '../llm/llmClient';
+import { streamAnthropicCompletion } from '../llm/anthropicClient';
+import { decryptApiKey } from '../secureConfig';
 import {
   toIAIConfig,
   toIAIConsent,
@@ -44,6 +56,22 @@ export interface WorkerConfig {
   pollIntervalMs?: number;
   /** 最大并发任务数，默认 1。 */
   maxConcurrent?: number;
+}
+
+/**
+ * 后台记忆提取的对话读取（C2）：走既有轮窗口 DAO（最近 N 轮，与 KEEP_RECENT_ROUNDS 同口径）。
+ * 只回传 user / assistant 正文 —— 后台提取不进主上下文，且工具结果不是记忆来源。
+ * 空正文行被过滤，避免把纯工具轮拼进提示词。
+ */
+function readRecentRoundsForExtraction(
+  conversationId: string,
+  userId: string,
+  rounds: number
+): MemoryRoundMessage[] {
+  return getRecentMessagesByRounds(conversationId, userId, rounds)
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .filter((m) => typeof m.content === 'string' && m.content.trim().length > 0)
+    .map((m) => ({ role: m.role, content: m.content as string }));
 }
 
 // ---------------------------------------------------------------------------
@@ -198,6 +226,12 @@ export class AgentTaskWorker {
 
   /** 处理单个任务的完整生命周期。 */
   private async processTask(task: AgentTask): Promise<void> {
+    // C2：后台记忆提取任务复用同一队列，但不走 runAgentFlow
+    if (isMemoryExtractTask(task)) {
+      await this.processMemoryTask(task);
+      return;
+    }
+
     const abortController = new AbortController();
     this.activeTasks.set(task.id, abortController);
     this.conversationTaskMap.set(task.conversationId, task.id);
@@ -305,6 +339,85 @@ export class AgentTaskWorker {
       // 触发下一次轮询（可能有等待中的任务）
       void this.poll();
     }
+  }
+
+  /**
+   * 处理后台记忆提取任务（C2）。
+   * 复用同一队列与同一个并发闸，但完全独立于 runAgentFlow：
+   * - 所有异常在 runMemoryExtractionJob 内收敛 → 落 failed 不重试、不 reject（Q9）；
+   * - 这里再兜一层 catch，保证 worker 自身永不因记忆提取而抛出（不阻塞用户下一轮提问）；
+   * - 不写 conversationTaskMap：记忆提取不该被 AGENT_ABORT 当作当前会话的作答任务取消。
+   */
+  private async processMemoryTask(task: AgentTask): Promise<void> {
+    const abortController = new AbortController();
+    this.activeTasks.set(task.id, abortController);
+
+    try {
+      await runMemoryExtractionJob(
+        {
+          db: this.db,
+          llm: this.buildMemoryLlm(task.userId, abortController.signal),
+          readRounds: readRecentRoundsForExtraction,
+        },
+        { conversationId: task.conversationId, userId: task.userId },
+        (status, errorCode, errorMessage) => {
+          this.queue.updateStatus(task.id, status, errorCode, errorMessage);
+        },
+      );
+    } catch (error) {
+      // 兜底：runMemoryExtractionJob 承诺不抛，这里仍落 failed 且只记日志
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[AgentTaskWorker] Memory extraction crashed:', task.id, error);
+      try {
+        this.queue.updateStatus(task.id, 'failed', 'memory_extract', message);
+      } catch (statusError) {
+        console.error('[AgentTaskWorker] Failed to mark memory task failed:', statusError);
+      }
+    } finally {
+      this.activeTasks.delete(task.id);
+      abortController.abort();
+      void this.poll();
+    }
+  }
+
+  /**
+   * 构造后台记忆提取的 LLM 调用（按配置协议分流，非流式累积为整段文本）。
+   * 任何缺配置/解密失败都会让返回的函数抛错 → 由 runMemoryExtractionJob 落 failed。
+   */
+  private buildMemoryLlm(userId: string, signal: AbortSignal): MemoryLlmCall {
+    let baseUrl = '';
+    let model = '';
+    let apiKey: string | null = null;
+    let protocol: ModelProtocol = 'openai';
+    try {
+      const row = getAiConfig(userId);
+      if (!row) throw new Error('未配置 AI 模型（ai_config 为空）');
+      baseUrl = row.remoteBaseUrl;
+      model = row.model;
+      protocol = row.protocol ?? 'openai';
+      apiKey = row.apiKeyEnc ? decryptApiKey(row.apiKeyEnc) : null;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`memory_extract: 读取 AI 配置失败 → ${reason}`);
+    }
+
+    return async (messages) => {
+      const opts = {
+        baseUrl,
+        model,
+        apiKey: apiKey ?? undefined,
+        messages,
+        timeoutMs: MEMORY_EXTRACT_TIMEOUT_MS,
+        signal,
+      };
+      const gen =
+        protocol === 'anthropic' ? streamAnthropicCompletion(opts) : streamChatCompletionWithRetry(opts);
+      let acc = '';
+      for await (const chunk of gen) {
+        acc += chunk.delta;
+      }
+      return acc;
+    };
   }
 
   // -----------------------------------------------------------------------
@@ -464,6 +577,14 @@ export class AgentTaskWorker {
           success: true,
           result,
         },
+      );
+
+      // C2：AI_STREAM_DONE 之后入队后台记忆提取。
+      // maybeEnqueueMemoryExtraction 自身同步快速返回并吞掉全部异常（节流 + 同会话 pending
+      // 去重 + 入队，绝不在此调 LLM），因此这里无需再包一层 try/catch，不会影响完成事件。
+      maybeEnqueueMemoryExtraction(
+        { queue: this.queue },
+        { conversationId: task.conversationId, userId: task.userId },
       );
     }
   }

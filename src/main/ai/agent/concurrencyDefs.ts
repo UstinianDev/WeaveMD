@@ -46,6 +46,14 @@ const CONCURRENCY_DEFS: Record<string, ConcurrencyDef> = {
   'analyzeChart':          { defaultSafe: true },
 
   // ==========================================
+  // C1 记忆两工具（agent-memory-optimize 第二批）
+  // read 只读 → 并发安全；write 是写入工具，按本表「写入工具始终串行」约定显式 false
+  //（显式入表而非留空：入表值可被测试断言，留空只能 fail-closed 到同一个 false）
+  // ==========================================
+  'memory_read':           { defaultSafe: true },
+  'memory_write':          { defaultSafe: false },
+
+  // ==========================================
   // 写入工具 — 始终串行
   // ==========================================
   'createFile':            { defaultSafe: false },
@@ -63,6 +71,16 @@ const CONCURRENCY_DEFS: Record<string, ConcurrencyDef> = {
   'preview_file_revision': { defaultSafe: false },
   'preview_patch_files':   { defaultSafe: false },
 };
+
+/**
+ * 判断工具名是否已显式登记在并发表中。
+ * 与 `isToolConcurrencySafe` 的区别：未登记也返回 false（fail-closed 串行），
+ * 二者不可区分；本函数让「已登记为串行」与「根本没登记」可被测试分辨，
+ * 避免新增工具漏入表却因同样返回 false 而测不出来。
+ */
+export function hasConcurrencyDef(name: string): boolean {
+  return Object.prototype.hasOwnProperty.call(CONCURRENCY_DEFS, name);
+}
 
 /**
  * 安全解析工具 args JSON 字符串。

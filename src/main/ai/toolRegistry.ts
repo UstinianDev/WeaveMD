@@ -7,7 +7,7 @@
 //
 // S5 工具延迟加载：
 // - 核心工具（5 个）：始终发送完整 JSON Schema → 缓存前缀稳定
-// - 延迟工具（23 个）：仅发送名称 stub + defer_loading: true 标记
+// - 延迟工具（25 个）：仅发送名称 stub + defer_loading: true 标记
 // - 当 LLM 选择调用延迟工具时，拦截 → 补充完整 schema → 重发请求
 // - 重发上限 3 次，防止死循环
 // B8 六-1：文档四工具 searchDocument/readPage/extractTable/analyzeChart
@@ -45,6 +45,8 @@ import { handleSearchDocument } from './tools/searchDocument';
 import { handleReadPage } from './tools/readPage';
 import { handleExtractTable } from './tools/extractTable';
 import { handleAnalyzeChart } from './tools/analyzeChart';
+import { handleMemoryRead } from './tools/memoryRead';
+import { handleMemoryWrite } from './tools/memoryWrite';
 
 // Schema 导入（defineCoreTools 需要）
 import { askQuestionCardSchema } from './tools/askQuestionCard';
@@ -54,6 +56,8 @@ import { analyzeFolderSchema } from './tools/analyzeFolder';
 import { checkLinksSchema } from './tools/checkLinks';
 import { getTaskActivitySchema } from './tools/getTaskActivity';
 import { renameFileSchema, moveFileSchema, deleteFileSchema } from './tools/fileOperations';
+import { memoryReadSchema } from './tools/memoryRead';
+import { memoryWriteSchema } from './tools/memoryWrite';
 
 // ---------------------------------------------------------------------------
 // 工具处理器注册表（策略模式，替代 switch-case）
@@ -89,6 +93,9 @@ const handlerMap = new Map<string, ToolHandler>([
   ['readPage', handleReadPage],
   ['extractTable', handleExtractTable],
   ['analyzeChart', handleAnalyzeChart],
+  // C1 记忆两工具（read 只读并发安全，write 落「写入工具始终串行」）
+  ['memory_read', handleMemoryRead],
+  ['memory_write', handleMemoryWrite],
 ]);
 
 // ---------------------------------------------------------------------------
@@ -385,6 +392,9 @@ const CORE_TOOLS: ToolDef[] = [
     },
     defer_loading: true,
   },
+  // ---- C1 记忆两工具（agent-memory-optimize 第二批）：defer 到被调用时补全 schema ----
+  { ...memoryReadSchema, defer_loading: true },
+  { ...memoryWriteSchema, defer_loading: true },
 ];
 
 // ---------------------------------------------------------------------------

@@ -1049,3 +1049,104 @@ describe('B9 三-1 — buildCurrentFileRef 与 sendAgentMessage 载荷', () => {
     await sendPromise;
   });
 });
+
+// ---- agent-memory-optimize 第二批 C3：自动记忆 store 动作 ----
+
+describe('agentStore 自动记忆（C3 可见性入口）', () => {
+  const row = {
+    id: 1,
+    kind: 'profile' as const,
+    subject: '现居城市',
+    content: '上海',
+    source: 'auto' as const,
+    validFrom: '2026-09-30 08:00:00',
+    validTo: null,
+    writtenAt: '2026-09-30 08:00:00',
+  };
+
+  beforeEach(() => {
+    useAgentStore.setState({ memories: [], memoriesLoading: false, memoriesError: null });
+  });
+
+  it('loadMemories 成功 → memories 落库、loading 清零、无错误', async () => {
+    const list = vi
+      .spyOn(window.weaveMD.ai.memory, 'list')
+      .mockResolvedValue({ success: true, data: [row] });
+
+    await useAgentStore.getState().loadMemories();
+    list.mockRestore();
+
+    const s = useAgentStore.getState();
+    expect(s.memories).toEqual([row]);
+    expect(s.memoriesLoading).toBe(false);
+    expect(s.memoriesError).toBeNull();
+  });
+
+  it('loadMemories 被服务端拒绝 → memoriesError 落 message（走失败分支）', async () => {
+    const list = vi
+      .spyOn(window.weaveMD.ai.memory, 'list')
+      .mockResolvedValue({ success: false, message: 'unauthorized' });
+
+    await useAgentStore.getState().loadMemories();
+    list.mockRestore();
+
+    const s = useAgentStore.getState();
+    expect(s.memories).toEqual([]);
+    expect(s.memoriesLoading).toBe(false);
+    expect(s.memoriesError).toBe('unauthorized');
+  });
+
+  it('loadMemories 抛错 → 走 catch 分支，loading 不残留', async () => {
+    const list = vi
+      .spyOn(window.weaveMD.ai.memory, 'list')
+      .mockRejectedValue(new Error('ipc down'));
+
+    await useAgentStore.getState().loadMemories();
+    list.mockRestore();
+
+    const s = useAgentStore.getState();
+    expect(s.memoriesLoading).toBe(false);
+    expect(s.memoriesError).toBe('ipc down');
+  });
+
+  it('deleteMemory 抛错 → 走 catch 分支返回 false，列表不变', async () => {
+    useAgentStore.setState({ memories: [row] });
+    const del = vi
+      .spyOn(window.weaveMD.ai.memory, 'delete')
+      .mockRejectedValue(new Error('ipc down'));
+
+    const ok = await useAgentStore.getState().deleteMemory(1);
+    del.mockRestore();
+
+    expect(ok).toBe(false);
+    expect(useAgentStore.getState().memories).toEqual([row]);
+  });
+
+  it('deleteMemory 成功 → 按 id 从列表移除', async () => {
+    useAgentStore.setState({ memories: [row] });
+    const del = vi
+      .spyOn(window.weaveMD.ai.memory, 'delete')
+      .mockResolvedValue({ success: true, data: { deleted: true } });
+
+    const ok = await useAgentStore.getState().deleteMemory(1);
+    del.mockRestore();
+
+    expect(ok).toBe(true);
+    expect(useAgentStore.getState().memories).toEqual([]);
+  });
+
+  it('ai.memory 缺失 → 两动作早退且不发 IPC', async () => {
+    const holder = window.weaveMD.ai as unknown as Record<string, unknown>;
+    const backup = holder.memory;
+    const list = vi.spyOn(window.weaveMD.ai.memory, 'list');
+    delete holder.memory;
+    try {
+      await useAgentStore.getState().loadMemories();
+      expect(useAgentStore.getState().memoriesError).toBe('memory api unavailable');
+      expect(await useAgentStore.getState().deleteMemory(1)).toBe(false);
+      expect(list).not.toHaveBeenCalled();
+    } finally {
+      holder.memory = backup;
+    }
+  });
+});

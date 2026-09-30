@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { defineCoreTools } from '@main/ai/toolRegistry';
 import { isToolConcurrencySafe } from '@main/ai/agent/agentToolSelector';
+import { hasConcurrencyDef } from '@main/ai/agent/concurrencyDefs';
 
 // ---------------------------------------------------------------------------
 // safeParseArgs 内联复现（与 concurrencyDefs 中行为一致）
@@ -111,17 +112,28 @@ describe('concurrencyDefs', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test 6: isToolConcurrencySafe covers ALL 28 tools from registry
+  // Test 6: isToolConcurrencySafe covers ALL 30 tools from registry
   // -------------------------------------------------------------------------
-  it('covers all 28 tools from defineCoreTools (no throw, defined value)', () => {
+  it('covers all 30 tools from defineCoreTools (no throw, defined value)', () => {
     const registryTools = defineCoreTools().map((t) => t.function.name);
-    expect(registryTools).toHaveLength(28);
+    expect(registryTools).toHaveLength(30);
 
     for (const name of registryTools) {
       // 不抛异常，返回值必须是 boolean
       const result = isToolConcurrencySafe(name, safeParseArgs('{}'));
       expect(typeof result, `${name} should return boolean`).toBe('boolean');
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 6b: C1 记忆两工具已入并发表（不入表即 fail-closed 串行）
+  // -------------------------------------------------------------------------
+  it('memory_read / memory_write are both registered in the concurrency table', () => {
+    expect(hasConcurrencyDef('memory_read')).toBe(true);
+    expect(hasConcurrencyDef('memory_write')).toBe(true);
+    // 只读查询 → 可并发；写入 → 按本表「写入工具始终串行」约定显式 false
+    expect(isToolConcurrencySafe('memory_read', {})).toBe(true);
+    expect(isToolConcurrencySafe('memory_write', {})).toBe(false);
   });
 
   // -------------------------------------------------------------------------

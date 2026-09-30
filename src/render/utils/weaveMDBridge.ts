@@ -734,6 +734,11 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
       set: async () => ({ success: false }),
       default: async () => ({ success: false }),
     },
+    // 浏览器模式无 agent_memory 存储 → 受控失败（不假装删除成功）
+    memory: {
+      list: async () => ({ success: false, message: 'browser mode: memory storage unavailable' }),
+      delete: async () => ({ success: false, message: 'browser mode: memory storage unavailable' }),
+    },
   },
   kb: {
     list: async () => ({ success: false }),

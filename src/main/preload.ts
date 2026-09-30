@@ -17,6 +17,7 @@ import type {
   AiConfigUpdate,
   AiConversationDetail,
   ConversationMode,
+  IAgentMemory,
   IAgentStreamInteractionEvent,
   IAgentStreamToolEvent,
   IAIConfig,
@@ -249,6 +250,12 @@ export interface WeaveMDApi {
       get: () => Promise<IpcResponse<IGlobalAgentFiles>>;
       set: (updates: { soul?: string; memory?: string; style?: string }) => Promise<IpcResponse<IGlobalAgentFiles>>;
       default: (file: 'soul' | 'style' | 'memory') => Promise<IpcResponse<{ content: string }>>;
+    };
+    // C3：自动记忆可见性入口。authToken = 当前登录用户的 JWT（主进程解出 userId，
+    // 渲染层不传 userId，见 src/main/ai/ipc/memoryHandlers.ts）。
+    memory: {
+      list: (authToken: string) => Promise<IpcResponse<IAgentMemory[]>>;
+      delete: (authToken: string, id: number) => Promise<IpcResponse<{ deleted: boolean }>>;
     };
   };
   kb: {
@@ -542,6 +549,11 @@ const api: WeaveMDApi = {
         ipcRenderer.invoke(IPC_CHANNELS.AGENT_GLOBAL_FILES_SET, updates),
       default: (file) =>
         ipcRenderer.invoke(IPC_CHANNELS.AGENT_GLOBAL_FILES_DEFAULT, file),
+    },
+    memory: {
+      list: (authToken) => ipcRenderer.invoke(IPC_CHANNELS.AI_MEMORY_LIST, authToken),
+      delete: (authToken, id) =>
+        ipcRenderer.invoke(IPC_CHANNELS.AI_MEMORY_DELETE, authToken, id),
     },
   },
   kb: {

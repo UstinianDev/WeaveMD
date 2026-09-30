@@ -21,6 +21,7 @@ import { registerSearchHandlers } from './searchHandlers';
 import { registerModelConfigHandlers } from './modelConfigHandlers';
 import { registerEmbeddingConfigHandlers } from './embeddingConfigHandlers';
 import { registerSearchConfigHandlers } from './searchConfigHandlers';
+import { registerMemoryHandlers } from './memoryHandlers';
 
 export { initAgentQueue, cleanupAgentQueue } from './agentHandlers';
 
@@ -36,4 +37,5 @@ export function registerAiIpcHandlers(): void {
   registerModelConfigHandlers();     // 新增：多模型配置 CRUD + 激活
   registerEmbeddingConfigHandlers(); // 新增：Embedding 配置 CRUD
   registerSearchConfigHandlers();    // 新增：搜索配置 CRUD
+  registerMemoryHandlers();          // 新增：自动记忆列表 / 单条删除（C3 可见性入口）
 }

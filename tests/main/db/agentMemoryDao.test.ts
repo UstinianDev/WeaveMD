@@ -381,20 +381,29 @@ describe('agent_memory DAO — upsert 语义（C1 memory_write）', () => {
     expect(rows[0].content).toBe('Shanghai');
   });
 
-  it('同 kind+subject+fingerprint 重复 → 关旧行（valid_to 非空、content 保留）+ 插新行', () => {
+  it('同 kind+subject+fingerprint 重复 → 零写入返回既有 id（C2 裁定 6：不制造垃圾行）', () => {
     const first = upsertMemory(fakeDb, { ...baseRow, conversationId: 'c1' });
     const second = upsertMemory(fakeDb, { ...baseRow, content: 'Shanghai (same fp)' });
-    expect(second).not.toBe(first);
+    // 同指纹 = 同一事实的重复写（C1 工具路径与 C2 后台提取路径会撞同一行）
+    expect(second).toBe(first);
 
+    // 零写入：active 不变、总行数不变、旧行不被关闭
     const active = listActiveMemories(fakeDb, 'u1');
     expect(active).toHaveLength(1);
-    expect(active[0].id).toBe(second);
+    expect(active[0].id).toBe(first);
+    expect(active[0].validTo).toBeNull();
 
     const all = listMemories(fakeDb, 'u1');
-    expect(all).toHaveLength(2);
-    const oldRow = all.find((r) => r.id === first);
-    expect(oldRow?.validTo).not.toBeNull();
-    expect(oldRow?.content).toBe('Shanghai');
+    expect(all).toHaveLength(1);
+    expect(all[0].content).toBe('Shanghai');
+    expect(all[0].conversationId).toBe('c1');
+  });
+
+  it('同 fingerprint 连续写三次仍只有一行（幂等，行数不随重复写增长）', () => {
+    const first = upsertMemory(fakeDb, baseRow);
+    expect(upsertMemory(fakeDb, baseRow)).toBe(first);
+    expect(upsertMemory(fakeDb, { ...baseRow, content: '  Shanghai  ' })).toBe(first);
+    expect(listMemories(fakeDb, 'u1')).toHaveLength(1);
   });
 
   it('manual 恒赢（Q10）：auto 写入不覆盖既有 manual 行', () => {
