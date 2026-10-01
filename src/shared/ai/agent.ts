@@ -68,6 +68,8 @@ export interface AgentInteractionPayload {
   variant?: string;
   round?: number;
   totalRounds?: number;
+  /** 多意图拆分确认卡的计划（variant='intent_split' 时携带，任务 2 复用 interaction 通道）。 */
+  plan?: import('./taskPlan').AgentTaskPlan;
 }
 
 /** 工具调用流式推送事件。 */
@@ -93,6 +95,8 @@ export interface IAgentStreamInteractionEvent {
   variant?: string;
   round?: number;
   totalRounds?: number;
+  /** 多意图拆分确认卡的计划（variant='intent_split' 时携带）。 */
+  plan?: import('./taskPlan').AgentTaskPlan;
 }
 
 /** AI 流式事件扩展。 */

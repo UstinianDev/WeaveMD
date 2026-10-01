@@ -105,6 +105,40 @@ LLM 流式调用（带 tools 定义）
 
 **强信号加权**：输入含 URL 或"网站"等强信号词时，web 意图得分 ×1.5。
 
+### 多意图预检门与结构化拆分（agent-multi-intent 任务 2）
+
+规则预检门 `detectMultiIntentGate(input)`（同文件，纯规则零 LLM）：复用 RULES 关键词表收集命中意图类
+（含 URL → web 同口径），**开闸 ⇔ 命中类 ≥2**；含连接词（`并且/然后/顺便/另外/同时/接着`）时再按连接词
+分句累计。连接词单独命中（「然后？」）或仅 1 类命中一律不开闸 → **单意图零 LLM 调用**。
+`classifyIntent` 本体与签名不动（Q8：候选卡与多意图拆分卡两套并存）。
+
+链路（`agentContext.ts` → `agentLoop.ts`，内存编排不动表）：
+
+```
+prepareAgentContext :517 classifyIntent 之后 → ctx.intentGateOpen（+ baseHistoryMessages /
+  toolSelectionArgs 快照，任务 5 铺垫）；多意图恒用 Agent 提示
+runAgentFlow
+  ├ gate 关 / 无交互 → 现有单意图轮次循环（逐字节等价）
+  └ gate 开 → runTaskSplit（一次结构化出参调用，失败重试 1 次附上次错误）
+       ├ null（两次失败 / 0-1 子任务 / 归一后 <2）→ 降级单意图直通（Q5，不阻断对话）
+       └ ≥2 子任务 → normalizeTaskPlan（>5 截断 + omittedCount、同对象写合并、写串行标注）
+            → onInteractionRequired(questions, 'intent_split', plan)   // 拆分确认卡
+            → waitForInteraction → split_plan（JSON）→ parseTaskPlan 解析回计划
+                 非法 / 用户取消 → 降级直通
+            → subtaskOrchestrator 链 v1：每子任务注入指令 → 复用现有轮次循环
+              （共享 llmMessages、单一 detector 总预算、串行，边界只落 assistant/user 轮间）
+            → 链末单次 AI_STREAM_DONE 收口（intent = plan.primaryIntent）
+```
+
+- **降级路径**：拆分失败 / 无交互支持 / 用户取消 / `split_plan` 非法，一律回到单意图直通；
+  无交互环境连拆分调用都不发起（fail-safe）。
+- **交互通道复用**：不新开 IPC invoke，`AgentInteractionPayload` 仅扩 `plan?: AgentTaskPlan`
+  → preload 桥接 → `agentStore.pendingInteraction` → `AIPanelSession` 按 `variant === 'intent_split'`
+  分派 `SplitConfirmCard`（增删行 + 确认回传 / 直接执行 = 空答案降级）。
+- **与知识库侧的边界（桥接不合并）**：KB 侧 `queryPlanner.ts` 的多意图只做**检索策略合并**
+  （S12 `mergeStrategies` → 单一 `QueryPlan` broad/focused/comparative），不承担任务拆分；
+  任务拆分只发生在本章的意图路由 / Agent 编排层。两层互不合并：KB 不拆任务，Agent 链不改写检索策略。
+
 ## 工具系统
 
 工具注册表 `toolRegistry.ts`（`handlerMap`）维护 **30 个工具** —— 5 个核心工具发送完整 JSON Schema，

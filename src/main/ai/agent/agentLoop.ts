@@ -8,6 +8,7 @@
 
 import type {
   AgentRunResult,
+  AgentTaskPlan,
   AIErrorCode,
   IAIConfig,
   IAIConsent,
@@ -60,6 +61,13 @@ import {
 } from './agentToolExecutor';
 import { FORCE_CONFIRM_TOOLS } from './agentToolSelector';
 import {
+  advanceSubtaskChain,
+  confirmSplitPlan,
+  finalizeChainContent,
+  startSubtaskChain,
+  type SubtaskChain,
+} from './subtaskOrchestrator';
+import {
   STREAMING_TOOL_EXEC_ENABLED,
   StreamingToolExecutor,
   type StreamingToolCall,
@@ -95,7 +103,9 @@ export interface AgentLoopDeps {
     questions: IClarifyQuestion[],
     variant?: string,
     round?: number,
-    totalRounds?: number
+    totalRounds?: number,
+    /** 多意图拆分确认卡随交互下发的计划（variant='intent_split' 时非空，任务 2）。 */
+    plan?: AgentTaskPlan
   ) => void;
   /**
    * 交互等待用户答案：调用后返回 Promise，resolve 时传入用户答案。
@@ -248,6 +258,27 @@ export async function runAgentFlow(
       payload.message
     );
     ctx.toolCtx.searchKb = cachedSearchKb;
+  }
+
+  // 多意图预检门（Q6/Q5，plan §1.3）：gate 开 → 结构化拆分 → 拆分确认卡 → 链 v1。
+  // gate 关 / 无交互 / 拆分失败 / 用户取消 / split_plan 非法 → subtaskChain 保持 null，
+  // 下方轮次循环与单意图路径逐字节等价（红线 1/2/3）。
+  let subtaskChain: SubtaskChain | null = null;
+  if (ctx.intentGateOpen) {
+    const confirmedPlan = await confirmSplitPlan(
+      {
+        baseUrl: ctx.baseUrl,
+        model: ctx.model,
+        apiKey: ctx.apiKey,
+        protocol: config.protocol,
+        signal: controller.signal,
+      },
+      payload.message,
+      deps
+    );
+    if (confirmedPlan) {
+      subtaskChain = startSubtaskChain(ctx, confirmedPlan);
+    }
   }
 
   try {
@@ -525,13 +556,23 @@ export async function runAgentFlow(
           // 不保存 assistant 消息到 DB（等最终结果），不发送 done，继续循环
           continue;
         }
+        // 链 v1：当前子任务收敛 → 非末子任务则注入下一条指令续跑（共享 llmMessages、
+        // 单一总预算，round 继续累加）；链末合并前序产出后走单次收口
+        let finalContent = assistantContent;
+        if (subtaskChain) {
+          const outcome = advanceSubtaskChain(ctx, subtaskChain, assistantContent);
+          if (outcome === 'continue') {
+            continue;
+          }
+          finalContent = finalizeChainContent(subtaskChain, assistantContent);
+        }
         // 正常路径：无工具调用且无文本问题 → 结束
         const refsJson = citationRefsJson(ctx);
         const assistantMsg = appendMessage({
           conversationId: ctx.convId,
           userId: ctx.userId,
           role: 'assistant',
-          content: assistantContent,
+          content: finalContent,
           ...(refsJson ? { refsJson } : {}),
         });
         ctx.assistantId = assistantMsg.id;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyIntent } from '@main/ai/intentRouter';
+import { classifyIntent, detectMultiIntentGate } from '@main/ai/intentRouter';
 
 describe('intentRouter.classifyIntent', () => {
   it('classifies rewrite intents', () => {
@@ -114,5 +114,67 @@ describe('intentRouter.classifyIntent', () => {
 
   it('P0-3: confidence < 0.7 在有历史时无条件保留', () => {
     expect(classifyIntent('写一个 react 组件', { hasHistory: true }).needsClarification).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// agent-multi-intent 任务 2 — 规则预检门 detectMultiIntentGate（Q6 / plan §1.4）
+// 开闸 ⇔ 命中意图类 ≥2；连接词单独命中或仅 1 类一律不开闸（单意图零 LLM 调用）。
+// classifyIntent 本体与签名不动（Q8 两套并存）。
+// ---------------------------------------------------------------------------
+
+describe('intentRouter.detectMultiIntentGate — 多意图预检门', () => {
+  it('①双意图（查笔记 + 写文件）→ 开闸', () => {
+    // kbQa(笔记里) + create(写个) ≥2 类
+    expect(detectMultiIntentGate('查一下笔记里的TODO然后帮我写个周报')).toBe(true);
+  });
+
+  it('②三意图（笔记检索 + 网页抓取 + 创作）→ 开闸', () => {
+    // kbQa(笔记里) + web(抓取/网页) + create(写一篇) = 3 类
+    expect(
+      detectMultiIntentGate('在笔记里搜 FTS5 的内容，同时抓取这个网页上的教程，另外写一篇总结')
+    ).toBe(true);
+  });
+
+  it('③连接词分句触发（每分句不同意图类）→ 开闸', () => {
+    // 分句1 rewrite(润色) / 分句2 kbQa(知识库)；无整句关键词并列也应累计 ≥2 类
+    expect(detectMultiIntentGate('润色这个段落，然后在知识库中查一下相关资料')).toBe(true);
+  });
+
+  it('⑤单意图零触发（无连接词、单类命中）→ 不开闸', () => {
+    expect(detectMultiIntentGate('润色这篇文档')).toBe(false);
+    // kbQa 单类（刻意避开 tech 关键词「库」，否则规则层本就该判 2 类）
+    expect(detectMultiIntentGate('根据笔记查一下会议纪要')).toBe(false);
+  });
+
+  it('⑥连接词反例：连接词单独命中（零意图类）→ 不开闸', () => {
+    expect(detectMultiIntentGate('然后？')).toBe(false);
+    expect(detectMultiIntentGate('顺便')).toBe(false);
+  });
+
+  it('⑥连接词反例：连接词命中但仅 1 类意图 → 不开闸', () => {
+    // rewrite(润色/精简) 同类并列，连接词不构成开闸证据
+    expect(detectMultiIntentGate('润色并且精简这段文字')).toBe(false);
+    expect(detectMultiIntentGate('抓取这个网页，然后搜一下相关资料')).toBe(false);
+  });
+
+  it('空输入 / 无关键词 → 不开闸', () => {
+    expect(detectMultiIntentGate('')).toBe(false);
+    expect(detectMultiIntentGate('   ')).toBe(false);
+    expect(detectMultiIntentGate('今天天气怎么样')).toBe(false);
+  });
+
+  it('URL 单独命中归 web（与 classifyIntent URL 规则同口径），仍需 ≥2 类才开闸', () => {
+    expect(detectMultiIntentGate('打开这个链接 https://example.com 看看')).toBe(false);
+    expect(detectMultiIntentGate('打开 https://example.com 然后写一篇分析')).toBe(true);
+  });
+
+  it('classifyIntent 与 gate 两套语义并存（Q8）：模糊单意图仍出候选，gate 不因此放宽', () => {
+    // 「写一个 react 组件」create+tech 并列 → gate 开（规则层证据），候选卡逻辑不受影响
+    const fuzzy = classifyIntent('写一个 react 组件');
+    expect(fuzzy.candidates).toBeDefined();
+    expect(detectMultiIntentGate('写一个 react 组件')).toBe(true);
+    // 单类模糊输入（零命中 chat 兜底）→ gate 关
+    expect(detectMultiIntentGate('它有什么优势')).toBe(false);
   });
 });

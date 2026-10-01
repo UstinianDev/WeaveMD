@@ -66,6 +66,59 @@ const RULES: IntentRule[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// 多意图预检门（agent-multi-intent 任务 2，Q6 / plan §1.4）
+// ---------------------------------------------------------------------------
+
+/** 并列连接词（Q6 固定清单；连接词本身不是开闸证据，只用于分句累计）。 */
+export const CONNECTIVES = ['并且', '然后', '顺便', '另外', '同时', '接着'] as const;
+
+/** 按连接词把输入分句（连接词被消费掉；分句累计命中 ⊆ 整句命中，属显式证据路径）。 */
+function splitByConnectives(text: string): string[] {
+  return text.split(new RegExp(CONNECTIVES.join('|'), 'g'));
+}
+
+/**
+ * 复用 RULES 关键词表收集命中意图类集合（含 URL → web 的 classifyIntent 同口径规则）。
+ * 纯关键词命中，不计算 confidence、不产生 candidates。
+ */
+function collectHitClasses(text: string): Set<IntentName> {
+  const lower = text.toLowerCase();
+  const classes = new Set<IntentName>();
+  for (const rule of RULES) {
+    const hit =
+      rule.keywords.some((kw) => lower.includes(kw)) ||
+      (rule.patterns ?? []).some((p) => p.test(text));
+    if (hit) classes.add(rule.intent);
+  }
+  // classifyIntent 把 URL 单独出现归 web —— gate 同口径，避免两套判定漂移
+  if (/https?:\/\/[^\s]+/i.test(text)) classes.add('web');
+  return classes;
+}
+
+/**
+ * 多意图规则预检门（Q6）：开闸 ⇔ 命中意图类 ≥2。
+ * - 连接词（CONNECTIVES）与「意图关键词并列」是两种并列证据形式，**≥2 类是唯一开闸条件**；
+ * - 连接词单独命中（如「然后？」）或仅 1 类命中（如「润色这篇文档」）一律 false，
+ *   从而在规则层兑现「单意图零 LLM 调用」；
+ * - `classifyIntent` 本体与签名不动（Q8 候选卡与拆分卡两套并存）。
+ */
+export function detectMultiIntentGate(input: string): boolean {
+  const text = (input ?? '').trim();
+  if (!text) return false;
+
+  const classes = collectHitClasses(text);
+  if (classes.size >= 2) return true;
+  // 连接词分句累计（plan §1.4：两子句各命中不同类必然 ≥2）
+  if (CONNECTIVES.some((c) => text.includes(c))) {
+    for (const clause of splitByConnectives(text)) {
+      for (const cls of collectHitClasses(clause)) classes.add(cls);
+      if (classes.size >= 2) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * 规则启发式意图分类。
  * 返回：intent + confidence + 可选 candidates（模糊/低置信）。

@@ -7,6 +7,7 @@
 import { create } from 'zustand';
 import type {
   AgentRollbackResult,
+  AgentTaskPlan,
   AIProcessStatus,
   ConversationMode,
   IAIConfig,
@@ -229,6 +230,8 @@ interface AgentStore {
     variant?: string;
     round?: number;
     totalRounds?: number;
+    /** 多意图拆分确认卡的计划（variant='intent_split' 时携带）。 */
+    plan?: AgentTaskPlan;
   } | null;
   resumeInteraction: (answers: Record<string, string>) => Promise<void>;
   /** R4: 重试失败任务。 */
@@ -438,7 +441,7 @@ function extractErrorMessage(payload: unknown): string {
 interface StreamManagerOptions {
   conversationId: string;
   onTool?: (evt: IAgentToolCall) => void;
-  onInteraction?: (sessionId: string, questions: IClarifyQuestion[], variant?: string, round?: number, totalRounds?: number) => void;
+  onInteraction?: (sessionId: string, questions: IClarifyQuestion[], variant?: string, round?: number, totalRounds?: number, plan?: AgentTaskPlan) => void;
   /** 结束流并落显 assistant 消息；refsJson 为 B8 六-2 检索引用（done 事件携带）。 */
   finishAndPersist: (refsJson?: string | null) => void;
 }
@@ -488,7 +491,14 @@ function createStreamManager(
       // R3: 交互提问事件（ask_question_card 暂停时推送）
       // R5: variant 用于区分 delete_confirm 等特殊确认卡片样式
       if (evt.type === 'interaction' && opts.onInteraction) {
-        opts.onInteraction(evt.sessionId, evt.questions, evt.variant, (evt as { round?: number; totalRounds?: number }).round, (evt as { round?: number; totalRounds?: number }).totalRounds);
+        opts.onInteraction(
+          evt.sessionId,
+          evt.questions,
+          evt.variant,
+          evt.round,
+          evt.totalRounds,
+          evt.plan
+        );
         return;
       }
       if (evt.type === 'done') {
@@ -981,7 +991,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       },
       // R3: 交互提问事件处理（ask_question_card 暂停时设置 pendingInteraction）
       // R5: variant 用于区分 delete_confirm 等特殊确认卡片样式
-      onInteraction: (sessionId, questions, variant, round, totalRounds) => {
+      onInteraction: (sessionId, questions, variant, round, totalRounds, plan) => {
         set({
           pendingInteraction: {
             sessionId,
@@ -990,6 +1000,7 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
             variant,
             round,
             totalRounds,
+            plan,
           },
           isStreaming: false,
           processStatus: 'waiting_input',

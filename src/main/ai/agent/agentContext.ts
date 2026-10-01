@@ -19,7 +19,9 @@ import { hasGrantedAttachmentDocs } from '../../db/kb';
 import { getEmbeddingConfig } from '../../db/embeddingConfig';
 import { getActiveProfile, type AgentMemoryRow } from '../../db/agentMemory';
 import { decryptApiKey } from '../secureConfig';
-import { classifyIntent } from '../intentRouter';
+// 意图路由经命名空间访问：classifyIntent 直用；多意图预检门 detectMultiIntentGate
+// 在 mock 环境（旧测试仅 mock classifyIntent）可能缺导出，调用处 try/catch fail-closed
+import * as intentRouter from '../intentRouter';
 import { buildCompressed, contentToText, estimateContentTokens, type LlmMessage } from '../contextManager';
 import { streamChatCompletionWithRetry } from '../llm/llmClient';
 import { streamAnthropicCompletion } from '../llm/anthropicClient';
@@ -88,7 +90,16 @@ export interface AgentContext {
   replacementState?: ContentReplacementState;
   /** B8 六-2②：本轮检索 citation（assistant refsJson 来源，executeOneTool 收集）。 */
   citationRefs?: CitationEntry[];
+  /** 多意图规则预检门（Q6）：true = 需走结构化拆分（agent-multi-intent 任务 2）。 */
+  intentGateOpen: boolean;
+  /** 链 v1 快照：历史消息（去当前 user 消息，经 cleanup/配对修复），任务 5 上下文重建铺垫。 */
+  baseHistoryMessages: AgentLlmMessage[];
+  /** 链 v1 快照：toolsForIntent 七个入参上提，任务 5 子任务级工具重建铺垫。 */
+  toolSelectionArgs: ToolSelectionArgs;
 }
+
+/** toolsForIntent 入参元组（agentContext 与子任务链共用的单一口径）。 */
+export type ToolSelectionArgs = Parameters<typeof toolsForIntent>;
 
 // ---------------------------------------------------------------------------
 // 常量
@@ -400,7 +411,7 @@ export function buildExperienceBlock(
     }
     const label = `${skill.name} ${skill.description}`.trim();
     if (!label) continue;
-    if (classifyIntent(label, { hasHistory: true }).intent === intent) inferred.push(skill);
+    if (intentRouter.classifyIntent(label, { hasHistory: true }).intent === intent) inferred.push(skill);
   }
 
   const matched = [...explicit, ...inferred];
@@ -514,7 +525,16 @@ export function prepareAgentContext(
   // 且当前 user 消息尚未落库，故新会话首轮恒为 false（与现状一致）。
   const hasHistory = dbRows.some((m) => m.role === 'assistant');
 
-  const intent = classifyIntent(message, { hasHistory });
+  const intent = intentRouter.classifyIntent(message, { hasHistory });
+
+  // 多意图规则预检门（Q6 / plan §1.4）：纯规则零 LLM；调用异常或 mock 缺导出一律
+  // fail-closed 关闸（gate 关 = 现有单意图路径逐字节等价，安全默认）
+  let intentGateOpen = false;
+  try {
+    intentGateOpen = intentRouter.detectMultiIntentGate(message);
+  } catch {
+    intentGateOpen = false;
+  }
 
   // Bug B 降级上屏：模型不支持 vision 时，当前轮图片附件补写失败态与原因
   // （识别链已标过的保留原错误；识别链异常被吞时由本处兜底）→ attachments_json
@@ -629,15 +649,17 @@ export function prepareAgentContext(
   try {
     hasSearchConfig = !!resolveSearchConfig(userId);
   } catch { /* DB 未初始化时视为无搜索配置 */ }
-  const tools = toolsForIntent(
+  // 入参上提为快照（原 :632-640 局部变量）：任务 5 子任务链按 intent 重建工具时复用
+  const toolSelectionArgs: ToolSelectionArgs = [
     intent,
     !!payload.useKnowledgeBase,
     kbEgressAuthorized,
     payload.currentDocument,
     !!deps.waitForInteraction,
     hasSearchConfig,
-    kbAttachmentEgressGranted
-  );
+    kbAttachmentEgressGranted,
+  ];
+  const tools = toolsForIntent(...toolSelectionArgs);
 
   // 当前轮消息：图片全量注入（不受历史限额影响）
   const currentUserImages = buildImageParts(
@@ -740,7 +762,8 @@ export function prepareAgentContext(
   // 而 CHAT_SYSTEM_PROMPT 的「不要提及工具/文件」会锁死 searchDocument 与
   // ask_question_card（chat 闲聊不带附件，误伤面≈0）
   const hasAttachments = (payload.attachments?.length ?? 0) > 0;
-  const useAgentPrompt = !isChatIntent || needsClarification || hasAttachments;
+  // 多意图（gate 开）恒用 Agent 提示（plan §2 任务 2 :736-743 修改点）
+  const useAgentPrompt = !isChatIntent || needsClarification || hasAttachments || intentGateOpen;
 
   // Bug A-1：本会话附件清单（文件名+绝对路径+attachment_id+状态）随 system 段注入，
   // LLM 拿到真实路径/附件 id 后才能正确给 readLocalFile/searchDocument 传参
@@ -810,5 +833,8 @@ export function prepareAgentContext(
     assistantId: '',
     totalTokens: initTokens,
     citationRefs: [],
+    intentGateOpen,
+    baseHistoryMessages: historyMsgs,
+    toolSelectionArgs,
   };
 }

@@ -5,7 +5,7 @@
 // 纯函数，不依赖 IPC / 数据库（listFiles 由调用方注入快照）。
 // 性能优化：文件列表缓存（避免每次 Agent 调用都查询 DB）。
 
-import type { IAttachmentMeta, IntentName } from '@shared/ai';
+import type { AgentTaskPlan, IAttachmentMeta, IntentName, SubtaskDef } from '@shared/ai';
 import { estimateTokens } from '../utils/tokenEstimator';
 
 // ---------------------------------------------------------------------------
@@ -495,6 +495,60 @@ export function buildAgentSystemPrompt(
     localFileTreeSnapshot,
     attachmentManifest ?? '',
   ].filter(Boolean).join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// 多意图结构化拆分指令段与子任务执行指令（agent-multi-intent 任务 2）
+// ---------------------------------------------------------------------------
+
+/**
+ * 结构化拆分指令段：拆分确认通过后随链注入（取代工作流「复杂任务先拆分步骤」与
+ * 要点「大型写作任务按章节拆分」两处自然语言拆分说明在链内的执行语义）。
+ *
+ * 注入点选择：`buildAgentSystemPrompt` 本体保持逐字节不变（既有 sha256 基线与
+ * agentContext 全文断言钉死单意图提示词），故结构化段以独立 system 消息在链启动时
+ * 注入，而非改写基础提示词正文。
+ */
+export function buildSplitDirectiveSegment(plan: AgentTaskPlan): string {
+  const lines = plan.subtasks.map(
+    (subtask, index) =>
+      `${index + 1}. [${subtask.intent}] ${subtask.action} → ${subtask.object}` +
+      `（${subtask.rw}，confidence ${subtask.confidence.toFixed(2)}）`
+  );
+  const omitted =
+    plan.omittedCount && plan.omittedCount > 0
+      ? `（另有 ${plan.omittedCount} 个子任务超出上限已省略）`
+      : '';
+  return [
+    '【多意图拆分执行】本次输入已拆分为多个子任务并经用户确认，按后续「子任务指令」顺序逐一执行：',
+    ...lines,
+    ...(omitted ? [omitted] : []),
+    '- 本段取代基础提示词中「复杂任务先拆分步骤」「大型写作任务按章节拆分」两处自然语言拆分说明的执行语义。',
+    '- 每次只执行当前子任务指令标的目标，完成后等待下一条子任务指令；不要重复拆分、不要跳过或合并子任务。',
+  ].join('\n');
+}
+
+/**
+ * 子任务执行指令模板（任务级）：根据当前子任务 action/object 目标执行，完成后简述结果。
+ * 每个子任务启动前由 subtaskOrchestrator 注入一条。
+ */
+export function buildSubtaskInstruction(
+  subtask: SubtaskDef,
+  index: number,
+  total: number
+): string {
+  const lines = [
+    `【子任务 ${index + 1}/${total}】子任务指令：intent=${subtask.intent}，rw=${subtask.rw}`,
+    `目标：以「${subtask.action}」动作处理「${subtask.object}」。`,
+  ];
+  if (subtask.params && Object.keys(subtask.params).length > 0) {
+    lines.push(`参数：${JSON.stringify(subtask.params)}`);
+  }
+  if (subtask.preconditions && subtask.preconditions.length > 0) {
+    lines.push(`前置条件：${subtask.preconditions.join('；')}`);
+  }
+  lines.push('- 只完成该子任务的目标；完成后用 1~2 句话简述结果，不要展开执行其他子任务。');
+  return lines.join('\n');
 }
 
 /** Chat 意图系统提示的正文段（【核心规则】之前的引导 + 四条核心规则）。 */

@@ -320,3 +320,58 @@ S7 原案在 phase2 批次**仅部分落地**（commit `ee459bc` 记录：字母
   校验层仅锁对象类型）。
 - 守卫测试：`tests/main/ai/taskPlannerSchema.test.ts`「特性取舍」describe 递归遍历 Schema，
   断言禁用键零出现、根级/子任务级 required 全字段、intent 与 rw 枚举钉死。
+
+## 11. 拆分提示词接线与链内指令（agent-multi-intent 任务 2）
+
+> 承接 §10：本章钉任务 2 落地的**提示词构造、调用编排与链内指令**；解析契约见 §10 不重复。
+> 涉及文件：`src/main/ai/agent/taskPlanner.ts`（构造与调用）、`subtaskOrchestrator.ts`（确认编排 + 链状态）、
+> `agentPromptBuilder.ts`（链内指令模板）、`intentRouter.ts`（预检门）、`agentContext.ts` / `agentLoop.ts`（接线）。
+
+### 11.1 规则预检门（单意图零 LLM 的闸）
+
+- `detectMultiIntentGate(input)`（`intentRouter.ts`，纯规则零 LLM）：复用 RULES 关键词表收集命中意图类
+  （含 URL → web 的同口径规则），**开闸 ⇔ 命中类 ≥2**；含连接词（`CONNECTIVES = 并且/然后/顺便/另外/同时/接着`）
+  时再按连接词分句累计。连接词单独命中（「然后？」）或仅 1 类命中一律 false——「≥2 类」是唯一开闸条件。
+- `classifyIntent` 本体与签名不动（Q8：候选卡与拆分卡两套并存）。
+- 接线点：`prepareAgentContext` 在 `classifyIntent` 之后写 `ctx.intentGateOpen`；调用经
+  `intentRouter` 命名空间 + try/catch **fail-closed**（mock 缺导出或门内异常一律关闸 = 旧单意图路径）。
+  `AgentContext` 同时上提快照 `baseHistoryMessages`（历史去当前 user 消息）与 `toolSelectionArgs`
+  （`toolsForIntent` 7 元组，任务 5 子任务级工具重建铺垫）。
+- 多意图恒用 Agent 提示：`useAgentPrompt = !isChatIntent || needsClarification || hasAttachments || intentGateOpen`。
+
+### 11.2 拆分调用提示词（`buildTaskSplitMessages`）
+
+- 消息形态固定两条：`system`（规则 + Schema + few-shot + 规约）+ `user`（用户原始输入）。
+- system 段依次为：输出格式规约（**只输出 JSON，禁止 markdown 围栏、禁止解说文字，首字符必须是 `{`**）→
+  `TASK_PLAN_JSON_SCHEMA`（`JSON.stringify(..., null, 2)` 内嵌，§10.3 稳定交集）→ 字段语义
+  （action / object / params / confidence 0~1 / rw / preconditions / needsClarification / intent 六值）→
+  拆分规则（单任务 1 条、上限 5 + omittedCount、同文件写合并、写序保持）→ **1 个 few-shot 完整示例**
+  （§6.2：示例优于抽象描述）。
+- 重试时追加「上次输出未通过校验」段，把上次解析/校验错误**原文回填**进 system 提示（§6.2 通用做法）。
+
+### 11.3 调用与降级编排（`runTaskSplit` / `confirmSplitPlan`）
+
+- `runTaskSplit(llmCtx, userInput)`：协议分流 one-shot 流式累积（anthropic → `streamAnthropicCompletion`，
+  否则 `streamChatCompletionWithRetry`，仿 `summarizeViaLlm`）→ `parseTaskPlan` → `normalizeTaskPlan`；
+  失败重试 1 次（错误回填）→ 仍失败 `null`；**归一后 <2 子任务同样 `null` 直通**。本函数不抛出
+  （流异常计入重试，两次耗尽即 `null`）。
+- `confirmSplitPlan`（`subtaskOrchestrator.ts`）：**无交互支持先返回 `null`（不发拆分调用，fail-safe）** →
+  `runTaskSplit` → `onInteractionRequired(questions, 'intent_split', undefined, undefined, plan)` →
+  `waitForInteraction()` → `parseSplitAnswers(answers)`。任一环节失败/取消一律 `null` 降级单意图直通。
+- 用户答案键：`split_plan`（计划 JSON 字符串）；走 `parseTaskPlan` + `normalizeTaskPlan`，
+  非法/缺省/归一后为空 → `null`（降级直通）。**不新开 IPC**：复用 interaction 通道，payload 仅扩 `plan` 字段
+  （`AgentInteractionPayload` / `IAgentStreamInteractionEvent` / preload 桥接 / `agentStore.pendingInteraction`）。
+
+### 11.4 链内指令（`agentPromptBuilder` 新增两函数）
+
+- `buildSplitDirectiveSegment(plan)` —— 结构化拆分指令段（标题 `【多意图拆分执行】`）：列全部子任务
+  `[intent] action → object（rw，confidence）`、省略条数，并**取代基础提示词中「复杂任务先拆分步骤」
+  「大型写作任务按章节拆分」两处自然语言拆分说明在链内的执行语义**；规则为「每次只执行当前子任务指令
+  标的目标，完成等待下一条，不重复拆分/不跳过/不合并」。
+- `buildSubtaskInstruction(subtask, index, total)` —— 子任务执行指令模板（任务级）：
+  `【子任务 i/N】子任务指令：intent=…，rw=…` + `目标：以「action」动作处理「object」` +
+  可选 params/前置条件 + 「只完成该子任务目标，完成后 1~2 句简述结果」。
+- **注入点说明（与计划 §2 的差异，红线优先）**：`buildAgentSystemPrompt` 正文保持逐字节不变
+  —— `tests/main/ai/agentPromptBuilder.test.ts` sha256 基线与 `agentContext` 全文断言钉死单意图提示词
+  （红线 1「gate 关路径逐字节等价」）。因此结构化段不改写 `:428/:479` 基础行，而以**独立 system 消息**
+  在链启动（拆分确认通过后）时注入；降级直通路径因此与改动前消息序列完全一致。

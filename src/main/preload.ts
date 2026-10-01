@@ -519,6 +519,7 @@ const api: WeaveMDApi = {
           variant: p.variant,
           round: p.round,
           totalRounds: p.totalRounds,
+          plan: p.plan,
         })
       );
       return () => {

@@ -140,6 +140,7 @@ import {
   buildChatSystemPrompt,
   buildAgentSystemPrompt,
 } from '@main/ai/agent/agentPromptBuilder';
+import { toolsForIntent } from '@main/ai/agent/agentToolSelector';
 import type { IAIConfig, IAttachmentMeta, IAIMessage, IAgentToolCall } from '@shared/ai';
 import type { AgentReqPayload } from '@main/ai/agent/agentLoop';
 
@@ -1494,5 +1495,58 @@ describe('D5 — 复核淘汰后的内容不再进入提示词', () => {
     // 截断后最末一条技能不再出现在提示词里
     expect(prompt).not.toContain('【技能 auto_note_49】');
     expect(EXPERIENCE_TOKEN_LIMIT).toBe(2000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// agent-multi-intent 任务 2 — 规则预检门接线（plan §1.3 / §2 任务 2 修改点）
+// gate 在 classifyIntent 之后以纯规则计算（零 LLM）；快照字段为任务 5 铺垫；
+// gate 关路径 ctx 形态与改动前一致（旧例全绿即证据）。
+// ---------------------------------------------------------------------------
+
+describe('agent-multi-intent 任务2 — 预检门接线', () => {
+  const ALLOW_ALL = {
+    consent: { allowNetwork: true, allowSend: true, consentUpdatedAt: null },
+  };
+  const MULTI_MSG = '查一下笔记里的TODO然后帮我写个周报';
+
+  it('多意图输入 → ctx.intentGateOpen=true（规则层判定，不发起 LLM）', () => {
+    const ctx = runPrepare(makePayload({ message: MULTI_MSG }), ALLOW_ALL);
+    expect(ctx.intentGateOpen).toBe(true);
+  });
+
+  it('单意图输入 → ctx.intentGateOpen=false（gate 关路径与改动前一致）', () => {
+    const ctx = runPrepare(makePayload({ message: '润色这篇文档' }), ALLOW_ALL);
+    expect(ctx.intentGateOpen).toBe(false);
+    expect(ctx.intent.intent).toBe('rewrite');
+  });
+
+  it('baseHistoryMessages 快照 = 历史（去当前 user 消息，含工具轮）', () => {
+    dbAiMock.getRecentMessagesByRounds.mockReturnValue(toolRoundRows());
+    const ctx = runPrepare(makePayload({ message: MULTI_MSG }), ALLOW_ALL);
+    expect(ctx.baseHistoryMessages.length).toBeGreaterThan(0);
+    const texts = ctx.baseHistoryMessages
+      .map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)))
+      .join('|');
+    expect(texts).toContain('帮我查一下 SQLite 的优势');
+    // 不含当前 user 消息（快照在 appendMessage 前的历史段）
+    expect(texts).not.toContain(MULTI_MSG);
+    // 配对修复后的工具行也在快照内
+    expect(ctx.baseHistoryMessages.some((m) => m.role === 'tool')).toBe(true);
+  });
+
+  it('toolSelectionArgs 上提：以该 7 元组重算 toolsForIntent 与 ctx.tools 一致', () => {
+    const ctx = runPrepare(makePayload({ message: '写一篇关于 SQLite 的技术文章' }), ALLOW_ALL);
+    expect(ctx.toolSelectionArgs).toHaveLength(7);
+    expect(toolsForIntent(...ctx.toolSelectionArgs)).toEqual(ctx.tools);
+  });
+
+  it('多意图 → 恒用 Agent 提示（非 CHAT_SYSTEM_PROMPT，保留 ask_question_card 铁律）', () => {
+    const ctx = runPrepare(makePayload({ message: MULTI_MSG }), ALLOW_ALL);
+    expect(ctx.intentGateOpen).toBe(true);
+    const first = String(ctx.llmMessages[0].content);
+    expect(first).not.toBe(CHAT_SYSTEM_PROMPT);
+    expect(first).not.toContain('不要提及工具、文件或文档');
+    expect(first).toContain('ask_question_card');
   });
 });

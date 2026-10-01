@@ -13,6 +13,7 @@ import { useAgentStore } from '@render/stores/agentStore';
 import AgentTab from '../AgentTab';
 import AIPanelComposer from './AIPanelComposer';
 import QuestionCard from '../cards/QuestionCard';
+import SplitConfirmCard from '../cards/SplitConfirmCard';
 import Icon from '../../Common/Icon';
 
 interface AIPanelSessionProps {
@@ -112,15 +113,19 @@ const AIPanelSession: React.FC<AIPanelSessionProps> = ({ draft, setDraft, onSend
 
       {/* R3: 底部滑出提问面板（ask_question_card 暂停时覆盖 composer） */}
       {/* R5: variant 用于区分 delete_confirm 等特殊确认卡片样式 */}
-      {isAgentMode && pendingInteraction && (
-        <QuestionCard
-          questions={pendingInteraction.questions}
-          onSubmit={resumeInteraction}
-          variant={pendingInteraction.variant === 'delete_confirm' ? 'delete_confirm' : 'default'}
-          round={pendingInteraction.round}
-          totalRounds={pendingInteraction.totalRounds}
-        />
-      )}
+      {/* agent-multi-intent 任务 2: intent_split → 拆分确认卡（无 plan 时回退普通确认卡） */}
+      {isAgentMode && pendingInteraction &&
+        (pendingInteraction.variant === 'intent_split' && pendingInteraction.plan ? (
+          <SplitConfirmCard plan={pendingInteraction.plan} onSubmit={resumeInteraction} />
+        ) : (
+          <QuestionCard
+            questions={pendingInteraction.questions}
+            onSubmit={resumeInteraction}
+            variant={pendingInteraction.variant === 'delete_confirm' ? 'delete_confirm' : 'default'}
+            round={pendingInteraction.round}
+            totalRounds={pendingInteraction.totalRounds}
+          />
+        ))}
     </div>
   );
 };
