@@ -58,7 +58,9 @@ import {
   mergeResultsWithBudget,
   processToolResultsLoop,
   validateQuestionCardArgs,
+  type ChainForceFailure,
   type ToolExecResult,
+  type WriteBatchConfirmResult,
 } from './agentToolExecutor';
 import { confirmSkipSet } from './confirmMatrix';
 import {
@@ -69,9 +71,11 @@ import {
   handleSubtaskFailure,
   runChainClarification,
   startSubtaskChain,
+  stampWriteBatchForCurrentSubtask,
   stopChain,
   type SubtaskChain,
 } from './subtaskOrchestrator';
+import { buildChainReport, renderReportSegment, shouldRenderReport } from './chainReport';
 import { finalizeChainRecord } from './chainTracking';
 import {
   STREAMING_TOOL_EXEC_ENABLED,
@@ -329,11 +333,21 @@ export async function runAgentFlow(
    * 明示进 buffer）→ 单次 DONE。写批次为空时零交互、行为与原收口逐字一致。
    * confirmWriteBatch 的 waitForInteraction reject 向上传播（外层统一收口）。
    * 任务 6：收口前写 outcome 并推送最终 intent_json 快照（回调可选，缺省零行为）。
+   * 任务 7（Q19）：写批次归属标注 → 结构化报告 buildChainReport → 条件渲染
+   * renderReportSegment 追加进 buffer（仅失败/跳过/有产物时，只增不改写既有段）
+   * → report 入 intent_json → 仍单次 DONE、intent=primaryIntent。
    */
   const finalizeChainRun = async (last: string): Promise<AgentRunResult> => {
     restoreChainIntent();
-    const batchNote = await confirmWriteBatch(ctx, deps);
+    stampWriteBatchForCurrentSubtask(ctx, subtaskChain!);
+    const batchResult: WriteBatchConfirmResult = { rejectedIds: [], acceptedIds: [], items: [] };
+    const batchNote = await confirmWriteBatch(ctx, deps, batchResult);
     if (batchNote) appendChainNote(subtaskChain!, batchNote);
+    const report = buildChainReport(subtaskChain!.record.snapshot(), subtaskChain!, batchResult);
+    if (shouldRenderReport(report)) {
+      appendChainNote(subtaskChain!, renderReportSegment(report));
+    }
+    subtaskChain!.record.setReport(report);
     finalizeChainRecord(deps, subtaskChain!.record);
     return finalizeRun(finalizeChainContent(subtaskChain!, last));
   };
@@ -428,6 +442,8 @@ export async function runAgentFlow(
       let deferredRetryCount = 0;
       // 任务 5：子任务失败处置已完成（重试重建 / 跳过推进）→ 跳出重发循环后续跑外层
       let chainFailureNext = false;
+      // 任务 7（Q19）：本轮链内 force 档删除执行失败信号（工具轮后统一处置）
+      let chainForceFailure: ChainForceFailure | undefined;
 
       // PERF: 记录流开始时间（每次重试都会重置）
       let streamStartTime = 0;
@@ -740,6 +756,7 @@ export async function runAgentFlow(
           }
           break;
         }
+        chainForceFailure = streamingResult.chainForceFailure;
 
         // 1c: 原地 push（避免 spread 重新分配整个数组）
         ctx.llmMessages.push(...streamingResult.toolTurn);
@@ -768,7 +785,11 @@ export async function runAgentFlow(
         }
       } else {
         // 兜底路径：原有 executeToolRound 全量执行
-        const { toolTurn, deadLoopBreak } = await executeToolRound(
+        const {
+          toolTurn,
+          deadLoopBreak,
+          chainForceFailure: roundForceFailure,
+        } = await executeToolRound(
           ctx,
           accumulatedToolCalls,
           assistantContent,
@@ -783,6 +804,7 @@ export async function runAgentFlow(
           }
           break;
         }
+        chainForceFailure = roundForceFailure;
 
         // 1c: 原地 push（避免 spread 重新分配整个数组）
         ctx.llmMessages.push(...toolTurn);
@@ -809,6 +831,25 @@ export async function runAgentFlow(
             // checkpoint 写入失败不影响主流程
           }
         }
+      }
+
+      // 任务 7（Q19）：链内 force 档删除执行失败 → subtask_failed 停等人工
+      // （skipRetry 不自动重试、交互 resolve 前不推进；reject 沿外层错误收口）
+      if (chainForceFailure && subtaskChain) {
+        const action = await handleSubtaskFailure(
+          ctx,
+          subtaskChain,
+          deps,
+          new Error(chainForceFailure.error),
+          round,
+          { skipRetry: true }
+        );
+        if (action === 'continue') continue;
+        if (action === 'clarify') {
+          const after = await runChainClarification(ctx, subtaskChain, round, deps);
+          if (after === 'continue') continue;
+        }
+        return finalizeChainRun('');
       }
     }
 
@@ -857,9 +898,10 @@ async function processStreamingToolRound(
   round: number,
   deps: AgentLoopDeps,
   replacementState?: ContentReplacementState
-): Promise<{ toolTurn: AgentLlmMessage[]; deadLoopBreak: boolean }> {
+): Promise<{ toolTurn: AgentLlmMessage[]; deadLoopBreak: boolean; chainForceFailure?: ChainForceFailure }> {
   // 1. 去重 ask_question_card
   const dedupedToolCalls = deduplicateAskQuestionCards(accumulatedToolCalls);
+  let chainForceFailure: ChainForceFailure | undefined;
 
   // 2. 组装 assistant tool_calls 消息
   const toolTurn: AgentLlmMessage[] = [assembleToolTurn(dedupedToolCalls, round)];
@@ -893,6 +935,7 @@ async function processStreamingToolRound(
     const confirmResult = await checkForceConfirmTools(tc, round, ctx, deps, replacementState);
     if (confirmResult) {
       manualResults.push(confirmResult.result);
+      if (confirmResult.chainForceFailure) chainForceFailure = confirmResult.chainForceFailure;
       continue;
     }
 
@@ -919,5 +962,9 @@ async function processStreamingToolRound(
   // 9. ask_question_card 交互暂停
   await handleInteractionPause(dedupedToolCalls, toolTurn, round, deps);
 
-  return { toolTurn, deadLoopBreak: false };
+  return {
+    toolTurn,
+    deadLoopBreak: false,
+    ...(chainForceFailure ? { chainForceFailure } : {}),
+  };
 }

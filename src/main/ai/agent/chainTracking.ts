@@ -40,6 +40,8 @@ export interface ChainTracker {
   /** 写链结局（finalizeChainRecord 仅在未设置时补 finished）。 */
   setOutcome(outcome: AgentChainOutcome): void;
   getOutcome(): AgentChainOutcome | undefined;
+  /** 写执行报告（任务 7：收口前 setReport；缺省不产出 report 字段）。 */
+  setReport(report: unknown): void;
   /** 全量快照（每次新建对象；plan.subtasks 与原计划共享引用，读端只读约定）。 */
   snapshot(): AgentIntentJson;
   /** 全量快照 JSON 字符串（写端落盘用）。 */
@@ -67,6 +69,7 @@ export function createChainTracker(input: {
     error: '',
   }));
   let outcome: AgentChainOutcome | undefined;
+  let report: unknown;
 
   const find = (subtaskId: string): SubtaskRunRecord | undefined =>
     runs.find((r) => r.id === subtaskId);
@@ -82,6 +85,7 @@ export function createChainTracker(input: {
     deps: depsMap,
     subtasks: runs.map((r) => ({ ...r })),
     ...(outcome !== undefined ? { outcome } : {}),
+    ...(report !== undefined ? { report } : {}),
   });
 
   return {
@@ -119,6 +123,9 @@ export function createChainTracker(input: {
     },
     getOutcome() {
       return outcome;
+    },
+    setReport(next) {
+      report = next;
     },
     snapshot: build,
     toIntentJson: () => JSON.stringify(build()),

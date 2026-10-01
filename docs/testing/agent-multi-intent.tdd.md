@@ -789,3 +789,137 @@ npx vitest run tests/main/ai/subtaskSequence.test.ts tests/main/ai/agentLoopSpli
 - **`getIntentJson` 返回类型**：计划 `unknown | null` 在 TS 中归一为 `unknown`
   （`null` 为降级值之一），按 `unknown` 声明 + JSDoc 注明降级语义。
 - **`failed` outcome 生产点**：任务 6 不接错误收口路径（计划未要求），类型预留由任务 7 报告线裁定。
+
+---
+
+## 任务 7 — 执行报告合并与部分失败策略｜P1 第二任务
+
+**范围**：新建 `src/main/ai/agent/chainReport.ts`（`buildChainReport` / `renderReportSegment` /
+`shouldRenderReport` + `ChainReport` 三态类型）+ `chainTracking.ts`（tracker `+setReport`，
+`build()` 条件含 report 字段）+ `subtaskOrchestrator.ts`（`stampWriteBatchForCurrentSubtask`
+边界/收口归属标注 + `advanceChain` 入口调用；`handleSubtaskFailure` 增 `{ skipRetry }`
+直达 `subtask_failed`；用户选停止 → `setOutcome('failed')`；问题/跳过文案按是否重试分流）
++ `agentToolExecutor.ts`（`WriteBatchItem.subtaskId?` + `WriteBatchConfirmResult` sink +
+`confirmWriteBatch` 第三参；force yes-执行失败 + 链态 → `chainForceFailure`；
+`ToolRoundResult`/`checkForceConfirmTools` 返回值带信号）+ `agentLoop.ts`
+（`processStreamingToolRound` 聚合信号；工具轮后 `handleSubtaskFailure({skipRetry})`
+停等处置；`finalizeChainRun` 报告管线：stamp → confirm(sink) → buildChainReport →
+条件 renderReportSegment 追加 → `setReport` → finalizeChainRecord → 仍单次 DONE）
++ `getTaskActivity.ts`（SELECT `+s.intent_json`；`TaskActivity +subtasks?/report?`
+加法式 + `parseIntentTracking` 容错降级）+ 新建 `tests/main/ai/chainReport.test.ts`（8 例）
++ `agent-message-storage.md` 新 §8 + 本文档。**`git diff src/main/db/index.ts` 空（零加列）。**
+
+### 1. RED（TDD strict）
+
+**首轮**（仅写测试、无实现）：
+
+```bash
+npx vitest run tests/main/ai/chainReport.test.ts
+```
+
+```text
+ Test Files  1 failed (1)
+      Tests  no tests
+Error: Failed to resolve import "@main/ai/agent/chainReport" from tests/main/ai/chainReport.test.ts. Does the file exist?
+```
+
+整文件收集失败（缺被导入模块，vite 静态解析——任务 6/11 同款首轮形态；
+`getTaskActivity` 既有用例因同文件静态 import 一并未收集，归因随实现落地后逐例显形）。
+
+### 2. GREEN
+
+实现七件套（chainReport → chainTracking setReport → orchestrator 归属/停等/failed 产点 →
+agentToolExecutor sink/信号 → agentLoop 收口管线与消费 → getTaskActivity 透出）后：
+
+**中间轮**（1 failed | 7 passed）：① 归因 = `normalizeTaskPlan` Q7 **同对象写合并**——
+测试计划两条 `object: 'weekly.md'` 子任务被并成一条，链只剩 s1 单任务收口。
+修正 = 计划层对象改不同（`weekly.md` / `weekly.md 结尾段`），同文件链序经
+tool args `file_path: "weekly.md"` 构造（main 侧链序保序语义不变）。
+
+**末轮**：
+
+```bash
+npx vitest run tests/main/ai/chainReport.test.ts
+```
+
+```text
+ ✓ tests/main/ai/chainReport.test.ts (8 tests) 118ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+```
+
+8 例覆盖（计划 §2 任务 7 TDD 要点三类 + 附加）：
+
+1. **全成功**：两写子任务全 ok → `intent_json.report.tasks` 逐项 `{ok, error:'', artifacts}`
+   + `report.artifacts = ['weekly.md','weekly.md']`（同文件链序、不合并不排序）+
+   `batch={accepted:2,rejected:0}` + buffer 含「执行报告」逐项行与
+   `已保留产物（按执行顺序）` 结构 + **单次 DONE**、intent=primaryIntent、零回滚；
+2. **部分失败**：s1 双 LLM 失败 → `failed + error('network down again')` 进 report、
+   s2 写成功保留（`executeTool` 1 次、`rollbackToSnapshot` 零调用）+ 同文件 artifacts、
+   正文既有「已跳过执行失败的子任务」明示在前、报告段**新增在后**（indexOf 递增断言）；
+3. **补偿触发·跳过续链**：force 删除执行失败 → 门控断言停等（`vi.waitFor`：
+   交互序列 `intent_split→delete_confirm→subtask_failed`、停等期 LLM 恰 1 次、
+   `【子任务 2/2】` 未下达、DONE 未发）→ resume 跳过后 s2 续跑收口，
+   report `s1 failed(EACCES) + s2 ok`、删除仅执行 1 次（不自动重试）；
+4. **补偿触发·停止**：resume 答 `no` → 全程 LLM 1 次（不继续推进）、
+   `outcome='failed'`、report `s1 failed + s2 skipped`、正文含「链已停止·用户选择停止执行」、单次 DONE；
+5. **条件渲染护栏**：`shouldRenderReport` 全成功零产物 `false` / 失败、跳过、有产物各 `true`
+   （既有链正文 toBe 逐字节等价红线的显式钉）；
+6~8. **getTaskActivity**：有效 `intent_json` 透出 `subtasks+report` 且 SQL 含 `s.intent_json` /
+   坏 JSON 降级（字段缺省、任务查询照常）/ `intent_json=null` 字段缺省不抛。
+
+### 3. 回归（既有测试零改动）
+
+```bash
+npx vitest run tests/main/ai/subtaskSequence.test.ts tests/main/ai/agentLoopSplit.test.ts \
+  tests/main/ai/clarificationMatrix.test.ts tests/main/ai/agentToolExecutor.test.ts \
+  tests/main/ai/confirmMatrix.test.ts tests/main/ai/chainTracking.test.ts \
+  tests/main/ai/agentLoop.test.ts tests/main/db/agentSessionIntentJson.test.ts \
+  tests/main/ai/agentPromptBuilder.test.ts
+```
+
+```text
+ Test Files  9 passed (9)
+      Tests  266 passed (266)
+```
+
+266 例既有断言零改动全绿——含链正文 `toBe` 全文锚点 6 处（条件渲染护栏生效）、
+确认矩阵 8+3 例、`confirmWriteBatch` 返回值 `toBe('')`/`toContain('回滚')` 2 例
+（sink 方案零触碰）、`agentPromptBuilder` sha256 基线、任务 6 追踪 13 例。
+
+### 4. 门禁（全量）
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| typecheck | `npm run typecheck` | `tsc --noEmit` **0 错误** |
+| test | `npm run test` | `Test Files 199 passed (199)`；`Tests 4717 passed (4717)`（基线 4709 + 新 8 = 4717） |
+| lint | `npm run lint` | `108 problems (0 errors, 108 warnings)`（0 error，warning 与基线 108 一致，新文件零 warning） |
+| db 零加列 | `git diff src/main/db/index.ts` | **空（零 diff，零迁移）** |
+| playwright | — | 本任务不触 `src/render/`（纯主进程 + 文档），按任务 3 先例跳过 |
+
+### 5. 实施口径记录（偏差如实）
+
+- **`confirmWriteBatch` 返回值未改对象（红线 5 优先于计划字面）**：计划要求返回值扩展
+  `{ rejectedIds, acceptedIds, items }`——实测既有确认矩阵 2 例钉死返回值形态
+  （`expect(note).toBe('')` / `toContain('回滚')`），对象返回必然破坏「既有测试零改动」。
+  改为**可选第三参 sink**（`WriteBatchConfirmResult`）：两参调用行为逐字节一致，
+  agentLoop 收口传 sink 取结构化数据，语义与计划意图（供报告消费）等价。
+- **报告段条件渲染（红线 3/5 优先于计划字面）**：计划「仅链态且有子任务时」追加——
+  实测既有链正文 `toBe` 全文断言 6 处（agentLoopSplit 431/465、subtaskSequence
+  476/531/570/684、clarificationMatrix 384）在全成功零产物链上必然被追加破坏。
+  裁定 `shouldRenderReport` = **存在非 ok 子任务或存在保留产物**才追加；
+  TDD ①「buffer 含逐项汇报」以**带写产物的全成功链**构造验证。
+- **force 失败信号走返回值管线**：`checkForceConfirmTools → ToolRoundResult →
+  runAgentFlow 工具轮后消费`，未加 `AgentContext` 字段（计划任务 7 文件清单外零改动；
+  与任务 12 将新增的 `currentSubtaskId` 字段不冲突）。信号仅限「yes 后执行报错 + 链态」——
+  用户取消与无交互拒执行不属失败、不上报（现语义不变）。
+- **`outcome='failed'` 产点**：落在 `handleSubtaskFailure` 用户答 `no` 停链分支
+  （失败导致整链终止，覆盖 stopChain 先写的 `stopped`）；中断/封顶安全点停链仍为
+  `stopped`（任务 6 断言原样）。任务 6 遗留口径「失败停链置 failed」就此闭环。
+- **写批次归属**：`WriteBatchItem.subtaskId` 由 orchestrator `stampWriteBatchForCurrentSubtask`
+  在 `advanceChain` 入口（index 仍指刚结束子任务）与收口确认前两处标注（幂等），
+  为任务 12 的 subtaskId 收集预同名对齐；首轮 GREEN 后 typecheck 曾报收口调用实参顺序
+  错（运行期因 advanceChain 已标注而测试全绿）——tsc 捕获后改为 `(ctx, chain)` 即 0 错。
+- **测试计划同对象合并**：Q7 `mergeSameObjectWrites` 在 `parseSplitAnswers → normalizeTaskPlan`
+  生效，两条同对象写进不了链——测试计划对象必须相异（见 GREEN 中间轮归因）。

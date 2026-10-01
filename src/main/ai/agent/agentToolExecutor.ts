@@ -22,9 +22,17 @@ import type { AgentLlmMessage, AgentLoopDeps } from './agentLoop';
 // 类型
 // ---------------------------------------------------------------------------
 
+/** 链内 force 档删除执行失败信号（任务 7，Q19：触发 subtask_failed 停等人工）。 */
+export interface ChainForceFailure {
+  toolName: string;
+  error: string;
+}
+
 export interface ToolRoundResult {
   toolTurn: AgentLlmMessage[];
   deadLoopBreak: boolean;
+  /** 链内 force 档删除执行失败信号（任务 7，透传给 agentLoop 触发停等处置）。 */
+  chainForceFailure?: ChainForceFailure;
 }
 
 /**
@@ -55,6 +63,19 @@ export interface WriteBatchItem {
   args: string;
   /** 目标摘要（file_path / file_id / file_name 等，用于确认卡文案）。 */
   target: string;
+  /** 归属子任务 id（任务 7：orchestrator 在子任务边界/收口标注，报告 artifacts 链序归档）。 */
+  subtaskId?: string;
+}
+
+/**
+ * 链末写批次确认的结构化结果（任务 7 报告数据源）：
+ * `confirmWriteBatch` 第三参 sink——返回值保持 `string`（既有调用与测试零改动），
+ * 结构化数据经 sink 传出，语义不变。
+ */
+export interface WriteBatchConfirmResult {
+  rejectedIds: string[];
+  acceptedIds: string[];
+  items: WriteBatchItem[];
 }
 
 /**
@@ -206,6 +227,9 @@ function refusedWriteResult(
  *     不静默直通（连通性 §6）；多写子任务链执行并收集写批次（未登记名同样归入），
  *     链末 `confirmWriteBatch` 一次汇总确认（Q13）。
  * 统一使用浅拷贝引用 tc。返回 { executed: true, result } 表示已处理；返回 null 表示无需拦截。
+ * 任务 7（Q19）：链态下 force 档**执行失败**（用户确认 yes 后执行报错）附带
+ * `chainForceFailure` 信号——不自动重试，交 agentLoop 走 subtask_failed 停等人工；
+ * 用户取消（答 no）与无交互拒执行不属失败，不上报。
  */
 export async function checkForceConfirmTools(
   tc: ToolCall,
@@ -213,7 +237,7 @@ export async function checkForceConfirmTools(
   ctx: AgentContext,
   deps: AgentLoopDeps,
   replacementState?: ContentReplacementState,
-): Promise<{ executed: true; result: ToolExecResult } | null> {
+): Promise<{ executed: true; result: ToolExecResult; chainForceFailure?: ChainForceFailure } | null> {
   const tier = confirmTierFor(ctx.intent.intent, tc.name);
   if (tier === 'none') return null;
 
@@ -291,7 +315,19 @@ export async function checkForceConfirmTools(
       };
     }
     if (answer[toolCallId] === 'yes') {
-      return { executed: true, result: await executeOneTool(tcCopy, round, ctx, replacementState) };
+      const executedResult = await executeOneTool(tcCopy, round, ctx, replacementState);
+      // 任务 7（Q19）：链态 force 删除执行失败 → 上报停等信号（不自动重试）
+      if (executedResult.result.status === 'error' && Array.isArray(ctx.writeBatch)) {
+        return {
+          executed: true,
+          result: executedResult,
+          chainForceFailure: {
+            toolName: tc.name,
+            error: executedResult.result.errorDesc ?? '删除执行失败',
+          },
+        };
+      }
+      return { executed: true, result: executedResult };
     }
     return {
       executed: true,
@@ -323,28 +359,44 @@ export async function checkForceConfirmTools(
  * 新建/重命名/移动类操作不在内容快照覆盖范围（文档如实记录该粒度限制）。
  * 返回明示文本（进链 buffer，随链末合并落库）；空串 = 无需明示。
  * `waitForInteraction` reject（取消/任务结束）向上传播，由外层统一收口。
+ * 任务 7：可选第三参 sink 传出结构化结果（accepted/rejected/items）供 buildChainReport；
+ * 返回值语义与两参调用逐字节一致（既有测试零改动）。
  */
 export async function confirmWriteBatch(
   ctx: AgentContext,
-  deps: AgentLoopDeps
+  deps: AgentLoopDeps,
+  out?: WriteBatchConfirmResult
 ): Promise<string> {
   const batch = ctx.writeBatch;
   ctx.writeBatch = undefined;
-  if (!batch || batch.length === 0) return '';
+  const items: WriteBatchItem[] = batch ?? [];
+  if (out) {
+    // 缺省口径：无批次 / 无交互（未确认不回滚）→ 全部按接受处理
+    out.items = items;
+    out.acceptedIds = items.map((item) => item.toolCallId);
+    out.rejectedIds = [];
+  }
+  if (items.length === 0) return '';
   if (!deps.onInteractionRequired || !deps.waitForInteraction) return '';
 
-  const questions: IClarifyQuestion[] = batch.map((item) => ({
+  const questions: IClarifyQuestion[] = items.map((item) => ({
     id: item.toolCallId,
     text:
       `链内写入 ${item.name}${item.target ? `（${item.target}）` : ''} 已执行，` +
-      `共 ${batch.length} 项汇总确认——是否保留该写入？`,
+      `共 ${items.length} 项汇总确认——是否保留该写入？`,
     type: 'confirm',
     options: ['保留', '拒绝'],
   }));
   deps.onInteractionRequired(questions, 'write_batch');
   const answers = await deps.waitForInteraction();
 
-  const rejected = batch.filter((item) => answers?.[item.toolCallId] === 'no');
+  const rejected = items.filter((item) => answers?.[item.toolCallId] === 'no');
+  if (out) {
+    out.rejectedIds = rejected.map((item) => item.toolCallId);
+    out.acceptedIds = items
+      .filter((item) => answers?.[item.toolCallId] !== 'no')
+      .map((item) => item.toolCallId);
+  }
   if (rejected.length === 0) return '';
 
   if (!deps.db || !deps.sessionId) {
@@ -358,7 +410,7 @@ export async function confirmWriteBatch(
   }
 
   // 快照回滚还原了 .md 内容：重新执行已接受的 editLocalFile（尽力恢复，失败不阻断收口）
-  const accepted = batch.filter((item) => answers?.[item.toolCallId] !== 'no');
+  const accepted = items.filter((item) => answers?.[item.toolCallId] !== 'no');
   for (const item of accepted) {
     if (item.name !== 'editLocalFile') continue;
     try {
@@ -744,6 +796,7 @@ export async function executeToolRound(
   const thinkingText = extractThinkingText(assistantContent);
 
   const executionSegments: ExecutionSegment[] = [];
+  let chainForceFailure: ChainForceFailure | undefined;
 
   // 4. 分区只读/有副作用工具（S2: per-invocation isToolConcurrencySafe）
   const readOnlyTcs: ToolCall[] = [];
@@ -772,6 +825,7 @@ export async function executeToolRound(
     const confirmResult = await checkForceConfirmTools(tc, round, ctx, deps, state);
     if (confirmResult) {
       writableResults.push(confirmResult.result);
+      if (confirmResult.chainForceFailure) chainForceFailure = confirmResult.chainForceFailure;
       continue;
     }
 
@@ -797,5 +851,9 @@ export async function executeToolRound(
   // 8. ask_question_card 交互暂停
   await handleInteractionPause(dedupedToolCalls, toolTurn, round, deps);
 
-  return { toolTurn, deadLoopBreak: false };
+  return {
+    toolTurn,
+    deadLoopBreak: false,
+    ...(chainForceFailure ? { chainForceFailure } : {}),
+  };
 }

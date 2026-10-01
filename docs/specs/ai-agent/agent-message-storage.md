@@ -1,6 +1,6 @@
 # Agent 会话消息写读契约（Message Storage）
 
-> 规范编号：SPEC-AGENT-MSG | 版本：v1.0（已实施）| 状态：生效 | 更新：2026-10-01
+> 规范编号：SPEC-AGENT-MSG | 版本：v1.1（已实施）| 状态：生效 | 更新：2026-10-02
 > 关联需求：[agent-memory-optimize.req.md](../../requirements/agent-memory-optimize.req.md)（P0-4 / P0-5 / 红线 1 / Q14~Q17）、[agent-memory-optimize-3.req.md](../../requirements/agent-memory-optimize-3.req.md)（D3 轨迹源）、[REQUIREMENTS.md](../../REQUIREMENTS.md) §3.7
 > 关联模块：[11-AI代理面板-Agent.md](../../modules/11-AI代理面板-Agent.md)
 > 关联架构：[backend.md](../../architecture/backend.md)、[database.md](../../architecture/database.md)
@@ -91,3 +91,38 @@
 ## 7. 需求侧交叉引用
 
 写入/读取的根因分析、验收断言、红线（不减少历史轮次、不截断工具结果、删能力需批准）见 [agent-memory-optimize.req.md](../../requirements/agent-memory-optimize.req.md) §二 P0-4/P0-5 与 §五；轨迹提炼的需求见 [agent-memory-optimize-3.req.md](../../requirements/agent-memory-optimize-3.req.md) D3。本文不重复这些需求级结论。
+
+## 8. 多子任务执行报告与部分失败口径（agent-multi-intent 任务 7，Q19）
+
+多意图链收口时的执行报告与部分失败策略契约（需求裁定：[agent-multi-intent.req.md](../../requirements/agent-multi-intent.req.md) §6 Q19；实现：`src/main/ai/agent/chainReport.ts` + `agentLoop.finalizeChainRun`）。
+
+### 8.1 数据源三分
+
+| 数据源 | 形态 | 写点 | 消费点 |
+| --- | --- | --- | --- |
+| 链 buffer 文本段 | assistant 正文**新增段** | `finalizeChainRun` 经 `appendChainNote(renderReportSegment(report))` 追加（条件渲染见 8.4） | 落库正文 + 渲染气泡（复用现有卡片，不新建卡片类型） |
+| `intent_json.report` | 结构化对象（`ChainReport`） | 收口前 `tracker.setReport(report)` → `finalizeChainRecord` 随最终快照落盘 | `get_task_activity` 透出给 LLM 复查 |
+| `intent_json.subtasks` | 追踪条目（任务 6 七态） | 链启动/推进/失败/收口四点推送 | `get_task_activity` 加法式字段 |
+
+### 8.2 报告三态与形状
+
+- `ChainReport = { v: 1, tasks[], artifacts[], batch: { accepted, rejected } }`；per-task `{ taskId, status: ok|failed|skipped, error, artifacts }`。
+- 三态由 `SubtaskRunStatus` 归一：`done→ok`、`failed→failed`、其余（`pending/running/skipped/skipped_dependency/dependency_rejected`）→`skipped`。
+- `tasks` 按**链执行序**输出：`chain.completed` 归档序在前，未归档剩余项（停链/低置信丢弃的 skipped）按 plan 序补尾。
+- artifacts 归属：写批次条目 `WriteBatchItem.subtaskId` 由 orchestrator 在**子任务边界推进前**（`advanceChain` 入口）与**收口确认前**（`finalizeChainRun`）标注；仅确认后接受项入 artifacts，`target` 空串剔除。
+
+### 8.3 部分失败：不全量回滚（Q19）
+
+- 已完成写**保留**（`rollbackToSnapshot` 仅由用户逐项拒绝触发，失败本身不回滚）；失败子任务 `status=failed + error` 原文进 report，跳过明示与报告段双标注正文。
+- **唯一例外——force/删除类**：用户确认 yes 后执行报错（非用户取消、非无交互拒执行）→ `checkForceConfirmTools` 上报 `chainForceFailure` → `handleSubtaskFailure({ skipRetry: true })` 直达 `subtask_failed` 交互，session 停 `waiting_interaction` 等人工：**不自动重试、不继续推进**；resume 答非 `no` → 跳过续链，答 `no` → 停链且 `outcome='failed'`（任务 6 预留产点，覆盖 `stopChain` 的 `stopped`）。
+- LLM 调用失败仍走任务 5 原路径（重试 1 次 → `subtask_failed`），本章不改其语义。
+
+### 8.4 同文件写链序与条件渲染
+
+- main 侧只保证 `report.artifacts` 与 `chain.completed` **链序输出**（同文件不去重不排序）；同名合并归渲染端 `mergeProposalsByFile`（[02-diff-cards.md](../../modules/11-AI代理面板-Agent/02-diff-cards.md) §7.4），**报告 = assistant 文本段 + 既有 diff/activity 卡，不改 `ExecutionSegments` 分组维度**（Q19 裁剪）。
+- 报告段条件渲染 `shouldRenderReport`：存在非 ok 子任务或存在保留产物才追加——**全成功且零产物的链不追加**，既有链正文全文断言（agentLoopSplit / subtaskSequence / clarificationMatrix 的 `toBe` 锚点）保持逐字节等价（红线 3/5）。追加只增不改写既有段。
+
+### 8.5 兼容与已知限制交叉引用
+
+- 向后兼容沿用本文 §5：无 DDL、无迁移；`get_task_activity` 为**加法式可选字段**（`subtasks?`/`report?`），坏 JSON / `intent_json` 为 null 一律降级「无追踪数据」不阻断查询。
+- 已知限制沿用本文 §6 与 `agent-tool-runtime.md` §14.3：`rollbackToSnapshot` 为会话级 .md 内容回滚，非内容型写（createFile/renameFile 等）拒绝后无法逐项撤销；`confirmWriteBatch` 返回值保持 `string`（结构化结果经第三参 sink 传出，既有调用零改动）。

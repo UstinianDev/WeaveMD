@@ -22,6 +22,9 @@
 //     子任务工作集（含工具轮），只保留 base + 拆分段 + 已完成子任务（指令 + 摘要）。
 //   - 任务 6（Q18）：链启动/推进/失败跳过/停链四点经 chainTracking 维护并推送
 //     intent_json 全量快照（回调可选，未注入时全链零行为变化）。
+//   - 任务 7（Q19）：写批次条目在子任务边界/收口标注 subtaskId（报告 artifacts
+//     链序归档）；handleSubtaskFailure 支持 skipRetry（force 档删除执行失败直达
+//     subtask_failed 停等人工，不自动重试）；用户选停止 → outcome=failed。
 
 import { IPC_CHANNELS } from '@shared/constants';
 import type { AgentTaskPlan, IClarifyQuestion, IntentName, SubtaskDef } from '@shared/ai';
@@ -176,6 +179,21 @@ function appendBuffer(chain: SubtaskChain, text: string): void {
 /** 链 buffer 追加明示（任务 11 写批次确认结果；与内部 appendBuffer 同口径）。 */
 export function appendChainNote(chain: SubtaskChain, text: string): void {
   appendBuffer(chain, text);
+}
+
+/**
+ * 写批次条目归属标注（任务 7，报告 artifacts 链序归档）：
+ * 把尚未标注 subtaskId 的条目归到当前子任务。调用点 = 子任务边界推进前
+ * （advanceChain 入口，index 仍指向刚结束的子任务）与链收口确认前
+ * （finalizeChainRun，覆盖停链路径）。幂等：已标注条目不动。
+ */
+export function stampWriteBatchForCurrentSubtask(ctx: AgentContext, chain: SubtaskChain): void {
+  if (!Array.isArray(ctx.writeBatch)) return;
+  const current = chain.queue[chain.index];
+  if (!current) return;
+  for (const item of ctx.writeBatch) {
+    if (item.subtaskId === undefined) item.subtaskId = current.id;
+  }
 }
 
 /**
@@ -460,6 +478,7 @@ function advanceChain(
   round: number,
   deps: AgentLoopDeps
 ): SubtaskChainOutcome {
+  stampWriteBatchForCurrentSubtask(ctx, chain); // 任务 7：边界前归属刚结束的子任务
   if (chain.index < chain.queue.length - 1) {
     if (deps.isChainInterrupted?.()) {
       stopChain(chain, '检测到同会话新消息');
@@ -599,14 +618,16 @@ function restartCurrentSubtask(ctx: AgentContext, chain: SubtaskChain, round: nu
 /** subtask_failed 问题（confirm；'no' = 停止执行剩余子任务）。 */
 function buildSubtaskFailedQuestion(
   subtask: SubtaskDef | undefined,
-  message: string
+  message: string,
+  retried: boolean
 ): IClarifyQuestion {
   const label = subtask ? `${subtask.action} → ${subtask.object}` : '当前子任务';
   const reason = message.length > 200 ? `${message.slice(0, 200)}…` : message;
+  const attempt = retried ? `（已重试 ${SUBTASK_FAILURE_MAX_RETRIES} 次）` : '';
   return {
     id: SUBTASK_FAILED_QUESTION_ID,
     text:
-      `子任务「${label}」执行失败（已重试 ${SUBTASK_FAILURE_MAX_RETRIES} 次）：${reason}。` +
+      `子任务「${label}」执行失败${attempt}：${reason}。` +
       `是否跳过该子任务并继续执行剩余子任务？`,
     type: 'confirm',
     options: ['跳过并继续', '停止执行'],
@@ -618,24 +639,29 @@ function buildSubtaskFailedQuestion(
  * 1. 重试次数未用尽 → 重建当前子任务（新预算）→ 'continue'（调用方续跑本轮次序列）；
  * 2. 重试仍失败 → onInteractionRequired(variant='subtask_failed') → session 进
  *    waiting_interaction 等用户：
- *    - 答 'no' → 停链 → 'finalize'；
+ *    - 答 'no' → 停链（outcome=failed，任务 7）→ 'finalize'；
  *    - 答其他/空 → 跳过该子任务（明示进 buffer）→ 边界检查后推进 → 'continue'/'clarify'；
  *    - 无交互支持 → 同跳过路径（fail-safe，不等待、不死锁）；
  * 3. waitForInteraction reject（用户取消/任务取消）→ 异常向上传播，由外层统一
  *    错误收口（AI_STREAM_ERROR），不会锁死在 waiting_interaction。
+ *
+ * @param options `skipRetry`（任务 7，Q19）：force 档删除执行失败等不可自动重试
+ *   错误直达第 2 步交互停等，跳过重试分支。
  */
 export async function handleSubtaskFailure(
   ctx: AgentContext,
   chain: SubtaskChain,
   deps: AgentLoopDeps,
   error: unknown,
-  round: number
+  round: number,
+  options?: { skipRetry?: boolean }
 ): Promise<'continue' | 'clarify' | 'finalize'> {
   const subtask = chain.queue[chain.index];
   const label = subtask ? `${subtask.action} → ${subtask.object}` : '当前子任务';
   const message = error instanceof Error ? error.message : String(error);
+  const skipRetry = options?.skipRetry === true;
 
-  if (chain.retryCount < SUBTASK_FAILURE_MAX_RETRIES) {
+  if (!skipRetry && chain.retryCount < SUBTASK_FAILURE_MAX_RETRIES) {
     chain.retryCount += 1;
     restartCurrentSubtask(ctx, chain, round);
     return 'continue';
@@ -652,12 +678,14 @@ export async function handleSubtaskFailure(
 
   if (deps.onInteractionRequired && deps.waitForInteraction) {
     deps.onInteractionRequired(
-      [buildSubtaskFailedQuestion(subtask, message)],
+      [buildSubtaskFailedQuestion(subtask, message, !skipRetry)],
       'subtask_failed'
     );
     const answers = await deps.waitForInteraction();
     if (answers?.[SUBTASK_FAILED_QUESTION_ID] === 'no') {
       stopChain(chain, '用户选择停止执行');
+      // 任务 7：失败导致的整链终止（覆盖 stopChain 的 stopped，Q19 补偿裁定）
+      chain.record.setOutcome('failed');
       emitChainRecord(deps, chain.record); // 停链路径不经 advanceChain，此处推送
       return 'finalize';
     }
@@ -670,10 +698,10 @@ export async function handleSubtaskFailure(
     instruction: chain.currentInstruction,
     summary: '',
   });
-  appendBuffer(
-    chain,
-    `（已跳过执行失败的子任务「${label}」：重试 ${SUBTASK_FAILURE_MAX_RETRIES} 次后仍失败）`
-  );
+  const reason = skipRetry
+    ? (message.length > 200 ? `${message.slice(0, 200)}…` : message)
+    : `重试 ${SUBTASK_FAILURE_MAX_RETRIES} 次后仍失败`;
+  appendBuffer(chain, `（已跳过执行失败的子任务「${label}」：${reason}）`);
   const outcome = advanceChain(ctx, chain, round, deps); // 出口统一推送 failed 快照
   if (outcome === 'continue') return 'continue';
   if (outcome === 'clarify') return 'clarify';

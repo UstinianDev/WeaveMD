@@ -7,6 +7,7 @@
 
 import type { Database as BetterSqlite3Database } from 'better-sqlite3';
 import type { ToolDef } from '@shared/ai';
+import type { ChainReport } from '../agent/chainReport';
 
 // ---------------------------------------------------------------------------
 // Tool Schema（OpenAI function JSON Schema）
@@ -41,6 +42,13 @@ export const getTaskActivitySchema: ToolDef = {
 // Types
 // ---------------------------------------------------------------------------
 
+/** 子任务追踪条目（intent_json.subtasks 加法式透出，任务 7）。 */
+export interface TaskActivitySubtask {
+  id: string;
+  status: string;
+  summary?: string;
+}
+
 export interface TaskActivity {
   taskId: string;
   status: string;
@@ -51,6 +59,10 @@ export interface TaskActivity {
   durationMs: number | null;
   roundsUsed: number;
   error?: string;
+  /** 多子任务追踪（intent_json.subtasks；无追踪/坏 JSON 时缺省，加法式）。 */
+  subtasks?: TaskActivitySubtask[];
+  /** 执行报告（intent_json.report，任务 7 buildChainReport 输出；缺省同上）。 */
+  report?: ChainReport;
 }
 
 export interface GetTaskActivityResult {
@@ -72,6 +84,46 @@ interface TaskActivityDbRow {
   completed_at: string | null;
   error_message: string | null;
   rounds_used: number | null;
+  intent_json: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// intent_json 容错解析（任务 7：坏 JSON / 形状不符一律降级「无追踪数据」）
+// ---------------------------------------------------------------------------
+
+/** 解析 intent_json 提取加法字段；失败/缺失返回 null（不阻断任务查询）。 */
+function parseIntentTracking(
+  raw: string | null
+): { subtasks?: TaskActivitySubtask[]; report?: ChainReport } | null {
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+
+  const obj = parsed as { subtasks?: unknown; report?: unknown };
+  const out: { subtasks?: TaskActivitySubtask[]; report?: ChainReport } = {};
+  if (Array.isArray(obj.subtasks)) {
+    const subtasks: TaskActivitySubtask[] = [];
+    for (const entry of obj.subtasks) {
+      if (!entry || typeof entry !== 'object') continue;
+      const rec = entry as { id?: unknown; status?: unknown; summary?: unknown };
+      if (typeof rec.id !== 'string' || typeof rec.status !== 'string') continue;
+      subtasks.push({
+        id: rec.id,
+        status: rec.status,
+        ...(typeof rec.summary === 'string' && rec.summary ? { summary: rec.summary } : {}),
+      });
+    }
+    out.subtasks = subtasks;
+  }
+  if (obj.report && typeof obj.report === 'object' && !Array.isArray(obj.report)) {
+    out.report = obj.report as ChainReport;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +154,7 @@ export function executeGetTaskActivity(
   const normalizedLimit = Math.min(Math.max(Math.floor(limit), 1), 50);
 
   try {
-    // 查询任务列表（关联会话表获取 rounds_used）
+    // 查询任务列表（关联会话表获取 rounds_used + intent_json 子任务追踪，任务 7）
     const tasks = db
       .prepare(
         `SELECT
@@ -113,7 +165,8 @@ export function executeGetTaskActivity(
           t.started_at,
           t.completed_at,
           t.error_message,
-          s.rounds_used
+          s.rounds_used,
+          s.intent_json
         FROM agent_task_queue t
         LEFT JOIN agent_sessions s ON t.id = s.task_id
         WHERE t.conversation_id = ? AND t.user_id = ?
@@ -130,6 +183,7 @@ export function executeGetTaskActivity(
           new Date(t.completed_at).getTime() - new Date(t.started_at).getTime();
       }
 
+      const tracking = parseIntentTracking(t.intent_json ?? null);
       return {
         taskId: t.task_id,
         status: t.status,
@@ -140,6 +194,8 @@ export function executeGetTaskActivity(
         durationMs,
         roundsUsed: t.rounds_used || 0,
         error: t.error_message || undefined,
+        ...(tracking?.subtasks ? { subtasks: tracking.subtasks } : {}),
+        ...(tracking?.report ? { report: tracking.report } : {}),
       };
     });
 
