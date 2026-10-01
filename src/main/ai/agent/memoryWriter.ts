@@ -20,6 +20,7 @@ import type { Database as BetterSqlite3Database } from 'better-sqlite3';
 
 import { upsertMemory, type AgentMemoryKind } from '../../db/agentMemory';
 import { writeMemoryVectorAsync } from '../knowledge/vectorBackfill';
+import { parseStructuredJson } from '../llm/structuredJson';
 import { runMemoryPolicy } from './memoryPolicy';
 
 // ---------------------------------------------------------------------------
@@ -243,33 +244,43 @@ export function maybeEnqueueMemoryExtraction(
  * 规则：必须是 JSON 数组（允许 ```json 代码块包裹）；每项必须含合法 kind / subject / content
  * 且长度在限内；任一项不合法 → **抛错（整批拒绝，零写入）**；条数超上限 → 截断。
  * 抛错由 runMemoryExtractionJob 捕获并落 failed，绝不写入脏数据。
+ * 解析骨架已抽到 parseStructuredJson（agent-multi-intent 任务 1），错误文案逐字不变。
  */
 export function parseExtractionItems(raw: string): Array<{
   kind: AgentMemoryKind;
   subject: string;
   content: string;
 }> {
-  const stripped = raw
-    .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/, '')
-    .trim();
+  const items = parseStructuredJson<Array<{ kind: AgentMemoryKind; subject: string; content: string }>>(
+    raw,
+    { label: 'memory_extract', validate: validateExtractionItems }
+  );
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stripped);
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new Error(`memory_extract: LLM 输出不是合法 JSON → ${reason}`);
+  if (items.length > MAX_MEMORY_EXTRACT_ITEMS) {
+    console.warn('[memoryWriter] 提取条数超上限，已截断', {
+      before: items.length,
+      after: MAX_MEMORY_EXTRACT_ITEMS,
+      limit: MAX_MEMORY_EXTRACT_ITEMS,
+    });
+    return items.slice(0, MAX_MEMORY_EXTRACT_ITEMS);
   }
+  return items;
+}
 
-  if (!Array.isArray(parsed)) {
+/** 逐项严格校验（文案与抽骨架前逐字一致；非法整批拒绝）。 */
+function validateExtractionItems(value: unknown): Array<{
+  kind: AgentMemoryKind;
+  subject: string;
+  content: string;
+}> {
+  if (!Array.isArray(value)) {
     throw new Error('memory_extract: LLM 输出必须是 JSON 数组');
   }
 
+  const list = value as unknown[];
   const items: Array<{ kind: AgentMemoryKind; subject: string; content: string }> = [];
-  for (let i = 0; i < parsed.length; i += 1) {
-    const entry: unknown = parsed[i];
+  for (let i = 0; i < list.length; i += 1) {
+    const entry: unknown = list[i];
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
       throw new Error(`memory_extract: 第 ${i + 1} 项不是对象`);
     }
@@ -292,15 +303,6 @@ export function parseExtractionItems(raw: string): Array<{
       );
     }
     items.push({ kind: kind as AgentMemoryKind, subject, content });
-  }
-
-  if (items.length > MAX_MEMORY_EXTRACT_ITEMS) {
-    console.warn('[memoryWriter] 提取条数超上限，已截断', {
-      before: items.length,
-      after: MAX_MEMORY_EXTRACT_ITEMS,
-      limit: MAX_MEMORY_EXTRACT_ITEMS,
-    });
-    return items.slice(0, MAX_MEMORY_EXTRACT_ITEMS);
   }
   return items;
 }

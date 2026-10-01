@@ -5,7 +5,8 @@
 > [agent-memory-optimize.req.md](../../requirements/agent-memory-optimize.req.md)（P0-2）、
 > [agent-memory-optimize-2.req.md](../../requirements/agent-memory-optimize-2.req.md)（A1 三文件、B4 画像、Q15）、
 > [agent-memory-optimize-3.req.md](../../requirements/agent-memory-optimize-3.req.md)（D4 经验注入）、
-> [agent-perf-optimize.req.md](../../requirements/agent-perf-optimize.req.md)（S7）
+> [agent-perf-optimize.req.md](../../requirements/agent-perf-optimize.req.md)（S7）、
+> [agent-multi-intent.req.md](../../requirements/agent-multi-intent.req.md)（Q3/Q4/Q5/Q7，结构化任务拆分出参）
 > 关联模块：[docs/modules/11-AI代理面板-Agent.md](../../modules/11-AI代理面板-Agent.md)
 > 关联架构：[docs/architecture/ai-agent.md](../../architecture/ai-agent.md)
 > 关联规范：[SPEC-AGENT-COST](./agent-cost-caching.md)（成本公式与缓存断点）、[SPEC-AGENT-MEM](./agent-memory.md)（记忆载体、召回与提炼）、[SPEC-AGENT-TOOL](./agent-tool-runtime.md)（工具注册与 defer 运行时）
@@ -22,13 +23,14 @@
 
 ## 1. 范围
 
-本篇约束以下五类长期行为：
+本篇约束以下六类长期行为：
 
 1. 系统提示的组装顺序与可选块注入（Agent / Chat 两分支）；
 2. 个性化三块（三文件 / 画像 / 经验）的注入契约与截断；
 3. 经验技能的 `intents` 标注解析与意图匹配；
 4. 反上下文措辞统一与文档上下文注入门控；
-5. 文件操作叙述约束与提示词前缀稳定性原则。
+5. 文件操作叙述约束与提示词前缀稳定性原则；
+6. 结构化任务拆分出参：提示词内嵌 Schema、本地严格解析与降级口径（§10）。
 
 不包含：成本公式与缓存断点（SPEC-AGENT-COST）、`agent_memory` 表与召回（SPEC-AGENT-MEM）、
 工具 schema 与 defer 加载运行时（SPEC-AGENT-TOOL）、意图判定规则本身（`intentRouter`，见 architecture/ai-agent.md）。
@@ -277,3 +279,44 @@ S7 原案在 phase2 批次**仅部分落地**（commit `ee459bc` 记录：字母
 - 经验注入的意图范围与 chat 歧义处置 → req-3 D4（5 显式意图、chat 不注入）；
 - 铁律一仅约束笔记内容写入，**不约束上下文拼装**（req-1 红线 2）；
 - 不减少历史轮次、不截断工具结果（req-perf §硬性约束「上下文不瘦身」）。
+
+## 10. 结构化任务拆分出参（agent-multi-intent 任务 1）
+
+> 需求裁定：req [agent-multi-intent](../../requirements/agent-multi-intent.req.md) Q3（不引入 zod）/ Q4（厂商无关）/
+> Q5（重试 1 次降级）/ Q7（上限与合并）；Schema 特性取舍见计划 `docs/plan/agent-multi-intent.plan.md` §6.1（git 历史锚点）。
+> 本章钉**任务 1 已交付**的 Schema 与解析契约；拆分提示词接线与重试编排在任务 2 落地时补充。
+
+### 10.1 机制口径（厂商无关，Q4）
+
+- **不使用** `output_config` / `tool_choice`（Anthropic 侧为裸 fetch、OpenAI 侧为兼容协议，双端请求体均不扩展）；
+  结构化出参 = **提示词内嵌 JSON Schema** + 本地严格解析校验，双协议后端均可使用。
+- Schema 常量 `TASK_PLAN_JSON_SCHEMA`（`src/main/ai/agent/taskPlannerSchema.ts`）：手写 draft-07 形状，
+  拆分提示词（任务 2 `buildTaskSplitMessages`）将其内嵌进系统提示，并显式要求「只输出 JSON，
+  禁止 markdown 围栏与前后缀解说文字」。
+
+### 10.2 本地解析链（parseStructuredJson → parseTaskPlan → normalizeTaskPlan）
+
+- `parseStructuredJson<T>(raw, { label, validate })`（`src/main/ai/llm/structuredJson.ts`）：
+  trim → 剥 ```` ```json ```` 围栏 → `JSON.parse`（失败兜底：截取首个 `{` 到最后一个 `}` 再解析）→
+  交 `validate` 严格校验。解析失败抛 `` `${label}: LLM 输出不是合法 JSON → …` ``——与
+  `memory_extract` / `skill_distill` 既有文案同口径；`memoryWriter.parseExtractionItems` 已委托该骨架，行为不变。
+- `parseTaskPlan(raw)`：委托骨架 + `validateTaskPlan` 逐项严格校验——顶层对象、`subtasks` 数组、
+  字段类型、`intent ∈` 六值枚举、`rw ∈ {read, write}`、`confidence ∈ [0,1]`（不接受百分比换算）；
+  **任一项非法整批 throw**，错误带「第 N 项」序号；`params` 内容宽松放行（仅要求对象），其余字段严格；
+  可选字段 `null` 视为缺省（对应 Schema 的 nullable 模拟）。
+- `normalizeTaskPlan(plan)`（Q7 纯函数，不改输入）：confidence 复检 → **同对象写合并**
+  （保留首条 id/intent/action，params 合并、confidence 取高、前置条件去重并入）→ **>5 按 confidence
+  降序取前 5** 并记 `omittedCount`（`MAX_SUBTASKS = 5`）→ **不同对象写追加 `serial_after:<前序写 id>`**
+  串行标注（只读子任务不动）。
+- 解析/校验失败的消费策略：**重试 1 次（把校验错误回填进提示词）→ 仍失败降级单意图直通**（Q5，
+  现规则引擎路径），拆分失败不阻断对话——重试编排在任务 2 `runTaskSplit` 接线，本章先钉解析契约。
+
+### 10.3 Schema 特性取舍（引计划 §6.1 稳定交集）
+
+- **只用**：`type`（含 `["…","null"]` 可空形态）/ `properties` / `required`（每层全字段必填，可选用
+  nullable 模拟）/ 标量 `enum` / 嵌套 object 每层 `additionalProperties: false` / `array.items` / `description`。
+- **禁用**：`oneOf`、`pattern`、min/max/length 类数值约束、递归 `$ref`、根 `anyOf`、依赖 `$schema`/`$id` 语义。
+- `params` 为自由参数字典，**不设** `additionalProperties`（Schema 层例外，字典设 false 会清空内容；
+  校验层仅锁对象类型）。
+- 守卫测试：`tests/main/ai/taskPlannerSchema.test.ts`「特性取舍」describe 递归遍历 Schema，
+  断言禁用键零出现、根级/子任务级 required 全字段、intent 与 rw 枚举钉死。
