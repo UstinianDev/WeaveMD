@@ -642,6 +642,15 @@ export class AgentTaskWorker {
           return false;
         }
       },
+      // 任务 6（Q18）：子任务追踪 JSON 全量覆盖 intent_json；写库异常吞掉仅日志，
+      // 不影响链运行（写端尽力而为，读端坏 JSON 降级 null）
+      onChainRecordUpdate: (json: string) => {
+        try {
+          sessionDao.saveIntentJson(this.db, sessionId, json);
+        } catch (error) {
+          console.error('[AgentTaskWorker] saveIntentJson failed:', error);
+        }
+      },
     };
   }
 

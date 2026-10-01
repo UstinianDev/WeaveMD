@@ -14,6 +14,7 @@ export * from './ai/search';
 export * from './ai/model';
 export * from './ai/task';
 export * from './ai/taskPlan';
+export * from './ai/intentRecord';
 export * from './ai/clarify';
 export * from './ai/document';
 export * from './ai/mention';

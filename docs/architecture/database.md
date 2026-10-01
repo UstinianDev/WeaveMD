@@ -228,7 +228,7 @@
 
 | 表 | 类型 | DAO | 用途 |
 |----|------|-----|------|
-| `agent_sessions` | 实表 | `agentSessionDao.ts` | Agent 任务会话（90s 租约 + 20s 续约窗口，乐观并发） |
+| `agent_sessions` | 实表 | `agentSessionDao.ts` | Agent 任务会话（90s 租约 + 20s 续约窗口，乐观并发）。**`intent_json` 列**存子任务全链路追踪（agent-multi-intent 任务 6 起写入：`saveIntentJson` 每次全量覆盖一列 UPDATE / `getIntentJson` 容错读坏 JSON 降级 null）——形状 v1 = `{ v, runId, primaryIntent, plan{subtasks,omittedCount}, deps, subtasks[{id,status,startedAt,endedAt,rounds,summary,error}], outcome?, report? }`，类型与 `buildDepsMap` 见 `src/shared/ai/intentRecord.ts`（形状规范：`docs/plan/agent-multi-intent-p1.plan.md` §1.1；**零加列零迁移**，重试计数/文件快照不入此列，Q18） |
 | `agent_task_queue` | 实表 | `agentTaskDao.ts` | 后台任务队列（`dequeueNext` 保证同 `conversation_id` 串行） |
 | `agent_file_snapshots` | 实表 | `agentSnapshotDao.ts` | 写入前文件快照（回滚用） |
 | `ai_model_configs` | 实表 | `modelConfigs.ts` | 多模型配置（`protocol` / `baseURL` / `apiKey`） |

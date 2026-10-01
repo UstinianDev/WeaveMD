@@ -665,3 +665,127 @@ npx playwright test
 **门禁结论**：typecheck 0 错 / test 196 文件 4686 例全绿 / lint 0 错（108 warning 与基线
 一致，新文件零 warning）/ playwright 31 例失败与基线同数同名（零新增）。P0 五任务
 （1、2、3、5、11）全部交付。
+
+---
+
+## 任务 6 — 子任务全链路追踪（intent_json 落盘）｜P1 首任务
+
+**范围**：新建 `src/shared/ai/intentRecord.ts`（`AgentIntentJson` / `SubtaskRunStatus` 七态 /
+`AgentChainOutcome` / `buildDepsMap` 纯函数）+ `src/main/ai/agent/chainTracking.ts`
+（`createChainTracker` / `emitChainRecord` / `finalizeChainRecord`）+
+`agentSessionDao.ts`（+`saveIntentJson` / `getIntentJson`，UPDATE 仅 `intent_json` 一列）+
+`subtaskOrchestrator.ts`（`SubtaskChain.record` + 链启动/推进/失败跳过/停链状态跃迁与推送 +
+`startSubtaskChain` 增可选 deps 参数）+ `agentLoop.ts`（`AgentLoopDeps.onChainRecordUpdate?` +
+`finalizeChainRun` 写 outcome）+ `agentTaskWorker.ts`（`buildAgentDeps` 实现回调 →
+`saveIntentJson`，异常吞掉仅 console.error）+ `shared/ai.ts` barrel +1 行 + 新建
+`tests/main/db/agentSessionIntentJson.test.ts`（5 例）+ `tests/main/ai/chainTracking.test.ts`（8 例）
++ `database.md` / `ai-agent.md` 同步 + 本文档。**零加列零迁移（`git diff src/main/db/index.ts` 空）。**
+
+### 1. RED（TDD strict）
+
+**首轮**（仅写测试、无实现）：
+
+```bash
+npx vitest run tests/main/db/agentSessionIntentJson.test.ts tests/main/ai/chainTracking.test.ts
+```
+
+```text
+ Test Files  2 failed (2)
+      Tests  4 failed | 1 passed (5)
+```
+
+逐条归因：
+
+- `chainTracking.test.ts`：整文件收集失败（0 test）——
+  `Error: Failed to resolve import "@main/ai/agent/chainTracking" from tests/main/ai/chainTracking.test.ts. Does the file exist?`
+  （缺被导入模块，vite 静态解析失败 —— 任务 11 同款首轮形态）；
+- `agentSessionIntentJson.test.ts`：3 例红 = `saveIntentJson is not a function`（×2）+
+  `getIntentJson is not a function`（×1，真实行为缺口）；1 例红 = fake DB 对
+  `NOT IN ( SELECT`（SQL 换行归一后的括号内白空格）解析缺陷——**测试基建问题**，
+  notIn 正则放宽 `\s*` 后复跑；1 例绿 = 快照 create→rollback 回归钉（现行为即绿，预期项）。
+
+**二轮**（fake 修复后 DAO 单跑，归因干净）：
+
+```bash
+npx vitest run tests/main/db/agentSessionIntentJson.test.ts
+```
+
+```text
+ Test Files  1 failed (1)
+      Tests  3 failed | 2 passed (5)
+```
+
+3 红 = 缺 `saveIntentJson/getIntentJson`（写读往返 / 不存在 session / 坏 JSON 降级三例）；
+2 绿 = **入队/出队现语义回归钉**（pending 出队即 running、同会话串行阻塞、异会话可出队）
++ **快照回滚钉**（createSnapshot → 改文件 → rollbackToSnapshot 恢复，非 .md 不动）——
+均为主线既有语义，RED 阶段即绿属预期（Q18 偏离源文档「加列 + enqueue 收 priority」的验收改造项）。
+
+### 2. GREEN
+
+实现七件套（intentRecord → barrel → DAO → chainTracking → orchestrator 四点 →
+agentLoop → worker 回调）后：
+
+```bash
+npx vitest run tests/main/db/agentSessionIntentJson.test.ts tests/main/ai/chainTracking.test.ts
+```
+
+```text
+ ✓ tests/main/db/agentSessionIntentJson.test.ts (5 tests) 28ms
+ ✓ tests/main/ai/chainTracking.test.ts (8 tests) 27ms
+
+ Test Files  2 passed (2)
+      Tests  13 passed (13)
+```
+
+13 例覆盖（计划 §2 任务 6 TDD 要点 1-4）：
+
+1. **DAO 写读往返**：逐字段一致 + 原始列 `JSON.parse` 不抛 + 二次写全量覆盖；
+   不存在 session 写不抛（false）读降级 null；坏 JSON → null 不抛；
+   fake DB 每条 SQL 校验 `?` 个数 === 参数个数（SECURITY.md 参数化红线，拼接即抛）；
+2. **tracker 状态机**：链启动（plan/deps 归一 `s2←serial_after:s1`、首子任务 running、
+   其余 pending、`raw JSON` 断言 `not.toContain('retry')` —— 重试计数不落盘）→
+   advance 跃迁（done + summary/rounds=1/endedAt≥startedAt>0 + 下一 running）→
+   重试耗尽 failed（error 原文入 JSON）→ stopChain 截断（当前+剩余+待追问全 skipped）→
+   finalize outcome（finished；stopped 不被覆盖；未收口前 outcome 缺省）；
+3. **deps 纯函数**：`serial_after` 解析、重复去重、非串行前置忽略、无依赖无键、空计划 `{}`
+4. **回调可选护栏**：未注入 `onChainRecordUpdate` 时启动/推进/停链/收口全程不抛（零行为变化）。
+
+### 3. 回归（既有测试零改动）
+
+```bash
+npx vitest run tests/main/ai/subtaskSequence.test.ts tests/main/ai/agentLoopSplit.test.ts \
+  tests/main/ai/agentLoop.test.ts tests/main/ai/clarificationMatrix.test.ts \
+  tests/main/ai/agentToolExecutor.test.ts tests/main/ai/confirmMatrix.test.ts
+```
+
+```text
+ Test Files  6 passed (6)
+      Tests  171 passed (171)
+```
+
+未注入回调时全链零行为变化的回归护栏成立（171 例既有断言零改动全绿，
+含链加固 11 例 / agentLoopSplit 7 / 确认矩阵 91）。
+
+### 4. 门禁（全量）
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| typecheck | `npm run typecheck` | `tsc --noEmit` **0 错误** |
+| test | `npm run test` | `Test Files 198 passed (198)`；`Tests 4709 passed (4709)`（基线 4696 + 新 13 = 4709） |
+| lint | `npm run lint` | `108 problems (0 errors, 108 warnings)`（0 error，warning 数与基线 108 一致，新文件零 warning） |
+| db 零加列 | `git diff src/main/db/index.ts` | **空（零 diff，零迁移）** |
+| playwright | — | 本任务不触 `src/render/`（纯主进程 + 文档），按任务 3 先例跳过 |
+
+### 5. 实施口径记录（偏差如实）
+
+- **推送点语义对齐计划四点**：计划「链启动/子任务状态跃迁/失败跳过/advance 四点」实现为
+  `startSubtaskChain`（启动）/ `advanceChain` 全出口（advance + done 跃迁由其上游
+  `advanceSubtaskChain` 落库后统一经此推送）/ `handleSubtaskFailure` 停链分支（交互拒绝
+  路径不经 advanceChain，单独推送）/ `finalizeChainRun`（收口补 outcome）。推送为
+  **幂等全量覆盖**，同一路径多推一次无副作用。
+- **`outcome=stopped` 的产点**：计划写「finalizeChainRun 写 outcome」，实现为
+  `stopChain` 置 `stopped`（安全点停链的真实判定点）、`finalizeChainRecord` 仅在未设置时
+  补 `finished`——否则「先停链后收口」会被写成 finished（GREEN 阶段首跑红即此缺口，补后即绿）。
+- **`getIntentJson` 返回类型**：计划 `unknown | null` 在 TS 中归一为 `unknown`
+  （`null` 为降级值之一），按 `unknown` 声明 + JSDoc 注明降级语义。
+- **`failed` outcome 生产点**：任务 6 不接错误收口路径（计划未要求），类型预留由任务 7 报告线裁定。

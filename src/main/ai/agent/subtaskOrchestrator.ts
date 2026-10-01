@@ -20,6 +20,8 @@
 //   - 子任务边界只落在 assistant/user 轮次之间（§6.3 tool_result 回填完整性不变式）：
 //     边界仅发生在本轮无工具调用的收敛点，轮内回填已完整闭合；边界重建时丢弃当前
 //     子任务工作集（含工具轮），只保留 base + 拆分段 + 已完成子任务（指令 + 摘要）。
+//   - 任务 6（Q18）：链启动/推进/失败跳过/停链四点经 chainTracking 维护并推送
+//     intent_json 全量快照（回调可选，未注入时全链零行为变化）。
 
 import { IPC_CHANNELS } from '@shared/constants';
 import type { AgentTaskPlan, IClarifyQuestion, IntentName, SubtaskDef } from '@shared/ai';
@@ -38,6 +40,7 @@ import { DeadLoopDetector } from './agentLoopGuard';
 import { getRoundsForIntent } from './agentHelpers';
 import { toolsForIntent } from './agentToolSelector';
 import { writeToolsByTier } from './confirmMatrix';
+import { createChainTracker, emitChainRecord, type ChainTracker } from './chainTracking';
 import type { AgentContext, ToolSelectionArgs } from './agentContext';
 import type { AgentLlmMessage, AgentLoopDeps } from './agentLoop';
 
@@ -241,6 +244,7 @@ export async function runChainClarification(
 
   // 丢弃明示进 buffer（随链末合并落库；全丢弃时 buffer 即最终内容主体）
   for (const item of skipped) {
+    chain.record.markSkipped(item.subtask.id); // 任务 6：丢弃即终态（随下一次推进/收口推送）
     appendBuffer(chain, skipNote(item.subtask, item.reason));
   }
 
@@ -310,6 +314,8 @@ export interface SubtaskChain {
   retryCount: number;
   /** 链总轮次封顶：2 × getRoundsForIntent(primaryIntent)（Q9）。 */
   totalRoundsCap: number;
+  /** 子任务全链路追踪记录（任务 6：intent_json 落盘数据源；回调未注入时仅内存态）。 */
+  record: ChainTracker;
 }
 
 /** 链推进结果（任务 5 起含 'stopped'：中断/封顶安全点停链，调用方收口）。 */
@@ -397,6 +403,7 @@ function issueNextSubtask(
   const subtask = chain.queue[chain.index];
   if (!subtask) return;
   chain.retryCount = 0;
+  chain.record.markRunning(subtask.id);
   applySubtaskContext(ctx, chain, subtask, nextStartRound);
   rebuildChainMessages(ctx, chain);
   for (const segment of extraSegments) {
@@ -429,11 +436,20 @@ export function stopChain(
   const parts: string[] = [];
   if (truncatedCurrent && current) {
     parts.push(`当前子任务「${current.action} → ${current.object}」未完成`);
+    chain.record.markSkipped(current.id); // 被截断的当前子任务未收敛 → 终态 skipped
+  }
+  // 任务 6：剩余未执行子任务（执行序列余量 + 待追问）统一标 skipped
+  for (let i = chain.index + 1; i < chain.queue.length; i += 1) {
+    chain.record.markSkipped(chain.queue[i].id);
+  }
+  for (const pending of chain.clarifyPending) {
+    chain.record.markSkipped(pending.id);
   }
   if (rest > 0) {
     parts.push(`剩余 ${rest} 个子任务未执行`);
   }
   if (parts.length === 0) return;
+  chain.record.setOutcome('stopped'); // 任务 6：安全点停链 ≠ 自然跑完（finalize 只补缺省）
   appendBuffer(chain, `（链已停止：${parts.join('；')}——${reason}）`);
 }
 
@@ -447,15 +463,19 @@ function advanceChain(
   if (chain.index < chain.queue.length - 1) {
     if (deps.isChainInterrupted?.()) {
       stopChain(chain, '检测到同会话新消息');
+      emitChainRecord(deps, chain.record); // 任务 6：停链推送（状态跃迁已写入 record）
       return 'stopped';
     }
     if (round + 1 >= chain.totalRoundsCap) {
       stopChain(chain, '链总轮次封顶');
+      emitChainRecord(deps, chain.record);
       return 'stopped';
     }
     issueNextSubtask(ctx, chain, round + 1);
+    emitChainRecord(deps, chain.record);
     return 'continue';
   }
+  emitChainRecord(deps, chain.record);
   if (chain.clarifyPending.length > 0) {
     return 'clarify';
   }
@@ -466,8 +486,15 @@ function advanceChain(
  * 确认通过 → 启动链：主意图落 DONE 口径、注入结构化拆分指令段；
  * 高置信进执行序列（即刻下达首条指令并切换到该子任务的 intent/tools/独立预算），
  * 低置信标 needsClarification 推迟至链末追问（Q10）。
+ *
+ * 任务 6：创建链追踪 record（全 pending 起步 → 首个执行子任务 running）
+ * 并推送首份 intent_json 快照；deps 可选，未注入时零行为变化。
  */
-export function startSubtaskChain(ctx: AgentContext, plan: AgentTaskPlan): SubtaskChain {
+export function startSubtaskChain(
+  ctx: AgentContext,
+  plan: AgentTaskPlan,
+  deps?: AgentLoopDeps
+): SubtaskChain {
   const primaryIntent = plan.primaryIntent ?? ctx.intent.intent;
   // 快照必须先于拆分段注入：base = system 提示 + baseHistoryMessages + 当前 user 消息 + 锚点
   const baseMessages: AgentLlmMessage[] = [...ctx.llmMessages];
@@ -503,12 +530,15 @@ export function startSubtaskChain(ctx: AgentContext, plan: AgentTaskPlan): Subta
     subtaskStartRound: 0,
     retryCount: 0,
     totalRoundsCap: subtaskTotalRoundsCap(primaryIntent),
+    record: createChainTracker({ runId: ctx.runId, primaryIntent, plan }),
   };
   if (queue.length > 0) {
+    chain.record.markRunning(queue[0].id);
     applySubtaskContext(ctx, chain, queue[0], 0);
     chain.currentInstruction = buildSubtaskInstruction(queue[0], 0, plan.subtasks.length);
     pushChainMessage(ctx, { role: 'system', content: chain.currentInstruction });
   }
+  emitChainRecord(deps, chain.record); // 任务 6：链启动首份全量快照
   return chain;
 }
 
@@ -534,12 +564,17 @@ export function advanceSubtaskChain(
   }
   if (chain.currentInstruction) {
     const subtask = chain.queue[chain.index];
+    const summary = summarizeSubtaskOutput(text);
     chain.completed.push({
       subtaskId: subtask?.id ?? '',
       subtaskIndex: chain.index,
       instruction: chain.currentInstruction,
-      summary: summarizeSubtaskOutput(text),
+      summary,
     });
+    if (subtask) {
+      // 任务 6：状态跃迁 done（推送由 advanceChain 出口统一执行）
+      chain.record.markDone(subtask.id, summary, Math.max(1, round - chain.subtaskStartRound + 1));
+    }
   }
   return advanceChain(ctx, chain, round, deps);
 }
@@ -606,6 +641,15 @@ export async function handleSubtaskFailure(
     return 'continue';
   }
 
+  // 任务 6：重试耗尽先落 failed（重试计数为内存态，不入 JSON —— Q18）
+  if (subtask) {
+    chain.record.markFailed(
+      subtask.id,
+      message,
+      Math.max(1, round - chain.subtaskStartRound + 1)
+    );
+  }
+
   if (deps.onInteractionRequired && deps.waitForInteraction) {
     deps.onInteractionRequired(
       [buildSubtaskFailedQuestion(subtask, message)],
@@ -614,6 +658,7 @@ export async function handleSubtaskFailure(
     const answers = await deps.waitForInteraction();
     if (answers?.[SUBTASK_FAILED_QUESTION_ID] === 'no') {
       stopChain(chain, '用户选择停止执行');
+      emitChainRecord(deps, chain.record); // 停链路径不经 advanceChain，此处推送
       return 'finalize';
     }
   }
@@ -629,7 +674,7 @@ export async function handleSubtaskFailure(
     chain,
     `（已跳过执行失败的子任务「${label}」：重试 ${SUBTASK_FAILURE_MAX_RETRIES} 次后仍失败）`
   );
-  const outcome = advanceChain(ctx, chain, round, deps);
+  const outcome = advanceChain(ctx, chain, round, deps); // 出口统一推送 failed 快照
   if (outcome === 'continue') return 'continue';
   if (outcome === 'clarify') return 'clarify';
   return 'finalize';

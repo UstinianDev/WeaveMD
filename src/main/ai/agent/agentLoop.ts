@@ -72,6 +72,7 @@ import {
   stopChain,
   type SubtaskChain,
 } from './subtaskOrchestrator';
+import { finalizeChainRecord } from './chainTracking';
 import {
   STREAMING_TOOL_EXEC_ENABLED,
   StreamingToolExecutor,
@@ -125,6 +126,13 @@ export interface AgentLoopDeps {
    * 缺省 = 不中断（单意图路径与既有链测试零影响）。
    */
   isChainInterrupted?: () => boolean;
+  /**
+   * 子任务链追踪 JSON 落盘（agent-multi-intent 任务 6，Q18）：
+   * 链启动/推进/失败/收口推送**全量** intent_json 字符串（每次覆盖，
+   * 同 session 单链天然幂等）。worker 注入 → sessionDao.saveIntentJson
+   * （写库异常吞掉仅日志）；缺省 = 不落盘（仅内存态，全链零行为变化）。
+   */
+  onChainRecordUpdate?: (json: string) => void;
 }
 
 export interface AgentReqPayload {
@@ -320,11 +328,13 @@ export async function runAgentFlow(
    * 链收口（任务 11）：恢复主意图 → 链末写批次汇总确认（confirmWriteBatch，
    * 明示进 buffer）→ 单次 DONE。写批次为空时零交互、行为与原收口逐字一致。
    * confirmWriteBatch 的 waitForInteraction reject 向上传播（外层统一收口）。
+   * 任务 6：收口前写 outcome 并推送最终 intent_json 快照（回调可选，缺省零行为）。
    */
   const finalizeChainRun = async (last: string): Promise<AgentRunResult> => {
     restoreChainIntent();
     const batchNote = await confirmWriteBatch(ctx, deps);
     if (batchNote) appendChainNote(subtaskChain!, batchNote);
+    finalizeChainRecord(deps, subtaskChain!.record);
     return finalizeRun(finalizeChainContent(subtaskChain!, last));
   };
 
@@ -341,7 +351,7 @@ export async function runAgentFlow(
       deps
     );
     if (confirmedPlan) {
-      subtaskChain = startSubtaskChain(ctx, confirmedPlan);
+      subtaskChain = startSubtaskChain(ctx, confirmedPlan, deps);
       // 全部子任务低置信（无立即执行项）→ 进链前先追问（Q10：避免首轮无子任务
       // 指令空跑）；全丢弃时链退化为空队列，跑一轮正常收口，不阻塞对话
       if (subtaskChain.queue.length === 0) {

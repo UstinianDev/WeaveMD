@@ -233,6 +233,48 @@ export function loadSnapshot(
 }
 
 // ---------------------------------------------------------------------------
+// saveIntentJson — 写入子任务追踪 JSON（agent-multi-intent 任务 6，Q18）
+// ---------------------------------------------------------------------------
+// 仅更新 intent_json 一列（零加列、零迁移）；每次写为**全量覆盖**该 session
+// 最新 JSON（同 session 单链，runId 变化整体替换，天然幂等）。
+// 不存在的 sessionId 不抛，返回 changes > 0。
+
+export function saveIntentJson(
+  db: BetterSqlite3Database,
+  sessionId: string,
+  json: string
+): boolean {
+  const info = db.prepare(
+    `UPDATE agent_sessions
+     SET intent_json = ?, updated_at = datetime('now')
+     WHERE id = ?`
+  ).run(json, sessionId);
+  return info.changes > 0;
+}
+
+// ---------------------------------------------------------------------------
+// getIntentJson — 读取并解析子任务追踪 JSON（容错读）
+// ---------------------------------------------------------------------------
+// 读端一律「无追踪数据」降级：session 不存在 / 未写入 / 坏 JSON → null 不抛，
+// 不阻断 getTaskActivity、报告等消费端（计划 §1.1 写端尽力而为、读端降级）。
+
+export function getIntentJson(
+  db: BetterSqlite3Database,
+  sessionId: string
+): unknown {
+  const row = db
+    .prepare('SELECT intent_json FROM agent_sessions WHERE id = ?')
+    .get(sessionId) as { intent_json: string | null } | undefined;
+  const raw = row?.intent_json;
+  if (typeof raw !== 'string' || raw.length === 0) return null;
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return null; // 坏 JSON 降级「无追踪数据」，不抛
+  }
+}
+
+// ---------------------------------------------------------------------------
 // updateLease — 更新租约信息（乐观并发控制：90s 租约 + 20s 续约窗口）
 // ---------------------------------------------------------------------------
 

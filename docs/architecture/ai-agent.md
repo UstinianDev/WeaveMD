@@ -249,6 +249,21 @@ agentEventStore 持久化 + IPC 推送
 
 created → queued → running → waiting_interaction / waiting_operation_confirmation → completed / failed / cancelled / superseded
 
+### 子任务链追踪（intent_json，agent-multi-intent 任务 6）
+
+多意图链的全链路状态写 `agent_sessions.intent_json`（**零加列**，Q18 裁定），供 getTaskActivity / 报告（任务 7+）消费：
+
+- **形状**（v=1，类型见 `src/shared/ai/intentRecord.ts`）：`{ v, runId, primaryIntent, plan{subtasks,omittedCount}, deps, subtasks[{id,status,startedAt,endedAt,rounds,summary,error}], outcome?, report? }`。
+  `deps` 由 `SubtaskDef.preconditions` 的 `serial_after:<id>` 归一（`buildDepsMap` 纯函数，任务 8 出队条件）；
+  `status` ∈ `pending|running|done|failed|skipped|skipped_dependency|dependency_rejected`（后两个为任务 12 级联态）。
+- **写入链路**：`chainTracking.createChainTracker` 随 `SubtaskChain`（内存态）维护 → 链启动 / 推进（`advanceChain` 出口）/ 失败跳过 / 收口四点经
+  **可选** 回调 `deps.onChainRecordUpdate(json)` 推送**全量** JSON（未注入 = 全链零行为变化）→ worker `buildAgentDeps` 实现 →
+  `sessionDao.saveIntentJson`（UPDATE 仅 `intent_json` 一列，全量覆盖同 session 单链天然幂等；写库异常 try/catch 仅 console.error，不影响链运行）。
+- **不落盘（Q18）**：重试计数（`SubtaskChain.retryCount` 内存态）与文件快照（复用 `agent_file_snapshots` / agentSnapshot，不内嵌 payload）。
+- **读端容错**：`getIntentJson` 对不存在 / 未写入 / 坏 JSON 一律降级 `null` 不抛；`outcome` 缺省 = 未收口，
+  `finalizeChainRun` 补 `finished`、`stopChain` 写 `stopped`（`failed` 生产点由任务 7 报告线裁定）。
+- **`report` 字段**任务 6 只定形不填充（任务 7 `buildChainReport` 起写入）。
+
 ### 后台任务类型（agent-memory-optimize 三批）
 
 同一 `agent_task_queue` 内，除作答任务外还有两类**不进 `runAgentFlow`、不设 `conversationTaskMap`**
