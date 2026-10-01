@@ -11,7 +11,7 @@
 // 归一化补偿（SPEC-EDIT-CBTP / R2）：返回树之前，若整树文档序最后一个叶子块为
 // code-block 或 image-block，在其同父容器末尾追加一个空 paragraph。代码块/图片块
 // 后的保护空行在序列化往返中丢失（空段落 → 尾部空白被剥离；解析时空行仅作块分隔符），
-// 故在解析期补偿，文本输出不变。见 docs/specs/code-block-trailing-paragraph.md（图片扩展见 R2）。
+// 故在解析期补偿，文本输出不变。见 docs/specs/editor/code-block-trailing-paragraph.md（图片扩展见 R2）。
 //
 // 实现说明：解析阶段使用内部可变 Builder 构建树（一次性构建，非编辑操作），
 // 完成后转换为不可变 BlockTreeV2。
@@ -184,7 +184,7 @@ function sameListFamily(info: ListItemInfo, listType: 'bullet-list' | 'ordered-l
 // 重载应用后代码块/图片块后的保护空行消失：空段落经 stateToMarkdown 序列化为尾部空白
 // 并被剥离，parseBlocks 对空行直接跳过（仅作块分隔符）。故在解析期规范化补偿，
 // 与编辑期 convertCtrl.ensureTrailingParagraph（无后续叶子才插入）互为镜像，
-// 保证"新建 → 保存 → 重载"两态收敛。见 docs/specs/code-block-trailing-paragraph.md
+// 保证"新建 → 保存 → 重载"两态收敛。见 docs/specs/editor/code-block-trailing-paragraph.md
 // （图片扩展见 docs/requirements/editor-image-link-polish.req.md R2）。
 
 /** 判断段落文本是否以行内图片结尾（`![...](...)` 模式） */

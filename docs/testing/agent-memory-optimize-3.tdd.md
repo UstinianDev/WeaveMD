@@ -120,4 +120,4 @@
 
 - **已提交（第二批）**：`8fd28f1` / `6ed0b4c` / `33c3763`
 - **第三批全部未提交**：D1（3 src + 2 test + 1 doc）、D2（5 src + 2 test + 1 script）、D3（4 新 src + 改 9 src + 5 新 test）、D4（5 src + 4 test 追加）、D5（5 新 src + 改 7 src + 3 新 test + 3 test 追加 + 1 script）、D7（1 src + 1 script + 1 新 test）、D6（1 新 src 段 + 改 6 src + 4 新 test + 1 script + 1 doc）、D6.1（1 src + 1 新 test）
-- **文档**：`agent-memory-optimize-3.req.md` / `.plan.md` 本报告 / `TODO.md` / `SUMMARY.md` / `README.md` / `.claude/CLAUDE.md` / `modules/11` / `architecture/{database,knowledge}` / `modules/07` / `specs/embedding-architecture.md`
+- **文档**：`agent-memory-optimize-3.req.md` / `.plan.md` 本报告 / `TODO.md` / `SUMMARY.md` / `README.md` / `.claude/CLAUDE.md` / `modules/11` / `architecture/{database,knowledge}` / `modules/07` / `specs/knowledge/embedding-architecture.md`

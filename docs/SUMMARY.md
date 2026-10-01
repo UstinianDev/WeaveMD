@@ -44,42 +44,35 @@
 | [10-导出功能](./modules/10-导出功能-Export.md) | 8 格式导出（md/html/doc/docx/pdf/png/jpg/jpeg） |
 | [11-AI代理面板](./modules/11-AI代理面板-Agent.md) | Agent / 知识库 / Agentic RAG + Composer 标签化 + 标题自动编号 + 分册 4 篇（优化历史 / Diff 卡片 / 提问卡片 / 触发优化与提示词规则） |
 
-## 规格文档（14 篇主文档 + 7 篇分册）
+## 规格文档（22 篇主文档 + 10 篇分册，按模块分文件夹）
 
-> 超长三级文档已按渐进式披露拆到 `docs/{文档名}/` 子目录：**主文档路径不变**（入链全保留），
-> 头部给出索引，分册承载被拆出的章节，分册正文与原文件逐字一致。
+> **按模块存储**：`docs/specs/{editor|ai-agent|knowledge|release}/`。超长文档另按渐进式披露拆到
+> `docs/specs/{模块}/{同名}/NN-主题.md` —— **主文档路径不变**（入链全保留），头部给索引，
+> 分册正文与原章节逐字一致。
 
-| 分组 | 文档 | 说明 |
-|------|------|------|
-| 编辑器 v2 | [editor-v2-architecture](./specs/editor-v2-architecture.md) | v2 架构规范索引（§1 背景 / §2 总体架构）+ 分册 2 篇（§3-§4 数据模型与转换、§5-§6 渲染与控制器） |
-| | [editor-v2-progress](./specs/editor-v2-progress.md) | v2 实施记录索引（§13.1~§13.15 条目表）+ 分册 3 篇（内核集成 / 退出与工具栏 / 行内与图片） |
-| | [editor-v2-features](./specs/editor-v2-features.md) | v2 功能清单（编辑器 UI 规范 + 工具栏 + 图片 + 表格） |
-| | [editor-v2-selection-undo](./specs/editor-v2-selection-undo.md) | v2 选区 / 撤销 / 集成设计 |
-| | [markdown-block-exit-rules](./specs/markdown-block-exit-rules.md) | 退格退出规则（六条） |
-| 浮动工具栏 | [floating-toolbar-refactor](./specs/floating-toolbar-refactor.md) | SPEC-EDIT-FT：选区触发 + 块类型下拉 |
-| | [floating-toolbar-ux](./specs/floating-toolbar-ux-and-inline-format.md) | 行内格式（加粗 / 斜体 / 删除线 / 高亮 / 代码 / 链接）+ 分册：§9 实施记录 |
-| | [floating-toolbar-format-sticky](./specs/floating-toolbar-format-sticky.md) | SPEC-EDIT-FT4：选区保持 + 格式粘性 + 分册：§9 实施记录 |
-| | [drag-selection-flicker](./specs/drag-selection-flicker.md) | SPEC-EDIT-DSF：端点检测 + rAF 合并 |
-| | [code-block-trailing-paragraph](./specs/code-block-trailing-paragraph.md) | SPEC-EDIT-CBTP：代码块尾随空行持久化 |
-| AI 与知识库 | [ai-panel-features](./specs/ai-panel-features.md) | AI 面板历史交付记录（7 期 + 写控制 + Agentic RAG） |
-| | [embedding-architecture](./specs/embedding-architecture.md) | Embedding 多提供商架构 |
-| | [indexing-compatibility](./specs/indexing-compatibility.md) | 索引流程兼容性设计 |
-| 发布 | [auto-update-spec](./specs/auto-update-spec.md) | 自动更新规范（架构 / IPC / 发布流程 / 故障排查） |
+| 模块文件夹 | 主文档 | 分册 |
+|---|---|---|
+| **`editor/`（编辑器）** | [editor-v2-architecture](./specs/editor/editor-v2-architecture.md) · [editor-v2-progress](./specs/editor/editor-v2-progress.md) · [editor-v2-features](./specs/editor/editor-v2-features.md) · [editor-v2-selection-undo](./specs/editor/editor-v2-selection-undo.md) · [markdown-block-exit-rules](./specs/editor/markdown-block-exit-rules.md) · [floating-toolbar-refactor](./specs/editor/floating-toolbar-refactor.md) · [floating-toolbar-ux](./specs/editor/floating-toolbar-ux-and-inline-format.md) · [floating-toolbar-format-sticky](./specs/editor/floating-toolbar-format-sticky.md) · [drag-selection-flicker](./specs/editor/drag-selection-flicker.md) · [code-block-trailing-paragraph](./specs/editor/code-block-trailing-paragraph.md) | 7 篇（architecture 2、progress 3、format-sticky 1、ux 1） |
+| **`ai-agent/`（AI 面板与 Agent）** | [ai-panel-features](./specs/ai-agent/ai-panel-features.md) · **[agent-prompt-context](./specs/ai-agent/agent-prompt-context.md)**（SPEC-AGENT-PTX 提示词组装与注入契约）· **[agent-message-storage](./specs/ai-agent/agent-message-storage.md)**（SPEC-AGENT-MSG 消息写读契约）· **[agent-tool-runtime](./specs/ai-agent/agent-tool-runtime.md)**（SPEC-AGENT-TOOL 工具执行/并发/外发闸）· **[agent-cost-caching](./specs/ai-agent/agent-cost-caching.md)**（SPEC-AGENT-COST 成本核算与缓存）· **[agent-memory](./specs/ai-agent/agent-memory.md)**（SPEC-AGENT-MEM 自动记忆，+ 分册 3 篇） | 3 篇（memory 01 存储与策略 / 02 读写工具与后台提取 / 03 召回与经验注入） |
+| **`knowledge/`（知识库与文档处理）** | [embedding-architecture](./specs/knowledge/embedding-architecture.md) · [indexing-compatibility](./specs/knowledge/indexing-compatibility.md) · **[kb-indexing-egress](./specs/knowledge/kb-indexing-egress.md)**（SPEC-KB-IDX 分块/索引/检索/外发）· **[document-parsing](./specs/knowledge/document-parsing.md)**（SPEC-DOC-PARSE 解析层）· **[attachments-multimodal](./specs/knowledge/attachments-multimodal.md)**（SPEC-DOC-ATTACH 附件与多模态） | — |
+| **`release/`（发布）** | [auto-update-spec](./specs/release/auto-update-spec.md) | — |
 
+> **加粗为本次从 `docs/plan/` 提炼的 8 篇新 spec**（plan 后续删除后，功能规格以本表为准）。
+> `docs/research/` 另存**外部资料调研**（不属规格，见下）。
 ## devflow 产出
 
 按任务成套存放，同一任务的四件套同名前缀：`{task}.req.md`（需求）、`{task}.plan.md` / `{task}.status.md`（计划与状态）、`{task}.*.tdd.md`（测试证据），另有 connectivity（连通性）与 compliance（合规）报告。
 
 | 需求（`requirements/`，当前 7 篇 + archive 12 篇） | 计划与状态（`plan/`，当前 27 篇主文档 + 7 篇分册 + archive 32 篇） | 测试报告（`testing/`，23 篇） |
 |---|---|---|
-| [doc-pipeline.req](./requirements/doc-pipeline.req.md) | [doc-pipeline.plan](./plan/doc-pipeline.plan.md) / [status](./plan/doc-pipeline.status.md) / [connectivity](./plan/doc-pipeline.connectivity.md) / [compliance](./plan/doc-pipeline.compliance.md) / [docling-poc](./plan/doc-pipeline.docling-poc.md) / [remedial.diagnosis](./plan/doc-pipeline.remedial.diagnosis.md) | `doc-pipeline-b1` ~ `doc-pipeline-b11` + `doc-pipeline-remedial` + `doc-pipeline.final` |
-| [agent-cost-optimize.req](./requirements/agent-cost-optimize.req.md) | [plan](./plan/agent-cost-optimize.plan.md) / [status](./plan/agent-cost-optimize.status.md) | `agent-cost-optimize.tdd` |
-| [agent-perf-optimize.req](./requirements/agent-perf-optimize.req.md) | [plan](./plan/agent-perf-optimize.plan.md) / [phase2](./plan/agent-perf-optimize.phase2.plan.md) / [status](./plan/agent-perf-optimize.status.md) / [connectivity](./plan/agent-perf-optimize.connectivity.md) | — |
-| [agent-md-kb-optimize.req](./requirements/agent-md-kb-optimize.req.md) | [plan](./plan/agent-md-kb-optimize.plan.md) / [status](./plan/agent-md-kb-optimize.status.md) | — |
-| [agent-memory-optimize.req](./requirements/agent-memory-optimize.req.md)（P0 第一批，已完成） | [direction](./plan/agent-memory-optimize.direction.md)（7 模块 **26 任务**路线图，三批已全部交付 + 分册 3 篇） / [plan](./plan/agent-memory-optimize.plan.md) / [status](./plan/agent-memory-optimize.status.md) / [connectivity](./plan/agent-memory-optimize.connectivity.md) / [compliance](./plan/agent-memory-optimize.compliance.md) | `agent-memory-optimize.tdd` |
-| [agent-memory-optimize-2.req](./requirements/agent-memory-optimize-2.req.md)（P1 第二批，**已完成**） | [plan](./plan/agent-memory-optimize-2.plan.md)（§6 为三 Gate 实施记录） | `agent-memory-optimize-2.tdd` |
-| [agent-memory-optimize-3.req](./requirements/agent-memory-optimize-3.req.md)（P2 第三批，**已完成**） | [plan](./plan/agent-memory-optimize-3.plan.md)（§6 为三 Gate 实施记录） | `agent-memory-optimize-3.tdd` |
-| — | 6 篇 doc-pipeline 调研（`plan/doc-pipeline.research-*.md`：parse / pdf-multimodal / storage / chunking / packaging / tools） | `spec-edit-ft` ~ `ft4` / `cbtp` / `dsf`（编辑器规格 TDD 6 篇） |
+| [doc-pipeline.req](./requirements/doc-pipeline.req.md) | `./plan/doc-pipeline.plan.md` / `./plan/doc-pipeline.status.md` / `./plan/doc-pipeline.connectivity.md` / `./plan/doc-pipeline.compliance.md` / [docling-poc](./research/doc-pipeline-docling-poc.md) / `./plan/doc-pipeline.remedial.diagnosis.md` | `doc-pipeline-b1` ~ `doc-pipeline-b11` + `doc-pipeline-remedial` + `doc-pipeline.final` |
+| [agent-cost-optimize.req](./requirements/agent-cost-optimize.req.md) | `./plan/agent-cost-optimize.plan.md` / `./plan/agent-cost-optimize.status.md` | `agent-cost-optimize.tdd` |
+| [agent-perf-optimize.req](./requirements/agent-perf-optimize.req.md) | `./plan/agent-perf-optimize.plan.md` / `./plan/agent-perf-optimize.phase2.plan.md` / `./plan/agent-perf-optimize.status.md` / `./plan/agent-perf-optimize.connectivity.md` | — |
+| [agent-md-kb-optimize.req](./requirements/agent-md-kb-optimize.req.md) | `./plan/agent-md-kb-optimize.plan.md` / `./plan/agent-md-kb-optimize.status.md` | — |
+| [agent-memory-optimize.req](./requirements/agent-memory-optimize.req.md)（P0 第一批，已完成） | `./plan/agent-memory-optimize.direction.md`（7 模块 **26 任务**路线图，三批已全部交付 + 分册 3 篇） / `./plan/agent-memory-optimize.plan.md` / `./plan/agent-memory-optimize.status.md` / `./plan/agent-memory-optimize.connectivity.md` / `./plan/agent-memory-optimize.compliance.md` | `agent-memory-optimize.tdd` |
+| [agent-memory-optimize-2.req](./requirements/agent-memory-optimize-2.req.md)（P1 第二批，**已完成**） | `./plan/agent-memory-optimize-2.plan.md`（§6 为三 Gate 实施记录） | `agent-memory-optimize-2.tdd` |
+| [agent-memory-optimize-3.req](./requirements/agent-memory-optimize-3.req.md)（P2 第三批，**已完成**） | `./plan/agent-memory-optimize-3.plan.md`（§6 为三 Gate 实施记录） | `agent-memory-optimize-3.tdd` |
+| — | **6 篇 doc-pipeline 调研已迁出 plan** → [`research/`](./research/)（`research/doc-pipeline-{parse,pdf-multimodal,storage,chunking,packaging,tools}.md`，另 `research/doc-pipeline-docling-poc.md` 选型报告） | `spec-edit-ft` ~ `ft4` / `cbtp` / `dsf`（编辑器规格 TDD 6 篇） |
 
 > 历史任务的计划与需求已归档至 `plan/archive/`、`requirements/archive/`，不在上表展开。
 > 超长的 4 篇计划/状态已拆出分册（`plan/doc-pipeline.plan/`、`plan/doc-pipeline.status/`、
@@ -108,9 +101,10 @@
 - 认证、加密、权限 → [security](./architecture/security.md)
 - 测试策略、工具、覆盖率 → [testing](./architecture/testing.md)
 - 构建、打包、发布 → [build](./architecture/build.md)
-- 自动更新规范 → [auto-update-spec](./specs/auto-update-spec.md)
+- 自动更新规范 → [auto-update-spec](./specs/release/auto-update-spec.md)
 - 模块实现细节 → [modules/](./modules/)
-- 编辑器/AI 面板设计 → [specs/](./specs/)
+- 功能规格与行为契约 → [specs/](./specs/)（按模块分文件夹：editor / ai-agent / knowledge / release）
+- 外部资料调研 → [research/](./research/)
 - 测试覆盖、验证证据 → [testing/](./testing/)
-- 实施计划、优化状态 → [plan/](./plan/)
+- 实施计划、优化状态 → `./plan/`
 - 导出/MIME/打包指南 → [guide/](./guide/)

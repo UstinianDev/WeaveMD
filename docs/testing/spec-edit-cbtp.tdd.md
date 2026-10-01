@@ -1,6 +1,6 @@
 # SPEC-EDIT-CBTP TDD 实施证据报告
 
-> 规范：docs/specs/code-block-trailing-paragraph.md（SPEC-EDIT-CBTP v1.0）
+> 规范：docs/specs/editor/code-block-trailing-paragraph.md（SPEC-EDIT-CBTP v1.0）
 > 日期：2026-08-07 | 运行器：Vitest 1.x（`npx vitest run`）| 环境：Windows PowerShell
 > 检查点说明：本次实施**未做任何 git commit**（用户未授权提交），以本报告作为阶段检查点证据。
 
@@ -145,8 +145,8 @@ $ npx vitest run --coverage
 
 ## 7. 遗留事项（需总指挥跟进）
 
-1. **规范文档回写**：`docs/specs/code-block-trailing-paragraph.md` 第 9 节（实现记录）
-   与 `docs/specs/editor-v2-architecture.md` 4.2 归一化清单两行追加（4.6 内容）由总指挥负责，本次未改。
+1. **规范文档回写**：`docs/specs/editor/code-block-trailing-paragraph.md` 第 9 节（实现记录）
+   与 `docs/specs/editor/editor-v2-architecture.md` 4.2 归一化清单两行追加（4.6 内容）由总指挥负责，本次未改。
 2. **B4 解析层能力**：当前解析器不支持"list-item 子级 code-block"（缩进围栏被收纳为
    段落续行）。编辑期可在列表项内创建代码块，保存为缩进围栏后重载会被解析为段落续行——
    这是先于本规范存在的往返不对称，与本次补偿逻辑无关，建议立项评估。

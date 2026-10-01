@@ -1,7 +1,7 @@
 // ============================================
 // SPEC-EDIT-CBTP — 代码块尾随保护空行持久化
 // ============================================
-// 规范：docs/specs/code-block-trailing-paragraph.md
+// 规范：docs/specs/editor/code-block-trailing-paragraph.md
 // 规则：markdownToState 解析完成后、返回树之前，DFS 找整树文档序最后一个叶子块；
 // 若其为 code-block，在其同父容器末尾追加一个空 paragraph（text === ''）。
 // 根级代码块挂到 document 根；引用内代码块挂到 blockquote 容器内。

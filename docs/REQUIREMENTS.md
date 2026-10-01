@@ -219,7 +219,7 @@
 ## 附录 A：编辑器核心实现状态（2026-08-09 更新）
 
 编辑主区已完成 v2 深度重做（架构照搬 marktext/muya），设计见
-[specs/editor-v2-architecture.md](./specs/editor-v2-architecture.md)。
+[specs/editor/editor-v2-architecture.md](./specs/editor/editor-v2-architecture.md)。
 以下为 EDIT-01~14 的当前实现状态：
 
 | 编号    | 需求                 | 状态 | 说明                                                                                                      |

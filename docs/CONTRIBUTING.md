@@ -82,7 +82,7 @@ architecture/（≤300 行）与 modules/（level-2 单模块查阅单元）保�
 - aiStore：AI面板状态
 ```
 
-**三级文档（specs/editor-v2-architecture.md）**：
+**三级文档（specs/editor/editor-v2-architecture.md）**：
 ```markdown
 ## 块树数据结构
 BlockNodeV2 接口定义：

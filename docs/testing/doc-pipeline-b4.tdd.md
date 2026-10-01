@@ -1,7 +1,7 @@
 # doc-pipeline B4 — TDD 证据报告（strict）
 
 > 创建：2026-09-26 | 批次：**B4（四-3 批量导入通道）** | 强度：strict（RED → 最小实现 GREEN → 重构 → 覆盖率 → 门禁 → 提交）
-> 来源：[计划](../plan/doc-pipeline.plan.md) §1/§2-B4/§3-D3/§4.2-B4 / [需求](../requirements/doc-pipeline.req.md)
+> 来源：[计划](../specs/knowledge/kb-indexing-egress.md) §1/§2-B4/§3-D3/§4.2-B4 / [需求](../requirements/doc-pipeline.req.md)
 > 权威需求源：`C:\Users\lenovo\Desktop\优化方向\优化方向.md` §四-3（拷问细节② = 验收点）
 
 ## 1. 测试范围

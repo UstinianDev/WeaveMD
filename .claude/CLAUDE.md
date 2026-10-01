@@ -1,7 +1,7 @@
 # WeaveMD — CLAUDE.md
 
 > 精简版：仅保留当前主线所需信息。深层设计见 `docs/`（[SUMMARY.md](../docs/SUMMARY.md) 为索引，
-> `specs/` 为编辑主区实现记录）。
+> `specs/` 按模块分文件夹存功能规格、`research/` 存外部资料调研）。
 
 ## Build / Test
 
@@ -34,7 +34,7 @@
   composer/extensions/（SkillTag/MentionTag/skillSuggestion/mentionSuggestion）+
   settings/{ModelForm,EmbeddingSettings,SearchSettings,...}
 - `README.md` — GitHub 项目主页（功能介绍、下载安装、开发指南）
-- `docs/` — README / SUMMARY / TODO / REQUIREMENTS / CONTRIBUTING + architecture/ modules/ specs/ testing/ plan/ requirements/ guide/
+- `docs/` — README / SUMMARY / TODO / REQUIREMENTS / CONTRIBUTING + architecture/ modules/ specs/ testing/ requirements/ research/ guide/
 
 ## 规范
 
@@ -47,13 +47,13 @@
 
 ## 编辑主区 v2（当前主线）
 
-> 详细规范见 `docs/specs/editor-v2-architecture.md`（§1-§2 架构，§3-§6 拆为同名分册）+
-> `docs/specs/editor-v2-progress.md`（§13 实施记录索引，13.1~13.15 分 3 册）+
+> 详细规范见 `docs/specs/editor/editor-v2-architecture.md`（§1-§2 架构，§3-§6 拆为同名分册）+
+> `docs/specs/editor/editor-v2-progress.md`（§13 实施记录索引，13.1~13.15 分 3 册）+
 > `docs/modules/04-编辑主区-Editor.md`（模块文档）
 
 - 仅叶子块内容 span（`ContentBlock`）可编辑；不可变块树 + 无损双向转换（往返不变式）
 - 前缀即时转换（`# `/`- `/`1. `/`- [ ] `/`> `/` ```lang `），退格在内容起点降级
-  （六条退出规则：docs/specs/markdown-block-exit-rules.md）
+  （六条退出规则：docs/specs/editor/markdown-block-exit-rules.md）
 - 语法外观对齐 marktext：标题 `#`×n 光标提示、深灰列表 marker、圆形任务复选框、引用绿色竖线
 - 浮动工具栏（SPEC-EDIT-FT）：选区触发 + 块类型下拉 + 行内格式（加粗/斜体/删除线/高亮/代码/链接/图片/数学/表格）
 - 图片：工具栏直选系统文件框 + `media://` 本地图协议 + 四角等比缩放 + 图片工具栏
@@ -64,7 +64,8 @@
 
 ## AI 代理面板与知识库
 
-> 详细规范见 `docs/specs/ai-panel-features.md`（交付记录）+
+> 详细规范见 `docs/specs/ai-agent/ai-panel-features.md`（交付记录）+
+> `docs/specs/ai-agent/agent-memory.md`（自动记忆）/ `agent-prompt-context.md`（提示词注入）+
 > `docs/modules/11-AI代理面板-Agent.md`（架构文档）
 
 - **后端 remote-only**：Ollama 已移除，`ChatBackend` 收敛为 `'remote'`
@@ -118,7 +119,7 @@
 
 ## UI 美化
 
-> 详细规范见 `docs/specs/editor-v2-features.md`（编辑器 UI + 工具栏 + 图片 + 表格）
+> 详细规范见 `docs/specs/editor/editor-v2-features.md`（编辑器 UI + 工具栏 + 图片 + 表格）
 > （原引用的 `memory/ui-beautify-2026-08-29.md` 已不存在于记忆目录，2026-10-01 核对移除）
 
 - 字体：代码块 `Consolas + 阿里巴巴普惠体 B`；编辑主区 `Consolas + 阿里巴巴普惠体`
@@ -126,7 +127,7 @@
 - 浮动工具栏图标：Material Design Icons（react-icons/md）
 - 主题：Default（明亮）+ Warm Earth（暖色陶土），CSS 变量在 globals.css
 
-## 已知限制（详见 docs/specs/editor-v2-progress.md §13 索引表 → 对应分册）
+## 已知限制（详见 docs/specs/editor/editor-v2-progress.md §13 索引表 → 对应分册）
 
 - v2 Normal 无查找高亮；撤销/重做后光标回到重建树首块；段落级 MD Source 视图未迁移
 
@@ -140,11 +141,11 @@
 - [CONTRIBUTING](../docs/CONTRIBUTING.md) — 文档编写规范
 - [architecture/](../docs/architecture/) — 按技术层分类（10 篇：前端/编辑器/后端/AI/知识库/数据库/IPC/安全/测试/构建）
 - [modules/](../docs/modules/) — 各模块文档（11 个模块）
-- [specs/](../docs/specs/) — 编辑器/AI 面板/自动更新规格文档（14 篇主文档 + 7 篇分册）
+- [specs/](../docs/specs/) — 功能规格与行为契约，**按模块分文件夹**（editor 10 主 + 7 分册 / ai-agent 6 主 + 3 分册 / knowledge 5 主 / release 1 主 = **22 主 + 10 分册**）
 - [testing/](../docs/testing/) — TDD 测试报告（23 篇）
 - [requirements/](../docs/requirements/) — devflow 需求文档（当前 7 篇 + archive 12 篇）
-- [plan/](../docs/plan/) — 实施计划与状态（当前 27 篇主文档 + 7 篇分册）
-- [plan/archive/](../docs/plan/archive/) — 已完成的实施状态归档（32 篇）
+- `plan/` — 实施计划与状态（**已归档**：devflow 过程产物，权威规格在 `specs/`、调研在 `research/`，历史见 git）
+- `plan/archive/` — 已完成的实施状态归档（**已随 plan 整体归档，见 git 历史**）
 
 ### 查阅规则（渐进式披露）
 - 项目是什么、怎么跑 → README.md（根目录）
@@ -160,10 +161,11 @@
 - 认证、加密、权限 → docs/architecture/security.md
 - 测试策略、工具、覆盖率 → docs/architecture/testing.md
 - 构建、打包、发布 → docs/architecture/build.md
-- 自动更新、版本检测 → docs/specs/auto-update-spec.md
+- 自动更新、版本检测 → docs/specs/release/auto-update-spec.md
 - 模块实现细节 → docs/modules/{模块名}.md
 - 超长三级文档的分册 → 主文档头部索引 → docs/{文档名}/NN-主题.md（分册正文与原章节逐字一致）
-- 编辑器/AI 面板设计 → docs/specs/
+- 功能规格与行为契约 → docs/specs/{模块}/（editor / ai-agent / knowledge / release）
+- 外部资料调研 → docs/research/
 - 测试覆盖、验证证据 → docs/testing/
-- 实施计划、优化状态 → docs/plan/
+- 实施计划、优化状态 → **已归档**（devflow 过程产物，见 git 历史；功能规格看 `specs/`）
 - 导出/MIME/打包指南 → docs/guide/

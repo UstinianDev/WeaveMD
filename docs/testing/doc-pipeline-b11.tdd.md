@@ -1,7 +1,7 @@
 # doc-pipeline B11 — TDD 证据报告（strict）
 
 > 创建：2026-09-27 | 批次：**B11（八-1 外发同意闸 + 八-2 write_mode 核查 + 八-3 死通道清理）** | 强度：strict（RED → 最小实现 GREEN → 重构 → 门禁 → 提交）
-> 来源：[计划](../plan/doc-pipeline.plan.md) §1/§2-B11/§3-D5/§4.2-B11 / [需求](../requirements/doc-pipeline.req.md) Q1/Q2
+> 来源：[计划](../specs/knowledge/kb-indexing-egress.md) §1/§2-B11/§3-D5/§4.2-B11 / [需求](../requirements/doc-pipeline.req.md) Q1/Q2
 > 权威需求源：`C:\Users\lenovo\Desktop\优化方向\优化方向.md` §八-1/八-2/八-3
 > 风险级：**L4（安全语义）**，已获用户二次放行；红线：**不削弱 `allowSend`（最高红线）**、不动历史迁移、不删测试、不用 `any`、范围外（write_mode 完整接线）不动、不推送远程
 

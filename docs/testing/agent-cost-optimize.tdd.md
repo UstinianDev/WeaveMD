@@ -1,7 +1,7 @@
 # agent-cost-optimize — TDD 证据报告（M / standard）
 
 > 创建：2026-09-23 | 档位：**M** | 强度：standard（RED → GREEN → 重构 → 覆盖率记录 → 本报告）
-> 来源：[计划](../plan/agent-cost-optimize.plan.md) / [需求](../requirements/agent-cost-optimize.req.md)
+> 来源：`docs/plan/agent-cost-optimize.plan.md` / [需求](../requirements/agent-cost-optimize.req.md)
 
 ## 1. 测试范围
 

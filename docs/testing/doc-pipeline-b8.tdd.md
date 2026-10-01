@@ -1,9 +1,9 @@
 # doc-pipeline B8 — TDD 证据报告（strict）
 
 > 创建：2026-09-27 | 批次：**B8（六-1 文档工具集 + 六-2 citation 回链 + 六-3 评测闭环 + 四-4 检索质量）** | 强度：strict（RED → 最小实现 GREEN → 重构 → 覆盖率 → 门禁 → 提交）
-> 来源：[计划](../plan/doc-pipeline.plan.md) §1/§2-B8/§4.2-B8 / [需求](../requirements/doc-pipeline.req.md)
+> 来源：[计划](../specs/knowledge/kb-indexing-egress.md) §1/§2-B8/§4.2-B8 / [需求](../requirements/doc-pipeline.req.md)
 > 权威需求源：`C:\Users\lenovo\Desktop\优化方向\优化方向.md` §六-1/六-2/六-3/四-4（拷问细节② = 验收点）
-> 调研依据：`docs/plan/doc-pipeline.research-tools.md` §1（工具划分/schema/示例）、§2（前缀缓存稳定与字母序）、§3（只读区与并发）、§4（结果预算与落盘）
+> 调研依据：`docs/research/doc-pipeline-tools.md` §1（工具划分/schema/示例）、§2（前缀缓存稳定与字母序）、§3（只读区与并发）、§4（结果预算与落盘）
 > 风险级：**L3**；红线：新工具不进 `WRITE_TOOLS`/`FORCE_CONFIRM`、不削弱 `allowSend`、不删测试、不推送远程
 
 ## 1. 测试范围

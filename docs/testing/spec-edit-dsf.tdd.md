@@ -1,6 +1,6 @@
 # SPEC-EDIT-DSF TDD 实施证据报告
 
-> 规范：docs/specs/drag-selection-flicker.md（SPEC-EDIT-DSF v0.1）
+> 规范：docs/specs/editor/drag-selection-flicker.md（SPEC-EDIT-DSF v0.1）
 > 日期：2026-08-08 | 运行器：Vitest 1.x + Playwright | 环境：Windows PowerShell
 > 检查点说明：本次实施**未做任何 git commit**（用户未授权提交），以本报告作为阶段检查点证据。
 > 执行方式：总指挥协调 + 4 个并行/串行执行智能体（Task 子代理）分工实施，规避上下文膨胀。

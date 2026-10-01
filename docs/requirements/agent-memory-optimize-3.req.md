@@ -143,7 +143,7 @@
 - **现状（核查 2026-09-30）**：
   - embedding 全链可复用：`embeddingClient.ts`（557 行，含 LRU+TTL 缓存）、`vectorBackfill.ts:36-49 resolveEmbedding`、`kbHandlers.ts:455-462 kbIndexOpts`、`kbIndexer.ts:440-498 writeChunks`（含向量批量写）、`db/kb.ts` DAO。
   - **未配置 embedding 的降级（A4 结论复核仍成立、行号未位移）**：`searchMode:'vector'` 无 `queryVector` → `kbSearch.ts:508` 模式门禁把 FTS5 挡掉 → `:548` 跳过向量 → 只剩标题 → `:683` 无候选 → 规范拒答，**不回退 FTS5**；默认 hybrid 路径才降级 FTS5+标题。
-  - **既有冲突（本批只改文档）**：`docs/specs/embedding-architecture.md:122` 验收「无 Embedding 配置时**任意模式**都降级到 FTS5 + 标题」与实现冲突；`:77-81` 的 `embeddingConfig.searchMode → agentTaskWorker → searchKb wrapper` 数据流**未实现**（`ai_embedding_config.search_mode` 字段已建全仓零消费）。**按红线三「searchMode 降级行为不变」→ 改文档不改代码。**
+  - **既有冲突（本批只改文档）**：`docs/specs/knowledge/embedding-architecture.md:122` 验收「无 Embedding 配置时**任意模式**都降级到 FTS5 + 标题」与实现冲突；`:77-81` 的 `embeddingConfig.searchMode → agentTaskWorker → searchKb wrapper` 数据流**未实现**（`ai_embedding_config.search_mode` 字段已建全仓零消费）。**按红线三「searchMode 降级行为不变」→ 改文档不改代码。**
   - **代码层硬约束**：4 条 SQL 表名全硬编码字面量（`kbSearch.ts:515-517/:578-580/:620/:642-643`、`kbSearchFts.ts:106-109/:161-162`）无参数化通道；`kb_chunks` 无 `user_id` 列，隔离靠 `JOIN kb_documents` + `d.user_id = ?`（4 处）；拒答阈值是参数默认值（`kbSearch.ts:452` `opts.threshold ?? 0.6`）；外发过滤 `filterKbEgressResults`（`:427-435`）只放行 `grantedAttachmentDocIds`（仅 `source_type='attachment' AND consent_granted=1`）→ `allowSend=false` 时经验库结果会被整批滤掉，且 **`:434` 不改 `refused`**。
   - `sourceType` 枚举当前 `'db'|'disk'|'import'|'attachment'`（`shared/ai/kb.ts:179`）。
 - **范围（Q2+Q3 裁定）**：

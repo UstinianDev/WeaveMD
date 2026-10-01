@@ -7,7 +7,7 @@
 
 | 文档 | 内容 |
 |------|------|
-| [ai-panel-features](../specs/ai-panel-features.md) | 7 期分期实施 + 体验优化 + Notus 对齐 + 写控制 + Agentic RAG 交付记录 |
+| [ai-panel-features](../specs/ai-agent/ai-panel-features.md) | 7 期分期实施 + 体验优化 + Notus 对齐 + 写控制 + Agentic RAG 交付记录 |
 | [ai-agent 架构](../architecture/ai-agent.md) | Agent 循环 / 工具系统 / 意图路由 / 协议分流 |
 
 **分册（渐进式披露，按需加载）：**
@@ -130,6 +130,6 @@ images_vec -- vec0 虚拟表（仅图片向量）
 
 - ⚠️ **真 MCP server 管理**（context7/firecrawl）——延期
 - ⚠️ **GitHub 自取 `writing-shape` 技能**——延期
-- ✅ 其余功能均已交付（详见 [交付记录](../specs/ai-panel-features.md)）
+- ✅ 其余功能均已交付（详见 [交付记录](../specs/ai-agent/ai-panel-features.md)）
 
 ---

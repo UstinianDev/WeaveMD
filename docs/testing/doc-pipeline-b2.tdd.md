@@ -1,7 +1,7 @@
 # doc-pipeline B2 — TDD 证据报告（strict）
 
 > 创建：2026-09-25 | 批次：**B2（一-1 格式白名单 + 一-2 多选批量 + 一-3 粘贴上传）** | 强度：strict（RED → 最小实现 GREEN → 重构 → 覆盖率 → 门禁 → 提交）
-> 来源：[计划](../plan/doc-pipeline.plan.md) §1/§2-B2/§4.2-B2 / [需求](../requirements/doc-pipeline.req.md)
+> 来源：[计划](../specs/knowledge/attachments-multimodal.md) §1/§2-B2/§4.2-B2 / [需求](../requirements/doc-pipeline.req.md)
 > 权威需求源：`C:\Users\lenovo\Desktop\优化方向\优化方向.md` §一-1/一-2/一-3
 
 ## 1. 测试范围

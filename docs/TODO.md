@@ -18,7 +18,7 @@ P2 远期能力 6 项 + **1 项范围扩张（D7）+ 1 项实施期追加授权�
 
 **🔴 本批最有价值的发现（范围扩张 D7）**：知识库的**删除与更新路径此前整体报错回滚** —— `kb_chunks_fts_ad`/`kb_documents_fts_ad`/`kb_documents_fts_au` 在普通（非 contentless）fts5 表上用了仅限 contentless 的 `'delete'` 特殊命令，实测 `DELETE/UPDATE = FAILED: SQL logic error` 且回滚；生产 `db/kb.ts` 5 处删除 + 全部 `UPDATE kb_documents` 受影响；既有 `fts5-smoke` 只验插入查询故从未暴露。已修 3 处触发器为标准 `DELETE ... WHERE rowid = old.rowid`，并补删除/更新态。
 
-> 需求 [req](./requirements/agent-memory-optimize-3.req.md)（Q1~Q9 + §七 事实核验 14 条）/ 计划与三 Gate 实施记录 [plan](./plan/agent-memory-optimize-3.plan.md) §6 / TDD 证据 [tdd](./testing/agent-memory-optimize-3.tdd.md)
+> 需求 [req](./requirements/agent-memory-optimize-3.req.md)（Q1~Q9 + §七 事实核验 14 条）/ 计划与三 Gate 实施记录 `docs/plan/agent-memory-optimize-3.plan.md` §6 / TDD 证据 [tdd](./testing/agent-memory-optimize-3.tdd.md)
 
 ### agent-memory-optimize 第二批（2026-09-29 ~ 2026-09-30）
 
@@ -34,7 +34,7 @@ P1 主干，路线图「模块四 → 三 → 五 → 二.4 → 七.1/七.2/七.
 **安全交付**：`memoryHandlers.ts` 是全仓**第一个**按 `SECURITY.md` 校验 `event.sender` 的 IPC handler（此前零落实，已记已知问题）。
 **提交状态**：第二批 7 个提交已全部落库并推送 —— `8fd28f1`(A)、`6ed0b4c`(B1/B2/B3)、`33c3763`(docs)、`16d51a0`(B4)、`a4bf6e6`(C1/C2/C3)、`2de5c4c`(C4)、`f042784`(docs 收尾)；第三批 5 个提交见下。
 
-> 需求 [req](./requirements/agent-memory-optimize-2.req.md)（Q1~Q15）/ 计划与三 Gate 实施记录 [plan](./plan/agent-memory-optimize-2.plan.md) §6 / TDD 证据 [tdd](./testing/agent-memory-optimize-2.tdd.md)
+> 需求 [req](./requirements/agent-memory-optimize-2.req.md)（Q1~Q15）/ 计划与三 Gate 实施记录 `docs/plan/agent-memory-optimize-2.plan.md` §6 / TDD 证据 [tdd](./testing/agent-memory-optimize-2.tdd.md)
 
 ### agent-memory-optimize 第一批（2026-09-28 ~ 2026-09-29）
 
@@ -53,7 +53,7 @@ L 级 / TDD strict，devflow 阶段 0~8 全完成，**门禁通过、阻塞 0**�
 
 **门禁实测**：typecheck 0 error / vitest 168 文件 3986 例（1 既知 flaky 隔离复核判过）/ eslint 0 error 106 warning / vite build 成功 / E2E 31f·103p·1s 与基线逐项相等 + 新增 2 条 passed / **改动行覆盖 19 文件 589/589 = 100%**。
 
-> 详见 [req](./requirements/agent-memory-optimize.req.md)（Q1~Q18 全对齐）/ [status](./plan/agent-memory-optimize.status.md) / [connectivity](./plan/agent-memory-optimize.connectivity.md)（12 链 0 断裂）/ [compliance](./plan/agent-memory-optimize.compliance.md) / [TDD 报告](./testing/agent-memory-optimize.tdd.md)
+> 详见 [req](./requirements/agent-memory-optimize.req.md)（Q1~Q18 全对齐）/ `docs/plan/agent-memory-optimize.status.md` / `docs/plan/agent-memory-optimize.connectivity.md`（12 链 0 断裂）/ `docs/plan/agent-memory-optimize.compliance.md` / [TDD 报告](./testing/agent-memory-optimize.tdd.md)
 
 ### doc-pipeline 文档处理流水线（2026-09-26 ~ 2026-09-27）
 
@@ -73,7 +73,7 @@ M 级，8 模块 29 任务全量交付 + 遗留修复批次；需求见 [doc-pip
 
 **遗留修复批次（2026-09-27）**：Bug A（附件绝对路径清单注入 system prompt + 附件消息解锁 `ask_question_card`）、Bug B（`vision_override` 三态列 + 能力表 + 未知模型乐观默认 + 降级上屏）、R3 外发双检会话边界、R4/R5 路径回执与 citation 打开、R6 20 附件截断对齐、R7/R8 删除级联。证据 [doc-pipeline-remedial.tdd](./testing/doc-pipeline-remedial.tdd.md)。
 
-> 详见 [status](./plan/doc-pipeline.status.md) / [connectivity](./plan/doc-pipeline.connectivity.md) / [compliance](./plan/doc-pipeline.compliance.md)
+> 详见 `docs/plan/doc-pipeline.status.md` / `docs/plan/doc-pipeline.connectivity.md` / `docs/plan/doc-pipeline.compliance.md`
 
 ### agent-cost-optimize（2026-09-23 ~ 2026-09-24）
 
@@ -92,7 +92,7 @@ M 级 Agent 成本降低优化，A 轨叙述精简 + B 轨缓存/预算，全量
 **门禁**：tsc 0 error / vitest **3226 passed 0 failed** / lint **108 (0 error)** / `vite build` exit 0 / E2E 全量 **31 failed 97 passed**（基线 112/20）。
 付费 LLM 实测净额**用户裁定挂起**（降本改动已生效，挂起的只是量化）。
 
-> 详见 [agent-cost-optimize 状态](./plan/agent-cost-optimize.status.md) / [TDD 报告](./testing/agent-cost-optimize.tdd.md)
+> 详见 `docs/plan/agent-cost-optimize.status.md` / [TDD 报告](./testing/agent-cost-optimize.tdd.md)
 
 ### agent-md-kb-optimize（2026-09-18）
 
@@ -107,7 +107,7 @@ L 级跨层优化，6 子任务（Markdown 解析层 / 知识库检索层 / Agen
 | P1 | Agent 层 | 代码重复消除 | 8 个共享函数提取到 agentToolExecutor.ts（-180 行重复） |
 | P1 | Agent 层 | 延迟工具重发优化 | 保留已执行结果 + 重发上限 3 次 + upgradedDeferredTools 追踪 |
 
-> 详见 [agent-md-kb-optimize 状态](../docs/plan/agent-md-kb-optimize.status.md)
+> 详见 `docs/plan/agent-md-kb-optimize.status.md`
 
 ### agent-perf-optimize（2026-09-16 ~ 2026-09-17）
 
@@ -120,7 +120,7 @@ L 级 Agent 性能优化，4 阶段 17 子任务，283 新增测试，全量交�
 | 3: 知识库 | HyDE 缓存 / Embedding 缓存 / 预加载模糊匹配 / 查询理解增强 | 5 层缓存命中率体系 + 多意图分类 + 指代消解 |
 | 4: 监控 | 性能基准 / A/B 测试 / 缓存监控 / 成本追踪 | cacheMonitor + costTracker + AB test runner + 基准套件 |
 
-> 详见 [agent-perf-optimize 状态](../docs/plan/agent-perf-optimize.status.md)
+> 详见 `docs/plan/agent-perf-optimize.status.md`
 
 ### perf-agent-arch（2026-09-15）
 
@@ -158,7 +158,7 @@ L 级 UX 优化，7 子任务 + 触发路径修复 + UI 美化，全量交付。
 
 ### 四模块全局重构（2026-09-13）
 
-L 级重型重构，8 阶段全部完成。详见 [重构进度文档](./plan/archive/refactor-export-editor-outline-navbar.status.md)。
+L 级重型重构，8 阶段全部完成。详见 `docs/plan/archive/refactor-export-editor-outline-navbar.status.md`。
 
 | 阶段 | 范围 | 核心 |
 |------|------|------|

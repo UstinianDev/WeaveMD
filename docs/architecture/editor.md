@@ -1,7 +1,7 @@
 # 编辑器内核架构
 
 > 最后更新：2026-09-27
-> 详细规格：[editor-v2-architecture.md](../specs/editor-v2-architecture.md)
+> 详细规格：[editor-v2-architecture.md](../specs/editor/editor-v2-architecture.md)
 
 ## 核心设计原则
 
@@ -84,7 +84,7 @@ BlockTreeV2
 5. 引用 → 段落
 6. 代码块 → 段落
 
-详细规则：[markdown-block-exit-rules.md](../specs/markdown-block-exit-rules.md)
+详细规则：[markdown-block-exit-rules.md](../specs/editor/markdown-block-exit-rules.md)
 
 ## 性能优化
 

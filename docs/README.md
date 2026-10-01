@@ -78,10 +78,10 @@ npm run build
 - [CONTRIBUTING](./CONTRIBUTING.md) — 文档编写规范（渐进式披露、命名规范、更新流程）
 - [architecture/](./architecture/) — 按技术层分类（10 篇：前端/编辑器/后端/AI/知识库/数据库/IPC/安全/测试/构建）
 - [modules/](./modules/) — 各模块详细文档（11 个模块）
-- [specs/](./specs/) — 编辑主区/AI 面板规格与实施记录（14 篇主文档 + 7 篇分册）
+- [specs/](./specs/) — 功能规格与行为契约，**按模块分文件夹**（editor / ai-agent / knowledge / release；22 篇主文档 + 10 篇分册）
 - [requirements/](./requirements/) — devflow 需求文档（当前 7 篇 + archive 12 篇）
 - [testing/](./testing/) — TDD 测试报告（23 篇）
-- [plan/](./plan/) — 实施计划与状态（当前 27 篇主文档 + 7 篇分册 + archive 32 篇）
+- `plan/` — 实施计划与状态（**已归档**：devflow 过程产物，功能规格见 `specs/`、调研见 `research/`，完整历史在 git）
 - [guide/packaging](./guide/packaging.md) — 打包与发布指南
 
 ### 查阅规则
@@ -93,7 +93,8 @@ npm run build
 - 文档编写规范 → CONTRIBUTING.md
 - 架构、技术层实现 → docs/architecture/{层}.md
 - 模块实现细节 → docs/modules/{模块名}.md
-- 编辑主区/AI 面板规格 → docs/specs/
+- 功能规格与行为契约 → docs/specs/{模块}/（editor / ai-agent / knowledge / release）
+- 外部资料调研 → docs/research/
 - 测试证据 → docs/testing/
 - 实施计划 → docs/plan/
 - 打包发布 → docs/guide/packaging.md

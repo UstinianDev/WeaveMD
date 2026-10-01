@@ -1,7 +1,7 @@
 # doc-pipeline B9 — TDD 证据报告（strict）
 
 > 创建：2026-09-27 | 批次：**B9（三-1 超长 md 发送 + 三-3 相对路径图片）** | 强度：strict（RED → 最小实现 GREEN → 重构 → 覆盖率 → 门禁 → 提交）
-> 来源：[计划](../plan/doc-pipeline.plan.md) §1/§2-B9/§4.2-B9 / [需求](../requirements/doc-pipeline.req.md)
+> 来源：[计划](../specs/knowledge/attachments-multimodal.md) §1/§2-B9/§4.2-B9 / [需求](../requirements/doc-pipeline.req.md)
 > 权威需求源：`C:\Users\lenovo\Desktop\优化方向\优化方向.md` §三-1/三-3（拷问细节② = 验收点）
 > 风险级：**L2**；红线：文件树不扩格式（决策基线）、不删测试、不放宽 `allowSend`、图片向量（`imageIndexer`/`images_vec`）不动、不推送远程
 

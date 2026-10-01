@@ -1,6 +1,6 @@
 # SPEC-EDIT-FT TDD 实施证据报告
 
-> 规范：docs/specs/floating-toolbar-refactor.md（SPEC-EDIT-FT v1.0）
+> 规范：docs/specs/editor/floating-toolbar-refactor.md（SPEC-EDIT-FT v1.0）
 > 日期：2026-08-08 | 运行器：Vitest 1.x + Playwright | 环境：Windows PowerShell
 > 检查点说明：本次实施**未做任何 git commit**（用户未授权提交），以本报告作为阶段检查点证据。
 

@@ -1,11 +1,11 @@
 # 编辑主区 (Editor) 功能总结
 
 > 模块编号：04 | 优先级：P0 | 版本：v2.11 | 最后更新：2026-09-18
-> 设计规范：[specs/editor-v2-architecture.md](../specs/editor-v2-architecture.md)
-> 退出规则：[specs/markdown-block-exit-rules.md](../specs/markdown-block-exit-rules.md)
-> 浮动工具栏/跨块拖选：[specs/floating-toolbar-refactor.md](../specs/floating-toolbar-refactor.md)
-> 拖选闪烁优化：[specs/drag-selection-flicker.md](../specs/drag-selection-flicker.md)
-> 代码块/图片块尾随空行：[specs/code-block-trailing-paragraph.md](../specs/code-block-trailing-paragraph.md)
+> 设计规范：[specs/editor/editor-v2-architecture.md](../specs/editor/editor-v2-architecture.md)
+> 退出规则：[specs/editor/markdown-block-exit-rules.md](../specs/editor/markdown-block-exit-rules.md)
+> 浮动工具栏/跨块拖选：[specs/editor/floating-toolbar-refactor.md](../specs/editor/floating-toolbar-refactor.md)
+> 拖选闪烁优化：[specs/editor/drag-selection-flicker.md](../specs/editor/drag-selection-flicker.md)
+> 代码块/图片块尾随空行：[specs/editor/code-block-trailing-paragraph.md](../specs/editor/code-block-trailing-paragraph.md)
 > 参考实现：marktext/muya（架构照搬）
 
 ---
@@ -221,7 +221,7 @@ Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+S / Ctrl+Shift+H /
   `<img>` 自身（`renderImageBlock` 经 `applyImgWidth` 注入 `style.width`），小图可放大、
   无 wrapper 溢出、居中/居右（含带宽度图）正确；等比例拖拽 = 主轴向符号 × `√(dx²+dy²)`
   （`resizeMath.computeResizeWidth`），斜向对角顺滑增长；松手提交后选中框重锚定
-  （`useLayoutEffect` 每次渲染后重查 img rect）。详情：`docs/specs/editor-v2-progress.md` 13.15。
+  （`useLayoutEffect` 每次渲染后重查 img rect）。详情：`docs/specs/editor/editor-v2-progress.md` 13.15。
 - **跨块选区替换输入**（2026-08-13）：字符输入/IME 组合/粘贴跨块选区时，浏览器原生删除只改
   DOM、`onInput` 仅同步焦点块模型 → 其余块重渲染"复活"。ContentBlock 监听**原生 beforeinput**
   （React 合成 onBeforeInput 在 Chromium 不触发）+ `onPaste`，经 `replaceLeafRange`
