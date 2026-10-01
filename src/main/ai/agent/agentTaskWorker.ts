@@ -630,6 +630,18 @@ export class AgentTaskWorker {
         new Promise<Record<string, string>>((resolve, reject) => {
           this.pendingInteractions.set(sessionId, { resolve, reject, session: session! });
         }),
+      // 任务 5（Q11）：子任务链边界中断判定 —— 本任务被 supersede 或同会话出现新
+      // pending（用户发了新消息）。查询失败 fail-safe 返回 false（退化为跑完当前链）。
+      isChainInterrupted: () => {
+        try {
+          return (
+            this.queue.isSuperseded(task.id) ||
+            this.queue.hasPendingForConversation(task.conversationId)
+          );
+        } catch {
+          return false;
+        }
+      },
     };
   }
 

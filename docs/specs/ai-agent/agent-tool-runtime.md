@@ -101,3 +101,84 @@
 ## 12. 需求侧交叉引用
 
 各优化项的需求动机、验收指标与硬性约束（工具行为不变、上下文不瘦身、`agentLoopGuard` MD5 不替换等）见 [agent-perf-optimize.req.md](../../requirements/agent-perf-optimize.req.md)；工具与引用的任务级验收见 [doc-pipeline.req.md](../../requirements/doc-pipeline.req.md) §1 模块六/八；结果预算与质量豁免清单见 [agent-cost-optimize.req.md](../../requirements/agent-cost-optimize.req.md)。本文不重复这些需求级结论。
+
+## 13. 子任务链执行契约（agent-multi-intent 任务 5）
+
+> 需求裁定：[agent-multi-intent.req.md](../../requirements/agent-multi-intent.req.md) Q9/Q11/Q12。
+> 实现：`subtaskOrchestrator.ts`（链状态机）+ `agentLoop.ts`（轮次循环接线）+
+> `agentTaskWorker.ts`（中断判定注入）+ `agentTaskQueue.hasPendingForConversation`。
+> 验收：`tests/main/ai/subtaskSequence.test.ts`（11 例）。
+
+### 13.1 轮次双预算（Q9）
+
+- **per-subtask**：每进入一个子任务（含失败重试）新建
+  `DeadLoopDetector({ maxRounds: getRoundsForIntent(sub.intent) })`，轮次计数以
+  `chain.subtaskStartRound` 为起点（`subtaskRound = round - subtaskStartRound`），
+  检测器状态（same-result / consecutive-failure 历史）**子任务间不串味**。
+- **链总封顶**：`subtaskTotalRoundsCap(primaryIntent) = 2 * getRoundsForIntent(primaryIntent)`。
+  两道闸：① 子任务边界（`advanceChain` / `runChainClarification`）`round + 1 >= cap`
+  → 不再下达下一子任务；② 轮首硬闸 `round >= cap` → 当前子任务截断。
+  触顶即 `stopChain` 写「链已停止：…——链总轮次封顶」明示，剩余子任务标 skipped，
+  **单次 `AI_STREAM_DONE` 正常收口（非失败，intent = primaryIntent）**。
+- 子任务自身轮次预算耗尽（未收敛）同走 `stopChain`（明示「轮次预算耗尽未收敛」），
+  与单意图轮次上限停跑语义对齐；`confidence` 不参与轮次分配（Q10，追问不计轮次）。
+
+### 13.2 上下文重建与摘要注入（Q12）
+
+- 链启动时快照 `chain.baseMessages`（system 提示 + `ctx.baseHistoryMessages` 历史 +
+  当前 user 消息 + 锚点，**先于拆分段注入**）。
+- 每个子任务边界重建 `ctx.llmMessages = baseMessages + 拆分段 +
+  Σ已完成子任务（指令 system 行 + 执行摘要 assistant 行）+ 下一条子任务指令`：
+  - 执行摘要 = 子任务收敛产出截断 `SUBTASK_SUMMARY_MAX_CHARS = 500` 字符 + `…`；
+  - **丢弃当前子任务工作集**（含工具轮），后续子任务 prompt 不堆积原始全量对话；
+  - 同步重建 `ctx.intent` / `ctx.tools`（`ctx.toolSelectionArgs` 复制换 intent 后过
+    `toolsForIntent`，与 `agentContext` 同一口径）与 `ctx.totalTokens`。
+- DB 落库口径不变：链中产出全量进 `chain.buffer`，链末单条 assistant =
+  `buffer + 末子任务产出`（`finalizeChainContent(chain, '')`，last 恒空防重复）。
+- 1..n-1 子任务完成发 `ai:stream:subtask_done`（`IAgentStreamSubtaskDoneEvent`），
+  渲染侧把已积累流式文本落为 assistant 气泡并清空累积器（订阅不断）；
+  末子任务仍走 `AI_STREAM_DONE`。
+
+### 13.3 中断安全点（Q11）
+
+- `AgentLoopDeps.isChainInterrupted?: () => boolean`，worker 注入闭包
+  `queue.isSuperseded(task.id) || queue.hasPendingForConversation(task.conversationId)`
+  （只读查询，不动表结构；查询失败 fail-safe 返回 false = 退化为跑完当前链）。
+- **只在子任务边界调用**（`advanceChain` / `runChainClarification` 下达下一条指令前）：
+  当前子任务跑完不截断，其后子任务不再启动，写「检测到同会话新消息」明示后正常收口。
+  supersede 语义不变（只作废 pending，running 任务照常收口，Q11）。
+
+### 13.4 失败重试与 waiting_interaction（Q12）
+
+- **范围**：链路径下 LLM 流调用失败（网络/API）进入 `handleSubtaskFailure`；
+  非链 / AbortError / consent 异常直接上抛（单意图路径与取消语义逐字节不变）。
+- 重试 1 次（`SUBTASK_FAILURE_MAX_RETRIES = 1`）：重建当前子任务（保留指令、新预算、
+  `subtaskStartRound = round + 1`），失败轮次仍计入链总封顶。
+- 重试仍失败 → `onInteractionRequired(variant='subtask_failed')`（问题 id
+  `subtask_failed`，confirm）→ worker 会话进 `waiting_interaction`：
+  - 答 `yes`/空 → 跳过该子任务（明示进 buffer）→ 边界检查后推进下一子任务；
+  - 答 `no` → `stopChain('用户选择停止执行')` → 正常收口；
+  - 无交互支持 → 按跳过处理（fail-safe，不等待不死锁）；
+  - `waitForInteraction` reject（取消/任务结束）→ 异常上抛，外层统一
+    `AI_STREAM_ERROR` 收口，**不会锁死在 waiting_interaction**。
+- 渲染侧 `variant='subtask_failed'` 落默认 `QuestionCard`（AIPanelSession 兜底分派，
+  零 UI 改动）。
+
+### 13.5 tool_result 回填完整性不变式（plan §6.3）
+
+- 子任务边界**只能落在 assistant/user 轮次之间**：边界仅发生于本轮无工具调用的
+  收敛点（或轮首闸），当轮全部 `tool_use` 已在紧随 user/tool 行一次性回填；
+  上下文重建后的消息栈由「配对修复过的 base + 纯文本摘要」构成，天然无悬空配对。
+- 测试层面按**调用时刻快照**断言：每个 `assistant(tool_calls)` 的全部 id 必须出现在
+  其紧随的连续 `tool` 行集合内（`expectToolPairing`），且新子任务 prompt 无
+  `assistant(tool_calls)`、无上一子任务工具结果。
+
+### 13.6 与 §3-4 确认/并发契约的关系
+
+- 链路径**不改变** `StreamingToolExecutor.waitForAll(skip-set)` 与
+  `checkForceConfirmTools` 的确认契约（§3-§4）：FORCE_CONFIRM 工具在链内仍逐个
+  强确认，确认交互取消按既有语义返回「用户取消」错误结果（非子任务失败，不进重试）。
+- 工具死循环检测（same-result / consecutive-failure）触发时链走 `stopChain` 收口
+  （保留 buffer、DONE intent = primaryIntent），非链路径保持原 `finalizeAgentRun`。
+- 子任务不入 `agent_task_queue`（内存编排）；会话仍一任务一 session，
+  `waiting_interaction` 复用既有 12 态状态机转移。

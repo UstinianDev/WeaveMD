@@ -394,3 +394,135 @@ npx vitest run tests/main/ai/agentLoopSplit.test.ts tests/main/ai/agentLoop.test
 
 **门禁结论**：typecheck 0 错 / test 194 文件 4576 例全绿 / lint 0 错（108 warning 与基线
 一致，新文件零 warning）/ 无 UI 改动 playwright 按任务口径跳过。
+
+## 任务 5 — 同 session 子任务顺序执行（链加固）
+
+**范围**：`subtaskOrchestrator.ts`（per-subtask detector + `subtaskTotalRoundsCap` 总封顶 +
+`baseMessages` 快照重建 + `SUBTASK_SUMMARY_MAX_CHARS=500` 摘要注入 + `isChainInterrupted`
+边界安全点 + `handleSubtaskFailure` 重试 1 次/subtask_failed 交互 + `subtask_done` 发射 +
+`stopChain` skipped 明示）+ `agentLoop.ts`（`AgentLoopDeps.isChainInterrupted` / 轮首双闸 /
+for-await 失败捕获与 `finalizeRun` 收口抽取 / 死循环链收口）+ `agentTaskQueue.hasPendingForConversation`
++ `agentTaskWorker` 中断闭包注入 + `constants`/`shared`/`preload`/`agentStore`/`AgentTab`
+的 `subtask_done` 流事件通路 + 新建 `tests/main/ai/subtaskSequence.test.ts`（11 例）+
+`agent-tool-runtime.md` §13 子任务链执行契约 + 本文档。
+
+### 1. RED
+
+命令：
+
+```bash
+npx vitest run tests/main/ai/subtaskSequence.test.ts
+```
+
+输出（首跑，链加固未实现）：
+
+```text
+ FAIL  tests/main/ai/subtaskSequence.test.ts > 子任务链顺序执行 > 每子任务重建 intent/tools/指令…
+ FAIL  ... > 执行摘要按常量截断…
+ FAIL  ... > 轮次双预算 > per-subtask 独立 detector…
+ FAIL  ... > 轮次双预算 > 链总封顶 2× 主意图触顶…
+ FAIL  ... > 子任务失败中断 > LLM 失败重试 1 次成功…
+ FAIL  ... > 子任务失败中断 > 重试仍失败 → subtask_failed 交互…
+ FAIL  ... > 子任务失败中断 > subtask_failed 交互 reject…
+ FAIL  ... > 用户打断 > 边界检查停链…
+ FAIL  ... > tool_result 回填完整性 > 子任务内多 tool_use 同轮全量回填…
+ FAIL  ... > agentTaskQueue > hasPendingForConversation 纯查询…
+       TypeError: queue.hasPendingForConversation is not a function
+
+ Test Files  1 failed (1)
+      Tests  10 failed | 1 passed (11)
+  Duration  5.25s
+```
+
+RED 判定：10 例行为红（无重建/无双预算/无失败处置/无中断/无落显事件/队列无查询）；
+1 例即绿为 **supersede 现语义回归钉**（enqueue 只作废同会话旧 pending —— 既有行为，预期绿）。
+（RED 采用行为断言而非新符号 import，保证 11 例全部收集后逐条归因。）
+
+### 2. GREEN
+
+实现后首跑即全绿：
+
+```bash
+npx vitest run tests/main/ai/subtaskSequence.test.ts
+```
+
+```text
+ ✓ tests/main/ai/subtaskSequence.test.ts (11 tests) 94ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+  Duration  5.81s
+```
+
+11 例对账（plan §4.2 任务 5）：
+
+| 分组 | 例数 | 覆盖点 |
+|---|---|---|
+| 顺序执行 | 2 | intent 重建（cost recordUsage 逐轮断言 chat/chat/kbQa）+ tools 重建（searchKB 随子任务出现/缺席）+ 指令逐子任务下达 + baseHistory 为底 + 前序摘要注入 + 不堆积工具轮 + 摘要 500 截断（`…`，长度 501）钉死 + DB 仍全量 + subtask_done 载荷（id/序号/总数） |
+| 轮次双预算 | 2 | per-subtask detector 三实例预算 [8,8,12] 且子任务 2 跨过共享 8 轮预算仍执行完；链总封顶 12 轮（2×chat）触顶 → 第 3 子任务不启动、无第 3 个 detector、剩余 skipped 明示、单 DONE intent=chat、无 ERROR |
+| 失败中断 | 3 | 重试成功续链（4 个 detector、无 subtask_failed、roundsUsed=3）；重试仍失败 → `subtask_failed` 交互 → 跳过明示续链单收口；交互 reject → `AI_STREAM_ERROR` 收口不锁死 |
+| 用户打断 | 1 | `isChainInterrupted` 首边界放行次边界停链：当前子任务不截断（2 轮执行）、第 3 指令不发、剩余 1 skipped 明示、单 DONE、subtask_done 恰 1 次 |
+| tool_result 不变式 | 1 | 每次调用时刻快照过 `expectToolPairing`；同轮 2 个 tool_use 紧邻连续 tool 行全量回填（call_0_0/call_0_1）；边界重建后新 prompt 无 assistant(tool_calls)、无上一子任务工具结果 |
+| 队列回归 | 2 | supersede 只作废同会话旧 pending（running/其他会话不动，回归钉）；`hasPendingForConversation` 按会话过滤 pending |
+
+### 3. 红线回归（既有链 / 提示词 sha256 / 任务 1、2、3 测试）
+
+```bash
+npx vitest run tests/main/ai/agentLoopSplit.test.ts tests/main/ai/clarificationMatrix.test.ts \
+  tests/main/ai/agentLoop.test.ts tests/main/ai/agentContext.test.ts \
+  tests/main/ai/agentPromptBuilder.test.ts tests/main/ai/intentRouter.test.ts \
+  tests/main/ai/taskPlanner.test.ts tests/main/ai/taskPlannerSchema.test.ts \
+  tests/main/ai/askQuestionCard.test.ts tests/main/ai/agentToolExecutor.test.ts \
+  tests/main/ai/streamingToolExecutor.test.ts
+```
+
+```text
+ Test Files  11 passed (11)
+      Tests  306 passed (306)
+```
+
+- `agentLoopSplit.test.ts` 7 例 / `clarificationMatrix.test.ts` 6 例**零改动全绿**
+  （任务 2 链 v1 与任务 3 追问矩阵在重建语义下行为等价：round2 快照仍含拆分段 +
+  子任务 1 指令 + 其产出 assistant 行）；
+- `agentPromptBuilder.test.ts` sha256 基线全绿 = 提示词逐字节未变；
+- `agentLoop.test.ts` 31 例全绿 = gate 关路径行为等价（预算检查退化为原
+  `checkRoundLimit(round)`，失败重试仅链路径生效）。
+
+### 4. 门禁（全量）
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| typecheck | `npm run typecheck` | `tsc --noEmit` **0 错误** |
+| test | `npm run test` | `Test Files 195 passed (195)`；`Tests 4587 passed (4587)` |
+| lint | `npm run lint` | `108 problems (0 errors, 108 warnings)`（0 error，warning 数与基线 108 一致，新文件零 warning） |
+| playwright | `npx playwright test` | `31 failed / 1 skipped / 104 passed (7.1m)`，与基线同数（下节比对） |
+
+**测试规模**：任务 3 收口 4576 → 本任务 +11 = **4587 例**（全数通过，既知 ab-test flaky 本跑未触发）。
+
+### 5. E2E 门禁（改了 src/render/，与 31 例既有失败基线比对）
+
+```bash
+npx playwright test
+```
+
+```text
+  31 failed
+  1 skipped
+  104 passed (7.1m)
+```
+
+**既有失败核验（任务 2 记录的基线口径）**：
+
+1. 失败总数 **31 = 基线 31**，skipped/passed 同数；
+2. 按 spec 分组与任务 2 基线一致：`drag-selection-markers` 5（自带「当前 RED」标注）、
+   `editor-table` 7、`feedback` 5、`ai-agent-panel` **4（A4/A2/A3/① 四条改写链用例，
+   与任务 2 逐一同名）**、`exit-behavior` 2、`thematic-break` 2（仅随机 `data-block-id`
+   行号差异）、`floating-toolbar` 2、`editor`/`image-resize`/`recent-history-restore`/
+   `welcome-doc` 各 1；
+3. 本任务改动的 AgentTab / agentStore / preload 对应用例（`ai-agent-panel` 会话流、
+   `composer` 等）全部在 104 passed 内；`subtask_done` 通路无 E2E 覆盖（主进程链路
+   为 `subtaskSequence.test.ts` 11 例单测覆盖）；
+4. **结论：31 例均为 HEAD 既有环境性失败，本任务零新增失败。**
+
+**门禁结论**：typecheck 0 错 / test 195 文件 4587 例全绿 / lint 0 错（108 warning 与基线
+一致，新文件零 warning）/ playwright 31 例失败与基线同数同名（零新增）。

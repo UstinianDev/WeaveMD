@@ -1,23 +1,30 @@
 // ============================================
-// WeaveMD — 子任务链编排（agent-multi-intent 任务 2 链 v1 + 任务 3 置信度追问）
+// WeaveMD — 子任务链编排（agent-multi-intent 任务 2 链 v1 + 任务 3 置信度追问 + 任务 5 链加固）
 // ============================================
 // 职责：
 //   - confirmSplitPlan：gate 开后的拆分确认编排 —— 无交互支持即降级（不发拆分调用）；
 //     runTaskSplit → onInteractionRequired(questions, 'intent_split', plan) →
 //     waitForInteraction 取用户答案 split_plan → parseSplitAnswers；
 //     任一环节失败/取消一律返回 null（Q5 降级单意图直通，不阻塞对话）。
-//   - 链：确认后按序对每个子任务复用现有轮次循环 —— 共享 ctx.llmMessages
-//     （前序产出以 assistant 消息自然在链内累积）、单一总预算（detector 不重置）、
-//     串行执行、链末单次 AI_STREAM_DONE 收口（intent = primaryIntent）。
+//   - 链：确认后按序执行子任务；任务 5 起为**加固链**：
+//     per-subtask 独立 DeadLoopDetector 预算 + 链总封顶 2× 主意图（Q9）；
+//     每子任务上下文重建（base 快照为底 + 前序执行摘要注入，不堆积原始工具轮，Q12）；
+//     intent/tools 逐子任务重建（ctx.toolSelectionArgs + toolsForIntent 单一口径）；
+//     边界检查 deps.isChainInterrupted 安全点停链（Q11）；
+//     子任务 LLM 失败重试 1 次 → 仍失败 subtask_failed 交互 → waiting_interaction（Q12）；
+//     1..n-1 子任务完成发 subtask_done 流事件；链末单次 AI_STREAM_DONE 收口（intent = 主意图）。
 //   - 任务 3 置信度消费（Q10）：confidence < 0.7（或显式 needsClarification）的子任务
 //     不进立即执行序列，先执行高置信部分；链末对低置信组发 ask_question_card 语义追问
 //     （每轮 ≤2 题、round/totalRounds 标注），回答合并回 params 后执行，
 //     无法澄清/用户取消则丢弃并明示（不阻塞收口）。confidence 只驱动追问，不参与轮次。
 //   - 子任务边界只落在 assistant/user 轮次之间（§6.3 tool_result 回填完整性不变式）：
-//     边界仅发生在本轮无工具调用的收敛点，轮内回填已完整闭合。
+//     边界仅发生在本轮无工具调用的收敛点，轮内回填已完整闭合；边界重建时丢弃当前
+//     子任务工作集（含工具轮），只保留 base + 拆分段 + 已完成子任务（指令 + 摘要）。
 
-import type { AgentTaskPlan, IClarifyQuestion, SubtaskDef } from '@shared/ai';
+import { IPC_CHANNELS } from '@shared/constants';
+import type { AgentTaskPlan, IClarifyQuestion, IntentName, SubtaskDef } from '@shared/ai';
 
+import { estimateContentTokens } from '../contextManager';
 import { estimateTokens } from '../utils/tokenEstimator';
 import {
   buildSplitDirectiveSegment,
@@ -26,8 +33,32 @@ import {
 } from './agentPromptBuilder';
 import { normalizeTaskPlan, parseTaskPlan } from './taskPlannerSchema';
 import { runTaskSplit, type TaskSplitLlmCtx } from './taskPlanner';
-import type { AgentContext } from './agentContext';
+import { DeadLoopDetector } from './agentLoopGuard';
+import { getRoundsForIntent } from './agentHelpers';
+import { toolsForIntent } from './agentToolSelector';
+import type { AgentContext, ToolSelectionArgs } from './agentContext';
 import type { AgentLlmMessage, AgentLoopDeps } from './agentLoop';
+
+// ---------------------------------------------------------------------------
+// 链加固常量（任务 5）
+// ---------------------------------------------------------------------------
+
+/** 前序子任务执行摘要注入上限（字符）；超出截断并追加省略号（测试钉死 500）。 */
+export const SUBTASK_SUMMARY_MAX_CHARS = 500;
+
+/** 子任务 LLM 失败重试次数（Q12：重试 1 次 → 仍失败进 subtask_failed 交互）。 */
+export const SUBTASK_FAILURE_MAX_RETRIES = 1;
+
+/** subtask_failed 交互的问题 id（variant = 'subtask_failed'，答案 'no' = 停链）。 */
+export const SUBTASK_FAILED_QUESTION_ID = 'subtask_failed';
+
+/**
+ * 链总轮次封顶（Q9）：`SUBTASK_TOTAL_ROUNDS_CAP = 2 * getRoundsForIntent(primaryIntent)`。
+ * Σ 链内 LLM 轮次触顶即停链，剩余子任务标 skipped 并正常收口（非失败）。
+ */
+export function subtaskTotalRoundsCap(primaryIntent: string): number {
+  return 2 * getRoundsForIntent(primaryIntent);
+}
 
 // ---------------------------------------------------------------------------
 // 拆分确认交互
@@ -132,17 +163,25 @@ function skipNote(subtask: SubtaskDef, reason: string): string {
   return `（已跳过低置信子任务「${subtask.action} → ${subtask.object}」：${reason}，不再执行）`;
 }
 
+/** buffer 追加一段（首段直接赋值）。 */
+function appendBuffer(chain: SubtaskChain, text: string): void {
+  chain.buffer = chain.buffer ? `${chain.buffer}\n\n${text}` : text;
+}
+
 /**
  * 链末（或全低置信链的链首）对低置信子任务组追问：
  * 每轮 ≤2 题（round/totalRounds 标注，总轮数 = ceil(待追问数 / 2)）→ 回答合并回
  * params 后追加入执行序列；空回答/用户取消 → 丢弃并写明示（沿用 ask_question_card
  * 暂停/取消语义，不阻塞收口）。
+ * 下达下一条指令前做边界检查（isChainInterrupted / 链总封顶），
+ * 触发即停链返回 'finished'（调用方收口，剩余子任务已写 skipped 明示）。
  * 返回 'continue'：执行序列有下一条指令（已注入）；
- * 返回 'finished'：无可执行项，调用方收口（buffer 已含本轮产出与丢弃明示）。
+ * 返回 'finished'：无可执行项或已停链，调用方收口。
  */
 export async function runChainClarification(
   ctx: AgentContext,
   chain: SubtaskChain,
+  round: number,
   deps: AgentLoopDeps
 ): Promise<'continue' | 'finished'> {
   const pending = chain.clarifyPending;
@@ -157,16 +196,16 @@ export async function runChainClarification(
     } else {
       const totalRounds = Math.ceil(pending.length / CLARIFY_QUESTIONS_PER_ROUND);
       let cancelled = false;
-      for (let round = 0; round < totalRounds && !cancelled; round += 1) {
+      for (let r = 0; r < totalRounds && !cancelled; r += 1) {
         const chunk = pending.slice(
-          round * CLARIFY_QUESTIONS_PER_ROUND,
-          (round + 1) * CLARIFY_QUESTIONS_PER_ROUND
+          r * CLARIFY_QUESTIONS_PER_ROUND,
+          (r + 1) * CLARIFY_QUESTIONS_PER_ROUND
         );
         try {
           deps.onInteractionRequired(
             buildClarifyQuestions(chunk),
             'subtask_clarify',
-            round + 1,
+            r + 1,
             totalRounds
           );
           const answers = await deps.waitForInteraction();
@@ -185,7 +224,7 @@ export async function runChainClarification(
         } catch {
           // 用户取消 → 本轮及剩余全部丢弃并明示（取消语义沿用 ask_question_card）
           cancelled = true;
-          for (const subtask of pending.slice(round * CLARIFY_QUESTIONS_PER_ROUND)) {
+          for (const subtask of pending.slice(r * CLARIFY_QUESTIONS_PER_ROUND)) {
             skipped.push({ subtask, reason: '用户跳过追问' });
           }
         }
@@ -195,52 +234,79 @@ export async function runChainClarification(
 
   // 丢弃明示进 buffer（随链末合并落库；全丢弃时 buffer 即最终内容主体）
   for (const item of skipped) {
-    const note = skipNote(item.subtask, item.reason);
-    chain.buffer = chain.buffer ? `${chain.buffer}\n\n${note}` : note;
+    appendBuffer(chain, skipNote(item.subtask, item.reason));
   }
-
-  pushChainMessage(ctx, {
-    role: 'system',
-    content: buildSubtaskClarificationSegment(
-      answered,
-      skipped.map((item) => item.subtask)
-    ),
-  });
 
   if (answered.length > 0) {
     chain.queue.push(...answered);
   }
+  const segmentContent = buildSubtaskClarificationSegment(
+    answered,
+    skipped.map((item) => item.subtask)
+  );
   if (chain.queue.length > chain.index + 1) {
-    chain.index += 1;
-    pushChainMessage(ctx, {
-      role: 'system',
-      content: buildSubtaskInstruction(
-        chain.queue[chain.index],
-        chain.index,
-        chain.plan.subtasks.length
-      ),
-    });
+    // 子任务边界（Q11/Q9）：中断或总封顶 → 停链，剩余不再下达
+    if (deps.isChainInterrupted?.()) {
+      stopChain(chain, '检测到同会话新消息');
+      return 'finished';
+    }
+    if (round + 1 >= chain.totalRoundsCap) {
+      stopChain(chain, '链总轮次封顶');
+      return 'finished';
+    }
+    // 追问段在消息栈重建之后、下一条子任务指令之前注入
+    issueNextSubtask(ctx, chain, round + 1, [segmentContent]);
     return 'continue';
   }
+  pushChainMessage(ctx, { role: 'system', content: segmentContent });
   return 'finished';
 }
 
 // ---------------------------------------------------------------------------
-// 链状态机（任务 2 v1 + 任务 3 追问改造）
+// 链状态机（任务 2 v1 + 任务 3 追问 + 任务 5 加固）
 // ---------------------------------------------------------------------------
+
+/** 已完成子任务的归档条目（边界重建时按序注入：指令 system + 摘要 assistant）。 */
+export interface CompletedSubtaskEntry {
+  subtaskId: string;
+  /** 执行序列下标（0 起）。 */
+  subtaskIndex: number;
+  instruction: string;
+  /** 执行摘要（截断后）；失败跳过为空串（不注入 assistant 行）。 */
+  summary: string;
+}
 
 /** 子任务链运行态（内存编排，不入 agent_task_queue）。 */
 export interface SubtaskChain {
   plan: AgentTaskPlan;
   /** queue 内最近一条已下达指令的子任务下标（-1 = 尚未下达任何指令）。 */
   index: number;
-  /** 已完成子任务产出与追问丢弃明示（链末与最后一条产出合并为单条 assistant 落库）。 */
+  /** 已完成子任务产出与明示（链末合并为单条 assistant 落库）。 */
   buffer: string;
   /** 立即执行序列：高置信子任务（任务 3 起为过滤后的执行队列，非 plan 原序全量）。 */
   queue: SubtaskDef[];
   /** 待追问序列：低置信/显式 needsClarification 子任务（链末 runChainClarification 消化）。 */
   clarifyPending: SubtaskDef[];
+  /** 主意图（单次 DONE 的 intent 口径；执行期 ctx.intent 逐子任务切换，收口前恢复）。 */
+  primaryIntent: IntentName;
+  /** 链启动时的上下文快照（system 提示 + baseHistoryMessages + 当前 user 消息 + 锚点）。 */
+  baseMessages: AgentLlmMessage[];
+  /** 拆分指令段文本（每次上下文重建重新注入）。 */
+  directive: string;
+  /** 已完成子任务归档（重建口径：指令 + 执行摘要）。 */
+  completed: CompletedSubtaskEntry[];
+  /** 当前正在执行子任务的指令文本（完成时归档进 completed）。 */
+  currentInstruction: string;
+  /** 当前子任务的起始全局轮次（per-subtask 预算 = round - subtaskStartRound）。 */
+  subtaskStartRound: number;
+  /** 当前子任务已重试次数（Q12：超限进 subtask_failed 交互）。 */
+  retryCount: number;
+  /** 链总轮次封顶：2 × getRoundsForIntent(primaryIntent)（Q9）。 */
+  totalRoundsCap: number;
 }
+
+/** 链推进结果（任务 5 起含 'stopped'：中断/封顶安全点停链，调用方收口）。 */
+export type SubtaskChainOutcome = 'continue' | 'clarify' | 'finished' | 'stopped';
 
 /** 推送链消息并做增量 token 统计。 */
 function pushChainMessage(ctx: AgentContext, message: AgentLlmMessage): void {
@@ -250,16 +316,157 @@ function pushChainMessage(ctx: AgentContext, message: AgentLlmMessage): void {
   }
 }
 
+/** 执行摘要：产出文本超上限截断 + 省略号（Q12 前序结果以摘要注入）。 */
+function summarizeSubtaskOutput(text: string): string {
+  const trimmed = (text ?? '').trim();
+  if (trimmed.length <= SUBTASK_SUMMARY_MAX_CHARS) return trimmed;
+  return `${trimmed.slice(0, SUBTASK_SUMMARY_MAX_CHARS)}…`;
+}
+
 /**
- * 确认通过 → 启动链：主意图切到 plan.primaryIntent（单次 DONE 的 intent 口径），
- * 注入结构化拆分指令段；高置信进执行序列（即刻下达首条指令），低置信标
- * needsClarification 推迟至链末追问（Q10）。
+ * 切换到指定子任务的运行上下文：intent / tools（ctx.toolSelectionArgs + toolsForIntent
+ * 单一口径）/ 独立 detector（per-subtask 预算，Q9）/ 预算起点。
+ * 不重置 retryCount（重试计数属当前子任务；新子任务在 issueNextSubtask 归零）。
+ */
+function applySubtaskContext(
+  ctx: AgentContext,
+  chain: SubtaskChain,
+  subtask: SubtaskDef,
+  startRound: number
+): void {
+  ctx.intent = { ...ctx.intent, intent: subtask.intent };
+  const args: ToolSelectionArgs = [...ctx.toolSelectionArgs];
+  args[0] = { ...args[0], intent: subtask.intent };
+  ctx.tools = toolsForIntent(...args);
+  ctx.detector = new DeadLoopDetector({ maxRounds: getRoundsForIntent(subtask.intent) });
+  chain.subtaskStartRound = startRound;
+}
+
+/**
+ * 上下文重建（Q12）：base 快照为底 + 拆分段 + 已完成子任务（指令 + 执行摘要）。
+ * 丢弃当前子任务工作集（含工具轮），后续子任务 prompt 不堆积原始全量对话。
+ */
+function rebuildChainMessages(ctx: AgentContext, chain: SubtaskChain): void {
+  const messages: AgentLlmMessage[] = [
+    ...chain.baseMessages,
+    { role: 'system', content: chain.directive },
+  ];
+  for (const entry of chain.completed) {
+    messages.push({ role: 'system', content: entry.instruction });
+    if (entry.summary) {
+      messages.push({ role: 'assistant', content: entry.summary });
+    }
+  }
+  ctx.llmMessages = messages;
+  ctx.totalTokens = messages.reduce((sum, m) => sum + estimateContentTokens(m.content), 0);
+}
+
+/** 1..n-1 子任务完成 → subtask_done 流事件（渲染侧把已积累流式文本落为气泡）。 */
+function sendSubtaskDone(ctx: AgentContext, chain: SubtaskChain): void {
+  const last = chain.completed[chain.completed.length - 1];
+  if (!last) return;
+  ctx.send(IPC_CHANNELS.AI_SUBTASK_DONE, {
+    conversationId: ctx.convId,
+    subtaskId: last.subtaskId,
+    subtaskIndex: last.subtaskIndex,
+    subtaskCount: chain.queue.length,
+  });
+}
+
+/**
+ * 下达下一子任务：index+1 → 切换 intent/tools/独立预算 → 重建消息栈 →
+ * 追加可选 system 段（追问段）→ 注入子任务指令 → subtask_done 落显。
+ *
+ * @param nextStartRound 下一子任务的起始全局轮次（= 当前轮 + 1）
+ * @param extraSegments 重建后、指令前追加的 system 段内容
+ */
+function issueNextSubtask(
+  ctx: AgentContext,
+  chain: SubtaskChain,
+  nextStartRound: number,
+  extraSegments: string[] = []
+): void {
+  chain.index += 1;
+  const subtask = chain.queue[chain.index];
+  if (!subtask) return;
+  chain.retryCount = 0;
+  applySubtaskContext(ctx, chain, subtask, nextStartRound);
+  rebuildChainMessages(ctx, chain);
+  for (const segment of extraSegments) {
+    pushChainMessage(ctx, { role: 'system', content: segment });
+  }
+  chain.currentInstruction = buildSubtaskInstruction(
+    subtask,
+    chain.index,
+    chain.plan.subtasks.length
+  );
+  pushChainMessage(ctx, { role: 'system', content: chain.currentInstruction });
+  sendSubtaskDone(ctx, chain);
+}
+
+/**
+ * 安全点停链（Q11/Q9）：写 skipped 明示进 buffer，不再下达后续子任务。
+ * 剩余子任务数 = 执行序列剩余 + 待追问项。
+ *
+ * @param truncatedCurrent true = 当前子任务被轮次闸截断（未收敛），
+ *   明示中额外标注当前子任务未完成
+ */
+export function stopChain(
+  chain: SubtaskChain,
+  reason: string,
+  truncatedCurrent = false
+): void {
+  const current =
+    chain.index >= 0 && chain.index < chain.queue.length ? chain.queue[chain.index] : null;
+  const rest = Math.max(0, chain.queue.length - chain.index - 1) + chain.clarifyPending.length;
+  const parts: string[] = [];
+  if (truncatedCurrent && current) {
+    parts.push(`当前子任务「${current.action} → ${current.object}」未完成`);
+  }
+  if (rest > 0) {
+    parts.push(`剩余 ${rest} 个子任务未执行`);
+  }
+  if (parts.length === 0) return;
+  appendBuffer(chain, `（链已停止：${parts.join('；')}——${reason}）`);
+}
+
+/** 子任务边界推进：中断/封顶检查 → 下达下一子任务；序列尽则 clarify/finished。 */
+function advanceChain(
+  ctx: AgentContext,
+  chain: SubtaskChain,
+  round: number,
+  deps: AgentLoopDeps
+): SubtaskChainOutcome {
+  if (chain.index < chain.queue.length - 1) {
+    if (deps.isChainInterrupted?.()) {
+      stopChain(chain, '检测到同会话新消息');
+      return 'stopped';
+    }
+    if (round + 1 >= chain.totalRoundsCap) {
+      stopChain(chain, '链总轮次封顶');
+      return 'stopped';
+    }
+    issueNextSubtask(ctx, chain, round + 1);
+    return 'continue';
+  }
+  if (chain.clarifyPending.length > 0) {
+    return 'clarify';
+  }
+  return 'finished';
+}
+
+/**
+ * 确认通过 → 启动链：主意图落 DONE 口径、注入结构化拆分指令段；
+ * 高置信进执行序列（即刻下达首条指令并切换到该子任务的 intent/tools/独立预算），
+ * 低置信标 needsClarification 推迟至链末追问（Q10）。
  */
 export function startSubtaskChain(ctx: AgentContext, plan: AgentTaskPlan): SubtaskChain {
-  if (plan.primaryIntent) {
-    ctx.intent = { ...ctx.intent, intent: plan.primaryIntent };
-  }
-  pushChainMessage(ctx, { role: 'system', content: buildSplitDirectiveSegment(plan) });
+  const primaryIntent = plan.primaryIntent ?? ctx.intent.intent;
+  // 快照必须先于拆分段注入：base = system 提示 + baseHistoryMessages + 当前 user 消息 + 锚点
+  const baseMessages: AgentLlmMessage[] = [...ctx.llmMessages];
+  const directive = buildSplitDirectiveSegment(plan);
+  ctx.intent = { ...ctx.intent, intent: primaryIntent };
+  pushChainMessage(ctx, { role: 'system', content: directive });
 
   const queue: SubtaskDef[] = [];
   const clarifyPending: SubtaskDef[] = [];
@@ -276,55 +483,144 @@ export function startSubtaskChain(ctx: AgentContext, plan: AgentTaskPlan): Subta
     buffer: '',
     queue,
     clarifyPending,
+    primaryIntent,
+    baseMessages,
+    directive,
+    completed: [],
+    currentInstruction: '',
+    subtaskStartRound: 0,
+    retryCount: 0,
+    totalRoundsCap: subtaskTotalRoundsCap(primaryIntent),
   };
   if (queue.length > 0) {
-    pushChainMessage(ctx, {
-      role: 'system',
-      content: buildSubtaskInstruction(queue[0], 0, plan.subtasks.length),
-    });
+    applySubtaskContext(ctx, chain, queue[0], 0);
+    chain.currentInstruction = buildSubtaskInstruction(queue[0], 0, plan.subtasks.length);
+    pushChainMessage(ctx, { role: 'system', content: chain.currentInstruction });
   }
   return chain;
 }
 
 /**
- * 当前子任务收敛（本轮无工具调用）→ 推进链。
- * 返回 'continue'：执行序列还有下一条，产出进上下文并注入指令，续跑下一轮；
- * 返回 'clarify'：执行序列已尽但仍有低置信待追问 —— 产出先进 buffer，
- *   调用方 runChainClarification 后按其返回值决定续跑或收口；
- * 返回 'finished'：链末，调用方以 finalizeChainContent（last = 本轮产出）收口。
+ * 当前子任务收敛（本轮无工具调用）→ 归档产出（buffer 全量 + completed 摘要）→ 推进链。
+ * 返回 'continue'：执行序列还有下一条，已重建上下文并注入指令，续跑下一轮；
+ * 返回 'clarify'：执行序列已尽但仍有低置信待追问 —— 调用方 runChainClarification
+ *   后按其返回值决定续跑或收口；
+ * 返回 'finished'：链末，调用方以 finalizeChainContent(chain, '') 收口
+ *   （产出已全部进 buffer）；
+ * 返回 'stopped'：中断/封顶安全点停链（剩余已写 skipped 明示），同上收口。
  */
 export function advanceSubtaskChain(
   ctx: AgentContext,
   chain: SubtaskChain,
-  converged: string
-): 'continue' | 'clarify' | 'finished' {
+  converged: string,
+  round: number,
+  deps: AgentLoopDeps
+): SubtaskChainOutcome {
   const text = (converged ?? '').trim();
   if (text) {
-    pushChainMessage(ctx, { role: 'assistant', content: converged });
+    appendBuffer(chain, text);
   }
-  if (chain.index >= chain.queue.length - 1) {
-    if (chain.clarifyPending.length > 0) {
-      // 执行序列已尽、还有待追问项：产出先入 buffer（追问后还有产出接续）
-      if (text) {
-        chain.buffer = chain.buffer ? `${chain.buffer}\n\n${text}` : text;
-      }
-      return 'clarify';
+  if (chain.currentInstruction) {
+    const subtask = chain.queue[chain.index];
+    chain.completed.push({
+      subtaskId: subtask?.id ?? '',
+      subtaskIndex: chain.index,
+      instruction: chain.currentInstruction,
+      summary: summarizeSubtaskOutput(text),
+    });
+  }
+  return advanceChain(ctx, chain, round, deps);
+}
+
+/**
+ * 当前子任务重试预算重建（失败重试用）：保留指令，重建消息栈与 intent/tools/独立预算。
+ * 不重置 retryCount（由调用方先行累加，Q12 重试仅 1 次）。
+ */
+function restartCurrentSubtask(ctx: AgentContext, chain: SubtaskChain, round: number): void {
+  const subtask = chain.queue[chain.index];
+  if (!subtask) return;
+  applySubtaskContext(ctx, chain, subtask, round + 1);
+  rebuildChainMessages(ctx, chain);
+  chain.currentInstruction = buildSubtaskInstruction(
+    subtask,
+    chain.index,
+    chain.plan.subtasks.length
+  );
+  pushChainMessage(ctx, { role: 'system', content: chain.currentInstruction });
+}
+
+/** subtask_failed 问题（confirm；'no' = 停止执行剩余子任务）。 */
+function buildSubtaskFailedQuestion(
+  subtask: SubtaskDef | undefined,
+  message: string
+): IClarifyQuestion {
+  const label = subtask ? `${subtask.action} → ${subtask.object}` : '当前子任务';
+  const reason = message.length > 200 ? `${message.slice(0, 200)}…` : message;
+  return {
+    id: SUBTASK_FAILED_QUESTION_ID,
+    text:
+      `子任务「${label}」执行失败（已重试 ${SUBTASK_FAILURE_MAX_RETRIES} 次）：${reason}。` +
+      `是否跳过该子任务并继续执行剩余子任务？`,
+    type: 'confirm',
+    options: ['跳过并继续', '停止执行'],
+  };
+}
+
+/**
+ * 子任务执行失败处置（Q12，仅链路径的 LLM 调用失败进入本函数）：
+ * 1. 重试次数未用尽 → 重建当前子任务（新预算）→ 'continue'（调用方续跑本轮次序列）；
+ * 2. 重试仍失败 → onInteractionRequired(variant='subtask_failed') → session 进
+ *    waiting_interaction 等用户：
+ *    - 答 'no' → 停链 → 'finalize'；
+ *    - 答其他/空 → 跳过该子任务（明示进 buffer）→ 边界检查后推进 → 'continue'/'clarify'；
+ *    - 无交互支持 → 同跳过路径（fail-safe，不等待、不死锁）；
+ * 3. waitForInteraction reject（用户取消/任务取消）→ 异常向上传播，由外层统一
+ *    错误收口（AI_STREAM_ERROR），不会锁死在 waiting_interaction。
+ */
+export async function handleSubtaskFailure(
+  ctx: AgentContext,
+  chain: SubtaskChain,
+  deps: AgentLoopDeps,
+  error: unknown,
+  round: number
+): Promise<'continue' | 'clarify' | 'finalize'> {
+  const subtask = chain.queue[chain.index];
+  const label = subtask ? `${subtask.action} → ${subtask.object}` : '当前子任务';
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (chain.retryCount < SUBTASK_FAILURE_MAX_RETRIES) {
+    chain.retryCount += 1;
+    restartCurrentSubtask(ctx, chain, round);
+    return 'continue';
+  }
+
+  if (deps.onInteractionRequired && deps.waitForInteraction) {
+    deps.onInteractionRequired(
+      [buildSubtaskFailedQuestion(subtask, message)],
+      'subtask_failed'
+    );
+    const answers = await deps.waitForInteraction();
+    if (answers?.[SUBTASK_FAILED_QUESTION_ID] === 'no') {
+      stopChain(chain, '用户选择停止执行');
+      return 'finalize';
     }
-    return 'finished';
   }
-  if (text) {
-    chain.buffer = chain.buffer ? `${chain.buffer}\n\n${text}` : text;
-  }
-  chain.index += 1;
-  pushChainMessage(ctx, {
-    role: 'system',
-    content: buildSubtaskInstruction(
-      chain.queue[chain.index],
-      chain.index,
-      chain.plan.subtasks.length
-    ),
+
+  // 无交互支持 / 用户确认跳过：明示进 buffer 并推进到下一子任务
+  chain.completed.push({
+    subtaskId: subtask?.id ?? '',
+    subtaskIndex: chain.index,
+    instruction: chain.currentInstruction,
+    summary: '',
   });
-  return 'continue';
+  appendBuffer(
+    chain,
+    `（已跳过执行失败的子任务「${label}」：重试 ${SUBTASK_FAILURE_MAX_RETRIES} 次后仍失败）`
+  );
+  const outcome = advanceChain(ctx, chain, round, deps);
+  if (outcome === 'continue') return 'continue';
+  if (outcome === 'clarify') return 'clarify';
+  return 'finalize';
 }
 
 /** 链末合并落库内容：前序产出 buffer + 最后一条产出（保证 DB 与渲染累积一致）。 */

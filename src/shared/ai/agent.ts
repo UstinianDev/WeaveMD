@@ -99,8 +99,24 @@ export interface IAgentStreamInteractionEvent {
   plan?: import('./taskPlan').AgentTaskPlan;
 }
 
+/** 子任务链落显事件（agent-multi-intent 任务 5）：1..n-1 子任务完成时推送。 */
+export interface IAgentStreamSubtaskDoneEvent {
+  type: 'subtask_done';
+  conversationId: string;
+  /** 完成的子任务 id。 */
+  subtaskId: string;
+  /** 完成的子任务在执行序列中的下标（0 起）。 */
+  subtaskIndex: number;
+  /** 当前执行序列长度（含澄清追加项）。 */
+  subtaskCount: number;
+}
+
 /** AI 流式事件扩展。 */
-export type IAgentStreamEvent = import('./conversation').AIStreamEvent | IAgentStreamToolEvent | IAgentStreamInteractionEvent;
+export type IAgentStreamEvent =
+  | import('./conversation').AIStreamEvent
+  | IAgentStreamToolEvent
+  | IAgentStreamInteractionEvent
+  | IAgentStreamSubtaskDoneEvent;
 
 /** AGENT_RUN invoke 请求载荷。 */
 export interface AgentRunPayload {

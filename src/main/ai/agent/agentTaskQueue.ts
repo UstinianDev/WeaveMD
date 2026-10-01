@@ -88,6 +88,16 @@ export class AgentTaskQueue {
     return task?.status === 'superseded';
   }
 
+  /**
+   * 同会话是否存在 pending 任务（纯只读查询，不动表结构）。
+   * 子任务链中断安全点判定用：运行中会话出现新 pending = 用户发了新消息。
+   */
+  hasPendingForConversation(conversationId: string): boolean {
+    return taskDao
+      .getTasksByConversation(this.db, conversationId)
+      .some((task) => task.status === 'pending');
+  }
+
   /** 获取队列统计（各状态任务数）。 */
   getStats(): { pending: number; running: number; completed: number; failed: number } {
     const rows = this.db

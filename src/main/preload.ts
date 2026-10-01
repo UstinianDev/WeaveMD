@@ -19,6 +19,7 @@ import type {
   ConversationMode,
   IAgentMemory,
   IAgentStreamInteractionEvent,
+  IAgentStreamSubtaskDoneEvent,
   IAgentStreamToolEvent,
   IAIConfig,
   IAIConsent,
@@ -186,7 +187,7 @@ export interface WeaveMDApi {
     resumeInteraction: (sessionId: string, answers: Record<string, string>) => Promise<IpcResponse<{ resumed: boolean }>>;
     /** R4: 重试失败的任务。 */
     retryTask: (taskId: string) => Promise<IpcResponse<{ taskId: string; status: string }>>;
-    onStream: (cb: (evt: AIStreamEvent | IAgentStreamToolEvent | IAgentStreamInteractionEvent) => void) => () => void;
+    onStream: (cb: (evt: AIStreamEvent | IAgentStreamToolEvent | IAgentStreamInteractionEvent | IAgentStreamSubtaskDoneEvent) => void) => () => void;
     embedding: {
       test: (payload: { baseUrl: string; model: string; apiKey: string; userId?: string }) => Promise<IpcResponse<{ message: string }>>;
       create: (payload: {
@@ -444,7 +445,13 @@ const api: WeaveMDApi = {
       const listeners: Array<() => void> = [];
       const subscribe = <T>(
         channel: string,
-        map: (payload: T) => AIStreamEvent | IAgentStreamToolEvent | IAgentStreamInteractionEvent
+        map: (
+          payload: T
+        ) =>
+          | AIStreamEvent
+          | IAgentStreamToolEvent
+          | IAgentStreamInteractionEvent
+          | IAgentStreamSubtaskDoneEvent
       ): void => {
         const handler = (_event: Electron.IpcRendererEvent, payload: T): void => {
           cb(map(payload));
@@ -520,6 +527,22 @@ const api: WeaveMDApi = {
           round: p.round,
           totalRounds: p.totalRounds,
           plan: p.plan,
+        })
+      );
+      // 任务 5：子任务链 1..n-1 完成落显（渲染侧把已积累流式文本落为 assistant 气泡）
+      subscribe(
+        IPC_CHANNELS.AI_SUBTASK_DONE,
+        (p: {
+          conversationId: string;
+          subtaskId: string;
+          subtaskIndex: number;
+          subtaskCount: number;
+        }) => ({
+          type: 'subtask_done',
+          conversationId: p.conversationId,
+          subtaskId: p.subtaskId,
+          subtaskIndex: p.subtaskIndex,
+          subtaskCount: p.subtaskCount,
         })
       );
       return () => {

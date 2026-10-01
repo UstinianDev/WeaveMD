@@ -211,6 +211,8 @@ export const IPC_CHANNELS = {
   AI_STREAM_DONE: 'ai:stream:done',
   AI_STREAM_ERROR: 'ai:stream:error',
   AI_STREAM_TOOL: 'ai:stream:tool',
+  // 多意图子任务链：1..n-1 子任务完成落显（渲染侧把已积累流式文本落为 assistant 气泡）
+  AI_SUBTASK_DONE: 'ai:stream:subtask_done',
 
   // AI — Agent replay / rollback（写控制模块）
   AGENT_REPLAY_EVENTS: 'agent:replay:events',

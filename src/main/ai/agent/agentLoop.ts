@@ -64,8 +64,10 @@ import {
   advanceSubtaskChain,
   confirmSplitPlan,
   finalizeChainContent,
+  handleSubtaskFailure,
   runChainClarification,
   startSubtaskChain,
+  stopChain,
   type SubtaskChain,
 } from './subtaskOrchestrator';
 import {
@@ -113,6 +115,13 @@ export interface AgentLoopDeps {
    * 与 onInteractionRequired 配对使用；缺失时不暂停。
    */
   waitForInteraction?: () => Promise<Record<string, string>>;
+  /**
+   * 子任务链中断判定（agent-multi-intent 任务 5，Q11）：在**子任务边界**调用，
+   * true = 安全点停链（当前子任务跑完不截断，其后子任务不再启动）。
+   * worker 注入闭包：`queue.isSuperseded(task.id) || queue.hasPendingForConversation(...)`。
+   * 缺省 = 不中断（单意图路径与既有链测试零影响）。
+   */
+  isChainInterrupted?: () => boolean;
 }
 
 export interface AgentReqPayload {
@@ -264,6 +273,37 @@ export async function runAgentFlow(
   // 多意图预检门（Q6/Q5，plan §1.3）：gate 开 → 结构化拆分 → 拆分确认卡 → 链 v1。
   // gate 关 / 无交互 / 拆分失败 / 用户取消 / split_plan 非法 → subtaskChain 保持 null，
   // 下方轮次循环与单意图路径逐字节等价（红线 1/2/3）。
+
+  /**
+   * 单次 AI_STREAM_DONE 收口（链末/非链收敛共用，行为与原内联段逐字一致）。
+   * 链路径调用前须先恢复主意图（DONE intent = primaryIntent）。
+   */
+  const finalizeRun = (finalContent: string): AgentRunResult => {
+    const refsJson = citationRefsJson(ctx);
+    const assistantMsg = appendMessage({
+      conversationId: ctx.convId,
+      userId: ctx.userId,
+      role: 'assistant',
+      content: finalContent,
+      ...(refsJson ? { refsJson: refsJson } : {}),
+    });
+    ctx.assistantId = assistantMsg.id;
+    ctx.send(IPC_CHANNELS.AI_STREAM_DONE, {
+      conversationId: ctx.convId,
+      usage: { reasoningTokenCount: ctx.reasoningTokenCount },
+      roundsUsed: ctx.roundsUsed,
+      intent: ctx.intent,
+      refsJson,
+    });
+    return makeAgentResult({
+      conversationId: ctx.convId,
+      assistantId: ctx.assistantId,
+      roundsUsed: ctx.roundsUsed,
+      intent: ctx.intent,
+      usage: { reasoningTokenCount: ctx.reasoningTokenCount },
+    });
+  };
+
   let subtaskChain: SubtaskChain | null = null;
   if (ctx.intentGateOpen) {
     const confirmedPlan = await confirmSplitPlan(
@@ -282,15 +322,45 @@ export async function runAgentFlow(
       // 全部子任务低置信（无立即执行项）→ 进链前先追问（Q10：避免首轮无子任务
       // 指令空跑）；全丢弃时链退化为空队列，跑一轮正常收口，不阻塞对话
       if (subtaskChain.queue.length === 0) {
-        await runChainClarification(ctx, subtaskChain, deps);
+        const preOutcome = await runChainClarification(ctx, subtaskChain, -1, deps);
+        // 边界检查停链（中断/封顶）且已入队未执行 → 直接收口，不进主循环
+        if (preOutcome === 'finished' && subtaskChain.queue.length > 0) {
+          ctx.intent = { ...ctx.intent, intent: subtaskChain.primaryIntent };
+          return finalizeRun(finalizeChainContent(subtaskChain, ''));
+        }
       }
     }
   }
 
+  /** 链收口前恢复主意图（执行期 ctx.intent 逐子任务切换，DONE 口径恒 primaryIntent）。 */
+  const restoreChainIntent = (): void => {
+    if (subtaskChain) {
+      ctx.intent = { ...ctx.intent, intent: subtaskChain.primaryIntent };
+    }
+  };
+
   try {
     for (let round = 0; ; round += 1) {
-      // R7a: 轮次限制检查
-      if (ctx.detector.checkRoundLimit(round)) break;
+      // R7a: 轮次限制检查（任务 5：链路径为 per-subtask 独立预算 + 链总封顶硬闸）
+      if (subtaskChain) {
+        if (round >= subtaskChain.totalRoundsCap) {
+          stopChain(subtaskChain, '链总轮次封顶', true);
+          restoreChainIntent();
+          return finalizeRun(finalizeChainContent(subtaskChain, ''));
+        }
+        if (ctx.detector.checkRoundLimit(round - subtaskChain.subtaskStartRound)) {
+          const budgeted = subtaskChain.queue[subtaskChain.index];
+          stopChain(
+            subtaskChain,
+            budgeted
+              ? `子任务「${budgeted.action} → ${budgeted.object}」轮次预算耗尽未收敛`
+              : '子任务轮次预算耗尽未收敛',
+            true
+          );
+          restoreChainIntent();
+          return finalizeRun(finalizeChainContent(subtaskChain, ''));
+        }
+      } else if (ctx.detector.checkRoundLimit(round)) break;
       ctx.roundsUsed = round + 1;
 
       // R7a: 接近限制时注入收敛提示
@@ -333,6 +403,8 @@ export async function runAgentFlow(
       let assistantContent = '';
       let executor: StreamingToolExecutor | null = null;
       let deferredRetryCount = 0;
+      // 任务 5：子任务失败处置已完成（重试重建 / 跳过推进）→ 跳出重发循环后续跑外层
+      let chainFailureNext = false;
 
       // PERF: 记录流开始时间（每次重试都会重置）
       let streamStartTime = 0;
@@ -386,30 +458,60 @@ export async function runAgentFlow(
         // S16: 收集本轮 LLM 调用的 usage（token 消耗统计）
         let roundUsage: StreamChunk['usage'] | undefined;
 
-        for await (const chunk of gen) {
-          if (chunk.delta) {
-            assistantContent += chunk.delta;
-            chunkBuffer += chunk.delta;
-            if (!chunkFlushTimer) {
-              chunkFlushTimer = setTimeout(() => {
-                flushChunks();
-              }, 100);
+        try {
+          for await (const chunk of gen) {
+            if (chunk.delta) {
+              assistantContent += chunk.delta;
+              chunkBuffer += chunk.delta;
+              if (!chunkFlushTimer) {
+                chunkFlushTimer = setTimeout(() => {
+                  flushChunks();
+                }, 100);
+              }
             }
-          }
-          if (chunk.usage) {
-            roundUsage = chunk.usage;
-            if (chunk.usage.reasoningTokenCount != null) {
-              ctx.reasoningTokenCount = chunk.usage.reasoningTokenCount;
+            if (chunk.usage) {
+              roundUsage = chunk.usage;
+              if (chunk.usage.reasoningTokenCount != null) {
+                ctx.reasoningTokenCount = chunk.usage.reasoningTokenCount;
+              }
             }
-          }
-          if (chunk.toolCalls?.length) {
-            accumulatedToolCalls.push(...chunk.toolCalls);
-            if (executor) {
-              for (const tc of chunk.toolCalls) {
-                executor.onToolCall(tc);
+            if (chunk.toolCalls?.length) {
+              accumulatedToolCalls.push(...chunk.toolCalls);
+              if (executor) {
+                for (const tc of chunk.toolCalls) {
+                  executor.onToolCall(tc);
+                }
               }
             }
           }
+        } catch (streamErr) {
+          // 非链 / 取消 / consent：行为与改动前完全一致（直接上抛）
+          const aborted =
+            (streamErr as { name?: string })?.name === 'AbortError' || controller.signal.aborted;
+          const consentErr = (streamErr as { code?: string })?.code === 'consent_required';
+          if (!subtaskChain || aborted || consentErr) throw streamErr;
+          // 链路径：LLM 调用失败 → 重试 1 次 / subtask_failed 交互 / 停链（Q12）
+          const action = await handleSubtaskFailure(ctx, subtaskChain, deps, streamErr, round);
+          if (chunkFlushTimer) {
+            clearTimeout(chunkFlushTimer);
+            chunkFlushTimer = null;
+          }
+          chunkBuffer = ''; // 丢弃半截流缓冲，重试/跳过后从重建上下文重新开始
+          if (action === 'continue') {
+            chainFailureNext = true;
+            break;
+          }
+          if (action === 'clarify') {
+            const after = await runChainClarification(ctx, subtaskChain, round, deps);
+            if (after === 'continue') {
+              chainFailureNext = true;
+              break;
+            }
+            restoreChainIntent();
+            return finalizeRun(finalizeChainContent(subtaskChain, ''));
+          }
+          restoreChainIntent();
+          return finalizeRun(finalizeChainContent(subtaskChain, ''));
         }
         flushChunks(); // 流结束时刷新剩余 buffer
 
@@ -538,6 +640,12 @@ export async function runAgentFlow(
         break;
       }
 
+      // 任务 5：子任务失败处置已完成（重试重建 / 跳过已下达下一指令）→ 续跑外层
+      if (chainFailureNext) {
+        chainFailureNext = false;
+        continue;
+      }
+
       // 无工具调用：检查是否在文本中直接提问（兜底机制）
       if (accumulatedToolCalls.length === 0) {
         // 检测 LLM 是否在文本中直接提问而非使用 ask_question_card
@@ -562,50 +670,27 @@ export async function runAgentFlow(
           // 不保存 assistant 消息到 DB（等最终结果），不发送 done，继续循环
           continue;
         }
-        // 链：当前子任务收敛 → 非末子任务则注入下一条指令续跑（共享 llmMessages、
-        // 单一总预算，round 继续累加）；执行序列尽且有低置信待追问 → 链末追问
-        //（每轮 ≤2 题，回答合并 params 后继续执行 / 丢弃明示）；链末单次收口
+        // 链（任务 5 加固）：当前子任务收敛 → 归档（buffer 全量 + 摘要）→ 边界检查
+        // （isChainInterrupted / 链总封顶）→ 重建上下文并下达下一指令续跑；
+        // 执行序列尽且有低置信待追问 → 链末追问（每轮 ≤2 题）；
+        // 链末/停链单次收口（产出已全部进 buffer，last 恒空防重复）
         let finalContent = assistantContent;
         if (subtaskChain) {
-          const outcome = advanceSubtaskChain(ctx, subtaskChain, assistantContent);
+          const outcome = advanceSubtaskChain(ctx, subtaskChain, assistantContent, round, deps);
           if (outcome === 'continue') {
             continue;
           }
           if (outcome === 'clarify') {
-            const after = await runChainClarification(ctx, subtaskChain, deps);
+            const after = await runChainClarification(ctx, subtaskChain, round, deps);
             if (after === 'continue') {
               continue;
             }
-            // 全部丢弃/无可执行：本轮产出与丢弃明示已在 buffer，last 置空防重复
-            finalContent = finalizeChainContent(subtaskChain, '');
-          } else {
-            finalContent = finalizeChainContent(subtaskChain, assistantContent);
           }
+          finalContent = finalizeChainContent(subtaskChain, '');
+          restoreChainIntent();
         }
         // 正常路径：无工具调用且无文本问题 → 结束
-        const refsJson = citationRefsJson(ctx);
-        const assistantMsg = appendMessage({
-          conversationId: ctx.convId,
-          userId: ctx.userId,
-          role: 'assistant',
-          content: finalContent,
-          ...(refsJson ? { refsJson } : {}),
-        });
-        ctx.assistantId = assistantMsg.id;
-        ctx.send(IPC_CHANNELS.AI_STREAM_DONE, {
-          conversationId: ctx.convId,
-          usage: { reasoningTokenCount: ctx.reasoningTokenCount },
-          roundsUsed: ctx.roundsUsed,
-          intent: ctx.intent,
-          refsJson,
-        });
-        return makeAgentResult({
-          conversationId: ctx.convId,
-          assistantId: ctx.assistantId,
-          roundsUsed: ctx.roundsUsed,
-          intent: ctx.intent,
-          usage: { reasoningTokenCount: ctx.reasoningTokenCount },
-        });
+        return finalizeRun(finalContent);
       }
 
       // 阶段 2：执行工具调用（S1: 流路径 / 兜底路径）
@@ -620,7 +705,15 @@ export async function runAgentFlow(
           deps,
           replacementState
         );
-        if (streamingResult.deadLoopBreak) break;
+        if (streamingResult.deadLoopBreak) {
+          // 链路径：死循环检测触发也走安全点停链收口（保留 buffer，DONE intent = 主意图）
+          if (subtaskChain) {
+            stopChain(subtaskChain, '工具死循环检测触发', true);
+            restoreChainIntent();
+            return finalizeRun(finalizeChainContent(subtaskChain, ''));
+          }
+          break;
+        }
 
         // 1c: 原地 push（避免 spread 重新分配整个数组）
         ctx.llmMessages.push(...streamingResult.toolTurn);
@@ -657,7 +750,14 @@ export async function runAgentFlow(
           deps,
           replacementState
         );
-        if (deadLoopBreak) break;
+        if (deadLoopBreak) {
+          if (subtaskChain) {
+            stopChain(subtaskChain, '工具死循环检测触发', true);
+            restoreChainIntent();
+            return finalizeRun(finalizeChainContent(subtaskChain, ''));
+          }
+          break;
+        }
 
         // 1c: 原地 push（避免 spread 重新分配整个数组）
         ctx.llmMessages.push(...toolTurn);

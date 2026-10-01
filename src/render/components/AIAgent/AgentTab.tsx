@@ -9,7 +9,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { IntentName } from '@shared/ai';
 import { useI18n } from '@render/i18n';
-import { useAgentStore, onStreamDelta } from '@render/stores/agentStore';
+import { useAgentStore, onStreamDelta, onStreamFlush } from '@render/stores/agentStore';
 import { useAuthStore } from '@render/stores/authStore';
 import AIMessageBubble from './message/AIMessageBubble';
 import AgentWorkflowCard from './cards/AgentWorkflowCard';
@@ -198,7 +198,20 @@ const AgentTab: React.FC = () => {
         });
       }
     });
-    return unsubscribe;
+    // 任务 5 subtask_done：store 把已积累文本落为气泡后，本地缓冲同步清空
+    //（气泡已承载该段文本，继续累积会重复展示）
+    const unsubscribeFlush = onStreamFlush(() => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = 0;
+      }
+      streamBufferRef.current = '';
+      setDisplayBuffer('');
+    });
+    return () => {
+      unsubscribe();
+      unsubscribeFlush();
+    };
   }, []);
 
   // 流式开始时重置本地 buffer（防御性清空，防止竞态条件）

@@ -395,6 +395,24 @@ function notifyStreamDelta(delta: string): void {
   for (const cb of _streamDeltaListeners) cb(delta);
 }
 
+/**
+ * 流式缓冲 flush 回调注册表（任务 5 subtask_done 落显）。
+ * 子任务边界把已积累文本落为 assistant 气泡时，AgentTab 等本地缓冲消费方
+ * 须同步清空各自的累积器，避免气泡与 live 缓冲重复展示。
+ */
+const _streamFlushListeners = new Set<() => void>();
+
+/** 注册流式缓冲 flush 回调（subtask_done 落显时触发），返回取消注册函数。 */
+export function onStreamFlush(cb: () => void): () => void {
+  _streamFlushListeners.add(cb);
+  return () => { _streamFlushListeners.delete(cb); };
+}
+
+/** 通知所有已注册的流式缓冲 flush 监听器。 */
+function notifyStreamFlush(): void {
+  for (const cb of _streamFlushListeners) cb();
+}
+
 // ---------------------------------------------------------------------------
 // Replay 辅助函数
 // ---------------------------------------------------------------------------
@@ -442,6 +460,8 @@ interface StreamManagerOptions {
   conversationId: string;
   onTool?: (evt: IAgentToolCall) => void;
   onInteraction?: (sessionId: string, questions: IClarifyQuestion[], variant?: string, round?: number, totalRounds?: number, plan?: AgentTaskPlan) => void;
+  /** 子任务链 1..n-1 完成（任务 5）：把已积累流式文本落为 assistant 气泡并清空累积器（订阅保持不断）。 */
+  onSubtaskDone?: () => void;
   /** 结束流并落显 assistant 消息；refsJson 为 B8 六-2 检索引用（done 事件携带）。 */
   finishAndPersist: (refsJson?: string | null) => void;
 }
@@ -499,6 +519,11 @@ function createStreamManager(
           evt.totalRounds,
           evt.plan
         );
+        return;
+      }
+      // 任务 5：子任务链中间子任务完成 → 落显当前积累文本（末子任务仍走 done）
+      if (evt.type === 'subtask_done') {
+        opts.onSubtaskDone?.();
         return;
       }
       if (evt.type === 'done') {
@@ -773,8 +798,35 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
       // P0-4/Q7：tool_calls 由主进程写入工具轮时落库，渲染侧不再回写（仅保留内存快照供本轮渲染）
     };
 
+    // 任务 5 subtask_done 落显：已积累流式文本落为 assistant 气泡 + 清空累积器。
+    // 订阅保持不断（后续子任务的 delta 继续进新缓冲），本地 toolCalls 快照随
+    // 该气泡归档并清零，供下一子任务独立累积。
+    const flushAccumulatedSubtask = (): void => {
+      const flushed = streamText;
+      streamText = '';
+      notifyStreamFlush();
+      if (!flushed.trim()) return;
+      const { toolCalls: flushedToolCalls } = get();
+      set((s) => ({
+        toolCalls: [],
+        messages: [
+          ...s.messages,
+          {
+            id: makeId(),
+            conversationId: conversationId ?? '',
+            role: 'assistant' as const,
+            content: flushed,
+            refsJson: null,
+            createdAt: new Date().toISOString(),
+            ...(flushedToolCalls.length > 0 ? { toolCalls: [...flushedToolCalls] } : {}),
+          },
+        ],
+      }));
+    };
+
     const mgr = createStreamManager({
       conversationId,
+      onSubtaskDone: flushAccumulatedSubtask,
       onTool: (toolCall) => {
         console.log('[agentStore] onTool event:', toolCall.name, toolCall.status, toolCall.toolCallId, 'result?', !!toolCall.result);
         set((s) => {
