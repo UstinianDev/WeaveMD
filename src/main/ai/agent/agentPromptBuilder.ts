@@ -551,6 +551,45 @@ export function buildSubtaskInstruction(
   return lines.join('\n');
 }
 
+// ---------------------------------------------------------------------------
+// 低置信子任务追问段（agent-multi-intent 任务 3）
+// ---------------------------------------------------------------------------
+
+/**
+ * 链末低置信子任务追问完成段：以独立 system 消息注入（与任务 2 拆分段同款口径）。
+ *
+ * 实施口径（同任务 2 偏离先例）：计划要求在 `clarificationPrefix`（:396-401）与
+ * 「分轮澄清策略」（:430-450）就地补「多意图低置信子任务追问」条款，但该两处被
+ * `agentPromptBuilder.test.ts` sha256 基线逐字钉死，且 Q10 要求单意图低置信路径
+ * 行为不变 —— 故基础提示词逐字节不动，追问条款只以本新段在链内追加。
+ *
+ * @param answered 已获回答、追加执行的低置信子任务（回答已合并进 params）
+ * @param skipped 已丢弃的低置信子任务（未澄清/用户取消，结果中向用户明示）
+ */
+export function buildSubtaskClarificationSegment(
+  answered: SubtaskDef[],
+  skipped: SubtaskDef[]
+): string {
+  const lines = [
+    '【低置信子任务追问】置信度低于 0.7 的子任务已先向用户追问' +
+      '（每轮最多 2 个问题，round/totalRounds 标注；confidence 只决定是否追问，不参与轮次预算）：',
+  ];
+  if (answered.length > 0) {
+    lines.push('- 已获得回答并追加执行（回答已合并进子任务参数）：');
+    for (const subtask of answered) {
+      lines.push(`  - [${subtask.intent}] ${subtask.action} → ${subtask.object}`);
+    }
+  }
+  if (skipped.length > 0) {
+    lines.push('- 已跳过、不再执行（已向用户明示）：');
+    for (const subtask of skipped) {
+      lines.push(`  - [${subtask.intent}] ${subtask.action} → ${subtask.object}`);
+    }
+  }
+  lines.push('- 不要自行补执行已跳过的子任务；其余子任务按指令顺序继续。');
+  return lines.join('\n');
+}
+
 /** Chat 意图系统提示的正文段（【核心规则】之前的引导 + 四条核心规则）。 */
 const CHAT_HEAD_LINES = [
   '你是 WeaveMD 的 AI 助手。直接、简洁地回答用户问题。不要提及工具、文件或文档。',

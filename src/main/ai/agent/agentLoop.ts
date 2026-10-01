@@ -64,6 +64,7 @@ import {
   advanceSubtaskChain,
   confirmSplitPlan,
   finalizeChainContent,
+  runChainClarification,
   startSubtaskChain,
   type SubtaskChain,
 } from './subtaskOrchestrator';
@@ -278,6 +279,11 @@ export async function runAgentFlow(
     );
     if (confirmedPlan) {
       subtaskChain = startSubtaskChain(ctx, confirmedPlan);
+      // 全部子任务低置信（无立即执行项）→ 进链前先追问（Q10：避免首轮无子任务
+      // 指令空跑）；全丢弃时链退化为空队列，跑一轮正常收口，不阻塞对话
+      if (subtaskChain.queue.length === 0) {
+        await runChainClarification(ctx, subtaskChain, deps);
+      }
     }
   }
 
@@ -556,15 +562,25 @@ export async function runAgentFlow(
           // 不保存 assistant 消息到 DB（等最终结果），不发送 done，继续循环
           continue;
         }
-        // 链 v1：当前子任务收敛 → 非末子任务则注入下一条指令续跑（共享 llmMessages、
-        // 单一总预算，round 继续累加）；链末合并前序产出后走单次收口
+        // 链：当前子任务收敛 → 非末子任务则注入下一条指令续跑（共享 llmMessages、
+        // 单一总预算，round 继续累加）；执行序列尽且有低置信待追问 → 链末追问
+        //（每轮 ≤2 题，回答合并 params 后继续执行 / 丢弃明示）；链末单次收口
         let finalContent = assistantContent;
         if (subtaskChain) {
           const outcome = advanceSubtaskChain(ctx, subtaskChain, assistantContent);
           if (outcome === 'continue') {
             continue;
           }
-          finalContent = finalizeChainContent(subtaskChain, assistantContent);
+          if (outcome === 'clarify') {
+            const after = await runChainClarification(ctx, subtaskChain, deps);
+            if (after === 'continue') {
+              continue;
+            }
+            // 全部丢弃/无可执行：本轮产出与丢弃明示已在 buffer，last 置空防重复
+            finalContent = finalizeChainContent(subtaskChain, '');
+          } else {
+            finalContent = finalizeChainContent(subtaskChain, assistantContent);
+          }
         }
         // 正常路径：无工具调用且无文本问题 → 结束
         const refsJson = citationRefsJson(ctx);

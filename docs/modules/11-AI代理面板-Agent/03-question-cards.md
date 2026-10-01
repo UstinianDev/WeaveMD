@@ -85,5 +85,31 @@
 只要 `needsClarification` 为 true，就使用 Agent 提示词 + 提供
 `ask_question_card` 工具，确保模糊输入可以被追问澄清。
 
+#### 8.8.1 多意图低置信子任务追问（agent-multi-intent 任务 3）
+
+与上文单意图 `needsClarification` 路径**并存但互不干扰**（Q8/Q10）：
+
+- **判定与分流**：拆分确认通过后，`subtaskOrchestrator.startSubtaskChain` 把
+  `confidence < 0.7`（阈值 `LOW_CONFIDENCE_THRESHOLD`，或 LLM 显式标
+  `needsClarification`）的子任务标 `needsClarification: true` 并**不进立即执行序列**
+  （分流为立即执行 `queue` 与待追问 `clarifyPending` 两段）。
+- **执行序**：先执行全部高置信子任务；**链末**对低置信组发追问交互
+  （variant `subtask_clarify`，复用 interaction 通路，渲染侧落默认 `QuestionCard`，
+  不新开 IPC；拆分确认卡仍是 `intent_split` + `SplitConfirmCard`，两套 variant 不混淆）。
+- **分轮**：每轮 ≤2 题（`buildClarifyQuestions` 截断 + `round`/`totalRounds` 标注，
+  总轮数 = ceil(待追问数 / 2)），沿用 `ask_question_card` 的暂停/取消语义。
+- **收口**：回答按问题 id（= 子任务 id）合并回该子任务 `params.clarification`
+  后追加入执行序列；空回答 / 用户取消 / 无交互支持 → 丢弃该子任务并把明示文案
+  （`已跳过低置信子任务「…」…不再执行`）写进链 buffer，随链末单次落库展示，
+  **不阻塞收口**。
+- **与单意图路径的关系**：单意图低置信行为不变 —— `clarificationPrefix` 与
+  「分轮澄清策略」正文被 `agentPromptBuilder.test.ts` sha256 基线逐字钉死，未做任何
+  改动；「多意图低置信子任务追问」条款以独立 system 消息
+  `【低置信子任务追问】`（`buildSubtaskClarificationSegment`）在链内追加（同任务 2
+  结构化拆分段的注入口径）。
+- **confidence 只驱动追问，不参与轮次**：detector 预算仍按主意图
+  `getRoundsForIntent` 表值分配，追问交互不计轮次（`clarificationMatrix.test.ts`
+  ④ 钉死）。
+
 ---
 

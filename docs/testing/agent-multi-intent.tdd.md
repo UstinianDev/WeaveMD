@@ -289,3 +289,108 @@ npx playwright test
 **门禁结论**：typecheck 0 错 / test 193 文件 4570 例全绿 / lint 0 错（108 warning 与基线一致，
 本任务新增文件零 warning）/ playwright 31 例失败经基线对比确认为**既有环境性失败**（HEAD 同样 31 例、
 集合一致），本任务零新增失败。
+
+## 任务 3 — 置信度消费与低风险追问（追问矩阵）
+
+**范围**：`subtaskOrchestrator.ts`（0.7 分流 / 链末追问 `runChainClarification` /
+`buildClarifyQuestions` / 链状态机扩 `clarify` 结果）+ `agentPromptBuilder.ts`
+（新增 `buildSubtaskClarificationSegment`，基础提示词 sha256 钉死行零改动）+
+`agentLoop.ts`（`clarify` 结果接线 + 全低置信链首追问）+ 新建
+`tests/main/ai/clarificationMatrix.test.ts`（6 例）+ 本文档与
+`03-question-cards.md` §8.8.1 同步。`agentContext.ts` / `agentToolSelector.ts`
+**零改动**（多意图恒 Agent 提示与 chat `ask_question_card` 逻辑任务 2/既有实现已交付，
+本任务回归钉死）。
+
+**测试文件选址说明**：计划 §2 预期挂 `agentContext.test.ts` describe，实际新建独立
+`clarificationMatrix.test.ts` —— 追问矩阵 ②③⑤ 是链级用例，需要 taskPlanner/llmClient/
+guard mock 基座，挂进 `agentContext.test.ts` 需改其既有 mock 基座（vi.mock 注册在文件
+顶层，改动影响其 80 例），触碰「既有测试零改动」红线；新文件 mock 基座复制自
+`agentLoopSplit.test.ts`，但 **intentRouter 用真实实现**（⑥ 的 candidates/gate 语义须实测）。
+
+### 1. RED
+
+命令：
+
+```bash
+npx vitest run tests/main/ai/clarificationMatrix.test.ts
+```
+
+输出（首跑，追问编排未实现）：
+
+```text
+ FAIL  tests/main/ai/clarificationMatrix.test.ts > 追问矩阵 — agent-multi-intent 任务 3 >
+       ② 多意图含低置信 → 高置信先进执行序列 + 链末追问 + 回答合并 params 后执行
+ FAIL  ... > ③ 每轮 ≤2 题：三低置信拆 2 轮追问（2 题/1 题，round/totalRounds 标注）+ prompt 断言
+ FAIL  ... > ④ confidence 不参与轮次分配（getRoundsForIntent 签名/表 + detector 预算钉死）
+ FAIL  ... > ⑥ candidates 候选卡与多意图拆分卡语义不混淆（Q8 两套并存，追问 variant 独立）
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 2 passed (6)
+```
+
+RED 判定：②③④⑥ 红（无 `subtask_clarify` 交互 / 低置信不推迟）；①（单意图低置信
+现状回归）与 ⑤（全高置信零追问 + 0.7 边界）为**回归钉，起始即绿**——④ 的
+`getRoundsForIntent` 签名/表断言同样为钉死断言，其红来自追问计数断言。
+
+### 2. GREEN
+
+实现后首跑 5/6：② 失败 `expected true to be false` —— **用例自身缺陷**：
+`ctx.llmMessages` 是实时数组，`mock.calls[0][0].messages` 在断言时已被后续轮次追加，
+首轮负向断言（不含 `【子任务 2/2】`）失真。修正为按调用时刻快照（`roundSnapshots`）后复跑：
+
+```bash
+npx vitest run tests/main/ai/clarificationMatrix.test.ts
+```
+
+```text
+ ✓ tests/main/ai/clarificationMatrix.test.ts (6 tests) 46ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+```
+
+6 例对账（plan §4.2 任务 3）：
+
+| 例 | 覆盖点 | 结果 |
+|---|---|---|
+| ① | 单意图低置信 → Agent 提示（clarificationPrefix）+ `ask_question_card` 工具可用 + gate 关零拆分 | 回归钉，RED 即绿 |
+| ② | 混合置信链：高置信先执行（首轮指令不含低置信目标）→ 链末 `subtask_clarify` 追问 → 回答合并 `params.clarification` 后执行 → 单次落库/单 DONE/roundsUsed=2 | RED → GREEN |
+| ③ | 三低置信拆 2 轮（2 题/1 题，round 1/2、2/2）+ 每轮 ≤2 题 + 基础提示词与追问段均含「每轮最多 2 个问题」 | RED → GREEN |
+| ④ | `getRoundsForIntent.length === 1` + 表值钉死 + detector 预算 = 主意图表值（12）不受子任务 confidence 影响 + 追问不计轮次 | 钉死断言（红来自追问计数） |
+| ⑤ | 全高置信零追问（`intent_split` 仅 1 次交互）+ confidence=0.7 边界不入追问队列 | 回归钉，RED 即绿 |
+| ⑥ | `classifyIntent` candidates/needsClarification 保留 + gate 独立判定 + `['intent_split','subtask_clarify']` variant 序列 + 问题 id（`intent_split` vs 子任务 id）不混淆 | RED → GREEN |
+
+### 3. 红线回归（既有链 / 提示词 sha256 / 任务 1、2 测试）
+
+```bash
+npx vitest run tests/main/ai/agentLoopSplit.test.ts tests/main/ai/agentLoop.test.ts \
+  tests/main/ai/agentContext.test.ts tests/main/ai/agentPromptBuilder.test.ts \
+  tests/main/ai/intentRouter.test.ts tests/main/ai/taskPlanner.test.ts \
+  tests/main/ai/taskPlannerSchema.test.ts tests/main/ai/askQuestionCard.test.ts \
+  tests/main/ai/agentToolExecutor.test.ts
+```
+
+```text
+ Test Files  9 passed (9)
+      Tests  284 passed (284)
+```
+
+- `agentPromptBuilder.test.ts` sha256 基线全绿 = 单意图提示词（含 clarificationPrefix、
+  分轮澄清策略）**逐字节未变**；
+- `agentLoopSplit.test.ts` 7 例零改动全绿 = 任务 2 链 v1 行为等价（全高置信计划
+  分流为 no-op，指令序与收口不变）。
+
+### 4. 门禁（全量）
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| typecheck | `npm run typecheck` | `tsc --noEmit` **0 错误** |
+| test | `npm run test` | `Test Files 194 passed (194)`；`Tests 4576 passed (4576)` |
+| lint | `npm run lint` | `108 problems (0 errors, 108 warnings)`（0 error，warning 数与基线 108 一致） |
+| playwright | 本任务**跳过** | 未改任何 `src/render/` UI 文件（改动仅 3 个 `src/main/ai/agent/*.ts` + 测试 + 文档），按任务口径无 UI 改动可跳过 |
+
+**flaky 说明**：全量 test 本跑 4576 例**全数通过**（既知 ab-test 性能断言 flaky 本次未触发，
+任务 1 已单跑复核记录）；测试规模 4570 + 本任务 6 = **4576**。
+
+**门禁结论**：typecheck 0 错 / test 194 文件 4576 例全绿 / lint 0 错（108 warning 与基线
+一致，新文件零 warning）/ 无 UI 改动 playwright 按任务口径跳过。
