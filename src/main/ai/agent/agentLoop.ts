@@ -585,9 +585,14 @@ export async function runAgentFlow(
               (tc) => !isDeferredTool(tc.name)
             );
             if (nonDeferredCalls.length > 0) {
-              // skipSet: 确认矩阵派生（force 恒入 ∪ 链态 batch）+ 延迟工具（schema 不完整）
+              // skipSet: 确认矩阵按本轮工具名逐档派生（force ∪ 链态 batch ∪ 未登记名）
+              // + 延迟工具（schema 不完整）
               const skipSet = new Set([
-                ...confirmSkipSet(ctx.intent.intent, Array.isArray(ctx.writeBatch)),
+                ...confirmSkipSet(
+                  ctx.intent.intent,
+                  Array.isArray(ctx.writeBatch),
+                  accumulatedToolCalls.map((t) => t.name)
+                ),
                 ...deferredNamesThisRound,
               ]);
               const executorResults = executor
@@ -855,9 +860,14 @@ async function processStreamingToolRound(
   const executionSegments: ExecutionSegment[] = [];
 
   // 4. 从 executor 获取已完成的安全工具结果（waitForAll 内部等待 + 串行执行非安全工具，
-  //    跳过确认矩阵派生集合：force 恒入 ∪ 链态 batch —— 留给 checkForceConfirmTools 分派）
+  //    跳过确认矩阵按本轮名派生的集合：force ∪ 链态 batch ∪ 未登记名
+  //    —— 留给 checkForceConfirmTools 分派）
   const executorResults = await executor.waitForAll(
-    confirmSkipSet(ctx.intent.intent, Array.isArray(ctx.writeBatch))
+    confirmSkipSet(
+      ctx.intent.intent,
+      Array.isArray(ctx.writeBatch),
+      dedupedToolCalls.map((t) => t.name)
+    )
   );
 
   // 5. 区分已执行和未执行的工具，执行尚未执行的非安全工具

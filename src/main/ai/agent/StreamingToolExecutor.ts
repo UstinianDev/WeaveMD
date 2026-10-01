@@ -134,7 +134,8 @@ export class StreamingToolExecutor {
    * 3. 按 tc.index 排序返回所有结果
    *
    * @param skipToolNames 跳过指定名称的工具（不执行），留给调用方单独处理。
-   *   用于 FORCE_CONFIRM_TOOLS（deleteFile/deleteLocalFile）等需要用户确认的工具。
+   *   集合由确认矩阵派生（confirmMatrix.confirmSkipSet：force ∪ 链态 batch ∪
+   *   未登记名），跳过后交给 checkForceConfirmTools 分派确认/拒绝。
    */
   async waitForAll(skipToolNames?: Set<string>): Promise<ToolExecResult[]> {
     if (this.aborted) {

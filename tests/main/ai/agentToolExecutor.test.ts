@@ -502,4 +502,63 @@ describe('确认矩阵', () => {
     for (const tool of force) expect(notice).toContain(tool);
     expect(notice).toContain('汇总');
   });
+
+  // 连通性报告 §6：未登记工具 fail-closed（confirmTierFor → 'batch' 兜底）
+  it('未登记工具 + 无交互环境：拒绝执行不放行', async () => {
+    toolMock.executeTool.mockResolvedValue({ content: '{"success":true}', status: 'ok' });
+
+    const ctx = matrixCtx();
+    await executeToolRound(
+      ctx,
+      [{ index: 0, name: 'some_unregistered_tool', arguments: '{"file_path":"x.md"}' }],
+      '',
+      0,
+      DEPS, // 无 onInteractionRequired / waitForInteraction
+    );
+
+    expect(toolMock.executeTool).not.toHaveBeenCalled();
+    const call = (turnInput().toolCalls ?? [])[0];
+    expect(call.status).toBe('error');
+    expect(call.errorDesc).toContain('拒绝执行');
+  });
+
+  it('未登记工具 + 单意图（有交互）：fail-closed 拒绝，不静默直通执行', async () => {
+    const { deps, onInteractionRequired, waitForInteraction } = interactionDeps({});
+    toolMock.executeTool.mockResolvedValue({ content: '{"success":true}', status: 'ok' });
+
+    const ctx = matrixCtx(); // 无 writeBatch = 单意图
+    await executeToolRound(
+      ctx,
+      [{ index: 0, name: 'some_unregistered_tool', arguments: '{"file_path":"x.md"}' }],
+      '',
+      0,
+      deps,
+    );
+
+    expect(toolMock.executeTool).not.toHaveBeenCalled();
+    expect(onInteractionRequired).not.toHaveBeenCalled();
+    expect(waitForInteraction).not.toHaveBeenCalled();
+    const call = (turnInput().toolCalls ?? [])[0];
+    expect(call.status).toBe('error');
+    expect(call.errorDesc).toContain('登记');
+    expect(call.errorDesc).toContain('拒绝执行');
+  });
+
+  it('未登记工具 + 多写子任务链（有交互）：归入批次，链末汇总确认', async () => {
+    const { deps } = interactionDeps({ call_0_0: 'yes' });
+    toolMock.executeTool.mockResolvedValue({ content: '{"success":true}', status: 'ok' });
+
+    const ctx = matrixCtx({ writeBatch: [] });
+    await executeToolRound(
+      ctx,
+      [{ index: 0, name: 'some_unregistered_tool', arguments: '{"file_path":"x.md"}' }],
+      '',
+      0,
+      deps,
+    );
+
+    expect(toolMock.executeTool).toHaveBeenCalledTimes(1);
+    expect(ctx.writeBatch).toHaveLength(1);
+    expect(ctx.writeBatch![0].name).toBe('some_unregistered_tool');
+  });
 });

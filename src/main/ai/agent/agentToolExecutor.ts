@@ -7,7 +7,7 @@ import type { IAgentToolCall, IClarifyQuestion } from '@shared/ai';
 import { appendToolTurnWithAssistant, type ToolTurnToolWrite, type ToolTurnWriteResult } from '../../db/ai';
 import { executeTool } from '../toolRegistry';
 import { WRITE_TOOLS } from './agentToolSelector';
-import { confirmTierFor } from './confirmMatrix';
+import { confirmTierFor, isRegisteredConfirmTool } from './confirmMatrix';
 import { rollbackToSnapshot } from './agentSnapshot';
 import { isToolConcurrencySafe, safeParseArgs } from './concurrencyDefs';
 import { createSegment, completeSegment, type ExecutionSegment } from './agentExecutionSegments';
@@ -202,7 +202,8 @@ function refusedWriteResult(
  *   - `'none'`  → null（不拦截，常规执行路径）；
  *   - `'force'` → 单工具强制确认卡（delete_confirm 变体，yes 才执行，语义不变）；
  *   - `'batch'` → 无交互环境一律拒绝执行（fail-closed 只强不弱）；非链态保持现状
- *     （交回常规执行 + preview 通知，不打断）；多写子任务链执行并收集写批次，
+ *     （交回常规执行 + preview 通知，不打断），但未登记工具 fail-closed 拒绝、
+ *     不静默直通（连通性 §6）；多写子任务链执行并收集写批次（未登记名同样归入），
  *     链末 `confirmWriteBatch` 一次汇总确认（Q13）。
  * 统一使用浅拷贝引用 tc。返回 { executed: true, result } 表示已处理；返回 null 表示无需拦截。
  */
@@ -230,7 +231,18 @@ export async function checkForceConfirmTools(
       );
     }
     // 单意图保持现状：交回常规执行路径（执行成功后 handleToolResult 发 preview 通知）
-    if (!Array.isArray(ctx.writeBatch)) return null;
+    if (!Array.isArray(ctx.writeBatch)) {
+      // 未登记工具 fail-closed：单意图无批次确认可归入，有交互也不得静默直通执行
+      //（连通性报告 §6：未知组合只向确认方向兜底）
+      if (!isRegisteredConfirmTool(tc.name)) {
+        return refusedWriteResult(
+          tcCopy,
+          toolCallId,
+          '该工具未在确认矩阵登记，写入操作无法自动放行。已拒绝执行。'
+        );
+      }
+      return null;
+    }
     // 多写子任务链：执行并收集，链末一次汇总确认（Q13：执行 → 汇总确认 → 拒绝项快照回滚）
     const result = await executeOneTool(tcCopy, round, ctx, replacementState);
     if (result.result.status === 'ok') {

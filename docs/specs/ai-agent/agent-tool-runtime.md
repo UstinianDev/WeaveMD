@@ -26,10 +26,12 @@
 - **`FORCE_CONFIRM_TOOLS`（`deleteFile` / `deleteLocalFile`）必须由 skip-set 留给调用方的确认流程，禁止在流式路径预执行。** `waitForAll()` 逐个执行 queued 工具，若不跳过确认类工具，其确认对话框分支将成为死代码——属安全回退。（来源：`docs/plan/agent-perf-optimize.connectivity.md` Chain 1）
 - 已按 Option A 落地：`waitForAll(skipToolNames?: Set<string>)` 跳过集合内工具（保持 `queued`），调用方把跳过后剩余的确认工具交给 `processStreamingToolRound` 的 force_confirm 循环。（来源：`docs/plan/agent-perf-optimize.connectivity.md` Chain 1）
 - 现码锚点：`StreamingToolExecutor.ts:139`（`waitForAll` 定义）；skip-set 实际取值自
-  agent-multi-intent 任务 11 起**由确认矩阵派生** `confirmSkipSet(intent, inChain)`
-  （`force` 恒入 ∪ 链态 `batch`，非链态与原 `FORCE_CONFIRM_TOOLS` 行为等价）、
-  延迟工具重发轮 skip-set = 矩阵派生集 ∪ 本轮延迟工具（见 §14）。（来源：
-  `docs/plan/agent-perf-optimize.connectivity.md` Chain 1、agent-multi-intent 任务 11 现码核对）
+  agent-multi-intent 任务 11 起**由确认矩阵派生** `confirmSkipSet(intent, inChain, toolNames)`
+  —— 按本轮实际工具名逐个 `confirmTierFor` 判档（不按 `WRITE_TOOLS` 枚举）：已登记
+  `force` 恒入 ∪ 链态 `batch`（非链态与原 `FORCE_CONFIRM_TOOLS` 行为等价），
+  **未登记名恒入**（fail-closed → `batch`，连通性报告 §6 补全：流式路径不再绕过
+  `checkForceConfirmTools` 直通执行）；延迟工具重发轮 skip-set = 矩阵派生集 ∪ 本轮延迟工具（见 §14）。
+  （来源：`docs/plan/agent-perf-optimize.connectivity.md` Chain 1、agent-multi-intent 任务 11 现码核对）
 
 ## 4. 并发安全判定（按调用、fail-closed）
 
@@ -218,8 +220,11 @@
 
 - 链态判定 = `Array.isArray(ctx.writeBatch)`：`startSubtaskChain` 置 `[]`，
   `confirmWriteBatch` 消化后清空——与 `subtaskChain` 生命周期一致。
-- §3 的 `waitForAll` skip-set 由 `confirmSkipSet(intent, inChain)` 派生：`force` 恒入、
-  链态下 `batch` 入（确保写批次经 `checkForceConfirmTools` 收集）；非链态取值
+- **未登记工具**（`confirmTierFor` fail-closed → `batch`）：单意图拒绝执行、不静默直通
+  （有/无交互均拒绝）；链态归入批次走链末汇总确认——连通性报告 §6 fail-closed 补全。
+- §3 的 `waitForAll` skip-set 由 `confirmSkipSet(intent, inChain, toolNames)` 按本轮
+  工具名逐档派生：`force` 恒入、链态下 `batch` 入（确保写批次经 `checkForceConfirmTools`
+  收集）、**未登记名恒入**（交 `checkForceConfirmTools` 分派）；已登记非链态取值
   ≡ `FORCE_CONFIRM_TOOLS`（原行为零变化）。`FORCE_CONFIRM_TOOLS` / `WRITE_TOOLS` 常量保留。
 
 ### 14.3 链末汇总确认与快照回滚（Q13）

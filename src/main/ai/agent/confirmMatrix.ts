@@ -65,15 +65,42 @@ export function writeToolsByTier(): { force: string[]; batch: string[] } {
 }
 
 /**
- * `StreamingToolExecutor.waitForAll(skip-set)` 派生（计划 §1.6 消费点）：
- * force 恒入（保留现 FORCE_CONFIRM_TOOLS 行为）；链态下 batch 入
- * （收集写批次，链末一次汇总确认；非链态 batch 走现状路径不改）。
+ * 已登记工具判定（矩阵三集合并集 = toolRegistry 30 项）。
+ * 未登记名由 `confirmTierFor` fail-closed 到 'batch'；skip-set 派生与
+ * 单意图放行均按「未登记」口径向确认方向兜底（连通性报告 §6）。
  */
-export function confirmSkipSet(intent: IntentName, inChain: boolean): Set<string> {
+export function isRegisteredConfirmTool(tool: string): boolean {
+  return (
+    FORCE_CONFIRM_TOOLS.has(tool) || WRITE_TOOLS.has(tool) || KNOWN_NON_WRITE_TOOLS.has(tool)
+  );
+}
+
+/**
+ * `StreamingToolExecutor.waitForAll(skip-set)` 派生（计划 §1.6 消费点）：
+ * 按本轮实际工具名逐个调用 `confirmTierFor` 判档，不按 WRITE_TOOLS 枚举
+ * （枚举会遗漏未登记名，令流式路径绕过矩阵 fail-closed）：
+ *   - tier 'none'（已登记只读/非写）→ 不入 skip（现行为）；
+ *   - 未登记名（confirmTierFor 兜底 'batch'）→ 恒入 skip，留给
+ *     checkForceConfirmTools 分派（流式路径不再直通执行）；
+ *   - 已登记保持 inChain 现语义：force 恒入（现 FORCE_CONFIRM_TOOLS 行为）、
+ *     batch 链态入（收集写批次，链末一次汇总确认）、非链态走现状路径不改。
+ * @param toolNames 本轮实际出现的工具名（返回集合仅含其中成员）。
+ */
+export function confirmSkipSet(
+  intent: IntentName,
+  inChain: boolean,
+  toolNames: Iterable<string>
+): Set<string> {
   const skip = new Set<string>();
-  for (const tool of WRITE_TOOLS) {
-    const tier = confirmTierFor(intent, tool);
-    if (tier === 'force' || (inChain && tier === 'batch')) skip.add(tool);
+  for (const name of toolNames) {
+    const tier = confirmTierFor(intent, name);
+    if (tier === 'none') continue;
+    if (tier === 'force') {
+      skip.add(name);
+      continue;
+    }
+    // batch 档：未登记名恒入（fail-closed）；已登记按 inChain 现语义（链态入）
+    if (!isRegisteredConfirmTool(name) || inChain) skip.add(name);
   }
   return skip;
 }

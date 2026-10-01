@@ -207,8 +207,9 @@ runAgentFlow
   `rollbackToSnapshot` 回滚会话内容快照；快照回滚会还原 .md 内容，已接受的
   `editLocalFile` 回滚后重新执行以保留确认变更。**粒度限制（如实记录）**：新建/重命名/
   移动类操作不在内容快照覆盖范围，拒绝这些项无法经快照回滚撤销。
-- `waitForAll` skip-set 由矩阵派生（`confirmSkipSet(intent, inChain)`）：`force` 恒入、
-  链态下 `batch` 入（留给 `checkForceConfirmTools` 收集）；非链态 skip-set 与原
+- `waitForAll` skip-set 由矩阵按本轮工具名逐档派生（`confirmSkipSet(intent, inChain, toolNames)`）：
+  `force` 恒入、链态下 `batch` 入（留给 `checkForceConfirmTools` 收集）、**未登记名恒入**
+  （`confirmTierFor` fail-closed → `batch`，连通性报告 §6）；已登记非链态 skip-set 与原
   `FORCE_CONFIRM_TOOLS` 行为等价。
 - 链末汇总确认的明示（拒绝项数 + 回滚结果）追加进链 buffer，随链末单条 assistant 落库；
   错误/取消路径（AI_STREAM_ERROR 收口）不触发汇总确认——该路径下写入保持执行原状（= 改动前基线）。
