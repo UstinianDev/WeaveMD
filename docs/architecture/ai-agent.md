@@ -164,22 +164,19 @@ runAgentFlow
 
 ### 写入工具
 
-| 工具 | 说明 | 确认 |
-|------|------|------|
-| createFile | 创建文件（DB + 磁盘） | auto/manual |
-| createFolder | 创建文件夹 | auto/manual |
-| editLocalFile | 编辑本地文件 | auto/manual |
-| deleteLocalFile | 删除本地文件/空文件夹 | auto/manual |
-| editBlocks | 块级编辑（仅产 proposal） | manual |
-| preview_file_revision | 全文修订预览 | manual |
-| preview_patch_files | 多文件补丁预览 | manual |
-| renameFile / moveFile / deleteFile | 文件操作 | auto/manual |
-| memory_write | 写入记忆（upsert，恒 `source='auto'`，同轮去重 + 单轮 10 条自限） | 不进 FORCE_CONFIRM（铁律一仅约束笔记写入） |
+| 工具 | 说明 | 确认矩阵档位（任务 11） | 设计档位 |
+|------|------|------|------|
+| deleteFile / deleteLocalFile | 删除文件/本地文件（不可恢复） | **force**（任何 intent 恒强制确认卡） | auto/manual |
+| createFile / createFolder / renameFile / moveFile / editLocalFile | 直接写盘 | **batch**（单意图现状 preview；多写链链末汇总确认） | auto/manual |
+| editBlocks | 块级编辑（仅产 proposal） | none（proposal 恒 manual 确认，不进矩阵） | manual |
+| preview_file_revision / preview_patch_files | 修订/补丁预览 | none（proposal 恒 manual 确认，不进矩阵） | manual |
+| memory_write | 写入记忆（upsert，恒 `source='auto'`，同轮去重 + 单轮 10 条自限） | none（维持现口径：不进强制档，铁律一仅约束笔记写入） | — |
 
-> **B11 八-2② 实现现状**：`auto/manual` 为设计意图档位。截至 B11，主进程工具执行路径对
+> **B11 八-2② 实现现状**：`auto/manual` 为设计意图档位。主进程工具执行路径对
 > `write_mode=auto` **无消费点**（该值仅由 UI toggle 与 `AI_GET/SET_WRITE_MODE` 持久化到
-> `ai_config.write_mode`）；实际硬确认由 `FORCE_CONFIRM_TOOLS`（`agentToolExecutor.checkForceConfirmTools`，
-> 删除类不可恢复操作恒确认）与 proposal/confirm 类工具（恒 manual）承担。详见下方「写控制」。
+> `ai_config.write_mode`）；实际硬确认由 **确认矩阵 `confirmMatrix.confirmTierFor`**
+> （`agentToolExecutor.checkForceConfirmTools` 按档分派，任务 11）与 proposal/confirm 类工具
+> （恒 manual）承担。详见下方「写控制」。
 
 ### 交互工具
 
@@ -188,19 +185,47 @@ runAgentFlow
 | ask_question_card | 结构化提问（text/choice/confirm） |
 | runSkill | 执行 Skill |
 
-## 写控制
+## 写控制（intent × tool 确认矩阵，agent-multi-intent 任务 11）
 
-| 模式 | 设计意图 | 实现现状（B11 八-2② 如实记录） |
+> 权威实现：`src/main/ai/agent/confirmMatrix.ts`（纯函数，**代码矩阵为准**，Q14；
+> 提示词一致性由 `tests/main/ai/agentToolExecutor.test.ts`「确认矩阵」+ `tests/main/ai/confirmMatrix.test.ts` 钉死）。
+
+### 三档定义
+
+| 档位 | 覆盖 | 行为 |
 |------|------|------|
-| `auto` | AI 直接执行写操作 | **主进程工具执行路径无消费点**——仅 UI toggle + IPC（`AI_GET/SET_WRITE_MODE`）持久化为用户偏好 |
-| `manual` | 弹确认卡片（红删绿增预览） | 生效路径：`FORCE_CONFIRM_TOOLS` 硬确认（删除类）+ `editBlocks`/`preview_*` proposal 确认（恒 manual） |
+| `force` | `deleteFile` / `deleteLocalFile`（**任何 intent**，含未知 intent） | 单工具强制确认卡（`delete_confirm` 变体），答 yes 才执行；无交互环境拒绝执行 |
+| `batch` | `WRITE_TOOLS` 其余 5 项（createFile/createFolder/renameFile/moveFile/editLocalFile，**任何 intent 均不得返回 `none`**——铁律一不削弱） | 单意图保持现状（执行 + preview 通知）；**多写子任务链**执行并收集写批次 → 链末一次汇总确认（`write_batch`）；无交互环境拒绝执行 |
+| `none` | 已登记只读/非写工具（23 项，含 `memory_write` 维持现口径、`ask_question_card`、proposal 类不进矩阵） | 不拦截，常规执行路径 |
+
+- **fail-closed**：未知 intent 值、未登记工具名 → 按 `'batch'`（**只向确认方向兜底，禁止向放行方向兜底**）。
+- **无交互环境 `'force'`/`'batch'` 一律拒绝执行**（`checkForceConfirmTools` 内 `:224-235`
+  「无交互拒删除」语义泛化到全部写档，只强不弱）。生产链路 `agentTaskWorker.buildAgentDeps`
+  恒带交互回调，该闸只在无回调的直连/测试环境触发。
+- **多写汇总一次确认（Q13）**：汇总只合并打断次数，**确认动作不省略**——链末一次
+  `write_batch` 交互逐项勾选「保留/拒绝」（`BatchConfirmCard`），拒绝项链末经
+  `rollbackToSnapshot` 回滚会话内容快照；快照回滚会还原 .md 内容，已接受的
+  `editLocalFile` 回滚后重新执行以保留确认变更。**粒度限制（如实记录）**：新建/重命名/
+  移动类操作不在内容快照覆盖范围，拒绝这些项无法经快照回滚撤销。
+- `waitForAll` skip-set 由矩阵派生（`confirmSkipSet(intent, inChain)`）：`force` 恒入、
+  链态下 `batch` 入（留给 `checkForceConfirmTools` 收集）；非链态 skip-set 与原
+  `FORCE_CONFIRM_TOOLS` 行为等价。
+- 链末汇总确认的明示（拒绝项数 + 回滚结果）追加进链 buffer，随链末单条 assistant 落库；
+  错误/取消路径（AI_STREAM_ERROR 收口）不触发汇总确认——该路径下写入保持执行原状（= 改动前基线）。
+
+### write_mode（B11 八-2② 如实记录）
+
+| 模式 | 设计意图 | 实现现状 |
+|------|------|------|
+| `auto` | AI 直接执行写操作 | **主进程工具执行路径无消费点**——仅 UI toggle + IPC（`AI_GET/SET_WRITE_MODE`）持久化为用户偏好；auto 档确认接线为 P1 任务 13 |
+| `manual` | 弹确认卡片（红删绿增预览） | 生效路径：确认矩阵 `force`/`batch` 档 + `editBlocks`/`preview_*` proposal 确认（恒 manual） |
 
 - **附件/解析产物写入按 `manual` 确认语义执行**（八-2②）：入 KB（`importAttachmentAsKb`）、
   附件落库（`persistIncomingAttachments`）等触发点全部来自用户显式动作（勾选+发送、设置页导入），
   AI 工具集内无任何可触发上述写入的工具（已核查 toolRegistry/agent 侧零引用）——不存在
   "AI 自动写附件"路径，天然满足 manual 语义。
 - **确认 UI 不空转**：Composer 写模式开关已加显式 title 提示（auto=偏好预设、当前按手动语义执行）。
-- `write_mode` 完整接线（auto 分支消费点、确认卡片+staleness 全链路）列为后续，不阻塞本期（八-2 范围）。
+- `write_mode` 完整接线（auto 分支消费点、确认卡片+staleness 全链路）列为 P1（任务 13），不阻塞本期。
 
 **staleness detection**：editBlocks proposal 生成时计算 **xxHash64** contentHash
 （`src/shared/utils/hashUtil.ts`，S4 MD5→xxHash64 迁移后；本行原文误写为 MD5，B11 如实修正），确认时二次校验。

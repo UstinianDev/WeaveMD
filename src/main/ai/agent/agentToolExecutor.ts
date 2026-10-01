@@ -6,7 +6,9 @@ import { IPC_CHANNELS } from '@shared/constants';
 import type { IAgentToolCall, IClarifyQuestion } from '@shared/ai';
 import { appendToolTurnWithAssistant, type ToolTurnToolWrite, type ToolTurnWriteResult } from '../../db/ai';
 import { executeTool } from '../toolRegistry';
-import { WRITE_TOOLS, FORCE_CONFIRM_TOOLS } from './agentToolSelector';
+import { WRITE_TOOLS } from './agentToolSelector';
+import { confirmTierFor } from './confirmMatrix';
+import { rollbackToSnapshot } from './agentSnapshot';
 import { isToolConcurrencySafe, safeParseArgs } from './concurrencyDefs';
 import { createSegment, completeSegment, type ExecutionSegment } from './agentExecutionSegments';
 import { type LoopCheckResult } from './agentLoopGuard';
@@ -41,6 +43,18 @@ export interface ToolExecResult {
   tc: ToolCall;
   toolCallId: string;
   result: { content: string; status: 'ok' | 'error'; errorDesc?: string };
+}
+
+/**
+ * 链内写批次条目（任务 11）：batch 档写入执行成功后收集，
+ * 链末 confirmWriteBatch 一次汇总确认（Q13，逐项可拒绝）。
+ */
+export interface WriteBatchItem {
+  toolCallId: string;
+  name: string;
+  args: string;
+  /** 目标摘要（file_path / file_id / file_name 等，用于确认卡文案）。 */
+  target: string;
 }
 
 /**
@@ -155,7 +169,41 @@ export function validateQuestionCardArgs(tc: ToolCall): boolean {
 }
 
 /**
- * FORCE_CONFIRM_TOOLS 拦截 + 用户交互确认。
+ * 从工具 args 提取目标摘要（file_path / file_id / file_name，写批次确认卡文案用）。
+ */
+function extractWriteTarget(args: string): string {
+  try {
+    const parsed = JSON.parse(args) as Record<string, unknown>;
+    return (
+      (typeof parsed.file_path === 'string' ? parsed.file_path : '') ||
+      (typeof parsed.file_id === 'string' ? parsed.file_id : '') ||
+      (typeof parsed.file_name === 'string' ? parsed.file_name : '')
+    );
+  } catch {
+    return '';
+  }
+}
+
+/** 无交互环境写档拒绝结果（fail-closed，只强不弱）。 */
+function refusedWriteResult(
+  tc: ToolCall,
+  toolCallId: string,
+  errorDesc: string
+): { executed: true; result: ToolExecResult } {
+  return {
+    executed: true,
+    result: { tc, toolCallId, result: { content: '', status: 'error', errorDesc } },
+  };
+}
+
+/**
+ * 确认矩阵拦截 + 用户交互确认（任务 11：原 FORCE_CONFIRM_TOOLS 拦截按矩阵泛化）。
+ * 按 `confirmTierFor(ctx.intent.intent, tc.name)` 分派：
+ *   - `'none'`  → null（不拦截，常规执行路径）；
+ *   - `'force'` → 单工具强制确认卡（delete_confirm 变体，yes 才执行，语义不变）；
+ *   - `'batch'` → 无交互环境一律拒绝执行（fail-closed 只强不弱）；非链态保持现状
+ *     （交回常规执行 + preview 通知，不打断）；多写子任务链执行并收集写批次，
+ *     链末 `confirmWriteBatch` 一次汇总确认（Q13）。
  * 统一使用浅拷贝引用 tc。返回 { executed: true, result } 表示已处理；返回 null 表示无需拦截。
  */
 export async function checkForceConfirmTools(
@@ -165,11 +213,38 @@ export async function checkForceConfirmTools(
   deps: AgentLoopDeps,
   replacementState?: ContentReplacementState,
 ): Promise<{ executed: true; result: ToolExecResult } | null> {
-  if (!FORCE_CONFIRM_TOOLS.has(tc.name)) return null;
+  const tier = confirmTierFor(ctx.intent.intent, tc.name);
+  if (tier === 'none') return null;
 
   const toolCallId = `call_${round}_${tc.index}`;
   const tcCopy: ToolCall = { index: tc.index, name: tc.name, arguments: tc.arguments };
 
+  // ---- batch 档（WRITE_TOOLS 其余 5 项）----
+  if (tier === 'batch') {
+    // 无交互环境：写档一律拒绝执行（原 :224-235「无交互拒删除」语义泛化到全部写档）
+    if (!deps.onInteractionRequired || !deps.waitForInteraction) {
+      return refusedWriteResult(
+        tcCopy,
+        toolCallId,
+        '写入操作需要用户确认，但当前环境不支持交互。已拒绝执行。'
+      );
+    }
+    // 单意图保持现状：交回常规执行路径（执行成功后 handleToolResult 发 preview 通知）
+    if (!Array.isArray(ctx.writeBatch)) return null;
+    // 多写子任务链：执行并收集，链末一次汇总确认（Q13：执行 → 汇总确认 → 拒绝项快照回滚）
+    const result = await executeOneTool(tcCopy, round, ctx, replacementState);
+    if (result.result.status === 'ok') {
+      ctx.writeBatch.push({
+        toolCallId,
+        name: tc.name,
+        args: tc.arguments,
+        target: extractWriteTarget(tc.arguments),
+      });
+    }
+    return { executed: true, result };
+  }
+
+  // ---- force 档（deleteFile / deleteLocalFile）：保留现单工具强制卡语义 ----
   let fileInfo = '';
   try {
     const parsed = JSON.parse(tc.arguments) as Record<string, unknown>;
@@ -221,18 +296,66 @@ export async function checkForceConfirmTools(
   }
 
   // 无 interaction 支持：安全优先，拒绝执行
-  return {
-    executed: true,
-    result: {
-      tc: tcCopy,
-      toolCallId,
-      result: {
-        content: '',
-        status: 'error',
-        errorDesc: '删除操作需要用户确认，但当前环境不支持交互。已拒绝执行。',
-      },
-    },
-  };
+  return refusedWriteResult(
+    tcCopy,
+    toolCallId,
+    '删除操作需要用户确认，但当前环境不支持交互。已拒绝执行。'
+  );
+}
+
+/**
+ * 链末写批次汇总确认（任务 11，Q13：确认不省略，多写汇总一次确认）。
+ * 一次 `write_batch` 交互逐项确认（id = toolCallId，'yes' 保留 / 'no' 拒绝）；
+ * 存在拒绝项 → `rollbackToSnapshot` 回滚会话内容快照。快照回滚会还原 .md 内容，
+ * 故已接受的内容编辑项（editLocalFile）重新执行以保留用户确认的变更；
+ * 新建/重命名/移动类操作不在内容快照覆盖范围（文档如实记录该粒度限制）。
+ * 返回明示文本（进链 buffer，随链末合并落库）；空串 = 无需明示。
+ * `waitForInteraction` reject（取消/任务结束）向上传播，由外层统一收口。
+ */
+export async function confirmWriteBatch(
+  ctx: AgentContext,
+  deps: AgentLoopDeps
+): Promise<string> {
+  const batch = ctx.writeBatch;
+  ctx.writeBatch = undefined;
+  if (!batch || batch.length === 0) return '';
+  if (!deps.onInteractionRequired || !deps.waitForInteraction) return '';
+
+  const questions: IClarifyQuestion[] = batch.map((item) => ({
+    id: item.toolCallId,
+    text:
+      `链内写入 ${item.name}${item.target ? `（${item.target}）` : ''} 已执行，` +
+      `共 ${batch.length} 项汇总确认——是否保留该写入？`,
+    type: 'confirm',
+    options: ['保留', '拒绝'],
+  }));
+  deps.onInteractionRequired(questions, 'write_batch');
+  const answers = await deps.waitForInteraction();
+
+  const rejected = batch.filter((item) => answers?.[item.toolCallId] === 'no');
+  if (rejected.length === 0) return '';
+
+  if (!deps.db || !deps.sessionId) {
+    return `（写批次确认：拒绝 ${rejected.length} 项，当前环境无会话快照，回滚未执行）`;
+  }
+  try {
+    await rollbackToSnapshot(deps.db, deps.sessionId, ctx.userId);
+  } catch (err) {
+    console.warn('[agentToolExecutor] 写批次快照回滚失败:', err);
+    return `（写批次确认：拒绝 ${rejected.length} 项，但快照回滚失败——请手动核对变更）`;
+  }
+
+  // 快照回滚还原了 .md 内容：重新执行已接受的 editLocalFile（尽力恢复，失败不阻断收口）
+  const accepted = batch.filter((item) => answers?.[item.toolCallId] !== 'no');
+  for (const item of accepted) {
+    if (item.name !== 'editLocalFile') continue;
+    try {
+      await executeTool(item.name, item.args, ctx.toolCtx);
+    } catch {
+      /* 恢复失败不阻断收口 */
+    }
+  }
+  return `（写批次确认：拒绝 ${rejected.length} 项，已回滚会话快照并保留其余写入）`;
 }
 
 /**

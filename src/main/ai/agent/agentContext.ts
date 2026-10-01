@@ -57,7 +57,7 @@ import type { AgentLoopDeps } from './agentLoop';
 import type { AgentReqPayload } from './agentLoop';
 import type { AgentLlmMessage } from './agentLoop';
 import type { ContentReplacementState } from './toolResultStorage';
-import type { CitationEntry } from './agentToolExecutor';
+import type { CitationEntry, WriteBatchItem } from './agentToolExecutor';
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -90,6 +90,11 @@ export interface AgentContext {
   replacementState?: ContentReplacementState;
   /** B8 六-2②：本轮检索 citation（assistant refsJson 来源，executeOneTool 收集）。 */
   citationRefs?: CitationEntry[];
+  /**
+   * 多写子任务链的写批次收集器（任务 11）：链启动置 []，链内 batch 档写入成功后
+   * 收集，链末 confirmWriteBatch 一次汇总确认（Q13）。缺省 = 非链/不收集。
+   */
+  writeBatch?: WriteBatchItem[];
   /** 多意图规则预检门（Q6）：true = 需走结构化拆分（agent-multi-intent 任务 2）。 */
   intentGateOpen: boolean;
   /** 链 v1 快照：历史消息（去当前 user 消息，经 cleanup/配对修复），任务 5 上下文重建铺垫。 */

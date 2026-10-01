@@ -30,12 +30,14 @@ import {
   buildSplitDirectiveSegment,
   buildSubtaskClarificationSegment,
   buildSubtaskInstruction,
+  buildWriteBatchNoticeSegment,
 } from './agentPromptBuilder';
 import { normalizeTaskPlan, parseTaskPlan } from './taskPlannerSchema';
 import { runTaskSplit, type TaskSplitLlmCtx } from './taskPlanner';
 import { DeadLoopDetector } from './agentLoopGuard';
 import { getRoundsForIntent } from './agentHelpers';
 import { toolsForIntent } from './agentToolSelector';
+import { writeToolsByTier } from './confirmMatrix';
 import type { AgentContext, ToolSelectionArgs } from './agentContext';
 import type { AgentLlmMessage, AgentLoopDeps } from './agentLoop';
 
@@ -166,6 +168,11 @@ function skipNote(subtask: SubtaskDef, reason: string): string {
 /** buffer 追加一段（首段直接赋值）。 */
 function appendBuffer(chain: SubtaskChain, text: string): void {
   chain.buffer = chain.buffer ? `${chain.buffer}\n\n${text}` : text;
+}
+
+/** 链 buffer 追加明示（任务 11 写批次确认结果；与内部 appendBuffer 同口径）。 */
+export function appendChainNote(chain: SubtaskChain, text: string): void {
+  appendBuffer(chain, text);
 }
 
 /**
@@ -464,7 +471,12 @@ export function startSubtaskChain(ctx: AgentContext, plan: AgentTaskPlan): Subta
   const primaryIntent = plan.primaryIntent ?? ctx.intent.intent;
   // 快照必须先于拆分段注入：base = system 提示 + baseHistoryMessages + 当前 user 消息 + 锚点
   const baseMessages: AgentLlmMessage[] = [...ctx.llmMessages];
-  const directive = buildSplitDirectiveSegment(plan);
+  // 任务 11：拆分段附写批次确认口径（矩阵数据源注入，随链重建持续在场）+ 开启写批次收集
+  const directive = [
+    buildSplitDirectiveSegment(plan),
+    buildWriteBatchNoticeSegment(writeToolsByTier()),
+  ].join('\n');
+  ctx.writeBatch = [];
   ctx.intent = { ...ctx.intent, intent: primaryIntent };
   pushChainMessage(ctx, { role: 'system', content: directive });
 

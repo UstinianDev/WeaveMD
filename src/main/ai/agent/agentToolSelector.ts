@@ -26,13 +26,16 @@ export const READ_ONLY_TOOLS = new Set([
   'searchDocument', 'readPage', 'extractTable', 'analyzeChart',
 ]);
 
-/** 写入工具集合（有副作用，需串行执行 + 预览通知）。 */
+/** 写入工具集合（有副作用，需串行执行 + 预览通知）。确认档位见 confirmMatrix.ts（任务 11）。 */
 export const WRITE_TOOLS = new Set([
   'createFile', 'createFolder', 'renameFile', 'moveFile',
   'deleteFile', 'editLocalFile', 'deleteLocalFile',
 ]);
 
-/** 强制确认工具集合（硬编码拦截，不依赖 LLM 自觉，删除操作不可恢复）。 */
+/**
+ * 强制确认工具集合（硬编码拦截，不依赖 LLM 自觉，删除操作不可恢复）。
+ * 常量保留供既有引用方；确认档位以 confirmMatrix.confirmTierFor 为准（任务 11）。
+ */
 export const FORCE_CONFIRM_TOOLS = new Set([
   'deleteFile',
   'deleteLocalFile',

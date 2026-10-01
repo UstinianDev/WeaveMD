@@ -526,3 +526,142 @@ npx playwright test
 
 **门禁结论**：typecheck 0 错 / test 195 文件 4587 例全绿 / lint 0 错（108 warning 与基线
 一致，新文件零 warning）/ playwright 31 例失败与基线同数同名（零新增）。
+
+## 任务 11 — 风险分档确认矩阵（intent × tool，多写汇总确认）
+
+**范围**：新建 `src/main/ai/agent/confirmMatrix.ts`（`confirmTierFor` / `writeToolsByTier` /
+`confirmSkipSet` 纯函数）+ `agentToolExecutor.ts`（`checkForceConfirmTools` 按档泛化、
+`confirmWriteBatch` 链末汇总、`WriteBatchItem` 类型）+ `agentContext.writeBatch` 收集器 +
+`agentLoop.ts`（`finalizeChainRun` 统一链收口 ×8 点、skip-set 矩阵派生 ×2）+
+`subtaskOrchestrator.ts`（`startSubtaskChain` 置收集器 + 拼写批次提示段 + `appendChainNote`）+
+`agentPromptBuilder.buildWriteBatchNoticeSegment`（独立段，sha256 正文不改）+
+`agentToolSelector` 注释指向矩阵（常量保留）+ 渲染侧 `BatchConfirmCard.tsx` +
+`AIPanelSession` `write_batch` 分派 + i18n `ai.batchConfirm.*` 三语 + 新建
+`tests/main/ai/confirmMatrix.test.ts`（91 例）+ `agentToolExecutor.test.ts` 新 describe
+（8 例，既有 7 例零改动）+ `agent-tool-runtime.md` §14 + `ai-agent.md` 写控制章节改写 + 本文档。
+
+### 1. RED
+
+**首轮**（仅写测试、无实现文件）：`tests/main/ai/confirmMatrix.test.ts` 缺被导入模块，
+连带 `agentToolExecutor.test.ts` 的动态 `import('@main/ai/agent/confirmMatrix')` 被 vite
+静态解析失败 → 整文件收集失败（0 test）。按任务 5 教训改两步走：
+
+**二轮**（补签名占位 stub：`confirmTierFor` 恒 `'none'`、`writeToolsByTier`/`confirmSkipSet`
+返回空 —— 行为违反 fail-closed 与铁律一，保证逐条归因）：
+
+```bash
+npx vitest run tests/main/ai/confirmMatrix.test.ts tests/main/ai/agentToolExecutor.test.ts
+```
+
+```text
+ Test Files  2 failed (2)
+      Tests  53 failed | 53 passed (106)
+```
+
+逐条归因（`--reporter=verbose`）：
+
+- `confirmMatrix.test.ts`：49 例红（42 组合全红 + fail-closed 4 + 拆分/派生 3）；
+  42 例绿为结构钉（`WRITE_TOOLS`/`FORCE_CONFIRM_TOOLS` 常量 7/2 项）与只读样例按 stub
+  `'none'` 即绿的预期项，`confirmSkipSet` 空集下「不放行写工具」为真空绿；
+- `agentToolExecutor.test.ts`：**既有 7 例全绿（零改动）**；新 describe 4 红 =
+  真实行为缺口（无交互拒 `batch`、链收集写批次、拒绝项回滚、提示词一致性）；
+  另 4 例 RED 即绿 = **现行为回归钉**（`force` 卡 yes/no、`batch` 单意图 preview、
+  无交互拒 `force` —— 改动前 `FORCE_CONFIRM_TOOLS` 已有语义，任务 11 不得削弱）。
+
+### 2. GREEN
+
+实现 `confirmMatrix.ts` 真身 + 执行器/循环/链/提示词/UI 接线后：
+
+```bash
+npx vitest run tests/main/ai/confirmMatrix.test.ts tests/main/ai/agentToolExecutor.test.ts
+```
+
+```text
+ ✓ tests/main/ai/confirmMatrix.test.ts (91 tests) 26ms
+ ✓ tests/main/ai/agentToolExecutor.test.ts (15 tests) 69ms
+
+ Test Files  2 passed (2)
+      Tests  106 passed (106)
+```
+
+11 例对账（plan §4.2 任务 11）：
+
+| 要点 | 例数 | 断言 |
+|---|---|---|
+| 6×7 全组合 | 42+1 | 每格断言 `force`（delete×2 ×6 intent）/ `batch`（其余 5 ×6）且**恒 ≠ none**；结构钉 `WRITE_TOOLS`=7、`FORCE_CONFIRM_TOOLS`=2 |
+| 只读/非写样例 | 40 | 6 intent × 6 只读样例 → `none`；`ask_question_card`/`memory_write`/`runSkill`/`preview_file_revision` → `none`（memory_write 现口径不进强制档） |
+| fail-closed | 4 | 未知 intent × 只读 → `batch`；未知 intent × 写 → `batch`；未知 intent × 删除 → 仍 `force`（只强不弱）；合法 intent × 未登记工具 → `batch` |
+| skip-set 派生 | 3 | 非链态 ≡ `FORCE_CONFIRM_TOOLS`（6 intent）；链态 = 全 7 写工具；派生集内无 `none` 档 |
+| force 确认卡 | 2 | `delete_confirm` 变体 + 答 yes 才执行；答 no 不执行且返回取消错误结果 |
+| batch 单意图现状 | 1 | 直接执行 + `AI_STREAM_TOOL` preview 事件恰 1 次 + 零交互打断 |
+| 无交互拒写 | 2 | `force`/`batch` 均 `executeTool` 零调用、tool 行 `errorDesc` 含「不支持交互」「拒绝执行」（不放行） |
+| 多写链汇总一次确认 | 1 | 执行期零打断（2 写工具执行 + 收集）；`confirmWriteBatch` → `onInteractionRequired` **恰 1 次**、`waitForInteraction` 恰 1 次、variant `'write_batch'`、问题数 = 批次数 |
+| 逐项拒绝回滚 | 1 | 拒 1 项 → `rollbackToSnapshot` 恰 1 次且 `(db, 'sess-1', 'u1')` 透传；已接受 `editLocalFile` 回滚后重执行（第 3 次 `executeTool`）；返回明示含「回滚」；收集器清空 |
+| 提示词一致性（Q14） | 1 | 「## 写入规则」删除行点名集合 `===` 矩阵 `force`；`batch` 5 项不在强制确认行列；`editLocalFile` preview 行在位；`buildWriteBatchNoticeSegment` 含全部 force+batch 工具名 |
+
+### 3. 红线回归（既有链 / 提示词 sha256 / 任务 1、2、3、5 测试）
+
+```bash
+npx vitest run tests/main/ai/agentLoopSplit.test.ts tests/main/ai/clarificationMatrix.test.ts \
+  tests/main/ai/agentLoop.test.ts tests/main/ai/agentContext.test.ts \
+  tests/main/ai/agentPromptBuilder.test.ts tests/main/ai/intentRouter.test.ts \
+  tests/main/ai/taskPlanner.test.ts tests/main/ai/taskPlannerSchema.test.ts \
+  tests/main/ai/askQuestionCard.test.ts tests/main/ai/agentToolExecutor.test.ts \
+  tests/main/ai/streamingToolExecutor.test.ts tests/main/ai/subtaskSequence.test.ts \
+  tests/main/ai/confirmMatrix.test.ts
+```
+
+```text
+ Test Files  13 passed (13)
+      Tests  416 passed (416)
+```
+
+- `agentToolExecutor` 既有 **7 例零改动全绿**；`agentPromptBuilder` sha256 基线全绿
+  （`buildAgentSystemPrompt` 逐字节未改——写入规则正文被钉死，任务 11 链口径改走
+  `buildWriteBatchNoticeSegment` 独立段，与任务 2/3 同款先例，本文如实记录偏差）；
+- `agentLoop` 31 例 / `agentLoopSplit` 7 / `subtaskSequence` 11 / `clarificationMatrix` 6
+  全绿 = 链收口改走 `finalizeChainRun`（写批次为空时零交互）与 skip-set 矩阵派生
+  （非链态 ≡ 原常量）行为等价；
+- `streamingToolExecutor` 全绿 = `waitForAll(skipToolNames)` 契约未改，只改调用方传入集合。
+
+### 4. 门禁（全量）
+
+| 门禁 | 命令 | 结果 |
+|---|---|---|
+| typecheck | `npm run typecheck` | `tsc --noEmit` **0 错误** |
+| test | `npm run test` | `Test Files 196 passed (196)`；`Tests 4686 passed (4686)` |
+| lint | `npm run lint` | `108 problems (0 errors, 108 warnings)`（0 error，warning 数与基线 108 一致，新文件零 warning） |
+| playwright | `npx playwright test` | 见下节 E2E 比对 |
+
+**测试规模**：任务 5 收口 4587 → 本任务 +99 = **4686 例**（confirmMatrix 91 +
+agentToolExecutor 新 describe 8，全数通过）。
+
+### 5. E2E 门禁（改了 src/render/：BatchConfirmCard + AIPanelSession + i18n×3）
+
+```bash
+npx playwright test
+```
+
+```text
+  31 failed
+  1 skipped
+  104 passed (7.1m)
+```
+
+**与任务 5 基线比对（零新增）**：
+
+1. `passed 104 / skipped 1 / 时长 7.1m` 与基线逐项同数；E2E 套件零增删（本任务不加
+   e2e 用例），总量恒等 → `failed = 31 = 基线 31`；
+2. 失败名单按 spec 分组与基线一致：`drag-selection-markers` 5（自带「当前 RED」标注）、
+   `editor-table` 7、`feedback` 5、`ai-agent-panel` 4（A4/A2/A3/① 改写链）、
+   `exit-behavior` 2、`thematic-break` 2、`floating-toolbar` 2、`editor` /
+   `image-resize` / `recent-history-restore` / `welcome-doc` 各 1（=31）；
+3. 本任务改动的渲染面（`BatchConfirmCard` 新卡、`AIPanelSession` 新 variant 分派、
+   i18n 新增 4 键 ×3 语）不在任何既有用例路径上——`write_batch` 交互无 E2E 覆盖
+   （主进程通路由 `agentToolExecutor.test.ts` 8 例覆盖），`ai-agent-panel` 4 例失败
+   为 HEAD 既有改写链失败（任务 2 起同名在列）；
+4. **结论：31 例均为 HEAD 既有环境性失败，本任务零新增失败。**
+
+**门禁结论**：typecheck 0 错 / test 196 文件 4686 例全绿 / lint 0 错（108 warning 与基线
+一致，新文件零 warning）/ playwright 31 例失败与基线同数同名（零新增）。P0 五任务
+（1、2、3、5、11）全部交付。

@@ -529,6 +529,21 @@ export function buildSplitDirectiveSegment(plan: AgentTaskPlan): string {
 }
 
 /**
+ * 写批次确认提示段（任务 11）：拼入链启动时的拆分指令段（独立 system 语义，
+ * `buildAgentSystemPrompt` 本体 sha256 钉死不改 —— 任务 2/3 同款先例）。
+ * 任务列表由 `confirmMatrix.writeToolsByTier()` 注入（代码矩阵为准，Q14；
+ * 一致性由 tests/main/ai/agentToolExecutor.test.ts「确认矩阵」钉死）。
+ */
+export function buildWriteBatchNoticeSegment(tiers: { force: string[]; batch: string[] }): string {
+  return [
+    '【写批次确认】链内写入执行后于链末汇总一次确认（逐项可拒绝，拒绝项按会话快照回滚）：',
+    `- 汇总确认工具：${tiers.batch.join(' / ')}（单意图执行沿用现状，不进汇总）。`,
+    `- 逐项强制确认：${tiers.force.join(' / ')}（删除不可恢复，恒弹确认卡，不进汇总）。`,
+    '- 确认环节不会被省略；被拒绝的写入会回滚，请只执行当前子任务真正需要的写操作。',
+  ].join('\n');
+}
+
+/**
  * 子任务执行指令模板（任务级）：根据当前子任务 action/object 目标执行，完成后简述结果。
  * 每个子任务启动前由 subtaskOrchestrator 注入一条。
  */

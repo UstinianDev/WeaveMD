@@ -1,6 +1,6 @@
 # Agent 工具运行时 — 执行、并发与外发闸（Tool Runtime）
 
-> 规范编号：SPEC-AGENT-TOOL | 版本：v1.0（已实施）| 状态：生效 | 更新：2026-10-01
+> 规范编号：SPEC-AGENT-TOOL | 版本：v1.1（已实施，任务 11 增 §14 确认档位契约）| 状态：生效 | 更新：2026-10-02
 > 关联需求：[agent-perf-optimize.req.md](../../requirements/agent-perf-optimize.req.md)（S1~S5 / 硬性约束）、[doc-pipeline.req.md](../../requirements/doc-pipeline.req.md)（六-1 工具与引用 / 八-1 外发闸）、[agent-cost-optimize.req.md](../../requirements/agent-cost-optimize.req.md)（B3 结果预算）、[REQUIREMENTS.md](../../REQUIREMENTS.md) §3.7 / §3.9 / §3.12
 > 关联模块：[11-AI代理面板-Agent.md](../../modules/11-AI代理面板-Agent.md)
 > 关联架构：[ai-agent.md](../../architecture/ai-agent.md)、[backend.md](../../architecture/backend.md)、[security.md](../../architecture/security.md)
@@ -25,7 +25,11 @@
 
 - **`FORCE_CONFIRM_TOOLS`（`deleteFile` / `deleteLocalFile`）必须由 skip-set 留给调用方的确认流程，禁止在流式路径预执行。** `waitForAll()` 逐个执行 queued 工具，若不跳过确认类工具，其确认对话框分支将成为死代码——属安全回退。（来源：`docs/plan/agent-perf-optimize.connectivity.md` Chain 1）
 - 已按 Option A 落地：`waitForAll(skipToolNames?: Set<string>)` 跳过集合内工具（保持 `queued`），调用方把跳过后剩余的确认工具交给 `processStreamingToolRound` 的 force_confirm 循环。（来源：`docs/plan/agent-perf-optimize.connectivity.md` Chain 1）
-- 现码锚点：`StreamingToolExecutor.ts:139`（`waitForAll` 定义）、`agentLoop.ts:691`（`waitForAll(FORCE_CONFIRM_TOOLS)`）、`agentLoop.ts:439`（延迟工具重发轮 skip-set = `FORCE_CONFIRM_TOOLS ∪ 本轮延迟工具`）。（来源：`docs/plan/agent-perf-optimize.connectivity.md` Chain 1、现码核对）
+- 现码锚点：`StreamingToolExecutor.ts:139`（`waitForAll` 定义）；skip-set 实际取值自
+  agent-multi-intent 任务 11 起**由确认矩阵派生** `confirmSkipSet(intent, inChain)`
+  （`force` 恒入 ∪ 链态 `batch`，非链态与原 `FORCE_CONFIRM_TOOLS` 行为等价）、
+  延迟工具重发轮 skip-set = 矩阵派生集 ∪ 本轮延迟工具（见 §14）。（来源：
+  `docs/plan/agent-perf-optimize.connectivity.md` Chain 1、agent-multi-intent 任务 11 现码核对）
 
 ## 4. 并发安全判定（按调用、fail-closed）
 
@@ -182,3 +186,61 @@
   （保留 buffer、DONE intent = primaryIntent），非链路径保持原 `finalizeAgentRun`。
 - 子任务不入 `agent_task_queue`（内存编排）；会话仍一任务一 session，
   `waiting_interaction` 复用既有 12 态状态机转移。
+
+## 14. 确认档位契约（intent × tool 确认矩阵，agent-multi-intent 任务 11）
+
+> 需求裁定：[agent-multi-intent.req.md](../../requirements/agent-multi-intent.req.md) Q13/Q14。
+> 实现：`confirmMatrix.ts`（`confirmTierFor` / `writeToolsByTier` / `confirmSkipSet` 纯函数）+
+> `agentToolExecutor.checkForceConfirmTools`（按档分派）/ `confirmWriteBatch`（链末汇总）+
+> `BatchConfirmCard`（渲染侧逐项勾选）。
+> 验收：`tests/main/ai/confirmMatrix.test.ts`（91 例：6 intent × 7 写工具全组合 + fail-closed
+> + skip-set 派生）+ `tests/main/ai/agentToolExecutor.test.ts`「确认矩阵」（8 例）。
+
+### 14.1 三档判定与 fail-closed
+
+- `confirmTierFor(intent, tool)` 档位：`force` = `deleteFile`/`deleteLocalFile`（任何 intent）；
+  `batch` = `WRITE_TOOLS` 其余 5 项（**任何 intent 不得返回 `none`**，铁律一不削弱）；
+  `none` = 已登记只读/非写 23 项（`memory_write` 维持现口径不进强制档，见
+  [ai-agent.md](../../architecture/ai-agent.md) 写控制）。
+- **fail-closed（与 §4 并列的第二道兜底）**：未知 intent、未登记工具名 → `'batch'`
+  （**只向确认方向兜底**）；删除类即使 intent 未知仍恒 `'force'`（拦截强度只强不弱）。
+- **无交互环境 `'force'`/`'batch'` 一律拒绝执行**：`checkForceConfirmTools` 在分派入口
+  统一拒绝（原 §3 时代「无交互拒删除」语义泛化到全部写档，只扩不缩）。
+  生产 `agentTaskWorker.buildAgentDeps` 恒带交互回调，此闸仅覆盖无回调直连/测试环境。
+
+### 14.2 三档执行语义
+
+| 档位 | 单意图 | 多写子任务链（`ctx.writeBatch` 收集器在场） |
+|------|------|------|
+| `force` | 强制卡（`delete_confirm`），yes 才执行 | 同左（逐项强确认，不进汇总） |
+| `batch` | 保持现状：直接执行 + `handleToolResult` preview 通知（不打断） | 执行并收集 `WriteBatchItem` → **链末一次汇总确认**（见 14.3） |
+| `none` | 常规执行路径 | 同左 |
+
+- 链态判定 = `Array.isArray(ctx.writeBatch)`：`startSubtaskChain` 置 `[]`，
+  `confirmWriteBatch` 消化后清空——与 `subtaskChain` 生命周期一致。
+- §3 的 `waitForAll` skip-set 由 `confirmSkipSet(intent, inChain)` 派生：`force` 恒入、
+  链态下 `batch` 入（确保写批次经 `checkForceConfirmTools` 收集）；非链态取值
+  ≡ `FORCE_CONFIRM_TOOLS`（原行为零变化）。`FORCE_CONFIRM_TOOLS` / `WRITE_TOOLS` 常量保留。
+
+### 14.3 链末汇总确认与快照回滚（Q13）
+
+- 收口顺序：链各收口点统一走 `finalizeChainRun` → 恢复主意图 → `confirmWriteBatch` →
+  `finalizeRun`（单次 DONE）。写批次为空时零交互，与改动前收口逐字一致。
+- `confirmWriteBatch`：一次 `write_batch` 交互（id = `toolCallId`，`'yes'` 保留 / `'no'` 拒绝），
+  **打断次数恒 1**；存在拒绝项 → `rollbackToSnapshot(db, sessionId, userId)` 回滚会话内容
+  快照，已接受的 `editLocalFile` 回滚后重新执行（保留确认变更）。
+- **粒度限制（如实记录）**：快照回滚为 .md 内容级整批回滚，新建/重命名/移动类操作不在
+  覆盖范围，拒绝这些项无法经快照回滚撤销；错误/取消收口路径（AI_STREAM_ERROR）不触发汇总
+  确认，写入保持执行原状（= 改动前基线，非回退）。
+- `waitForInteraction` reject（取消/任务结束）向上传播，由外层统一 `AI_STREAM_ERROR` 收口
+  （与 §13.4 同款语义，不锁死 `waiting_interaction`）。
+- 渲染侧 `variant='write_batch'` 分派 `BatchConfirmCard`（AIPanelSession 兜底链：
+  `intent_split` → `write_batch` → 默认 `QuestionCard`）；i18n 键 `ai.batchConfirm.*` 三语齐备。
+
+### 14.4 提示词一致性（Q14 防分叉）
+
+- **代码矩阵为准**：`buildAgentSystemPrompt` 本体 sha256 钉死不改（任务 2/3 同款先例），
+  「## 写入规则」现有文字与矩阵的对应关系（删除行点名 = `force` 集合、`editLocalFile`
+  preview 行 = `batch` 单意图现状）由 `agentToolExecutor.test.ts` 一致性用例断言。
+- 链特有口径走独立段：`buildWriteBatchNoticeSegment(writeToolsByTier())` 拼入链拆分指令段
+  （随 `chain.directive` 重建持续在场），工具名单由矩阵注入，结构上不可能分叉。

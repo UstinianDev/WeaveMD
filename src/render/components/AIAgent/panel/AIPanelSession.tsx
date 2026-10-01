@@ -14,6 +14,7 @@ import AgentTab from '../AgentTab';
 import AIPanelComposer from './AIPanelComposer';
 import QuestionCard from '../cards/QuestionCard';
 import SplitConfirmCard from '../cards/SplitConfirmCard';
+import BatchConfirmCard from '../cards/BatchConfirmCard';
 import Icon from '../../Common/Icon';
 
 interface AIPanelSessionProps {
@@ -114,9 +115,12 @@ const AIPanelSession: React.FC<AIPanelSessionProps> = ({ draft, setDraft, onSend
       {/* R3: 底部滑出提问面板（ask_question_card 暂停时覆盖 composer） */}
       {/* R5: variant 用于区分 delete_confirm 等特殊确认卡片样式 */}
       {/* agent-multi-intent 任务 2: intent_split → 拆分确认卡（无 plan 时回退普通确认卡） */}
+      {/* agent-multi-intent 任务 11: write_batch → 多写汇总确认卡（逐项保留/拒绝） */}
       {isAgentMode && pendingInteraction &&
         (pendingInteraction.variant === 'intent_split' && pendingInteraction.plan ? (
           <SplitConfirmCard plan={pendingInteraction.plan} onSubmit={resumeInteraction} />
+        ) : pendingInteraction.variant === 'write_batch' ? (
+          <BatchConfirmCard questions={pendingInteraction.questions} onSubmit={resumeInteraction} />
         ) : (
           <QuestionCard
             questions={pendingInteraction.questions}

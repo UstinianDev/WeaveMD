@@ -48,6 +48,7 @@ import {
 import {
   assembleToolTurn,
   checkForceConfirmTools,
+  confirmWriteBatch,
   deduplicateAskQuestionCards,
   executeOneTool,
   executeToolRound,
@@ -59,9 +60,10 @@ import {
   validateQuestionCardArgs,
   type ToolExecResult,
 } from './agentToolExecutor';
-import { FORCE_CONFIRM_TOOLS } from './agentToolSelector';
+import { confirmSkipSet } from './confirmMatrix';
 import {
   advanceSubtaskChain,
+  appendChainNote,
   confirmSplitPlan,
   finalizeChainContent,
   handleSubtaskFailure,
@@ -99,7 +101,8 @@ export interface AgentLoopDeps {
   maxRounds?: number;
   /**
    * 交互暂停通知：工具调用前/后调用，通知调用方需要用户交互（回答提问或确认危险操作）。
-   * variant 可选值：'delete_confirm'（删除确认卡片，红色警告样式）。
+   * variant 可选值：'delete_confirm'（删除确认卡片，红色警告样式）、
+   * 'write_batch'（多写子任务链链末汇总确认，任务 11）。
    * 缺失时 ask_question_card 不暂停（向后兼容）。
    */
   onInteractionRequired?: (
@@ -305,6 +308,26 @@ export async function runAgentFlow(
   };
 
   let subtaskChain: SubtaskChain | null = null;
+
+  /** 链收口前恢复主意图（执行期 ctx.intent 逐子任务切换，DONE 口径恒 primaryIntent）。 */
+  const restoreChainIntent = (): void => {
+    if (subtaskChain) {
+      ctx.intent = { ...ctx.intent, intent: subtaskChain.primaryIntent };
+    }
+  };
+
+  /**
+   * 链收口（任务 11）：恢复主意图 → 链末写批次汇总确认（confirmWriteBatch，
+   * 明示进 buffer）→ 单次 DONE。写批次为空时零交互、行为与原收口逐字一致。
+   * confirmWriteBatch 的 waitForInteraction reject 向上传播（外层统一收口）。
+   */
+  const finalizeChainRun = async (last: string): Promise<AgentRunResult> => {
+    restoreChainIntent();
+    const batchNote = await confirmWriteBatch(ctx, deps);
+    if (batchNote) appendChainNote(subtaskChain!, batchNote);
+    return finalizeRun(finalizeChainContent(subtaskChain!, last));
+  };
+
   if (ctx.intentGateOpen) {
     const confirmedPlan = await confirmSplitPlan(
       {
@@ -325,19 +348,11 @@ export async function runAgentFlow(
         const preOutcome = await runChainClarification(ctx, subtaskChain, -1, deps);
         // 边界检查停链（中断/封顶）且已入队未执行 → 直接收口，不进主循环
         if (preOutcome === 'finished' && subtaskChain.queue.length > 0) {
-          ctx.intent = { ...ctx.intent, intent: subtaskChain.primaryIntent };
-          return finalizeRun(finalizeChainContent(subtaskChain, ''));
+          return finalizeChainRun('');
         }
       }
     }
   }
-
-  /** 链收口前恢复主意图（执行期 ctx.intent 逐子任务切换，DONE 口径恒 primaryIntent）。 */
-  const restoreChainIntent = (): void => {
-    if (subtaskChain) {
-      ctx.intent = { ...ctx.intent, intent: subtaskChain.primaryIntent };
-    }
-  };
 
   try {
     for (let round = 0; ; round += 1) {
@@ -345,8 +360,7 @@ export async function runAgentFlow(
       if (subtaskChain) {
         if (round >= subtaskChain.totalRoundsCap) {
           stopChain(subtaskChain, '链总轮次封顶', true);
-          restoreChainIntent();
-          return finalizeRun(finalizeChainContent(subtaskChain, ''));
+          return finalizeChainRun('');
         }
         if (ctx.detector.checkRoundLimit(round - subtaskChain.subtaskStartRound)) {
           const budgeted = subtaskChain.queue[subtaskChain.index];
@@ -357,8 +371,7 @@ export async function runAgentFlow(
               : '子任务轮次预算耗尽未收敛',
             true
           );
-          restoreChainIntent();
-          return finalizeRun(finalizeChainContent(subtaskChain, ''));
+          return finalizeChainRun('');
         }
       } else if (ctx.detector.checkRoundLimit(round)) break;
       ctx.roundsUsed = round + 1;
@@ -507,11 +520,9 @@ export async function runAgentFlow(
               chainFailureNext = true;
               break;
             }
-            restoreChainIntent();
-            return finalizeRun(finalizeChainContent(subtaskChain, ''));
+            return finalizeChainRun('');
           }
-          restoreChainIntent();
-          return finalizeRun(finalizeChainContent(subtaskChain, ''));
+          return finalizeChainRun('');
         }
         flushChunks(); // 流结束时刷新剩余 buffer
 
@@ -574,8 +585,11 @@ export async function runAgentFlow(
               (tc) => !isDeferredTool(tc.name)
             );
             if (nonDeferredCalls.length > 0) {
-              // skipSet: FORCE_CONFIRM_TOOLS（需用户确认）+ 延迟工具（schema 不完整）
-              const skipSet = new Set([...FORCE_CONFIRM_TOOLS, ...deferredNamesThisRound]);
+              // skipSet: 确认矩阵派生（force 恒入 ∪ 链态 batch）+ 延迟工具（schema 不完整）
+              const skipSet = new Set([
+                ...confirmSkipSet(ctx.intent.intent, Array.isArray(ctx.writeBatch)),
+                ...deferredNamesThisRound,
+              ]);
               const executorResults = executor
                 ? await executor.waitForAll(skipSet)
                 : [];
@@ -673,8 +687,7 @@ export async function runAgentFlow(
         // 链（任务 5 加固）：当前子任务收敛 → 归档（buffer 全量 + 摘要）→ 边界检查
         // （isChainInterrupted / 链总封顶）→ 重建上下文并下达下一指令续跑；
         // 执行序列尽且有低置信待追问 → 链末追问（每轮 ≤2 题）；
-        // 链末/停链单次收口（产出已全部进 buffer，last 恒空防重复）
-        let finalContent = assistantContent;
+        // 链末/停链单次收口（写批次汇总确认 → buffer 全量，last 恒空防重复）
         if (subtaskChain) {
           const outcome = advanceSubtaskChain(ctx, subtaskChain, assistantContent, round, deps);
           if (outcome === 'continue') {
@@ -686,11 +699,10 @@ export async function runAgentFlow(
               continue;
             }
           }
-          finalContent = finalizeChainContent(subtaskChain, '');
-          restoreChainIntent();
+          return finalizeChainRun('');
         }
         // 正常路径：无工具调用且无文本问题 → 结束
-        return finalizeRun(finalContent);
+        return finalizeRun(assistantContent);
       }
 
       // 阶段 2：执行工具调用（S1: 流路径 / 兜底路径）
@@ -709,8 +721,7 @@ export async function runAgentFlow(
           // 链路径：死循环检测触发也走安全点停链收口（保留 buffer，DONE intent = 主意图）
           if (subtaskChain) {
             stopChain(subtaskChain, '工具死循环检测触发', true);
-            restoreChainIntent();
-            return finalizeRun(finalizeChainContent(subtaskChain, ''));
+            return finalizeChainRun('');
           }
           break;
         }
@@ -753,8 +764,7 @@ export async function runAgentFlow(
         if (deadLoopBreak) {
           if (subtaskChain) {
             stopChain(subtaskChain, '工具死循环检测触发', true);
-            restoreChainIntent();
-            return finalizeRun(finalizeChainContent(subtaskChain, ''));
+            return finalizeChainRun('');
           }
           break;
         }
@@ -844,8 +854,11 @@ async function processStreamingToolRound(
 
   const executionSegments: ExecutionSegment[] = [];
 
-  // 4. 从 executor 获取已完成的安全工具结果（waitForAll 内部等待 + 串行执行非安全工具，跳过 FORCE_CONFIRM_TOOLS）
-  const executorResults = await executor.waitForAll(FORCE_CONFIRM_TOOLS);
+  // 4. 从 executor 获取已完成的安全工具结果（waitForAll 内部等待 + 串行执行非安全工具，
+  //    跳过确认矩阵派生集合：force 恒入 ∪ 链态 batch —— 留给 checkForceConfirmTools 分派）
+  const executorResults = await executor.waitForAll(
+    confirmSkipSet(ctx.intent.intent, Array.isArray(ctx.writeBatch))
+  );
 
   // 5. 区分已执行和未执行的工具，执行尚未执行的非安全工具
   const executedIndices = new Set(executorResults.map((r) => r.tc.index));
