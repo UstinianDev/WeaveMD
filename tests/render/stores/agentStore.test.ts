@@ -691,6 +691,35 @@ describe('agentStore agent 模式', () => {
     expect(assistant?.content).toBe('结果');
   });
 
+  it('useKnowledgeBase=true 且 allowSend=true -> runAgent payload 携带 useKnowledgeBase:true（R2）', async () => {
+    (window.weaveMD.ai.onStream as unknown as { mockImplementation: (...a: unknown[]) => unknown }).mockImplementation(() => () => {});
+    (window.weaveMD.ai as unknown as { createConversation: ReturnType<typeof vi.fn> }).createConversation.mockResolvedValue({
+      success: true,
+      data: { id: 'agent-conv-kb', userId: 'u1', mode: 'agent', summary: '', createdAt: '', updatedAt: '' },
+    });
+    (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent.mockResolvedValue({
+      success: true,
+      data: { conversationId: 'agent-conv-kb', assistantId: 'a1', roundsUsed: 1, intent: null },
+    });
+
+    useAgentStore.setState({
+      config: remoteConfig,
+      modelConfigs: mockModelConfigs,
+      embeddingConfig: mockEmbeddingConfig,
+      embeddingConnectionOk: true,
+      searchConfig: mockSearchConfig,
+      searchConnectionOk: true,
+      consent: grantedConsent,
+      useKnowledgeBase: true,
+      activeMode: 'agent',
+    });
+    await useAgentStore.getState().sendAgentMessage('在知识库里找资料');
+
+    expect(
+      (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent
+    ).toHaveBeenCalledWith(expect.objectContaining({ useKnowledgeBase: true }));
+  });
+
   it('sendAgentMessage 建会话成功后 updateConversationSummary 写入首条消息（agent 域）', async () => {
     (window.weaveMD.ai.onStream as unknown as { mockImplementation: (...a: unknown[]) => unknown }).mockImplementation(() => () => {});
     (window.weaveMD.ai as unknown as { createConversation: ReturnType<typeof vi.fn> }).createConversation.mockResolvedValue({
