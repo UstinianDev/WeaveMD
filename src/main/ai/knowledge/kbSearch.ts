@@ -20,6 +20,7 @@ import type {
   QueryIntentType,
 } from '@shared/ai';
 import { classifyIntent } from '../intentRouter';
+import * as intentTiering from '../intentTiering';
 import {
   getSearchCacheKey,
   getCachedSearchResult,
@@ -380,9 +381,17 @@ function buildQueryUnderstanding(
   query: string,
   hadPronounRef: boolean | undefined
 ): IKbDiagnosticsQueryUnderstanding {
+  // 三层意图路由（Q20 任务 4）：kbSearch 只读共享缓存、不预取 —— 行为=同步规则
+  // （hasHistory=false 键；mock 缺导出 try/catch 回落直接规则）
+  let fallthrough: boolean;
+  try {
+    fallthrough = intentTiering.classifyIntentShared(query, false).intent === 'chat';
+  } catch {
+    fallthrough = classifyIntent(query).intent === 'chat';
+  }
   return {
     intentType: mapIntentToType(detectQueryIntent(query)),
-    isFallthrough: classifyIntent(query).intent === 'chat',
+    isFallthrough: fallthrough,
     hadPronounRef: hadPronounRef === true,
   };
 }

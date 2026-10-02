@@ -139,6 +139,33 @@ runAgentFlow
   （S12 `mergeStrategies` → 单一 `QueryPlan` broad/focused/comparative），不承担任务拆分；
   任务拆分只发生在本章的意图路由 / Agent 编排层。两层互不合并：KB 不拆任务，Agent 链不改写检索策略。
 
+### 三层意图路由分层（agent-multi-intent 任务 4，Q20）
+
+`intentTiering.ts` 在规则层之上加一层**低置信才触发**的轻量 tier2，三层为：
+
+- **L1 规则底线**：`classifyIntent` 同步、零成本，是唯一兜底 —— tier2 任何失败
+  （超时 / 抛错 / 非法标签 / 无 key / 非 openai 协议）都降级回规则结果，**降级永不低于规则**。
+- **L2 tier2 轻量小模型**：仅规则低置信（`confidence < 0.7 || needsClarification`）且非空输入时，
+  经 lazy opts（`runAgentFlow` 注入的工厂：`apiKeyEnc` 非空才 `decryptApiKey` + 取
+  `config.remoteBaseUrl/model/protocol`）调 `llmClient.streamChatCompletion` one-shot 分类；
+  **1.5s deadline 硬闸**包裹连接 + 推理，输出必须 ∈ `IntentName` 六标签（大小写归一）；
+  结果 `confidence = max(rule, 0.7)` —— 永不低于规则。仅 `protocol === 'openai'` 触发
+  （anthropic / 协议缺省回规则；生产 `toIAIConfig` 恒归一化协议）。
+- **L3 大模型规划**：已建 `runTaskSplit`（gate 开才用，本任务不动），见上节。
+
+**共享缓存**：三调用点 —— `agentContext.ts` 主分类（:533 附近）、技能推断（:419 附近，
+`hasHistory:true` 键）、`kbSearch.ts` `isFallthrough`（:385 附近，`hasHistory:false` 键）——
+统一经 `classifyIntentShared(input, hasHistory)` 读 `sha256(hasHistory|input)` 键的短 TTL 缓存
+（**TTL 10s、容量 200、LRU 淘汰**，`__resetIntentTierCacheForTest` 供测试清空）。
+缓存**只由 `prefetchIntentTiered` 在 tier2 成功时写入**；`classifyIntentShared` 只读、miss 即规则
+（规则结果不入缓存，保证既有 `classifyIntent` 调用计数断言零回归）。
+**kbSearch 只读不预取**（保持 `isFallthrough` 同步语义，Q20）；`runAgentFlow` 在
+`prepareAgentContext` **之前** `await prefetchIntentTiered(...)` 且整体 try/catch fail-closed。
+
+**零新增调用口径**：规则高置信输入零新增 LLM 调用（预取在触发判定处短路，lazy opts 工厂都不构造）；
+低置信升级小模型是 Q20 P1 裁定；分类层变化不改提示词 / 消息序列（gate 关路径逐字节等价仍成立）。
+分类输入输出落日志（`[intentTier]` 前缀，query 摘要 + rule/tier2 结论），供离线评估规则覆盖率。
+
 ## 工具系统
 
 工具注册表 `toolRegistry.ts`（`handlerMap`）维护 **30 个工具** —— 5 个核心工具发送完整 JSON Schema，

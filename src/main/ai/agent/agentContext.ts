@@ -22,6 +22,7 @@ import { decryptApiKey } from '../secureConfig';
 // 意图路由经命名空间访问：classifyIntent 直用；多意图预检门 detectMultiIntentGate
 // 在 mock 环境（旧测试仅 mock classifyIntent）可能缺导出，调用处 try/catch fail-closed
 import * as intentRouter from '../intentRouter';
+import * as intentTiering from '../intentTiering';
 import { buildCompressed, contentToText, estimateContentTokens, type LlmMessage } from '../contextManager';
 import { streamChatCompletionWithRetry } from '../llm/llmClient';
 import { streamAnthropicCompletion } from '../llm/anthropicClient';
@@ -416,7 +417,14 @@ export function buildExperienceBlock(
     }
     const label = `${skill.name} ${skill.description}`.trim();
     if (!label) continue;
-    if (intentRouter.classifyIntent(label, { hasHistory: true }).intent === intent) inferred.push(skill);
+    // 技能推断走 shared（hasHistory=true 键，与主分类同缓存）；缺导出回落规则
+    let labelIntent: string;
+    try {
+      labelIntent = intentTiering.classifyIntentShared(label, true).intent;
+    } catch {
+      labelIntent = intentRouter.classifyIntent(label, { hasHistory: true }).intent;
+    }
+    if (labelIntent === intent) inferred.push(skill);
   }
 
   const matched = [...explicit, ...inferred];
@@ -530,7 +538,14 @@ export function prepareAgentContext(
   // 且当前 user 消息尚未落库，故新会话首轮恒为 false（与现状一致）。
   const hasHistory = dbRows.some((m) => m.role === 'assistant');
 
-  const intent = intentRouter.classifyIntent(message, { hasHistory });
+  // 三层意图路由（Q20 任务 4）：主分类走 shared（读 tier2 预取缓存，miss 即规则）。
+  // namespace 访问 + try/catch 回落 classifyIntent（mock 缺导出 fail-closed，P0 gate 同款）
+  let intent: IIntent;
+  try {
+    intent = intentTiering.classifyIntentShared(message, hasHistory);
+  } catch {
+    intent = intentRouter.classifyIntent(message, { hasHistory });
+  }
 
   // 多意图规则预检门（Q6 / plan §1.4）：纯规则零 LLM；调用异常或 mock 缺导出一律
   // fail-closed 关闸（gate 关 = 现有单意图路径逐字节等价，安全默认）

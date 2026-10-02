@@ -923,3 +923,84 @@ npx vitest run tests/main/ai/subtaskSequence.test.ts tests/main/ai/agentLoopSpli
   错（运行期因 advanceChain 已标注而测试全绿）——tsc 捕获后改为 `(ctx, chain)` 即 0 错。
 - **测试计划同对象合并**：Q7 `mergeSameObjectWrites` 在 `parseSplitAnswers → normalizeTaskPlan`
   生效，两条同对象写进不了链——测试计划对象必须相异（见 GREEN 中间轮归因）。
+
+## 任务 4 — 三层意图路由分层｜P1 第三任务
+
+**范围**：新建 `src/main/ai/intentTiering.ts`（`classifyIntentShared` / `prefetchIntentTiered` /
+`__resetIntentTierCacheForTest` + `IntentTier2Options`）+ `agentLoop.ts`（`runAgentFlow` 在
+`prepareAgentContext` 之前 `await prefetchIntentTiered(payload.message, lazyOpts)` 整体
+try/catch fail-closed；lazy 工厂仅 `apiKeyEnc` 非空时 `decryptApiKey` + 取
+`config.remoteBaseUrl/model/protocol`）+ `agentContext.ts`（主分类 :533 与技能推断 :419
+改经 `intentTiering` namespace 访问 `classifyIntentShared`，缺导出 try/catch 回落
+`classifyIntent`）+ `kbSearch.ts`（:385 `isFallthrough` 改 namespace 访问 shared，
+只读缓存不预取）+ `tests/main/ai/intentRouterTiered.test.ts`（19 例）+
+`docs/architecture/ai-agent.md`「三层意图路由分层」小节 + 本文档。**不改 `classifyIntent`
+本体 / gate / `prepareAgentContext` 同步签名 / sha256 提示词。**
+
+### 1. RED（TDD strict）
+
+**首轮**（仅写测试、无实现）：
+
+```bash
+npx vitest run tests/main/ai/intentRouterTiered.test.ts
+```
+
+```text
+ FAIL  tests/main/ai/intentRouterTiered.test.ts[ tests/main/ai/intentRouterTiered.test.ts ]
+Error: Failed to resolve import "@main/ai/intentTiering" from "tests/main/ai/intentRouterTiered.test.ts". Does the file exist?
+ Test Files  1 failed (1)
+      Tests  no tests
+```
+
+整文件收集失败（缺被导入模块，vite 静态解析——任务 6/7 同款首轮形态）。
+
+### 2. GREEN
+
+实现落地后同命令：
+
+```bash
+npx vitest run tests/main/ai/intentRouterTiered.test.ts
+```
+
+```text
+ ✓ tests/main/ai/intentRouterTiered.test.ts (19 tests) 52ms
+ Test Files  1 passed (1)
+      Tests  19 passed (19)
+```
+
+19 例覆盖（计划 TDD 要点全含）：
+
+| 组 | 用例 |
+|----|------|
+| 降级链 | 高置信短路零 LLM+零工厂 / 空输入零调用 / 低置信 tier2 覆盖（shared 命中、confidence≥rule）/ 合法性校验（intent ∈ IntentName、confidence≥rule）/ **1.5s 超时回规则（fake timer）** / 抛错回规则 / 非法标签回规则 / lazy 工厂抛错 fail-closed / 工厂返 null 短路 / 非 openai 协议回规则 |
+| 共享缓存 | 同 query 二次 prefetch 零 LLM 零工厂 / **TTL 10s 过期重算** / **hasHistory 键隔离** / `__reset` 清空 / **容量 200 LRU 淘汰**（201 条超限，编号 0 淘汰、编号 200 存活） |
+| 三调用点回归 | 主调用点 prefetch 后 shared 命中 tier2 不落规则 / 技能推断（hasHistory:true 键）读同缓存 / kbSearch 点无预取时同步等价规则零 LLM（isFallthrough true/false 双向）/ kbSearch 点同 query 只读命中（共享语义，LLM 仅 1 次） |
+
+### 3. 门禁（最终）
+
+| 项 | 命令 | 结果（真实输出） |
+|----|------|------|
+| typecheck | `npm run typecheck` | 0 错误（无输出） |
+| test | `npm run test` | `Test Files 200 passed (200)`；`Tests 4736 passed (4736)`（基线 4717 + 新 19 = 4736；连续两轮全绿，期间一次 1 failed 未复现、无 `FAIL` 记录，判为既有 flaky——见 agent-memory pitfalls） |
+| lint | `npm run lint` | `108 problems (0 errors, 108 warnings)`（与基线 108 持平，新文件零 warning） |
+| 重点回归 | 分批实跑 | `kbSearch(44)+agentContext(80)+intentRouter+intentRouterTiered(19)` = 169 passed；`agentLoop(31)+agentLoopSplit(7)+subtaskSequence(11)+chainReport(8)+clarificationMatrix(6)` = 63 passed |
+| playwright | — | 本任务不触 `src/render/`（纯主进程 + 文档），按任务 3/7 先例跳过 |
+
+### 4. 实施口径记录（偏差如实）
+
+- **缓存只写 tier2 成功结果，`classifyIntentShared` 只读**：计划未明写规则结果是否入缓存。
+  实测 `agentContext.test.ts:568` 钉死 `classifyIntent toHaveBeenCalledTimes(1)` 且每用例
+  `mockClear` —— 若 shared miss 回写规则值，同键二次调用会吃掉 spy 计数 → 断言失败。
+  故规则结果不入缓存（miss 即真调规则），仅 `prefetchIntentTiered` tier2 成功时写入；
+  对生产语义等价（规则是纯函数），回滚口径「shared 对规则值幂等」仍成立。
+- **tier2 触发判定用 `hasHistory=false` 缺省口径**：`prefetchIntentTiered` 缺省写
+  `false|input` 与 `true|input` 双键（agentLoop 预取时 hasHistory 尚未从 DB 算出，
+  prepare 在其后）；`false` 是 `needsClarification` 长度门的超集（触发面更宽、不会漏），
+  且 confidence 计算不含长度门 → 双键同值安全。显式传 `hasHistory` 时只写单键（键隔离用例）。
+- **protocol 严格 `'openai'` 才走 tier2**：tier2 是 OpenAI 兼容 one-shot
+  （`streamChatCompletion`）；anthropic 协议打 OpenAI 端点必失败，直接回规则省 1.5s 死等。
+  生产 `toIAIConfig` 恒归一化 `protocol ?? 'openai'`，故仅测试环境（config 无 protocol 字段）
+  落到 skip —— 这同时是既有 runAgentFlow 测试（makeConfig 不带 protocol）零 tier2 污染的护栏。
+- **`console.log` 收敛为 `console.warn`**：`no-console` 规则 allow 列表仅 `['warn','error']`，
+  用 `console.log` 会给基线 108 warning 增 3 条；改 `console.warn` 后 lint 与基线持平。
+  日志仍只记 query 摘要（≤24 字截断）+ rule/tier2 结论，满足计划「离线评估规则覆盖率」要求。

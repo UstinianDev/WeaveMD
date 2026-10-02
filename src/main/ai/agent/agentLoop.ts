@@ -28,6 +28,8 @@ import {
   type LlmMessage,
 } from '../contextManager';
 import { streamChatCompletionWithRetry, type StreamChunk } from '../llm/llmClient';
+import { decryptApiKey } from '../secureConfig';
+import { prefetchIntentTiered, type IntentTier2Options } from '../intentTiering';
 import { getDeferredToolSchema, isDeferredTool, type SearchKbFn } from '../toolRegistry';
 import { saveCheckpointIncremental } from './agentCheckpoint';
 import { type ExecutionSegment } from './agentExecutionSegments';
@@ -268,6 +270,30 @@ export async function runAgentFlow(
   controller: AbortController,
   deps: AgentLoopDeps = {}
 ): Promise<AgentRunResult> {
+  // 三层意图路由（Q20 任务 4）：prepare 之前预取 tier2 结果写共享缓存。
+  // 整体 try/catch fail-closed —— 预取任何异常不影响主流程（shared 未命中即回规则）。
+  // lazy opts：仅规则低置信触发 tier2 且 apiKeyEnc 非空时才 decrypt 构造。
+  try {
+    await prefetchIntentTiered(payload.message, () => {
+      if (!apiKeyEnc) return null;
+      try {
+        const apiKey = decryptApiKey(apiKeyEnc);
+        if (!apiKey) return null;
+        const opts: IntentTier2Options = {
+          baseUrl: config.remoteBaseUrl,
+          model: config.model,
+          apiKey,
+        };
+        if (config.protocol) opts.protocol = config.protocol;
+        return opts;
+      } catch {
+        return null;
+      }
+    });
+  } catch {
+    // fail-closed：预取失败静默回规则基线
+  }
+
   // 阶段 1：准备上下文（consent + 校验 + 消息组装 + 工具选择）
   const ctx = prepareAgentContext(event, payload, config, apiKeyEnc, controller, deps);
 
