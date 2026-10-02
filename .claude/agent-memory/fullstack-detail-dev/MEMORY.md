@@ -1,8 +1,10 @@
 # Agent Memory Index
 
-- [multi-intent 任务 1 已交付](multi-intent-task1-done.md) — 38edc57；围栏/前后缀两层语义裁定、normalize 钉死口径、4530 例基线与 flaky
-- [multi-intent 任务 2 已交付](multi-intent-task2-done.md) — a6b2348；mock 缺导出 fail-closed、单意图提示词 sha256 红线、E2E 31 例既有失败比对法
-- [multi-intent 任务 3 已交付](multi-intent-task3-done.md) — 850d615；链三态推进/空队列链首追问、mock messages 实时数组快照坑、追问测试独立选址
-- [multi-intent 任务 5 已交付](multi-intent-task5-done.md) — d9c4682；链重建 assistant 摘要行钉死、round 不回绕、retryCount 重置点、RED 行为归因法
-- [multi-intent 任务 11 已交付（P0 收官）](multi-intent-task11-done.md) — 4422ac9；RED 占位 stub 归因法、回滚粒度限制、writeBatch 单开关、4686 例基线
-- [skip-set fail-closed 已交付](multi-intent-skipset-failclosed-done.md) — 03d60b3；skip 语义裁定（零行为变化红线优先）、ab-test 全量 suite flaky 隔离复跑
+- [multi-intent 任务10 边界固化](project-multi-intent-p1-task10-boundary.md) — P1 八任务全完成（87e9c63）；裁定：不建共享常量文件，两套意图枚举禁止合并
+- [multi-intent 任务8 并行调度](project-multi-intent-p1-task8-parallel.md) — 启用信号 subtaskParallel（计划外红线偏离）+ 轮次基址方案保 worker E2E call id；ab-test flaky 第三次记录
+- [multi-intent P1 提交纪律](project-multi-intent-p1-commit-discipline.md) — status/req/plan 三文件永不入库；按计划 §3 白名单 add；任务 6/7/4/9/12/13/8/10 已交付 1bb52b5、4fcd6a2、d2b3168、7d1f8f4、7fa9eb5、1587976、cd61099、87e9c63
+- [multi-intent 任务13 write_mode](project-multi-intent-p1-task13-writemode.md) — computeRoundSkipSet 触发=无交互**或**manual；selector 半派生留 unused warning；ab-test 计时 flaky 非回归
+- [multi-intent 任务12 确认与级联](project-multi-intent-p1-task12-confirm.md) — worker E2E DONE 走 persistAndSend；return await 才落 ERROR catch；自动 serial_after 扩大级联范围（chainReport ③ 已改）
+- [multi-intent 任务9 透传与两坑](project-multi-intent-p1-task9-bridge.md) — agentIntent 透传链；闭包重建 opts 丢参（grep agentTaskWorker）；链测试部分 ctx 判空
+- [multi-intent 报告红线裁定](project-multi-intent-report-redlines.md) — confirmWriteBatch 返回保持 string 走 sink（任务 12 必读）；报告段条件渲染 + 6 处链正文 toBe 锚点；Q7 同对象写合并陷阱
+- [multi-intent 任务4 意图分层口径](project-multi-intent-p1-task4-tiering.md) — 缓存只写 tier2 成功值/shared 只读；protocol==='openai' 门；预取双键；任务 9 改 kbSearch 必读
