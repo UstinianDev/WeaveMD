@@ -1004,3 +1004,85 @@ npx vitest run tests/main/ai/intentRouterTiered.test.ts
 - **`console.log` 收敛为 `console.warn`**：`no-console` 规则 allow 列表仅 `['warn','error']`，
   用 `console.log` 会给基线 108 warning 增 3 条；改 `console.warn` 后 lint 与基线持平。
   日志仍只记 query 摘要（≤24 字截断）+ rule/tier2 结论，满足计划「离线评估规则覆盖率」要求。
+
+---
+
+## 任务 9 — Agent 意图透传 KB 检索｜L2
+
+计划 §2 任务 9（Q21：检索一次 / 注入 kbQa 子任务上下文 / 冲突以 Agent 为准）。
+测试文件：`tests/main/ai/kbIntentBridge.test.ts`（新建，7 例）。
+
+### 1. RED
+
+```bash
+npx vitest run tests/main/ai/kbIntentBridge.test.ts
+```
+
+```text
+ Test Files  1 failed (1)
+      Tests  5 failed | 2 passed (7)
+```
+
+5 例失败 = ① 透传三例（kbSearch 诊断 / handler 入参 / 子任务链切换后值）+ ③ 冲突
+（opts.agentIntent undefined）+ ④ 检索一次（spy 计数与预载断言）；2 例通过 = ② 优先级
+（toolsForIntent 既有语义）与 ⑤ 回归（缺省形状），二者即为既有行为锚点。
+
+### 2. GREEN — 变更清单
+
+| 文件 | 变更 |
+|------|------|
+| `src/shared/ai/kb.ts` | `IKbDiagnosticsQueryUnderstanding` + `agentIntent?: IntentName`（可选，缺省不写键） |
+| `src/main/ai/knowledge/kbSearch.ts` | `KbSearchOptions +agentIntent?`；`buildQueryUnderstanding` 第三参，三条路径（主/缓存/早退）均透传 |
+| `src/main/ai/toolTypes.ts` | `ToolCtx +agentIntent?`；`SearchKbFn` opts +`agentIntent?` |
+| `src/main/ai/tools/searchKBHandler.ts` | `ctx.searchKb` 调用入参加 `agentIntent: ctx.agentIntent` |
+| `src/main/ai/agent/agentContext.ts` | toolCtx 构造处注入 `agentIntent: intent.intent`（主 intent） |
+| `src/main/ai/agent/subtaskOrchestrator.ts` | `applySubtaskContext` 同步 `ctx.toolCtx.agentIntent = subtask.intent`；kbQa 子任务（+ deps.searchKb + useKnowledgeBase 闸）按子任务 query 单槽预载 `createPreloadedSearchKb`；`issueNextSubtask`/`restartCurrentSubtask`/`startSubtaskChain` 透传 deps |
+| `src/main/ai/agent/agentKbPreloader.ts` | 模糊未命中时**先 `await preloadPromise` 再重扫**（首访与在飞预载竞态兜底，保证检索恰一次）；命中统计口径不变 |
+| `src/main/ai/agent/agentTaskWorker.ts` | searchKb 闭包重建 opts 时透传 `agentIntent`（与 D1 hadPronounRef 同款，防丢参） |
+
+```bash
+npx vitest run tests/main/ai/kbIntentBridge.test.ts
+```
+
+```text
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+```
+
+7 例覆盖（计划 TDD 要点 1-5 全含）：
+
+| 组 | 用例 |
+|----|------|
+| ① 透传 | kbSearch 诊断写入 `queryUnderstanding.agentIntent`（既有三字段不变）/ handler `ctx.agentIntent` → `opts.agentIntent` / 子任务链：主意图 mock 钉死 chat、s1 切换为 kbQa → 执行面捕获与 `opts.agentIntent` 均为 kbQa，诊断随 tool_result 落该子任务消息栈 + 配对完整 |
+| ② 优先级 | 同一句 query planner 判 comparison，但 Agent 判 chat → `toolsForIntent` 无 searchKB（对照 kbQa 有） |
+| ③ 冲突 | Agent kbQa + planner comparison：`expandedQueries` 含比较/步骤扩展，`searchMode/topK/threshold` 均 undefined（agentIntent 不碰检索参数） |
+| ④ 检索一次 | `deps.searchKb` spy 恰 1 次（子任务 object 核心词预载 + topK 5），工具首访命中单槽缓存；tool_result 配对完整 |
+| ⑤ 回归 | 缺省 `agentIntent` 时 `queryUnderstanding` 恰为既有三键（无 agentIntent 键） |
+
+### 3. 门禁（最终）
+
+| 项 | 命令 | 结果（真实输出） |
+|----|------|------|
+| typecheck | `npm run typecheck` | 0 错误（无输出） |
+| test | `npm run test` | `Test Files 201 passed (201)`；`Tests 4743 passed (4743)`（基线 4736 + 新 7） |
+| lint | `npm run lint` | `108 problems (0 errors, 108 warnings)`（与基线 108 持平，新文件零 warning） |
+| 重点回归 | 分批实跑 | `kbSearch+queryPlannerEnhanced+searchKBHandler+agentKbPreloader` = 161 passed；`agentLoop+agentLoopSplit+subtaskSequence+chainTracking` = 57 passed |
+| playwright | — | 本任务不触 `src/render/`（纯主进程 + 文档），按任务 3/7 先例跳过 |
+
+### 4. 实施口径记录（偏差如实）
+
+- **计划文件清单外补 `agentTaskWorker.ts`**：worker 构造 `deps.searchKb` 时逐键重建 opts
+  （D1 曾因同款丢参被判 bug），不补则生产链路 `agentIntent` 被闭包静默丢弃 —— 透传断言
+  只在测试注入面成立。一行加法，与 D1 `hadPronounRef` 注释同款。
+- **计划文件清单外补 `agentKbPreloader.ts`（竞态兜底）**：`applySubtaskContext` 预载为
+  fire-and-forget，实测工具首访可先于 `cache.set` 落地（promise 链插队）→ spy 计 2 次，
+  「检索恰一次」断言失败。修法为 wrapper 模糊未命中时 `await preloadPromise` 后重扫一次
+  再触底：预载已落地时零成本；预载失败（内部 catch 恒 resolve）回退直查。既有
+  `agentKbPreloader.test` 全绿（其用例均先 `await preloadPromise`，行为等价）。
+- **`applySubtaskContext` 对 `ctx.toolCtx` 判空**：`chainTracking.test` 用部分构造的 ctx
+  （无 toolCtx）直接调 `startSubtaskChain`，硬写属性抛 TypeError（首轮全量 7 例失败）；
+  `prepareAgentContext` 生产路径恒建 toolCtx，判空仅防御测试面部分构造，生产零行为变化。
+- **预载 query = 子任务 object 的核心词提取**：断言用 `extractCoreTokens('会议纪要', 3)`
+  而非原串 —— S11 停用词表会剥「会/要」，钉原串会把 S11 提取语义误判为回归。
+- **payload 级预载闸验证**：链用例 payload.message 取「嗯」（核心词提取为空 →
+  agentLoop 级预载跳过），使 `deps.searchKb` 计数只归子任务预载，「恰一次」可精确断言。

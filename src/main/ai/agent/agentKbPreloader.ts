@@ -162,6 +162,17 @@ export function createPreloadedSearchKb(
     }
   })();
 
+  /** S11: 模糊匹配遍历缓存（支持子串 / token 交集命中）；未命中返回 null。 */
+  const scanCache = (query: string): Awaited<ReturnType<SearchKbFn>> | null => {
+    for (const [key, entry] of cache) {
+      if (Date.now() - entry.timestamp < KB_PRELOAD_TTL_MS && isFuzzyMatch(query, key)) {
+        // S11: 命中后不删除（TTL 控制过期，允许同一会话多次命中）
+        return entry.result;
+      }
+    }
+    return null;
+  };
+
   const searchKb: SearchKbFn = async (uid, query, opts) => {
     // P0-6: 改写查询带 expandedQueries（双路召回），预载缓存是按原消息预载的，
     // 键必然不匹配 → 绕过模糊预载缓存，直调 original 保证双路融合生效。
@@ -169,13 +180,19 @@ export function createPreloadedSearchKb(
       getCacheMonitor().recordMiss('kbPreload');
       return original(uid, query, opts);
     }
-    // S11: 模糊匹配遍历缓存（支持子串 / token 交集命中）
-    for (const [key, entry] of cache) {
-      if (Date.now() - entry.timestamp < KB_PRELOAD_TTL_MS && isFuzzyMatch(query, key)) {
-        // S11: 命中后不删除（TTL 控制过期，允许同一会话多次命中）
-        getCacheMonitor().recordHit('kbPreload');
-        return entry.result;
-      }
+    const cached = scanCache(query);
+    if (cached) {
+      getCacheMonitor().recordHit('kbPreload');
+      return cached;
+    }
+    // Q21（任务 9）：首访与在飞预载的竞态兜底 —— 预载尚未落地时先等其完成再重扫，
+    // 命中即免二次检索（保证 kbQa 子任务链对该 query 检索恰一次）。
+    // preloadPromise 内部 catch 吞错、恒 resolve；预载已落地时此等待零成本。
+    await preloadPromise;
+    const late = scanCache(query);
+    if (late) {
+      getCacheMonitor().recordHit('kbPreload');
+      return late;
     }
     getCacheMonitor().recordMiss('kbPreload');
     return original(uid, query, opts);

@@ -44,6 +44,7 @@ import { getRoundsForIntent } from './agentHelpers';
 import { toolsForIntent } from './agentToolSelector';
 import { writeToolsByTier } from './confirmMatrix';
 import { createChainTracker, emitChainRecord, type ChainTracker } from './chainTracking';
+import { createPreloadedSearchKb } from './agentKbPreloader';
 import type { AgentContext, ToolSelectionArgs } from './agentContext';
 import type { AgentLlmMessage, AgentLoopDeps } from './agentLoop';
 
@@ -284,7 +285,7 @@ export async function runChainClarification(
       return 'finished';
     }
     // 追问段在消息栈重建之后、下一条子任务指令之前注入
-    issueNextSubtask(ctx, chain, round + 1, [segmentContent]);
+    issueNextSubtask(ctx, chain, round + 1, [segmentContent], deps);
     return 'continue';
   }
   pushChainMessage(ctx, { role: 'system', content: segmentContent });
@@ -356,14 +357,23 @@ function summarizeSubtaskOutput(text: string): string {
 
 /**
  * 切换到指定子任务的运行上下文：intent / tools（ctx.toolSelectionArgs + toolsForIntent
- * 单一口径）/ 独立 detector（per-subtask 预算，Q9）/ 预算起点。
+ * 单一口径）/ 独立 detector（per-subtask 预算，Q9）/ 预算起点 / 执行面意图同步（Q21）。
  * 不重置 retryCount（重试计数属当前子任务；新子任务在 issueNextSubtask 归零）。
+ *
+ * Q21（任务 9）：
+ * - `ctx.toolCtx.agentIntent = subtask.intent`：searchKB 透传 diagnostics 审计字段；
+ * - kbQa 子任务按其 query 单槽预载（`createPreloadedSearchKb`），工具首访命中即
+ *   免二次检索 → 全链对该 query 检索恰一次；预载闸对齐现 useKnowledgeBase 闸
+ *   （args[1]）且 deps.searchKb 存在，缺一则不预载（检索仍可由工具直发）。
+ *
+ * @param deps 链路依赖（可选）：仅 kbQa 预载消费；未传时零行为变化（除意图同步）。
  */
 function applySubtaskContext(
   ctx: AgentContext,
   chain: SubtaskChain,
   subtask: SubtaskDef,
-  startRound: number
+  startRound: number,
+  deps?: AgentLoopDeps
 ): void {
   ctx.intent = { ...ctx.intent, intent: subtask.intent };
   const args: ToolSelectionArgs = [...ctx.toolSelectionArgs];
@@ -371,6 +381,22 @@ function applySubtaskContext(
   ctx.tools = toolsForIntent(...args);
   ctx.detector = new DeadLoopDetector({ maxRounds: getRoundsForIntent(subtask.intent) });
   chain.subtaskStartRound = startRound;
+  // Q21（任务 9）：执行面意图同步（子任务切换后的值，透传 searchKB 诊断）。
+  // toolCtx 由 prepareAgentContext 恒建；测试面存在部分构造的 ctx → 防御性判空。
+  if (ctx.toolCtx) {
+    ctx.toolCtx.agentIntent = subtask.intent;
+    if (subtask.intent === 'kbQa' && deps?.searchKb && args[1]) {
+      const subtaskQuery =
+        typeof subtask.params?.query === 'string' && subtask.params.query.trim()
+          ? subtask.params.query
+          : subtask.object;
+      ctx.toolCtx.searchKb = createPreloadedSearchKb(
+        deps.searchKb,
+        ctx.toolCtx.userId,
+        subtaskQuery
+      ).searchKb;
+    }
+  }
 }
 
 /**
@@ -410,19 +436,21 @@ function sendSubtaskDone(ctx: AgentContext, chain: SubtaskChain): void {
  *
  * @param nextStartRound 下一子任务的起始全局轮次（= 当前轮 + 1）
  * @param extraSegments 重建后、指令前追加的 system 段内容
+ * @param deps 链路依赖（Q21 kbQa 子任务预载消费，可选）
  */
 function issueNextSubtask(
   ctx: AgentContext,
   chain: SubtaskChain,
   nextStartRound: number,
-  extraSegments: string[] = []
+  extraSegments: string[] = [],
+  deps?: AgentLoopDeps
 ): void {
   chain.index += 1;
   const subtask = chain.queue[chain.index];
   if (!subtask) return;
   chain.retryCount = 0;
   chain.record.markRunning(subtask.id);
-  applySubtaskContext(ctx, chain, subtask, nextStartRound);
+  applySubtaskContext(ctx, chain, subtask, nextStartRound, deps);
   rebuildChainMessages(ctx, chain);
   for (const segment of extraSegments) {
     pushChainMessage(ctx, { role: 'system', content: segment });
@@ -490,7 +518,7 @@ function advanceChain(
       emitChainRecord(deps, chain.record);
       return 'stopped';
     }
-    issueNextSubtask(ctx, chain, round + 1);
+    issueNextSubtask(ctx, chain, round + 1, [], deps);
     emitChainRecord(deps, chain.record);
     return 'continue';
   }
@@ -553,7 +581,7 @@ export function startSubtaskChain(
   };
   if (queue.length > 0) {
     chain.record.markRunning(queue[0].id);
-    applySubtaskContext(ctx, chain, queue[0], 0);
+    applySubtaskContext(ctx, chain, queue[0], 0, deps);
     chain.currentInstruction = buildSubtaskInstruction(queue[0], 0, plan.subtasks.length);
     pushChainMessage(ctx, { role: 'system', content: chain.currentInstruction });
   }
@@ -602,10 +630,15 @@ export function advanceSubtaskChain(
  * 当前子任务重试预算重建（失败重试用）：保留指令，重建消息栈与 intent/tools/独立预算。
  * 不重置 retryCount（由调用方先行累加，Q12 重试仅 1 次）。
  */
-function restartCurrentSubtask(ctx: AgentContext, chain: SubtaskChain, round: number): void {
+function restartCurrentSubtask(
+  ctx: AgentContext,
+  chain: SubtaskChain,
+  round: number,
+  deps?: AgentLoopDeps
+): void {
   const subtask = chain.queue[chain.index];
   if (!subtask) return;
-  applySubtaskContext(ctx, chain, subtask, round + 1);
+  applySubtaskContext(ctx, chain, subtask, round + 1, deps);
   rebuildChainMessages(ctx, chain);
   chain.currentInstruction = buildSubtaskInstruction(
     subtask,
@@ -663,7 +696,7 @@ export async function handleSubtaskFailure(
 
   if (!skipRetry && chain.retryCount < SUBTASK_FAILURE_MAX_RETRIES) {
     chain.retryCount += 1;
-    restartCurrentSubtask(ctx, chain, round);
+    restartCurrentSubtask(ctx, chain, round, deps);
     return 'continue';
   }
 

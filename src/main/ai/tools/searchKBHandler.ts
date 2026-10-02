@@ -129,6 +129,8 @@ export async function handleSearchKB(args: Record<string, unknown>, ctx: ToolCtx
     expandedQueries: mergeExpandedQueries(resolved ? [query] : undefined, intentExpansions),
     // D1 指代触发率：把本次改写结果交给 kbSearch 记进 diagnostics（缺省由本层归一兜底）
     hadPronounRef: resolved,
+    // Q21（任务 9）：Agent 任务意图透传（仅诊断，不改检索策略参数）
+    agentIntent: ctx.agentIntent,
   });
 
   // D1: 以本次 resolved 为准归一 hadPronounRef（下游闭包可能未透传该入参）

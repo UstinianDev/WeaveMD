@@ -138,6 +138,14 @@ runAgentFlow
 - **与知识库侧的边界（桥接不合并）**：KB 侧 `queryPlanner.ts` 的多意图只做**检索策略合并**
   （S12 `mergeStrategies` → 单一 `QueryPlan` broad/focused/comparative），不承担任务拆分；
   任务拆分只发生在本章的意图路由 / Agent 编排层。两层互不合并：KB 不拆任务，Agent 链不改写检索策略。
+- **透传口径（Q21，任务 9）**：Agent 任务意图单向透传进 KB 检索作**诊断审计**——
+  `ToolCtx.agentIntent`（`prepareAgentContext` 构造时注入主 intent；子任务链
+  `applySubtaskContext` 切换时覆写为 `subtask.intent`）→ `searchKBHandler`
+  `opts.agentIntent` → `kbSearch` `diagnostics.queryUnderstanding.agentIntent`
+  （可选字段，缺省不写键）。不改 `searchMode/topK/threshold/expandedQueries`；
+  冲突时 Agent 定工具集、KB 定检索策略，以 Agent 为准。kbQa 子任务在
+  `applySubtaskContext` 按其 query 单槽预载 `searchKb`（首访等待在飞预载落地），
+  全链对该 query 检索恰一次。详见 `knowledge.md`「桥接不合并」小节。
 
 ### 三层意图路由分层（agent-multi-intent 任务 4，Q20）
 

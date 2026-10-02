@@ -1,5 +1,7 @@
 // 知识库类型
 
+import type { IntentName } from './agent';
+
 // ---------------------------------------------------------------------------
 // Embedding 提供商（R1）
 // ---------------------------------------------------------------------------
@@ -134,6 +136,11 @@ export interface IKbDiagnosticsQueryUnderstanding {
   intentType: string;
   isFallthrough: boolean;
   hadPronounRef: boolean;
+  /**
+   * Q21（任务 9）：Agent 任务意图透传 —— 仅诊断/审计字段，不改检索策略
+   * （searchMode / topK / threshold / expandedQueries 均不受其影响）。
+   */
+  agentIntent?: IntentName;
 }
 
 /** Research loop 诊断（扩展查询场景）。 */

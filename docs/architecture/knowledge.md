@@ -44,9 +44,37 @@ pending → done → error
 | 关键词召回 | `kbSearch.ts` | FTS5 BM25 检索 |
 | 检索缓存 | `searchCache.ts` | 搜索结果缓存（3min TTL）+ 重排缓存（5min TTL） |
 | 查询理解 | `queryPlanner.ts` | 5 类意图 + 指代消解 + 查询扩展 |
+| 意图透传 | `kbSearch.ts` | `diagnostics.queryUnderstanding.agentIntent`（Agent 任务意图，Q21 诊断字段，不改检索参数） |
 | 知识澄清 | `knowledgeClarify.ts` | 歧义检测 → 澄清卡片 |
 | 证据分级 | `knowledgeRuntime.ts` | 4 级：grounded/weak/conflicting/no_evidence |
 | 研究循环 | `knowledgeContext.ts` | 证据不足自动子查询 |
+
+### Agent 任务意图 ↔ KB 检索策略意图：桥接不合并（Q21，agent-multi-intent 任务 9）
+
+项目里存在两套「意图」，**语义不同、层级不同，桥接但不合并**：
+
+| | Agent 任务意图 | KB 检索策略意图 |
+|------|----------------|-----------------|
+| 类型 | `IntentName`（create/rewrite/kbQa/tech/web/chat） | `QueryIntentType`（fact/procedure/comparison/summary/follow_up） |
+| 判定方 | `intentRouter`/`intentTiering`（Agent 侧） | `queryPlanner.classifyIntent`（规则，KB 侧） |
+| 作用 | 决定**工具集**（`toolsForIntent`）与子任务链编排 | 决定**检索策略**（`expandByIntent` 扩展词、follow_up 实体替换） |
+| 不做 | 不改写 searchMode / topK / threshold | 不拆任务、不增减工具 |
+
+**透传链路（仅诊断，Q21）**：`ToolCtx.agentIntent`（`agentContext` 构造 toolCtx 时注入主
+intent；子任务链 `subtaskOrchestrator.applySubtaskContext` 切换子任务时覆写为
+`subtask.intent`）→ `searchKBHandler` 调用 `ctx.searchKb` 时透传
+`opts.agentIntent` → `kbSearch.buildQueryUnderstanding` 写入
+`diagnostics.queryUnderstanding.agentIntent`（**可选字段**，缺省不写键，旧消费端忽略）。
+
+- **冲突优先级**：Agent 定工具集、KB 定检索策略，**以 Agent 为准** —— Agent 判 chat 则
+  工具集无 `searchKB`（queryPlanner 判 comparison 也不影响）；Agent 判 kbQa 则工具可用，
+  扩展策略仍按 planner（`expandedQueries` 含比较/步骤扩展）。
+- **检索参数红线**：`agentIntent` 只进 diagnostics 作审计/诊断，**不改**
+  `searchMode / topK / threshold / pinnedWeight`（延续 A3「意图只驱动扩展」约束）。
+- **检索一次（kbQa 子任务）**：`applySubtaskContext` 在 kbQa 子任务（且
+  `deps.searchKb` + useKnowledgeBase 闸齐全）按子任务 query 调
+  `createPreloadedSearchKb` 单槽预载；工具首访**等待在飞预载落地后重扫**
+  （`agentKbPreloader` 竞态兜底）→ 全链对该 query 底层检索恰一次。
 
 ### 检索模式
 

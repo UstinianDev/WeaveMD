@@ -18,6 +18,7 @@ import type {
   IKbDiagnostics,
   IKbDiagnosticsQueryUnderstanding,
   QueryIntentType,
+  IntentName,
 } from '@shared/ai';
 import { classifyIntent } from '../intentRouter';
 import * as intentTiering from '../intentTiering';
@@ -89,6 +90,12 @@ export interface KbSearchOptions {
    * 缺省 undefined → 保守记 false（计入分母、不计入分子）。
    */
   hadPronounRef?: boolean;
+  /**
+   * Q21（任务 9）：Agent 任务意图透传 —— 只写进 diagnostics.queryUnderstanding
+   * 作审计/诊断，不改 searchMode / topK / threshold / expandedQueries
+   * （延续 A3「意图只驱动扩展」约束，冲突时 Agent 定工具集、KB 定检索策略）。
+   */
+  agentIntent?: IntentName;
 }
 
 /** 向后兼容的简单响应类型。 */
@@ -376,10 +383,12 @@ function mapIntentToType(intent: 'question' | 'command' | 'keyword'): QueryInten
  * - `intentType`：独立调用 `detectQueryIntent` 取值，不复用 rerank 局部变量（早退路径也必须可用）
  * - `isFallthrough`：意图规则零命中 → chat fallback
  * - `hadPronounRef`：由入参驱动（kbSearch 不持有 history），缺省保守 false
+ * - `agentIntent`：Q21 任务 9 透传（缺省不写键，旧消费端/既有断言零变化）
  */
 function buildQueryUnderstanding(
   query: string,
-  hadPronounRef: boolean | undefined
+  hadPronounRef: boolean | undefined,
+  agentIntent?: IntentName
 ): IKbDiagnosticsQueryUnderstanding {
   // 三层意图路由（Q20 任务 4）：kbSearch 只读共享缓存、不预取 —— 行为=同步规则
   // （hasHistory=false 键；mock 缺导出 try/catch 回落直接规则）
@@ -393,6 +402,7 @@ function buildQueryUnderstanding(
     intentType: mapIntentToType(detectQueryIntent(query)),
     isFallthrough: fallthrough,
     hadPronounRef: hadPronounRef === true,
+    ...(agentIntent !== undefined ? { agentIntent } : {}),
   };
 }
 
@@ -512,7 +522,7 @@ export async function searchKB(
         finalResults: 0,
       },
       cacheSnapshot: { searchResultHit: 0, rerankHit: 0 },
-      queryUnderstanding: buildQueryUnderstanding(query, opts.hadPronounRef),
+      queryUnderstanding: buildQueryUnderstanding(query, opts.hadPronounRef, opts.agentIntent),
     },
   });
   if (!cleaned) return buildEmptyResponse();
@@ -540,7 +550,7 @@ export async function searchKB(
             finalResults: cachedResult.results.length,
           },
           cacheSnapshot: { searchResultHit: 1, rerankHit: 0 },
-          queryUnderstanding: buildQueryUnderstanding(query, opts.hadPronounRef),
+          queryUnderstanding: buildQueryUnderstanding(query, opts.hadPronounRef, opts.agentIntent),
         },
       };
       return cachedWithDiag;
@@ -812,7 +822,7 @@ export async function searchKB(
       searchResultHit: cacheSearchResultHit,
       rerankHit: cacheRerankHit,
     },
-    queryUnderstanding: buildQueryUnderstanding(query, opts.hadPronounRef),
+    queryUnderstanding: buildQueryUnderstanding(query, opts.hadPronounRef, opts.agentIntent),
   };
 
   console.debug('[KB diagnostics]', JSON.stringify(diagnostics));

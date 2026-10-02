@@ -578,7 +578,7 @@ export class AgentTaskWorker {
       pinnedWeight: kbSettings?.pinnedWeight ?? row?.kbPinnedWeight,
     });
     return {
-      searchKb: async (u: string, q: string, opts?: { topK?: number; queryVector?: number[]; searchMode?: 'fts5' | 'vector' | 'hybrid'; expandedQueries?: string[]; hadPronounRef?: boolean }) => {
+      searchKb: async (u: string, q: string, opts?: { topK?: number; queryVector?: number[]; searchMode?: 'fts5' | 'vector' | 'hybrid'; expandedQueries?: string[]; hadPronounRef?: boolean; agentIntent?: import('@shared/ai').IntentName }) => {
         const res = await searchKB(u, q, {
           topK: opts?.topK ?? persisted.topK,
           fuse: persisted.fuse,
@@ -590,6 +590,8 @@ export class AgentTaskWorker {
           expandedQueries: opts?.expandedQueries,
           // D1 二.3：指代改写标志透传，否则 kbSearch 层 diagnostics 恒 false（闭包重建 opts 会丢参）
           hadPronounRef: opts?.hadPronounRef,
+          // Q21 任务 9：Agent 任务意图透传（同 D1——闭包重建 opts 不丢参，仅诊断字段）
+          agentIntent: opts?.agentIntent,
         });
         // B11 八-1②：allowSend=false → 外发结果过滤到仅勾选授权附件（fail-closed）。
         // 这是 searchKB 结果走向 LLM 的唯一出口（preloader/citation 均继承此闭包）。

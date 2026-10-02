@@ -2,7 +2,7 @@
 // WeaveMD — Tool 类型定义（从 toolRegistry 提取，避免循环依赖）
 // ============================================
 
-import type { IKbDiagnostics, IKbSearchResult } from '@shared/ai';
+import type { IKbDiagnostics, IKbSearchResult, IntentName } from '@shared/ai';
 import type { ConversationMessage } from './knowledge/queryPlanner';
 
 export type ToolStatus = 'ok' | 'error';
@@ -36,6 +36,11 @@ export type SearchKbFn = (
      * 既有调用方（预载闭包、子查询）可不传，缺省在 kbSearch 侧保守记 false。
      */
     hadPronounRef?: boolean;
+    /**
+     * Q21（任务 9）：Agent 任务意图透传（诊断字段，不改检索策略参数）。
+     * 既有调用方（预载闭包、子查询）可不传。
+     */
+    agentIntent?: IntentName;
   }
 ) => Promise<{
   refused: boolean;
@@ -49,6 +54,12 @@ export type SearchKbFn = (
 /** 工具执行上下文（由 agentLoop 注入，toolHandler 按需消费）。 */
 export interface ToolCtx {
   userId: string;
+  /**
+   * Q21（任务 9）：当前 Agent 任务意图（主 intent 或子任务切换后的 intent）。
+   * searchKB handler 透传进检索入参 → diagnostics.queryUnderstanding.agentIntent，
+   * 仅诊断/审计，不决定工具集与检索策略（工具集由 toolsForIntent 按 intent 决定）。
+   */
+  agentIntent?: IntentName;
   /** KB 检索实现注入点（未注入则 searchKB 返回「知识库未就绪」）。 */
   searchKb?: SearchKbFn;
   /** runSkill 执行所需 LLM 上下文（复用 skillLoader.SkillRunnerCtx）。 */

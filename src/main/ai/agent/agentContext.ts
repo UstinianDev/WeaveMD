@@ -652,6 +652,8 @@ export function prepareAgentContext(
 
   const toolCtx: ToolCtx = {
     userId,
+    // Q21（任务 9）：主任务意图注入（子任务链在 applySubtaskContext 切换时同步覆写）
+    agentIntent: intent.intent,
     searchKb: deps.searchKb,
     skill: skillContext,
     skills,
