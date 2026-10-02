@@ -260,3 +260,37 @@
   preview 行 = `batch` 单意图现状）由 `agentToolExecutor.test.ts` 一致性用例断言。
 - 链特有口径走独立段：`buildWriteBatchNoticeSegment(writeToolsByTier())` 拼入链拆分指令段
   （随 `chain.directive` 重建持续在场），工具名单由矩阵注入，结构上不可能分叉。
+
+### 14.5 write_mode 消费与逐写确认（Q23，agent-multi-intent 任务 13）
+
+- **注入链路**：`ai_config.write_mode`（`mapConfigRow` NULL→`manual`）→ `toIAIConfig`
+  透传（`writeMode != null` 才下发；`DEFAULT_AI_CONFIG` 不含该字段）→
+  `IAIConfig.writeMode?: WriteMode` → `prepareAgentContext` 注入
+  `ctx.writeMode = config.writeMode ?? 'auto'`。**缺省 `?? 'auto'` = P0 现行为**——
+  既有测试零 fixture 改动全绿（回归钉 `writeModeConsumption.test.ts` ③）。
+- **batch 档按 `ctx.writeMode` 分派**（`checkForceConfirmTools`）：
+  | 模式 | 单意图（非链） | 多写子任务链 |
+  |------|------|------|
+  | `auto`（缺省） | 执行 + preview 通知，不打断（= P0） | 执行并收集 `writeBatch` → 链末一次 `write_batch` 汇总确认（§14.3） |
+  | `manual` | 逐写执行前确认：`confirm` 卡（id=`toolCallId`、含目标路径），yes→`executeOneTool`，no/reject→取消结果 | 逐写执行前确认（与单意图一致），**`writeBatch` 不收集** → 链末批次零交互 |
+  - 两种模式**无交互环境一律 fail-closed 拒写**（`写入操作需要用户确认…已拒绝执行`，只强不弱）。
+  - `force` 档（deleteFile/deleteLocalFile）与 `none` 档不随 writeMode 变化（§14.1/§14.2 恒定）。
+- **skip-set caller 侧补强**（`agentLoop.computeRoundSkipSet`，流式路径与延迟重发路径共用）：
+  在 `confirmSkipSet` 矩阵派生之上，满足任一条件即把本轮 `confirmTierFor ≠ 'none'` 的
+  工具补进 skip → 汇入 `checkForceConfirmTools` 分派：
+  1. **无交互 deps**（缺 `onInteractionRequired` / `waitForInteraction`）→ batch 档落入
+     「无交互拒写」——修复 P0 遗留问题 3（非链流式路径原「写工具直通执行」不可达该闸）；
+  2. `ctx.writeMode === 'manual'` → 写档入 skip → 逐写确认。
+  - `auto` + 有交互 + 非链 → 补强不触发，skip 输出与 `confirmSkipSet` 原值逐字节一致（P0 现行为）。
+  - **`confirmSkipSet` 函数本体与输出逐字节不变**（`confirmMatrix.test.ts` 103-129 契约钉死）。
+- **写工具清单唯一权威收敛（Q23 末句）**：`confirmMatrix.ts` 导出
+  `CONFIRM_FORCE_TOOLS` / `CONFIRM_BATCH_TOOLS` 权威常量，`confirmTierFor` / `writeToolsByTier`
+  / `isRegisteredConfirmTool` 读自身常量；**import 方向倒置**（confirmMatrix 不再依赖
+  agentToolSelector），`agentToolSelector.WRITE_TOOLS / FORCE_CONFIRM_TOOLS` 改为从
+  confirmMatrix 派生再导出（成员逐一不变，7 项 / 2 项）。`agentPromptBuilder.FILE_OP_WRITE_TOOLS`
+  字面量与顺序不动（sha256 输入）。交叉断言三连钉死（`writeModeConsumption.test.ts` ⑤）：
+  matrix batch∪force ⊆ concurrency 表 `defaultSafe=false` 集 / `FILE_OP_WRITE_TOOLS`
+  写子集 ⊇ matrix batch∪force / selector 派生成员 == 原常量成员。
+- **生产行为变化如实记录（Q23 锁定）**：`mapConfigRow` 恒显式产出 writeMode（DB 默认
+  `manual`）→ 生产默认逐写执行前确认（链内亦逐写）；用户显式切 `auto` 后为链式执行 +
+  链末汇总确认。铁律一不削弱：两模式确认必经。

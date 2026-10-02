@@ -4,7 +4,7 @@
 // toIAIConfig / toIAIConsent / activeStreams / sendStream —— 供各域 handler 共用。
 
 import { BrowserWindow } from 'electron';
-import type { ChatBackend, IAIConfig, IAIConsent, ModelProtocol } from '@shared/ai';
+import type { ChatBackend, IAIConfig, IAIConsent, ModelProtocol, WriteMode } from '@shared/ai';
 
 export function toIAIConfig(config: {
   backend: ChatBackend;
@@ -15,6 +15,8 @@ export function toIAIConfig(config: {
   activeModelConfigId?: string | null;
   /** remedial D8：vision 覆盖三态（null=自动判定，映射为不下发） */
   visionOverride?: boolean | null;
+  /** 写模式（任务 13）：行缺省不下发（旧库/测试行），消费点按 auto 处理 */
+  writeMode?: WriteMode | null;
 }): IAIConfig {
   return {
     // 后端恒 remote（ollama 已去除，收敛标识）
@@ -26,6 +28,8 @@ export function toIAIConfig(config: {
     hasApiKey: !!config.apiKeyEnc,
     ...(config.activeModelConfigId ? { activeModelConfigId: config.activeModelConfigId } : {}),
     ...(config.visionOverride != null ? { visionOverride: config.visionOverride } : {}),
+    // 任务 13：writeMode 透传（缺省不下发 → 消费点按 auto = P0 现行为）
+    ...(config.writeMode != null ? { writeMode: config.writeMode } : {}),
   };
 }
 

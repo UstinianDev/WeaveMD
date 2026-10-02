@@ -1202,3 +1202,93 @@ npx vitest run tests/main/ai/subtaskConfirmResume.test.ts
 - **级联只标注不改产物**：链末批次拒绝只写 `dependency_rejected` 入报告，**不回滚后继
   已执行产物**（Q22「跳过入报告」的落地解释，防二次放大不可逆损失）；回滚粒度限制沿
   §14.3 如实记录，不扩大承诺。
+
+## 任务 13 — write_mode 消费点 + 写工具清单收敛｜P1 第六任务
+
+计划 §2 任务 13｜Q23 裁定（auto=链末汇总确认必经 / manual=逐写执行前确认 / confirmMatrix 唯一权威）。
+
+### 1. RED（TDD strict）
+
+新建 `tests/main/ai/writeModeConsumption.test.ts`（16 例，计划 TDD 要点 ①-⑤ 全含）：
+
+```bash
+npx vitest run tests/main/ai/writeModeConsumption.test.ts
+```
+
+```text
+ Tests  7 failed | 9 passed (16)
+```
+
+RED 7 例（失败归因 = 待实现行为）：
+
+| # | 用例 | 失败归因 |
+|---|------|----------|
+| ② | manual 单意图 yes：确认卡→执行+preview | `ctx.writeMode` 未注入 + batch 档未按 manual 分派 |
+| ② | manual 单意图 no：取消不执行 | 同上 |
+| ② | manual 链态逐写确认 + writeBatch 不收集 | 同上 |
+| ② | manual 流式路径逐写确认（生产唯一路径） | skip-set 未按 manual 路由 |
+| ④ | 遗留 3：无交互+非链+注册 batch（流式）→ 拒写不执行 | `confirmSkipSet(intent,false)` 不含 batch，写工具直通执行 |
+| ⑤ | import 方向倒置源码钉 | confirmMatrix 仍 `from './agentToolSelector'` |
+| ⑤ | toIAIConfig 透传 writeMode | `toIAIConfig` 未映射该字段 |
+
+通过的 9 例（回归钉先行确认）：① auto 单意图/链态（= 342/404 语义）、③ 缺省 writeMode
+逐字一致两例、④ 有交互现行为不变、⑤ 交叉断言三连（matrix⊆concurrency false 集 /
+FILE_OP ⊇ matrix / selector 成员 == 原常量）。
+
+### 2. GREEN — 变更清单
+
+- `src/shared/ai/config.ts`：`IAIConfig.writeMode?: WriteMode`（加法可选字段）。
+- `src/main/ai/ipc/shared.ts`：`toIAIConfig` 入参 +`writeMode?: WriteMode | null`，
+  `writeMode != null` 才下发；`DEFAULT_AI_CONFIG` 不加该字段。
+- `src/main/ai/agent/agentContext.ts`：`AgentContext` +`writeMode: WriteMode`；
+  `prepareAgentContext` 返回 `writeMode: config.writeMode ?? 'auto'`。
+- `src/main/ai/agent/agentToolExecutor.ts`：batch 档按 `ctx.writeMode` 分派——
+  `manual` → 执行前逐写确认（question id=toolCallId、type=confirm、含目标路径；
+  yes→executeOneTool、no/reject→取消结果、无交互拒——无交互闸在 manual 分支之前，
+  两模式共用）；`auto` → 现行为（单意图 execute+preview、链收集+链末汇总）；
+  `writeBatch` 收集仅 auto（manual 分支先于收集逻辑 return）。
+- `src/main/ai/agent/agentLoop.ts`：新增 `computeRoundSkipSet(ctx, deps, toolNames)`
+  （流式路径 + 延迟重发两处统一换用）：矩阵派生之上，**无交互 deps 或 manual** 时把
+  `confirmTierFor ≠ 'none'` 的本轮工具补进 skip → 汇入 `checkForceConfirmTools`；
+  `auto`+有交互+非链 → 输出与 `confirmSkipSet` 原值逐字节一致。
+  **`confirmSkipSet` 函数本体零改动**（红线 1）。
+- `src/main/ai/agent/confirmMatrix.ts`：新增权威常量 `CONFIRM_FORCE_TOOLS` /
+  `CONFIRM_BATCH_TOOLS`；`confirmTierFor` / `writeToolsByTier` / `isRegisteredConfirmTool`
+  改读自身常量；**移除 `from './agentToolSelector'` import（方向倒置）**；
+  `KNOWN_NON_WRITE_TOOLS` 改显式枚举（只读 17 项与 selector.READ_ONLY_TOOLS 逐一对应，
+  交叉断言钉同）。
+- `src/main/ai/agent/agentToolSelector.ts`：`WRITE_TOOLS` / `FORCE_CONFIRM_TOOLS`
+  改为从 confirmMatrix 派生再导出（成员逐一不变：7 项 / 2 项）；import 方向
+  selector→confirmMatrix（防循环，toolRegistry 叶子依赖无环）。
+
+GREEN：
+
+```text
+ Tests  16 passed (16)
+```
+
+### 3. 门禁（最终）
+
+| 项 | 命令 | 结果（真实输出） |
+|----|------|------|
+| typecheck | `npm run typecheck` | 0 错误（无输出） |
+| test | `npm run test` | `Test Files 204 passed (204)`；`Tests 4768 passed (4768)`（基线 4752 + 新 16） |
+| lint | `npm run lint` | `108 problems (0 errors, 108 warnings)`（与任务 9/12 基线 108 持平；新测试文件零 warning） |
+| 钉死测试五组 | 分批实跑 | `confirmMatrix+agentToolExecutor+concurrencyDefs+docTools+agentPromptBuilder` = 261 passed（既有断言零改动） |
+| flaky 说明 | — | 全量首跑 2 次出现 `tests/benchmarks/ab-test.test.ts`「djb2 faster than MD5」计时断言抖动，单跑 22 passed、第三次全量 4768 全绿——性能断言固有 flaky，与本任务改动无关（不触碰 hash 代码） |
+| playwright | — | 本任务**不触 `src/render/` 源码**（BatchConfirmCard/QuestionCard 零改动），按任务 4/9/12 先例跳过 |
+
+### 4. 实施口径记录（偏差如实）
+
+- **manual 确认卡 variant**：计划只规定「question id=toolCallId、type=confirm、含目标路径」，
+  未规定 variant → 不传第二参（渲染侧兜底链回退默认 `QuestionCard`，不走
+  `delete_confirm` 红卡 / `write_batch` 汇总卡）；与 force 档 `delete_confirm` 视觉区分保留。
+- **无交互闸位置**：无交互拒写检查位于 batch 档分支最前、**先于 manual 分派**——
+  manual + 无交互 → 拒写（fail-closed），与计划「无交互拒」语义一致，避免先发确认卡再发现无交互。
+- **computeRoundSkipSet 触发条件合并**：计划表述为「无交互 deps 时补 skip」；manual 逐写
+  确认在流式路径同样要求写档入 skip（否则 `confirmSkipSet(inChain=false)` 不含 batch，
+  manual 单意图在生产唯一路径上不可达确认），故补强条件为「无交互 **或** manual」——
+  auto+有交互+非链不触发，P0 行为逐字节保持（④ 第 2 例 + ③ 回归钉断言）。
+- **lint warning 计数**：中途一次出现 109（`CONFIRM_BATCH_TOOLS` 导入未使用），改为
+  `WRITE_TOOLS = new Set([...CONFIRM_BATCH_TOOLS, ...CONFIRM_FORCE_TOOLS])` 完整派生后
+  回到基线 108。

@@ -12,6 +12,7 @@ import type {
   IGlobalAgentFiles,
   IIntent,
   ToolDef,
+  WriteMode,
 } from '@shared/ai';
 import { appendMessage, getConversation, getRecentMessagesByRounds } from '../../db/ai';
 import { listFiles } from '../../db/files';
@@ -96,6 +97,12 @@ export interface AgentContext {
    * 收集，链末 confirmWriteBatch 一次汇总确认（Q13）。缺省 = 非链/不收集。
    */
   writeBatch?: WriteBatchItem[];
+  /**
+   * 写操作模式（任务 13，Q23）：auto = 链式执行 + 链末汇总确认（确认必经，
+   * 铁律一不削弱）；manual = 逐写执行前确认（单意图与链一致），writeBatch 仅 auto 收集。
+   * prepareAgentContext 按 `config.writeMode ?? 'auto'` 注入——缺省 = P0 现行为。
+   */
+  writeMode: WriteMode;
   /**
    * 当前执行子任务归属（任务 12，Q22）：orchestrator 在子任务切换时写入，
    * writeBatch 收集据此标注 subtaskId/subtaskIndex（链末批次按子任务归属）。
@@ -865,5 +872,7 @@ export function prepareAgentContext(
     intentGateOpen,
     baseHistoryMessages: historyMsgs,
     toolSelectionArgs,
+    // 任务 13（Q23）：writeMode 缺省 auto = P0 现行为（既有测试零 fixture 改动）
+    writeMode: config.writeMode ?? 'auto',
   };
 }

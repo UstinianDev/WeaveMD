@@ -6,6 +6,9 @@
 
 import type { IIntent, ToolDef } from '@shared/ai';
 import { defineCoreTools, buildToolListForPrompt } from '../toolRegistry';
+// 任务 13（Q23）：写工具清单以 confirmMatrix 为唯一权威，本文件从其常量派生再导出
+//（方向倒置：原 confirmMatrix→agentToolSelector 的 import 已移除，防循环）。
+import { CONFIRM_BATCH_TOOLS, CONFIRM_FORCE_TOOLS } from './confirmMatrix';
 
 // Re-export per-invocation concurrency safety (step toward S2 granular partition)
 export { isToolConcurrencySafe } from './concurrencyDefs';
@@ -26,20 +29,22 @@ export const READ_ONLY_TOOLS = new Set([
   'searchDocument', 'readPage', 'extractTable', 'analyzeChart',
 ]);
 
-/** 写入工具集合（有副作用，需串行执行 + 预览通知）。确认档位见 confirmMatrix.ts（任务 11）。 */
+/**
+ * 写入工具集合（有副作用，需串行执行 + 预览通知）。
+ * 任务 13（Q23）：从 confirmMatrix 权威常量派生，成员逐一不变（7 项，
+ * 既有引用方与测试零改动；顺序按原常量声明序保持）。
+ */
 export const WRITE_TOOLS = new Set([
-  'createFile', 'createFolder', 'renameFile', 'moveFile',
-  'deleteFile', 'editLocalFile', 'deleteLocalFile',
+  ...CONFIRM_BATCH_TOOLS,
+  ...CONFIRM_FORCE_TOOLS,
 ]);
 
 /**
  * 强制确认工具集合（硬编码拦截，不依赖 LLM 自觉，删除操作不可恢复）。
- * 常量保留供既有引用方；确认档位以 confirmMatrix.confirmTierFor 为准（任务 11）。
+ * 任务 13：从 confirmMatrix.CONFIRM_FORCE_TOOLS 派生再导出，成员逐一不变；
+ * 确认档位以 confirmMatrix.confirmTierFor 为准（任务 11）。
  */
-export const FORCE_CONFIRM_TOOLS = new Set([
-  'deleteFile',
-  'deleteLocalFile',
-]);
+export const FORCE_CONFIRM_TOOLS = new Set(CONFIRM_FORCE_TOOLS);
 
 // ---------------------------------------------------------------------------
 // 工具选择

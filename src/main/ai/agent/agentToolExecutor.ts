@@ -262,10 +262,12 @@ function refusedWriteResult(
  * 按 `confirmTierFor(ctx.intent.intent, tc.name)` 分派：
  *   - `'none'`  → null（不拦截，常规执行路径）；
  *   - `'force'` → 单工具强制确认卡（delete_confirm 变体，yes 才执行，语义不变）；
- *   - `'batch'` → 无交互环境一律拒绝执行（fail-closed 只强不弱）；非链态保持现状
- *     （交回常规执行 + preview 通知，不打断），但未登记工具 fail-closed 拒绝、
- *     不静默直通（连通性 §6）；多写子任务链执行并收集写批次（未登记名同样归入），
- *     链末 `confirmWriteBatch` 一次汇总确认（Q13）。
+ *   - `'batch'` → 无交互环境一律拒绝执行（fail-closed 只强不弱）；
+ *     `ctx.writeMode === 'manual'`（任务 13，Q23）→ 逐写执行前确认（单意图与链
+ *     一致，yes 才执行，writeBatch 不收集）；`auto`（缺省 = P0 现行为）→ 非链态
+ *     保持现状（交回常规执行 + preview 通知，不打断），但未登记工具 fail-closed
+ *     拒绝、不静默直通（连通性 §6）；多写子任务链执行并收集写批次（未登记名同样
+ *     归入），链末 `confirmWriteBatch` 一次汇总确认（Q13）。
  * 统一使用浅拷贝引用 tc。返回 { executed: true, result } 表示已处理；返回 null 表示无需拦截。
  * 任务 7（Q19）：链态下 force 档**执行失败**（用户确认 yes 后执行报错）附带
  * `chainForceFailure` 信号——不自动重试，交 agentLoop 走 subtask_failed 停等人工；
@@ -294,7 +296,53 @@ export async function checkForceConfirmTools(
         '写入操作需要用户确认，但当前环境不支持交互。已拒绝执行。'
       );
     }
-    // 单意图保持现状：交回常规执行路径（执行成功后 handleToolResult 发 preview 通知）
+    // 任务 13（Q23）：manual = 逐写执行前确认——单意图与链一致；
+    // 确认卡 id=toolCallId、type=confirm、含目标路径；yes 才执行，
+    // no / waitForInteraction reject → 取消结果；writeBatch 收集仅 auto 生效。
+    if (ctx.writeMode === 'manual') {
+      const target = extractWriteTarget(tc.arguments);
+      const manualQuestion: IClarifyQuestion = {
+        id: toolCallId,
+        text: `确认执行 ${tc.name}${target ? `（${target}）` : ''}？`,
+        type: 'confirm',
+      };
+      deps.onInteractionRequired([manualQuestion]);
+      let answer: Record<string, string>;
+      try {
+        answer = await deps.waitForInteraction();
+      } catch {
+        return {
+          executed: true,
+          result: {
+            tc: tcCopy,
+            toolCallId,
+            result: {
+              content: JSON.stringify({ cancelled: true }),
+              status: 'error',
+              errorDesc: '用户取消了写入操作',
+            },
+          },
+        };
+      }
+      if (answer[toolCallId] === 'yes') {
+        const executedResult = await executeOneTool(tcCopy, round, ctx, replacementState);
+        return { executed: true, result: executedResult };
+      }
+      return {
+        executed: true,
+        result: {
+          tc: tcCopy,
+          toolCallId,
+          result: {
+            content: JSON.stringify({ cancelled: true }),
+            status: 'error',
+            errorDesc: '用户取消了写入操作',
+          },
+        },
+      };
+    }
+    // auto（缺省 = P0 现行为）：单意图保持现状，交回常规执行路径
+    //（执行成功后 handleToolResult 发 preview 通知）
     if (!Array.isArray(ctx.writeBatch)) {
       // 未登记工具 fail-closed：单意图无批次确认可归入，有交互也不得静默直通执行
       //（连通性报告 §6：未知组合只向确认方向兜底）

@@ -207,11 +207,11 @@ runAgentFlow
 | preview_file_revision / preview_patch_files | 修订/补丁预览 | none（proposal 恒 manual 确认，不进矩阵） | manual |
 | memory_write | 写入记忆（upsert，恒 `source='auto'`，同轮去重 + 单轮 10 条自限） | none（维持现口径：不进强制档，铁律一仅约束笔记写入） | — |
 
-> **B11 八-2② 实现现状**：`auto/manual` 为设计意图档位。主进程工具执行路径对
-> `write_mode=auto` **无消费点**（该值仅由 UI toggle 与 `AI_GET/SET_WRITE_MODE` 持久化到
-> `ai_config.write_mode`）；实际硬确认由 **确认矩阵 `confirmMatrix.confirmTierFor`**
-> （`agentToolExecutor.checkForceConfirmTools` 按档分派，任务 11）与 proposal/confirm 类工具
-> （恒 manual）承担。详见下方「写控制」。
+> **B11 八-2② → 任务 13 更新**：`auto/manual` **消费点已落地**（Q23）——`ai_config.write_mode`
+> 经 `toIAIConfig` → `ctx.writeMode` 注入，`checkForceConfirmTools` batch 档按其分派
+> （auto=现状/链末汇总，manual=逐写执行前确认）。硬确认仍由 **确认矩阵
+> `confirmMatrix.confirmTierFor`**（任务 11，任务 13 起为写工具清单唯一权威）与
+> proposal/confirm 类工具（恒 manual）承担。详见下方「写控制」。
 
 ### 交互工具
 
@@ -249,19 +249,34 @@ runAgentFlow
 - 链末汇总确认的明示（拒绝项数 + 回滚结果）追加进链 buffer，随链末单条 assistant 落库；
   错误/取消路径（AI_STREAM_ERROR 收口）不触发汇总确认——该路径下写入保持执行原状（= 改动前基线）。
 
-### write_mode（B11 八-2② 如实记录）
+### write_mode（消费点已落地，agent-multi-intent 任务 13 / Q23）
 
-| 模式 | 设计意图 | 实现现状 |
-|------|------|------|
-| `auto` | AI 直接执行写操作 | **主进程工具执行路径无消费点**——仅 UI toggle + IPC（`AI_GET/SET_WRITE_MODE`）持久化为用户偏好；auto 档确认接线为 P1 任务 13 |
-| `manual` | 弹确认卡片（红删绿增预览） | 生效路径：确认矩阵 `force`/`batch` 档 + `editBlocks`/`preview_*` proposal 确认（恒 manual） |
+| 模式 | 消费点行为（Q23 裁定） |
+|------|------|
+| `auto` | **链式执行 + 链末汇总确认 + 拒绝快照回滚（确认必经，铁律一不削弱）**；单意图 batch 档保持现状（执行 + preview，不打断）——即 P0 行为 |
+| `manual` | **逐写执行前确认**（单意图与链一致）：`checkForceConfirmTools` batch 档发 `confirm` 确认卡（id=toolCallId、含目标路径），yes 才执行，no/cancel 取消，无交互仍 fail-closed 拒写；`writeBatch` 收集仅 auto 生效（manual 链不收集 → 链末零交互） |
+
+- **接线链路**：`ai_config.write_mode`（`mapConfigRow` NULL→manual）→ `toIAIConfig` 透传
+  （缺省不下发）→ `IAIConfig.writeMode?` → `prepareAgentContext` 注入
+  `ctx.writeMode = config.writeMode ?? 'auto'` → `agentToolExecutor.checkForceConfirmTools`
+  batch 档按 `ctx.writeMode` 分派 + `agentLoop.computeRoundSkipSet` 路由（manual 把写档
+  补进 skip-set）。**缺省 `?? 'auto'` = P0 现行为**（既有测试零 fixture 改动全绿）。
+- **确认 UI 不空转**：Composer 写模式开关 title 提示（auto=偏好预设）——manual 现已真实生效。
+- **无交互环境**（遗留问题 3，**已解决 @任务13**）：流式/延迟重发两路径 caller 侧
+  `computeRoundSkipSet` 把 `confirmTierFor ≠ 'none'` 的本轮工具补进 skip → 路由
+  `checkForceConfirmTools` 拒写（非链态流路径原「写工具直通执行」不可达该闸）。
+  `confirmSkipSet` 函数本体与输出逐字节不变（`confirmMatrix.test` 103-129 钉死）。
+- **收敛声明（Q23 末句）**：`confirmMatrix.ts` 为写工具清单**唯一权威**
+  （`CONFIRM_FORCE_TOOLS` / `CONFIRM_BATCH_TOOLS` 常量，`confirmTierFor` 读自身常量）；
+  `agentToolSelector.WRITE_TOOLS / FORCE_CONFIRM_TOOLS` 改为从 confirmMatrix 派生再导出
+  （成员逐一不变），import 方向倒置——confirmMatrix 不再依赖 agentToolSelector（防循环）。
+  交叉断言钉死：matrix batch∪force ⊆ concurrency 表 false 集 / `FILE_OP_WRITE_TOOLS`
+  写子集 ⊇ matrix batch∪force（agentPromptBuilder sha256 输入不动）/ selector 派生成员 == 原常量成员。
 
 - **附件/解析产物写入按 `manual` 确认语义执行**（八-2②）：入 KB（`importAttachmentAsKb`）、
   附件落库（`persistIncomingAttachments`）等触发点全部来自用户显式动作（勾选+发送、设置页导入），
   AI 工具集内无任何可触发上述写入的工具（已核查 toolRegistry/agent 侧零引用）——不存在
   "AI 自动写附件"路径，天然满足 manual 语义。
-- **确认 UI 不空转**：Composer 写模式开关已加显式 title 提示（auto=偏好预设、当前按手动语义执行）。
-- `write_mode` 完整接线（auto 分支消费点、确认卡片+staleness 全链路）列为 P1（任务 13），不阻塞本期。
 
 **staleness detection**：editBlocks proposal 生成时计算 **xxHash64** contentHash
 （`src/shared/utils/hashUtil.ts`，S4 MD5→xxHash64 迁移后；本行原文误写为 MD5，B11 如实修正），确认时二次校验。

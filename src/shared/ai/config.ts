@@ -25,6 +25,12 @@ export interface IAIConfig {
    * resolveVisionSupport 消费。
    */
   visionOverride?: boolean;
+  /**
+   * 写操作模式（agent-multi-intent 任务 13，Q23）：auto = 链式执行 + 链末汇总确认；
+   * manual = 逐写执行前确认。加法可选字段——缺省（旧数据/测试 fixture）按 auto
+   * 处理 = P0 现行为。生产 `mapConfigRow` 恒显式产出（DB 默认 manual）。
+   */
+  writeMode?: WriteMode;
 }
 
 export interface IAIConsent {

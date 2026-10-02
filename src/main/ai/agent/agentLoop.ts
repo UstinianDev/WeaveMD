@@ -64,7 +64,7 @@ import {
   type ToolExecResult,
   type WriteBatchConfirmResult,
 } from './agentToolExecutor';
-import { confirmSkipSet } from './confirmMatrix';
+import { confirmSkipSet, confirmTierFor } from './confirmMatrix';
 import {
   advanceSubtaskChain,
   appendChainNote,
@@ -663,11 +663,11 @@ export async function runAgentFlow(
             );
             if (nonDeferredCalls.length > 0) {
               // skipSet: 确认矩阵按本轮工具名逐档派生（force ∪ 链态 batch ∪ 未登记名）
-              // + 延迟工具（schema 不完整）
+              // + caller 侧局部加严（任务 13）+ 延迟工具（schema 不完整）
               const skipSet = new Set([
-                ...confirmSkipSet(
-                  ctx.intent.intent,
-                  Array.isArray(ctx.writeBatch),
+                ...computeRoundSkipSet(
+                  ctx,
+                  deps,
                   accumulatedToolCalls.map((t) => t.name)
                 ),
                 ...deferredNamesThisRound,
@@ -932,6 +932,32 @@ export async function runAgentFlow(
 // ---------------------------------------------------------------------------
 
 /**
+ * 本轮 skip-set 计算（任务 13：caller 侧局部加严，**不改 confirmSkipSet 本体**）。
+ * 在矩阵派生（force ∪ 链态 batch ∪ 未登记名）之上补两类路由（都汇入
+ * `checkForceConfirmTools` 分派，只向确认方向加严）：
+ *   1. 无交互 deps（缺 onInteractionRequired / waitForInteraction）→ 把本轮
+ *      `confirmTierFor ≠ 'none'` 的工具全部补进 skip → batch 档落入
+ *      「无交互拒写」（修复遗留问题 3：非链流式路径原直通执行不可达该闸）；
+ *   2. `ctx.writeMode === 'manual'` → 写档全部入 skip → 逐写执行前确认
+ *      （Q23 manual 语义，单意图与链一致）。
+ * auto + 有交互 + 非链 → 补强不触发，输出与 confirmSkipSet 原值逐字节一致（P0 现行为）。
+ */
+function computeRoundSkipSet(
+  ctx: AgentContext,
+  deps: AgentLoopDeps,
+  toolNames: string[]
+): Set<string> {
+  const names = [...toolNames];
+  const skip = confirmSkipSet(ctx.intent.intent, Array.isArray(ctx.writeBatch), names);
+  const hasInteraction = !!(deps.onInteractionRequired && deps.waitForInteraction);
+  if (hasInteraction && ctx.writeMode !== 'manual') return skip;
+  for (const name of names) {
+    if (confirmTierFor(ctx.intent.intent, name) !== 'none') skip.add(name);
+  }
+  return skip;
+}
+
+/**
  * 处理 StreamingToolExecutor 收集的结果：
  * 1. 去重 ask_question_card
  * 2. 等待安全工具结果 + 串行执行非安全工具（含 force_confirm/ask_question_card 特殊处理）
@@ -966,9 +992,9 @@ async function processStreamingToolRound(
   //    跳过确认矩阵按本轮名派生的集合：force ∪ 链态 batch ∪ 未登记名
   //    —— 留给 checkForceConfirmTools 分派）
   const executorResults = await executor.waitForAll(
-    confirmSkipSet(
-      ctx.intent.intent,
-      Array.isArray(ctx.writeBatch),
+    computeRoundSkipSet(
+      ctx,
+      deps,
       dedupedToolCalls.map((t) => t.name)
     )
   );
