@@ -5,7 +5,7 @@
 ## 前置依赖
 
 - **M1/M2 已完成**：`tableCodec.ts` + `TableBlock.tsx` + `onTableEdit` 接线 + 组件单测全绿。
-  先读 `docs/plan/editor-table-block.plan.md` §1.6~1.8 + `docs/requirements/editor-table-block.req.md` T4/T5/T6。
+  原计划/需求（`editor-table-block.plan.md`、`.req.md`）已随计划退役，历史见 git；实现事实以源码 `src/render/editor/.../tableCodec.ts` + `src/render/components/Editor/v2/blocks/TableBlock.tsx` 为准。
 
 ## 范围
 
