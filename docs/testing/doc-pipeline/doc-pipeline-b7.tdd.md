@@ -1,9 +1,9 @@
 # doc-pipeline B7 — TDD 证据报告（strict）
 
 > 创建：2026-09-26 | 批次：**B7（二-3 PDF 版面 + 二-4 D 路线 + 二-6 页码溯源落库）** | 强度：strict（RED → 最小实现 GREEN → 重构 → 覆盖率 → 门禁 → 提交）
-> 来源：[计划](../specs/knowledge/document-parsing.md) §1/§2-B7/§4.2-B7 / [需求](../requirements/doc-pipeline.req.md)
+> 来源：[计划](../../specs/knowledge/document-parsing.md) §1/§2-B7/§4.2-B7 / [需求](../../requirements/doc-pipeline/doc-pipeline.req.md)
 > 权威需求源：`C:\Users\lenovo\Desktop\优化方向\优化方向.md` §二-3/二-4/二-6（拷问细节② = 验收点）
-> 调研依据：`docs/research/doc-pipeline-pdf-multimodal.md` §1（pdfjs TextItem/transform 坐标、Node 栅格化）、§4（D 路线接入建议 8 条）；`docs/research/doc-pipeline-parse.md` §1（liteparse API 实测结论）
+> 调研依据：`docs/research/doc-pipeline/doc-pipeline-pdf-multimodal.md` §1（pdfjs TextItem/transform 坐标、Node 栅格化）、§4（D 路线接入建议 8 条）；`docs/research/doc-pipeline/doc-pipeline-parse.md` §1（liteparse API 实测结论）
 > 风险级：**L3**；红线：本期无 OCR、不削弱 `allowSend`、不删测试、不引入 pdfjs-dist（体积门禁联动 B10）
 
 ## 1. 测试范围
@@ -131,7 +131,7 @@ All files          |   95.79 |    83.22 |   98.13 |   95.79
 | 无文本层检测命中短路转 D 并提示 | `analyzePdfLayout` 双低判定 → `shouldUseDRoute('no-text-layer')` → `runDRoute`；降级 → `degraded` 显式提示上屏（附件 meta.error / KB 导入 error） | documentParser 无文本层 3 例 + attachments「空文本 + degraded 上屏」 |
 | 本期无 OCR | liteparse `ocrEnabled:false` 保持；无 OCR 相关代码 | `grep ocrEnabled` 仅 false |
 | 二-4② 触发条件显式（不全量烧 token） | `shouldUseDRoute` 三信号纯函数 + 正常文档 `runDRoute` 零调用断言 | pdfLayout shouldUseDRoute 5 例 + documentParser「正常文档不触发 D」+ attachments「no-config 不渲染不识读」 |
-| 渲染选型有实测依据 | liteparse `screenshot()` Node 主进程实测（PNG buffer 返回）→ **不引 pdfjs-dist** | 本报告 §8.1 + doc-pipeline-pdf-multimodal §1.4 |
+| 渲染选型有实测依据 | liteparse `screenshot()` Node 主进程实测（PNG buffer 返回）→ **不引 pdfjs-dist** | 本报告 §8.1 + research/doc-pipeline/doc-pipeline-pdf-multimodal §1.4 |
 | 不支持 vision 降级 A 路线且明确提示 | `supportsVision` 前置 → `degraded reason:'no-vision'` 含模型名，不发任何请求；降级保留 A 文本 | multimodalParse「no-vision 降级」「降级保留 A 路线文本」 |
 | 页数上限 + 并发 + token 成本估算 | `MAX_D_ROUTE_PAGES=10` 截断显式提示、`D_ROUTE_CONCURRENCY=2` 有界并发、`estimateDRouteTokens` 复用 `estimateImageTokens` | multimodalParse 截断/并发/成本 3 例 |
 | 提示词要求结构化表格/数据 | `D_ROUTE_SYSTEM_PROMPT` 强制管道表格/禁评论感想，并入页 prompt | multimodalParse「识读提示词」断言 prompt 全文 |

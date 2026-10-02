@@ -1,7 +1,7 @@
 # doc-pipeline B1 — TDD 证据报告（strict）
 
 > 创建：2026-09-25 | 批次：**B1（二-1 统一解析入口 + 二-2 xls/xlsx + 二-6 类型契约）** | 强度：strict（RED → 最小实现 GREEN → 重构 → 覆盖率 → 门禁 → 提交）
-> 来源：[计划](../specs/knowledge/document-parsing.md) §1/§2-B1/§4.2-B1 / [需求](../requirements/doc-pipeline.req.md) Q3
+> 来源：[计划](../../specs/knowledge/document-parsing.md) §1/§2-B1/§4.2-B1 / [需求](../../requirements/doc-pipeline/doc-pipeline.req.md) Q3
 > 权威需求源：`C:\Users\lenovo\Desktop\优化方向\优化方向.md` §二-1/二-2/二-6
 
 ## 1. 测试范围

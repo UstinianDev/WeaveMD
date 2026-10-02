@@ -1,10 +1,10 @@
 # agent-multi-intent — TDD 测试报告（P0 主线）
 
 > 日期：2026-10-01 | 档位 **L** | TDD 强度 **strict**
-> 需求 `docs/requirements/agent-multi-intent.req.md`（Q1~Q14）｜计划 `docs/plan/agent-multi-intent.plan.md`（§2 任务清单、§4.2 测试要点）
+> 需求 `docs/requirements/agent-multi-intent/agent-multi-intent.req.md`（Q1~Q14）｜计划 `docs/plan/agent-multi-intent.plan.md`（§2 任务清单、§4.2 测试要点）
 > 本报告按任务分章追加；本文件仅记录**实际执行的命令与输出摘要**（截取自终端，不虚构）。
 > **2026-10-03 渐进式拆分（阈值 400 行）**：正文（原 L7-L1427）已逐字迁入同名分册目录
-> `docs/testing/agent-multi-intent.tdd/`（`NN-主题.md`），本文件仅保留头部、分册索引与总门禁口径摘要；
+> `docs/testing/agent-multi-intent/agent-multi-intent.tdd/`（`NN-主题.md`），本文件仅保留头部、分册索引与总门禁口径摘要；
 > 分册正文与原文件逐字一致，仅做切分、不改写。
 
 ## 分册索引

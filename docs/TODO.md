@@ -15,7 +15,7 @@ L 级能力补齐，**13 任务全交付**（P0 5：结构化 Schema / 预检门
 
 **提交状态**：P0 与 P1/P2 全部提交均已推送（`38edc57`..`6393ec1`，`git ls-remote` 核实）；过程文档（req/plan/status/connectivity/tdd）随批入库。
 
-> 需求 [req](./requirements/agent-multi-intent.req.md)（§3 Q1~Q14 / §6 Q17~Q24）/ 计划 [plan](./plan/agent-multi-intent.plan.md) · [p1.plan](./plan/agent-multi-intent-p1.plan.md) / TDD 证据 [tdd](./testing/agent-multi-intent.tdd.md)
+> 需求 [req](./requirements/agent-multi-intent/agent-multi-intent.req.md)（§3 Q1~Q14 / §6 Q17~Q24）/ 计划 [plan](./plan/agent-multi-intent.plan.md) · [p1.plan](./plan/agent-multi-intent-p1.plan.md) / TDD 证据 [tdd](./testing/agent-multi-intent/agent-multi-intent.tdd.md)
 
 ### agent-memory-optimize 第三批（2026-09-30 ~ 2026-10-01）
 
@@ -31,7 +31,7 @@ P2 远期能力 6 项 + **1 项范围扩张（D7）+ 1 项实施期追加授权�
 
 **🔴 本批最有价值的发现（范围扩张 D7）**：知识库的**删除与更新路径此前整体报错回滚** —— `kb_chunks_fts_ad`/`kb_documents_fts_ad`/`kb_documents_fts_au` 在普通（非 contentless）fts5 表上用了仅限 contentless 的 `'delete'` 特殊命令，实测 `DELETE/UPDATE = FAILED: SQL logic error` 且回滚；生产 `db/kb.ts` 5 处删除 + 全部 `UPDATE kb_documents` 受影响；既有 `fts5-smoke` 只验插入查询故从未暴露。已修 3 处触发器为标准 `DELETE ... WHERE rowid = old.rowid`，并补删除/更新态。
 
-> 需求 [req](./requirements/agent-memory-optimize-3.req.md)（Q1~Q9 + §七 事实核验 14 条）/ 计划与三 Gate 实施记录（原 plan §6 三 Gate 实施记录，已随计划退役见 git）/ TDD 证据 [tdd](./testing/agent-memory-optimize-3.tdd.md)
+> 需求 [req](./requirements/agent-memory/agent-memory-optimize-3.req.md)（Q1~Q9 + §七 事实核验 14 条）/ 计划与三 Gate 实施记录（原 plan §6 三 Gate 实施记录，已随计划退役见 git）/ TDD 证据 [tdd](./testing/agent-memory/agent-memory-optimize-3.tdd.md)
 
 ### agent-memory-optimize 第二批（2026-09-29 ~ 2026-09-30）
 
@@ -47,7 +47,7 @@ P1 主干，路线图「模块四 → 三 → 五 → 二.4 → 七.1/七.2/七.
 **安全交付**：`memoryHandlers.ts` 是全仓**第一个**按 `SECURITY.md` 校验 `event.sender` 的 IPC handler（此前零落实，已记已知问题）。
 **提交状态**：第二批 7 个提交已全部落库并推送 —— `8fd28f1`(A)、`6ed0b4c`(B1/B2/B3)、`33c3763`(docs)、`16d51a0`(B4)、`a4bf6e6`(C1/C2/C3)、`2de5c4c`(C4)、`f042784`(docs 收尾)；第三批 5 个提交见下。
 
-> 需求 [req](./requirements/agent-memory-optimize-2.req.md)（Q1~Q15）/ 计划与三 Gate 实施记录（原 plan §6 三 Gate 实施记录，已随计划退役见 git）/ TDD 证据 [tdd](./testing/agent-memory-optimize-2.tdd.md)
+> 需求 [req](./requirements/agent-memory/agent-memory-optimize-2.req.md)（Q1~Q15）/ 计划与三 Gate 实施记录（原 plan §6 三 Gate 实施记录，已随计划退役见 git）/ TDD 证据 [tdd](./testing/agent-memory/agent-memory-optimize-2.tdd.md)
 
 ### agent-memory-optimize 第一批（2026-09-28 ~ 2026-09-29）
 
@@ -66,11 +66,11 @@ L 级 / TDD strict，devflow 阶段 0~8 全完成，**门禁通过、阻塞 0**�
 
 **门禁实测**：typecheck 0 error / vitest 168 文件 3986 例（1 既知 flaky 隔离复核判过）/ eslint 0 error 106 warning / vite build 成功 / E2E 31f·103p·1s 与基线逐项相等 + 新增 2 条 passed / **改动行覆盖 19 文件 589/589 = 100%**。
 
-> 详见 [req](./requirements/agent-memory-optimize.req.md)（Q1~Q18 全对齐）/ 计划与 status/connectivity/compliance（已随计划退役，见 git 历史）/ [TDD 报告](./testing/agent-memory-optimize.tdd.md)
+> 详见 [req](./requirements/agent-memory/agent-memory-optimize.req.md)（Q1~Q18 全对齐）/ 计划与 status/connectivity/compliance（已随计划退役，见 git 历史）/ [TDD 报告](./testing/agent-memory/agent-memory-optimize.tdd.md)
 
 ### doc-pipeline 文档处理流水线（2026-09-26 ~ 2026-09-27）
 
-M 级，8 模块 29 任务全量交付 + 遗留修复批次；需求见 [doc-pipeline.req](./requirements/doc-pipeline.req.md)。
+M 级，8 模块 29 任务全量交付 + 遗留修复批次；需求见 [doc-pipeline.req](./requirements/doc-pipeline/doc-pipeline.req.md)。
 
 | 批 | 范围 | 核心交付 |
 |----|------|---------|
@@ -80,11 +80,11 @@ M 级，8 模块 29 任务全量交付 + 遗留修复批次；需求见 [doc-pip
 | B7~B8 | 版面与工具引用 | `pdfLayout` 坐标分栏/无框线表格/跨页合并 + D 路线多模态截图 + 工具计数 24→28 与文档同步 |
 | B9~B10 | 文件树与体积 | 超长 md 引用模式发送 + `files` 21 条反向排除（Setup 147.68→99.16MB / unpacked 602→369MB / asar 288→86MB）+ `sizeGate` 双口径门禁 |
 | B11~B12 | 外发闸与 PoC | `allowSend` 不放宽 + 勾选入 KB 授权列(D5/D5b) + Docling PoC 量化不达标按 Q6 关闭 |
-| 收尾 | 四阶段 | 五门禁（`doc-pipeline.final.md`，E2E 31 failed 为裁定基线零新增）/ 连通性 12 链 0 断裂 / 合规 APPROVED WITH COMMENTS / 交付对账 |
+| 收尾 | 四阶段 | 五门禁（`testing/doc-pipeline/doc-pipeline.final.md`，E2E 31 failed 为裁定基线零新增）/ 连通性 12 链 0 断裂 / 合规 APPROVED WITH COMMENTS / 交付对账 |
 
 > 目录批量导入 `importDirAsKb` 已扩至 7 格式且先解析再入索引，原「pdf/docx 知识库导入」待办随之关闭。
 
-**遗留修复批次（2026-09-27）**：Bug A（附件绝对路径清单注入 system prompt + 附件消息解锁 `ask_question_card`）、Bug B（`vision_override` 三态列 + 能力表 + 未知模型乐观默认 + 降级上屏）、R3 外发双检会话边界、R4/R5 路径回执与 citation 打开、R6 20 附件截断对齐、R7/R8 删除级联。证据 [doc-pipeline-remedial.tdd](./testing/doc-pipeline-remedial.tdd.md)。
+**遗留修复批次（2026-09-27）**：Bug A（附件绝对路径清单注入 system prompt + 附件消息解锁 `ask_question_card`）、Bug B（`vision_override` 三态列 + 能力表 + 未知模型乐观默认 + 降级上屏）、R3 外发双检会话边界、R4/R5 路径回执与 citation 打开、R6 20 附件截断对齐、R7/R8 删除级联。证据 [doc-pipeline-remedial.tdd](./testing/doc-pipeline/doc-pipeline-remedial.tdd.md)。
 
 > 详见 status/connectivity/compliance 三份过程文档（已随计划退役，见 git 历史）
 
@@ -105,7 +105,7 @@ M 级 Agent 成本降低优化，A 轨叙述精简 + B 轨缓存/预算，全量
 **门禁**：tsc 0 error / vitest **3226 passed 0 failed** / lint **108 (0 error)** / `vite build` exit 0 / E2E 全量 **31 failed 97 passed**（基线 112/20）。
 付费 LLM 实测净额**用户裁定挂起**（降本改动已生效，挂起的只是量化）。
 
-> 详见 status 过程文档（已随计划退役，见 git 历史）/ [TDD 报告](./testing/agent-cost-optimize.tdd.md)
+> 详见 status 过程文档（已随计划退役，见 git 历史）/ [TDD 报告](./testing/agent-cost-optimize/agent-cost-optimize.tdd.md)
 
 ### agent-md-kb-optimize（2026-09-18）
 
@@ -271,4 +271,4 @@ L 级重型重构，8 阶段全部完成。详见 status 归档文档（已随 p
 | **D6 首个升级版本可能有一次批量 embedding 成本** | 启动回填（`scheduleMemoryVectorBackfill`）在 embedding 已配置时对存量 `vector IS NULL` 行发起批量 API 调用（分批 20 / 限速 300ms / 上限 100 批，失败静默）；未配置时零成本空转。**建议生产观察调用频次**（agent-memory-3 D6） |
 | `memory_read` 的 hyde 引导未进工具提示词 | D6.1 只在工具 schema 的 `description` 里说明「传 query + hyde:true 走语义混合召回」，**未在 `agentPromptBuilder` 的工具规则段追加引导**（该文件属 D4、D6.1 未获授权）。LLM 是否主动传 `hyde` 取决于 schema description 的表达力 |
 | D7 未重建旧库 FTS 内容 | 3 处触发器已修为标准 DELETE，但回填仍是 `rowid NOT IN` **只补不删**（红线禁 DROP/重建）。因删除历史从未成功、基表无孤儿行，实测风险低；若历史库已有 FTS 残留条目需人工核对 |
-| 连通性修复入口（取消竞态 + 裸 `.then` 合规） | `waitForInteraction` 取消竞态与 `subtaskScheduler` 裸 `.then` 已修（fix `43ab99c`，全量 205 文件 4784 例绿）；RED→GREEN 实录见 [agent-multi-intent tdd 分册 06](./testing/agent-multi-intent.tdd/06-fix-2026-10-03.md)（报告头部为 [agent-multi-intent.tdd](./testing/agent-multi-intent.tdd.md) 分册索引） |
+| 连通性修复入口（取消竞态 + 裸 `.then` 合规） | `waitForInteraction` 取消竞态与 `subtaskScheduler` 裸 `.then` 已修（fix `43ab99c`，全量 205 文件 4784 例绿）；RED→GREEN 实录见 [agent-multi-intent tdd 分册 06](./testing/agent-multi-intent/agent-multi-intent.tdd/06-fix-2026-10-03.md)（报告头部为 [agent-multi-intent.tdd](./testing/agent-multi-intent/agent-multi-intent.tdd.md) 分册索引） |

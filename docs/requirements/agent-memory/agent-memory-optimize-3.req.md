@@ -1,6 +1,6 @@
 # agent-memory-optimize-3 — 需求文档（第三批 / P2）
 
-> 日期：2026-09-30（更新至 2026-10-01） | 档位：**L**（含 1 项 L4 迁移）| 基于：`docs/requirements/agent-memory-optimize-2.req.md`（第二批）+ `优化方向.md` 第三批路线图 + 两轮只读代码核查（2026-09-30）
+> 日期：2026-09-30（更新至 2026-10-01） | 档位：**L**（含 1 项 L4 迁移）| 基于：`docs/requirements/agent-memory/agent-memory-optimize-2.req.md`（第二批）+ `优化方向.md` 第三批路线图 + 两轮只读代码核查（2026-09-30）
 > 状态：**Q1~Q9 全部对齐**（Q1~Q7 于 2026-09-30 裁定「全按推荐」；**Q8、Q9 于 2026-10-01 裁定 A**；D7 为 2026-09-30 批准的范围扩张项）
 
 ## 一、目标
@@ -182,7 +182,7 @@ Gate E:  D3(六.1, L) → D4(六.2, M) → D5(六.3, M) → 五门禁 + 真库 s
 Gate F:  D6(三.3, L) → 五门禁 + 真库 smoke → Gate F
 ```
 
-TDD 强度：**L / strict**（RED 实测 → 最小实现 GREEN → 改动行覆盖 ≥80% → checkpoint → 证据报告 `docs/testing/agent-memory-optimize-3.tdd.md`）。
+TDD 强度：**L / strict**（RED 实测 → 最小实现 GREEN → 改动行覆盖 ≥80% → checkpoint → 证据报告 `docs/testing/agent-memory/agent-memory-optimize-3.tdd.md`）。
 
 ## 四、不涉及范围
 

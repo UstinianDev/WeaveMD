@@ -80,7 +80,7 @@ intent；子任务链 `subtaskOrchestrator.applySubtaskContext` 切换子任务�
   （`queryPlanner.ts`），Agent 侧是**任务意图域**（`intentRouter.ts`）。优先级：
   任务意图定工具集、检索策略意图定 KB 检索，冲突以 Agent 为准；两套不互相 import、
   禁止物理合并（类型分处 `@shared/ai/agent.ts` 与 `@shared/ai/kb.ts`）。
-  历史记录见 `docs/requirements/agent-memory-optimize-2.req.md:41`（A3 分工裁定，不改该文件）。
+  历史记录见 `docs/requirements/agent-memory/agent-memory-optimize-2.req.md:41`（A3 分工裁定，不改该文件）。
 
 ### 检索模式
 

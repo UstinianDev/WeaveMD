@@ -256,7 +256,7 @@
 
 ## 索引
 
-- 需求文档：`docs/requirements/agent-multi-intent.req.md`（已建，含 Q1~Q14 裁定）
+- 需求文档：`docs/requirements/agent-multi-intent/agent-multi-intent.req.md`（已建，含 Q1~Q14 裁定）
 - 实施计划：`docs/plan/agent-multi-intent.plan.md`（已建，行号核对 + 变更清单 + 调研结论）
 
 ## 外部索引记录
@@ -275,7 +275,7 @@
 
 ### 任务10 ✅ 两套意图系统文档交叉引用与边界固化（2026-10-02，L1 纯文档+注释，提交 `87e9c63`，本地 main 未推送）
 
-- 5 files +39/-0：`ai-agent.md` 意图路由节加「另一套意图系统」交叉引用（链 knowledge.md 桥接小节 + 优先级：任务意图定工具集、检索策略意图定 KB 检索、冲突以 Agent 为准、禁止互相 import/物理合并）；`knowledge.md` 对称交叉引用 + 历史记录指引 `agent-memory-optimize-2.req.md:41`（该文件未改）；`intentRouter.ts` / `queryPlanner.ts` 文件头各 +1 行域边界注释。
+- 5 files +39/-0：`ai-agent.md` 意图路由节加「另一套意图系统」交叉引用（链 knowledge.md 桥接小节 + 优先级：任务意图定工具集、检索策略意图定 KB 检索、冲突以 Agent 为准、禁止互相 import/物理合并）；`knowledge.md` 对称交叉引用 + 历史记录指引 `docs/requirements/agent-memory/agent-memory-optimize-2.req.md:41`（该文件未改）；`intentRouter.ts` / `queryPlanner.ts` 文件头各 +1 行域边界注释。
 - 计划裁定照办：**不建共享常量文件**（两套类型已分处 `@shared/ai/agent.ts` 与 `@shared/ai/kb.ts`，物理隔离成立）。
 - 门禁：typecheck 0 错 / test 205 文件 4781 例全绿（与任务 8 终态持平）/ lint 0 error 108 warning 持平；证据见 TDD 任务 10 章。
 

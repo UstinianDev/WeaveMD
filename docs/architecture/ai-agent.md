@@ -55,7 +55,7 @@ usage 从 `message_start` / `message_delta` 解析出五字段，`costTracker` �
 | 事件/checkpoint | `agentEventStore.sanitizeEventPayload` 写入+回放双净化（data URL→占位、附件根内绝对路径→相对）；checkpoint `toCheckpointMessages` 文本化 |
 | 计价 | `costTracker.estimateImageTokens` / `TokenUsage.imageTokens` / `CostEntry.imageCostUsd` **归因拆分**（provider `promptTokens` 已含图片，不重复计费），成本表 Image 列；识别调用 `onUsage` 上报 |
 
-详见 `docs/testing/doc-pipeline-b6.tdd.md`（含全部取舍记录 §8）。
+详见 `docs/testing/doc-pipeline/doc-pipeline-b6.tdd.md`（含全部取舍记录 §8）。
 
 ## Agent 循环
 
@@ -152,7 +152,7 @@ runAgentFlow
   **检索策略意图域**（`queryPlanner.ts`，定 KB 检索扩展策略）。优先级：任务意图定工具集、
   检索策略意图定 KB 检索，冲突以 Agent 为准；两套不互相 import、禁止物理合并
   （类型分处 `@shared/ai/agent.ts` 与 `@shared/ai/kb.ts`，物理隔离已成立，不建共享常量文件）。
-  历史记录见 `docs/requirements/agent-memory-optimize-2.req.md:41`（A3 分工裁定）。
+  历史记录见 `docs/requirements/agent-memory/agent-memory-optimize-2.req.md:41`（A3 分工裁定）。
 - **规范契约**：子任务链执行与降级编排见 [`agent-tool-runtime.md`](../specs/ai-agent/agent-tool-runtime.md) §13（轮次双预算 / 上下文重建 / 中断安全点 / 失败重试）与 [`agent-prompt-context.md`](../specs/ai-agent/agent-prompt-context.md) §11.3（`runTaskSplit` / `confirmSplitPlan` 调用与降级编排）。
 
 ### 三层意图路由分层（agent-multi-intent 任务 4，Q20）

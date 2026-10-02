@@ -71,7 +71,7 @@ interface StructuralUnit {
 /** 标题行判定（#{1,6} + 空白 + 内容）。 */
 const HEADING_LINE_RE = /^(#{1,6}) [^\s]/;
 
-/** 计算 header stack 路径：' > ' 连接，硬上限 80 字符（docs/research/doc-pipeline-chunking.md §3.1）。 */
+/** 计算 header stack 路径：' > ' 连接，硬上限 80 字符（docs/research/doc-pipeline/doc-pipeline-chunking.md §3.1）。 */
 function stackPath(stack: TitleEntry[]): string {
   if (stack.length === 0) return '';
   return stack.map((t) => t.text).join(' > ').slice(0, HEADING_PATH_MAX);

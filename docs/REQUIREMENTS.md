@@ -178,7 +178,7 @@
 
 ### 3.12 文档处理流水线 (P0)
 
-> 来源：`docs/requirements/doc-pipeline.req.md`（8 模块 29 任务，2026-09-27 全量交付）。
+> 来源：`docs/requirements/doc-pipeline/doc-pipeline.req.md`（8 模块 29 任务，2026-09-27 全量交付）。
 
 | 编号 | 需求 | 优先级 | 说明 |
 |------|------|--------|------|
@@ -199,7 +199,7 @@
 
 ### 3.13 多意图识别与执行 (P1)
 
-> 来源与裁定：[agent-multi-intent.req](./requirements/agent-multi-intent.req.md)（§3 Q1~Q14 / §6 Q17~Q24，2026-10-01~03 交付）；TDD 证据 [agent-multi-intent.tdd](./testing/agent-multi-intent.tdd.md)。
+> 来源与裁定：[agent-multi-intent.req](./requirements/agent-multi-intent/agent-multi-intent.req.md)（§3 Q1~Q14 / §6 Q17~Q24，2026-10-01~03 交付）；TDD 证据 [agent-multi-intent.tdd](./testing/agent-multi-intent/agent-multi-intent.tdd.md)。
 
 | 编号 | 需求 | 优先级 | 说明 |
 |------|------|--------|------|

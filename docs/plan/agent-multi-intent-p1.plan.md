@@ -1,9 +1,9 @@
 # agent-multi-intent — P1/P2 八任务实施计划
 
-> 需求裁定（锁定）：`docs/requirements/agent-multi-intent.req.md` §6 Q17~Q24（2026-10-02「全部按推荐」）+ §3 Q1~Q14 原则仍生效
+> 需求裁定（锁定）：`docs/requirements/agent-multi-intent/agent-multi-intent.req.md` §6 Q17~Q24（2026-10-02「全部按推荐」）+ §3 Q1~Q14 原则仍生效
 > 源任务：`C:\Users\lenovo\Desktop\优化方向\智能创作Agent-多意图识别-优化方向.md` 任务 6、7、4、9、12、13、8、10（按 Q17 顺序）
 > 行号核对基准：2026-10-02 工作区实况（HEAD `a5bff32`，P0 已交付 `38edc57..e6d06df` + 修复 `03d60b3` + 文档 `a5bff32`）
-> 档位 L，TDD strict；证据报告续写 `docs/testing/agent-multi-intent.tdd.md`；每任务一个独立提交，门禁全绿才进下一任务
+> 档位 L，TDD strict；证据报告续写 `docs/testing/agent-multi-intent/agent-multi-intent.tdd.md`；每任务一个独立提交，门禁全绿才进下一任务
 > 外部调研已并入任务 4/7/8（各节标注来源）
 
 ## 0. 行号核对结果（源文档快照 vs 当前实况）
@@ -127,7 +127,7 @@
 | 7 | 8 | `feat(agent): dependency-aware subtask parallel scheduling with conflict guards` |
 | 8 | 10 | `docs(agent): cross-reference dual intent systems and declare boundary comments` |
 
-每提交同步：勾选 `docs/plan/agent-multi-intent.status.md` 阶段进度 + 追加任务执行记录；TDD 证据追加 `docs/testing/agent-multi-intent.tdd.md`。
+每提交同步：勾选 `docs/plan/agent-multi-intent.status.md` 阶段进度 + 追加任务执行记录；TDD 证据追加 `docs/testing/agent-multi-intent/agent-multi-intent.tdd.md`。
 
 ### 1.4 全局红线（P0 沿用 + P1 强调）
 
@@ -161,7 +161,7 @@
 | 13 | — | `shared/ai/config.ts`、`ipc/shared.ts`、`agentContext.ts`、`agentToolExecutor.ts`、`agentLoop.ts`、`confirmMatrix.ts`、`agentToolSelector.ts` | `tests/main/ai/writeModeConsumption.test.ts` | `ai-agent.md`、`agent-tool-runtime.md` |
 | 8 | `src/main/ai/agent/subtaskScheduler.ts` | `subtaskOrchestrator.ts`、`agentLoop.ts` | `tests/main/ai/subtaskParallel.test.ts` | `agent-tool-runtime.md`、`ipc.md` |
 | 10 | — | `intentRouter.ts`、`queryPlanner.ts`（仅注释） | — | `ai-agent.md`、`knowledge.md` |
-| 全程 | — | `docs/plan/agent-multi-intent.status.md`（每任务勾选+记录）、`docs/testing/agent-multi-intent.tdd.md`（每任务追加证据） | — | — |
+| 全程 | — | `docs/plan/agent-multi-intent.status.md`（每任务勾选+记录）、`docs/testing/agent-multi-intent/agent-multi-intent.tdd.md`（每任务追加证据） | — | — |
 
 **合计**：新建 **13**（src 5 + 测试 8）；修改约 **27**（src/渲染约 17、文档约 10）；去重后约 **40 个文件**（`subtaskOrchestrator/agentLoop/agentContext/agentToolExecutor/ai-agent.md` 被多任务先后触达，按提交累计约 50 文件次）。
 
@@ -180,7 +180,7 @@
 - **任务 13**：`concurrencyDefs.test.ts`、`docTools.test.ts` 既有断言零改动全绿 + 新增 auto/manual 用例 + 遗留问题 3 修复测试 + 收敛交叉断言；`ai-agent.md` 写控制 + `agent-tool-runtime.md` §14.5 同步。
 - **任务 8**：并行三类测试（依赖满足才出队/互斥防覆盖/分支失败策略）+ 上限 2 + 幂等键/乐观锁 + 串行等价回归；`agent-tool-runtime.md` §15 + `ipc.md` 同步；零 DB 改动。
 - **任务 10**：2 篇文档交叉引用落地 + 2 处头注释 + typecheck/全量 test 零破坏；独立 docs 提交。
-- **全程**：TDD strict 证据（RED→GREEN）续写 `docs/testing/agent-multi-intent.tdd.md`；status.md 阶段 3~8 勾选；提交信息严格 `type(scope): message` 英文、每任务一个。
+- **全程**：TDD strict 证据（RED→GREEN）续写 `docs/testing/agent-multi-intent/agent-multi-intent.tdd.md`；status.md 阶段 3~8 勾选；提交信息严格 `type(scope): message` 英文、每任务一个。
 
 **P0 遗留问题衔接**
 - 遗留 3（非链态无交互拒写不可达）：**在任务 13 解决**（caller 侧无交互补 skip + 新测试；不改 confirmSkipSet 契约）——status.md 对应条目标注「已解决 @任务13」。

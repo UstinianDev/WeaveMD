@@ -1,9 +1,9 @@
 # doc-pipeline B5 — TDD 证据报告（strict）
 
 > 创建：2026-09-26 | 批次：**B5（四-1 Embedding 接通 + 四-2 heading_path + 三-2 表格 md）** | 强度：strict（RED → 最小实现 GREEN → 重构 → 覆盖率 → 门禁 → 提交）
-> 来源：[计划](../specs/knowledge/kb-indexing-egress.md) §1/§2-B5/§3-D4/§4.2-B5 / [需求](../requirements/doc-pipeline.req.md)
+> 来源：[计划](../../specs/knowledge/kb-indexing-egress.md) §1/§2-B5/§3-D4/§4.2-B5 / [需求](../../requirements/doc-pipeline/doc-pipeline.req.md)
 > 权威需求源：`C:\Users\lenovo\Desktop\优化方向\优化方向.md` §四-1/四-2/三-2（拷问细节② = 验收点）
-> 调研依据：`docs/research/doc-pipeline-chunking.md`（表格边界/表头重复/标题统领改法）+ `docs/research/doc-pipeline-storage.md`（回填策略）
+> 调研依据：`docs/research/doc-pipeline/doc-pipeline-chunking.md`（表格边界/表头重复/标题统领改法）+ `docs/research/doc-pipeline/doc-pipeline-storage.md`（回填策略）
 
 ## 1. 测试范围
 
@@ -142,5 +142,5 @@ All files          |   82.93 |    77.55 |   87.67 |   82.93
 3. **回填触发点选择**：计划要求「后台回填任务」但未指定触发时机；实现取「三索引入口 + 保存防抖完成后」触发（全部经 `scheduleVectorBackfill` 防抖），**不新增 IPC 通道**（状态为进程内存态 `getVectorBackfillStatus`，可观测性由测试与代码 API 承担；UI 展示需求未在 B5 验收点内，避免 §1.3 三处同步范围外扩散）。
 4. **模型切换失效策略双层落地**：检索侧 `vectorSearch` 按当前配置 `embedding_model` 参数化过滤（旧向量不参与、不改数据）；回填侧扫描 `embedding_model IS NOT ?` 渐进重算——两者都有独立测试（四-1②「按 embedding_model 列过滤**或**强制重建」的并集实现）。
 5. **headingPath 语义**：块起始处 header stack 路径（含当前标题、不含外部文档标题、80 字符截断），与读侧 `isHeading = !!headingPath` 对齐；空串由 DAO 归一 NULL（历史行/纯文本读侧 NULL 降级现状已具备，D4 无 DDL）。
-6. **表格片不带 overlap、每片重复表头+分隔**（doc-pipeline-chunking §2 建议 1/3：表头重复已承担语义衔接，STC overlap-free 结论）；单行超长不切单元格（该行独占一片，仅保证不破坏表头配对，未实现 STC 的按单元格 emergency split——research 标注其为超宽表场景，本期无此样例需求，记录为可选增强）。
+6. **表格片不带 overlap、每片重复表头+分隔**（research/doc-pipeline/doc-pipeline-chunking §2 建议 1/3：表头重复已承担语义衔接，STC overlap-free 结论）；单行超长不切单元格（该行独占一片，仅保证不破坏表头配对，未实现 STC 的按单元格 emergency split——research 标注其为超宽表场景，本期无此样例需求，记录为可选增强）。
 7. **headingPath 只入列、不前置进 content**：research §3.2 建议前缀进 content+BM25 双路，但计划把「chunk 上下文前缀取舍」归 **B8 四-4②**（仅向量侧/FTS5 原样的取舍需写明），B5 不越界。

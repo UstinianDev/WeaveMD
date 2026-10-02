@@ -1,7 +1,7 @@
 # Agent 自动记忆系统规范（Agent Memory）
 
 > 规范编号：SPEC-AGENT-MEM | 版本：v1.0（索引页 + 3 分册）| 更新：2026-10-01
-> 关联需求：[agent-memory-optimize-2.req.md](../../requirements/agent-memory-optimize-2.req.md)（Q1~Q15 裁定与红线）、[agent-memory-optimize-3.req.md](../../requirements/agent-memory-optimize-3.req.md)（Q1~Q9 裁定与红线）
+> 关联需求：[agent-memory-optimize-2.req.md](../../requirements/agent-memory/agent-memory-optimize-2.req.md)（Q1~Q15 裁定与红线）、[agent-memory-optimize-3.req.md](../../requirements/agent-memory/agent-memory-optimize-3.req.md)（Q1~Q9 裁定与红线）
 > 关联文档：[modules/11-AI代理面板-Agent.md](../../modules/11-AI代理面板-Agent.md)、[architecture/database.md](../../architecture/database.md)、[agent-prompt-context.md](./agent-prompt-context.md)
 
 **分册（渐进式披露，按需加载）：**
@@ -14,7 +14,7 @@
 
 > 本文档为 SPEC-AGENT-MEM **索引页**：保留 §1 概述、§2 数据模型总览、§3 关联文档，实现级行为契约按主题拆为分册。
 > **与需求文档的分工**：req 管 Q 裁定与红线（为什么这样定），本规范管实现级行为契约（代码必须遵守什么）；同一事实两边只留一处，本文与分册用「裁定见 req Qx / 红线见 req §五」交叉引用，不复述裁定理由。
-> **来源标记**（如〔plan-2 §6 B1〕）指提炼出处 `docs/plan/agent-memory-optimize-2.plan.md` / `agent-memory-optimize-3.plan.md` 的 §6 实施记录；plan 目录后续移除，门禁与变异等过程证据存 `docs/testing/agent-memory-optimize-{2,3}.tdd.md`。
+> **来源标记**（如〔plan-2 §6 B1〕）指提炼出处 `docs/plan/agent-memory-optimize-2.plan.md` / `agent-memory-optimize-3.plan.md` 的 §6 实施记录；plan 目录后续移除，门禁与变异等过程证据存 `docs/testing/agent-memory/agent-memory-optimize-{2,3}.tdd.md`。
 
 ## 1. 概述
 
@@ -61,7 +61,7 @@
 
 ## 3. 关联文档
 
-- **需求与裁定**：`docs/requirements/agent-memory-optimize-2.req.md`、`docs/requirements/agent-memory-optimize-3.req.md` —— Q 表、红线、事实核验以 req 为准，本规范不复述。
+- **需求与裁定**：`docs/requirements/agent-memory/agent-memory-optimize-2.req.md`、`docs/requirements/agent-memory/agent-memory-optimize-3.req.md` —— Q 表、红线、事实核验以 req 为准，本规范不复述。
 - **Prompt 组装**：`docs/specs/ai-agent/agent-prompt-context.md` —— 三文件块/画像块注入管线、front matter `intents` 解析契约。
 - **架构与模块**：`docs/modules/11-AI代理面板-Agent.md`（面板与工具）、`docs/architecture/database.md`（表结构与 DAO）、`docs/architecture/ai-agent.md`（工具注册表）。
-- **验证证据（过程记录）**：`docs/testing/agent-memory-optimize-2.tdd.md`、`docs/testing/agent-memory-optimize-3.tdd.md` —— 门禁、变异与覆盖率记录在彼处，不进本规范。
+- **验证证据（过程记录）**：`docs/testing/agent-memory/agent-memory-optimize-2.tdd.md`、`docs/testing/agent-memory/agent-memory-optimize-3.tdd.md` —— 门禁、变异与覆盖率记录在彼处，不进本规范。

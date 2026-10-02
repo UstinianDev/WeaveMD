@@ -1,10 +1,10 @@
 # agent-multi-intent — P0 主线实施计划
 
-> 需求（裁定锁定）：`docs/requirements/agent-multi-intent.req.md`（Q1~Q14，2026-10-01 用户裁定「全部按推荐」）
+> 需求（裁定锁定）：`docs/requirements/agent-multi-intent/agent-multi-intent.req.md`（Q1~Q14，2026-10-01 用户裁定「全部按推荐」）
 > 源任务：`C:\Users\lenovo\Desktop\优化方向\智能创作Agent-多意图识别-优化方向.md` 任务 1、2、3、5、11
 > 范围：仅 P0 五任务，顺序 任务1 → 任务2 → 任务3 → 任务5 → 任务11；P1（4/6/7/9/12/13）与 P2（8/10）挂起
 > 行号核对基准：2026-10-01 工作区实况（源文档行号为交接快照，偏差见 §0）
-> 档位 L，TDD strict；证据报告 `docs/testing/agent-multi-intent.tdd.md`
+> 档位 L，TDD strict；证据报告 `docs/testing/agent-multi-intent/agent-multi-intent.tdd.md`
 
 ## 0. 行号核对结果（源文档 vs 当前工作区）
 
@@ -237,7 +237,7 @@ runAgentFlow (agentLoop.ts:228)
 | 4 | `feat(agent): 同 session 子任务顺序执行与中断安全点` | 任务 5 全部（预算/摘要/中断/失败重试/subtask_done） |
 | 5 | `feat(agent): intent×tool 风险分档确认矩阵与多写汇总确认` | 任务 11 全部 |
 
-- 每个提交同步勾选 `docs/plan/agent-multi-intent.status.md` 阶段进度并追加 TDD 证据到 `docs/testing/agent-multi-intent.tdd.md`。
+- 每个提交同步勾选 `docs/plan/agent-multi-intent.status.md` 阶段进度并追加 TDD 证据到 `docs/testing/agent-multi-intent/agent-multi-intent.tdd.md`。
 - 任一提交门禁红即在本提交内修复，不带病进入下一任务。
 
 ## 4. 验收标准
@@ -247,7 +247,7 @@ runAgentFlow (agentLoop.ts:228)
 - 新增/扩展测试：`taskPlannerSchema.test.ts`（合法/非法/降级）、`intentRouter.test.ts` 多意图 ≥6 例、追问矩阵（挂 `agentContext.test.ts`）、`subtaskSequence.test.ts`（顺序/失败/打断）、确认矩阵（挂 `agentToolExecutor.test.ts`，含 fail-closed）
 - 门禁：`npm run typecheck` + `npm run test` + `npm run lint` + `npx playwright test` 全绿
 - 文档同步：`docs/specs/ai-agent/agent-prompt-context.md`、`docs/architecture/ai-agent.md`、`docs/modules/11-AI代理面板-Agent/03-question-cards.md`、`docs/specs/ai-agent/agent-tool-runtime.md`
-- TDD strict 证据报告：`docs/testing/agent-multi-intent.tdd.md`
+- TDD strict 证据报告：`docs/testing/agent-multi-intent/agent-multi-intent.tdd.md`
 
 ### 4.2 每任务测试用例要点
 

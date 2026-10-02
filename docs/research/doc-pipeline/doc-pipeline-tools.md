@@ -1,6 +1,6 @@
 # doc-pipeline 调研：Agent 文档工具集与 tool use 最佳实践
 
-> 调研日期：2026-09-25 · 只读调研（未改业务代码）· 对应需求：`docs/requirements/doc-pipeline.req.md` 模块六-1
+> 调研日期：2026-09-25 · 只读调研（未改业务代码）· 对应需求：`docs/requirements/doc-pipeline/doc-pipeline.req.md` 模块六-1
 > （search/read_page/extract_table/analyze_chart 只读区 + concurrency 注册 + 陈旧工具名清理）
 > 检索方式与不可达项见 §5。全文缓存于本机临时目录 `weavemd-doc-pipeline-research/`（未入仓库）。
 

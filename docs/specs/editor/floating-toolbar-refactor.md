@@ -5,7 +5,7 @@
 > 关联模块：[docs/modules/04-编辑主区-Editor.md](../../modules/04-编辑主区-Editor.md)
 > 关联规范：[SPEC-EDITOR-V2](./editor-v2-architecture.md)、[实施记录](./editor-v2-progress.md)（13.11 浮动工具栏、13.13 跨块拖选）、
 > [SPEC-EDIT-EXIT](./markdown-block-exit-rules.md)
-> 实施证据：[docs/testing/spec-edit-ft.tdd.md](../../testing/spec-edit-ft.tdd.md)
+> 实施证据：[docs/testing/spec-edit/spec-edit-ft.tdd.md](../../testing/spec-edit/spec-edit-ft.tdd.md)
 
 ---
 

@@ -1,7 +1,7 @@
 # agent-memory-optimize-3 — TDD 测试报告（第三批 / P2）
 
 > 日期：2026-10-01 | 档位 **L**（含 2 处 L4 迁移 + 1 处 L3 改既有 DDL）| TDD 强度 **strict**
-> 需求 `docs/requirements/agent-memory-optimize-3.req.md`（Q1~Q9）｜计划与实施记录 `docs/plan/agent-memory-optimize-3.plan.md`（§6）
+> 需求 `docs/requirements/agent-memory/agent-memory-optimize-3.req.md`（Q1~Q9）｜计划与实施记录 `docs/plan/agent-memory-optimize-3.plan.md`（§6）
 > 结论：**三 Gate 六件套全绿，55 处变异全部变红后还原复绿，E2E 零新增失败，计划外 `src/` 改动经逐项追认后为 0**
 > 溯源声明：来源标注中的 `docs/plan/*` 为过程计划文档，已随计划退役（历史见 git），仅留溯源线索。
 
@@ -121,4 +121,4 @@
 
 - **已提交（第二批）**：`8fd28f1` / `6ed0b4c` / `33c3763`
 - **第三批全部未提交**：D1（3 src + 2 test + 1 doc）、D2（5 src + 2 test + 1 script）、D3（4 新 src + 改 9 src + 5 新 test）、D4（5 src + 4 test 追加）、D5（5 新 src + 改 7 src + 3 新 test + 3 test 追加 + 1 script）、D7（1 src + 1 script + 1 新 test）、D6（1 新 src 段 + 改 6 src + 4 新 test + 1 script + 1 doc）、D6.1（1 src + 1 新 test）
-- **文档**：`agent-memory-optimize-3.req.md` / `.plan.md` 本报告 / `TODO.md` / `SUMMARY.md` / `README.md` / `.claude/CLAUDE.md` / `modules/11` / `architecture/{database,knowledge}` / `modules/07` / `specs/knowledge/embedding-architecture.md`
+- **文档**：`requirements/agent-memory/agent-memory-optimize-3.req.md` / `.plan.md` 本报告 / `TODO.md` / `SUMMARY.md` / `README.md` / `.claude/CLAUDE.md` / `modules/11` / `architecture/{database,knowledge}` / `modules/07` / `specs/knowledge/embedding-architecture.md`

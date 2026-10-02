@@ -1,7 +1,7 @@
 # 浮动工具栏体验优化与行内格式化增强规范
 
 > 规范编号：SPEC-EDIT-FT2 | 版本：v1.0（已实施，2026-08-08）| 更新：2026-08-08
-> 实施证据：[docs/testing/spec-edit-ft2.tdd.md](../../testing/spec-edit-ft2.tdd.md)
+> 实施证据：[docs/testing/spec-edit/spec-edit-ft2.tdd.md](../../testing/spec-edit/spec-edit-ft2.tdd.md)
 > 关联需求：REQUIREMENTS.md EDIT-04（实时格式化渲染）、EDIT-13（语法渲染对齐 marktext）
 > 关联规范：[SPEC-EDIT-FT](./floating-toolbar-refactor.md)、[SPEC-EDITOR-V2](./editor-v2-architecture.md)
 > 参考实现：marktext/marktext（https://github.com/marktext/marktext，格式工具栏与行内格式化行为）

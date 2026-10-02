@@ -2,8 +2,8 @@
 
 > 规范编号：SPEC-AGENT-MEM-02 | 更新：2026-10-01
 > 承载 [agent-memory.md](../agent-memory.md) 的读写工具与后台提取实现级行为契约（两工具、memoryWriter、IPC、向量写入）；返回索引：[agent-memory.md](../agent-memory.md)
-> 关联需求：[agent-memory-optimize-2.req.md](../../../requirements/agent-memory-optimize-2.req.md)（Q7/Q8/Q9/Q10/Q11）、[agent-memory-optimize-3.req.md](../../../requirements/agent-memory-optimize-3.req.md)（Q6/Q9）
-> 来源标记：〔plan-2〕= `docs/plan/agent-memory-optimize-2.plan.md` §6、〔plan-3〕= `agent-memory-optimize-3.plan.md` §6；过程证据见 `docs/testing/agent-memory-optimize-{2,3}.tdd.md`
+> 关联需求：[agent-memory-optimize-2.req.md](../../../requirements/agent-memory/agent-memory-optimize-2.req.md)（Q7/Q8/Q9/Q10/Q11）、[agent-memory-optimize-3.req.md](../../../requirements/agent-memory/agent-memory-optimize-3.req.md)（Q6/Q9）
+> 来源标记：〔plan-2〕= `docs/plan/agent-memory-optimize-2.plan.md` §6、〔plan-3〕= `agent-memory-optimize-3.plan.md` §6；过程证据见 `docs/testing/agent-memory/agent-memory-optimize-{2,3}.tdd.md`
 > 溯源声明：来源标注中的 `docs/plan/*` 为过程计划文档，已随计划退役（历史见 git），仅留溯源线索。
 
 ---

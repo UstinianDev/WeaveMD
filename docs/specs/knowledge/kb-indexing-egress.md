@@ -1,7 +1,7 @@
 # 知识库索引、检索与外发规格（KB Indexing & Egress）
 
 > 规范编号：SPEC-KB-IDX | 版本：v1.0 | 更新：2026-10-01
-> 关联需求：[doc-pipeline 需求](../../requirements/doc-pipeline.req.md)（8 模块 29 任务：四 知识库/RAG、六 引用溯源、八 外发闸）
+> 关联需求：[doc-pipeline 需求](../../requirements/doc-pipeline/doc-pipeline.req.md)（8 模块 29 任务：四 知识库/RAG、六 引用溯源、八 外发闸）
 > 关联文档：[embedding-architecture.md](./embedding-architecture.md)、[indexing-compatibility.md](./indexing-compatibility.md)（既有设计文档）、
 > [knowledge.md](../../architecture/knowledge.md)、[database.md](../../architecture/database.md)、[ai-agent.md](../../architecture/ai-agent.md)、[security.md](../../architecture/security.md)
 >
@@ -23,7 +23,7 @@
 - **headingPath 计算**：`splitNote` 内维护 header stack（遇 `#{1,6} ` 弹栈/入栈），以 `" > "` 连接成路径，**截到当前标题为止、不含文档标题**，**80 字符硬上限截断**；无标题为空串，落库由 DAO **归一为 NULL**，历史行/纯文本读侧按 NULL 降级（D4 无 DDL）。
 - **读侧消费**：`aggregateAndExpand` 以 `headingPath` 非空判 `isHeading`，heading 30% 分数提升（+0.1 headingBoost）；全空不误触发、历史 NULL 数据不加成（4 用例验证，防历史回归）。
 
-> 来源：`docs/plan/doc-pipeline.plan/01-batch-changes.md` §B5；`docs/plan/doc-pipeline.status/01-batch-records.md` §B5（三-2 表格分块 / 四-2 heading_path）；`docs/research/doc-pipeline-chunking.md` §3（80 字符上限、不含文档标题）；`docs/testing/doc-pipeline-b5.tdd.md` §测试清单。
+> 来源：`docs/plan/doc-pipeline.plan/01-batch-changes.md` §B5；`docs/plan/doc-pipeline.status/01-batch-records.md` §B5（三-2 表格分块 / 四-2 heading_path）；`docs/research/doc-pipeline/doc-pipeline-chunking.md` §3（80 字符上限、不含文档标题）；`docs/testing/doc-pipeline/doc-pipeline-b5.tdd.md` §测试清单。
 
 ## 2. `kbIndexOpts` 真实配置贯通 4 个索引入口
 
@@ -53,7 +53,7 @@
 - **查询侧不加前缀**（避免查询语义漂移，两侧风格差交由 embedding 模型泛化）——**已知限制，如实记录**。
 - 取舍裁定：research 曾建议前缀进 content + BM25 双路，计划将其归 B8 四-4②「上下文前缀取舍写明」，最终裁定只走向量侧。
 
-> 来源：`docs/plan/doc-pipeline.plan/01-batch-changes.md` §B8（四-4② 前缀取舍行）；`docs/plan/doc-pipeline.status/01-batch-records.md` §B8「四-4 检索质量」；`docs/testing/doc-pipeline-b8.tdd.md` §8.5；`docs/testing/doc-pipeline-b5.tdd.md` §headingPath 语义注。
+> 来源：`docs/plan/doc-pipeline.plan/01-batch-changes.md` §B8（四-4② 前缀取舍行）；`docs/plan/doc-pipeline.status/01-batch-records.md` §B8「四-4 检索质量」；`docs/testing/doc-pipeline/doc-pipeline-b8.tdd.md` §8.5；`docs/testing/doc-pipeline/doc-pipeline-b5.tdd.md` §headingPath 语义注。
 
 ## 5. 引用回链（citation → refsJson，B8 六-2）
 
@@ -86,7 +86,7 @@
 - HyDE 收益：B5 前文档侧无向量时 `hyde:true` 为 no-op，B5 接通后路径生效（2 例断言锁定）；**量化 A/B 需真实 embedding+LLM 凭据，无凭据不编造数据——遗留（待校准）**。
 - **不碰清单（跨批次红线）**：`kbSearch.ts` 4 条硬编码笔记 SQL、`kbSearchFts.ts` 两处、`sourceType` 枚举、`searchMode` 语义、`filterKbEgressResults`。
 
-> 来源：`docs/plan/agent-memory-optimize-3.plan.md` §6 D6（「笔记侧零影响核验」行、§1「D6 不碰」行、§4 红线行）；`docs/architecture/knowledge.md` §searchMode 表与 §三参数表；`docs/plan/doc-pipeline.connectivity.md` §2 附注；`docs/plan/doc-pipeline.status/01-batch-records.md` §B8「HyDE 收益复核 / 拒答阈值 0.6 复核」；`docs/testing/doc-pipeline-b8.tdd.md` §8.6~§8.7。
+> 来源：`docs/plan/agent-memory-optimize-3.plan.md` §6 D6（「笔记侧零影响核验」行、§1「D6 不碰」行、§4 红线行）；`docs/architecture/knowledge.md` §searchMode 表与 §三参数表；`docs/plan/doc-pipeline.connectivity.md` §2 附注；`docs/plan/doc-pipeline.status/01-batch-records.md` §B8「HyDE 收益复核 / 拒答阈值 0.6 复核」；`docs/testing/doc-pipeline/doc-pipeline-b8.tdd.md` §8.6~§8.7。
 
 ## 8. 生产不可达已知限制（R1/R2，状态标注原样保留）
 

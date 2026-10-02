@@ -1,7 +1,7 @@
 # agent-memory-optimize — TDD 证据报告（L / strict）
 
 > 创建：2026-09-29 | 档位：**L** | 强度：**strict**（RED 实测 → 最小实现 GREEN → 重构 → 改动行覆盖率 ≥80% → checkpoint → 本报告）
-> 来源：`docs/plan/agent-memory-optimize.plan.md` / `docs/plan/agent-memory-optimize.status.md` / [需求](../requirements/agent-memory-optimize.req.md)
+> 来源：`docs/plan/agent-memory-optimize.plan.md` / `docs/plan/agent-memory-optimize.status.md` / [需求](../../requirements/agent-memory/agent-memory-optimize.req.md)
 > 本文只转录与核验已留存的实测证据；**未留存原始输出的 RED 一律显式标注，不做补造**（见 §3、§8）。
 > 溯源声明：来源标注中的 `docs/plan/*` 为过程计划文档，已随计划退役（历史见 git），仅留溯源线索。
 

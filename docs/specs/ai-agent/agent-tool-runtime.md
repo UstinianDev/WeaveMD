@@ -1,11 +1,11 @@
 # Agent 工具运行时 — 执行、并发与外发闸（Tool Runtime）
 
 > 规范编号：SPEC-AGENT-TOOL | 版本：v1.1（已实施，任务 11 增 §14 确认档位契约）| 状态：生效 | 更新：2026-10-02
-> 关联需求：[agent-perf-optimize.req.md](../../requirements/archive/agent-perf-optimize.req.md)（S1~S5 / 硬性约束）、[doc-pipeline.req.md](../../requirements/doc-pipeline.req.md)（六-1 工具与引用 / 八-1 外发闸）、[agent-cost-optimize.req.md](../../requirements/archive/agent-cost-optimize.req.md)（B3 结果预算）、[REQUIREMENTS.md](../../REQUIREMENTS.md) §3.7 / §3.9 / §3.12
+> 关联需求：[agent-perf-optimize.req.md](../../requirements/archive/agent-perf-optimize.req.md)（S1~S5 / 硬性约束）、[doc-pipeline.req.md](../../requirements/doc-pipeline/doc-pipeline.req.md)（六-1 工具与引用 / 八-1 外发闸）、[agent-cost-optimize.req.md](../../requirements/archive/agent-cost-optimize.req.md)（B3 结果预算）、[REQUIREMENTS.md](../../REQUIREMENTS.md) §3.7 / §3.9 / §3.12
 > 关联模块：[11-AI代理面板-Agent.md](../../modules/11-AI代理面板-Agent.md)
 > 关联架构：[ai-agent.md](../../architecture/ai-agent.md)、[backend.md](../../architecture/backend.md)、[security.md](../../architecture/security.md)
 > 关联规范：[agent-message-storage.md](./agent-message-storage.md)（消息写读契约）
-> 关联测试：[agent-multi-intent.tdd](../../testing/agent-multi-intent.tdd.md)（§13-§15 多意图链路 TDD 证据，分册 `testing/agent-multi-intent.tdd/`）
+> 关联测试：[agent-multi-intent.tdd](../../testing/agent-multi-intent/agent-multi-intent.tdd.md)（§13-§15 多意图链路 TDD 证据，分册 `testing/agent-multi-intent/agent-multi-intent.tdd/`）
 
 > 本文只写长期有效的实现级行为契约。需求动机、验收与红线见关联 req，两边重复的只在 req 保留，本文引用不复述。
 > 来源标注中的 `../../plan/*` 为过程计划文档，已随计划退役（历史见 git），仅留溯源线索；已与现码逐条核对（2026-10-01）。
@@ -97,7 +97,7 @@
 
 ### 11.3 入库与过滤取舍（B11 Q1）
 
-- **附件照常入 KB**（保住本地检索价值），`allowSend=false` 时在检索出口按 `source_type='attachment'` 过滤，而非不入 KB；入库时记录勾选授权标记供白名单过滤。（来源：`docs/plan/doc-pipeline.plan/01-batch-changes.md` B11、[doc-pipeline req §2 Q1](../../requirements/doc-pipeline.req.md)）
+- **附件照常入 KB**（保住本地检索价值），`allowSend=false` 时在检索出口按 `source_type='attachment'` 过滤，而非不入 KB；入库时记录勾选授权标记供白名单过滤。（来源：`docs/plan/doc-pipeline.plan/01-batch-changes.md` B11、[doc-pipeline req §2 Q1](../../requirements/doc-pipeline/doc-pipeline.req.md)）
 
 ### 11.4 已知限制（生产不可达，不得写成承诺）
 
@@ -107,11 +107,11 @@
 
 ## 12. 需求侧交叉引用
 
-各优化项的需求动机、验收指标与硬性约束（工具行为不变、上下文不瘦身、`agentLoopGuard` MD5 不替换等）见 [agent-perf-optimize.req.md](../../requirements/archive/agent-perf-optimize.req.md)；工具与引用的任务级验收见 [doc-pipeline.req.md](../../requirements/doc-pipeline.req.md) §1 模块六/八；结果预算与质量豁免清单见 [agent-cost-optimize.req.md](../../requirements/archive/agent-cost-optimize.req.md)。本文不重复这些需求级结论。
+各优化项的需求动机、验收指标与硬性约束（工具行为不变、上下文不瘦身、`agentLoopGuard` MD5 不替换等）见 [agent-perf-optimize.req.md](../../requirements/archive/agent-perf-optimize.req.md)；工具与引用的任务级验收见 [doc-pipeline.req.md](../../requirements/doc-pipeline/doc-pipeline.req.md) §1 模块六/八；结果预算与质量豁免清单见 [agent-cost-optimize.req.md](../../requirements/archive/agent-cost-optimize.req.md)。本文不重复这些需求级结论。
 
 ## 13. 子任务链执行契约（agent-multi-intent 任务 5）
 
-> 需求裁定：[agent-multi-intent.req.md](../../requirements/agent-multi-intent.req.md) Q9/Q11/Q12。
+> 需求裁定：[agent-multi-intent.req.md](../../requirements/agent-multi-intent/agent-multi-intent.req.md) Q9/Q11/Q12。
 > 实现：`subtaskOrchestrator.ts`（链状态机）+ `agentLoop.ts`（轮次循环接线）+
 > `agentTaskWorker.ts`（中断判定注入）+ `agentTaskQueue.hasPendingForConversation`。
 > 验收：`tests/main/ai/subtaskSequence.test.ts`（11 例）。
@@ -192,7 +192,7 @@
 
 ## 14. 确认档位契约（intent × tool 确认矩阵，agent-multi-intent 任务 11）
 
-> 需求裁定：[agent-multi-intent.req.md](../../requirements/agent-multi-intent.req.md) Q13/Q14。
+> 需求裁定：[agent-multi-intent.req.md](../../requirements/agent-multi-intent/agent-multi-intent.req.md) Q13/Q14。
 > 实现：`confirmMatrix.ts`（`confirmTierFor` / `writeToolsByTier` / `confirmSkipSet` 纯函数）+
 > `agentToolExecutor.checkForceConfirmTools`（按档分派）/ `confirmWriteBatch`（链末汇总）+
 > `BatchConfirmCard`（渲染侧逐项勾选）。

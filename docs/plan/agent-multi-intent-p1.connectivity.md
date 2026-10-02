@@ -69,6 +69,6 @@
 | 7 | 级联链 | ✅ |
 | 8 | 错误收口 | ✅ 已修复（原 ⚠️ 条件性挂死，fix 提交见 TDD「连通性修复」章） |
 
-**必修项（已修复，2026-10-03）**：采用方案「`waitForInteraction` 注册时校验 `abortController.signal.aborted` 立即 reject + abort 事件兜底监听」（`buildAgentDeps` 增参传入 controller），覆盖取消在注册前/中/后全部交错；`branch gate` 串行队列语义不变。RED 实测 2 例 `Test timed out in 3000ms`（挂死实锤）→ GREEN 9/9，见 `docs/testing/agent-multi-intent.tdd.md`「连通性修复」章。原计划的 `subtaskParallel.test.ts` 取消用例改落 `subtaskConfirmResume.test.ts`（复用既有 worker E2E harness，避开全文件 mock 重建）。
+**必修项（已修复，2026-10-03）**：采用方案「`waitForInteraction` 注册时校验 `abortController.signal.aborted` 立即 reject + abort 事件兜底监听」（`buildAgentDeps` 增参传入 controller），覆盖取消在注册前/中/后全部交错；`branch gate` 串行队列语义不变。RED 实测 2 例 `Test timed out in 3000ms`（挂死实锤）→ GREEN 9/9，见 `docs/testing/agent-multi-intent/agent-multi-intent.tdd.md`「连通性修复」章。原计划的 `subtaskParallel.test.ts` 取消用例改落 `subtaskConfirmResume.test.ts`（复用既有 worker E2E harness，避开全文件 mock 重建）。
 
 **非必修观察**：`gate.cancelled` 死字段；预载命中 diagnostics 缺 agentIntent（已测知）；串行澄清 markSkipped 无即时 emit（收口必达）；并行 force 失败不弹卡（TDD:1368 裁定）。

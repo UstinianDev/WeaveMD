@@ -3,7 +3,7 @@
 > 来源：`C:\Users\lenovo\Desktop\优化方向\智能创作Agent-多意图识别-优化方向.md`（任务 1、2、3、5、11）
 > 对齐方式：grill-me 一轮对齐（Q1~Q14），2026-10-01 用户裁定「全部按推荐」
 > 档位：L（重型），TDD strict
-> 汇总入册：[REQUIREMENTS.md](../REQUIREMENTS.md) §3.13 多意图识别与执行（MI-01~MI-04）
+> 汇总入册：[REQUIREMENTS.md](../../REQUIREMENTS.md) §3.13 多意图识别与执行（MI-01~MI-04）
 
 ## 1. 目标
 
@@ -32,7 +32,7 @@
 | # | 问题 | 裁定 |
 | - | ---- | ---- |
 | Q1 | 施工范围 | 本对话只做 P0 五任务，P1/P2 挂起 |
-| Q2 | 验收标准 | 按源文档各任务验收小节 + typecheck + test 全绿 + 同步指定文档；TDD strict，证据报告 `docs/testing/agent-multi-intent.tdd.md` |
+| Q2 | 验收标准 | 按源文档各任务验收小节 + typecheck + test 全绿 + 同步指定文档；TDD strict，证据报告 `docs/testing/agent-multi-intent/agent-multi-intent.tdd.md` |
 | Q3 | zod 依赖 | **不引入**；抽通用 `parseStructuredJson` 骨架（源自 memoryWriter `parseExtractionItems`），memory 侧行为不变 |
 | Q4 | 结构化出参机制 | **厂商无关**：提示词内嵌 JSON Schema + 本地严格解析校验（双协议 OpenAI/Anthropic 均可用）；不用 `output_config`/`tool_choice` |
 | Q5 | 校验失败策略 | 重试 1 次 → 降级单意图直通（现规则引擎路径），拆分失败不阻断对话 |
@@ -51,7 +51,7 @@
 - 新增测试：`taskPlannerSchema.test.ts`（合法/非法/降级）、`intentRouter.test.ts` 多意图 ≥6 例、追问矩阵（挂 `agentContext.test.ts`）、`subtaskSequence.test.ts`（顺序/失败/打断）、确认矩阵（挂 `agentToolExecutor.test.ts`，含 fail-closed）
 - 门禁：`npm run typecheck` + `npm run test` + `npm run lint` + `npx playwright test` 全绿
 - 文档同步：`docs/specs/ai-agent/agent-prompt-context.md`、`docs/architecture/ai-agent.md`、`docs/modules/11-AI代理面板-Agent/03-question-cards.md`、`docs/specs/ai-agent/agent-tool-runtime.md`
-- TDD strict 证据报告：`docs/testing/agent-multi-intent.tdd.md`
+- TDD strict 证据报告：`docs/testing/agent-multi-intent/agent-multi-intent.tdd.md`
 
 ## 5. 约束与风险预登记
 

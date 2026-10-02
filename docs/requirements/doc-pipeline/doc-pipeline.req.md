@@ -11,7 +11,7 @@
 
 ### 0.1 决策基线（不得推翻，摘自优化方向文档 §0）
 
-> ⚠️ 2026-10-01：源文件 `C:\Users\lenovo\Desktop\优化方向\优化方向.md` 已被《Agent Memory 优化方向》覆盖、原件全机 0 副本，**以下 14 条摘录是其现存唯一副本**。核对需求原文时以本文与 `docs/requirements/doc-pipeline.req.md` 为准，不要按该路径去找。
+> ⚠️ 2026-10-01：源文件 `C:\Users\lenovo\Desktop\优化方向\优化方向.md` 已被《Agent Memory 优化方向》覆盖、原件全机 0 副本，**以下 14 条摘录是其现存唯一副本**。核对需求原文时以本文与 `docs/requirements/doc-pipeline/doc-pipeline.req.md` 为准，不要按该路径去找。
 
 体积 500MB 目标/1GB 红线、解析路线 A+D、Docling 仅 PoC、本期无 OCR、7 格式清单、
 文件树不扩格式、附件走 `parsed_attachments` + KB、图片落盘存相对路径、embedding 只接通文本侧、

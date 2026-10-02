@@ -84,7 +84,7 @@
 **批 A（语义层，互为因果必须同批）**：P0-1 → P0-2 → P0-3 → **Gate（五门禁全量跑）**
 **批 B（存储与检索层）**：P0-4 → P0-5 → P0-6 → P0-7 → **Gate**
 
-TDD 强度：**L / strict**（RED 实测 → 最小实现 GREEN → 重构 → 覆盖率 ≥80% → checkpoint → 证据报告 `docs/testing/agent-memory-optimize.tdd.md`）。
+TDD 强度：**L / strict**（RED 实测 → 最小实现 GREEN → 重构 → 覆盖率 ≥80% → checkpoint → 证据报告 `docs/testing/agent-memory/agent-memory-optimize.tdd.md`）。
 
 ## 四、不涉及范围
 

@@ -79,17 +79,17 @@ E2E 全量 **31 failed / 1 skipped / 97 passed**（基线 112 failed / 20 passed
 
 ## 测试报告
 
-测试报告存储在 `docs/testing/` 目录：
+测试报告按模块存储在 `docs/testing/{模块}/` 目录（5 模块 / 24 篇）：
 
-| 报告 | 说明 |
+| 报告（相对 `docs/testing/`） | 说明 |
 |------|------|
-| spec-edit-ft.tdd.md | 浮动工具栏 TDD |
-| spec-edit-ft2.tdd.md | 行内格式 TDD |
-| spec-edit-ft3.tdd.md | 叠加收敛 TDD |
-| spec-edit-ft4.tdd.md | 跨风格叠加畸形修复 TDD |
-| spec-edit-cbtp.tdd.md | 代码块尾随空行 TDD |
-| spec-edit-dsf.tdd.md | 拖选闪烁 TDD |
-| agent-cost-optimize.tdd.md | Agent 成本降低 TDD（M/standard + 基线对照 + 13 条偏离） |
-| doc-pipeline-b1.tdd.md ~ doc-pipeline-b11.tdd.md | 文档处理流水线 11 批 TDD（解析/上传/持久化/入库/检索/多模态/版面/工具引用/文件树/体积/外发闸） |
-| doc-pipeline.final.md | doc-pipeline 五门禁收口（tsc / vitest / lint / build / E2E 基线零新增） |
-| doc-pipeline-remedial.tdd.md | 遗留修复批次 TDD（Bug A/B + R3~R8） |
+| `spec-edit/spec-edit-ft.tdd.md` | 浮动工具栏 TDD |
+| `spec-edit/spec-edit-ft2.tdd.md` | 行内格式 TDD |
+| `spec-edit/spec-edit-ft3.tdd.md` | 叠加收敛 TDD |
+| `spec-edit/spec-edit-ft4.tdd.md` | 跨风格叠加畸形修复 TDD |
+| `spec-edit/spec-edit-cbtp.tdd.md` | 代码块尾随空行 TDD |
+| `spec-edit/spec-edit-dsf.tdd.md` | 拖选闪烁 TDD |
+| `agent-cost-optimize/agent-cost-optimize.tdd.md` | Agent 成本降低 TDD（M/standard + 基线对照 + 13 条偏离） |
+| `doc-pipeline/doc-pipeline-b1.tdd.md` ~ `doc-pipeline/doc-pipeline-b11.tdd.md` | 文档处理流水线 11 批 TDD（解析/上传/持久化/入库/检索/多模态/版面/工具引用/文件树/体积/外发闸） |
+| `doc-pipeline/doc-pipeline.final.md` | doc-pipeline 五门禁收口（tsc / vitest / lint / build / E2E 基线零新增） |
+| `doc-pipeline/doc-pipeline-remedial.tdd.md` | 遗留修复批次 TDD（Bug A/B + R3~R8） |

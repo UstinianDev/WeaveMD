@@ -200,7 +200,7 @@ SPEC-EDITOR-V2 4.2 已知归一化清单中"文档首尾空行剥离"的副作�
 | `e2e/exit-behavior.spec.ts`                              | 新增 2 例：重载后空行恢复且可聚焦（规范 6.2.1）、重载后空行 Backspace 受保护（规范 6.2.2）；mock 层新增 localStorage 持久化磁盘存储以支持 reload 回灌                                                                                                     |
 | `docs/specs/editor/editor-v2-architecture.md`                   | 4.2 归一化清单追加两行（4.6 内容）                                                                                                                                                                                                                        |
 | `docs/modules/04-编辑主区-Editor.md`                     | 第 4 节补尾部代码块补偿规则说明                                                                                                                                                                                                                           |
-| `docs/testing/spec-edit-cbtp.tdd.md`                     | TDD 证据报告（红/绿映射、保证表、命令摘录）                                                                                                                                                                                                               |
+| `docs/testing/spec-edit/spec-edit-cbtp.tdd.md`                     | TDD 证据报告（红/绿映射、保证表、命令摘录）                                                                                                                                                                                                               |
 
 **TDD 证据**：红——新用例 12 例中 6 例因"补偿未实现"失败（存量 226 例全绿）；
 绿——最小实现后 12/12 转绿；重构——实现即最小形态，未额外重构。

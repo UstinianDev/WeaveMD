@@ -1,7 +1,7 @@
 # 文档解析层规格（Document Parsing）
 
 > 规范编号：SPEC-DOC-PARSE | 版本：v1.0 | 更新：2026-10-01
-> 关联需求：[doc-pipeline 需求](../../requirements/doc-pipeline.req.md)（8 模块 29 任务：二 文档解析层、四-3 批量导入）
+> 关联需求：[doc-pipeline 需求](../../requirements/doc-pipeline/doc-pipeline.req.md)（8 模块 29 任务：二 文档解析层、四-3 批量导入）
 > 关联文档：[kb-indexing-egress.md](./kb-indexing-egress.md)（索引 → 检索 → 外发，本链路下游）、
 > [attachments-multimodal.md](./attachments-multimodal.md)（附件持久化与多模态）、
 > [knowledge.md](../../architecture/knowledge.md)、[ai-agent.md](../../architecture/ai-agent.md)
@@ -14,7 +14,7 @@
 > 完整数据链路。
 >
 > **边界（与既有文档的去重）**：
-> - 29 任务清单、Q1~Q6 决策与验收门禁归 [需求文档](../../requirements/doc-pipeline.req.md)（本文任务码仅作追溯锚点）；
+> - 29 任务清单、Q1~Q6 决策与验收门禁归 [需求文档](../../requirements/doc-pipeline/doc-pipeline.req.md)（本文任务码仅作追溯锚点）；
 > - 附件表结构、多模态消息契约、文件树引用模式归 [attachments-multimodal.md](./attachments-multimodal.md)；
 > - 分块消费契约（整表独立 chunk / headingPath）与列级 DDL 归 [kb-indexing-egress.md](./kb-indexing-egress.md)。
 
@@ -26,9 +26,9 @@
 | migrations | `docs/plan/doc-pipeline.plan/02-data-migrations.md` |
 | batch-records | `docs/plan/doc-pipeline.status/01-batch-records.md` |
 | status | `docs/plan/doc-pipeline.status.md` |
-| poc | [research/doc-pipeline-docling-poc.md](../../research/doc-pipeline-docling-poc.md) |
-| res-parse / res-chunk | [research/doc-pipeline-parse.md](../../research/doc-pipeline-parse.md) / [research/doc-pipeline-chunking.md](../../research/doc-pipeline-chunking.md) |
-| req | [requirements/doc-pipeline.req.md](../../requirements/doc-pipeline.req.md) |
+| poc | [research/doc-pipeline/doc-pipeline-docling-poc.md](../../research/doc-pipeline/doc-pipeline-docling-poc.md) |
+| res-parse / res-chunk | [research/doc-pipeline/doc-pipeline-parse.md](../../research/doc-pipeline/doc-pipeline-parse.md) / [research/doc-pipeline/doc-pipeline-chunking.md](../../research/doc-pipeline/doc-pipeline-chunking.md) |
+| req | [requirements/doc-pipeline/doc-pipeline.req.md](../../requirements/doc-pipeline/doc-pipeline.req.md) |
 
 ---
 

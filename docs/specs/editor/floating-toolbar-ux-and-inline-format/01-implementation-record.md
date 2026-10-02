@@ -8,7 +8,7 @@
 ## 9. 实施记录
 
 > 按里程碑回写（对照 SPEC-EDITOR-V2 13.x 的格式）。实施证据见
-> [docs/testing/spec-edit-ft2.tdd.md](../../../testing/spec-edit-ft2.tdd.md)。
+> [docs/testing/spec-edit/spec-edit-ft2.tdd.md](../../../testing/spec-edit/spec-edit-ft2.tdd.md)。
 
 ### 9.1 阶段 0~1 内核（2026-08-08）
 

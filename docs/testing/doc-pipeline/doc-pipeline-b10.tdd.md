@@ -1,7 +1,7 @@
 # doc-pipeline B10 — TDD 证据报告（strict）
 
 > 创建：2026-09-27 | 批次：**B10（七-1 四项瘦身 + 七-2 monaco 运行时验证 + 七-3 体积门禁）** | 强度：strict（RED → 最小实现 GREEN → 重构 → 门禁 → 实测验证 → 提交）
-> 来源：`docs/plan/doc-pipeline.plan.md` §1/§2-B10/§4.2-B10 / [需求](../requirements/doc-pipeline.req.md) Q5
+> 来源：`docs/plan/doc-pipeline.plan.md` §1/§2-B10/§4.2-B10 / [需求](../../requirements/doc-pipeline/doc-pipeline.req.md) Q5
 > 权威需求源：`C:\Users\lenovo\Desktop\优化方向\优化方向.md` §七-1/七-2/七-3 + §0 体积基线
 > 风险级：**L4（打包红线）**；红线：体积 ≤1GB 硬上限 / 500MB 目标、瘦身不改任何功能、不删测试、不放宽 `allowSend`、不动历史迁移、不推送远程
 > 溯源声明：来源标注中的 `docs/plan/*` 为过程计划文档，已随计划退役（历史见 git），仅留溯源线索。
@@ -135,7 +135,7 @@ $ 轮2（2026-09-27 03:30）
 
 ## 8. 偏离与决策记录
 
-1. **react-icons「改按需导入」实为已就绪**：全仓 5 处引用均为具名导入（`Icon.tsx:140` 起 130 个具名 import），Vite/Rollup 按 `sideEffects:false` 已把使用到的图标内联进 bundle——与调研结论一致（`docs/research/doc-pipeline-packaging.md` §3：换包收益有限）。**治理重心落在打包剔除**（`!node_modules/react-icons/**`）+ 全表回归断言，代码 import 形态零改动（红线"任何图标不得消失或变样"由清单测试 + 前后运行实测双保险）。
+1. **react-icons「改按需导入」实为已就绪**：全仓 5 处引用均为具名导入（`Icon.tsx:140` 起 130 个具名 import），Vite/Rollup 按 `sideEffects:false` 已把使用到的图标内联进 bundle——与调研结论一致（`docs/research/doc-pipeline/doc-pipeline-packaging.md` §3：换包收益有限）。**治理重心落在打包剔除**（`!node_modules/react-icons/**`）+ 全表回归断言，代码 import 形态零改动（红线"任何图标不得消失或变样"由清单测试 + 前后运行实测双保险）。
 2. **jieba 路径实测**：`node -e "require.resolve('jieba-wasm')" → pkg/nodejs/jieba_rs_wasm.js`（package.json `exports` 的 `require`/`node` 条件）；`tokenizer.ts:35` 动态 `require` 只走此一条 → 保留 `pkg/nodejs`、排除 `pkg/{web,deno,bundler}`。另：当前生产 bundle 中 `initJiebaAsync` 无调用方已被 tree-shake（`cut_for_search` 字面量在 dist-main 零命中），仍保留 nodejs 一份以免未来接回时缺件。
 3. **`files` 排除采用双口径写法**：v24 `computeNodeModuleFileSets` 对每个依赖以 `path.dirname(depDir)` 为匹配基准，而 `!node_modules/...` 文档口径以项目根为基准——两种基准的 pattern 并存（如 `!node_modules/react-icons/**` + `!react-icons/**`），任一口径命中即生效，避免依赖安装形态（hoist/nested）差异导致静默失效。
 4. **liteparse Linux 件排除的平台边界**：项目真实分发目标为 Windows；Linux AppImage target 若启用，**必须先移除** `liteparse.linux-x64-gnu.node`/`libpdfium.so` 两条排除（已写入 packaging.md 警示）——否则 linux 目标缺原生件。此为记录在案的显式取舍，非静默风险。

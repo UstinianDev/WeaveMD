@@ -24,10 +24,11 @@ docs/
 ├── architecture/      # 架构文档（按技术层）
 ├── modules/           # 模块文档（按功能模块）
 ├── specs/             # 规格文档（设计规范）
-├── testing/           # 测试报告（TDD证据）
+├── testing/           # 测试报告（TDD证据，按模块分 5 个子文件夹）
 ├── plan/              # 实施计划（现行 agent-multi-intent 5 篇，历史整体退役见 git）
-├── requirements/      # 需求文档（devflow产出）
+├── requirements/      # 需求文档（devflow产出，按模块分 3 个子文件夹）
 │   └── archive/       # 已完成需求归档
+├── research/          # 外部资料调研（按模块分文件夹，现 research/doc-pipeline/）
 └── guide/             # 使用指南
 ```
 
@@ -99,7 +100,7 @@ BlockNodeV2 接口定义：
 - **架构文档**：`{技术层}.md`（如 frontend.md, backend.md）
 - **模块文档**：`{序号}-{模块名}-{英文}.md`（如 04-编辑主区-Editor.md）
 - **规格文档**：`{功能描述}.md`（如 editor-v2-architecture.md）
-- **测试报告**：`{规格名}.tdd.md`（如 spec-edit-ft.tdd.md）
+- **测试报告**：`{规格名}.tdd.md`，存于 `docs/testing/{模块}/`（如 spec-edit/spec-edit-ft.tdd.md）
 - **实施计划**：`{任务名}.status.md`（如 export-image-fix.status.md）
 
 ### 内容格式
@@ -161,8 +162,8 @@ BlockNodeV2 接口定义：
 ### 归档操作
 
 ```bash
-# 需求完成归档：移动到归档目录
-mv docs/requirements/xxx.req.md docs/requirements/archive/
+# 需求完成归档：从模块子文件夹移动到归档目录
+mv docs/requirements/{模块}/xxx.req.md docs/requirements/archive/
 
 # 更新 SUMMARY.md（需求计数与入链）
 ```

@@ -1,9 +1,9 @@
 # doc-pipeline B6 — TDD 证据报告（strict）
 
 > 创建：2026-09-26 | 批次：**B6（五-1 content 数组 + 五-2 图片落盘 + 五-3 死代码接活）** | 强度：strict（RED → 最小实现 GREEN → 重构 → 覆盖率 → 门禁 → 提交）
-> 来源：[计划](../specs/knowledge/attachments-multimodal.md) §1/§2-B6/§4.2-B6 / [需求](../requirements/doc-pipeline.req.md)
+> 来源：[计划](../../specs/knowledge/attachments-multimodal.md) §1/§2-B6/§4.2-B6 / [需求](../../requirements/doc-pipeline/doc-pipeline.req.md)
 > 权威需求源：`C:\Users\lenovo\Desktop\优化方向\优化方向.md` §五-1/五-2/五-3（拷问细节② = 验收点）
-> 调研依据：`docs/research/doc-pipeline-pdf-multimodal.md` §2.3（Anthropic image block vs OpenAI `image_url` 对照、`detail`/多模态计费）
+> 调研依据：`docs/research/doc-pipeline/doc-pipeline-pdf-multimodal.md` §2.3（Anthropic image block vs OpenAI `image_url` 对照、`detail`/多模态计费）
 > 风险级：**L4**（核心 LLM 链路全调用点，用户已放行）；红线：纯文本链路行为不变、不削弱 `allowSend`、不删测试、不新增 IPC 通道除非三处同步
 
 ## 1. 测试范围

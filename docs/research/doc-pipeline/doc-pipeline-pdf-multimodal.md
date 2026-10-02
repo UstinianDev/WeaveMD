@@ -226,7 +226,7 @@ Responses API（PDF 的另一条路）：
 
 ## 4. 对本项目 D 路线的接入建议
 
-对应需求：二-3 PDF 版面还原、二-4 D 路线兜底、二-6 溯源 metadata、五-1 content 数组两套协议分流、Q4 丢图策略（见 `docs/requirements/doc-pipeline.req.md`）。
+对应需求：二-3 PDF 版面还原、二-4 D 路线兜底、二-6 溯源 metadata、五-1 content 数组两套协议分流、Q4 丢图策略（见 `docs/requirements/doc-pipeline/doc-pipeline.req.md`）。
 
 1. **本地主路（二-3）**：`parseDocument` 的 PDF 分支用 `getTextContent()` 拿 `items`（`str/transform/width/height/dir/hasEOL/fontName`）+ `styles`，经 `viewport.transform` 换算到统一坐标系后做分栏与行聚类；`hasEOL` 可辅助行边界。**items 顺序语义官方未声明，先用样例 PDF 实测再定排序策略**（§1.2）。`items` 为空即判定"无文本层"，路由到 D 路线。
 2. **栅格化（二-4 前置）**：主进程用 `pdfjs-dist/legacy/build/pdf.mjs` + `@napi-rs/canvas`（pdfjs 的 `NodeCanvasFactory` 自动接线），`canvasFactory.create()` → `page.render().promise` → `toBuffer('image/png')` 得页图（§1.4 官方示例可直接照抄）。需带 `cMapUrl`/`standardFontDataUrl`（CJK 必需）。备选：renderer 进程 DOM canvas 渲染回传。

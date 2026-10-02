@@ -1,6 +1,6 @@
 # TDD 证据文档：SPEC-EDIT-FT3 浮动工具栏格式应用交互修正
 
-> 日期：2026-08-08 | 规范：[SPEC-EDIT-FT3 v1.0](../specs/editor/floating-toolbar-format-sticky.md)
+> 日期：2026-08-08 | 规范：[SPEC-EDIT-FT3 v1.0](../../specs/editor/floating-toolbar-format-sticky.md)
 > 计划：PLAN-EDIT-FT3（历史计划文档已归档删除）
 > 风险等级：L3（生产行为修正，测试先行，无迁移）
 

@@ -1,6 +1,6 @@
 # agent-memory-optimize-2 — 需求文档（第二批 / P1）
 
-> 日期：2026-09-29 | 档位：**L**（含 L4 迁移子项）| 基于：`docs/requirements/agent-memory-optimize.req.md`（第一批）+ `优化方向.md` 第二批路线图 + 两轮只读代码核查（2026-09-29 重定位行号）
+> 日期：2026-09-29 | 档位：**L**（含 L4 迁移子项）| 基于：`docs/requirements/agent-memory/agent-memory-optimize.req.md`（第一批）+ `优化方向.md` 第二批路线图 + 两轮只读代码核查（2026-09-29 重定位行号）
 > 状态：**Q1~Q14 全部对齐（2026-09-29 用户裁定：全部按推荐）**
 
 ## 一、目标
@@ -158,7 +158,7 @@
 **子批 B**：B3（迁移 + 双路径测试）→ B1 → B2 → B4 → **Gate B**
 **子批 C**：C1 → C2 → C3 → C4 → **Gate C（全量门禁 + E2E）**
 
-TDD 强度：**L / strict**（RED 实测 → 最小实现 GREEN → 重构 → 改动行覆盖 ≥80% → checkpoint → 证据报告 `docs/testing/agent-memory-optimize-2.tdd.md`）。
+TDD 强度：**L / strict**（RED 实测 → 最小实现 GREEN → 重构 → 改动行覆盖 ≥80% → checkpoint → 证据报告 `docs/testing/agent-memory/agent-memory-optimize-2.tdd.md`）。
 
 ## 四、不涉及范围
 

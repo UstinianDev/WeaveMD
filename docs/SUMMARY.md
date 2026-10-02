@@ -62,19 +62,19 @@
 
 ## devflow 产出
 
-按任务成套存放，同一任务的四件套同名前缀：`{task}.req.md`（需求）、`{task}.plan.md` / `{task}.status.md`（计划与状态）、`{task}.*.tdd.md`（测试证据），另有 connectivity（连通性）与 compliance（合规）报告。
+按任务成套存放，同一任务的四件套同名前缀：`{task}.req.md`（需求）、`{task}.plan.md` / `{task}.status.md`（计划与状态）、`{task}.*.tdd.md`（测试证据），另有 connectivity（连通性）与 compliance（合规）报告。需求与测试报告**按模块归入子文件夹**：`requirements/{模块}/`、`testing/{模块}/`。
 
-| 需求（`requirements/`，当前 5 篇 + archive 15 篇） | 计划与状态（`plan/`，现行 agent-multi-intent 5 篇；**已退役，见 git**） | 测试报告（`testing/`，24 篇） |
+| 需求（`requirements/`，当前 5 篇分 3 个模块子文件夹 + archive 15 篇） | 计划与状态（`plan/`，现行 agent-multi-intent 5 篇；**已退役，见 git**） | 测试报告（`testing/`，5 模块 / 24 篇） |
 |---|---|---|
-| [doc-pipeline.req](./requirements/doc-pipeline.req.md) | **已退役，见 git**；调研见 [docling-poc](./research/doc-pipeline-docling-poc.md) | `doc-pipeline-b1` ~ `doc-pipeline-b11` + `doc-pipeline-remedial` + `doc-pipeline.final` |
-| [agent-cost-optimize.req](./requirements/archive/agent-cost-optimize.req.md)（已完成） | **已退役，见 git** | `agent-cost-optimize.tdd` |
+| [doc-pipeline.req](./requirements/doc-pipeline/doc-pipeline.req.md) | **已退役，见 git**；调研见 [docling-poc](./research/doc-pipeline/doc-pipeline-docling-poc.md) | `testing/doc-pipeline/`（b1~b11 + remedial + final，13 篇） |
+| [agent-cost-optimize.req](./requirements/archive/agent-cost-optimize.req.md)（已完成） | **已退役，见 git** | `testing/agent-cost-optimize/agent-cost-optimize.tdd` |
 | [agent-perf-optimize.req](./requirements/archive/agent-perf-optimize.req.md)（已完成） | **已退役，见 git** | — |
 | [agent-md-kb-optimize.req](./requirements/archive/agent-md-kb-optimize.req.md)（已完成） | **已退役，见 git** | — |
-| [agent-memory-optimize.req](./requirements/agent-memory-optimize.req.md)（P0 第一批，已完成） | **已退役，见 git**（原 7 模块 **26 任务**路线图，三批已全部交付 + 分册 3 篇） | `agent-memory-optimize.tdd` |
-| [agent-memory-optimize-2.req](./requirements/agent-memory-optimize-2.req.md)（P1 第二批，**已完成**） | **已退役，见 git**（原 plan §6 为三 Gate 实施记录） | `agent-memory-optimize-2.tdd` |
-| [agent-memory-optimize-3.req](./requirements/agent-memory-optimize-3.req.md)（P2 第三批，**已完成**） | **已退役，见 git**（原 plan §6 为三 Gate 实施记录） | `agent-memory-optimize-3.tdd` |
-| [agent-multi-intent.req](./requirements/agent-multi-intent.req.md)（多意图识别与执行；§3 Q1~Q14 / §6 Q17~Q24 裁定） | [plan](./plan/agent-multi-intent.plan.md) · [p1.plan](./plan/agent-multi-intent-p1.plan.md) · [status](./plan/agent-multi-intent.status.md) + 2 篇 connectivity（P0 5 任务 + P1/P2 8 任务 = **13 任务** + 2 修复） | `agent-multi-intent.tdd` |
-| — | **6 篇 doc-pipeline 调研已迁出 plan** → [`research/`](./research/)（`research/doc-pipeline-{parse,pdf-multimodal,storage,chunking,packaging,tools}.md`，另 `research/doc-pipeline-docling-poc.md` 选型报告） | `spec-edit-ft` ~ `ft4` / `cbtp` / `dsf`（编辑器规格 TDD 6 篇） |
+| [agent-memory-optimize.req](./requirements/agent-memory/agent-memory-optimize.req.md)（P0 第一批，已完成） | **已退役，见 git**（原 7 模块 **26 任务**路线图，三批已全部交付 + 分册 3 篇） | `testing/agent-memory/agent-memory-optimize.tdd` |
+| [agent-memory-optimize-2.req](./requirements/agent-memory/agent-memory-optimize-2.req.md)（P1 第二批，**已完成**） | **已退役，见 git**（原 plan §6 为三 Gate 实施记录） | `testing/agent-memory/agent-memory-optimize-2.tdd` |
+| [agent-memory-optimize-3.req](./requirements/agent-memory/agent-memory-optimize-3.req.md)（P2 第三批，**已完成**） | **已退役，见 git**（原 plan §6 为三 Gate 实施记录） | `testing/agent-memory/agent-memory-optimize-3.tdd` |
+| [agent-multi-intent.req](./requirements/agent-multi-intent/agent-multi-intent.req.md)（多意图识别与执行；§3 Q1~Q14 / §6 Q17~Q24 裁定） | [plan](./plan/agent-multi-intent.plan.md) · [p1.plan](./plan/agent-multi-intent-p1.plan.md) · [status](./plan/agent-multi-intent.status.md) + 2 篇 connectivity（P0 5 任务 + P1/P2 8 任务 = **13 任务** + 2 修复） | `testing/agent-multi-intent/agent-multi-intent.tdd` |
+| — | **6 篇 doc-pipeline 调研已迁出 plan** → [`research/`](./research/)（`research/doc-pipeline/doc-pipeline-{parse,pdf-multimodal,storage,chunking,packaging,tools}.md`，另 `research/doc-pipeline/doc-pipeline-docling-poc.md` 选型报告） | `testing/spec-edit/`（ft~ft4 / cbtp / dsf，6 篇） |
 
 > 历史任务的需求已归档至 [`requirements/archive/`](./requirements/archive/)；计划与状态已随 plan **整体退役迁入 git 历史**，不在上表展开。
 

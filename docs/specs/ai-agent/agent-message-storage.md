@@ -1,7 +1,7 @@
 # Agent 会话消息写读契约（Message Storage）
 
 > 规范编号：SPEC-AGENT-MSG | 版本：v1.1（已实施）| 状态：生效 | 更新：2026-10-02
-> 关联需求：[agent-memory-optimize.req.md](../../requirements/agent-memory-optimize.req.md)（P0-4 / P0-5 / 红线 1 / Q14~Q17）、[agent-memory-optimize-3.req.md](../../requirements/agent-memory-optimize-3.req.md)（D3 轨迹源）、[REQUIREMENTS.md](../../REQUIREMENTS.md) §3.7
+> 关联需求：[agent-memory-optimize.req.md](../../requirements/agent-memory/agent-memory-optimize.req.md)（P0-4 / P0-5 / 红线 1 / Q14~Q17）、[agent-memory-optimize-3.req.md](../../requirements/agent-memory/agent-memory-optimize-3.req.md)（D3 轨迹源）、[REQUIREMENTS.md](../../REQUIREMENTS.md) §3.7
 > 关联模块：[11-AI代理面板-Agent.md](../../modules/11-AI代理面板-Agent.md)
 > 关联架构：[backend.md](../../architecture/backend.md)、[database.md](../../architecture/database.md)
 > 关联规范：[agent-tool-runtime.md](./agent-tool-runtime.md)（工具执行、并发与外发闸）
@@ -27,8 +27,8 @@
 
 ### 2.2 幂等 id 与运行级盐 `runId`
 
-- assistant id = `aturn_${convId}_${runId}_${round}`，tool id = `t_${convId}_${runId}_${round}_${index}`；assistant 用 `ON CONFLICT(id) DO UPDATE`（不改 `created_at` 以保持行序），tool 用 `INSERT OR IGNORE`，同轮重试不产生重复行。（来源：`docs/plan/agent-memory-optimize.plan.md` §5、[req §六 Q16](../../requirements/agent-memory-optimize.req.md)）
-- **`runId` 为运行级盐，不可省略**：`round` 每次运行从 0 重计，缺 `runId` 时同会话第二条消息的 round 0 会撞第一次的 id——assistant 行被覆盖、tool 行 `INSERT OR IGNORE` 保留旧内容，导致该轮工具结果整体丢失、历史 assistant/tool 错配。`runId` 由 `prepareAgentContext` 每运行 `randomUUID()` 生成一次，挂 `AgentContext.runId`，整轮运行内稳定。（来源：`docs/plan/agent-memory-optimize.plan.md` §5（Q16 修正）、`docs/plan/agent-memory-optimize.status.md` Q16 裁定、[req §六 Q16](../../requirements/agent-memory-optimize.req.md)）
+- assistant id = `aturn_${convId}_${runId}_${round}`，tool id = `t_${convId}_${runId}_${round}_${index}`；assistant 用 `ON CONFLICT(id) DO UPDATE`（不改 `created_at` 以保持行序），tool 用 `INSERT OR IGNORE`，同轮重试不产生重复行。（来源：`docs/plan/agent-memory-optimize.plan.md` §5、[req §六 Q16](../../requirements/agent-memory/agent-memory-optimize.req.md)）
+- **`runId` 为运行级盐，不可省略**：`round` 每次运行从 0 重计，缺 `runId` 时同会话第二条消息的 round 0 会撞第一次的 id——assistant 行被覆盖、tool 行 `INSERT OR IGNORE` 保留旧内容，导致该轮工具结果整体丢失、历史 assistant/tool 错配。`runId` 由 `prepareAgentContext` 每运行 `randomUUID()` 生成一次，挂 `AgentContext.runId`，整轮运行内稳定。（来源：`docs/plan/agent-memory-optimize.plan.md` §5（Q16 修正）、`docs/plan/agent-memory-optimize.status.md` Q16 裁定、[req §六 Q16](../../requirements/agent-memory/agent-memory-optimize.req.md)）
 
 ### 2.3 `tool_calls` 唯一写入点
 
@@ -41,7 +41,7 @@
 ### 3.1 轮次窗口 `getRecentMessagesByRounds`
 
 - SQL：`ORDER BY created_at DESC, rowid DESC` + `stmt.iterate()` 流式累加；**超预算在轮边界停，但至少保留最近 1 轮**；末尾 `reverse()` 返回时间正序；**不设行数硬上限**。（来源：`docs/plan/agent-memory-optimize.plan.md` §2.1 B-a / §5、`docs/plan/agent-memory-optimize.connectivity.md` §2 L2）
-- 窗口语义 = `max(最近 3 轮全量, 20 行水位线)`：**轮数保下界、20 由上限降为水位线、字节闸管上界**。（来源：`docs/plan/agent-memory-optimize.plan.md` §7-4、[req §六 Q15](../../requirements/agent-memory-optimize.req.md)）
+- 窗口语义 = `max(最近 3 轮全量, 20 行水位线)`：**轮数保下界、20 由上限降为水位线、字节闸管上界**。（来源：`docs/plan/agent-memory-optimize.plan.md` §7-4、[req §六 Q15](../../requirements/agent-memory/agent-memory-optimize.req.md)）
 - 调用参数：`KEEP_RECENT_ROUNDS = 3`、字节预算 `HISTORY_BYTE_BUDGET = 45_000`（UTF-8 字节，初值 **[待按 `CONTEXT_WINDOW = 64_000` 实测调优]**）。（来源：`docs/plan/agent-memory-optimize.plan.md` §7-3、现码 `agentContext.ts:110`）
 - 行序兜底：`getMessagesByConversation` 排序补 `rowid ASC`，防同毫秒批写（同轮 assistant + tool 行）并列乱序。（来源：`docs/plan/agent-memory-optimize.plan.md` §2.1 B-a、现码 `db/ai.ts:929-933`）
 - 意图轮数走 `getRoundsForIntent` / `KEEP_RECENT_ROUNDS`，历史长度最终交给 `buildCompressed`（阈值 0.85/0.65）三闸控上界。（来源：`docs/plan/agent-memory-optimize.plan.md` §5）
@@ -54,7 +54,7 @@
 
 ### 3.3 配对修复 `repairToolTurnPairing`
 
-- **只读、纯内存、永不写库**；必须在 `cleanupIncompleteMessages` **之后**调用；**不复用** `cleanupIncompleteMessages`（后者只按最后一条 assistant 截断、不校验 id 配对）。（来源：`docs/plan/agent-memory-optimize.plan.md` §5 / §2.1 B-c、[req Q14](../../requirements/agent-memory-optimize.req.md)）
+- **只读、纯内存、永不写库**；必须在 `cleanupIncompleteMessages` **之后**调用；**不复用** `cleanupIncompleteMessages`（后者只按最后一条 assistant 截断、不校验 id 配对）。（来源：`docs/plan/agent-memory-optimize.plan.md` §5 / §2.1 B-c、[req Q14](../../requirements/agent-memory/agent-memory-optimize.req.md)）
 - 三规则：
   1. assistant 有 `tool_calls` 缺配对 tool → **合成占位 tool 行**，文案锁定 `'[工具结果缺失：会话在该工具完成前中断，结果不可恢复]'`，**不剥 `tool_calls`**（避免丢失该轮；属信息损失但优于整体 400）；
   2. 孤儿 tool 行（前置无含该 id 的 `assistant.tool_calls`）→ **丢弃**（无法重建 `function.name`，provider 必拒）；
@@ -90,11 +90,11 @@
 
 ## 7. 需求侧交叉引用
 
-写入/读取的根因分析、验收断言、红线（不减少历史轮次、不截断工具结果、删能力需批准）见 [agent-memory-optimize.req.md](../../requirements/agent-memory-optimize.req.md) §二 P0-4/P0-5 与 §五；轨迹提炼的需求见 [agent-memory-optimize-3.req.md](../../requirements/agent-memory-optimize-3.req.md) D3。本文不重复这些需求级结论。
+写入/读取的根因分析、验收断言、红线（不减少历史轮次、不截断工具结果、删能力需批准）见 [agent-memory-optimize.req.md](../../requirements/agent-memory/agent-memory-optimize.req.md) §二 P0-4/P0-5 与 §五；轨迹提炼的需求见 [agent-memory-optimize-3.req.md](../../requirements/agent-memory/agent-memory-optimize-3.req.md) D3。本文不重复这些需求级结论。
 
 ## 8. 多子任务执行报告与部分失败口径（agent-multi-intent 任务 7，Q19）
 
-多意图链收口时的执行报告与部分失败策略契约（需求裁定：[agent-multi-intent.req.md](../../requirements/agent-multi-intent.req.md) §6 Q19；实现：`src/main/ai/agent/chainReport.ts` + `agentLoop.finalizeChainRun`）。
+多意图链收口时的执行报告与部分失败策略契约（需求裁定：[agent-multi-intent.req.md](../../requirements/agent-multi-intent/agent-multi-intent.req.md) §6 Q19；实现：`src/main/ai/agent/chainReport.ts` + `agentLoop.finalizeChainRun`）。
 
 ### 8.1 数据源三分
 

@@ -1,7 +1,7 @@
 # 附件与多模态规格（Attachments & Multimodal）
 
 > 规范编号：SPEC-DOC-ATTACH | 版本：v1.0 | 更新：2026-10-01
-> 关联需求：[doc-pipeline 需求](../../requirements/doc-pipeline.req.md)（8 模块 29 任务：一 会话附件上传、五 多模态图片、三-1/三-3 文件树）
+> 关联需求：[doc-pipeline 需求](../../requirements/doc-pipeline/doc-pipeline.req.md)（8 模块 29 任务：一 会话附件上传、五 多模态图片、三-1/三-3 文件树）
 > 关联文档：[document-parsing.md](./document-parsing.md)（解析层，上游）、
 > [kb-indexing-egress.md](./kb-indexing-egress.md)（索引 → 检索 → 外发，下游）、
 > [ai-agent.md](../../architecture/ai-agent.md)、[database.md](../../architecture/database.md)、[ipc.md](../../architecture/ipc.md)
@@ -13,7 +13,7 @@
 > **边界（与既有文档的去重）**：
 > - 解析产物契约、PDF 版面、D 路线、溯源（`structure_json`）归 [document-parsing.md](./document-parsing.md)；
 > - 列级 DDL 细节（D3~D6）、外发闸 `allowSend` 语义、R3 四工具过闸归 [kb-indexing-egress.md](./kb-indexing-egress.md)；
-> - 29 任务清单、Q1~Q6 决策与验收门禁归 [需求文档](../../requirements/doc-pipeline.req.md)。
+> - 29 任务清单、Q1~Q6 决策与验收门禁归 [需求文档](../../requirements/doc-pipeline/doc-pipeline.req.md)。
 
 **来源缩写**（行内 `〔源：xx §yy〕` 按下表展开为相对链接 + 章节）：
 
@@ -23,7 +23,7 @@
 | migrations | `docs/plan/doc-pipeline.plan/02-data-migrations.md` |
 | batch-records | `docs/plan/doc-pipeline.status/01-batch-records.md` |
 | status | `docs/plan/doc-pipeline.status.md`（§遗留修复批次 remedial 9 项） |
-| req | [requirements/doc-pipeline.req.md](../../requirements/doc-pipeline.req.md) |
+| req | [requirements/doc-pipeline/doc-pipeline.req.md](../../requirements/doc-pipeline/doc-pipeline.req.md) |
 
 ---
 
