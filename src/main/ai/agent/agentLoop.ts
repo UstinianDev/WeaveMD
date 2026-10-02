@@ -37,7 +37,7 @@ import { createPreloadedSearchKb } from './agentKbPreloader';
 
 // 从拆分模块导入
 import { estimateImageTokens, getCostTracker } from '../costTracker';
-import type { AgentContext } from './agentContext';
+import type { AgentContext, ToolSelectionArgs } from './agentContext';
 import { prepareAgentContext } from './agentContext';
 import {
   CONTEXT_WINDOW,
@@ -65,6 +65,8 @@ import {
   type WriteBatchConfirmResult,
 } from './agentToolExecutor';
 import { confirmSkipSet, confirmTierFor } from './confirmMatrix';
+import { toolsForIntent } from './agentToolSelector';
+import type { BranchOutcome } from './subtaskScheduler';
 import {
   advanceSubtaskChain,
   appendChainNote,
@@ -73,9 +75,13 @@ import {
   finalizeChainContent,
   handleSubtaskFailure,
   runChainClarification,
+  runParallelChain,
+  runParallelClarification,
   startSubtaskChain,
   stampWriteBatchForCurrentSubtask,
   stopChain,
+  type BranchContext,
+  type SubtaskBranchRunner,
   type SubtaskChain,
 } from './subtaskOrchestrator';
 import { buildChainReport, renderReportSegment, shouldRenderReport } from './chainReport';
@@ -140,6 +146,19 @@ export interface AgentLoopDeps {
    * （写库异常吞掉仅日志）；缺省 = 不落盘（仅内存态，全链零行为变化）。
    */
   onChainRecordUpdate?: (json: string) => void;
+  /**
+   * 链内并行调度启用信号（agent-multi-intent 任务 8，Q24）：
+   * worker 注入 true → 链创建 subtaskScheduler 并走 runParallelChain 波次驱动
+   * （仅链内子任务并行；队列层 maxConcurrent 维持 1 不变）。缺省 = 串行链
+   * （既有链测试与单意图路径零行为变化）。回滚：置 SUBTASK_PARALLEL_LIMIT=1
+   * 即调度器 dormant（每次仅派发一支，结果与串行等价）。
+   */
+  subtaskParallel?: boolean;
+  /**
+   * 并行上限覆盖（回滚/测试缝，缺省 SUBTASK_PARALLEL_LIMIT=2）：
+   * 置 1 → 单支在飞，等价串行（工具轮 id 亦逐字一致）。
+   */
+  subtaskParallelLimit?: number;
 }
 
 export interface AgentReqPayload {
@@ -418,8 +437,9 @@ export async function runAgentFlow(
     if (confirmedPlan) {
       subtaskChain = startSubtaskChain(ctx, confirmedPlan, deps);
       // 全部子任务低置信（无立即执行项）→ 进链前先追问（Q10：避免首轮无子任务
-      // 指令空跑）；全丢弃时链退化为空队列，跑一轮正常收口，不阻塞对话
-      if (subtaskChain.queue.length === 0) {
+      // 指令空跑）；全丢弃时链退化为空队列，跑一轮正常收口，不阻塞对话。
+      // 任务 8：并行链改由 runParallelChain/clarify 驱动（空队列时先回 clarify）。
+      if (subtaskChain.queue.length === 0 && !subtaskChain.scheduler) {
         const preOutcome = await runChainClarification(ctx, subtaskChain, -1, deps);
         // 边界检查停链（中断/封顶）且已入队未执行 → 直接收口，不进主循环
         if (preOutcome === 'finished' && subtaskChain.queue.length > 0) {
@@ -427,6 +447,23 @@ export async function runAgentFlow(
         }
       }
     }
+  }
+
+  // 任务 8（Q24）：并行链（deps.subtaskParallel）整链走波次驱动 —— 分支各自
+  // 独立消息栈/预算并发执行，主线程串行段聚合与追问；串行链（scheduler 缺省）
+  // 与 gate 关路径仍走下方原循环，代码与行为零变化。
+  if (subtaskChain?.scheduler) {
+    const branchRunner: SubtaskBranchRunner = (branchCtx, branchChain, branch, branchDeps) =>
+      runSubtaskSegment(branchCtx, branchChain, branch, branchDeps, controller.signal);
+    for (;;) {
+      const parallelOutcome = await runParallelChain(ctx, subtaskChain, deps, branchRunner);
+      if (parallelOutcome === 'clarify') {
+        const after = await runParallelClarification(ctx, subtaskChain, deps);
+        if (after === 'continue') continue;
+      }
+      break; // finished / stopped / clarify 收束 → 单次收口
+    }
+    return await finalizeChainRun('');
   }
 
   try {
@@ -1044,4 +1081,208 @@ async function processStreamingToolRound(
     deadLoopBreak: false,
     ...(chainForceFailure ? { chainForceFailure } : {}),
   };
+}
+
+// ---------------------------------------------------------------------------
+// S20: 任务 8 — 单子任务分支轮次段（runSubtaskSegment）
+// ---------------------------------------------------------------------------
+
+/**
+ * 并行分支的「单子任务轮次段」：在分支克隆上下文上跑 LLM 流 + 工具轮，
+ * 直到收敛（done）/ 失败（failed）/ 死循环停链（stopped）/ 轮次预算截断（truncated）。
+ *
+ * 护栏（计划 §2 任务 8 红线）：
+ *   - gate 关路径与串行链路径不经本函数 —— 既有主循环代码零移动零改写；
+ *   - 消息栈/预算/意图/tools 全部来自 BranchContext 与分支克隆，共享可变态
+ *     （writeBatch / toolCallsHistory / replacementState）仅以引用共享、由同步
+ *     push 语义保持一致，writeBatch 条目经克隆的 currentSubtaskId 落标；
+ *   - 工具轮 id 走全局轮次基址（单支在飞 = 已消耗轮次 → 与串行逐字一致；
+ *     并发支经 SUBTASK_ROUND_STRIDE 错开）→ 配对完整性与幂等维度不碰撞；
+ *   - 分支不推流式增量（编排层 flush 时按支补发聚合文本）、不做压缩与
+ *     checkpoint（波次聚合后统一收口）；延迟工具 schema 预升级（无流内重发）；
+ *   - 致命错误（AbortError / consent_required）原样上抛（镜像串行直接上抛语义），
+ *     其余流转错误返回 failed —— 重试单点在 runScheduledLoop（分支不私自循环）。
+ *
+ * @param signal 主流程 AbortController 信号（取消/consent 判定，缺省 = 不判取消）。
+ */
+export async function runSubtaskSegment(
+  ctx: AgentContext,
+  _chain: SubtaskChain,
+  branch: BranchContext,
+  deps: AgentLoopDeps,
+  signal?: AbortSignal
+): Promise<BranchOutcome> {
+  const subtask = branch.subtask;
+
+  // ---- 分支上下文克隆（intent/tools/预算/消息栈独立；引用型共享态保持同源）----
+  const args: ToolSelectionArgs = [...ctx.toolSelectionArgs];
+  args[0] = { ...args[0], intent: subtask.intent };
+  const selected = toolsForIntent(...args);
+  const tools = selected.map((t) =>
+    isDeferredTool(t.function.name) ? (getDeferredToolSchema(t.function.name) ?? t) : t
+  );
+  const toolCtx = { ...ctx.toolCtx, agentIntent: subtask.intent } as AgentContext['toolCtx'];
+  if (subtask.intent === 'kbQa' && deps.searchKb && args[1]) {
+    // Q21 kbQa 单槽预载（分支各自闭包，不跨支污染）
+    const subtaskQuery =
+      typeof subtask.params?.query === 'string' && subtask.params.query.trim()
+        ? subtask.params.query
+        : subtask.object;
+    toolCtx.searchKb = createPreloadedSearchKb(deps.searchKb, toolCtx.userId, subtaskQuery)
+      .searchKb;
+  }
+  const branchCtx: AgentContext = {
+    ...ctx,
+    intent: { ...ctx.intent, intent: subtask.intent },
+    tools,
+    toolCtx,
+    llmMessages: branch.llmMessages,
+    detector: branch.detector,
+    totalTokens: branch.llmMessages.reduce((sum, m) => sum + estimateContentTokens(m.content), 0),
+    roundsUsed: 0,
+    currentSubtaskId: subtask.id,
+    currentSubtaskIndex: branch.subtaskIndex,
+  };
+
+  let localRound = 0;
+  for (;;) {
+    const round = branch.roundBase + localRound;
+    // per-subtask 独立预算（Q9）：分支本地轮次不随全局累计串味
+    if (branch.detector.checkRoundLimit(localRound)) {
+      return {
+        kind: 'truncated',
+        text: '',
+        rounds: localRound,
+        reason: `子任务「${subtask.action} → ${subtask.object}」轮次预算耗尽未收敛`,
+      };
+    }
+    if (branch.detector.isNearRoundLimit()) {
+      const convergenceMsg = {
+        role: 'system' as const,
+        content: `你已接近工具调用轮次上限（${branch.detector.getStats().maxRounds} 轮），请尽快给出最终回答。`,
+      };
+      branchCtx.llmMessages.push(convergenceMsg);
+      branchCtx.totalTokens += estimateTokens(convergenceMsg.content);
+    }
+
+    const accumulatedToolCalls: StreamingToolCall[] = [];
+    let assistantContent = '';
+    let roundUsage: StreamChunk['usage'] | undefined;
+    const executor = new StreamingToolExecutor(branchCtx, round, branchCtx.replacementState);
+
+    const gen = streamChatCompletionWithRetry({
+      baseUrl: branchCtx.baseUrl,
+      model: branchCtx.model,
+      apiKey: branchCtx.apiKey,
+      messages: branchCtx.llmMessages as Array<{ role: string; content: string }>,
+      ...(branchCtx.tools.length ? { tools: branchCtx.tools, toolChoice: 'auto' as const } : {}),
+      timeoutMs: 180_000,
+      ...(signal ? { signal } : {}),
+    });
+
+    try {
+      for await (const chunk of gen) {
+        // 分支不推 AI_STREAM_CHUNK（多支交叉会污染渲染累积器）；文本只进本支栈
+        if (chunk.delta) assistantContent += chunk.delta;
+        if (chunk.usage) {
+          roundUsage = chunk.usage;
+          if (chunk.usage.reasoningTokenCount != null) {
+            branchCtx.reasoningTokenCount = chunk.usage.reasoningTokenCount;
+          }
+        }
+        if (chunk.toolCalls?.length) {
+          for (const tc of chunk.toolCalls) {
+            accumulatedToolCalls.push(tc);
+            executor.onToolCall(tc); // 流中推测执行（与串行同款）
+          }
+        }
+      }
+    } catch (streamErr) {
+      const aborted =
+        (streamErr as { name?: string })?.name === 'AbortError' || signal?.aborted === true;
+      const consentErr = (streamErr as { code?: string })?.code === 'consent_required';
+      if (aborted || consentErr) throw streamErr; // 致命：镜像串行直接上抛
+      return {
+        kind: 'failed',
+        text: '',
+        rounds: localRound + 1,
+        error: streamErr instanceof Error ? streamErr.message : String(streamErr),
+      };
+    }
+
+    // S16: 成本归因（分支 intent + 全局轮次维度，与串行同口径）
+    if (roundUsage) {
+      const roundImageTokens = estimateImageTokens(countMessageImages(branchCtx.llmMessages));
+      try {
+        getCostTracker().recordUsage({
+          conversationId: branchCtx.convId,
+          userId: branchCtx.userId,
+          model: branchCtx.model,
+          usage: {
+            promptTokens: roundUsage.promptTokens ?? 0,
+            completionTokens: roundUsage.completionTokens ?? 0,
+            reasoningTokens: roundUsage.reasoningTokens ?? 0,
+            cacheReadTokens: roundUsage.cacheReadTokens ?? 0,
+            cacheCreationTokens: roundUsage.cacheCreationTokens ?? 0,
+            ...(roundImageTokens > 0 ? { imageTokens: roundImageTokens } : {}),
+          },
+          roundCount: round + 1,
+          intent: branchCtx.intent.intent,
+        });
+      } catch {
+        // 成本追踪失败不影响主流程
+      }
+    }
+
+    // 无工具调用 → 文本提问兜底（镜像串行）或收敛
+    if (accumulatedToolCalls.length === 0) {
+      const hasAskTool = branchCtx.tools.some((t) => t.function.name === 'ask_question_card');
+      if (hasAskTool && detectTextQuestions(assistantContent)) {
+        branchCtx.llmMessages.push({ role: 'assistant', content: assistantContent });
+        branchCtx.llmMessages.push({
+          role: 'system',
+          content:
+            '【注意】你的上一条回复包含问题但未使用 ask_question_card 工具。这是违规的。' +
+            '请立即使用 ask_question_card 工具重新提问，不要再次在文本中直接输出问题。',
+        });
+        branchCtx.totalTokens +=
+          estimateTokens(assistantContent) +
+          estimateTokens(
+            '【注意】你的上一条回复包含问题但未使用 ask_question_card 工具。这是违规的。请立即使用 ask_question_card 工具重新提问，不要再次在文本中直接输出问题。'
+          );
+        localRound += 1;
+        continue;
+      }
+      return { kind: 'done', text: assistantContent, rounds: localRound + 1 };
+    }
+
+    // 工具轮（配对完整性：assistant(tool_calls) + tool 行在同一次 push 内落栈）
+    const streamingResult = await processStreamingToolRound(
+      branchCtx,
+      executor,
+      accumulatedToolCalls,
+      assistantContent,
+      round,
+      deps,
+      branchCtx.replacementState
+    );
+    if (streamingResult.deadLoopBreak) {
+      return { kind: 'stopped', text: '', rounds: localRound + 1, reason: '工具死循环检测触发' };
+    }
+    branchCtx.llmMessages.push(...streamingResult.toolTurn);
+    for (const m of streamingResult.toolTurn) {
+      branchCtx.totalTokens += estimateContentTokens(m.content);
+    }
+    if (streamingResult.chainForceFailure) {
+      // force 档删除执行失败：不可自动重试（Q19 skipRetry 同口径）
+      return {
+        kind: 'failed',
+        text: '',
+        rounds: localRound + 1,
+        error: streamingResult.chainForceFailure.error,
+        noRetry: true,
+      };
+    }
+    localRound += 1;
+  }
 }

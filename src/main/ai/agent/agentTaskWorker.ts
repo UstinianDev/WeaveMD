@@ -653,6 +653,9 @@ export class AgentTaskWorker {
           console.error('[AgentTaskWorker] saveIntentJson failed:', error);
         }
       },
+      // 任务 8（Q24）：链内并行调度启用（仅链内子任务并行；队列层 maxConcurrent
+      // 维持 1、agentTaskDao 出队与表结构零改动）。回滚：SUBTASK_PARALLEL_LIMIT=1。
+      subtaskParallel: true,
     };
   }
 

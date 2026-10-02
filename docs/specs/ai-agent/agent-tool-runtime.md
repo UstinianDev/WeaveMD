@@ -294,3 +294,89 @@
 - **生产行为变化如实记录（Q23 锁定）**：`mapConfigRow` 恒显式产出 writeMode（DB 默认
   `manual`）→ 生产默认逐写执行前确认（链内亦逐写）；用户显式切 `auto` 后为链式执行 +
   链末汇总确认。铁律一不削弱：两模式确认必经。
+
+## 15. 子任务并行调度契约（agent-multi-intent 任务 8，Q24）
+
+> 实现：`src/main/ai/agent/subtaskScheduler.ts`（纯调度器 + 波次驱动）+
+> `subtaskOrchestrator.ts`（runParallelChain / runParallelClarification / BranchInteractionGate）+
+> `agentLoop.ts`（runSubtaskSegment 分支轮次段）。测试：`tests/main/ai/subtaskParallel.test.ts`（13 例）。
+> 零 DB 改动（不加 `parent_id`、`agentTaskDao` 出队与 `maxConcurrent=1` 维持原状）；
+> 并行**仅限链内子任务**，依赖表达走 `intent_json.deps`（Q18 同口径）。
+
+### 15.1 启用与回滚
+
+- **启用信号**：`AgentLoopDeps.subtaskParallel`（生产 worker 注入 `true`）。缺省 = 串行链，
+  gate 关路径与既有链路径零行为变化——该信号为计划外新增（守住「既有链测试零改动」红线），
+  已在 status.md 记录偏离。
+- **回滚旋钮**：`SUBTASK_PARALLEL_LIMIT = 2 → 1` 即调度器 dormant（每波仅派发一支，
+  走分支上下文但行为与串行等价：工具轮 id、subtask_done 次数、最终内容、intent_json 态全等，
+  `subtaskParallel.test.ts` ④ 等价用例钉死）。`deps.subtaskParallelLimit` 为测试/回滚缝。
+
+### 15.2 出队（dispatch）条件 —— 四道闸任一不满足即拒绝，降级安全
+
+1. **依赖满足**：`deps[s] ⊆ done(s)`（`buildDepsMap(plan)` 的 `serial_after` 归一，与任务 6/12 同源）；
+2. **R/W 无交集**：`SubtaskDef.rw` + `object` 归一路径（反斜杠、`./` 前缀、末尾斜杠、大小写）
+   比较——两写同对象、一写一读同对象 → `rw_conflict` 串行；只读恒不冲突；
+   **fail-closed**：任一写方对象归一后为空 → 视为与所有在飞支冲突；
+3. **在飞上限**：在飞数 < `SUBTASK_PARALLEL_LIMIT`（2），否则 `at_limit`；
+4. **幂等键**：`sessionId|runId|taskId|subtaskId|tool|规范化入参 hash`（FNV-1a，键序无关）——
+   dispatch 键 = `subtask_dispatch`，Set 进程内占位；重复占位 → `duplicate`；
+   失败重试经 `retryPending` 释放键后重占（同轮同参不可重复执行）。
+
+### 15.3 乐观锁（epoch）与结果聚合
+
+- 链纪元 `chain.epoch`：每次重试 `retryPending` 前移；dispatch 记录当时 epoch。
+- 收敛 CAS：`complete/fail(id, epoch, …)` 要求「状态 running ∧ epoch == dispatchEpoch」，
+  否则判 `stale` **不覆盖**（旧尝试晚到、双推进一律丢弃）。
+- 结果按 **taskId 显式聚合进结果数组**（`results(): BranchResultRecord[]`，entry 携带 taskId，
+  禁对象覆盖语义——映射 LangGraph 并行合并裁定）。
+
+### 15.4 分支执行与共享态
+
+- `BranchContext` = 子任务 + 独立消息栈（base 快照 + directive + 已完成归档 + 本支指令，
+  与串行 rebuild 同构）+ 独立 `DeadLoopDetector`（Q9 预算不串味）+ 轮次基址 `roundBase`。
+- **轮次基址**：`已消耗轮次 + 波内序号 × SUBTASK_ROUND_STRIDE(1000)` —— 单支在飞时基址 =
+  已消耗轮次 → `call_${round}_${index}` 与串行逐字一致（worker E2E 交互答案键不失配）；
+  并发支错开 1000 防碰撞（链封顶 ≤ 24 轮，跨波不重叠）。
+- **共享可变态只在主线程串行段修改**：`writeBatch`（push 时按分支克隆 `currentSubtaskId`
+  落标）/ `toolCallsHistory` / `replacementState` 以引用共享、同步 push；
+  `llmMessages` / `detector` / `intent` / `tools` / `toolCtx` 逐支克隆。
+- 分支**不推 `ai:stream:chunk`**（多支交叉会污染渲染累积器）：波次空闲 flush 按队列序
+  以单段 chunk 补发各 done 支全文，`subtask_done` 按「仍有余量全发、无余量除末支外发」
+  镜像串行 n-1；渲染侧 `appendAssistant` 口径不变。
+- 分支不做上下文压缩与 checkpoint（波次聚合后统一收口）；延迟工具 schema 预升级
+  （分支无流内重发）；工具轮 assistant(tool_calls) + tool 行同一次 push 落栈，
+  **§6.3 回填完整性逐支成立**（配对断言钉死）。
+
+### 15.5 失败策略（Q19 合并 + Temporal retry 口径）
+
+- **失败支不取消兄弟**：在飞支一律跑到终点；停链信号（中断/封顶/截断/致命）只阻止
+  新派发，等在飞支收敛后统一 `stopChain`。
+- **错误分类**（`classifyBranchError`）：参数/权限/MD5 陈旧/用户拒绝 → 立即失败**零退避**；
+  其余（网络/超时/SQLite busy/乐观锁冲突等，缺省对齐 Q12「任何错误重试 1 次」）→
+  退避 `1s × 2ⁿ` 封顶 8s（`computeBackoffMs`）。
+- **重试单点**：`runScheduledLoop`（分支不私自循环），总闸复用 `SUBTASK_FAILURE_MAX_RETRIES=1`；
+  重试前 `retryPending`（释放幂等键 + epoch 前移）。不可重试错误 LLM 恰一次调用。
+- **终局聚合**（主线程串行段 flush）：done → buffer + completed 归档 + `markDone`；
+  failed → `markFailed` + `cascadeSkipDependents` 级联（后继 `skipped_dependency` 出队）+
+  跳过明示（与串行文案同口径）——**并行分支失败不弹 subtask_failed 卡**，失败并入
+  链末执行报告（Q19「报告复用现有卡片」；串行链该交互保持不变）。
+- **致命错误**（AbortError / consent_required / 交互取消）：原样上抛 → 外层统一
+  `ai:stream:error` 收口（镜像串行）。
+- **报告**：复用任务 7 `buildChainReport`（record 态 + chain.completed 链序），单次 DONE。
+
+### 15.6 交互串行化（红线 6）
+
+分支内确认/提问经 `BranchInteractionGate`：先挂起该支（parked），等**全部在飞支到达
+子任务边界**（安全点），再按 FIFO 主线程逐个走真实 `onInteractionRequired` +
+`waitForInteraction`（复用 waiting_interaction 原语），处理完放行该支续跑。
+deps 无交互回调时不建闸——写档按「无交互拒写」fail-closed（铁律一不削弱）；
+链末 `confirmWriteBatch` 汇总确认恒在主线程（波次收敛后）执行。
+
+### 15.7 预算与边界
+
+- `totalRoundsCap`（2×主意图）按**完成时累加** Σrounds（含失败半截轮）校验，
+  触顶 → 安全点停链（现语义）；分支本地轮次由独立 detector 截断 → `truncated` →
+  `stopChain(reason, truncatedCurrent)` 标当前 skipped + 余量 skipped。
+- 低置信追问走 `runParallelClarification`（主线程串行交互；追问段追加进 directive，
+  回答入队后同步进调度器）；依赖永远不可满足的残留标 `skipped_dependency` 入报告。

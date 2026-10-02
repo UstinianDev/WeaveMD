@@ -56,6 +56,15 @@
 > `isTrustedSender(event)` + JWT 解 `userId`（`sha256(userData)` 派生）+ `findById` + fail-closed 返回 `unauthorized`，
 > 参数校验不过不落策略层。
 
+**任务 8 补注（子任务并行调度）**：**无新增通道**。链内并行分支仍走既有流通道——
+工具事件 `ai:stream:tool`、完成 `ai:stream:done`、错误 `ai:stream:error`、交互
+`agent:interaction:question` / `agent:resume:interaction` 均不变；分支的流式增量
+在主进程侧收敛（分支不直推 `ai:stream:chunk`，波次空闲时按支补发聚合文本，见
+`agent-tool-runtime.md` §15.4），`ai:stream:subtask_done` 载荷形状不变（按收敛逐支落显）。
+**主进程串行化派发**：调度、结果聚合、级联与停链全部发生在 runAgentFlow 主线程串行段
+（`subtaskScheduler.runScheduledLoop` 波次驱动），分支间无跨进程/跨线程共享写；
+交互由 `BranchInteractionGate` 在主线程逐个串行处理（复用 waiting_interaction 原语）。
+
 ## 事件持久化
 
 `agentEventStore.ts` 提供：

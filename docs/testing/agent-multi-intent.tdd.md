@@ -1292,3 +1292,86 @@ GREEN：
 - **lint warning 计数**：中途一次出现 109（`CONFIRM_BATCH_TOOLS` 导入未使用），改为
   `WRITE_TOOLS = new Set([...CONFIRM_BATCH_TOOLS, ...CONFIRM_FORCE_TOOLS])` 完整派生后
   回到基线 108。
+
+---
+
+## 任务 8 — 依赖图并行调度与冲突防护｜P1 第七任务（L3 最大手术面）
+
+### 1. RED（先落测试，实现前实跑证据）
+
+新建 `tests/main/ai/subtaskParallel.test.ts`（13 例，四组对齐计划 TDD 要点）：
+
+| 组 | 用例 | 断言核心 |
+|----|------|---------|
+| ① 依赖满足才出队 | deps ⊆ done 事件序 | `start:s2 > end:s1`；结果数组 `s1:done, s2:done` |
+| ① | 无依赖双读支挂起对齐 | 两支同时进入 launch（gates×2）才放行；`maxActive=2`；第三支等空位（`start:s3 > min(end:s1,end:s2)`） |
+| ①（集成） | runAgentFlow 双读支在飞 + 回填 | 会合点确定性：两支 start 均早于任一 end；`maxActive=2`；`s3 serial_after:s2` 等 s2 完成；逐调用 `expectToolPairing`；单次 DONE；`roundsUsed=5`（Σ 支轮次）；产出按队列序逐字节 `产出A\n\n产出B\n\n产出C` |
+| ② 互斥防覆盖 | 两写同对象串行 | 在飞期间 `tryDispatch` → `rw_conflict`；事件序严格 `w1 start→end→w2 start→end` |
+| ② | 一写一读同对象串行 / R/W 无交集并行 | 前者第二支等空位；后者 `parallelStarted=2` 同时在飞 |
+| ② | 幂等键 | 入参键序规范化等价；同键二次 claim 拒；预占 dispatch 键 → `duplicate` |
+| ② | 乐观锁 | dispatch(e0) → retryPending(e1) → complete(e1) applied；伪造 complete(e0) → `stale`，results 仍 NEW |
+| ③ 分支失败策略 | 错误分类与退避 | 参数/权限/MD5/拒绝 → 不可重试；fetch/ETIMEDOUT/SQLITE_BUSY → 可重试；`computeBackoffMs` 1000/2000/封顶 8000 |
+| ③ | A 败 B 成（驱动面） | B 兄弟不取消（`bFinished`）；A launch 计数=1（零退避）；results 按 taskId 聚合 `sA:failed + sB:done`；onSettled×2 |
+| ③ | 可重试总闸 | `maxRetries=1` → attempts `[0,1]`，onSettled 仅终局 1 次 |
+| ③（集成） | 报告合并 | 单次 DONE、零 ERROR；A 的 LLM 恰 1 次；交互仅 `intent_split`；intent_json `s1:failed/s2:done` + report `[s1:failed, s2:ok]`；正文含「B支产出完成」+ 报告行 |
+| ④ 回归 | 上限常量 | `SUBTASK_PARALLEL_LIMIT === 2` |
+| ④ | 串行等价 | 同脚本两轮：串行基线 vs `subtaskParallel+limit=1` —— 最终内容 / DONE 数 / roundsUsed / 调用数 / subtask_done 数 / intent_json 态全等 |
+
+RED 实跑（实现前）：
+
+```text
+npx vitest run tests/main/ai/subtaskParallel.test.ts
+ FAIL  Failed to resolve import "@main/ai/agent/subtaskScheduler" from
+      "tests/main/ai/subtaskParallel.test.ts". Does the file exist?
+ Test Files  1 failed (1) / Tests  no tests
+
+npm run typecheck（RED 摘录）
+ subtaskParallel.test.ts(807,7): error TS2353: Object literal may only specify known
+   properties, and 'subtaskParallel' does not exist in type 'Partial<AgentLoopDeps>'.
+ （另有 scheduler 未落地导致的 TS7006/TS2339 若干）
+```
+
+### 2. GREEN（实现后）
+
+```text
+npx vitest run tests/main/ai/subtaskParallel.test.ts
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+```
+
+### 3. 门禁（最终）
+
+| 项 | 命令 | 结果（真实输出） |
+|----|------|------|
+| typecheck | `npm run typecheck` | 0 错误（无输出） |
+| test | `npm run test` | `Test Files 205 passed (205)`；`Tests 4781 passed (4781)`（基线 4768 + 新 13） |
+| lint | `npm run lint` | `108 problems (0 errors, 108 warnings)`（与任务 13 基线 108 持平；新文件零 warning） |
+| 既有链测试 | 随全量实跑 | subtaskSequence / agentLoopSplit / clarificationMatrix / subtaskConfirmResume（worker E2E ①②）/ chainReport / chainTracking / agentLoop / agentPromptBuilder sha256 **零改动全绿** |
+| flaky 说明 | — | 全量首跑 1 次出现 `tests/benchmarks/ab-test.test.ts`「djb2 faster than MD5」计时断言抖动，单跑 22 passed、复跑全量 4781 全绿——与任务 13 记录的同一性能断言固有 flaky，本任务不触碰 hash 代码 |
+| playwright | — | 本任务**不触 `src/render/` 源码**（仅 main/agent + docs + tests），按任务 4/9/12/13 先例跳过 |
+
+### 4. 实施口径记录（偏差如实）
+
+- **启用信号 `deps.subtaskParallel`（计划外新增）**：Q24/计划只给了 `SUBTASK_PARALLEL_LIMIT`
+  回滚旋钮，但自动启用会让既有链测试（双读计划即并行就绪）走分支路径破坏「既有链测试零改动」
+  红线——故新增显式启用信号，生产 `agentTaskWorker` 注入 `true`；缺省串行零行为变化。
+  已同步 status.md 偏离记录。
+- **零 DB 改动**：不加 `parent_id`、`agentTaskDao` 出队与 `maxConcurrent=1` 原状维持；
+  依赖表达走 `intent_json.deps`（Q18 同口径）——计划「明确不做」项照办。
+- **工具轮 id 轮次基址方案**：并发支 `roundBase = 已消耗轮次 + 波内序号×1000`。单支在飞时
+  基址=已消耗轮次 → `call_${round}_${index}` 与串行**逐字一致**（worker E2E 硬编码
+  `call_0_0`/`call_1_0`/`call_2_0` 的交互答案键因此不失配——这是 worker 注入启用信号后
+  `subtaskConfirmResume` ①② 仍全绿的关键）；未引入 toolCallIdTag 改造（零触碰共享 id 生成器）。
+- **分支不推 `ai:stream:chunk`**：多支交叉会污染渲染累积器；改为波次空闲 flush 按队列序
+  单段补发 done 支全文 + 按余量规则落 `subtask_done`（镜像串行 n-1）——渲染侧
+  `appendAssistant(streamText)` 口径不变（`flushAccumulatedSubtask` 对空串已有 no-op 护栏）。
+- **并行分支失败不弹 `subtask_failed` 卡**：Q19「失败合并入报告」路径——record.markFailed +
+  级联 + 跳过明示 + 链末报告；串行链的 Q12 交互原样保留。多失败排队弹卡属串行链语义，
+  并行波次收敛后报告统一告知（集成用例钉 `variants === ['intent_split']`）。
+- **重试单点 = `runScheduledLoop`**：映射「不在 activity 内手写重试」——分支段不循环不退避，
+  总闸复用 `SUBTASK_FAILURE_MAX_RETRIES=1` 同值传入；退避经 `computeBackoffMs`（测试置 0 跳真实等待）。
+- **分支段不做压缩/checkpoint、延迟工具预升级**：分支栈短且波次聚合后统一收口；schema 预升级
+  取代流内重发（工具面等价，prompt 前缀更稳定）。
+- **交互串行化实现为 `BranchInteractionGate`**（红线 6）：parked → 等在飞支到子任务边界 →
+  FIFO 走真实 interaction 回调（复用 waiting_interaction）；无交互 deps 时不建闸，
+  写档按「无交互拒写」fail-closed（铁律一不削弱）。

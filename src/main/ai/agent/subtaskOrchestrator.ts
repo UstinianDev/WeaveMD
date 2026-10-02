@@ -25,6 +25,12 @@
 //   - 任务 7（Q19）：写批次条目在子任务边界/收口标注 subtaskId（报告 artifacts
 //     链序归档）；handleSubtaskFailure 支持 skipRetry（force 档删除执行失败直达
 //     subtask_failed 停等人工，不自动重试）；用户选停止 → outcome=failed。
+//   - 任务 8（Q24）：deps.subtaskParallel 开启时链走 runParallelChain 波次驱动
+//     （subtaskScheduler 纯调度器：deps ⊆ ready / R/W 互斥 / 幂等键 / epoch CAS）；
+//     分支各自独立消息栈与 DeadLoopDetector，共享可变态仅在主线程串行段修改，
+//     结果按 taskId 聚合、波次空闲 flush 按队列序归档；交互经 BranchInteractionGate
+//     串行化（在飞支跑到子任务边界后主线程逐个处理，复用 waiting_interaction）；
+//     串行链路径（未开启并行）与 gate 关路径零行为变化。
 
 import { IPC_CHANNELS } from '@shared/constants';
 import {
@@ -50,6 +56,13 @@ import { getRoundsForIntent } from './agentHelpers';
 import { toolsForIntent } from './agentToolSelector';
 import { writeToolsByTier } from './confirmMatrix';
 import { createChainTracker, emitChainRecord, type ChainTracker } from './chainTracking';
+import {
+  createSubtaskScheduler,
+  runScheduledLoop,
+  SUBTASK_PARALLEL_LIMIT,
+  type BranchOutcome,
+  type SubtaskScheduler,
+} from './subtaskScheduler';
 import { createPreloadedSearchKb } from './agentKbPreloader';
 import type { AgentContext, ToolSelectionArgs } from './agentContext';
 import type { AgentLlmMessage, AgentLoopDeps } from './agentLoop';
@@ -396,6 +409,16 @@ export interface SubtaskChain {
   totalRoundsCap: number;
   /** 子任务全链路追踪记录（任务 6：intent_json 落盘数据源；回调未注入时仅内存态）。 */
   record: ChainTracker;
+  /**
+   * 任务 8：链内并行调度器。deps.subtaskParallel 开启时创建（串行链缺省 undefined
+   * → 既有路径零行为变化）；分支派发/互斥/幂等/epoch 均经此实例。
+   */
+  scheduler?: SubtaskScheduler;
+  /**
+   * 任务 8：已消耗 LLM 轮次累计（分支收敛时在主线程串行段累加；
+   * 链总封顶按完成时 Σrounds 校验，触顶安全点停链）。
+   */
+  consumedRounds: number;
 }
 
 /** 链推进结果（任务 5 起含 'stopped'：中断/封顶安全点停链，调用方收口）。 */
@@ -629,9 +652,23 @@ export function startSubtaskChain(
       queue.push(subtask);
     }
   }
+  // 任务 8（Q24）：开启并行链 → 创建调度器（deps 用完整 plan 归一；可派发任务 =
+  // 高置信执行序列，低置信追问回答后经 addTask 补入）；首条指令改由波次驱动下达
+  // （串行链 scheduler 缺省 → 下方首条指令块与既有行为逐字一致）。
+  const scheduler =
+    deps?.subtaskParallel === true
+      ? createSubtaskScheduler({
+          sessionId: deps.sessionId,
+          runId: ctx.runId,
+          taskId: ctx.runId,
+          plan,
+          tasks: queue,
+          limit: deps.subtaskParallelLimit ?? SUBTASK_PARALLEL_LIMIT,
+        })
+      : undefined;
   const chain: SubtaskChain = {
     plan,
-    index: queue.length > 0 ? 0 : -1,
+    index: scheduler ? -1 : queue.length > 0 ? 0 : -1,
     buffer: '',
     queue,
     clarifyPending,
@@ -644,8 +681,10 @@ export function startSubtaskChain(
     retryCount: 0,
     totalRoundsCap: subtaskTotalRoundsCap(primaryIntent),
     record: createChainTracker({ runId: ctx.runId, primaryIntent, plan }),
+    consumedRounds: 0,
+    ...(scheduler ? { scheduler } : {}),
   };
-  if (queue.length > 0) {
+  if (queue.length > 0 && !scheduler) {
     chain.record.markRunning(queue[0].id);
     applySubtaskContext(ctx, chain, queue[0], 0, deps);
     chain.currentInstruction = buildSubtaskInstruction(queue[0], 0, plan.subtasks.length);
@@ -831,4 +870,472 @@ export function finalizeChainContent(chain: SubtaskChain, last: string): string 
   const tail = last ?? '';
   if (!chain.buffer) return tail;
   return tail.trim() ? `${chain.buffer}\n\n${tail}` : chain.buffer;
+}
+
+// ---------------------------------------------------------------------------
+// 任务 8（Q24）：并行分支上下文、交互串行化与波次编排
+// ---------------------------------------------------------------------------
+
+/** 并行分支执行上下文：每支独立消息栈 + 独立 DeadLoopDetector + 轮次基址。 */
+export interface BranchContext {
+  subtask: SubtaskDef;
+  /** 执行序列下标（dispatch 时快照，归档/落显用）。 */
+  subtaskIndex: number;
+  /** 分支消息栈（base 快照 + 拆分段 + 已完成归档 + 本支指令；克隆，不共享引用）。 */
+  llmMessages: AgentLlmMessage[];
+  /** 独立预算（per-subtask，Q9 口径；分支内不串味）。 */
+  detector: DeadLoopDetector;
+  /** 分支轮次基址（工具轮 id 唯一化；单支在飞时 = 已消耗轮次 → 与串行逐字一致）。 */
+  roundBase: number;
+  /** 本支指令文本（completed 归档同文）。 */
+  instruction: string;
+  /** 派发时链纪元（收敛 CAS 参考）。 */
+  epoch: number;
+}
+
+/** 分支段执行器（agentLoop.runSubtaskSegment 注入；结构耦合，避免反向运行时依赖）。 */
+export type SubtaskBranchRunner = (
+  ctx: AgentContext,
+  chain: SubtaskChain,
+  branch: BranchContext,
+  deps: AgentLoopDeps
+) => Promise<BranchOutcome>;
+
+/**
+ * 构建分支上下文：消息栈 = base 快照 + 拆分段（directive，含追问段追加）+
+ * 已完成子任务归档（指令 + 摘要）+ 本支指令 —— 与串行 rebuildChainMessages 同构，
+ * 工具轮不跨支堆积（§6.3 配对完整性逐支成立）。
+ */
+function buildBranchContext(
+  chain: SubtaskChain,
+  subtask: SubtaskDef,
+  queueIndex: number,
+  roundBase: number,
+  epoch: number
+): BranchContext {
+  const instruction = buildSubtaskInstruction(subtask, queueIndex, chain.plan.subtasks.length);
+  const llmMessages: AgentLlmMessage[] = [
+    ...chain.baseMessages,
+    { role: 'system', content: chain.directive },
+  ];
+  for (const entry of chain.completed) {
+    llmMessages.push({ role: 'system', content: entry.instruction });
+    if (entry.summary) {
+      llmMessages.push({ role: 'assistant', content: entry.summary });
+    }
+  }
+  llmMessages.push({ role: 'system', content: instruction });
+  return {
+    subtask,
+    subtaskIndex: queueIndex,
+    llmMessages,
+    detector: new DeadLoopDetector({ maxRounds: getRoundsForIntent(subtask.intent) }),
+    roundBase,
+    instruction,
+    epoch,
+  };
+}
+
+interface ArmedInteraction {
+  questions: Parameters<NonNullable<AgentLoopDeps['onInteractionRequired']>>[0];
+  variant?: string;
+  round?: number;
+  totalRounds?: number;
+  plan?: Parameters<NonNullable<AgentLoopDeps['onInteractionRequired']>>[4];
+}
+
+/**
+ * 分支交互串行化闸（红线 6）：分支内的确认/提问先挂起，等在飞支全部到达
+ * 子任务边界（parked/done）后，主线程按 FIFO 逐个走真实
+ * onInteractionRequired + waitForInteraction（复用 waiting_interaction），
+ * 处理完该支再放行其续跑。仅在 deps 具备交互回调时创建（否则分支无交互、
+ * 写档按无交互 fail-closed 拒执行，铁律一不削弱）。
+ */
+class BranchInteractionGate {
+  private readonly states = new Map<string, 'active' | 'parked' | 'done'>();
+  private readonly armed = new Map<string, ArmedInteraction>();
+  private tail: Promise<void> = Promise.resolve();
+  private stopped = false;
+  /** 任一支交互等待被 reject（用户取消/任务取消）→ 分支致命收口。 */
+  cancelled = false;
+
+  constructor(private readonly deps: AgentLoopDeps) {}
+
+  enter(id: string): void {
+    this.states.set(id, 'active');
+  }
+
+  leave(id: string): void {
+    this.states.set(id, 'done');
+  }
+
+  /** 分支作用域 deps：emit 仅登记，wait 走栅栏 + 串行队列。 */
+  wrap(id: string): AgentLoopDeps {
+    return {
+      ...this.deps,
+      onInteractionRequired: (questions, variant, round, totalRounds, plan) => {
+        this.armed.set(id, { questions, variant, round, totalRounds, plan });
+      },
+      waitForInteraction: () => this.wait(id),
+    };
+  }
+
+  private async wait(id: string): Promise<Record<string, string>> {
+    this.states.set(id, 'parked');
+    // 安全点栅栏：其余在飞支全部到达子任务边界（done）或同为 parked
+    while (!this.stopped && [...this.states.values()].some((s) => s === 'active')) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+    const prev = this.tail;
+    let release!: () => void;
+    this.tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await prev;
+    try {
+      const payload = this.armed.get(id);
+      this.armed.delete(id);
+      if (payload && this.deps.onInteractionRequired) {
+        this.deps.onInteractionRequired(
+          payload.questions,
+          payload.variant,
+          payload.round,
+          payload.totalRounds,
+          payload.plan
+        );
+      }
+      if (!this.deps.waitForInteraction) return {};
+      return await this.deps.waitForInteraction();
+    } catch (error) {
+      this.cancelled = true;
+      throw error;
+    } finally {
+      this.states.set(id, 'active');
+      release();
+    }
+  }
+
+  dispose(): void {
+    this.stopped = true;
+  }
+}
+
+/** 分支收敛 → subtask_done 落显事件（显式 id/序号/总数，与串行载荷同形）。 */
+function sendSubtaskDoneFor(
+  ctx: AgentContext,
+  chain: SubtaskChain,
+  subtaskId: string,
+  subtaskIndex: number
+): void {
+  ctx.send(IPC_CHANNELS.AI_SUBTASK_DONE, {
+    conversationId: ctx.convId,
+    subtaskId,
+    subtaskIndex,
+    subtaskCount: chain.queue.length,
+  });
+}
+
+/** 失败支跳过明示（与 handleSubtaskFailure 串行文案同口径）。 */
+function failedBranchNote(subtask: SubtaskDef, error: string): string {
+  const label = `${subtask.action} → ${subtask.object}`;
+  const reason = error.length > 200 ? `${error.slice(0, 200)}…` : error;
+  return `（已跳过执行失败的子任务「${label}」：${reason}）`;
+}
+
+/**
+ * 并行链波次执行（任务 8）：runScheduledLoop 驱动 —— 就绪集派发至在飞上限 2、
+ * 分支并发执行、终局在主线程串行段聚合（buffer/completed/record 按队列序 flush、
+ * 级联跳过、subtask_done 落显），停链信号（中断/封顶/截断/致命）在飞支跑完后统一
+ * stopChain。返回 'clarify'（有低置信待追问）/ 'finished' / 'stopped'（安全点停链）。
+ */
+export async function runParallelChain(
+  ctx: AgentContext,
+  chain: SubtaskChain,
+  deps: AgentLoopDeps,
+  runSegment: SubtaskBranchRunner
+): Promise<'finished' | 'clarify' | 'stopped'> {
+  const scheduler = chain.scheduler;
+  if (!scheduler) return 'finished';
+
+  // 执行序列 → 调度器同步（追问回答入队的新项补注册）
+  for (const subtask of chain.queue) {
+    if (!scheduler.has(subtask.id)) scheduler.addTask(subtask);
+  }
+
+  const gate =
+    deps.onInteractionRequired && deps.waitForInteraction
+      ? new BranchInteractionGate(deps)
+      : null;
+
+  interface FlushEntry {
+    queueIndex: number;
+    subtask: SubtaskDef;
+    instruction: string;
+    outcome: BranchOutcome;
+  }
+  const pendingFlush: FlushEntry[] = [];
+  const dispatchInfo = new Map<string, { queueIndex: number; instruction: string }>();
+  const stopRef: { reason?: string; truncatedId?: string } = {};
+  // 致命错误（abort/consent/交互取消）：闭包赋值 + 独立标记（TS 线性流对闭包写不可见）
+  let fatalError: unknown;
+  let fatalRaised = false;
+
+  /**
+   * 波次空闲/收尾 flush（主线程串行段）：按队列序归档 done/failed
+   * （buffer 全量 + completed 摘要 + record 跃迁 + 级联），补发 done 支的流式
+   * 增量（并行支不推逐 chunk，聚合后单段补发维持渲染侧 appendAssistant 口径），
+   * 再按「仍有余量 → 全发；无余量 → 除队序末支外发」落 subtask_done（镜像串行 n-1）。
+   */
+  const doFlush = (): void => {
+    if (pendingFlush.length === 0) return;
+    const entries = pendingFlush
+      .splice(0, pendingFlush.length)
+      .sort((a, b) => a.queueIndex - b.queueIndex);
+    for (const entry of entries) {
+      const { subtask, outcome, queueIndex, instruction } = entry;
+      if (outcome.kind === 'done') {
+        const text = (outcome.text ?? '').trim();
+        if (text) appendBuffer(chain, text);
+        const summary = summarizeSubtaskOutput(text);
+        chain.completed.push({
+          subtaskId: subtask.id,
+          subtaskIndex: queueIndex,
+          instruction,
+          summary,
+        });
+        chain.record.markDone(subtask.id, summary, Math.max(1, outcome.rounds));
+        if (text) {
+          ctx.send(IPC_CHANNELS.AI_STREAM_CHUNK, { conversationId: ctx.convId, delta: text });
+        }
+        continue;
+      }
+      // failed：记录跃迁 + 归档 + 级联闭包（依赖后继 skipped_dependency，Q22）+ 明示
+      chain.record.markFailed(subtask.id, outcome.error ?? '', Math.max(1, outcome.rounds));
+      chain.completed.push({
+        subtaskId: subtask.id,
+        subtaskIndex: queueIndex,
+        instruction,
+        summary: '',
+      });
+      const cascaded = cascadeSkipDependents(chain, chain.record, subtask.id);
+      if (cascaded.length > 0) {
+        const cascadedSet = new Set(cascaded);
+        chain.queue = chain.queue.filter((item) => !cascadedSet.has(item.id));
+        chain.clarifyPending = chain.clarifyPending.filter((item) => !cascadedSet.has(item.id));
+        for (const id of cascaded) scheduler.skipTask(id);
+        appendBuffer(
+          chain,
+          `（级联跳过未执行的依赖子任务：${cascaded.join('、')}——前置依赖未完成）`
+        );
+      }
+      appendBuffer(chain, failedBranchNote(subtask, outcome.error ?? ''));
+    }
+    const hasMore =
+      chain.clarifyPending.length > 0 ||
+      chain.queue.some((item) => {
+        const status = scheduler.statusOf(item.id);
+        return status === 'pending' || status === 'running';
+      });
+    const last = entries[entries.length - 1];
+    for (const entry of entries) {
+      if (!hasMore && entry.queueIndex === last.queueIndex) continue; // 镜像串行 n-1
+      sendSubtaskDoneFor(ctx, chain, entry.subtask.id, entry.queueIndex);
+    }
+    emitChainRecord(deps, chain.record);
+  };
+
+  const loopResult = await runScheduledLoop({
+    scheduler,
+    maxRetries: SUBTASK_FAILURE_MAX_RETRIES,
+    launch: async (subtask, epoch, roundBase) => {
+      const info = dispatchInfo.get(subtask.id);
+      const queueIndex = info
+        ? info.queueIndex
+        : Math.max(0, chain.queue.findIndex((i) => i.id === subtask.id));
+      const branch = buildBranchContext(chain, subtask, queueIndex, roundBase, epoch);
+      const branchDeps = gate ? gate.wrap(subtask.id) : deps;
+      gate?.enter(subtask.id);
+      try {
+        return await runSegment(ctx, chain, branch, branchDeps);
+      } finally {
+        gate?.leave(subtask.id);
+      }
+    },
+    hooks: {
+      onDispatch: (subtask) => {
+        const queueIndex = Math.max(0, chain.queue.findIndex((i) => i.id === subtask.id));
+        dispatchInfo.set(subtask.id, {
+          queueIndex,
+          instruction: buildSubtaskInstruction(subtask, queueIndex, chain.plan.subtasks.length),
+        });
+        chain.record.markRunning(subtask.id);
+      },
+      onRoundsConsumed: (rounds) => {
+        chain.consumedRounds += rounds;
+      },
+      onSettled: (subtask, outcome) => {
+        if (outcome.kind === 'stopped' || outcome.kind === 'truncated') {
+          stopRef.reason = outcome.reason ?? '子任务轮次预算耗尽未收敛';
+          stopRef.truncatedId = subtask.id;
+          return;
+        }
+        if (outcome.fatal) {
+          fatalError = outcome.fatalError ?? new Error(outcome.error ?? '分支致命错误');
+          fatalRaised = true;
+          return;
+        }
+        const info = dispatchInfo.get(subtask.id);
+        pendingFlush.push({
+          queueIndex: info
+            ? info.queueIndex
+            : Math.max(0, chain.queue.findIndex((i) => i.id === subtask.id)),
+          subtask,
+          instruction: info
+            ? info.instruction
+            : buildSubtaskInstruction(subtask, 0, chain.plan.subtasks.length),
+          outcome,
+        });
+      },
+      beforeDispatch: () => {
+        doFlush(); // 波次空闲：先归档再判闸（串行段聚合恒在主线程）
+        if (fatalRaised) return { stop: true, reason: '分支致命错误' };
+        if (deps.isChainInterrupted?.()) return { stop: true, reason: '检测到同会话新消息' };
+        if (chain.consumedRounds >= chain.totalRoundsCap) return { stop: true, reason: '链总轮次封顶' };
+        if (stopRef.reason) {
+          return {
+            stop: true,
+            reason: stopRef.reason,
+            ...(stopRef.truncatedId ? { truncatedId: stopRef.truncatedId } : {}),
+          };
+        }
+        return { stop: false };
+      },
+    },
+  });
+
+  doFlush(); // 收尾（循环 break 路径）
+  gate?.dispose();
+  ctx.roundsUsed = chain.consumedRounds;
+
+  if (fatalRaised) throw fatalError;
+
+  if (loopResult.stopped || stopRef.reason) {
+    const reason = stopRef.reason ?? loopResult.stopReason ?? '链已停止';
+    if (stopRef.truncatedId) {
+      const idx = chain.queue.findIndex((i) => i.id === stopRef.truncatedId);
+      chain.index = idx >= 0 ? idx : Math.max(-1, chain.queue.length - 1);
+    } else {
+      let maxCompleted = -1;
+      for (const entry of chain.completed) {
+        if (entry.subtaskIndex > maxCompleted) maxCompleted = entry.subtaskIndex;
+      }
+      chain.index = maxCompleted;
+    }
+    stopChain(chain, reason, !!stopRef.truncatedId);
+    emitChainRecord(deps, chain.record); // 停链路径不经 advanceChain，此处推送
+    return 'stopped';
+  }
+
+  // 依赖永远不可满足的残留（前置被丢弃且无追问可补）→ skipped_dependency 入报告
+  if (chain.clarifyPending.length === 0) {
+    const stuck = chain.queue.filter((item) => scheduler.statusOf(item.id) === 'pending');
+    if (stuck.length > 0) {
+      const stuckIds = stuck.map((item) => item.id);
+      for (const id of stuckIds) {
+        chain.record.markSkippedDependency(id);
+        scheduler.skipTask(id);
+      }
+      chain.queue = chain.queue.filter((item) => !stuckIds.includes(item.id));
+      appendBuffer(chain, `（级联跳过未执行的依赖子任务：${stuckIds.join('、')}——前置依赖未完成）`);
+      emitChainRecord(deps, chain.record);
+    }
+  }
+
+  return chain.clarifyPending.length > 0 ? 'clarify' : 'finished';
+}
+
+/**
+ * 并行链的低置信追问（任务 8 版 runChainClarification）：交互在主线程串行执行，
+ * 回答合并入执行序列（下一轮 runParallelChain 同步进调度器），追问段追加进
+ * directive（分支重建时随拆分段注入）；中断/封顶在下达前安全点停链。
+ * 返回 'continue'：执行序列有新项待派发；'finished'：无可执行项或已停链。
+ */
+export async function runParallelClarification(
+  ctx: AgentContext,
+  chain: SubtaskChain,
+  deps: AgentLoopDeps
+): Promise<'continue' | 'finished'> {
+  const pending = chain.clarifyPending;
+  chain.clarifyPending = [];
+  const answered: SubtaskDef[] = [];
+  const skipped: Array<{ subtask: SubtaskDef; reason: string }> = [];
+
+  if (pending.length > 0) {
+    if (!deps.onInteractionRequired || !deps.waitForInteraction) {
+      for (const subtask of pending) skipped.push({ subtask, reason: '当前环境不支持追问' });
+    } else {
+      const totalRounds = Math.ceil(pending.length / CLARIFY_QUESTIONS_PER_ROUND);
+      let cancelled = false;
+      for (let r = 0; r < totalRounds && !cancelled; r += 1) {
+        const chunk = pending.slice(
+          r * CLARIFY_QUESTIONS_PER_ROUND,
+          (r + 1) * CLARIFY_QUESTIONS_PER_ROUND
+        );
+        try {
+          deps.onInteractionRequired(
+            buildClarifyQuestions(chunk),
+            'subtask_clarify',
+            r + 1,
+            totalRounds
+          );
+          const answers = await deps.waitForInteraction();
+          for (const subtask of chunk) {
+            const raw = answers?.[subtask.id];
+            const answer = typeof raw === 'string' ? raw.trim() : '';
+            if (answer) {
+              answered.push({
+                ...subtask,
+                params: { ...(subtask.params ?? {}), clarification: answer },
+              });
+            } else {
+              skipped.push({ subtask, reason: '未能澄清' });
+            }
+          }
+        } catch {
+          cancelled = true;
+          for (const subtask of pending.slice(r * CLARIFY_QUESTIONS_PER_ROUND)) {
+            skipped.push({ subtask, reason: '用户跳过追问' });
+          }
+        }
+      }
+    }
+  }
+
+  for (const item of skipped) {
+    chain.record.markSkipped(item.subtask.id);
+    appendBuffer(chain, skipNote(item.subtask, item.reason));
+  }
+  if (answered.length > 0) {
+    chain.queue.push(...answered);
+    const segmentContent = buildSubtaskClarificationSegment(
+      answered,
+      skipped.map((item) => item.subtask)
+    );
+    chain.directive = chain.directive ? `${chain.directive}\n${segmentContent}` : segmentContent;
+    // 边界检查（Q11/Q9）：中断或总封顶 → 停链，剩余不再下达
+    if (deps.isChainInterrupted?.()) {
+      stopChain(chain, '检测到同会话新消息');
+      emitChainRecord(deps, chain.record);
+      return 'finished';
+    }
+    if (chain.consumedRounds + 1 >= chain.totalRoundsCap) {
+      stopChain(chain, '链总轮次封顶');
+      emitChainRecord(deps, chain.record);
+      return 'finished';
+    }
+    emitChainRecord(deps, chain.record);
+    return 'continue';
+  }
+  emitChainRecord(deps, chain.record);
+  return 'finished';
 }
