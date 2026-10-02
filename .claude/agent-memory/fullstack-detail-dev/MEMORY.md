@@ -8,3 +8,6 @@
 - [multi-intent 任务9 透传与两坑](project-multi-intent-p1-task9-bridge.md) — agentIntent 透传链；闭包重建 opts 丢参（grep agentTaskWorker）；链测试部分 ctx 判空
 - [multi-intent 报告红线裁定](project-multi-intent-report-redlines.md) — confirmWriteBatch 返回保持 string 走 sink（任务 12 必读）；报告段条件渲染 + 6 处链正文 toBe 锚点；Q7 同对象写合并陷阱
 - [multi-intent 任务4 意图分层口径](project-multi-intent-p1-task4-tiering.md) — 缓存只写 tier2 成功值/shared 只读；protocol==='openai' 门；预取双键；任务 9 改 kbSearch 必读
+- [文档拆分约定（阈值 400 / 分册零增行）](project-doc-split-convention.md) — 分册只放逐字正文、回链全在主文档；自检走 git show + diff 重建比对
+- [共用记忆索引会被整文件覆盖](project-shared-memory-index-clobber.md) — 并行智能体写 MEMORY.md 前先合并 HEAD+工作区，缺失行按磁盘文件补回
+- [docs 按模块入子文件夹（ee6644a）](project-doc-module-folder-reorg.md) — testing「5 模块/24 篇」三处同步；旧路径 grep 必须排除 agent-memory 不碰区（17 处）
