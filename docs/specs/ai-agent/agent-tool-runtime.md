@@ -236,9 +236,20 @@
   快照，已接受的 `editLocalFile` 回滚后重新执行（保留确认变更）。
 - **粒度限制（如实记录）**：快照回滚为 .md 内容级整批回滚，新建/重命名/移动类操作不在
   覆盖范围，拒绝这些项无法经快照回滚撤销；错误/取消收口路径（AI_STREAM_ERROR）不触发汇总
-  确认，写入保持执行原状（= 改动前基线，非回退）。
+  确认，写入保持执行原状（= 改动前基线，非回退）。**任务 12 交叉引用**：链写批次的
+  staleness 按项检测与部分拒绝级联口径见
+  [`modules/11-AI代理面板-Agent/02-diff-cards.md` §7.6](../../modules/11-AI代理面板-Agent/02-diff-cards.md)
+  （回滚粒度限制原样保留，不扩大承诺）。
+- **任务 12（Q22）按项 staleness**：收集时记写前 `xxHash64Sync`（`originalContentHash`），
+  确认时逐项复检现哈希，不一致 → 该项 question `text` 加「⚠️ 目标在执行后被外部修改。」前缀
+  并进 `staleIds`；用户仍逐项决定（不自动拒绝、不自动回滚）。
+- **任务 12（Q22）部分拒绝级联**：拒项归属子任务经 `cascadeSkipDependents` 求 deps 传递闭包——
+  链中跳过 → 未执行后继 `skipped_dependency`（剪出执行序列，不再下达）；链末批次拒绝 →
+  已执行后继 `dependency_rejected`（入报告标注，**不自动回滚后继产物**）。结构化结果经
+  `confirmWriteBatch` 第三参 sink 传出（返回值仍为 `string`，既有断言零改动）。
 - `waitForInteraction` reject（取消/任务结束）向上传播，由外层统一 `AI_STREAM_ERROR` 收口
-  （与 §13.4 同款语义，不锁死 `waiting_interaction`）。
+  （与 §13.4 同款语义，不锁死 `waiting_interaction`；`finalizeChainRun` 各调用点为
+  `return await`，保证 reject 落进外层 catch 发 ERROR）。
 - 渲染侧 `variant='write_batch'` 分派 `BatchConfirmCard`（AIPanelSession 兜底链：
   `intent_split` → `write_batch` → 默认 `QuestionCard`）；i18n 键 `ai.batchConfirm.*` 三语齐备。
 

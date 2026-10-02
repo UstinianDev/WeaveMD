@@ -68,6 +68,7 @@ import { confirmSkipSet } from './confirmMatrix';
 import {
   advanceSubtaskChain,
   appendChainNote,
+  cascadeSkipDependents,
   confirmSplitPlan,
   finalizeChainContent,
   handleSubtaskFailure,
@@ -366,9 +367,33 @@ export async function runAgentFlow(
   const finalizeChainRun = async (last: string): Promise<AgentRunResult> => {
     restoreChainIntent();
     stampWriteBatchForCurrentSubtask(ctx, subtaskChain!);
-    const batchResult: WriteBatchConfirmResult = { rejectedIds: [], acceptedIds: [], items: [] };
+    const batchResult: WriteBatchConfirmResult = {
+      rejectedIds: [],
+      acceptedIds: [],
+      items: [],
+      cascadeSkippedIds: [],
+      staleIds: [],
+    };
     const batchNote = await confirmWriteBatch(ctx, deps, batchResult);
     if (batchNote) appendChainNote(subtaskChain!, batchNote);
+    // 任务 12（Q22）：链末批次拒绝 → 依赖传递闭包标注（done 后继 → dependency_rejected
+    // 入报告，产物不自动回滚；pending 后继 → skipped_dependency）。标注须在 buildChainReport
+    // 与最终快照推送之前完成。
+    if (batchResult.rejectedIds.length > 0) {
+      const rejectedSet = new Set(batchResult.rejectedIds);
+      const rejectedSubtaskIds = new Set(
+        batchResult.items
+          .filter((item) => rejectedSet.has(item.toolCallId) && item.subtaskId)
+          .map((item) => item.subtaskId as string)
+      );
+      const cascaded = new Set<string>();
+      for (const subtaskId of rejectedSubtaskIds) {
+        for (const id of cascadeSkipDependents(subtaskChain!, subtaskChain!.record, subtaskId)) {
+          cascaded.add(id);
+        }
+      }
+      batchResult.cascadeSkippedIds = [...cascaded];
+    }
     const report = buildChainReport(subtaskChain!.record.snapshot(), subtaskChain!, batchResult);
     if (shouldRenderReport(report)) {
       appendChainNote(subtaskChain!, renderReportSegment(report));
@@ -410,7 +435,7 @@ export async function runAgentFlow(
       if (subtaskChain) {
         if (round >= subtaskChain.totalRoundsCap) {
           stopChain(subtaskChain, '链总轮次封顶', true);
-          return finalizeChainRun('');
+          return await finalizeChainRun('');
         }
         if (ctx.detector.checkRoundLimit(round - subtaskChain.subtaskStartRound)) {
           const budgeted = subtaskChain.queue[subtaskChain.index];
@@ -421,7 +446,7 @@ export async function runAgentFlow(
               : '子任务轮次预算耗尽未收敛',
             true
           );
-          return finalizeChainRun('');
+          return await finalizeChainRun('');
         }
       } else if (ctx.detector.checkRoundLimit(round)) break;
       ctx.roundsUsed = round + 1;
@@ -572,9 +597,9 @@ export async function runAgentFlow(
               chainFailureNext = true;
               break;
             }
-            return finalizeChainRun('');
+            return await finalizeChainRun('');
           }
-          return finalizeChainRun('');
+          return await finalizeChainRun('');
         }
         flushChunks(); // 流结束时刷新剩余 buffer
 
@@ -756,7 +781,7 @@ export async function runAgentFlow(
               continue;
             }
           }
-          return finalizeChainRun('');
+          return await finalizeChainRun('');
         }
         // 正常路径：无工具调用且无文本问题 → 结束
         return finalizeRun(assistantContent);
@@ -778,7 +803,7 @@ export async function runAgentFlow(
           // 链路径：死循环检测触发也走安全点停链收口（保留 buffer，DONE intent = 主意图）
           if (subtaskChain) {
             stopChain(subtaskChain, '工具死循环检测触发', true);
-            return finalizeChainRun('');
+            return await finalizeChainRun('');
           }
           break;
         }
@@ -826,7 +851,7 @@ export async function runAgentFlow(
         if (deadLoopBreak) {
           if (subtaskChain) {
             stopChain(subtaskChain, '工具死循环检测触发', true);
-            return finalizeChainRun('');
+            return await finalizeChainRun('');
           }
           break;
         }
@@ -875,7 +900,7 @@ export async function runAgentFlow(
           const after = await runChainClarification(ctx, subtaskChain, round, deps);
           if (after === 'continue') continue;
         }
-        return finalizeChainRun('');
+        return await finalizeChainRun('');
       }
     }
 

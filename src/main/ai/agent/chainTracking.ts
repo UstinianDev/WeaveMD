@@ -37,6 +37,16 @@ export interface ChainTracker {
   markFailed(subtaskId: string, error: string, rounds: number): void;
   /** 置 skipped（仅 pending/running 可转，幂等：终态不回写）。 */
   markSkipped(subtaskId: string): void;
+  /**
+   * 置 skipped_dependency（任务 12，Q22 级联）：依赖的前置子任务被跳过/拒绝时，
+   * 未执行后继标此态；仅 pending/running 可转，幂等。
+   */
+  markSkippedDependency(subtaskId: string): void;
+  /**
+   * 置 dependency_rejected（任务 12，Q22 级联）：依赖的前置写入在链末批次被用户
+   * 拒绝时，已执行后继标此态入报告（产物不自动回滚）；仅 done 可转，幂等。
+   */
+  markDependencyRejected(subtaskId: string): void;
   /** 写链结局（finalizeChainRecord 仅在未设置时补 finished）。 */
   setOutcome(outcome: AgentChainOutcome): void;
   getOutcome(): AgentChainOutcome | undefined;
@@ -117,6 +127,19 @@ export function createChainTracker(input: {
       if (record.status !== 'pending' && record.status !== 'running') return;
       record.status = 'skipped';
       record.endedAt = Date.now();
+    },
+    markSkippedDependency(subtaskId) {
+      const record = find(subtaskId);
+      if (!record) return;
+      if (record.status !== 'pending' && record.status !== 'running') return;
+      record.status = 'skipped_dependency';
+      record.endedAt = Date.now();
+    },
+    markDependencyRejected(subtaskId) {
+      const record = find(subtaskId);
+      if (!record) return;
+      if (record.status !== 'done') return;
+      record.status = 'dependency_rejected';
     },
     setOutcome(next) {
       outcome = next;

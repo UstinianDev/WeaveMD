@@ -96,6 +96,13 @@ export interface AgentContext {
    * 收集，链末 confirmWriteBatch 一次汇总确认（Q13）。缺省 = 非链/不收集。
    */
   writeBatch?: WriteBatchItem[];
+  /**
+   * 当前执行子任务归属（任务 12，Q22）：orchestrator 在子任务切换时写入，
+   * writeBatch 收集据此标注 subtaskId/subtaskIndex（链末批次按子任务归属）。
+   */
+  currentSubtaskId?: string;
+  /** 当前子任务在执行序列中的下标（0 起；非链路径缺省）。 */
+  currentSubtaskIndex?: number;
   /** 多意图规则预检门（Q6）：true = 需走结构化拆分（agent-multi-intent 任务 2）。 */
   intentGateOpen: boolean;
   /** 链 v1 快照：历史消息（去当前 user 消息，经 cleanup/配对修复），任务 5 上下文重建铺垫。 */

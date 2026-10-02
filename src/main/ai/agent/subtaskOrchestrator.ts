@@ -27,7 +27,13 @@
 //     subtask_failed 停等人工，不自动重试）；用户选停止 → outcome=failed。
 
 import { IPC_CHANNELS } from '@shared/constants';
-import type { AgentTaskPlan, IClarifyQuestion, IntentName, SubtaskDef } from '@shared/ai';
+import {
+  buildDepsMap,
+  type AgentTaskPlan,
+  type IClarifyQuestion,
+  type IntentName,
+  type SubtaskDef,
+} from '@shared/ai';
 
 import { estimateContentTokens } from '../contextManager';
 import { estimateTokens } from '../utils/tokenEstimator';
@@ -195,6 +201,61 @@ export function stampWriteBatchForCurrentSubtask(ctx: AgentContext, chain: Subta
   for (const item of ctx.writeBatch) {
     if (item.subtaskId === undefined) item.subtaskId = current.id;
   }
+}
+
+/**
+ * 级联跳过/标注依赖后继（任务 12，Q22）：按 intent_json.deps 同源归一
+ * （buildDepsMap(plan)，serial_after 串行依赖）对 rejectedId 求**传递闭包**，
+ * 再按各后继当前状态标注：
+ * - pending / running（链中拒绝，尚未执行）→ `skipped_dependency`
+ *   （调用方随后把它们剪出执行序列，不再下达指令）；
+ * - done（链末批次拒绝，已执行）→ `dependency_rejected`（入报告明示，
+ *   已执行产物**不自动回滚**——逐项可拒是用户权利，级联只做标注，避免二次放大损失）；
+ * - failed / skipped 等其余终态 → 不动（不二次改写）。
+ * 返回被标注的子任务 id（含传递中间节点）；未命中返回空数组。
+ * deps 为空（无依赖）时闭包为空 → 零误伤。
+ */
+export function cascadeSkipDependents(
+  chain: SubtaskChain,
+  record: ChainTracker,
+  rejectedId: string
+): string[] {
+  if (!rejectedId) return [];
+  const depsMap = buildDepsMap(chain.plan);
+  const dependents = new Map<string, string[]>();
+  for (const [id, depIds] of Object.entries(depsMap)) {
+    for (const depId of depIds) {
+      const list = dependents.get(depId) ?? [];
+      list.push(id);
+      dependents.set(depId, list);
+    }
+  }
+  const affected: string[] = [];
+  const seen = new Set<string>([rejectedId]);
+  const stack: string[] = [rejectedId];
+  while (stack.length > 0) {
+    const current = stack.pop() as string;
+    for (const depId of dependents.get(current) ?? []) {
+      if (seen.has(depId)) continue;
+      seen.add(depId);
+      affected.push(depId);
+      stack.push(depId);
+    }
+  }
+  if (affected.length === 0) return [];
+  const statusById = new Map(record.snapshot().subtasks.map((run) => [run.id, run.status]));
+  const marked: string[] = [];
+  for (const id of affected) {
+    const status = statusById.get(id);
+    if (status === 'pending' || status === 'running') {
+      record.markSkippedDependency(id);
+      marked.push(id);
+    } else if (status === 'done') {
+      record.markDependencyRejected(id);
+      marked.push(id);
+    }
+  }
+  return marked;
 }
 
 /**
@@ -381,6 +442,11 @@ function applySubtaskContext(
   ctx.tools = toolsForIntent(...args);
   ctx.detector = new DeadLoopDetector({ maxRounds: getRoundsForIntent(subtask.intent) });
   chain.subtaskStartRound = startRound;
+  // 任务 12（Q22）：子任务归属落 ctx —— writeBatch 收集时逐项标注
+  // subtaskId/subtaskIndex（链末批次确认按子任务归属，级联闭包据此回溯）。
+  // 调用点均在 chain.index 指向本子任务之后（start 首条 / issueNext 已 +1 / restart 原位）。
+  ctx.currentSubtaskId = subtask.id;
+  ctx.currentSubtaskIndex = chain.index >= 0 ? chain.index : undefined;
   // Q21（任务 9）：执行面意图同步（子任务切换后的值，透传 searchKB 诊断）。
   // toolCtx 由 prepareAgentContext 恒建；测试面存在部分构造的 ctx → 防御性判空。
   if (ctx.toolCtx) {
@@ -721,6 +787,25 @@ export async function handleSubtaskFailure(
       chain.record.setOutcome('failed');
       emitChainRecord(deps, chain.record); // 停链路径不经 advanceChain，此处推送
       return 'finalize';
+    }
+  }
+
+  // 任务 12（Q22）：链中跳过 → 依赖后继不再执行：传递闭包标 skipped_dependency，
+  // 并把未执行的后继剪出执行序列（clarifyPending 同步剪出）；无依赖 → 闭包空零误伤。
+  if (subtask) {
+    const cascaded = cascadeSkipDependents(chain, chain.record, subtask.id);
+    if (cascaded.length > 0) {
+      const cascadedSet = new Set(cascaded);
+      chain.queue = chain.queue.filter(
+        (item, idx) => idx <= chain.index || !cascadedSet.has(item.id)
+      );
+      chain.clarifyPending = chain.clarifyPending.filter(
+        (item) => !cascadedSet.has(item.id)
+      );
+      appendBuffer(
+        chain,
+        `（级联跳过未执行的依赖子任务：${cascaded.join('、')}——前置依赖未完成）`
+      );
     }
   }
 

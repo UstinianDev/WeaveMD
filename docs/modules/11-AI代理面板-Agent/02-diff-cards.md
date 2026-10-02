@@ -88,5 +88,52 @@ if (isStreaming) return null;
 
 检测失败时显示红色横幅 `"文档已被外部修改，请重新生成"`，apply 操作被拦截。
 
+#### 7.6.1 链写批次 staleness（按子任务 / 按项粒度，agent-multi-intent 任务 12）
+
+与上表互补、不重叠：上表是**渲染侧 apply 级**检测（有 apply 步骤的提案卡）；
+链写批次条目是主进程**直接写盘工具**（`batch` 档，无 apply 步骤），走主进程确认级检测：
+
+- **收集时记写前哈希**：`checkForceConfirmTools` 的 batch 分支在执行写工具**之前**读目标
+  文件现内容取 `xxHash64Sync`（`WriteBatchItem.originalContentHash`，参照
+  `editBlocksHandler` / `previewFileRevision` 先例）；同时从 `ctx.currentSubtaskId /
+  currentSubtaskIndex`（`applySubtaskContext` 在子任务切换时写入）标注条目归属。
+  目标不可读（新建 / `file_id` 类）缺省 `undefined` → 确认时跳过复检。**收集仍为零打断**。
+- **确认时逐项复检**：`confirmWriteBatch` 构造 `write_batch` 问题前逐项重读现内容哈希，
+  与写前哈希不一致（或已不可读）→ 该项 question `text` 加前缀「⚠️ 目标在执行后被外部修改。」，
+  并进 `WriteBatchConfirmResult.staleIds`。**不改 `IClarifyQuestion` 类型**；用户仍逐项决定
+  （不自动拒绝、不自动回滚——方向交给人）。`BatchConfirmCard` 逐项渲染 `q.text`，前缀自然呈现
+  （组件测试 `tests/components/BatchConfirmCard.test.tsx`）。
+
+#### 7.6.2 汇总确认与部分拒绝语义（Q13 + Q22）
+
+- **链末汇总为唯一默认确认点**：不逐子任务打断；执行期收集零打断（既有断言不变）。
+  `confirmWriteBatch` 返回值仍为 `string`（明示文本），结构化结果
+  `{rejectedIds, acceptedIds, items, cascadeSkippedIds, staleIds}` 经可选第三参 sink 传出。
+- **拒 k → 一次性快照回滚**：`rollbackToSnapshot` 恰一次；已接受的 `editLocalFile`
+  回滚后重放（保留确认变更）。回滚粒度限制如实记录、不扩大承诺——交叉引用
+  [`specs/ai-agent/agent-tool-runtime.md` §14.3](../../specs/ai-agent/agent-tool-runtime.md)
+  （遗留 5：非内容型写——新建/重命名/移动——不在快照覆盖范围）。
+- **取消（reject）**：`waitForInteraction` reject 沿 `finalizeChainRun` 向上传播 →
+  外层 `AI_STREAM_ERROR` 单次收口、不锁死 `waiting_interaction`（不引入
+  `waiting_operation_confirmation`）。
+
+#### 7.6.3 级联口径（Q22 落地解释）
+
+依赖来源 = `intent_json.deps`（`buildDepsMap(plan)`，`serial_after` 归一，含
+`normalizeTaskPlan` 对不同对象写的自动串行标注）。`cascadeSkipDependents(chain, record,
+rejectedId)` 求**传递闭包**后按当前状态标注：
+
+| 场景 | 触发点 | 标注 | 行为 |
+|------|--------|------|------|
+| 链中拒绝 | `subtask_failed` 用户跳过 k（或无交互 fail-safe 跳过） | 未执行后继 → `skipped_dependency` | 从执行序列剪出，**不再下达指令**；明示进链 buffer |
+| 链末批次拒绝 | `write_batch` 确认拒项 | 已执行后继 → `dependency_rejected` | **只入报告标注，不自动回滚后继产物** |
+
+- 已执行产物不回滚的理由：逐项可拒是用户权利，级联只做报告标注与明示，避免二次回滚
+  放大不可逆损失；无依赖的子任务闭包为空 → 零误伤。
+- 报告呈现：`ChainReportTask.cascade` 为加法可选字段（缺省不产出键，既有
+  `toEqual` 断言等价）；`renderReportSegment` 仅对级联项输出条件新增行
+  （`- s2：已跳过（级联：前置依赖未执行）` / `- s2：已级联标注（依赖的前置写入被拒绝，已执行产物保留）`），
+  既有 成功/失败/已跳过 文案与 6 处全文 `toBe` 锚点逐字不变。
+
 ---
 

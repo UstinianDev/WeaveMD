@@ -1086,3 +1086,119 @@ npx vitest run tests/main/ai/kbIntentBridge.test.ts
   而非原串 —— S11 停用词表会剥「会/要」，钉原串会把 S11 提取语义误判为回归。
 - **payload 级预载闸验证**：链用例 payload.message 取「嗯」（核心词提取为空 →
   agentLoop 级预载跳过），使 `deps.searchKb` 计数只归子任务预载，「恰一次」可精确断言。
+
+---
+
+## 任务 12 — 子任务级确认与暂停/恢复｜L3
+
+**范围**：新建 `tests/main/ai/subtaskConfirmResume.test.ts`（六例，worker E2E + flow 级双基座）
++ 新建 `tests/components/BatchConfirmCard.test.tsx`（3 例，stale 前缀渲染 + 勾选回传）
++ `subtaskOrchestrator.ts`（`applySubtaskContext` 写 `ctx.currentSubtaskId/
+currentSubtaskIndex`；新增 `cascadeSkipDependents(chain, record, rejectedId)` 按
+`buildDepsMap(plan)`（= intent_json.deps 同源）求传递闭包；`handleSubtaskFailure` 跳过路径
+剪出 `skipped_dependency` 后继 + 明示进 buffer）+ `chainTracking.ts`（tracker `+
+markSkippedDependency` / `+markDependencyRejected`，终态幂等守卫）+ `agentContext.ts`
+（`AgentContext +currentSubtaskId?/+currentSubtaskIndex?`）+ `agentToolExecutor.ts`
+（`WriteBatchItem +subtaskIndex?/+originalContentHash?`；`WriteBatchConfirmResult
++cascadeSkippedIds/+staleIds`；`readTargetContentHash` 写前 `xxHash64Sync` + 确认时逐项复检 +
+stale 项 text 前缀「⚠️ 目标在执行后被外部修改。」）+ `agentLoop.ts`（`finalizeChainRun`
+批次结果初始化含新字段 + 拒项→级联标注（buildChainReport 之前）+ 链收口调用点改
+`return await` 使 reject 落进外层 catch 发 `AI_STREAM_ERROR`）+ `chainReport.ts`
+（`ChainReportCascade` 类型 + `ChainReportTask.cascade?` 加法字段 + `renderReportSegment`
+条件新增级联行）+ `intentRecord.ts` 核对（`skipped_dependency` / `dependency_rejected`
+任务 6 已在枚举，零改动）+ `BatchConfirmCard.tsx` **零改动**（逐项 `q.text` 已渲染，
+stale 前缀自然呈现）+ `02-diff-cards.md` §7.6.1~7.6.3 + `agent-tool-runtime.md` §14.3 交叉引用。
+**复用 P0 暂停/恢复原语（onInteractionRequired → waiting_interaction → resumeInteraction →
+finalizeChainRun），不引入 `waiting_operation_confirmation`。**
+
+### 1. RED（TDD strict）
+
+```bash
+npx vitest run tests/main/ai/subtaskConfirmResume.test.ts
+```
+
+**首轮（6 例全败）**：
+
+```text
+ Test Files  1 failed (1)
+      Tests  6 failed (6)
+```
+
+首轮失败里 ①② 归因为**断言口径**而非实现：worker E2E 中 `db+sessionId+mainWindow` 齐备 →
+`createSend` 走 `persistAndSend(eventType='done')` 而非 electron 直发（`AI_SUBTASK_DONE`
+无 eventType 映射仍走 electron，故两者可区分）；修正为 `flowDone() = electron done +
+persistAndSend('done')` 双口径。④ 的 prompt 断言同步从对象名改为指令行格式
+（`处理「doc-b.md」`）——拆分指令段含全量对象清单，断言对象名会误伤。
+
+**末轮（真实 RED 基线）**：
+
+```text
+      Tests  4 failed (4) | 2 passed (6)
+```
+
+失败 = ③ `statusOf(s2)` 得 `done` 期望 `dependency_rejected`、④ `s2` 得 `done` 期望
+`skipped_dependency`、⑤ question text 无 stale 前缀、⑥ `errorEvents` 0 期望 1；
+通过 = ①②（P0 暂停/恢复原语在 worker 面的**新增覆盖**，实现本已满足，作为回归锚点保留）。
+
+### 2. GREEN
+
+```bash
+npx vitest run tests/main/ai/subtaskConfirmResume.test.ts
+```
+
+```text
+ ✓ tests/main/ai/subtaskConfirmResume.test.ts (6 tests) 319ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+```
+
+6 例覆盖（计划 §2 任务 12 TDD 要点 1-6 全含）：
+
+| # | 用例 | 关键断言 |
+|---|------|----------|
+| ① | 链末批次确认暂停（**真实 AgentTaskWorker E2E**） | `updateSessionStatus → waiting_interaction`、`worker.hasPendingInteraction('sess-1')=true`、`flowDone()=0`；resume 后 `completed` + 单次 DONE |
+| ② | resume 带 answers（worker E2E） | 拒项回滚恰 1 次（`{db,'sess-1','u1'}` 透传）、接受项 `editLocalFile` 回滚后重放（executeTool 2+1）、单次 DONE、无 ERROR、pending 清空 |
+| ③ | 链末部分拒绝入报告 | `rollbackToSnapshot` 1 次 + 重放 1 次；intent_json `s1=done / s2=dependency_rejected`；`report.tasks[s2]={status:'skipped', cascade:'dependency_rejected'}`；正文含「级联」与 `- s2：` 条件行 |
+| ④ | 级联跳过传递闭包 | `s1=failed`、`s2/s3/s4=skipped_dependency`（传递闭包）、`s5（只读对照组）=done` 零误伤；`处理「doc-b/c/d.md」` 指令从未下达、`处理「doc-e.md」` 正常；报告 3 项 `cascade:'skipped_dependency'` |
+| ⑤ | staleness 按项（真实临时文件） | 执行期改写 `target-a.md` → 该项 question text 含「⚠️ 目标在执行后被外部修改」；未动的 `target-b.md` 无前缀且基础文案逐字保持；全保留零回滚 |
+| ⑥ | 批次确认取消（reject） | `variants=['intent_split','write_batch']` → reject 沿上传播 → `AI_STREAM_ERROR` 恰 1、DONE 0、assistant 不落库（同 `subtaskSequence.test.ts:731` 语义） |
+
+组件测试（补建，原无 BatchConfirmCard 测试）：
+
+```text
+ ✓ tests/components/BatchConfirmCard.test.tsx (3 tests)
+```
+
+### 3. 门禁（最终）
+
+| 项 | 命令 | 结果（真实输出） |
+|----|------|------|
+| typecheck | `npm run typecheck` | 0 错误（无输出） |
+| test | `npm run test` | `Test Files 203 passed (203)`；`Tests 4752 passed (4752)`（基线 4743 + 新 6 + 3） |
+| lint | `npm run lint` | `108 problems (0 errors, 108 warnings)`（与任务 9 基线 108 持平，新文件零 warning） |
+| 重点回归 | 分批实跑 | `agentToolExecutor+confirmMatrix+subtaskSequence+agentLoopSplit+chainReport+chainTracking+clarificationMatrix+subtaskConfirmResume` = 162 passed |
+| playwright | — | 本任务**不触 `src/render/` 源码**（BatchConfirmCard 零改动，仅新增组件测试），按任务 4/9 先例跳过（无 31 例基线比对需求） |
+
+### 4. 实施口径记录（偏差如实）
+
+- **既有测试改动 1 处（Q22 语义取代，非断言迁就）**：`chainReport.test.ts` 任务 7 ③
+  「resume 跳过后 s2 继续执行」→ 「级联收口」。根因 = `normalizeTaskPlan` 的
+  `annotateSerialWrites` 给**每对相邻写子任务**自动追加 `serial_after`，PLAN_FORCE 的
+  s2 因此依赖 s1；任务 12 裁定链中跳过 → 依赖后继 `skipped_dependency` 不再执行
+  （计划原文：「链中暂停点拒绝 → 未执行的依赖后继不再执行」）。计划「风险与回滚」已注明
+  「级联误伤 → 测试钉死 deps 仅来源于 preconditions/serial_after」，即接受该归一来源。
+  停等 / resume / 单次收口 / 报告渲染主干断言保持原样，仅 s2 终态与 LLM 轮数随新语义调整。
+  6 处既有 `toBe` 全文锚点（agentLoopSplit 431/465、subtaskSequence 476/531/570/684、
+  clarificationMatrix 384）**零改动全绿**。
+- **`return await finalizeChainRun('')`（链收口 8 个 try 内调用点）**：裸 `return promise`
+  的 rejection 不落入 try/catch（`return-await` 语义）→ 取消批次确认时外层不发
+  `AI_STREAM_ERROR`，与 `subtaskSequence.test.ts:731` 错误收口口径不一致（RED ⑥ 归因）。
+  改为 `return await` 后 reject 进 catch → ERROR 单次收口 + rethrow。链前（try 外）
+  pre-loop 收口点保持原样（无 catch 可落，reject 直达 worker `handleTaskError`，不锁死）。
+- **worker E2E 的 DONE 口径**：`persistDeps` 齐备时 `createSend` 把 `AI_STREAM_DONE` 改走
+  `persistAndSend(eventType='done')`，`handleTaskSuccess` 另发 `persistAndSend(channel)`——
+  测试按 `eventType==='done'` 精确计数，两路互不串扰。
+- **级联只标注不改产物**：链末批次拒绝只写 `dependency_rejected` 入报告，**不回滚后继
+  已执行产物**（Q22「跳过入报告」的落地解释，防二次放大不可逆损失）；回滚粒度限制沿
+  §14.3 如实记录，不扩大承诺。

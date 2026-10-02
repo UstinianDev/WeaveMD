@@ -538,7 +538,10 @@ describe('任务 7 ② — 部分失败保留已成功写', () => {
 // ---------------------------------------------------------------------------
 
 describe('任务 7 ③ — force 档删除失败停等人工（Q19）', () => {
-  it('删除执行失败 → subtask_failed 交互停等（不重试不推进、DONE 未发）→ resume 跳过后继续收口', async () => {
+  // 任务 12（Q22）语义变更：successive 写经 normalizeTaskPlan 自动 serial_after 归一
+  // 为依赖 → 链中跳过 s1 后，依赖后继 s2 级联 skipped_dependency 不再执行（原任务 7
+  // 期望「跳过后 s2 继续」被 Q22 级联裁定取代）；停等/resume/单次收口主干不变。
+  it('删除执行失败 → subtask_failed 交互停等（不重试不推进、DONE 未发）→ resume 跳过后级联收口', async () => {
     plannerMock.runTaskSplit.mockResolvedValue(PLAN_FORCE);
     runLlmSteps([
       { kind: 'tools', tools: [{ name: 'deleteLocalFile', arguments: '{"file_id":"f1"}' }] },
@@ -593,8 +596,9 @@ describe('任务 7 ③ — force 档删除失败停等人工（Q19）', () => {
     release();
     await flowPromise;
 
-    // resume 后：s2 继续执行、单次 DONE 收口、不自动重试（删除只执行 1 次）
-    expect(llmMock.streamChatCompletion).toHaveBeenCalledTimes(2);
+    // resume 后：s2 依赖 s1（serial_after 归一）→ 级联剪枝不再执行、链直接收口；
+    // 不自动重试（删除只执行 1 次）、单次 DONE
+    expect(llmMock.streamChatCompletion).toHaveBeenCalledTimes(1);
     expect(toolMock.executeTool).toHaveBeenCalledTimes(1);
     expect(doneEvents()).toHaveLength(1);
     expect(errorEvents()).toHaveLength(0);
@@ -602,13 +606,13 @@ describe('任务 7 ③ — force 档删除失败停等人工（Q19）', () => {
     const report = lastJson(tracker.captured).report as ChainReport;
     expect(report.tasks).toEqual([
       { taskId: 's1', status: 'failed', error: 'EACCES permission denied', artifacts: [] },
-      { taskId: 's2', status: 'ok', error: '', artifacts: [] },
+      { taskId: 's2', status: 'skipped', error: '', artifacts: [], cascade: 'skipped_dependency' },
     ]);
 
     const content = assistantWrites()[0][0].content as string;
     expect(content).toContain('已跳过执行失败的子任务');
     expect(content).toContain('EACCES permission denied');
-    expect(content).toContain('- s2：成功');
+    expect(content).toContain('- s2：已跳过（级联：前置依赖未执行）');
   });
 
   it('resume 用户选停止 → 不再推进、outcome=failed、报告含 failed/skipped 两项', async () => {

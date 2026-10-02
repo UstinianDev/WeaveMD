@@ -19,6 +19,9 @@ import type { SubtaskChain } from './subtaskOrchestrator';
 /** 报告内子任务三态（由 SubtaskRunStatus 归一：done→ok、failed→failed、其余→skipped）。 */
 export type ChainReportTaskStatus = 'ok' | 'failed' | 'skipped';
 
+/** 级联标注类别（任务 12，Q22）：skipped_dependency=依赖未执行 / dependency_rejected=依赖写被拒。 */
+export type ChainReportCascade = 'skipped_dependency' | 'dependency_rejected';
+
 /** 单子任务报告条目（链序；artifacts = 该子任务保留的写目标路径）。 */
 export interface ChainReportTask {
   taskId: string;
@@ -27,6 +30,11 @@ export interface ChainReportTask {
   error: string;
   /** 已保留产物（写批次确认后接受项的 target，按执行序）。 */
   artifacts: string[];
+  /**
+   * 级联标注（任务 12 加法字段，缺省不产出键）：渲染据此输出条件新增明示行；
+   * 既有 status 三态与逐字节文案红线不受影响。
+   */
+  cascade?: ChainReportCascade;
 }
 
 /** 结构化执行报告（写入 `intent_json.report`，get_task_activity 透出）。 */
@@ -77,11 +85,17 @@ export function buildChainReport(
       .filter((item) => item.subtaskId === taskId && accepted.has(item.toolCallId))
       .map((item) => item.target)
       .filter((target) => target.length > 0);
+    // 任务 12（Q22）：级联状态透传为条件字段（缺省不产出键 → 既有 toEqual 断言等价）
+    const cascade: ChainReportCascade | undefined =
+      run && (run.status === 'skipped_dependency' || run.status === 'dependency_rejected')
+        ? run.status
+        : undefined;
     return {
       taskId,
       status: run ? mapStatus(run.status) : 'skipped',
       error: run?.error ?? '',
       artifacts,
+      ...(cascade ? { cascade } : {}),
     };
   });
 
@@ -121,6 +135,13 @@ export function renderReportSegment(report: ChainReport): string {
   const failed = report.tasks.filter((task) => task.status === 'failed').length;
   const skipped = report.tasks.length - ok - failed;
   const lines = report.tasks.map((task) => {
+    // 任务 12（Q22）：级联标注为条件新增行，不改写既有 成功/失败/已跳过 文案
+    if (task.cascade === 'dependency_rejected') {
+      return `- ${task.taskId}：已级联标注（依赖的前置写入被拒绝，已执行产物保留）`;
+    }
+    if (task.cascade === 'skipped_dependency') {
+      return `- ${task.taskId}：已跳过（级联：前置依赖未执行）`;
+    }
     if (task.status === 'ok') return `- ${task.taskId}：成功`;
     if (task.status === 'failed') {
       const reason = truncateReason(task.error);

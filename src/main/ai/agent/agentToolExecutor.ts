@@ -2,7 +2,9 @@
 // WeaveMD — Agent 工具执行（单工具 + 单轮）
 // ============================================
 
+import { readFile } from 'node:fs/promises';
 import { IPC_CHANNELS } from '@shared/constants';
+import { xxHash64Sync } from '@shared/utils/hashUtil';
 import type { IAgentToolCall, IClarifyQuestion } from '@shared/ai';
 import { appendToolTurnWithAssistant, type ToolTurnToolWrite, type ToolTurnWriteResult } from '../../db/ai';
 import { executeTool } from '../toolRegistry';
@@ -65,6 +67,13 @@ export interface WriteBatchItem {
   target: string;
   /** 归属子任务 id（任务 7：orchestrator 在子任务边界/收口标注，报告 artifacts 链序归档）。 */
   subtaskId?: string;
+  /** 归属子任务在执行序列中的下标（任务 12：收集时从 ctx.currentSubtaskIndex 直取）。 */
+  subtaskIndex?: number;
+  /**
+   * 写前内容 xxHash64（任务 12，Q22 staleness 按项）：收集时对目标文件现内容取哈希；
+   * 目标不可读（新建/ file_id 类）缺省 undefined → 确认时跳过复检。
+   */
+  originalContentHash?: string;
 }
 
 /**
@@ -76,6 +85,13 @@ export interface WriteBatchConfirmResult {
   rejectedIds: string[];
   acceptedIds: string[];
   items: WriteBatchItem[];
+  /**
+   * 级联标注的子任务 id（任务 12，Q22）：拒绝项归属子任务的依赖传递闭包，
+   * 由 agentLoop.finalizeChainRun 经 cascadeSkipDependents 回填。
+   */
+  cascadeSkippedIds: string[];
+  /** 确认时复检出「执行后被外部修改」的项 toolCallId（staleness 按项）。 */
+  staleIds: string[];
 }
 
 /**
@@ -205,6 +221,30 @@ function extractWriteTarget(args: string): string {
   }
 }
 
+/** 目标文件本地路径提取（staleness 复检用）；file_id / file_name 类无路径 → null。 */
+function extractTargetFilePath(args: string): string | null {
+  try {
+    const parsed = JSON.parse(args) as Record<string, unknown>;
+    return typeof parsed.file_path === 'string' && parsed.file_path ? parsed.file_path : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 读取目标文件**现内容**的 xxHash64（任务 12，Q22 staleness 按项）。
+ * 目标不可读（新建前 / 已删除 / 无本地路径）→ undefined，调用方跳过复检。
+ */
+async function readTargetContentHash(args: string): Promise<string | undefined> {
+  const filePath = extractTargetFilePath(args);
+  if (!filePath) return undefined;
+  try {
+    return xxHash64Sync(await readFile(filePath, 'utf8'));
+  } catch {
+    return undefined;
+  }
+}
+
 /** 无交互环境写档拒绝结果（fail-closed，只强不弱）。 */
 function refusedWriteResult(
   tc: ToolCall,
@@ -268,6 +308,9 @@ export async function checkForceConfirmTools(
       return null;
     }
     // 多写子任务链：执行并收集，链末一次汇总确认（Q13：执行 → 汇总确认 → 拒绝项快照回滚）
+    // 任务 12（Q22）：写前内容哈希先于执行取基线（确认时逐项复检）+ 子任务归属直取；
+    // 收集仍为零打断语义（agentToolExecutor.test 链零打断断言不变）。
+    const originalContentHash = await readTargetContentHash(tc.arguments);
     const result = await executeOneTool(tcCopy, round, ctx, replacementState);
     if (result.result.status === 'ok') {
       ctx.writeBatch.push({
@@ -275,6 +318,9 @@ export async function checkForceConfirmTools(
         name: tc.name,
         args: tc.arguments,
         target: extractWriteTarget(tc.arguments),
+        subtaskId: ctx.currentSubtaskId,
+        subtaskIndex: ctx.currentSubtaskIndex,
+        originalContentHash,
       });
     }
     return { executed: true, result };
@@ -375,13 +421,28 @@ export async function confirmWriteBatch(
     out.items = items;
     out.acceptedIds = items.map((item) => item.toolCallId);
     out.rejectedIds = [];
+    out.cascadeSkippedIds = [];
+    out.staleIds = [];
   }
   if (items.length === 0) return '';
   if (!deps.onInteractionRequired || !deps.waitForInteraction) return '';
 
+  // 任务 12（Q22）：确认时逐项复检现内容哈希 —— 收集后目标被外部修改的项，
+  // question text 加警示前缀（不改 IClarifyQuestion 类型；用户仍逐项决定，
+  // 不自动拒绝、不自动回滚）。不可读（已删除/无路径）同样按 stale 处理。
+  const staleIds: string[] = [];
+  for (const item of items) {
+    if (item.originalContentHash === undefined) continue;
+    const current = await readTargetContentHash(item.args);
+    if (current !== item.originalContentHash) staleIds.push(item.toolCallId);
+  }
+  if (out) out.staleIds = staleIds;
+  const staleSet = new Set(staleIds);
+
   const questions: IClarifyQuestion[] = items.map((item) => ({
     id: item.toolCallId,
     text:
+      (staleSet.has(item.toolCallId) ? '⚠️ 目标在执行后被外部修改。' : '') +
       `链内写入 ${item.name}${item.target ? `（${item.target}）` : ''} 已执行，` +
       `共 ${items.length} 项汇总确认——是否保留该写入？`,
     type: 'confirm',
