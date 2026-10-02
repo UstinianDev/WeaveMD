@@ -1,0 +1,410 @@
+# agent-multi-intent — P1/P2 八任务实施计划
+
+> 需求裁定（锁定）：`docs/requirements/agent-multi-intent.req.md` §6 Q17~Q24（2026-10-02「全部按推荐」）+ §3 Q1~Q14 原则仍生效
+> 源任务：`C:\Users\lenovo\Desktop\优化方向\智能创作Agent-多意图识别-优化方向.md` 任务 6、7、4、9、12、13、8、10（按 Q17 顺序）
+> 行号核对基准：2026-10-02 工作区实况（HEAD `a5bff32`，P0 已交付 `38edc57..e6d06df` + 修复 `03d60b3` + 文档 `a5bff32`）
+> 档位 L，TDD strict；证据报告续写 `docs/testing/agent-multi-intent.tdd.md`；每任务一个独立提交，门禁全绿才进下一任务
+> 外部调研已并入任务 4/7/8（各节标注来源）
+
+## 0. 行号核对结果（源文档快照 vs 当前实况）
+
+源文档行号为 P0 之前快照。**凡 P0 触碰过的文件以下表为准，禁止按源文档行号施工**。
+
+| # | 文件 / 源文档引用 | 当前实况 | 结论 |
+| --- | --- | --- | --- |
+| 1 | `intentRouter.ts` RULES `17-67` | 17-67 | ✓ |
+| 2 | `intentRouter.ts` `classifyIntent` `75-155` | **128-208** | **偏差** |
+| 3 | `intentRouter.ts:91` `lower.includes` | **141** | **偏差** |
+| 4 | `intentRouter.ts:112-120` chat 兜底 | **161-169` | **偏差** |
+| 5 | `intentRouter.ts:126-141` confidence/candidates | **183-198** | **偏差** |
+| 6 | `intentRouter.ts:144-146` needsClarification 门 | **201-205** | **偏差** |
+| 7 | `intentRouter.ts:4-5` 升级点注释 | 4-5 | ✓ |
+| 8 | `agentContext.ts:64-91` AgentContext 接口 | **74-107**（`intentGateOpen` 99、`toolSelectionArgs` 103） | **偏差** |
+| 9 | `agentContext.ts:403` 技能推断 classifyIntent | **419** | **偏差** |
+| 10 | `agentContext.ts:517` 主分类调用 | **533**（gate 537-541） | **偏差** |
+| 11 | `agentContext.ts:632-640` toolsForIntent 入参 | **658-666** | **偏差** |
+| 12 | `agentContext.ts:736-743` 提示词二选一 | **771** | **偏差** |
+| 13 | `agentContext.ts:770-778` 文档上下文注入 | **800-807** | **偏差** |
+| 14 | `agentLoop.ts:77-105` AgentLoopDeps | **90-128**（`isChainInterrupted` 127） | **偏差** |
+| 15 | `agentLoop.ts:228` runAgentFlow | **251** | **偏差** |
+| 16 | `agentLoop.ts:254-631` 主循环 | **259-845**（`finalizeChainRun` 324、链启动 342、延迟重发 554-600、`processStreamingToolRound` 848） | **偏差** |
+| 17 | `agentLoop.ts:407-500` 延迟重发 | **412-430（stub 判定）/ 554-600（重发块）** | **偏差** |
+| 18 | `agentLoop.ts:439` skip-set | **591**（流式 865-871） | **偏差** |
+| 19 | `agentLoop.ts:691` waitForAll | **599 / 865** | **偏差** |
+| 20 | `agentToolExecutor.ts:127,170,417` `call_${round}_${index}` | **190, 220, 552** | **偏差** |
+| 21 | `agentToolExecutor.ts:161-236` checkForceConfirmTools | **210-317** | **偏差** |
+| 22 | `agentToolExecutor.ts:188` delete_confirm | **261-266** | **偏差** |
+| 23 | `agentToolExecutor.ts:206-208` yes 才执行 | **293** | **偏差** |
+| 24 | `agentToolExecutor.ts:224-235` 无交互拒 | **313-317（force）/ 226-231（batch）** | **偏差** |
+| 25 | `agentToolExecutor.ts:288-314` waitForInteraction 暂停 | **274-296（force 等待）/ 423-450（handleInteractionPause）** | **偏差** |
+| 26 | `agentToolExecutor.ts:388-402` citation 合并封顶 | **472-537**（collectCitations 472 / mergeCitations 523） | **偏差** |
+| 27 | `agentToolExecutor.ts:516` toolCallsHistory | **651** | **偏差** |
+| 28 | `agentToolExecutor.ts:519-529` 写成功推 preview | **643-680**（preview 事件 657） | **偏差** |
+| 29 | `agentTaskWorker.ts:121-129` 暂停 | **610-629**（buildAgentDeps.onInteractionRequired → waiting_interaction） | **偏差** |
+| 30 | `agentTaskWorker.ts:636-680` AI_STREAM_DONE | **651-690**（handleTaskSuccess 651，DONE 665） | **偏差** |
+| 31 | `agentTaskWorker.ts:138-141` maxConcurrent | 140 | 轻微 |
+| 32 | `agentTaskWorker.ts:237-250` poll | 236-252 | 轻微 |
+| 33 | `agentTaskWorker.ts:215-230` 恢复 / `279-297` createSession / `610-632` deps | 216-231 / 279-297 / 610-633 | ✓ |
+| 34 | `agentToolSelector.ts:18-27` READ_ONLY「16 项」 | 18-28，**现为 17 项**（含 B8 四工具） | **偏差（计数）** |
+| 35 | `agentToolSelector.ts:30-33` WRITE_TOOLS | 30-37（7 项不变） | ✓ |
+| 36 | `agentToolSelector.ts:36-39` FORCE_CONFIRM_TOOLS | 39-45 | **偏差（轻微）** |
+| 37 | `agentToolSelector.ts:105-111` chat ask_question | 109-113 | **偏差（轻微）** |
+| 38 | `agentToolSelector.ts:112-116` kbQa 分区 | 115-119 | **偏差（轻微）** |
+| 39 | `agentPromptBuilder.ts:428/479/396-401/430-450/471-476/146/247-253` | 428✓、479✓、**澄清前缀 398-401**、430-450✓、471-476✓、146✓、247✓ | 1 处轻微（396→398） |
+| 40 | `preload.ts` `AGENT_INTERACTION_QUESTION`（源任务2 :513-526） | **520-529**（plan 529）；`subtask_done` 541 | **偏差** |
+| 41 | `agentStore.ts` pendingInteraction（源 :225/441/490/984） | **226/462/1046/1881** | **偏差** |
+| 42 | `agentStore.ts` apply（源 :1258-1310） | **1271-1300** | **偏差** |
+| 43 | `agentStore.ts` discard（源 :1312-1340） | **1304-1308（fileOp）/ 1375-1400（editBlocks）** | **偏差** |
+| 44 | `AIPanelSession.tsx:114-121` variant 分派 | **117-128**（intent_split 120 / write_batch 122） | **偏差** |
+| 45 | i18n `ai.split.*`（源任务2 :66 附近） | **zh-CN 79-88**；`ai.batchConfirm.*` 75-78 | **偏差** |
+| 46 | `getTaskActivity.ts:82-130` | **85-150**（executeGetTaskActivity 85） | **偏差** |
+| 47 | `ExecutionSegments.tsx:50` | 49-51（grouped 51） | 轻微 |
+| 48 | `DiffSummaryCard.tsx:232-255` staleness | 232-255 | ✓ |
+| 49 | `DiffSummaryCard.tsx:451-513` 全部应用/废弃 | **490-513**（discardAll 501） | **偏差** |
+| 50 | `agentHandlers.ts:329-348/350-370/372-402` | 328-349 / 351-370 / 372-404 | ✓ |
+| 51 | `db/index.ts:538-551 / 564 intent_json` | 538 / 564 | ✓ |
+| 52 | `agentTaskDao.ts:55-73 / 80-107 / 96-100` | 55 / 80 / UPDATE 97 | ✓ |
+| 53 | `agentSessionDao.ts:236-267` updateLease/clearLease | 239 / 259 | ✓ |
+| 54 | `agentSnapshot.ts:15-39 / 98-136` | 15（函数体延至 ~51）/ 98 | ✓（轻微） |
+| 55 | `kbSearch.ts:385` isFallthrough | 385 | ✓ |
+| 56 | `queryPlanner.ts:55-81 / 93-120` | 55 / 93 | ✓ |
+| 57 | `concurrencyDefs.ts:15-73 / 106-111` | 16-73 / 106 | ✓ |
+| 58 | `concurrencyDefs.test.ts:34/69/97`、`docTools.test.ts:154-157` | 一致 | ✓ |
+| 59 | `StreamingToolExecutor.ts:83-100 / 139-167 / 190-198` | 82-99 / 140 / 191 | ✓ |
+| 60 | `editBlocksHandler.ts:47-54`、`previewFileRevision.ts:71-80` | 一致 | ✓ |
+| 61 | `ai-agent.md` 意图 `93-106` | **93-141**（子节 108） | **偏差** |
+| 62 | `ai-agent.md` 写控制 `145-169`（`:157` 标题） | **188-233**（三档 193、write_mode 217） | **偏差** |
+| 63 | `subtaskOrchestrator.ts / confirmMatrix.ts / taskPlanner*.ts / structuredJson.ts / SplitConfirmCard / BatchConfirmCard` | P0 新增，源文档无此文件 | 新增（非偏差） |
+
+**偏差合计：明确偏差 43 处 + 轻微偏移 4 处 = 47 处**。P0 新增关键导出（供后续引用）：`startSubtaskChain`→`subtaskOrchestrator.ts:470`、`advanceSubtaskChain` 524、`handleSubtaskFailure` 592、`stopChain` 421、`finalizeChainContent` 639、`SubtaskChain` 287、`confirmWriteBatch`→`agentToolExecutor.ts:327`、`finalizeChainRun`→`agentLoop.ts:324`、`confirmSkipSet`→`confirmMatrix.ts:89`。
+
+## 1. 总架构与跨任务衔接
+
+### 1.1 `intent_json` JSON 形状（任务 6 定形；任务 7/8/12 消费）
+
+```jsonc
+{
+  "v": 1,                          // 形状版本，读端容错用
+  "runId": "…",                    // 本次链运行幂等键成分（ctx.runId）
+  "primaryIntent": "create",
+  "plan": { "subtasks": [/* AgentTaskPlan 原样 */], "omittedCount": 0 },
+  "deps": { "s2": ["s1"] },        // 由 SubtaskDef.preconditions 归一（任务 8 出队条件）
+  "subtasks": [
+    { "id": "s1", "status": "pending|running|done|failed|skipped|skipped_dependency|dependency_rejected",
+      "startedAt": 0, "endedAt": 0, "rounds": 0, "summary": "…", "error": "…" }
+  ],
+  "outcome": "finished|stopped|failed",
+  "report": { /* 任务 7 buildChainReport 输出，任务 7 起填充 */ }
+}
+```
+
+- 重试计数**不落盘**（Q18：内存态，即 `SubtaskChain.retryCount`）；快照不入 JSON（复用 `agentSnapshot`，Q18）。
+- 读端（getTaskActivity/报告）解析失败一律视为「无追踪数据」降级，不阻断（容错读；写端尽力而为：落库异常仅 console.error，不影响链运行）。
+
+### 1.2 数据流
+
+```
+任务6: startSubtaskChain/advance/failure/finalize
+        → deps.onChainRecordUpdate(json) → agentSessionDao.saveIntentJson(sessionId)
+任务7: intent_json.report ← buildChainReport(chain, record, batchResults)
+        + getTaskActivity LEFT JOIN agent_sessions 取 intent_json → 工具结果透出子任务状态
+任务8: plan.preconditions → intent_json.deps → 链内调度器「依赖满足才出队」
+任务12: confirmWriteBatch 拒绝 → record.deps 级联 → subtasks[].status=skipped_dependency → 入报告
+```
+
+### 1.3 提交切分（每任务一个提交，英文 `type(scope): message`）
+
+| 序 | 任务 | 提交信息 |
+| --- | --- | --- |
+| 1 | 6 | `feat(agent): persist subtask tracking into agent_sessions.intent_json` |
+| 2 | 7 | `feat(agent): merge multi-subtask execution report with partial-failure policy` |
+| 3 | 4 | `feat(agent): add tiered intent routing with rule baseline and shared TTL cache` |
+| 4 | 9 | `feat(agent): bridge agent intent into KB search with per-subtask single retrieval` |
+| 5 | 12 | `feat(agent): subtask-scoped confirmation staleness and cascade skip on reject` |
+| 6 | 13 | `feat(agent): consume write_mode auto/manual and converge write lists to confirmMatrix` |
+| 7 | 8 | `feat(agent): dependency-aware subtask parallel scheduling with conflict guards` |
+| 8 | 10 | `docs(agent): cross-reference dual intent systems and declare boundary comments` |
+
+每提交同步：勾选 `docs/plan/agent-multi-intent.status.md` 阶段进度 + 追加任务执行记录；TDD 证据追加 `docs/testing/agent-multi-intent.tdd.md`。
+
+### 1.4 全局红线（P0 沿用 + P1 强调）
+
+1. 不引依赖（无 zod / 无 `@anthropic-ai/sdk` / 无新 npm 包）；不改历史迁移、不动 `agent_task_queue`/`agent_sessions` 表结构（**8 任务全程零加列**，任务 8 的 `parent_id` 预设由 intent_json.deps 取代，须在 status 记录偏离）；
+2. 铁律一与无交互 fail-closed 只强不弱；确认矩阵代码为准、提示词一致性测试防分叉；
+3. sha256 钉死的提示词行（`agentPromptBuilder` 428/479/430-450/471-476、`CHAT_SYSTEM_PROMPT` 等）**不可原地改**——需要新语义一律走独立 system 段（P0 已有 `buildSplitDirectiveSegment`/`buildWriteBatchNoticeSegment` 先例）；
+4. 既有测试零改动全绿（基线 4696 例）；确需适配 fixture 只许补 mock/字段，不许弱断言；mock 环境沿用 P0「命名空间访问 + try/catch fail-closed」模式（vitest factory 缺导出即抛，`tests/_probe.test.ts` 实测）；
+5. gate 关路径消息序列逐字节等价；拆分失败不阻断对话；每任务门禁红即本提交内修复，不带病进入下一任务。
+
+## 2. 逐任务实施
+
+### 任务 6 — 子任务全链路追踪（intent_json 落盘）｜L3｜依赖：任务 5（已完成）
+
+**重点文件与实况行号**
+- `src/main/db/index.ts:556-570`（`agent_sessions`，`intent_json` **564**，零写入现状）
+- `src/main/db/agentSessionDao.ts:59 createSession / 129 updateSessionStatus / 239 updateLease / 259 clearLease`（无 intent_json 写函数）
+- `src/main/ai/agent/subtaskOrchestrator.ts:287 SubtaskChain / 390 issueNextSubtask / 421 stopChain / 441 advanceChain / 470 startSubtaskChain / 524 advanceSubtaskChain / 592 handleSubtaskFailure / 639 finalizeChainContent`
+- `src/main/ai/agent/agentLoop.ts:90-128 AgentLoopDeps / 324 finalizeChainRun / 342 startSubtaskChain 调用`
+- `src/main/ai/agent/agentTaskWorker.ts:279-297 createSession / 564 buildAgentDeps / 610-633 交互回调（持 sessionId）`
+- `src/main/ai/agent/agentSnapshot.ts:15 createSnapshot / 98 rollbackToSnapshot`（复用不改；worker `processTask` 步骤 2 已建快照）
+- `src/main/db/agentTaskDao.ts:55 enqueueTask / 80 dequeueNext / 97 出队 UPDATE`（幂等先例，**不改**）
+- `src/shared/ai/taskPlan.ts:14-36`（SubtaskDef.preconditions、AgentTaskPlan）
+
+**变更清单**
+- 新建：`src/shared/ai/intentRecord.ts`（`AgentIntentJson`、`SubtaskRunStatus`、`buildDepsMap(plan)` 纯函数）；`src/main/ai/agent/chainTracking.ts`（`createChainTracker`：从 chain/ctx 增量产出 JSON、`toIntentJson()`）；测试 `tests/main/db/agentSessionIntentJson.test.ts`、`tests/main/ai/chainTracking.test.ts`
+- 修改：`agentSessionDao.ts`（+`saveIntentJson(db, sessionId, json)` / `getIntentJson(db, sessionId): unknown | null`，UPDATE 仅 `intent_json` 一列）；`shared/ai.ts`（barrel +1 行）；`subtaskOrchestrator.ts`（四点调 `deps.onChainRecordUpdate?.(tracker.snapshot())`：链启动、子任务状态跃迁、失败/跳过、`advanceChain` 推进）；`agentLoop.ts`（AgentLoopDeps +`onChainRecordUpdate?: (json: string) => void`；`finalizeChainRun` 写 outcome）；`agentTaskWorker.ts`（buildAgentDeps 实现该回调 → `sessionDao.saveIntentJson(this.db, sessionId, json)`，异常吞掉仅日志）
+- 文档同步（源文档验收要求）：`docs/architecture/database.md`（「其他表索引」`agent_sessions` 行补 intent_json 用途与形状链接）；`docs/architecture/ai-agent.md`（「任务队列/Session 状态」节增子任务追踪小节）
+
+**实现要点（Q18 落地）**
+- **不加列、不改迁移**；`retry_count` 内存态（tracker 不产出该字段，测试断言 JSON 中无 retry 字段）；快照继续走 `agent_file_snapshots`（复用 `createSnapshot/rollbackToSnapshot`，不内嵌 payload）。
+- 写时机与幂等：每次写均为**全量覆盖**该 session 最新 JSON（同 session 单链，天然幂等；`runId` 变化时整体替换，避免增量合并歧义）。
+- 源文档「加列 + DAO enqueue 收 priority」预设按 Q18 偏离，验收改造为：DAO 层测试 = `saveIntentJson/getIntentJson` 往返 + `enqueueTask/dequeueNext` 现语义回归（幂等出队）+ 快照回滚（`createSnapshot→改文件→rollbackToSnapshot`）+「重试计数不落盘」断言。
+
+**TDD 要点（RED→GREEN）**
+1. DAO：写→读回形状逐字段一致；不存在 sessionId 写入不抛；往返后 `intent_json` 可 JSON.parse；
+2. tracker：链启动 JSON 含 plan/deps/pending；advance 后 status/rounds/summary 跃迁；失败→failed+error；finalize→outcome；deps 由 preconditions 归一（含 `serial_after:s1` 串行标注解析）；
+3. 容错读：坏 JSON → null 不抛；
+4. 回归：`subtaskSequence.test.ts`、`agentLoopSplit.test.ts`、worker 相关既有测试零改动全绿（未注入回调时全链零行为变化——回调可选是回归护栏）。
+
+**风险与回滚**：回调落库异常污染链路 → try/catch 吞错仅日志；JSON 形状演进 → `v` 版本字段 + 读端降级。回滚：revert 本提交即可（链本体在 P0 提交中，追踪为纯增量、无回调即无行为）。
+
+### 任务 7 — 执行报告合并与部分失败策略｜L3｜依赖：任务 6
+
+**重点文件与实况行号**
+- `src/main/ai/agent/agentTaskWorker.ts:651-690`（AI_STREAM_DONE 汇总点，源 636-680 已偏移）
+- `src/main/ai/agent/agentToolExecutor.ts:472-537`（citation 合并先例）、`651`（toolCallsHistory）、`327 confirmWriteBatch / 345-372 拒绝处理`
+- `src/main/ai/tools/getTaskActivity.ts:85-150`（报告数据源；现 JOIN agent_sessions 取 rounds_used，约 104-110）
+- `src/render/components/AIAgent/workflow/ExecutionSegments.tsx:49-63`（按轮次分组渲染）
+- `src/main/ai/agent/subtaskOrchestrator.ts:277-285 CompletedSubtaskEntry / 169 appendBuffer / 639 finalizeChainContent`
+- `src/main/ai/agent/agentLoop.ts:324 finalizeChainRun`
+
+**变更清单**
+- 新建：`src/main/ai/agent/chainReport.ts`（`buildChainReport(record, chain, batchResults)` → 结构化报告对象 + `renderReportSegment(report)` 文本段）；测试 `tests/main/ai/chainReport.test.ts`
+- 修改：`subtaskOrchestrator.ts`（failed/skipped 子任务与 force 档工具失败信号上报 tracker；force/删除类工具执行返回 error → 触发 `handleSubtaskFailure` 变体：停止推进、`onInteractionRequired`（复用 `subtask_failed` variant）→ session `waiting_interaction`，Q19）；`agentLoop.ts`（`finalizeChainRun` 尾部把 `renderReportSegment` 追加进 buffer，仍单次 DONE 收口、intent=primaryIntent）；`agentToolExecutor.ts`（`confirmWriteBatch` 返回值扩展为 `{ rejectedIds, acceptedIds, items }` 供报告）；`getTaskActivity.ts`（SELECT 追加 `s.intent_json`，`TaskActivity` 增可选 `subtasks?: Array<{id,status,summary?}>`、`report?`——**加法式扩展**，旧消费端不受影响）
+- 文档同步（源验收）：`docs/specs/ai-agent/agent-message-storage.md`（新章「多子任务执行报告与部分失败口径」：数据源三分、三态定义、同文件写链序合并、force 失败停链、与 §5 兼容/§6 已知限制交叉引用）
+
+**实现要点（Q19 + 外部调研并入）**
+- **不全量回滚**：保留已完成写，报告标注失败项。外部调研（Azure Compensating Transaction，来源 learn.microsoft.com compensating-transaction）：补偿逻辑难泛化且自身可失败（须幂等）、多数失败是瞬时的「重试通常足够」→ 支撑 Q19；**force/删除类除外**（不可逆操作失败按 Q19 停 `waiting_interaction` 等人工，不自动重试）。
+- 失败项聚合：失败工具以 `is_error` tool_result 原文回填进链消息（现有路径已如此），模型下轮决定重试或跳过；报告段 prompt 要求**逐项汇报成功/失败 + 原因 + 已保留产物**（orchestrator-workers 的 synthesize 即最终回复——来源 Anthropic《Building effective agents》，anthropic.com/engineering/building-effective-agents）。
+- per-task 结构化状态 `{taskId(=subtaskId), status: ok|failed|skipped, error, artifacts(写目标路径列表)}` 写入 `intent_json.report`，`getTaskActivity` 透出给 LLM 复查。
+- 同文件写按链序合并 diff：main 侧只保证 `report.artifacts` 与 `chain.completed` **链序**输出；渲染端已有 `mergeProposalsByFile`（02-diff-cards §7.4）负责同名合并，**不改渲染**——报告 = assistant 文本段 + 现有 diff/activity 卡，不新建卡片类型、不改 ExecutionSegments 分组维度（「报告复用现有卡片」裁定，规避渲染层越界；记录为对源文档渲染建议的裁剪）。
+
+**TDD 要点**：三类必测 = ①全成功（report 全 ok、buffer 含逐项汇报、单次 DONE）②部分失败（成功写保留不回滚、失败项 status=failed+error 进 report、正文标注）③补偿触发（force 档删除失败 → 停 `waiting_interaction`、不继续推进、resume 后按用户选择收口）；附加：同文件链序 artifacts 断言、`getTaskActivity` 坏 JSON 降级、既有 `agentToolExecutor.test.ts` 确认矩阵 8 例零改动全绿。
+
+**风险与回滚**：报告段改变链末正文 → 动手前先 grep buffer 文案断言，只允许「新增段」不改写既有段；`getTaskActivity` 字段加法向后兼容。回滚：revert 本提交（intent_json 仍在，只是不再产出 report）。
+
+### 任务 4 — 三层意图路由分层｜L3｜依赖：任务 2
+
+**重点文件与实况行号**
+- `src/main/ai/intentRouter.ts:4-5`（升级点自述）、`17-67 RULES`、`106 detectMultiIntentGate`、`128-208 classifyIntent`
+- `src/main/ai/agent/agentContext.ts:22-23`（命名空间 + fail-closed 先例）、`419`（技能推断调用点）、`533`（主调用点）、`439 prepareAgentContext`（**保持同步**）、`537-541 gate`
+- `src/main/ai/knowledge/kbSearch.ts:385`（isFallthrough，同步）
+- `src/main/ai/llm/llmClient.ts:311 streamChatCompletion / 462 WithRetry`（one-shot 复用点）
+- `src/main/ai/secureConfig.ts:32 decryptApiKey`、`src/main/ai/agent/agentLoop.ts:251 runAgentFlow / 260 prepare 调用`
+- 既有 mock 面：`agentContext.test.ts:64`（importOriginal）、`agentLoop.test.ts:75 / agentLoopSplit.test.ts:88 / subtaskSequence.test.ts:105 / benchmarks:118`（factory intentMock）
+
+**变更清单**
+- 新建：`src/main/ai/intentTiering.ts`（`classifyIntentShared` / `prefetchIntentTiered` / `__resetIntentTierCacheForTest`）；测试 `tests/main/ai/intentRouterTiered.test.ts`
+- 修改：`agentLoop.ts`（runAgentFlow 在 `prepareAgentContext` 前 `await prefetchIntentTiered(payload.message, lazyLlmOpts)`，整体 try/catch fail-closed；lazy opts 仅在触发 tier2 且 `apiKeyEnc` 非空时 `decryptApiKey` + `config.remoteBaseUrl/model/protocol` 构造）；`agentContext.ts`（:533 与 :419 改经 namespace 访问 `classifyIntentShared`，缺导出回落 `classifyIntent`——与 :539 gate 同款 try/catch）；`kbSearch.ts`（:385 改 namespace 访问 shared（缓存只读，不预取），行为=同步规则）；`docs/architecture/ai-agent.md`（意图路由节增「三层分层」小节）
+- **不改**：`classifyIntent` 本体与签名、gate、`prepareAgentContext` 同步签名、kbSearch isFallthrough 语义
+
+**实现要点（Q20 + 外部调研并入）**
+- 三层：**L1 规则**（底线，同步、零成本，降级不低于规则）→ **L2 轻量远程小模型**（仅规则低置信：`confidence < 0.7 || needsClarification === true` 且非空输入）→ **L3 大模型规划**（已建 `runTaskSplit`，gate 开才用，本任务不动）。
+- 降级链：**1.5s deadline 包裹整个调用（连接+推理）**，超时/异常/未知标签/解析失败统一落回规则结果。外部调研（来源 Anthropic《Building effective agents》，anthropic.com/engineering/building-effective-agents）：类别边界清晰且分类可准确完成才用分类器；总原则「complexity only when demonstrably improves outcomes」支持规则命中即走、仅低置信升级远程小模型——与 Q20 同向。
+- 共享缓存：key = sha256(`hasHistory|input`)（`node:crypto` 已有依赖），**短 TTL = 10s**、容量上限 200、LRU 淘汰；`classifyIntentShared` 同步读，miss 即规则。三调用点（agentContext:533 / agentContext:419 / kbSearch:385）全走 shared；kbSearch **不预取**（保持同步规则），只共享缓存（Q20）。
+- 分类输入输出落日志（console 带 query 摘要 + rule/tier2 结论），供离线评估规则覆盖率（调研要求）。
+- 单意图零 LLM 口径澄清（写入计划与文档）：预检门仍零 LLM；**规则高置信输入零新增调用**；低置信升级小模型是 Q20 P1 裁定，分类层变化不改提示词/消息序列（gate 关路径消息逐字节等价仍成立）。
+- mock 安全：`intentTiering.ts` 本身不被任何测试 mock，内部 `import * as intentRouter` + 缺导出 fail-closed；无 `apiKeyEnc` → 直接跳过 tier2（既有测试天然短路，零回归）。
+
+**TDD 要点（`intentRouterTiered.test.ts`，源验收）**
+- 降级链：高置信短路零 LLM（spy 零调用）/ 低置信触发 tier2 成功覆盖 / 超时 1.5s 回规则（fake timer）/ 抛错回规则 / 非法标签回规则 / tier2 结果永不低于规则（合法性校验）；
+- 缓存：同 query 二次零调用、TTL 过期重算、不同 hasHistory 键隔离；
+- **三调用点回归**：主调用 prefetch 后 shared 命中；技能推断读缓存；kbSearch isFallthrough 同步规则（`kbSearch.test.ts:790-799` 既有断言零改动全绿）；
+- 既有 `agentContext/agentLoop/agentLoopSplit/subtaskSequence/intentRouter` 测试全绿（mock 缺 `classifyIntentShared` → 回落 `classifyIntent`）。
+
+**风险与回滚**：低置信输入首字延迟 +≤1.5s（Q20 已接受；deadline 硬闸）；tier2 类别漂移（未知标签回规则 + 日志评估）；测试环境污染（无 key 短路 + TTL 10s 内规则值幂等）。回滚：prefetch 调用点一行注释即回纯规则（shared 对规则值幂等，dormant 无行为差异）；或 revert 提交。
+
+### 任务 9 — Agent 意图透传 KB 检索｜L2｜依赖：任务 2
+
+**重点文件与实况行号**
+- `src/main/ai/knowledge/queryPlanner.ts:55-81 HYBRID_PATTERNS / 93-128 classifyIntent（返回数组先例）/ 382 expandByIntent`
+- `src/main/ai/knowledge/kbSearch.ts:54 KbSearchOptions / 385 isFallthrough / 470 searchKB`
+- `src/main/ai/tools/searchKBHandler.ts:86-140`（`handleSearchKB`；:122 `classifyIntent` 扩展策略、:123 `ctx.searchKb` 调用）
+- `src/main/ai/toolTypes.ts:50 ToolCtx` / `agentContext.ts:638 toolCtx 构造`（intent 533 已可用）
+- `src/main/ai/agent/subtaskOrchestrator.ts:338 applySubtaskContext`（子任务级切换点）
+- `src/main/ai/agent/agentKbPreloader.ts:145 createPreloadedSearchKb`（消费于 `agentLoop.ts:268`）
+- `src/main/ai/agent/agentContext.ts:800`（文档上下文注入，仅 rewrite/create/tech）/ `agentPromptBuilder.ts:247 shouldInjectDocumentContext` / `agentToolSelector.ts:115 kbQa 分区`
+
+**变更清单**
+- 新建：测试 `tests/main/ai/kbIntentBridge.test.ts`
+- 修改：`toolTypes.ts`（ToolCtx +`agentIntent?: IntentName`）；`agentContext.ts`（toolCtx 构造 638 处注入 `agentIntent: intent.intent`）；`subtaskOrchestrator.ts`（`applySubtaskContext` 同步 `ctx.toolCtx.agentIntent = subtask.intent`；kbQa 子任务：`ctx.toolCtx.searchKb = createPreloadedSearchKb(deps.searchKb, userId, subtaskQuery)` 按子任务 query 预载）；`searchKBHandler.ts`（调用 `ctx.searchKb` 时透传 `agentIntent: ctx.agentIntent`）；`kbSearch.ts`（`KbSearchOptions +agentIntent?`；`buildQueryUnderstanding` 写入 `queryUnderstanding.agentIntent`——shared 类型 `src/shared/ai/kb.ts` 的 `IKbDiagnosticsQueryUnderstanding` 加**可选**字段）
+- 文档同步（源验收）：`docs/architecture/knowledge.md`（意图章节：查询理解表行 46 扩展 + 新「Agent 任务意图 ↔ KB 检索策略意图：桥接不合并」小节）+ `docs/architecture/ai-agent.md`（意图路由「与知识库侧的边界」段补透传口径）
+
+**实现要点（Q21 落地）**
+- **检索一次、注入含 kbQa 子任务上下文**：链内 kbQa 子任务在 `applySubtaskContext` 时按其 `params.object` 预载（`createPreloadedSearchKb` 单槽语义，工具首访命中即免二次检索）；结果经既有 tool_result 自然进入该子任务上下文；链内仅 kbQa 子任务持 searchKB（`toolsForIntent` 逐子任务重建已保证）→ 全链对该 query 检索恰一次。预载闸：`deps.searchKb` 存在且子任务 intent=kbQa（对齐现 `payload.useKnowledgeBase` 闸）。
+- **冲突优先级**：Agent 任务意图决定工具集（`toolsForIntent`），KB `queryPlanner.classifyIntent` 只决定检索策略（扩展/融合），**以 Agent 为准**；`agentIntent` 仅透传进 diagnostics 作审计/诊断，不改 `searchMode/topK/threshold`（延续 kbSearch「A3 意图只驱动扩展」既有约束）。
+
+**TDD 要点（桥接三类，源验收）**
+1. 透传：`searchKB` 调用后 `opts.agentIntent`/`diagnostics.queryUnderstanding.agentIntent` = 调用时链上 intent（含子任务切换后值）；
+2. 优先级：Agent 判 chat → `toolsForIntent` 无 searchKB（queryPlanner 结论不影响工具集）；
+3. 冲突：Agent kbQa + planner 判 comparison → 工具可用且扩展策略按 planner（断言 `expandedQueries` 含比较类扩展）；
+4. 检索一次：kbQa 子任务链中 `deps.searchKb` 仅一次（spy 计数），结果落进该子任务消息栈（重建后 prompt 含结果且 tool_result 配对完整）；
+5. 回归：`kbSearch.test.ts`、`queryPlannerEnhanced.test.ts`、searchKB 相关既有测试零改动全绿。
+
+**风险与回滚**：diagnostics 加法字段 → JSON 序列化安全、旧消费端忽略；预载改变时序 → 仅链态生效，单意图路径不动。回滚：revert 提交（透传与预载均为加法）。
+
+### 任务 12 — 子任务级确认与暂停/恢复｜L3｜依赖：任务 5、11
+
+**重点文件与实况行号**
+- `src/main/ai/agent/agentToolExecutor.ts:327 confirmWriteBatch / 337-372 逐项 yes/no / 274-296 force 等待 / 423-450 handleInteractionPause`
+- `src/main/ai/agent/agentLoop.ts:324 finalizeChainRun（链收口原语）` / `subtaskOrchestrator.ts:421 stopChain / 592 handleSubtaskFailure（链暂停点）`
+- `src/main/ai/agent/agentTaskWorker.ts:216-231 resumeInteraction/hasPendingInteraction / 610-633 onInteractionRequired→waiting_interaction`
+- `src/main/ai/ipc/agentHandlers.ts:351-370 恢复 IPC / 328-349 快照回滚 IPC`
+- `src/render/components/AIAgent/cards/BatchConfirmCard.tsx:15-44（answers yes/no，渲染 q.text）`、`DiffSummaryCard.tsx:232-255 staleness / 490-513 全部应用/废弃`
+- `src/render/stores/agentStore.ts:1271-1300 apply / 1304-1308·1375-1400 discard`
+- `src/main/ai/tools/editBlocksHandler.ts:47-54`、`previewFileRevision.ts:71-80`（xxHash64 contentHash 先例）
+- `src/main/ai/agent/agentSession.ts:17-40 状态表`（waiting_interaction 在 running 可达；**不启用** waiting_operation_confirmation，按裁定复用 waiting_interaction）
+
+**变更清单**
+- 新建：测试 `tests/main/ai/subtaskConfirmResume.test.ts`
+- 修改：`subtaskOrchestrator.ts`（`applySubtaskContext` 写 `ctx.currentSubtaskId/currentSubtaskIndex`；新增 `cascadeSkipDependents(chain, record, rejectedId)`：按 intent_json.deps 求传递闭包）；`agentContext.ts`（AgentContext +`currentSubtaskId?`）；`agentToolExecutor.ts`（writeBatch 项 +`subtaskId/subtaskIndex/originalContentHash`——收集时取写前内容 xxHash64；`confirmWriteBatch` 确认时**逐项复检**当前文件 hash，stale 项在 question `text` 前缀警示（不改 `IClarifyQuestion` 类型），拒绝项回滚 + 级联标记，返回 `{ rejectedIds, cascadeSkippedIds, staleIds }`）；`agentLoop.ts`（finalizeChainRun 把级联结果写进 tracker/report）；`BatchConfirmCard.tsx`（逐项 text 展示已具备，stale 警示前缀自然呈现；补组件测试）；`intentRecord.ts`（status 枚举 +2）
+- 文档同步（源验收）：`docs/modules/11-AI代理面板-Agent/02-diff-cards.md`（§7.6 Staleness 扩展「链写批次按子任务/按项粒度」+ 汇总确认与部分拒绝语义）
+
+**实现要点（Q22 落地）**
+- **链末汇总为默认**：不逐子任务打断（P0 confirmWriteBatch 已实现，本任务确立为唯一默认确认点并补 subtaskId 归属）；执行期收集零打断（既有断言 `agentToolExecutor.test.ts:404` 语义不变）。
+- **staleness 按子任务粒度**：每 writeBatch 项独立 `originalContentHash`（写前）→ 确认时 main 侧重读目标现 hash 复检，不一致 → 该项 text 加「⚠️ 目标在执行后被外部修改」前缀，用户仍逐项决定（不自动拒绝、不自动回滚——方向交给人）；与 render 侧 DiffSummaryCard 的 apply 级 staleness（:232-255）互补不重叠（batch 项为直接写盘工具，无 apply 步骤）。
+- **拒绝 k → 后继级联跳过入报告**：
+  - 链中暂停点拒绝（`subtask_failed` 用户跳过 k，任务 5 既有路径）→ 未执行的依赖后继**不再执行**，标 `skipped_dependency`；
+  - 链末批次拒绝 k（写已执行）→ `rollbackToSnapshot` 回滚 k（既有），依赖 k 的后继标 `dependency_rejected` 入报告（已执行产物不自动回滚——逐项可拒是用户权利，级联只做报告标注与明示，避免二次回滚放大不可逆损失；此为对 Q22「跳过入报告」的落地解释，写入文档）。
+- **暂停/恢复**：全部复用 P0 原语——`onInteractionRequired` → worker `waiting_interaction`（610-628）→ `AGENT_RESUME_INTERACTION`（agentHandlers 351-370）→ `resumeInteraction`（216-228）resolve → `finalizeChainRun` 继续；取消（reject）沿 `confirmWriteBatch` 上传播、`AI_STREAM_ERROR` 收口不锁死。**不引入 waiting_operation_confirmation**。
+
+**TDD 要点（源验收：暂停/恢复/部分拒绝）**
+1. 暂停：链末批次确认发出 → session `waiting_interaction`、`hasPendingInteraction=true`、DONE 未发；
+2. 恢复：resume 带 answers → 拒项回滚 + 接受项保留 + 正常单次 DONE 收口；
+3. 部分拒绝：拒 k → 回滚 k 一次、依赖后继 status 进 JSON、报告段含级联明示；
+4. 级联闭包：s3→s2→s1，拒 s1 → s2/s3 全标；无依赖不误伤；
+5. staleness：执行后改文件 → 该项 text 含警示前缀；hash 一致 → 无前缀；
+6. 取消恢复（reject）→ 错误收口不锁死（回归 `subtaskSequence.test.ts:731` 同语义）。
+（选址说明：新建独立 test 文件，沿任务 3「红线优先、不改既有测试基座」先例。）
+
+**风险与回滚**：question text 前缀为主进程文案，与 force 档现文案同口径（中文直出，不进 i18n 键）；级联误伤 → 测试钉死 deps 仅来源于 `preconditions/serial_after`。回滚：revert 提交（staleness/级联为增强，主干确认流程不依赖）。
+
+### 任务 13 — auto 模式消费点落地 + 写工具清单收敛｜L2｜依赖：任务 11
+
+**重点文件与实况行号**
+- `docs/architecture/ai-agent.md:188-233`（写控制三档 + **write_mode 217-233：「主进程无消费点」如实记录，本任务改写**）
+- `src/shared/ai/config.ts:8 WriteMode / 10-28 IAIConfig`；`src/main/ai/ipc/shared.ts:9 toIAIConfig`（**现不透传 writeMode**）；`src/main/db/ai.ts:76 行类型 writeMode / 187 映射（NULL→manual）`；`configConsentHandlers.ts:106-131 GET/SET`
+- `src/main/ai/agent/agentLoop.ts:251-260（runAgentFlow 持 config）`、`agentContext.ts:439 prepareAgentContext(event,payload,config,…)`
+- `agentToolExecutor.ts:210-317 checkForceConfirmTools / 226-231 batch 无交互拒 / 546 executeOneTool`
+- `agentLoop.ts:848-913 processStreamingToolRound（skip-set 865-871；needExecution 873-892）`、`583-599（延迟路径 skipSet）`
+- `confirmMatrix.ts:20-106（confirmTierFor 46 / writeToolsByTier 57 / confirmSkipSet 89）`、`agentToolSelector.ts:18-45（三集合）`、`agentPromptBuilder.ts:146-151 FILE_OP_WRITE_TOOLS（**sha256 输入，顺序不可动**）`
+- 既有断言锚点：`confirmMatrix.test.ts:38/103/111/125`、`agentToolExecutor.test.ts:274-547（342 单意图现状 / 385·507 无交互拒 / 404 链零打断 / 476 提示词一致 / 525 未登记拒）`、`concurrencyDefs.test.ts:34/69/97`、`docTools.test.ts:154-157`
+
+**变更清单**
+- 新建：测试 `tests/main/ai/writeModeConsumption.test.ts`
+- 修改：`src/shared/ai/config.ts`（`IAIConfig.writeMode?: WriteMode` 加法可选）；`src/main/ai/ipc/shared.ts`（toIAIConfig 映射 `config.writeMode`，入参类型 +1；`DEFAULT_AI_CONFIG` **不加**该字段）；`agentContext.ts`（AgentContext +`writeMode: WriteMode`，`ctx.writeMode = config.writeMode ?? 'auto'`）；`agentToolExecutor.ts`（batch 档按 `ctx.writeMode` 分派：`manual` → 执行前逐写确认（question id=toolCallId、type=confirm、含目标路径；yes→executeOneTool，no/cancel→取消结果；无交互仍拒）；`auto` → 现行为（单意图 execute+preview、链收集+链末汇总）；`writeBatch` 收集仅在 auto 生效）；`agentLoop.ts`（`processStreamingToolRound` 与延迟重发路径的 skip 计算处：**无交互 deps 时**把 `confirmTierFor≠'none'` 的本轮工具补进 skip（caller 侧局部加严，**不改 `confirmSkipSet` 函数与其输出**——`confirmMatrix.test.ts:103/125` 钉死契约原样保留）→ 路由到 checkForceConfirmTools 拒写，修复遗留问题 3）；`confirmMatrix.ts`（新增权威常量 `CONFIRM_FORCE_TOOLS`/`CONFIRM_BATCH_TOOLS`，`confirmTierFor` 改读自身常量；**去掉对 agentToolSelector 的 import，方向倒置**；none 档改由 toolRegistry 已登记集合推导，或保留显式 KNOWN_NON_WRITE 并加交叉测试）；`agentToolSelector.ts`（`WRITE_TOOLS/FORCE_CONFIRM_TOOLS` 改为从 confirmMatrix 派生再导出，内容/成员逐一不变）
+- 文档同步（源验收）：`docs/architecture/ai-agent.md` 写控制节（write_mode 表改写为「消费点已落地」+ 收敛声明）；`docs/specs/ai-agent/agent-tool-runtime.md` 新增 §14.5「write_mode 消费与逐写确认」
+
+**实现要点（Q23 落地 + 收敛涉及断言清单）**
+- auto = 链式执行 + 链末汇总确认 + 拒绝快照回滚（**确认必经**，铁律一不削弱）；manual = 逐写执行前确认（单意图与链一致）；缺省 `?? 'auto'` = 现行行为 → 既有测试（342/404 等）零 fixture 改动全绿；生产 `mapConfigRow` 恒显式产出 writeMode（DB 默认 manual），消费点真实生效（行为变化按 Q23 锁定，写入文档）。
+- **遗留问题 3 于本任务解决**（status.md 对应条目标注「已解决 @任务13」）：非链流路径「无交互拒全部写档」不可达 → caller 侧无交互补 skip 使其可达；已 grep 核查 `agentLoop.test.ts` 无「无交互下写工具直通执行」断言（零命中），风险受控；**不改** `confirmSkipSet` 本体。
+- **confirmMatrix 唯一权威收敛**（Q23 末句）——涉及既有断言（只许加测试、不许改断言）：
+  - `confirmMatrix.test.ts:38`「矩阵源常量与 WRITE_TOOLS/FORCE_CONFIRM_TOOLS 同步」——收敛后仍成立（成员不变、同源派生后语义更强）；
+  - `confirmMatrix.test.ts:103/111/125/129` skip-set 契约——**函数输出保持逐字节等价**；
+  - `agentToolExecutor.test.ts:476-491` 提示词一致性（删除行点名 == force 集合）——提示词不动，仍成立；
+  - `concurrencyDefs.test.ts:34/69/97`（本地 WRITE_TOOLS 副本断言 defaultSafe=false）——生产表不动，另**新增**交叉断言（matrix batch∪force ⊆ concurrency 表 false 集）；
+  - `docTools.test.ts:154-157`（四工具只读区归属）——READ_ONLY 派生源不变，仍成立；
+  - `agentPromptBuilder` sha256 基线——`FILE_OP_WRITE_TOOLS` 字面量与顺序不动，仅新增交叉断言「其写子集 ⊇ matrix batch∪force」。
+- import 方向：confirmMatrix 不再依赖 agentToolSelector（防循环）——selector 反向派生；实施时先确认 toolRegistry 叶子依赖无环。
+
+**TDD 要点（源验收：既有不回退 + 新增 auto 用例）**
+1. `writeMode=auto`：单意图 batch execute+preview（同 342 语义）、链零打断链末一次（同 404 语义）；
+2. `writeMode=manual`：单意图写执行前确认（yes 执行 / no 取消 / 无交互拒）；链内逐写确认（打断次数 = 写次数）、writeBatch 不收集 → 链末批次零交互；
+3. 缺省 writeMode → 行为与 P0 逐字一致（回归钉）；
+4. 遗留 3：无交互 + 非链 + 注册 batch 工具（流式路径）→ 拒写不执行（新行为红→绿）；有交互 → 现行为不变；
+5. 收敛交叉断言三连；`concurrencyDefs.test / docTools.test / confirmMatrix.test / agentToolExecutor.test / agentPromptBuilder.test` 全量零改动全绿。
+
+**风险与回滚**：manual 成为 DB 默认后生产行为变化（逐写多一次确认）——Q23 锁定；无交互补 skip 的收严若发现被某既有 fixture 依赖（实施首日复核）→ 该 fixture 只许补交互 mock，不许弱断言。回滚：`ctx.writeMode` 消费点单点换回常量 auto 分支（一行开关）；或 revert 提交（收敛与遗留3 修复可独立摘除）。
+
+### 任务 8 — 依赖图并行调度与冲突防护｜L3｜依赖：任务 6、7
+
+**重点文件与实况行号**
+- `src/main/ai/agent/subtaskOrchestrator.ts:287 SubtaskChain / 390 issueNextSubtask / 441 advanceChain / 470 startSubtaskChain / 524 advanceSubtaskChain`（现串行出队点）
+- `src/main/ai/agent/agentLoop.ts:251-845 runAgentFlow（链推进嵌于主 while）/ 848 processStreamingToolRound`
+- `src/main/ai/agent/concurrencyDefs.ts:16-73 注册表 / 106 isToolConcurrencySafe（fail-closed 串行）`
+- `src/main/ai/agent/StreamingToolExecutor.ts:82-99 onToolCall / 140 waitForAll / 191 canExecuteNow`（工具级并行先例）
+- `src/main/db/agentTaskDao.ts:80-107 出队（**不改**）/ `src/main/db/index.ts:538-551（**不加 parent_id**）`
+- `src/main/ai/agent/agentTaskWorker.ts:140 maxConcurrent=1（**维持**）`
+- `src/main/db/agentSessionDao.ts:239/259 租约（单机降级参照）`
+- `src/shared/ai/taskPlan.ts:33 preconditions`、任务 6 的 `intent_json.deps`
+
+**变更清单**
+- 新建：`src/main/ai/agent/subtaskScheduler.ts`（纯调度器：ready 计算、限额、幂等键、epoch 乐观锁、结果聚合）；测试 `tests/main/ai/subtaskParallel.test.ts`
+- 修改：`subtaskOrchestrator.ts`（链状态机接调度器：BranchContext = `{ subtask, llmMessages: base 快照克隆 + 拆分段 + 本支指令, detector: 独立 DeadLoopDetector, epoch }`；分支收敛回调按 **taskId 显式聚合进结果数组**；`ctx.writeBatch` 等共享可变态只在主线程串行段修改）；`agentLoop.ts`（把「单子任务轮次段」抽为可复用 `runSubtaskSegment`——**gate 关路径代码不移动不改写**，抽取只服务链态分支；分支 LLM 调用复用现 deps/协议分流）；`docs/specs/ai-agent/agent-tool-runtime.md` 新 §15；`docs/architecture/ipc.md` AI Agent 通道节补注（无新通道，分支事件仍走既有 `AI_STREAM_*`/`subtask_done`，主进程侧串行化派发）
+- **明确不做**（写入计划与 status 偏离记录）：源文档 `db/index.ts` 加 `parent_id`、`agentTaskDao` 出队改造、`maxConcurrent` 放开——依赖表达走 intent_json.deps（Q18 同口径）、队列层维持同会话串行（supersede 现语义），并行**仅限链内子任务**。
+
+**实现要点（Q24 + 外部调研并入）**
+- 单机降级口径（Q24）：**进程内互斥**（每链单调度器实例 + dispatch Set）、**确定性幂等键**、**乐观锁**（`chain.epoch`，分支收敛 CAS：epoch 不符 → 结果重放聚合或丢弃重跑，杜绝双推进）。
+- 幂等键（外部调研，来源 Temporal activity-definition，docs.temporal.io/activity-definition：Workflow/Run ID + Activity ID 组合 → 本项目映射）：`sessionId + taskId + subtaskId + tool + 规范化入参 hash`，分支写操作与结果登记前查重。
+- 出队条件：`deps[s] ⊆ done(s)` 且与在飞支 **R/W 无交集**（`SubtaskDef.rw` + `params.object` 归一路径比较；交集含「两写同对象」「一写一读同对象」）且在飞数 < **并行上限 2**；任何不满足 → 串行（降级安全）。
+- 分支失败（Q19 + 调研 LangGraph graph-api：并行结果合并勿依赖对象覆盖语义、共享 key 无 reducer 会互相覆盖，必须按 taskId 显式聚合进结果数组）：失败支**不取消兄弟**，兄弟跑完再按任务 7 报告规则合并；错误分类（调研 Temporal retry-policies，docs.temporal.io/retry-policies）：参数校验/权限/MD5 陈旧/用户拒绝 → **立即失败不重试**；网络/超时/SQLite busy/乐观锁冲突 → 退避 1s×2ⁿ（Backoff 2.0）封顶、**有限次且受 P0 `SUBTASK_FAILURE_MAX_RETRIES=1` 总闸约束**（调研「不在 activity 内手写重试」映射为：重试逻辑只在 `handleSubtaskFailure` 单点，分支不私自循环）。
+- 预算：分支各持独立 detector；`totalRoundsCap` 按**完成时累加** Σrounds 校验（主线程串行段更新），触顶 → 安全点停链（现语义）。
+- 交互串行化：分支请求交互（提问/确认）→ 先让在飞支跑到安全点（子任务边界），再主线程逐个处理（复用 waiting_interaction），恢复后按 epoch 继续。
+
+**TDD 要点（源验收三类并行测试）**
+1. **依赖满足才出队**：s2 deps=[s1] → s2 调度时刻 > s1 完成时刻（事件序断言）；无依赖双读支同时在飞（挂起对齐 spy）；在飞 ≤2 恒断言；
+2. **互斥防覆盖**：两写同 object → 串行；一写一读同 object → 串行；R/W 无交集 → 并行；幂等键：同键二次 dispatch 被拒；乐观锁：伪造旧 epoch 收敛 → 不覆盖新结果；
+3. **分支失败策略**：支 A 失败、支 B 完成 → B 结果进报告、A 标 failed、兄弟未被取消、单次 DONE 收口；不可重试错误立即失败零退避；
+4. 回归：冲突计划或 `SUBTASK_PARALLEL_LIMIT=1` → 与串行路径结果等价；`subtaskSequence/agentLoopSplit/clarificationMatrix` 零改动全绿。
+
+**风险与回滚**：**八任务最大手术面**（抽 `runSubtaskSegment` 触碰 agentLoop 主循环）——红线护栏：gate 关路径不移动、`agentLoop.test`/`agentPromptBuilder sha256` 零改动全绿；分支克隆消息与 tool_result 配对完整性（P0 §13.5 不变式）在分支内逐支保持，测试钉死。回滚：`SUBTASK_PARALLEL_LIMIT = 2 → 1` 即退全串行（调度器 dormant）；或整体 revert 提交（intent_json.deps 保留无害）。
+
+### 任务 10 — 两套意图系统文档交叉引用与边界固化｜L1｜依赖：任务 9
+
+**重点文件与实况行号**
+- `docs/architecture/ai-agent.md:93-141`（意图路由，含 139-141 现有「桥接不合并」段）
+- `docs/architecture/knowledge.md:46`（查询理解表行）+ 检索模块节
+- `src/main/ai/intentRouter.ts:4-5`（文件头）；`src/main/ai/knowledge/queryPlanner.ts:1-7`（文件头）
+- `docs/requirements/agent-memory-optimize-2.req.md:41`（历史记录，**不改**）
+
+**变更清单**
+- 修改（4 文件）：`ai-agent.md`（意图节加「另一套意图系统」交叉引用链接 + 优先级说明：任务意图定工具集、检索策略意图定 KB 检索，冲突以 Agent 为准）；`knowledge.md`（对称交叉引用 + 同优先级说明 + 指向 req 历史记录）；`intentRouter.ts`（头注释 1-2 行：任务意图域，禁止 import queryPlanner/禁止合并两套枚举）；`queryPlanner.ts`（头注释对称声明）
+- 无共享常量文件（源文档 grill 二选一：采纳**仅文档/注释约定**——两套类型已分处 `@shared/ai/agent.ts` 与 `@shared/ai/kb.ts`，物理隔离已成立，新建边界文件属过度设计；写入决策记录）
+- 测试：无新测试；`npm run typecheck` + 既有 `npm run test` 全绿即验收（注释/文档零行为）
+- 提交：`docs(agent): cross-reference dual intent systems and declare boundary comments`（纯文档+注释单独提交）
+
+**风险与回滚**：仅注释与文档，零运行时风险；revert 即回。
+
+## 3. 变更清单汇总表（阶段 8 交付核对用）
+
+| 任务 | 新建文件 | 修改文件 | 新增测试文件 | 文档同步 |
+| --- | --- | --- | --- | --- |
+| 6 | `src/shared/ai/intentRecord.ts`、`src/main/ai/agent/chainTracking.ts` | `agentSessionDao.ts`、`shared/ai.ts`、`subtaskOrchestrator.ts`、`agentLoop.ts`、`agentTaskWorker.ts` | `tests/main/db/agentSessionIntentJson.test.ts`、`tests/main/ai/chainTracking.test.ts` | `database.md`、`ai-agent.md` |
+| 7 | `src/main/ai/agent/chainReport.ts` | `subtaskOrchestrator.ts`、`agentLoop.ts`、`agentToolExecutor.ts`、`getTaskActivity.ts` | `tests/main/ai/chainReport.test.ts` | `agent-message-storage.md` |
+| 4 | `src/main/ai/intentTiering.ts` | `agentLoop.ts`、`agentContext.ts`、`kbSearch.ts` | `tests/main/ai/intentRouterTiered.test.ts` | `ai-agent.md` |
+| 9 | — | `toolTypes.ts`、`agentContext.ts`、`subtaskOrchestrator.ts`、`searchKBHandler.ts`、`kbSearch.ts`（+shared kb 类型 1 行） | `tests/main/ai/kbIntentBridge.test.ts` | `knowledge.md`、`ai-agent.md` |
+| 12 | — | `subtaskOrchestrator.ts`、`agentContext.ts`、`agentToolExecutor.ts`、`agentLoop.ts`、`BatchConfirmCard.tsx`、`intentRecord.ts` | `tests/main/ai/subtaskConfirmResume.test.ts` | `02-diff-cards.md` |
+| 13 | — | `shared/ai/config.ts`、`ipc/shared.ts`、`agentContext.ts`、`agentToolExecutor.ts`、`agentLoop.ts`、`confirmMatrix.ts`、`agentToolSelector.ts` | `tests/main/ai/writeModeConsumption.test.ts` | `ai-agent.md`、`agent-tool-runtime.md` |
+| 8 | `src/main/ai/agent/subtaskScheduler.ts` | `subtaskOrchestrator.ts`、`agentLoop.ts` | `tests/main/ai/subtaskParallel.test.ts` | `agent-tool-runtime.md`、`ipc.md` |
+| 10 | — | `intentRouter.ts`、`queryPlanner.ts`（仅注释） | — | `ai-agent.md`、`knowledge.md` |
+| 全程 | — | `docs/plan/agent-multi-intent.status.md`（每任务勾选+记录）、`docs/testing/agent-multi-intent.tdd.md`（每任务追加证据） | — | — |
+
+**合计**：新建 **13**（src 5 + 测试 8）；修改约 **27**（src/渲染约 17、文档约 10）；去重后约 **40 个文件**（`subtaskOrchestrator/agentLoop/agentContext/agentToolExecutor/ai-agent.md` 被多任务先后触达，按提交累计约 50 文件次）。
+
+## 4. 验收标准汇总（阶段 8 交付核对用）
+
+**总门禁（每任务提交前）**：`npm run typecheck` 0 错 + `npm run test` 全绿（基线 4696 例，既有测试零改动）+ `npm run lint` 0 error（108 warning 基线）+ `npx playwright test` 与 31 例既有失败同数同名零新增；agent 模块不在覆盖率白名单，不看覆盖率。
+
+**逐任务验收（源文档验收小节 + Q17-24 裁定合并）**
+- **任务 6**：DAO/追踪测试全绿（写读往返、状态跃迁、deps 归一、坏 JSON 降级、重试不落盘、入队/出队现语义、快照回滚）；`database.md` + `ai-agent.md` 同步；**零加列零迁移改动**（`src/main/db/index.ts` diff 必须为空）。
+- **任务 7**：合并规则测试三类（全成功/部分失败/补偿触发）+ 同文件链序 + getTaskActivity 透出；`agent-message-storage.md` 同步；force 失败停 `waiting_interaction` 有测试。
+- **任务 4**：`intentRouterTiered.test.ts` 降级链用例（小模型失败/超时回规则）+ **三调用点回归**（agentContext 主调用/技能推断、kbSearch 同步规则）+ 缓存共享断言；`ai-agent.md` 同步。
+- **任务 9**：桥接测试三类（透传/优先级/冲突）+ 检索一次 + `kbSearch.test` isFallthrough 既有断言零改动；`knowledge.md` + `ai-agent.md` 同步。
+- **任务 12**：暂停/恢复/部分拒绝测试 + staleness 按项 + 级联入报告；`02-diff-cards.md` 同步；复用 waiting_interaction 不新增状态。
+- **任务 13**：`concurrencyDefs.test.ts`、`docTools.test.ts` 既有断言零改动全绿 + 新增 auto/manual 用例 + 遗留问题 3 修复测试 + 收敛交叉断言；`ai-agent.md` 写控制 + `agent-tool-runtime.md` §14.5 同步。
+- **任务 8**：并行三类测试（依赖满足才出队/互斥防覆盖/分支失败策略）+ 上限 2 + 幂等键/乐观锁 + 串行等价回归；`agent-tool-runtime.md` §15 + `ipc.md` 同步；零 DB 改动。
+- **任务 10**：2 篇文档交叉引用落地 + 2 处头注释 + typecheck/全量 test 零破坏；独立 docs 提交。
+- **全程**：TDD strict 证据（RED→GREEN）续写 `docs/testing/agent-multi-intent.tdd.md`；status.md 阶段 3~8 勾选；提交信息严格 `type(scope): message` 英文、每任务一个。
+
+**P0 遗留问题衔接**
+- 遗留 3（非链态无交互拒写不可达）：**在任务 13 解决**（caller 侧无交互补 skip + 新测试；不改 confirmSkipSet 契约）——status.md 对应条目标注「已解决 @任务13」。
+- 遗留 1/2/4/5/6：不在本八任务范围，**不解决**（维持 status.md 现记录；遗留 5「write_batch 非内容型写回滚粒度」在任务 12 文档同步时交叉引用 `agent-tool-runtime.md` §14.3 如实记录，不扩大承诺）。
