@@ -1399,3 +1399,29 @@ npx vitest run tests/main/ai/subtaskParallel.test.ts
 | playwright | — | 本任务仅文档 + 2 处文件头注释，按任务 4/9/12/13/8 先例跳过 |
 
 零行为验证口径：typecheck/test/lint 全绿即证明注释与文档改动未引入任何编译或运行时变化（新增内容均为 `//` 注释与 markdown，不触碰可执行语句）。
+
+## 连通性修复 — §8 waitForInteraction 取消竞态 + 合规裸 .then（2026-10-03）
+
+**来源**：P1 阶段 6.5 连通性报告必修项 + 阶段 7 合规必修 1；原执行智能体两次催询后仍未落源码被终止，其 mock 脚手架与验证思路（runAgentFlow 外层 try/catch + vitest timeout）已抢救记档，由总指挥直接实施。
+
+**RED（stash 回退 agentTaskWorker.ts 实测）**：
+```
+npx vitest run tests/main/ai/subtaskConfirmResume.test.ts -t "取消竞态"
+ FAIL  注册前已 abort → 立即 reject（原实现无 reject 源，挂死至超时）
+ FAIL  注册后 abort → abort 事件兜底 reject
+ Error: Test timed out in 3000ms
+ Tests  2 failed | 1 passed (9)
+```
+
+**GREEN（修复后）**：
+```
+npx vitest run tests/main/ai/subtaskConfirmResume.test.ts
+ Test Files  1 passed (1)   Tests  9 passed (9)
+```
+
+**改动**：
+- `agentTaskWorker.ts`：`buildAgentDeps` 增 `abortController` 参数；`waitForInteraction` 注册时已 aborted 即 reject + abort 事件兜底监听（resolve/reject 移除监听）——覆盖「取消在注册前/中/后」全部交错；
+- `subtaskScheduler.ts:494`：裸 `Promise.resolve().then().then(ok,err)` → `queueMicrotask + async try/catch/finally wakeNow()`（保持微任务时序，CONVENTIONS 合规）；
+- 新增 3 例：注册前 abort 立即 reject / 注册后 abort 兜底 reject / 正常 resume resolve 回归。
+
+**门禁**：typecheck 0 错；全量 `205 文件 / 4784 例` 全绿（基线 4781 + 新 3）；lint 0 error（108 warning 基线）。

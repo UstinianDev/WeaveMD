@@ -243,6 +243,7 @@ import { AgentTaskWorker } from '@main/ai/agent/agentTaskWorker';
 import * as agentEventStore from '@main/ai/agent/agentEventStore';
 import type { ChainReport } from '@main/ai/agent/chainReport';
 import type { AgentTaskPlan, AgentTask, IAIConfig, AgentIntentJson } from '@shared/ai';
+import { DEFAULT_CONSENT } from '@main/ai/ipc/shared';
 import { IPC_CHANNELS } from '@shared/constants';
 
 function makeConfig(over: Partial<IAIConfig> = {}): IAIConfig {
@@ -899,4 +900,76 @@ describe('任务 12 ⑥ — 批次确认取消（reject）', () => {
     const assistant = dbMock.appendMessage.mock.calls.filter((c) => c[0].role === 'assistant');
     expect(assistant).toHaveLength(0);
   });
+});
+
+// ---------------------------------------------------------------------------
+// 连通性 §8 修复 — waitForInteraction 注册晚于取消不得挂死（worker 竞态）
+// ---------------------------------------------------------------------------
+
+interface DepsInternals {
+  buildAgentDeps(
+    session: unknown,
+    sessionId: string,
+    task: AgentTask,
+    row: null,
+    kbSettings: undefined,
+    consent: unknown,
+    mainWindow: null,
+    abortController: AbortController,
+  ): AgentLoopDeps;
+}
+
+/** 构造 worker deps 竞态试验台：独立 AbortController 模拟 cancelTask 时序。 */
+function makeRaceDeps(): {
+  worker: WorkerInternals & DepsInternals;
+  wait: () => Promise<Record<string, string>>;
+  abort: AbortController;
+} {
+  const fakeDb = { fake: true } as unknown as import('better-sqlite3').Database;
+  const worker = new AgentTaskWorker(
+    fakeDb,
+    makeQueue() as unknown as ConstructorParameters<typeof AgentTaskWorker>[1]
+  ) as unknown as WorkerInternals & DepsInternals;
+  const abort = new AbortController();
+  const fakeSession = {
+    getSessionId: () => 'sess-1',
+    canTransitionTo: () => true,
+    transition: vi.fn(),
+  };
+  const deps = worker.buildAgentDeps(
+    fakeSession,
+    'sess-1',
+    makeTask(),
+    null,
+    undefined,
+    DEFAULT_CONSENT,
+    null,
+    abort
+  );
+  return { worker, abort, wait: () => deps.waitForInteraction!() };
+}
+
+describe('连通性 §8 — waitForInteraction 取消竞态（死锁修复）', () => {
+  it('注册前已 abort → 立即 reject（原实现无 reject 源，挂死至超时）', async () => {
+    const { wait, abort } = makeRaceDeps();
+    abort.abort();
+    await expect(wait()).rejects.toThrow('Task cancelled');
+  }, 3000);
+
+  it('注册后 abort → abort 事件兜底 reject', async () => {
+    const { wait, abort } = makeRaceDeps();
+    const pending = wait();
+    abort.abort();
+    await expect(pending).rejects.toThrow('Task cancelled');
+  }, 3000);
+
+  it('正常 resume resolve 回归，resolve 后 abort 不产生二次拒绝', async () => {
+    const { worker, wait, abort } = makeRaceDeps();
+    const pending = wait();
+    expect(worker.hasPendingInteraction('sess-1')).toBe(true);
+    worker.resumeInteraction('sess-1', { k: 'v' });
+    await expect(pending).resolves.toEqual({ k: 'v' });
+    abort.abort();
+    expect(worker.hasPendingInteraction('sess-1')).toBe(false);
+  }, 3000);
 });

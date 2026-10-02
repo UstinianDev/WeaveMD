@@ -491,14 +491,12 @@ export async function runScheduledLoop(
         const attempt = attempts.get(subtask.id) ?? 0;
         hooks?.onDispatch?.(subtask, dispatch.epoch);
         const flight: Flight = { subtask, epoch: dispatch.epoch, roundBase, attempt };
-        Promise.resolve()
-          .then(() => launch(subtask, dispatch.epoch, roundBase, attempt))
-          .then(
-            (outcome) => {
-              flight.outcome = outcome;
-              wakeNow();
-            },
-            (error: unknown) => {
+        // 启动体延后到微任务执行（保持原 Promise 链时序），async/await 替代裸 .then
+        queueMicrotask(() => {
+          void (async () => {
+            try {
+              flight.outcome = await launch(subtask, dispatch.epoch, roundBase, attempt);
+            } catch (error: unknown) {
               // 派发体意外上抛（含 abort/consent 穿透）→ 致命收敛，编排层传播收口
               flight.outcome = {
                 kind: 'failed',
@@ -509,9 +507,11 @@ export async function runScheduledLoop(
                 fatal: true,
                 fatalError: error,
               };
+            } finally {
               wakeNow();
             }
-          );
+          })();
+        });
         inflight.set(subtask.id, flight);
         ordinal += 1;
       }

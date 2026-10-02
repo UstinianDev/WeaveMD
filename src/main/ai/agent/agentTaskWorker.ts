@@ -315,7 +315,7 @@ export class AgentTaskWorker {
 
       // 7. 构造 AgentLoopDeps（KB 检索设置在其中合并：payload 显式 > 持久化 > 默认）
       const deps = this.buildAgentDeps(
-        session, sessionId, task, row, kbSettings, consent, mainWindow
+        session, sessionId, task, row, kbSettings, consent, mainWindow, abortController
       );
 
       // 8. 执行 Agent 流程（传入 sessionId + mainWindow 以启用持久化事件推送）
@@ -569,6 +569,7 @@ export class AgentTaskWorker {
     kbSettings: Partial<IKbSettings> | undefined,
     consent: IAIConsent,
     mainWindow: BrowserWindow | null,
+    abortController: AbortController,
   ): import('./agentLoop').AgentLoopDeps {
     // KB 检索设置合并：payload 显式 > 持久化配置 > 默认值（normalizeKbSettings 统一兜底）
     const persisted = normalizeKbSettings({
@@ -630,7 +631,29 @@ export class AgentTaskWorker {
       },
       waitForInteraction: () =>
         new Promise<Record<string, string>>((resolve, reject) => {
-          this.pendingInteractions.set(sessionId, { resolve, reject, session: session! });
+          // 连通性 §8 死锁修复：取消可能先于注册发生（BranchInteractionGate 先过栅栏
+          // 后注册）——注册时已 aborted 立即 reject；注册后由 abort 事件兜底，
+          // 保证「取消在注册前/中/后」任一交错都有 reject 源，不再永久挂起
+          if (abortController.signal.aborted) {
+            reject(new Error('Task cancelled'));
+            return;
+          }
+          const onAbort = () => {
+            this.pendingInteractions.delete(sessionId);
+            reject(new Error('Task cancelled'));
+          };
+          abortController.signal.addEventListener('abort', onAbort, { once: true });
+          this.pendingInteractions.set(sessionId, {
+            resolve: (value) => {
+              abortController.signal.removeEventListener('abort', onAbort);
+              resolve(value);
+            },
+            reject: (error) => {
+              abortController.signal.removeEventListener('abort', onAbort);
+              reject(error);
+            },
+            session: session!,
+          });
         }),
       // 任务 5（Q11）：子任务链边界中断判定 —— 本任务被 supersede 或同会话出现新
       // pending（用户发了新消息）。查询失败 fail-safe 返回 false（退化为跑完当前链）。
