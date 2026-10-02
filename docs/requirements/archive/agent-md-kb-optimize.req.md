@@ -90,4 +90,4 @@ P0-1 → P0-2 → 门禁验证 → P1-3 ∥ P1-4 ∥ P1-5 ∥ P1-6（并行）
 
 ## 五、已对齐问题
 
-详见 `docs/plan/agent-md-kb-optimize.status.md` 需求对齐决策记录。
+详见需求对齐决策记录（原 `docs/plan/agent-md-kb-optimize.status.md`，已随计划退役，见 git 历史）。

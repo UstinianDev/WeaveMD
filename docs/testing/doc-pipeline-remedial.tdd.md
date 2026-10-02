@@ -2,6 +2,7 @@
 
 > 分支 `feat/doc-pipeline`｜执行日期 2026-09-27｜方法：**TDD strict**——每项 RED 实测 → GREEN → 分项小步提交。
 > 蓝图：`docs/plan/doc-pipeline.remedial.diagnosis.md`（commit aca71fd）；三个开放点裁定结果见 §6。
+> 溯源声明：来源标注中的 `docs/plan/*` 为过程计划文档，已随计划退役（历史见 git），仅留溯源线索。
 
 ---
 

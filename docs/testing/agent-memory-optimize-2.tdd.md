@@ -3,6 +3,7 @@
 > 日期：2026-09-30 | 档位 **L（含 L4 迁移）** | TDD 强度 **strict**
 > 需求 `docs/requirements/agent-memory-optimize-2.req.md`（Q1~Q15）｜计划与实施记录 `docs/plan/agent-memory-optimize-2.plan.md`（§6）
 > 结论：**三 Gate（A / B / C）六项门禁全绿，改动行覆盖全部 ≥99.8%，E2E 零新增失败**
+> 溯源声明：来源标注中的 `docs/plan/*` 为过程计划文档，已随计划退役（历史见 git），仅留溯源线索。
 
 ## §1 范围与交付对账
 

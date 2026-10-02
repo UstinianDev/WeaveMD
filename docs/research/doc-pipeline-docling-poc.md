@@ -1,7 +1,7 @@
 # doc-pipeline — Docling PoC 报告（B12 / 二-5）
 
 > 日期：2026-09-27 ｜ 分支：`feat/doc-pipeline` ｜ 风险级：L2（仅验证、随时可停）
-> 权威依据：`优化方向.md` §二-5②（量化判定四项 + 红线）＋ `docs/plan/doc-pipeline.plan.md` §2-B12 / §4.2-B12
+> 权威依据：`优化方向.md` §二-5②（量化判定四项 + 红线）＋ `docs/plan/doc-pipeline.plan.md`（已随计划退役，见 git 历史）§2-B12 / §4.2-B12
 > 结论先行：**不达标 → 按 Q6 关闭本任务**，`parseDocument` 主链路与打包配置零改动，主线不受影响。
 
 ---

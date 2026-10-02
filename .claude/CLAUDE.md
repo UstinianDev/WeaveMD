@@ -72,7 +72,11 @@
 - 右侧 AI 面板（导航栏「AI」按钮开合），仅 Agent 模式（Chat 已删除）
 - 铁律一：**AI 写入必经确认**——红删绿增预览 → 用户确认 → `updateContent` 入 undo 栈
 - 铁律二：**笔记外发必须用户知情同意**（联网同意已停用——三配置齐全即视为许可）；key 用 safeStorage 加密存 SQLite
-- Agent 能力：toolRegistry + agentLoop（≤6 轮）+ skillLoader + intentRouter + contextManager
+- Agent 能力：toolRegistry + agentLoop（≤6 轮）+ skillLoader + intentRouter + intentTiering 三层路由（含 runTaskSplit）+ contextManager
+- 多意图：规则预检门（命中 ≥2 类才开闸，单意图零 LLM）→ `runTaskSplit` 结构化拆分（`parseStructuredJson` 严格 JSON，失败重试 1 次后降级单意图直通）→ 拆分确认卡（`SplitConfirmCard`）→ 子任务链顺序执行（`subtaskOrchestrator`：轮次双预算 / 中断安全点 / 失败重试）与依赖图并行调度（`subtaskScheduler`：双预算 + 冲突防护）
+- 多意图追踪与报告：全链状态落 `agent_sessions.intent_json`（`chainTracking`，零加列）+ 链末执行报告合并（`chainReport`，部分失败策略）
+- 多意图确认与写控制：intent × tool 确认矩阵（`confirmMatrix` 唯一权威，force/batch/none 三档，fail-closed）+ `writeMode` auto/manual 消费（manual 逐写确认、auto 链末写批次汇总确认 `BatchConfirmCard`），铁律一不削弱
+- 三层意图路由：L1 规则 `classifyIntent` / L2 低置信 tier2 小模型（1.5s 硬闸）/ L3 `runTaskSplit` 大模型规划；KB 检索策略意图与 Agent 任务意图**桥接不合并**（见 `docs/architecture/knowledge.md` 桥接小节）
 - 自动记忆：`agent_memory` 16 列（+ `agent_memory_fts` trigram）+ `memory_read`/`memory_write` 两工具 +
   后台 `memory_extract` 提取与轨迹提炼 `skill_distill`（`userData/skills/_auto/`，草稿需人工采纳）+
   画像/经验块注入 prompt + 遗忘与容量上限（`access_count` LRU 淘汰，`manual` 永不关闭）+ 相似合并建议三态审核
@@ -111,6 +115,14 @@
 - `src/main/ai/agent/agentLoop.ts` — Agent 循环（WRITE_TOOLS + toolsForIntent + 确认流程）
 - `src/main/ai/agent/agentTaskWorker.ts` — 后台任务执行器（交互事件持久化 + IPC 发送）
 - `src/main/ai/agent/agentEventStore.ts` — 事件持久化（persistAndSend + persistOnly + replayFromSeq）
+- `src/main/ai/agent/taskPlanner.ts` — 多意图结构化拆分调用（runTaskSplit + 失败降级单意图直通）
+- `src/main/ai/agent/subtaskOrchestrator.ts` — 子任务链状态机（顺序执行 / 中断安全点 / 前序摘要注入）
+- `src/main/ai/agent/confirmMatrix.ts` — intent × tool 确认矩阵唯一权威（force/batch/none + fail-closed）
+- `src/main/ai/agent/chainTracking.ts` — 子任务链全链状态落 `agent_sessions.intent_json`
+- `src/main/ai/intentTiering.ts` — 三层意图路由（规则 / tier2 小模型 / 大模型规划）+ 共享 TTL 缓存
+- `src/main/ai/llm/structuredJson.ts` — 严格 JSON 解析骨架（剥围栏 + 校验，厂商无关）
+- `src/shared/ai/{taskPlan,intentRecord}.ts` — 拆分计划与 intent_json 共享类型
+- `src/render/components/AIAgent/cards/{SplitConfirmCard,BatchConfirmCard}.tsx` — 拆分确认卡 / 写批次汇总确认卡
 - `src/render/components/AIAgent/cards/QuestionCard.tsx` — 底部滑出提问面板
 - `src/render/components/AIAgent/panel/AIPanelSession.tsx` — 会话视图（集成 QuestionCard）
 - `src/render/components/AIAgent/panel/AIPanelComposer.tsx` — TipTap Composer（/@标签 + 补全）
@@ -142,10 +154,9 @@
 - [architecture/](../docs/architecture/) — 按技术层分类（10 篇：前端/编辑器/后端/AI/知识库/数据库/IPC/安全/测试/构建）
 - [modules/](../docs/modules/) — 各模块文档（11 个模块）
 - [specs/](../docs/specs/) — 功能规格与行为契约，**按模块分文件夹**（editor 10 主 + 7 分册 / ai-agent 6 主 + 3 分册 / knowledge 5 主 / release 1 主 = **22 主 + 10 分册**）
-- [testing/](../docs/testing/) — TDD 测试报告（23 篇）
-- [requirements/](../docs/requirements/) — devflow 需求文档（当前 7 篇 + archive 12 篇）
-- `plan/` — 实施计划与状态（**已归档**：devflow 过程产物，权威规格在 `specs/`、调研在 `research/`，历史见 git）
-- `plan/archive/` — 已完成的实施状态归档（**已随 plan 整体归档，见 git 历史**）
+- [testing/](../docs/testing/) — TDD 测试报告（24 篇）
+- [requirements/](../docs/requirements/) — devflow 需求文档（当前 5 篇 + archive 15 篇）
+- `plan/` — 实施计划与状态（**现行 agent-multi-intent 5 篇**：`plan` / `p1.plan` / `status` / 2 篇 connectivity；权威规格在 `specs/`、调研在 `research/`，历史整体退役见 git，原 `plan/archive/` 已不存在）
 
 ### 查阅规则（渐进式披露）
 - 项目是什么、怎么跑 → README.md（根目录）

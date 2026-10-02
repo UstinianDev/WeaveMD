@@ -153,6 +153,7 @@ runAgentFlow
   检索策略意图定 KB 检索，冲突以 Agent 为准；两套不互相 import、禁止物理合并
   （类型分处 `@shared/ai/agent.ts` 与 `@shared/ai/kb.ts`，物理隔离已成立，不建共享常量文件）。
   历史记录见 `docs/requirements/agent-memory-optimize-2.req.md:41`（A3 分工裁定）。
+- **规范契约**：子任务链执行与降级编排见 [`agent-tool-runtime.md`](../specs/ai-agent/agent-tool-runtime.md) §13（轮次双预算 / 上下文重建 / 中断安全点 / 失败重试）与 [`agent-prompt-context.md`](../specs/ai-agent/agent-prompt-context.md) §11.3（`runTaskSplit` / `confirmSplitPlan` 调用与降级编排）。
 
 ### 三层意图路由分层（agent-multi-intent 任务 4，Q20）
 
@@ -180,6 +181,8 @@ runAgentFlow
 **零新增调用口径**：规则高置信输入零新增 LLM 调用（预取在触发判定处短路，lazy opts 工厂都不构造）；
 低置信升级小模型是 Q20 P1 裁定；分类层变化不改提示词 / 消息序列（gate 关路径逐字节等价仍成立）。
 分类输入输出落日志（`[intentTier]` 前缀，query 摘要 + rule/tier2 结论），供离线评估规则覆盖率。
+
+**回指**：本层只处理**任务意图域**；KB 侧**检索策略意图域**与本层的边界（桥接不合并、`agentIntent` 仅作诊断透传、冲突以 Agent 为准）见 [`knowledge.md`](knowledge.md)「Agent 任务意图 ↔ KB 检索策略意图：桥接不合并」小节。
 
 ## 工具系统
 
@@ -231,6 +234,7 @@ runAgentFlow
 
 > 权威实现：`src/main/ai/agent/confirmMatrix.ts`（纯函数，**代码矩阵为准**，Q14；
 > 提示词一致性由 `tests/main/ai/agentToolExecutor.test.ts`「确认矩阵」+ `tests/main/ai/confirmMatrix.test.ts` 钉死）。
+> 规范契约：三档执行语义、链末汇总确认与 write_mode 消费见 [`agent-tool-runtime.md`](../specs/ai-agent/agent-tool-runtime.md) §14（§14.3 链末汇总 / §14.5 write_mode 消费）。
 
 ### 三档定义
 
@@ -320,6 +324,7 @@ created → queued → running → waiting_interaction / waiting_operation_confi
 - **读端容错**：`getIntentJson` 对不存在 / 未写入 / 坏 JSON 一律降级 `null` 不抛；`outcome` 缺省 = 未收口，
   `finalizeChainRun` 补 `finished`、`stopChain` 写 `stopped`（`failed` 生产点由任务 7 报告线裁定）。
 - **`report` 字段**任务 6 只定形不填充（任务 7 `buildChainReport` 起写入）。
+- **规范契约**：链执行与并行调度的完整契约见 [`agent-tool-runtime.md`](../specs/ai-agent/agent-tool-runtime.md) §13（子任务链执行）与 §15（依赖图并行调度：出队四道闸 / epoch 乐观锁 / 失败策略 / 交互串行化）。
 
 ### 后台任务类型（agent-memory-optimize 三批）
 

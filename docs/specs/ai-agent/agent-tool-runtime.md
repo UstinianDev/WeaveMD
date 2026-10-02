@@ -1,13 +1,14 @@
 # Agent 工具运行时 — 执行、并发与外发闸（Tool Runtime）
 
 > 规范编号：SPEC-AGENT-TOOL | 版本：v1.1（已实施，任务 11 增 §14 确认档位契约）| 状态：生效 | 更新：2026-10-02
-> 关联需求：[agent-perf-optimize.req.md](../../requirements/agent-perf-optimize.req.md)（S1~S5 / 硬性约束）、[doc-pipeline.req.md](../../requirements/doc-pipeline.req.md)（六-1 工具与引用 / 八-1 外发闸）、[agent-cost-optimize.req.md](../../requirements/agent-cost-optimize.req.md)（B3 结果预算）、[REQUIREMENTS.md](../../REQUIREMENTS.md) §3.7 / §3.9 / §3.12
+> 关联需求：[agent-perf-optimize.req.md](../../requirements/archive/agent-perf-optimize.req.md)（S1~S5 / 硬性约束）、[doc-pipeline.req.md](../../requirements/doc-pipeline.req.md)（六-1 工具与引用 / 八-1 外发闸）、[agent-cost-optimize.req.md](../../requirements/archive/agent-cost-optimize.req.md)（B3 结果预算）、[REQUIREMENTS.md](../../REQUIREMENTS.md) §3.7 / §3.9 / §3.12
 > 关联模块：[11-AI代理面板-Agent.md](../../modules/11-AI代理面板-Agent.md)
 > 关联架构：[ai-agent.md](../../architecture/ai-agent.md)、[backend.md](../../architecture/backend.md)、[security.md](../../architecture/security.md)
 > 关联规范：[agent-message-storage.md](./agent-message-storage.md)（消息写读契约）
+> 关联测试：[agent-multi-intent.tdd](../../testing/agent-multi-intent.tdd.md)（§13-§15 多意图链路 TDD 证据，分册 `testing/agent-multi-intent.tdd/`）
 
 > 本文只写长期有效的实现级行为契约。需求动机、验收与红线见关联 req，两边重复的只在 req 保留，本文引用不复述。
-> 来源标注中的 `../../plan/*` 为过程计划文档，将随计划归档删除，仅留溯源线索；已与现码逐条核对（2026-10-01）。
+> 来源标注中的 `../../plan/*` 为过程计划文档，已随计划退役（历史见 git），仅留溯源线索；已与现码逐条核对（2026-10-01）。
 
 ---
 
@@ -53,13 +54,13 @@
 - 已落地常量（**现状口径**）：`MAX_SINGLE_RESULT_CHARS = 10_000`、`MAX_AGGREGATE_RESULTS_CHARS = 40_000`、`PREVIEW_LENGTH = 500`。（来源：`docs/plan/agent-cost-optimize.plan.md` §2.5 B3、现码 `toolResultStorage.ts:22/25/31`）
 - **设计期数值以现状为准**：`docs/plan/agent-perf-optimize.phase2.plan.md` §S6 的 40K 单结果 / 150K 聚合是设计期取值，已被 cost 批 10K/40K 取代，不得按 40K/150K 实现或校验。
 - 行为契约：超单结果阈值的内容**写入文件而非丢弃**，返回 `PREVIEW_LENGTH` 预览并带恢复路径；聚合超预算时从最大结果开始持久化；同一工具结果在后续所有 API 调用中使用**相同替换内容**（确定性）。（来源：`docs/plan/agent-cost-optimize.plan.md` §2.5 B3、`docs/plan/agent-perf-optimize.phase2.plan.md` §S6）
-- 质量护栏（产物 payload、澄清问题、出处、错误警告等不削减）见 [agent-cost-optimize.req.md](../../requirements/agent-cost-optimize.req.md) §质量护栏，本文不复述。
+- 质量护栏（产物 payload、澄清问题、出处、错误警告等不削减）见 [agent-cost-optimize.req.md](../../requirements/archive/agent-cost-optimize.req.md) §质量护栏，本文不复述。
 
 ## 7. 哈希统一 xxHash64
 
 - `src/shared/utils/hashUtil.ts`：`xxHash64()` 异步（WASM 懒加载）、`xxHash64Sync()` 同步（djb2 降级）。（来源：`docs/plan/agent-perf-optimize.plan.md` §2.4、现码 `hashUtil.ts`）
 - 替换范围 = staleness 三处（`editBlocksHandler` / `previewFileRevision` / `previewPatchFilesHandler`）+ 渲染两处（`rewriteStore` / `DiffSummaryCard`）。（来源：`docs/plan/agent-perf-optimize.plan.md` §2.4、现码核对）
-- **`agentLoopGuard.ts` 的 MD5 明确不动**（死循环检测数据量小，风险 > 收益）。（来源：`docs/plan/agent-perf-optimize.plan.md` §2.4、[perf req 硬性约束](../../requirements/agent-perf-optimize.req.md)）
+- **`agentLoopGuard.ts` 的 MD5 明确不动**（死循环检测数据量小，风险 > 收益）。（来源：`docs/plan/agent-perf-optimize.plan.md` §2.4、[perf req 硬性约束](../../requirements/archive/agent-perf-optimize.req.md)）
 
 ## 8. 搜索缓存键与失效
 
@@ -106,7 +107,7 @@
 
 ## 12. 需求侧交叉引用
 
-各优化项的需求动机、验收指标与硬性约束（工具行为不变、上下文不瘦身、`agentLoopGuard` MD5 不替换等）见 [agent-perf-optimize.req.md](../../requirements/agent-perf-optimize.req.md)；工具与引用的任务级验收见 [doc-pipeline.req.md](../../requirements/doc-pipeline.req.md) §1 模块六/八；结果预算与质量豁免清单见 [agent-cost-optimize.req.md](../../requirements/agent-cost-optimize.req.md)。本文不重复这些需求级结论。
+各优化项的需求动机、验收指标与硬性约束（工具行为不变、上下文不瘦身、`agentLoopGuard` MD5 不替换等）见 [agent-perf-optimize.req.md](../../requirements/archive/agent-perf-optimize.req.md)；工具与引用的任务级验收见 [doc-pipeline.req.md](../../requirements/doc-pipeline.req.md) §1 模块六/八；结果预算与质量豁免清单见 [agent-cost-optimize.req.md](../../requirements/archive/agent-cost-optimize.req.md)。本文不重复这些需求级结论。
 
 ## 13. 子任务链执行契约（agent-multi-intent 任务 5）
 

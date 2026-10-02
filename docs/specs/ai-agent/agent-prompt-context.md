@@ -1,11 +1,11 @@
 # Agent 提示词组装与上下文注入规范（Agent Prompt & Context）
 
 > 规范编号：SPEC-AGENT-PTX | 版本：v1.0 | 状态：生效（已实施）| 更新：2026-10-01
-> 关联需求：[agent-cost-optimize.req.md](../../requirements/agent-cost-optimize.req.md)（A1~A5、B1）、
+> 关联需求：[agent-cost-optimize.req.md](../../requirements/archive/agent-cost-optimize.req.md)（A1~A5、B1）、
 > [agent-memory-optimize.req.md](../../requirements/agent-memory-optimize.req.md)（P0-2）、
 > [agent-memory-optimize-2.req.md](../../requirements/agent-memory-optimize-2.req.md)（A1 三文件、B4 画像、Q15）、
 > [agent-memory-optimize-3.req.md](../../requirements/agent-memory-optimize-3.req.md)（D4 经验注入）、
-> [agent-perf-optimize.req.md](../../requirements/agent-perf-optimize.req.md)（S7）、
+> [agent-perf-optimize.req.md](../../requirements/archive/agent-perf-optimize.req.md)（S7）、
 > [agent-multi-intent.req.md](../../requirements/agent-multi-intent.req.md)（Q3/Q4/Q5/Q7，结构化任务拆分出参）
 > 关联模块：[docs/modules/11-AI代理面板-Agent.md](../../modules/11-AI代理面板-Agent.md)
 > 关联架构：[docs/architecture/ai-agent.md](../../architecture/ai-agent.md)
@@ -216,7 +216,7 @@ soul / memory / style 三文件整体作为一个块注入，位置**紧跟【�
 
 ## 7. 文件操作叙述约束
 
-动机与豁免清单（质量护栏 5 项）见 req A 轨（[agent-cost-optimize.req.md §需求清单 A](../../requirements/agent-cost-optimize.req.md)）；本节只定提示词行为。〔cost §2.2〕
+动机与豁免清单（质量护栏 5 项）见 req A 轨（[agent-cost-optimize.req.md §需求清单 A](../../requirements/archive/agent-cost-optimize.req.md)）；本节只定提示词行为。〔cost §2.2〕
 
 ### 7.1 `## 文件操作后的回复` 段（A1/A3/A4）
 
@@ -273,7 +273,7 @@ S7 原案在 phase2 批次**仅部分落地**（commit `ee459bc` 记录：字母
 
 ## 9. 边界与红线（交叉引用，不在此复述）
 
-- 叙述削减的功能质量红线与 5 项豁免 → req [agent-cost-optimize §硬性约束 / §质量护栏](../../requirements/agent-cost-optimize.req.md)；
+- 叙述削减的功能质量红线与 5 项豁免 → req [agent-cost-optimize §硬性约束 / §质量护栏](../../requirements/archive/agent-cost-optimize.req.md)；
 - 反上下文改写的边界（合法指代允许沿用历史、跨话题由规则 1 兜住）→ req [agent-memory-optimize P0-2](../../requirements/agent-memory-optimize.req.md)；
 - 三文件/画像的 token 上限与截断裁定 → req-2 Q4 / §四；chat 也注入 → req-2 Q15；
 - 经验注入的意图范围与 chat 歧义处置 → req-3 D4（5 显式意图、chat 不注入）；

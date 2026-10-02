@@ -1,6 +1,6 @@
 # WeaveMD 需求文档
 
-> 版本：v3.2 | 最后更新：2026-09-27
+> 版本：v3.3 | 最后更新：2026-10-03
 
 ---
 
@@ -112,7 +112,7 @@
 | AGT-12 | @ 文件创作       | P1     | @ 文件树当前目录的 .md；**触发方式为面板内 `@文档 ` / `@ + 描述`**（原「编辑器选区触发为主」入口已随选区改写链路移除，见 3.7 注）          |
 | AGT-13 | 块级精准改写     | P1     | 定向块编辑协议：AI 返回 `[{定位, 新内容}]`，仅替换目标块、其余字节不变；定位失败拒应用                                                                                                                 |
 | AGT-14 | 红删绿增预览     | P1     | diff 预览（红删绿增，可折叠，字体 15px）+ AI 改动说明；改写指令入会话；→ 用户确认后才经 stateToMarkdown 写入编辑器（作为一次可撤销编辑）                                                         |
-| AGT-15 | 意图识别         | P1     | 5 类意图路由（创作/改写、知识库问答、技术资料、网页抓取、闲聊）；模糊 → 提问卡片（grill-me 深度拷问风，列出候选意图）；工具失败自动兜底降级                                                            |
+| AGT-15 | 意图识别         | P1     | 5 类意图路由（创作/改写、知识库问答、技术资料、网页抓取、闲聊）+ 多意图预检门与三层意图路由（见 3.13）；模糊 → 提问卡片（grill-me 深度拷问风，列出候选意图）；工具失败自动兜底降级                                                            |
 | AGT-16 | 上下文压缩       | P2     | token 达阈值（简单 0.85 / 复杂 0.65，`getCompressThreshold`）自动压缩；上下文指示器 `ContextRing` 圆环位于 **composer 内**（非底栏），绿 <50% / 黄 50-80% / 红 >80% + token 估算 + 悬停 tooltip；早期对话合并为「历史摘要」，保留最近 **3** 轮原文。~~`/compact` 手动命令~~ **未实现，需求已移除** |
 | AGT-17 | 工具调用         | P1     | 内置工具：只读（listFiles/readFile/searchKB/context7/firecrawl/runSkill）自动执行；写（editBlocks）必经预览确认；**AI 无直接落盘能力**                                                               |
 | AGT-18 | 会话持久化       | P2     | Chat/Agent 会话各自存 SQLite，按账号隔离，含历史摘要字段；历史会话列表 + 新会话；最近会话删除（🗑 + confirm）；View All → 历史会话列表视图                                                                                                                        |
@@ -122,7 +122,7 @@
 > 该入口（FloatingToolbar「AI 改写」→ `readDocumentSelection` → `startSelectionRewrite`）已随 `21fedb2` 移除，
 > 全链**生产调用方归零**、`selectionContext` 恒 null，故现唯一触发路径为面板内 `@文档 ` / `@ + 描述`。
 > 对应选区改写 E2E 断言按用户裁定**保留作已知失败**（作为「该能力曾存在」的证据），
-> 见 `docs/plan/agent-cost-optimize.status/01-derived-tasks.md` §附4 与 `docs/plan/agent-cost-optimize.status.md` §遗留（附录已拆分册）。
+> 原裁定记录在 agent-cost-optimize 的 status 分册 §附4 与主文档 §遗留（已随计划退役，见 git 历史）。
 
 ### 3.8 知识库导入 (P1)
 
@@ -196,6 +196,17 @@
 | DP-12 | 向量可选路径 | P2 | `kbIndexOpts()` 贯通 4 个索引入口 + `scheduleVectorBackfill` 回填；未配置 embedding 时降级 FTS5+标题 |
 | DP-13 | 打包体积门禁 | P1 | `build.files` 21 条反向排除 + `prebuild clean` + `postbuild sizeGate`（Setup ≤500MB / unpacked ≤1GB，超限 fail build） |
 | DP-14 | Docling PoC 关闭 | P2 | 量化不达标按 Q6 关闭；依赖隔离在 `scripts/docling-poc/`，主 `package.json` 零依赖 |
+
+### 3.13 多意图识别与执行 (P1)
+
+> 来源与裁定：[agent-multi-intent.req](./requirements/agent-multi-intent.req.md)（§3 Q1~Q14 / §6 Q17~Q24，2026-10-01~03 交付）；TDD 证据 [agent-multi-intent.tdd](./testing/agent-multi-intent.tdd.md)。
+
+| 编号 | 需求 | 优先级 | 说明 |
+|------|------|--------|------|
+| MI-01 | 预检门与结构化拆分 | P1 | 规则预检门命中 ≥2 类才开闸（单意图零 LLM 调用）；`runTaskSplit` 结构化出参（严格 JSON 解析校验，失败重试 1 次后降级单意图直通，不阻断对话） |
+| MI-02 | 子任务链执行与追踪 | P1 | 同 session 子任务顺序执行（轮次双预算 / 中断安全点 / 失败重试 → waiting_interaction）与依赖图并行调度；全链状态落 `agent_sessions.intent_json` + 链末执行报告 |
+| MI-03 | 确认矩阵与写控制 | P1 | intent × tool 三档确认矩阵（force/batch/none，fail-closed，铁律一不削弱）+ writeMode auto/manual 消费；多写子任务链末汇总确认，拒绝项链末快照回滚 |
+| MI-04 | 拆分与确认交互 | P1 | 拆分确认卡（可增删后确认）、写批次汇总确认卡、低置信子意图追问沿用提问卡片；无交互环境 fail-closed 拒写 |
 
 ## 4. 非功能需求
 

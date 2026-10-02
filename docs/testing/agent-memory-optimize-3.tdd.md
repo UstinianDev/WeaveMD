@@ -3,6 +3,7 @@
 > 日期：2026-10-01 | 档位 **L**（含 2 处 L4 迁移 + 1 处 L3 改既有 DDL）| TDD 强度 **strict**
 > 需求 `docs/requirements/agent-memory-optimize-3.req.md`（Q1~Q9）｜计划与实施记录 `docs/plan/agent-memory-optimize-3.plan.md`（§6）
 > 结论：**三 Gate 六件套全绿，55 处变异全部变红后还原复绿，E2E 零新增失败，计划外 `src/` 改动经逐项追认后为 0**
+> 溯源声明：来源标注中的 `docs/plan/*` 为过程计划文档，已随计划退役（历史见 git），仅留溯源线索。
 
 ## §1 范围与交付对账
 

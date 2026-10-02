@@ -1,7 +1,7 @@
 # Agent 成本核算与提示词缓存规范（Agent Cost & Caching）
 
 > 规范编号：SPEC-AGENT-COST | 版本：v1.0 | 状态：生效（已实施）| 更新：2026-10-01
-> 关联需求：[agent-cost-optimize.req.md](../../requirements/agent-cost-optimize.req.md)（B4 成本、B2 缓存断点、硬性约束）
+> 关联需求：[agent-cost-optimize.req.md](../../requirements/archive/agent-cost-optimize.req.md)（B4 成本、B2 缓存断点、硬性约束）
 > 关联模块：[docs/modules/11-AI代理面板-Agent.md](../../modules/11-AI代理面板-Agent.md)
 > 关联架构：[docs/architecture/ai-agent.md](../../architecture/ai-agent.md)、[docs/architecture/knowledge.md](../../architecture/knowledge.md)
 > 关联规范：[SPEC-AGENT-PTX](./agent-prompt-context.md)（前缀稳定性五原则、提示词组装）、[SPEC-AGENT-TOOL](./agent-tool-runtime.md)（defer 运行时与结果预算）
@@ -148,7 +148,7 @@ system 数组内**任一靠前的动态内容**（如文档上下文，见 SPEC-
 
 ## 6. 边界与红线（交叉引用）
 
-- 功能质量不可降、产物 payload 不动、不减轮次/澄清/确认卡片 → req [agent-cost-optimize §硬性约束](../../requirements/agent-cost-optimize.req.md)；
+- 功能质量不可降、产物 payload 不动、不减轮次/澄清/确认卡片 → req [agent-cost-optimize §硬性约束](../../requirements/archive/agent-cost-optimize.req.md)；
 - 质量护栏 5 项豁免 → 同上 §质量护栏；
 - 成本估算含缓存折扣、`formatCostTable` 输出一致 → 同上 验收 4；
 - A/B 轨执行顺序与档位属过程信息，见 git 历史中的 plan，不构成行为契约。

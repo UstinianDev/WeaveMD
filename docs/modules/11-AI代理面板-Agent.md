@@ -1,6 +1,6 @@
 # AI 代理面板 (Agent) 功能总结
 
-> 模块编号：11 | 优先级：P1 | 最后更新：2026-10-01
+> 模块编号：11 | 优先级：P1 | 最后更新：2026-10-03
 > 需求编号：AGT-01~19 / KB-01~05（docs/REQUIREMENTS.md 3.7 / 3.8）
 
 **关联文档（渐进式披露，按需加载）：**
@@ -40,6 +40,12 @@
 两条铁律：**① AI 写入必经确认**；**② 笔记外发必须用户知情同意**（联网同意已停用，三配置齐全即视为许可）。
 
 **三视图 UI**：home（RECENT 最近 3）/ session（会话）/ settings（设置侧栏）
+
+### 多意图与子任务链（agent-multi-intent，2026-10-03）
+
+- **拆分确认卡 `SplitConfirmCard`**：规则预检门开闸 → `runTaskSplit` 结构化拆分 → 卡片可增删后确认执行；**写批次汇总确认卡 `BatchConfirmCard`**：多写子任务链末逐项勾选（保留/拒绝），拒绝项链末快照回滚；低置信子意图沿用**追问卡**（分册 [03-question-cards](./11-AI代理面板-Agent/03-question-cards.md)）。
+- **主进程链路**：`taskPlanner`（拆分调用与降级）→ `subtaskOrchestrator`（顺序链状态机）/ `subtaskScheduler`（依赖图并行调度）→ `confirmMatrix`（intent × tool 确认矩阵）→ `chainTracking`（`agent_sessions.intent_json` 落盘）+ `chainReport`（链末执行报告）；卡片与 Diff 卡片同属 `cards/`（样式见分册 [02-diff-cards](./11-AI代理面板-Agent/02-diff-cards.md)）。
+- **互链**：架构三节见 [ai-agent.md](../architecture/ai-agent.md)「多意图预检门与结构化拆分 / 写控制 / 子任务链追踪」；行为契约见 [agent-tool-runtime.md](../specs/ai-agent/agent-tool-runtime.md) §13 链执行 / §14 确认档位 / §15 并行调度。
 
 ## 2. 架构位置
 

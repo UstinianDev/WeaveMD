@@ -1,6 +1,6 @@
 # 文档编写规范
 
-> 最后更新：2026-09-28
+> 最后更新：2026-10-03
 
 ## 文档结构
 
@@ -25,8 +25,7 @@ docs/
 ├── modules/           # 模块文档（按功能模块）
 ├── specs/             # 规格文档（设计规范）
 ├── testing/           # 测试报告（TDD证据）
-├── plan/              # 实施计划
-│   └── archive/       # 已完成计划归档
+├── plan/              # 实施计划（现行 agent-multi-intent 5 篇，历史整体退役见 git）
 ├── requirements/      # 需求文档（devflow产出）
 │   └── archive/       # 已完成需求归档
 └── guide/             # 使用指南
@@ -60,7 +59,8 @@ docs/
 
 已在本次拆分中应用的文档：`editor-v2-architecture`、`editor-v2-progress`、
 `floating-toolbar-ux-and-inline-format`、`floating-toolbar-format-sticky`、
-`agent-cost-optimize.status`、`doc-pipeline.plan`、`doc-pipeline.status`。
+`agent-cost-optimize.status`、`doc-pipeline.plan`、`doc-pipeline.status`
+（后三者属 plan 过程文档，已随计划退役，见 git 历史）。
 architecture/（≤300 行）与 modules/（level-2 单模块查阅单元）保持单文件。
 
 ### 渐进式披露示例
@@ -155,17 +155,16 @@ BlockNodeV2 接口定义：
 
 ### 归档位置
 
-- `docs/plan/archive/`：已完成的实施状态
+- `docs/plan/`：历史过程文档已随计划退役**整体迁入 git 历史**（现行仅 agent-multi-intent 5 篇），不再设 `plan/archive/`
 - `docs/requirements/archive/`：已完成的需求文档
 
 ### 归档操作
 
 ```bash
-# 移动到归档目录
-mv docs/plan/xxx.status.md docs/plan/archive/
+# 需求完成归档：移动到归档目录
+mv docs/requirements/xxx.req.md docs/requirements/archive/
 
-# 更新 SUMMARY.md
-# 在"归档"章节添加说明
+# 更新 SUMMARY.md（需求计数与入链）
 ```
 
 ## 工具推荐

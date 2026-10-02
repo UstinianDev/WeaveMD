@@ -4,6 +4,7 @@
 > 来源：`docs/plan/doc-pipeline.plan.md` §1/§2-B10/§4.2-B10 / [需求](../requirements/doc-pipeline.req.md) Q5
 > 权威需求源：`C:\Users\lenovo\Desktop\优化方向\优化方向.md` §七-1/七-2/七-3 + §0 体积基线
 > 风险级：**L4（打包红线）**；红线：体积 ≤1GB 硬上限 / 500MB 目标、瘦身不改任何功能、不删测试、不放宽 `allowSend`、不动历史迁移、不推送远程
+> 溯源声明：来源标注中的 `docs/plan/*` 为过程计划文档，已随计划退役（历史见 git），仅留溯源线索。
 
 ## 1. 测试范围
 

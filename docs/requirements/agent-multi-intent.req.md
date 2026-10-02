@@ -3,6 +3,7 @@
 > 来源：`C:\Users\lenovo\Desktop\优化方向\智能创作Agent-多意图识别-优化方向.md`（任务 1、2、3、5、11）
 > 对齐方式：grill-me 一轮对齐（Q1~Q14），2026-10-01 用户裁定「全部按推荐」
 > 档位：L（重型），TDD strict
+> 汇总入册：[REQUIREMENTS.md](../REQUIREMENTS.md) §3.13 多意图识别与执行（MI-01~MI-04）
 
 ## 1. 目标
 
