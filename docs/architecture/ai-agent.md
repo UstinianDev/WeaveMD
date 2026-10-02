@@ -146,6 +146,13 @@ runAgentFlow
   冲突时 Agent 定工具集、KB 定检索策略，以 Agent 为准。kbQa 子任务在
   `applySubtaskContext` 按其 query 单槽预载 `searchKb`（首访等待在飞预载落地），
   全链对该 query 检索恰一次。详见 `knowledge.md`「桥接不合并」小节。
+- **另一套意图系统（交叉引用，任务 10）**：项目存在两套意图系统——本节是**任务意图域**
+  （`intentRouter.ts` / `intentTiering.ts`，定工具集与子任务链编排）；KB 侧
+  [`knowledge.md`](knowledge.md)「Agent 任务意图 ↔ KB 检索策略意图：桥接不合并」小节是
+  **检索策略意图域**（`queryPlanner.ts`，定 KB 检索扩展策略）。优先级：任务意图定工具集、
+  检索策略意图定 KB 检索，冲突以 Agent 为准；两套不互相 import、禁止物理合并
+  （类型分处 `@shared/ai/agent.ts` 与 `@shared/ai/kb.ts`，物理隔离已成立，不建共享常量文件）。
+  历史记录见 `docs/requirements/agent-memory-optimize-2.req.md:41`（A3 分工裁定）。
 
 ### 三层意图路由分层（agent-multi-intent 任务 4，Q20）
 

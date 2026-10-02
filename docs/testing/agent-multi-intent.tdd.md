@@ -1375,3 +1375,27 @@ npx vitest run tests/main/ai/subtaskParallel.test.ts
 - **交互串行化实现为 `BranchInteractionGate`**（红线 6）：parked → 等在飞支到子任务边界 →
   FIFO 走真实 interaction 回调（复用 waiting_interaction）；无交互 deps 时不建闸，
   写档按「无交互拒写」fail-closed（铁律一不削弱）。
+
+## 任务 10 — 两套意图系统文档交叉引用与边界固化｜L1 纯文档+注释
+
+### 1. 变更范围（零行为）
+
+| 文件 | 变更 |
+|------|------|
+| `docs/architecture/ai-agent.md` | 意图路由节（透传口径条目后）新增「另一套意图系统（交叉引用，任务 10）」条目：链接 knowledge.md 对应小节 + 优先级说明（任务意图定工具集、检索策略意图定 KB 检索、冲突以 Agent 为准；两套不互相 import、禁止物理合并）+ 指向 `agent-memory-optimize-2.req.md:41` |
+| `docs/architecture/knowledge.md` | 「桥接不合并」小节末尾对称交叉引用：链接 ai-agent.md 意图路由节 + 同优先级说明 + 历史记录指引（该 req 文件不改） |
+| `src/main/ai/intentRouter.ts` | 文件头 +1 行：任务意图域，禁止 import knowledge/queryPlanner、禁止合并两套枚举 |
+| `src/main/ai/knowledge/queryPlanner.ts` | 文件头 +1 行：检索策略意图域，禁止 import intentRouter、禁止合并两套枚举 |
+
+无共享常量文件（计划裁定：两套类型已分处 `@shared/ai/agent.ts` 与 `@shared/ai/kb.ts`，物理隔离成立，新建边界文件属过度设计）；无新测试。
+
+### 2. 门禁（真实输出）
+
+| 项 | 命令 | 结果 |
+|----|------|------|
+| typecheck | `npm run typecheck` | 0 错误（无输出） |
+| test | `npm run test` | `Test Files 205 passed (205)`；`Tests 4781 passed (4781)`（与任务 8 终态持平） |
+| lint | `npm run lint` | `108 problems (0 errors, 108 warnings)`（基线持平） |
+| playwright | — | 本任务仅文档 + 2 处文件头注释，按任务 4/9/12/13/8 先例跳过 |
+
+零行为验证口径：typecheck/test/lint 全绿即证明注释与文档改动未引入任何编译或运行时变化（新增内容均为 `//` 注释与 markdown，不触碰可执行语句）。

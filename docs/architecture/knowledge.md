@@ -75,6 +75,12 @@ intent；子任务链 `subtaskOrchestrator.applySubtaskContext` 切换子任务�
   `deps.searchKb` + useKnowledgeBase 闸齐全）按子任务 query 调
   `createPreloadedSearchKb` 单槽预载；工具首访**等待在飞预载落地后重扫**
   （`agentKbPreloader` 竞态兜底）→ 全链对该 query 底层检索恰一次。
+- **另一套意图系统（交叉引用，任务 10）**：对称说明见
+  [`ai-agent.md`](ai-agent.md)「意图路由」节——本文件是**检索策略意图域**
+  （`queryPlanner.ts`），Agent 侧是**任务意图域**（`intentRouter.ts`）。优先级：
+  任务意图定工具集、检索策略意图定 KB 检索，冲突以 Agent 为准；两套不互相 import、
+  禁止物理合并（类型分处 `@shared/ai/agent.ts` 与 `@shared/ai/kb.ts`）。
+  历史记录见 `docs/requirements/agent-memory-optimize-2.req.md:41`（A3 分工裁定，不改该文件）。
 
 ### 检索模式
 

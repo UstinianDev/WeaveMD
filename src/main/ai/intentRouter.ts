@@ -3,6 +3,7 @@
 // ============================================
 // 规则启发式意图分类（纯函数，无 LLM 依赖）。
 // 升级点：后续可换 LLM 分类（保留 classifyIntent 一致签名，方便替换实现）。
+// 任务意图域：禁止 import knowledge/queryPlanner，禁止与 KB 检索策略枚举合并（两套不互相 import）。
 
 import type { IIntent, IntentName } from '@shared/ai';
 

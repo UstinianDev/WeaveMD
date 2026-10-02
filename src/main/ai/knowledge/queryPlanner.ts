@@ -4,6 +4,7 @@
 // 意图分类（5类+复合）+ 指代消解 + 查询扩展 + 模糊检测。
 // S12: 多意图分类 / 增强指代消解 / 语义歧义检测 / 同义词扩展。
 // 纯函数，不依赖 LLM / 数据库，可单测。
+// 检索策略意图域：禁止 import intentRouter，禁止与任务意图枚举合并（两套不互相 import）。
 
 import type { QueryIntentType, AmbiguityType, IQueryUnderstanding } from '@shared/ai/kb';
 
