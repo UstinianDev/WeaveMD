@@ -10,7 +10,7 @@
 
 1. **一级文档**（README/TODO/SUMMARY）：项目概览，快速了解
 2. **二级文档**（architecture/modules/）：技术细节，按需查阅
-3. **三级文档**（specs/testing/plan/）：实施细节，深入研究
+3. **三级文档**（specs/plan/）：实施细节，深入研究
 
 ### 目录组织
 
@@ -23,14 +23,16 @@ docs/
 ├── CONTRIBUTING.md    # 本文档
 ├── architecture/      # 架构文档（按技术层）
 ├── modules/           # 模块文档（按功能模块）
-├── specs/             # 规格文档（设计规范）
-├── testing/           # 测试报告（TDD证据，按模块分 5 个子文件夹）
-├── plan/              # 实施计划（现行 agent-multi-intent 5 篇，历史整体退役见 git）
-├── requirements/      # 需求文档（devflow产出，按模块分 3 个子文件夹）
-│   └── archive/       # 已完成需求归档
-├── research/          # 外部资料调研（按模块分文件夹，现 research/doc-pipeline/）
+├── specs/             # 规格文档（设计规范，按模块分文件夹）
+├── testing/           # TDD 报告（交付时点快照 + README 索引，按模块分子文件夹）
+├── plan/              # 现行任务的过程文档（bottleneck/plan/status/connectivity/delivery）
+├── requirements/      # 需求文档（devflow产出，按模块分子文件夹；保留为当前行为的裁定依据）
+├── research/          # 外部资料调研（按模块分文件夹）
 └── guide/             # 使用指南
 ```
+
+> `docs/testing/` 的报告是**交付时点快照**（门禁数字会过期，引用前重新实测）；
+> 已完成任务的**归档需求与旧计划文档**不留在 `docs/`，见 git 历史。
 
 ## 文档编写规范
 
@@ -100,7 +102,7 @@ BlockNodeV2 接口定义：
 - **架构文档**：`{技术层}.md`（如 frontend.md, backend.md）
 - **模块文档**：`{序号}-{模块名}-{英文}.md`（如 04-编辑主区-Editor.md）
 - **规格文档**：`{功能描述}.md`（如 editor-v2-architecture.md）
-- **测试报告**：`{规格名}.tdd.md`，存于 `docs/testing/{模块}/`（如 spec-edit/spec-edit-ft.tdd.md）
+- **测试报告**：`{规格名}.tdd.md`，按模块归入子文件夹；新增报告时在 `docs/testing/README.md` 索引里补一行「任务 → 报告 → 主要测试文件」
 - **实施计划**：`{任务名}.status.md`（如 export-image-fix.status.md）
 
 ### 内容格式
@@ -156,16 +158,17 @@ BlockNodeV2 接口定义：
 
 ### 归档位置
 
-- `docs/plan/`：历史过程文档已随计划退役**整体迁入 git 历史**（现行仅 agent-multi-intent 5 篇），不再设 `plan/archive/`
-- `docs/requirements/archive/`：已完成的需求文档
+`docs/` **不设 archive 目录**。任务交付后，**旧计划文档**的正文删除、见 git 历史；
+**测试报告保留**在 `docs/testing/`（供后续追溯测试意图）；`requirements/` 的需求文档也**保留**
+（它是当前代码行为的裁定依据，不是过程产物）。
 
 ### 归档操作
 
 ```bash
-# 需求完成归档：从模块子文件夹移动到归档目录
-mv docs/requirements/{模块}/xxx.req.md docs/requirements/archive/
+# 任务交付后：删除过程文档正文（历史由 git 保存）
+git rm docs/plan/{task}.*.md          # 旧计划 / 状态 / 连通性（测试报告保留，不删）
 
-# 更新 SUMMARY.md（需求计数与入链）
+# 更新 SUMMARY.md（计数与入链）与 CLAUDE.md 的文档索引
 ```
 
 ## 工具推荐

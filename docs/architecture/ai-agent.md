@@ -5,7 +5,7 @@
 
 ## 系统概览
 
-AI/Agent 系统是 WeaveMD 的智能创作辅助模块，**remote-only**（Ollama 已移除，`ChatBackend` 收敛为 `'remote'`），
+AI/Agent 系统是 WeaveMD 的智能创作辅助模块，**remote-only**（`ChatBackend` 只有 `'remote'` 一个取值；本地推理后端不在支持范围），
 按 `ai_config.protocol` 分流到 **OpenAI 兼容** 或 **Anthropic** 两条协议，提供：
 
 - 函数调用循环（Agent Loop）
@@ -55,7 +55,7 @@ usage 从 `message_start` / `message_delta` 解析出五字段，`costTracker` �
 | 事件/checkpoint | `agentEventStore.sanitizeEventPayload` 写入+回放双净化（data URL→占位、附件根内绝对路径→相对）；checkpoint `toCheckpointMessages` 文本化 |
 | 计价 | `costTracker.estimateImageTokens` / `TokenUsage.imageTokens` / `CostEntry.imageCostUsd` **归因拆分**（provider `promptTokens` 已含图片，不重复计费），成本表 Image 列；识别调用 `onUsage` 上报 |
 
-详见 `docs/testing/doc-pipeline/doc-pipeline-b6.tdd.md`（含全部取舍记录 §8）。
+（取舍记录见 git 历史中的 doc-pipeline TDD 报告）。
 
 ## Agent 循环
 
@@ -171,8 +171,12 @@ runAgentFlow
 
 **共享缓存**：三调用点 —— `agentContext.ts` 主分类（:533 附近）、技能推断（:419 附近，
 `hasHistory:true` 键）、`kbSearch.ts` `isFallthrough`（:385 附近，`hasHistory:false` 键）——
-统一经 `classifyIntentShared(input, hasHistory)` 读 `sha256(hasHistory|input)` 键的短 TTL 缓存
+统一经 `classifyIntentShared(input, hasHistory)` 读短 TTL 缓存
 （**TTL 10s、容量 200、LRU 淘汰**，`__resetIntentTierCacheForTest` 供测试清空）。
+键口径（ai-core-perf INT-2 起）：短输入用 `{0|1}\0{长度}\0{原文}`，> 512 字符的输入回退
+`{0|1}\0h\0{sha256}` —— 键即 Map 的 key，缓存的持有量 = 键长，长输入必须走定长哈希才能
+把 200 条缓存的上界钉死；两条路径的第 2 字段（十进制长度 vs 字面量 `h`）字符集不相交，
+故键空间可证不撞。改动前是「每次调用都算一遍 sha256」。
 缓存**只由 `prefetchIntentTiered` 在 tier2 成功时写入**；`classifyIntentShared` 只读、miss 即规则
 （规则结果不入缓存，保证既有 `classifyIntent` 调用计数断言零回归）。
 **kbSearch 只读不预取**（保持 `isFallthrough` 同步语义，Q20）；`runAgentFlow` 在

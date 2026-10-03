@@ -17,6 +17,7 @@
 > - 29 任务清单、Q1~Q6 决策与验收门禁归 [需求文档](../../requirements/doc-pipeline/doc-pipeline.req.md)（本文任务码仅作追溯锚点）；
 > - 附件表结构、多模态消息契约、文件树引用模式归 [attachments-multimodal.md](./attachments-multimodal.md)；
 > - 分块消费契约（整表独立 chunk / headingPath）与列级 DDL 归 [kb-indexing-egress.md](./kb-indexing-egress.md)。
+> 「来源：」中出现的 `docs/plan/*` 均为**已归档的过程文档**（2026-10-04 精简，正文见 git 历史），此处保留仅作溯源。
 
 **来源缩写**（行内 `〔源：xx §yy〕` 按下表展开为相对链接 + 章节）：
 

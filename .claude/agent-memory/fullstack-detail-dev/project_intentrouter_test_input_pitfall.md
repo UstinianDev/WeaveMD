@@ -13,5 +13,5 @@ metadata:
 - 给该文件写边界用例前，先逐条 RULES 手工枚举命中（尤其 create 的单字 `写`、`新`、`给`、`要`；tech 的 `库`、`接口`）。
 - 想测**长度门**独立生效，必须保证 `confidence >= 0.7`：推荐 `修改优化整理代码`（rewrite 3 + tech 1 = 0.75，长度 8，不含「写」）。
 - 想测 `confidence < 0.7` 无条件门，用 `写一个 react 组件`（create 1 + tech 1 = 0.5）。
-- `needsClarification` 为 false 时返回对象**不带该字段**（spread 条件展开），断言用 `res.needsClarification ?? false`。**例外**：零命中 chat 兜底分支返回**显式 `false`**（字面量，非 spread）——见 [[project-ab3-haspitfalls]]。
+- `needsClarification` 为 false 时返回对象**不带该字段**（spread 条件展开），断言用 `res.needsClarification ?? false`。**例外**：零命中 chat 兜底分支返回**显式 `false`**（字面量，非 spread）——见 。
 - 相关：[[devflow-batch-parallel-subagents]]。

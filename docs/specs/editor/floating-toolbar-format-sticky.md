@@ -1,7 +1,7 @@
 # 浮动工具栏格式应用交互修正规范
 
 > 规范编号：SPEC-EDIT-FT3 | 版本：v1.0（已实施，2026-08-08）| 更新：2026-08-08
-> 实施证据：[docs/testing/spec-edit/spec-edit-ft3.tdd.md](../../testing/spec-edit/spec-edit-ft3.tdd.md)
+> 实施证据：spec-edit-ft3.tdd.md
 > 关联需求：REQUIREMENTS.md EDIT-04（实时格式化渲染）、EDIT-13（语法渲染对齐 marktext）
 > 关联规范：[SPEC-EDIT-FT2](./floating-toolbar-ux-and-inline-format.md)（本规范修正其遗留问题）、
 > [SPEC-EDIT-FT](./floating-toolbar-refactor.md)、[SPEC-EDIT-DSF](./drag-selection-flicker.md)、

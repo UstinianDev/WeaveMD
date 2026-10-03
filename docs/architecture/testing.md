@@ -77,19 +77,22 @@ E2E 全量 **31 failed / 1 skipped / 97 passed**（基线 112 failed / 20 passed
 | M / standard | RED → GREEN → 重构 → 覆盖率记录 | 不强制 |
 | S / light | 新行为核心测试先行 + 回归通过 | 不强制 |
 
-## 测试报告
+## 测试报告（TDD 证据）
 
-测试报告按模块存储在 `docs/testing/{模块}/` 目录（5 模块 / 24 篇）：
+**约定**：`{规格名}.tdd.md`，按模块归入子文件夹；超长报告再拆 `{同名}/NN-主题.md` 分册。
+devflow 任务完成时，需求 / 计划 / 测试报告一并提交，**归档在 git 历史**（`docs/` 不再保留期正文）。
 
-| 报告（相对 `docs/testing/`） | 说明 |
+**报告索引**：[docs/testing/README.md](../testing/README.md) —— 含「任务 → 报告 → 主要测试文件」映射与
+已知 flaky 清单。**索引不在此处重复**，避免两处漂移。
+
+**先看清这一点**：报告是**交付时点快照**，其中的门禁数字与覆盖率随后续开发已过期，
+引用前须重新实测。它们唯一不随时间失效的价值是**测试意图的溯源**（某条用例为何存在、钉住哪条契约、做过哪些变异验证）。
+
+**活证据（要跑测试看这里，不用读报告）**：
+
+| 位置 | 内容 |
 |------|------|
-| `spec-edit/spec-edit-ft.tdd.md` | 浮动工具栏 TDD |
-| `spec-edit/spec-edit-ft2.tdd.md` | 行内格式 TDD |
-| `spec-edit/spec-edit-ft3.tdd.md` | 叠加收敛 TDD |
-| `spec-edit/spec-edit-ft4.tdd.md` | 跨风格叠加畸形修复 TDD |
-| `spec-edit/spec-edit-cbtp.tdd.md` | 代码块尾随空行 TDD |
-| `spec-edit/spec-edit-dsf.tdd.md` | 拖选闪烁 TDD |
-| `agent-cost-optimize/agent-cost-optimize.tdd.md` | Agent 成本降低 TDD（M/standard + 基线对照 + 13 条偏离） |
-| `doc-pipeline/doc-pipeline-b1.tdd.md` ~ `doc-pipeline/doc-pipeline-b11.tdd.md` | 文档处理流水线 11 批 TDD（解析/上传/持久化/入库/检索/多模态/版面/工具引用/文件树/体积/外发闸） |
-| `doc-pipeline/doc-pipeline.final.md` | doc-pipeline 五门禁收口（tsc / vitest / lint / build / E2E 基线零新增） |
-| `doc-pipeline/doc-pipeline-remedial.tdd.md` | 遗留修复批次 TDD（Bug A/B + R3~R8） |
+| `tests/**`（209 文件） | 单元与集成测试（vitest） |
+| `e2e/**`（16 spec） | Playwright 端到端（基线 31 failed / 104 passed，比对失败集合） |
+| `tests/benchmarks/ai-core-perf.test.ts` | 性能基准（可复跑） |
+| `tests/main/ai/aiCorePerfGuards.test.ts` | 缓存一致性与并发栅栏守护用例 |

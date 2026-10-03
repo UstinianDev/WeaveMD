@@ -12,6 +12,7 @@
 > - 列级 DDL 逐列定义归 [database.md](../../architecture/database.md)（§6 只留契约摘要与指向）；
 > - `agent_memory` 向量、记忆召回与遗忘机制归 `specs/ai-agent/agent-memory.md`（本文**只收笔记/知识库侧**）；
 > - Embedding 抽象层与三模式定义归 [embedding-architecture.md](./embedding-architecture.md)（§7 只收已交付参数与红线）。
+> 「来源：」中出现的 `docs/plan/*` 均为**已归档的过程文档**（2026-10-04 精简，正文见 git 历史），此处保留仅作溯源。
 
 ---
 
@@ -23,7 +24,7 @@
 - **headingPath 计算**：`splitNote` 内维护 header stack（遇 `#{1,6} ` 弹栈/入栈），以 `" > "` 连接成路径，**截到当前标题为止、不含文档标题**，**80 字符硬上限截断**；无标题为空串，落库由 DAO **归一为 NULL**，历史行/纯文本读侧按 NULL 降级（D4 无 DDL）。
 - **读侧消费**：`aggregateAndExpand` 以 `headingPath` 非空判 `isHeading`，heading 30% 分数提升（+0.1 headingBoost）；全空不误触发、历史 NULL 数据不加成（4 用例验证，防历史回归）。
 
-> 来源：`docs/plan/doc-pipeline.plan/01-batch-changes.md` §B5；`docs/plan/doc-pipeline.status/01-batch-records.md` §B5（三-2 表格分块 / 四-2 heading_path）；`docs/research/doc-pipeline/doc-pipeline-chunking.md` §3（80 字符上限、不含文档标题）；`docs/testing/doc-pipeline/doc-pipeline-b5.tdd.md` §测试清单。
+> 来源：`docs/plan/doc-pipeline.plan/01-batch-changes.md` §B5；`docs/plan/doc-pipeline.status/01-batch-records.md` §B5（三-2 表格分块 / 四-2 heading_path）；`docs/research/doc-pipeline/doc-pipeline-chunking.md` §3（80 字符上限、不含文档标题）；`doc-pipeline-b5.tdd.md` §测试清单。
 
 ## 2. `kbIndexOpts` 真实配置贯通 4 个索引入口
 
@@ -53,7 +54,7 @@
 - **查询侧不加前缀**（避免查询语义漂移，两侧风格差交由 embedding 模型泛化）——**已知限制，如实记录**。
 - 取舍裁定：research 曾建议前缀进 content + BM25 双路，计划将其归 B8 四-4②「上下文前缀取舍写明」，最终裁定只走向量侧。
 
-> 来源：`docs/plan/doc-pipeline.plan/01-batch-changes.md` §B8（四-4② 前缀取舍行）；`docs/plan/doc-pipeline.status/01-batch-records.md` §B8「四-4 检索质量」；`docs/testing/doc-pipeline/doc-pipeline-b8.tdd.md` §8.5；`docs/testing/doc-pipeline/doc-pipeline-b5.tdd.md` §headingPath 语义注。
+> 来源：`docs/plan/doc-pipeline.plan/01-batch-changes.md` §B8（四-4② 前缀取舍行）；`docs/plan/doc-pipeline.status/01-batch-records.md` §B8「四-4 检索质量」；`doc-pipeline-b8.tdd.md` §8.5；`doc-pipeline-b5.tdd.md` §headingPath 语义注。
 
 ## 5. 引用回链（citation → refsJson，B8 六-2）
 
@@ -86,7 +87,7 @@
 - HyDE 收益：B5 前文档侧无向量时 `hyde:true` 为 no-op，B5 接通后路径生效（2 例断言锁定）；**量化 A/B 需真实 embedding+LLM 凭据，无凭据不编造数据——遗留（待校准）**。
 - **不碰清单（跨批次红线）**：`kbSearch.ts` 4 条硬编码笔记 SQL、`kbSearchFts.ts` 两处、`sourceType` 枚举、`searchMode` 语义、`filterKbEgressResults`。
 
-> 来源：`docs/plan/agent-memory-optimize-3.plan.md` §6 D6（「笔记侧零影响核验」行、§1「D6 不碰」行、§4 红线行）；`docs/architecture/knowledge.md` §searchMode 表与 §三参数表；`docs/plan/doc-pipeline.connectivity.md` §2 附注；`docs/plan/doc-pipeline.status/01-batch-records.md` §B8「HyDE 收益复核 / 拒答阈值 0.6 复核」；`docs/testing/doc-pipeline/doc-pipeline-b8.tdd.md` §8.6~§8.7。
+> 来源：`agent-memory-optimize-3.plan.md`（已归档，见 git 历史） §6 D6（「笔记侧零影响核验」行、§1「D6 不碰」行、§4 红线行）；`docs/architecture/knowledge.md` §searchMode 表与 §三参数表；`docs/plan/doc-pipeline.connectivity.md` §2 附注；`docs/plan/doc-pipeline.status/01-batch-records.md` §B8「HyDE 收益复核 / 拒答阈值 0.6 复核」；`doc-pipeline-b8.tdd.md` §8.6~§8.7。
 
 ## 8. 已知限制（原「生产不可达」判定，R1/R2 已解除 @agent-kb-ux，状态标注原样保留）
 
@@ -121,7 +122,7 @@
 - 回填状态无 UI/IPC 展示（B5 验收只要求可观测，测试与 `getVectorBackfillStatus` 承担；设置页展示列后续）。
 - 超宽表按单元格 emergency split（STC）未实现——无样例需求，记录为可选增强。
 - HyDE 量化 A/B 需真实凭据——**待校准**；拒答阈值附件独立配置——**后续（不阻塞）**（§9）。
-- `chatHandlers`（废弃 Chat 模式）未接 citation 收集；附件页内定位无应用内预览（打开交 OS 默认应用）。
+- `chatHandlers` 未接 citation 收集（其 IPC 通道当前无渲染层调用方）；附件页内定位无应用内预览（打开交 OS 默认应用）。
 - R1~R10 是否修复由需求方裁定；R1/R2 已随 agent-kb-ux 解除（2026-10-03，见 §8 解除记录），其余维持原裁定。
 
 > 来源：`docs/plan/doc-pipeline.status/01-batch-records.md` §B5/§B8 遗留；`docs/plan/doc-pipeline.connectivity.md` §0 总览、§2 风险清单。

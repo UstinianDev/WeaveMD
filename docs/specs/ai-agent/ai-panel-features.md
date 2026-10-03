@@ -50,7 +50,7 @@ ai_* 4 表 DDL + kb_* 预留、`ai:*` IPC + preload、设置面板 AI Tab（safe
 
 ### 后端收敛 remote-only（2026-08-16）
 
-- 彻底去除 ollama：`ChatBackend` 收敛为 `'remote'`；主进程删 `probeOllama`/AI_HEALTH
+- 后端收敛为单一路径：`ChatBackend` 只有 `'remote'`；主进程无本地推理探测（`probeOllama`/AI_HEALTH 均不存在）
 - KB 默认降级为 FTS5+标题（`queryVector` 仅 `hyde: true` 时生成）；后端固定远程、必须填 key；
   DB 遗留列读时收敛。（注：`embeddingClient.ts` 后经 HyDE/图片索引需求恢复，现仍存在并被
   `agentContext` / `kbIndexer` / `imageIndexer` 引用；`kb_chunks.vector` 列同理保留）

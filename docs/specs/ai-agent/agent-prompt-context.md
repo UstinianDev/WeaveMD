@@ -1,11 +1,11 @@
 # Agent 提示词组装与上下文注入规范（Agent Prompt & Context）
 
 > 规范编号：SPEC-AGENT-PTX | 版本：v1.0 | 状态：生效（已实施）| 更新：2026-10-01
-> 关联需求：[agent-cost-optimize.req.md](../../requirements/archive/agent-cost-optimize.req.md)（A1~A5、B1）、
+> 关联需求：agent-cost-optimize.req.md（A1~A5、B1）、
 > [agent-memory-optimize.req.md](../../requirements/agent-memory/agent-memory-optimize.req.md)（P0-2）、
 > [agent-memory-optimize-2.req.md](../../requirements/agent-memory/agent-memory-optimize-2.req.md)（A1 三文件、B4 画像、Q15）、
 > [agent-memory-optimize-3.req.md](../../requirements/agent-memory/agent-memory-optimize-3.req.md)（D4 经验注入）、
-> [agent-perf-optimize.req.md](../../requirements/archive/agent-perf-optimize.req.md)（S7）、
+> agent-perf-optimize.req.md（S7）、
 > [agent-multi-intent.req.md](../../requirements/agent-multi-intent/agent-multi-intent.req.md)（Q3/Q4/Q5/Q7，结构化任务拆分出参）
 > 关联模块：[docs/modules/11-AI代理面板-Agent.md](../../modules/11-AI代理面板-Agent.md)
 > 关联架构：[docs/architecture/ai-agent.md](../../architecture/ai-agent.md)
@@ -15,7 +15,7 @@
 记忆载体与经验提炼归 SPEC-AGENT-MEM，成本核算与提示词缓存归 SPEC-AGENT-COST，工具注册与 defer 运行时归模块文档
 [modules/11 §3](../../modules/11-AI代理面板-Agent.md)。同一事实两边只留一处，本篇用「见 req §x」交叉引用不复述理由。
 
-**来源标记**：〔cost §2.x〕= `docs/plan/agent-cost-optimize.plan.md`；〔mem §2.1 A-a〕= `agent-memory-optimize.plan.md`；
+**来源标记**：〔cost §2.x〕= `agent-cost-optimize.plan.md`（已归档，见 git 历史）；〔mem §2.1 A-a〕= `agent-memory-optimize.plan.md`；
 〔mem2 §6 B4〕= `agent-memory-optimize-2.plan.md` §6；〔mem3 §6 D4〕= `agent-memory-optimize-3.plan.md` §6；
 〔perf2 §S7〕= `agent-perf-optimize.phase2.plan.md`。plan 目录后续移除，标记仅作 git 历史回溯锚点。
 
@@ -216,7 +216,7 @@ soul / memory / style 三文件整体作为一个块注入，位置**紧跟【�
 
 ## 7. 文件操作叙述约束
 
-动机与豁免清单（质量护栏 5 项）见 req A 轨（[agent-cost-optimize.req.md §需求清单 A](../../requirements/archive/agent-cost-optimize.req.md)）；本节只定提示词行为。〔cost §2.2〕
+动机与豁免清单（质量护栏 5 项）见 req A 轨（agent-cost-optimize.req.md §需求清单 A）；本节只定提示词行为。〔cost §2.2〕
 
 ### 7.1 `## 文件操作后的回复` 段（A1/A3/A4）
 
@@ -273,7 +273,7 @@ S7 原案在 phase2 批次**仅部分落地**（commit `ee459bc` 记录：字母
 
 ## 9. 边界与红线（交叉引用，不在此复述）
 
-- 叙述削减的功能质量红线与 5 项豁免 → req [agent-cost-optimize §硬性约束 / §质量护栏](../../requirements/archive/agent-cost-optimize.req.md)；
+- 叙述削减的功能质量红线与 5 项豁免 → req agent-cost-optimize §硬性约束 / §质量护栏；
 - 反上下文改写的边界（合法指代允许沿用历史、跨话题由规则 1 兜住）→ req [agent-memory-optimize P0-2](../../requirements/agent-memory/agent-memory-optimize.req.md)；
 - 三文件/画像的 token 上限与截断裁定 → req-2 Q4 / §四；chat 也注入 → req-2 Q15；
 - 经验注入的意图范围与 chat 歧义处置 → req-3 D4（5 显式意图、chat 不注入）；
@@ -283,7 +283,7 @@ S7 原案在 phase2 批次**仅部分落地**（commit `ee459bc` 记录：字母
 ## 10. 结构化任务拆分出参（agent-multi-intent 任务 1）
 
 > 需求裁定：req [agent-multi-intent](../../requirements/agent-multi-intent/agent-multi-intent.req.md) Q3（不引入 zod）/ Q4（厂商无关）/
-> Q5（重试 1 次降级）/ Q7（上限与合并）；Schema 特性取舍见计划 `docs/plan/agent-multi-intent.plan.md` §6.1（git 历史锚点）。
+> Q5（重试 1 次降级）/ Q7（上限与合并）；Schema 特性取舍见计划 `agent-multi-intent.plan.md`（已归档，见 git 历史） §6.1（git 历史锚点）。
 > 本章钉**任务 1 已交付**的 Schema 与解析契约；拆分提示词接线与重试编排在任务 2 落地时补充。
 
 ### 10.1 机制口径（厂商无关，Q4）

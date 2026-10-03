@@ -3,7 +3,7 @@
 > 规范编号：SPEC-AGENT-MEM-03 | 更新：2026-10-01
 > 承载 [agent-memory.md](../agent-memory.md) 的召回与经验注入实现级行为契约（混合召回、轨迹提炼、经验注入）；返回索引：[agent-memory.md](../agent-memory.md)
 > 关联需求：[agent-memory-optimize-3.req.md](../../../requirements/agent-memory/agent-memory-optimize-3.req.md)（Q4/Q5/Q8/Q9）；Prompt 组装管线与 front matter `intents` 解析契约见 [agent-prompt-context.md](../agent-prompt-context.md)
-> 来源标记：〔plan-3〕= `docs/plan/agent-memory-optimize-3.plan.md` §6；过程证据见 `docs/testing/agent-memory/agent-memory-optimize-3.tdd.md`
+> 来源标记：〔plan-3〕= `agent-memory-optimize-3.plan.md`（已归档，见 git 历史） §6；过程证据见 `agent-memory-optimize-3.tdd.md`
 > 溯源声明：来源标注中的 `docs/plan/*` 为过程计划文档，已随计划退役（历史见 git），仅留溯源线索。
 
 ---

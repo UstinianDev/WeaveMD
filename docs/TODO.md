@@ -1,230 +1,30 @@
 # TODO
 
-> 最后更新：2026-10-03
+> 最后更新：2026-10-04
 
 ## 已完成
 
-### agent-kb-ux KB 可见性与交互增强（2026-10-03）
+> 2026-10-04 精简：只留里程碑索引。**逐任务的交付细节、门禁数字、Q 裁定已入 git 历史**；
+> 现行任务的过程文档见 [SUMMARY](./SUMMARY.md) §devflow 产出。
 
-M 级四需求全交付（Q1~Q8 裁定）：**R2** composer `useKnowledgeBase` 开关接线（根因 A——开关无 UI 恒 false 致 searchKB 从不下发，Agent 看不到任何 KB 文档）；**R3** 导入授权勾选贯通 `consent_granted` + D1 设置 knowledge tab 挂载导入 UI + D2 渲染闸收窄（无授权外发行才拦）+ D4 白名单两 SQL 扩 `IN ('attachment','import')`（铁律二不削弱、零 DDL）；**R4** 文件树右键「复制文件地址」（文件+文件夹，绝对路径，失败提示不静默）；**R5** 会话消息区楷体（`.ai-message-stream` 与编辑区同栈，home/composer 不动）。
-提交 `2820f05`/`97c93f5`/`ea3b81a`/`f19c70b`/`9ddf3b3`；**后续：R4 复制文件地址经热修后由用户裁定删除（`6a88791`，连同剪贴板 IPC 整体撤销）**；门禁 typecheck 0 / vitest 4835 全绿（计时 flaky 单跑复核）/ lint 0 / playwright 31·104·1 与基线 IDENTICAL。
-热修（2026-10-03，用户反馈 3 项，每项一提交）：**①** 删 composer KB 开关 + `useKnowledgeBase` 默认 `true` + 发送闸改三态 `checkKbEgressGate`（无文档/有授权/读取失败放行，有文档无授权弹同意层；主进程 `filterKbEgressResults` 仍唯一强制）`542eb9f`；**②** 复制文件地址改走主进程 `clipboard:write-text` 桥（打包 Electron `navigator.clipboard` 非安全上下文恒 reject），回落 navigator 不静默 `3bdb4e8`（随后随 R4 删除整体撤销 `6a88791`）；**③** `.ai-markdown` 改编辑区楷体栈（code/pre 等宽不动）`f0adc44`。门禁 typecheck 0 / vitest 4844 全绿 / lint 0 / playwright 31·104·1 与基线同数同名。
-
-> 需求 [req](./requirements/agent-kb-ux/agent-kb-ux.req.md)（汇总入 [REQUIREMENTS](./REQUIREMENTS.md) §3.14）/ 计划 [plan](./plan/agent-kb-ux.plan.md) · [status](./plan/agent-kb-ux.status.md) / TDD 证据 [tdd](./testing/agent-kb-ux/agent-kb-ux.tdd.md)
-
-### agent-multi-intent 多意图识别与执行（2026-10-01 ~ 2026-10-03）
-
-L 级能力补齐，**13 任务全交付**（P0 5：结构化 Schema / 预检门与拆分 / 置信度追问 / 子任务顺序链 / 确认矩阵；P1 6：intent_json 追踪 / 执行报告 / 三层路由 / KB 意图透传 / 级联确认 / write_mode 消费；P2 2：依赖图并行调度 / 边界固化）+ **2 个连通性修复**（`03d60b3` skip-set fail-closed、`43ab99c` waitForInteraction 取消竞态）。Q1~Q24 裁定全对齐，TDD strict。
-
-| 阶段 | 交付 | 门禁实测 |
-|------|------|---------|
-| P0（任务 1/2/3/5/11 + fix） | 预检门零 LLM 单意图直通、`parseStructuredJson` 严格 JSON 骨架、`SplitConfirmCard`、链双预算、`confirmMatrix` 三档矩阵 | 五项门禁全绿：tsc 0 / vitest 194 文件 4576 例 / lint 0 error / build / E2E 31 失败与基线同数同名零新增 |
-| P1/P2（任务 6/7/4/9/12/13/8/10） | `agent_sessions.intent_json` 落盘、链报告合并、`intentTiering` 三层路由、`agentIntent` KB 透传、级联跳过、writeMode 消费、依赖感知并行调度、两套意图系统边界 | 终态 **205 文件 4784 例全绿**（基线 4781 + 修复 3）/ tsc 0 / lint 0 error（108 warning 基线）/ E2E 零新增失败 |
-
-**提交状态**：P0 与 P1/P2 全部提交均已推送（`38edc57`..`6393ec1`，`git ls-remote` 核实）；过程文档（req/plan/status/connectivity/tdd）随批入库。
-
-> 需求 [req](./requirements/agent-multi-intent/agent-multi-intent.req.md)（§3 Q1~Q14 / §6 Q17~Q24）/ 计划 [plan](./plan/agent-multi-intent.plan.md) · [p1.plan](./plan/agent-multi-intent-p1.plan.md) / TDD 证据 [tdd](./testing/agent-multi-intent/agent-multi-intent.tdd.md)
-
-### agent-memory-optimize 第三批（2026-09-30 ~ 2026-10-01）
-
-P2 远期能力 6 项 + **1 项范围扩张（D7）+ 1 项实施期追加授权（D6.1/Q9）** = 9 个交付任务，档位 **L（含 2 处 L4 迁移 + 1 处改既有 DDL）**，Q1~Q9 全对齐。三 Gate **全部通过**。
-
-| Gate | 任务 | 门禁实测 |
-|------|------|------|
-| D | D1 二.3 指代触发率接入 diagnostics（L2）+ D2 五.4 遗忘/过期机制（L3+L4 补列） | tsc 0 / vitest 4234·4235（1 flaky 单跑复核绿）/ eslint 0 err·108 warn / vite build 0 / **真库 smoke 五态 EXIT 0** / E2E 31f·104p·1s |
-| E | D3 六.1 轨迹→Skill 提炼 → D4 六.2 结构化存储+任务类型注入 → D5 六.3 防膨胀三防线 → **D7 知识库 FTS 触发器修复** | 两轮六件套：**4418 例 0 failed** → **4430 例 0 failed** / **真库 smoke 六态 + fts5 删除态 EXIT 0** / E2E 31f·104p·1s 零新增 |
-| F | D6 三.3 向量化经验库（**Q8=A：加列而非新建表**）+ D6.1 Q9 `memory_read` 语义可达 | 两轮六件套：**4491 例 0 failed** → **4507·4508（1 flaky 单跑 22 绿）** / **真库 smoke 七态 + fts5 EXIT 0** / E2E 31f·104p·1s 零新增 |
-
-**验收要点**：五轮 E2E 失败清单**逐条相同、零新增**（基线 136）；**55 处变异全部变红后还原复绿**；`vitest.config.ts` 全程零改动；计划外 `src/` 改动经 25 类逐项追认后为 **0**；测试规模 175 文件 4191 例 → **189 文件 4508 例（+14/+317）**。
-
-**🔴 本批最有价值的发现（范围扩张 D7）**：知识库的**删除与更新路径此前整体报错回滚** —— `kb_chunks_fts_ad`/`kb_documents_fts_ad`/`kb_documents_fts_au` 在普通（非 contentless）fts5 表上用了仅限 contentless 的 `'delete'` 特殊命令，实测 `DELETE/UPDATE = FAILED: SQL logic error` 且回滚；生产 `db/kb.ts` 5 处删除 + 全部 `UPDATE kb_documents` 受影响；既有 `fts5-smoke` 只验插入查询故从未暴露。已修 3 处触发器为标准 `DELETE ... WHERE rowid = old.rowid`，并补删除/更新态。
-
-> 需求 [req](./requirements/agent-memory/agent-memory-optimize-3.req.md)（Q1~Q9 + §七 事实核验 14 条）/ 计划与三 Gate 实施记录（原 plan §6 三 Gate 实施记录，已随计划退役见 git）/ TDD 证据 [tdd](./testing/agent-memory/agent-memory-optimize-3.tdd.md)
-
-### agent-memory-optimize 第二批（2026-09-29 ~ 2026-09-30）
-
-P1 主干，路线图「模块四 → 三 → 五 → 二.4 → 七.1/七.2/七.3」共 9 任务，档位 **L（含 L4 迁移）**，Q1~Q15 已裁定。三子批三 Gate **全部通过**。
-
-| 子批 | 任务 | Gate | 门禁实测 |
-|------|------|------|------|
-| A 提示词/检索层 | 四.1 三文件注入、四.3 摘要保留先行词、二.4 classifyIntent 接主管线、七.3 红线护栏补测 | Gate A | tsc 0 / vitest 4037·4038（1 flaky 单跑绿）/ eslint 0 err·106 warn / vite build 0 / E2E 31f·103p·1s；改动行覆盖 **195/195 = 100%** —— **已提交 `8fd28f1`** |
-| B 存储层 | 三.1 单表 `agent_memory`+双时间、三.2 Ledger/Views/Policy、三.4 迁移双路径、四.2 分层 Prompt | Gate B（**L4**） | tsc 0 / vitest 4106·4107 / eslint 0 err·106 warn / vite build 0 / **真库 smoke 四态 EXIT 0** / E2E 31f·103p·1s；B4 覆盖 129/129 —— 已全部提交：`6ed0b4c`(B1/B2/B3)、`16d51a0`(B4)、`a4bf6e6`(C1/C2/C3)、`2de5c4c`(C4)、`f042784`(docs 收尾) |
-| C 读写工具层 | 五.1 两工具、五.2 后台写入+冲突清洗、五.3 可见入口、七.1 场景③+七.2 门禁 | Gate C | **vitest 175 文件 4191 例全绿 0 failed** / tsc 0 / eslint 0 err·108 warn / vite build 0 / 真库 smoke 四态 EXIT 0 / **E2E 31f·104p·1s = 136**（+1 即场景③，31 条失败清单零变化） |
-
-**验收要点**：三 Gate 六项门禁全绿；改动行覆盖 A 195/195、B4 129/129、C1 100%、C2 552/553、C3 419/419；**39 处变异全部变红后还原复绿**；`vitest.config.ts` 全程零改动；计划外 `src/` 改动 0 行。
-**安全交付**：`memoryHandlers.ts` 是全仓**第一个**按 `SECURITY.md` 校验 `event.sender` 的 IPC handler（此前零落实，已记已知问题）。
-**提交状态**：第二批 7 个提交已全部落库并推送 —— `8fd28f1`(A)、`6ed0b4c`(B1/B2/B3)、`33c3763`(docs)、`16d51a0`(B4)、`a4bf6e6`(C1/C2/C3)、`2de5c4c`(C4)、`f042784`(docs 收尾)；第三批 5 个提交见下。
-
-> 需求 [req](./requirements/agent-memory/agent-memory-optimize-2.req.md)（Q1~Q15）/ 计划与三 Gate 实施记录（原 plan §6 三 Gate 实施记录，已随计划退役见 git）/ TDD 证据 [tdd](./testing/agent-memory/agent-memory-optimize-2.tdd.md)
-
-### agent-memory-optimize 第一批（2026-09-28 ~ 2026-09-29）
-
-L 级 / TDD strict，devflow 阶段 0~8 全完成，**门禁通过、阻塞 0**。修「指代追问被反问它指什么」的五条根因（P0-1~P0-7）。
-
-| 项 | 交付 |
-|----|------|
-| P0-1 | chat 意图保留历史与摘要（`agentContext` 删 `isChat` 双闸，与非 chat 统一窗口） |
-| P0-2 | 四处「忽略之前所有对话」反上下文文案同批改写（`agentPromptBuilder` 核心规则 + `CHAT_SYSTEM_PROMPT`、`contextManager` 摘要前缀、`agentContext:449`），防串题由「只回答最后一条」承担 |
-| P0-3 | `classifyIntent(input, ctx?: {hasHistory})` —— 长度门仅在无历史时生效，`confidence<0.7` 无条件保留 |
-| P0-4 | `tool_calls` 单事务落库：`appendToolTurnWithAssistant`（assistant upsert + tool `INSERT OR IGNORE`，id 带 `runId` 盐）+ 回读透传 `tool_calls` + 新建 `repairToolTurnPairing` + **拆掉渲染侧 6 处回写** |
-| P0-5 | 读取按轮次：`getRecentMessagesByRounds(3 轮, {byteBudget:45_000})`，20 行降为水位线、`rowid DESC` 兜底，取消行数硬上限 |
-| P0-6 | `searchKB` 接入历史代词改写：`toolCtx.history` 注入 + `resolveReferencesDetailed` 进主管线 + `expandedQueries` 双路 RRF 召回 |
-| P0-7 | `knowledgeClarify` 补 28 例测试（**源文件 0 改动**） |
-| 连带 | 阶段 6.5 修复两条本批引入回归：重载态空气泡（`AgentTab`）+ 指代改写自指（`queryPlanner`）—— 计划外改动，**已随 `f333bb8` 提交（用户追认）** |
-
-**门禁实测**：typecheck 0 error / vitest 168 文件 3986 例（1 既知 flaky 隔离复核判过）/ eslint 0 error 106 warning / vite build 成功 / E2E 31f·103p·1s 与基线逐项相等 + 新增 2 条 passed / **改动行覆盖 19 文件 589/589 = 100%**。
-
-> 详见 [req](./requirements/agent-memory/agent-memory-optimize.req.md)（Q1~Q18 全对齐）/ 计划与 status/connectivity/compliance（已随计划退役，见 git 历史）/ [TDD 报告](./testing/agent-memory/agent-memory-optimize.tdd.md)
-
-### doc-pipeline 文档处理流水线（2026-09-26 ~ 2026-09-27）
-
-M 级，8 模块 29 任务全量交付 + 遗留修复批次；需求见 [doc-pipeline.req](./requirements/doc-pipeline/doc-pipeline.req.md)。
-
-| 批 | 范围 | 核心交付 |
-|----|------|---------|
-| B1~B2 | 解析与上传 | `parseDocument` 结构化产物 + `DIALOG_OPEN_FILE({upload:true})` 7 格式多选 + 粘贴/选择器双入口 + 解析限流 3 并发 |
-| B3~B4 | 持久化与入库 | `attachments_json`(D1) + `parsed_attachments` 三态 + `structure_json` 页码溯源 + KB 附件关联 `attachment_id`(D3) |
-| B5~B6 | 检索与多模态 | `searchDocument`/`readPage`/`extractTable`/`analyzeChart` + citation 回链 `refsJson` + `LlmMessage.content` 数组贯通 + 图片相对路径落盘 |
-| B7~B8 | 版面与工具引用 | `pdfLayout` 坐标分栏/无框线表格/跨页合并 + D 路线多模态截图 + 工具计数 24→28 与文档同步 |
-| B9~B10 | 文件树与体积 | 超长 md 引用模式发送 + `files` 21 条反向排除（Setup 147.68→99.16MB / unpacked 602→369MB / asar 288→86MB）+ `sizeGate` 双口径门禁 |
-| B11~B12 | 外发闸与 PoC | `allowSend` 不放宽 + 勾选入 KB 授权列(D5/D5b) + Docling PoC 量化不达标按 Q6 关闭 |
-| 收尾 | 四阶段 | 五门禁（`testing/doc-pipeline/doc-pipeline.final.md`，E2E 31 failed 为裁定基线零新增）/ 连通性 12 链 0 断裂 / 合规 APPROVED WITH COMMENTS / 交付对账 |
-
-> 目录批量导入 `importDirAsKb` 已扩至 7 格式且先解析再入索引，原「pdf/docx 知识库导入」待办随之关闭。
-
-**遗留修复批次（2026-09-27）**：Bug A（附件绝对路径清单注入 system prompt + 附件消息解锁 `ask_question_card`）、Bug B（`vision_override` 三态列 + 能力表 + 未知模型乐观默认 + 降级上屏）、R3 外发双检会话边界、R4/R5 路径回执与 citation 打开、R6 20 附件截断对齐、R7/R8 删除级联。证据 [doc-pipeline-remedial.tdd](./testing/doc-pipeline/doc-pipeline-remedial.tdd.md)。
-
-> 详见 status/connectivity/compliance 三份过程文档（已随计划退役，见 git 历史）
-
-### agent-cost-optimize（2026-09-23 ~ 2026-09-24）
-
-M 级 Agent 成本降低优化，A 轨叙述精简 + B 轨缓存/预算，全量交付；衍生任务含 consent 闸调整、协议分流接线、E2E 断言处置。
-
-| 轨 | 任务 | 核心交付 |
-|----|------|---------|
-| A | 文件操作叙述精简 A1-A5 | `FILE_OP_NARRATION_TOKEN_LIMIT=80` + `## 文件操作后的回复`/`## 写入规则`/`## 回复风格`/`## 回答格式` 四段改写（系统提示 1,072→1,363 tok） |
-| B | B1 文档上下文门控 | 非文件操作意图不注入文档上下文（chat/kbQa/web 每轮最多省 5,000 tok） |
-| B | B2 Anthropic 缓存断点 | system 末块 `cache_control: ephemeral` + usage 五字段解析；6 处非工具调用点协议分流（`ai_config.protocol`） |
-| B | B3 结果预算收紧 | 单结果 30k→10k、聚合 120k→40k 字符，超限落盘带恢复路径 |
-| B | B4 缓存折扣计费 | `costTracker` 扣减 `cacheRead`/`cacheWrite` + 0.1×/1.25× 分列计价 |
-| 衍生 | consent 铁律二调整 | 联网同意闸停用（`needsConsent` 恒 false），仅存笔记外发闸 `allowSend`；`ConsentOverlay` 单勾选 |
-| 衍生 | E2E 断言处置 | 单 spec **4/35 → 27/31**；删 4 条（对象已不存在）+ 4 条改走 `@文档 ` + 2 条补全改断言 + 4 条选区断言保留作已知失败 |
-
-**门禁**：tsc 0 error / vitest **3226 passed 0 failed** / lint **108 (0 error)** / `vite build` exit 0 / E2E 全量 **31 failed 97 passed**（基线 112/20）。
-付费 LLM 实测净额**用户裁定挂起**（降本改动已生效，挂起的只是量化）。
-
-> 详见 status 过程文档（已随计划退役，见 git 历史）/ [TDD 报告](./testing/agent-cost-optimize/agent-cost-optimize.tdd.md)
-
-### agent-md-kb-optimize（2026-09-18）
-
-L 级跨层优化，6 子任务（Markdown 解析层 / 知识库检索层 / Agent 上下文构建层），全量交付。
-
-| 优先级 | 模块 | 任务 | 核心交付 |
-|--------|------|------|---------|
-| P0 | Markdown 解析层 | CommonMark/GFM 测试套件 | 1300 例 100% 通过 + parseList 连续空行 bug 修复 |
-| P0 | Markdown 解析层 | 正则统一 | 3 个正则迁移到 markdownSyntax.ts + tableCodec 统一 |
-| P1 | 知识库检索层 | 检索管线可观测性 | IKbSearchDiagnostics 接口 + 全链路 performance.now() 埋点 |
-| P1 | 知识库检索层 | 研究循环并行化 | executeSubQuery 提取 + Promise.allSettled + 并发限制 3 |
-| P1 | Agent 层 | 代码重复消除 | 8 个共享函数提取到 agentToolExecutor.ts（-180 行重复） |
-| P1 | Agent 层 | 延迟工具重发优化 | 保留已执行结果 + 重发上限 3 次 + upgradedDeferredTools 追踪 |
-
-> 详见 status 过程文档（已随计划退役，见 git 历史）
-
-### agent-perf-optimize（2026-09-16 ~ 2026-09-17）
-
-L 级 Agent 性能优化，4 阶段 17 子任务，283 新增测试，全量交付。
-
-| 阶段 | 优化项 | 核心交付 |
-|------|--------|---------|
-| 1: Agent 核心 | 流式推测执行 / 并发精细化 / 缓存键 / xxHash | StreamingToolExecutor（430 行）+ concurrencyDefs + hashUtil |
-| 2: 架构级 | Prompt 分层 / 工具 defer_loading / 大结果持久化 / 压缩 cache-safe fork | 工具延迟加载（5 核心 + 19 延迟）+ ContentReplacementState |
-| 3: 知识库 | HyDE 缓存 / Embedding 缓存 / 预加载模糊匹配 / 查询理解增强 | 5 层缓存命中率体系 + 多意图分类 + 指代消解 |
-| 4: 监控 | 性能基准 / A/B 测试 / 缓存监控 / 成本追踪 | cacheMonitor + costTracker + AB test runner + 基准套件 |
-
-> 详见 status 过程文档（已随计划退役，见 git 历史）
-
-### perf-agent-arch（2026-09-15）
-
-| 类别 | 任务 | 说明 |
-|------|------|------|
-| 架构 | 工具调用时机前置 | 系统提示增加"先调工具→拿到结果→再输出文本"规则 |
-| 架构 | Checkpoint 真增量写入 | 跳过每轮 DB read+JSON.parse，用内存已有消息直接构建 |
-| 清理 | 动态 import 静态化 | agentStore 8 处 await import(fileTreeStore) 改静态 import |
-| 清理 | 压缩路径死代码删除 | 删除 oldMessageCount/newTokenCount/compressionRatio |
-| 清理 | JSON 往返消除 | agentEventStore BatchEventItem 同时存 payload 对象引用 |
-| 功能 | 文件树根文件夹垃圾桶 | 仅从文件树移除导入文件夹，不删磁盘文件 |
-
-### agent-ux-optimize（2026-09-14）
-
-L 级 UX 优化，7 子任务 + 触发路径修复 + UI 美化，全量交付。
-
-| 类别 | 任务 | 说明 |
-|------|------|------|
-| 核心 | DiffSummaryCard 统一 diff 卡片 | 三种来源 discriminated union type，单卡片承载所有 diff 场景 |
-| 核心 | QuestionCard 向导式重构 | 单题向导 + 进度圆点 + ABCD 选项 + shake 错误动画 |
-| 核心 | Clarification Rules 注入 | 澄清规则注入 Agent 系统提示，规范 Agent 提问行为 |
-| 核心 | 技术文档索引 | react / tailwindcss / zustand 最新文档注入 Agent 上下文 |
-| 核心 | KB 澄清与 Agent 联动 | buildClarificationContext 分轮策略 + searchKBHandler 注入 |
-| 核心 | Delete 强制确认 | 双层防线：前端 confirm + Agent 二次确认 |
-| 核心 | DiffSummaryCard 写控制集成 | 写模式 auto/manual 适配 + MD5 staleness 检测 |
-| 路径修复 | editLocalFile diff 预览 | 触发路径修复，确保编辑后正确弹出 diff 预览 |
-| 路径修复 | ask_question_card 铁律强化 | 文本扫描器 + needsClarification 判断 + 铁律加固 |
-| 路径修复 | chat 意图 ask_question_card | chat 意图下正确触发提问卡片 |
-| 路径修复 | ask_question_card 去重 | 跨轮 + 同轮两层去重，防止重复提问 |
-| UI | Diff 卡片摘要化 + DetailModal | Portal 全应用居中挂载 + 尺寸扩大 + 同名文件合并 |
-| UI | QuestionCard 美化 | 加粗蓝色标题 + ABCD 标签 + 去除提示文字 |
-| UI | Agent 回复去 emoji | 系统提示词禁止 emoji，回复更专业 |
-| UI | Diff 卡片持久化 | 应用/废弃后卡片保留 + 流式期间延迟显示 |
-| UI | Staleness 修复 | editLocalFile / createFile 豁免 staleness 检测 |
-
-### 四模块全局重构（2026-09-13）
-
-L 级重型重构，8 阶段全部完成。详见 status 归档文档（已随 plan 整体退役，见 git 历史）。
-
-| 阶段 | 范围 | 核心 |
-|------|------|------|
-| P0 | 模式切换 | 4 hooks 抽取 + 快捷键合并 + store 净化 + 死代码清理 |
-| P1 | 目录区 | headingFromBlock / buildHeadingTree 迁入 kernel；FileTreeRow / ToolbarIconButton 去重 |
-| P2 | 编辑主区 | blockTree 裂解 (blockDetection.ts) + formatCtrl 裂解 (imageFormatCtrl.ts) |
-| P3 | 导出 | 3 个 MIME 映射合并为 mediaMime.ts；魔法值常量化；路径解析合并 |
-| Gate | 审查/连通性 | code-review 0 critical + 19/19 链路 + eslint/lint/tsc 全绿 |
-
-### Bug 修复与体验优化（2026-09-11 ~ 2026-09-12）
-
-| 日期 | 任务 | 类型 |
-|------|------|------|
-| 09-12 | 导出图片修复（offscreen 渲染 + 3x 缩放 + 高清导出） | Bug 修复 |
-| 09-12 | URL 查询修复（Agent 系统提示词优化，强制调用 web_search） | Bug 修复 |
-| 09-12 | 视图切换修复（删除冗余 ViewMenu + scrollTop 保持） | Bug 修复 |
-| 09-12 | 上下键跨块导航（ArrowUp/ArrowDown 跨语法类型跳转） | 功能修复 |
-| 09-12 | 保存功能修复（文件树刷新 + 编辑器同步） | Bug 修复 |
-| 09-11 | Outline 数据源统一为 v2 块树 | 功能优化 |
-| 09-11 | Agent 输出标题自动编号（h1 中文/h2 阿拉伯/h3 层级/h4 带圈） | 新功能 |
-| 09-11 | Composer /@ 标签化（TipTap + chip + 自动补全） | 重构 |
-| 09-11 | 执行过程折叠重构 + 消息内联编辑 + 流式缓冲竞态修复 + 上下文延续修复 | Agent 优化 |
-
-### Agent/KB 架构演进（2026-09-07 ~ 2026-09-10）
-
-| 日期 | 里程碑 | 要点 |
-|------|------|------|
-| 09-10 | Agent/KB 代码重构 | agentLoop 拆分 (agentPromptBuilder/agentToolSelector/agentKbPreloader) + kbSearch 缓存提取 + tokenEstimator 共享 |
-| 09-09 | Agent 优化 v4 | deleteLocalFile 文件树刷新 + editLocalFile 编辑器同步 + web_search 意图路由优化 + QuestionCard 美化 |
-| 09-08 | AI 优化方案 | IPC 通道名修复 + deleteLocalFile 工具 + QuestionCard 底部面板 + 系统通知 + i18n |
-| 09-07 | Agent 优化 v3 | 搜索持久化 + 动态轮次 + 多文件 Diff (IPatchProposal + PatchPreviewCard) |
-| 09-07 | AI Agent 优化 30/30 | 重试状态重置/历史污染/提示词精简 + 轮次压缩/动态工具 + Schema 压缩/上下文压缩/KB 缓存 + Agentic RAG/HyDE |
-
-### 历史里程碑（2026-08-06 ~ 2026-08-31）
-
-| 日期 | 里程碑 |
-|------|------|
-| 08-31 | 性能优化：Agent 执行流程 DB 优化 8 项 + KB 搜索优化 5 项 + 写控制/前端优化 4 项 |
-| 08-29 | UI 美化：字体统一、工具栏毛玻璃、Composer 标签、Material Design Icons + AI 性能 v2 |
-| 08-25~27 | 知识库 Notus 对齐 R1~R12：Embedding 多提供商、RRF 混合检索、查询理解、jieba 分词等 |
-| 08-24~25 | 写控制与任务安全 R1~R7：写模式切换、版本对比、交互暂停/恢复、事件持久化、草稿恢复 |
-| 08-24 | Notus Agent 克隆 Phase 1-5：Session 状态机、Checkpoint/Resume、任务队列、死循环检测 |
-| 08-14~16 | AI 代理面板 7 期交付：基建 + Chat + 知识库 + Agent + 块级改写 + KB 参数 + 体验重构 |
-| 08-06~19 | 编辑主区 v2：块树内核、前缀即时转换、浮动工具栏、跨块拖选、可编辑表格块、media:// 协议 |
-| 更早 | 认证系统、文件管理、8 格式导出、三语言国际化、深色主题、Frameless 窗口 |
+| 里程碑 | 时间 | 一句话 |
+|---|---|---|
+| **ai-core-perf** | 2026-10-03 | 性能优化（AI 代理多意图 / 自动记忆 / 任务队列 / 内置工具 + 文档解析）：13 瓶颈，实施 9 放弃 4；`analyzePdfLayout` 4.2×、`toolsForIntent` 46.7×、记忆策略读取 −92% |
+| **agent-kb-ux** | 2026-10-03 | KB 可见性与交互增强（R2 composer KB 开关接线 · R3 导入授权贯通 · R5 会话楷体）；R4「复制文件地址」交付后经用户裁定整体删除 |
+| **agent-multi-intent** | 2026-10-01 ~ 10-03 | 多意图识别与执行 13 任务（P0 5 结构化拆分/链 + P1 6 追踪/报告/三层路由/并行调度 + P2 2）+ 2 连通性修复 |
+| **agent-memory-optimize 第三批** | 2026-09-30 ~ 10-01 | P2 远期能力 6 项 + D7 范围扩张（FTS 删除路径整体报错回滚）+ D6.1 向量召回 |
+| **agent-memory-optimize 第二批** | 2026-09-29 ~ 09-30 | P1：记忆策略 Ledger（衰减/合并/容量）+ 后台提取 + 读写工具 |
+| **agent-memory-optimize 第一批** | 2026-09-28 ~ 09-29 | P0：`agent_memory` 单表 + 双时间 + FTS5 trigram |
+| **doc-pipeline** | 2026-09-26 ~ 09-27 | 文档处理流水线 B1~B11（7 格式解析 / PDF 版面还原 / 多模态 D 路线 / 附件结构落库 / 文档四工具） |
+| **agent-cost-optimize** | 2026-09-23 ~ 09-24 | Agent 成本与缓存（结果预算 / 缓存断点 / anthropic 分流基建） |
+| **agent-md-kb-optimize** | 2026-09-18 | Markdown 与知识库优化 |
+| **agent-perf-optimize** | 2026-09-16 ~ 09-17 | S1~S16（流式推测执行 / 工具延迟加载 / 大结果持久化 / Prompt 前缀稳定 / 基准套件 / A/B 框架） |
+| **perf-agent-arch** | 2026-09-15 | Agent/KB/写控制三模块性能扫描（结论：JS 层非瓶颈，延迟在 LLM 往返） |
+| **agent-ux-optimize** | 2026-09-14 | Agent 面板体验优化 |
+| **四模块全局重构** | 2026-09-13 | 编辑器 / AI 面板 / 导航 / 设置四模块结构重整 |
+| **Bug 修复与体验优化** | 2026-09-11 ~ 09-12 | 一批交互缺陷修复 |
+| **Agent/KB 架构演进** | 2026-09-07 ~ 09-10 | 意图路由 / 工具系统 / KB 索引架构奠基 |
+| **历史里程碑** | 2026-08-06 ~ 08-31 | 编辑器内核、认证、导出、打包等早期建设 |
 
 ## 待开发
 
@@ -240,7 +40,6 @@ L 级重型重构，8 阶段全部完成。详见 status 归档文档（已随 p
 | 🔲 | 撤销/重做后光标定位优化 | 当前光标回到重建树首块，需恢复到操作位置 |
 | 🔲 | 段落级 MD Source 视图迁移 | v2 编辑器迁移 Monaco Source 视图 |
 | 🔲 | 真 MCP server 管理 | 外部 MCP server 注册与生命周期管理 |
-| 🔲 | 选区改写入口是否恢复 | `startSelectionRewrite` 生产零调用方，4 条 E2E 断言保留作已知失败（见 status §附4） |
 
 ## 已知问题
 
@@ -248,7 +47,7 @@ L 级重型重构，8 阶段全部完成。详见 status 归档文档（已随 p
 |------|------|
 | `allowSend` 无可达设置入口（R2） | **已解除 @agent-kb-ux（2026-10-03，三态闸）**：`checkKbEgressGate` 使 `ConsentOverlay` 生产可达，`filterKbEgressResults` 生产执行（详见 [kb-indexing-egress](./specs/knowledge/kb-indexing-egress.md) §8 R1/R2 解除记录）；`ai.settings.allowSend` 为孤儿 i18n 键（仍无 `t()` 调用方） |
 | Linux AppImage 与 liteparse 排除互斥（R9） | `build.files` 排除 Linux 原生件是 Windows 瘦身手段，执行 Linux 打包前须先移除这两条排除（见 [packaging](./guide/packaging.md)） |
-| `AI_CHAT` 附件/入 KB 链休眠（R10） | 主进程 `ChatReqPayload` 有 `attachments`/`uploadToKb`，preload 类型缺字段，渲染层零调用方（Chat 模式已废弃） |
+| `AI_CHAT` 附件/入 KB 链休眠 | 主进程 `ChatReqPayload` 有 `attachments`/`uploadToKb`，preload 类型缺字段，渲染层零调用方（**有意废弃，不得恢复**） |
 | anthropic 主循环不分流 + 丢 `tool` 行 | `protocol=anthropic` 时主循环仍走 OpenAI 形状；`anthropicClient.ts:217-234` / `anthropicCompat.ts:89-105` 静默丢 `tool` 角色与 `tool_calls`（agent-memory **R4**，agent-memory 另立 issue 范围） |
 | `AI_CHAT` 读到空 assistant 行 | 主进程 `chatHandlers.ts:345-353` 不透传 `tool_calls`，本批新形状会送 `content:''`；渲染层零调用点**当前不可达**（agent-memory **R3**，第二/三批均未处理，留后续批次） |
 | `AI_CONVERSATION_GET` 未校验 `event.sender` | 以渲染进程传入 `userId` 为权威（`chatHandlers.ts:73-83`）——既有问题，agent-memory 阶段 7 A7 提出、非本批引入，第二/三批均未处理，留后续批次 |
@@ -258,7 +57,7 @@ L 级重型重构，8 阶段全部完成。详见 status 归档文档（已随 p
 | v2 Normal 模式无查找高亮 | 编辑主区（Normal 模式） |
 | 撤销/重做后光标回到重建树首块 | 编辑主区（撤销/重做操作） |
 | 段落级 MD Source 视图未迁移 | 编辑主区（Source 模式） |
-| E2E 全量 31 failed（基线 112） | 其中 **10 条为已知/预期失败**：`ai-agent-panel` 4 条选区改写（保留作证据）+ `drag-selection-markers` 5 条（标题自带「当前 RED」）+ `floating-toolbar:222` 1 条（同属已移除的 AI 改写能力）；**其余 21 条属其他 spec 的既有问题**，不在 agent-cost-optimize 范围 |
+| **E2E 基线恒为 31 failed / 104 passed / 1 skipped（exit 1）** | 已用干净树对照实验确认是**既有接受态**（改动前后失败用例集合逐条一致）。判 E2E 门禁要**比对失败集合**，不是要求全绿。详见 `ai-core-perf.delivery.md` §3.1 |
 | 选区改写链路零 E2E 覆盖 | document scope 的预览/应用/撤销/stale/unchanged/失败条已覆盖；选区侧因 `startSelectionRewrite` 无调用方而不可测 |
 | `searchMode:'vector'` 无向量即拒答 | `kbSearch.ts:508` FTS5 分支只认 `fts5\|hybrid`，`vector` 模式不传 `queryVector`（未开 HyDE）→ 候选空 → `:683` 规范拒答，**无关键词兜底**；`kbSearch.ts:443` JSDoc 称「无 queryVector 降级 FTS5+标题」对 `vector` 不成立（agent-memory-2 A4 实测发现，降级只在默认 hybrid 路径成立） |
 | KB 搜索缓存键缺参 | `searchCache.ts:118-124` 键只含 `topK/currentFileId/threshold/searchMode`，**不含 `pinnedWeight` 与 `queryVector`**；且仅 `kbIndexer` 索引事件触发失效、设置变更不失效 → 3min TTL 内改置顶权重或切换向量开关会复用旧排序（A4 实测发现） |
@@ -278,4 +77,4 @@ L 级重型重构，8 阶段全部完成。详见 status 归档文档（已随 p
 | **D6 首个升级版本可能有一次批量 embedding 成本** | 启动回填（`scheduleMemoryVectorBackfill`）在 embedding 已配置时对存量 `vector IS NULL` 行发起批量 API 调用（分批 20 / 限速 300ms / 上限 100 批，失败静默）；未配置时零成本空转。**建议生产观察调用频次**（agent-memory-3 D6） |
 | `memory_read` 的 hyde 引导未进工具提示词 | D6.1 只在工具 schema 的 `description` 里说明「传 query + hyde:true 走语义混合召回」，**未在 `agentPromptBuilder` 的工具规则段追加引导**（该文件属 D4、D6.1 未获授权）。LLM 是否主动传 `hyde` 取决于 schema description 的表达力 |
 | D7 未重建旧库 FTS 内容 | 3 处触发器已修为标准 DELETE，但回填仍是 `rowid NOT IN` **只补不删**（红线禁 DROP/重建）。因删除历史从未成功、基表无孤儿行，实测风险低；若历史库已有 FTS 残留条目需人工核对 |
-| 连通性修复入口（取消竞态 + 裸 `.then` 合规） | `waitForInteraction` 取消竞态与 `subtaskScheduler` 裸 `.then` 已修（fix `43ab99c`，全量 205 文件 4784 例绿）；RED→GREEN 实录见 [agent-multi-intent tdd 分册 06](./testing/agent-multi-intent/agent-multi-intent.tdd/06-fix-2026-10-03.md)（报告头部为 [agent-multi-intent.tdd](./testing/agent-multi-intent/agent-multi-intent.tdd.md) 分册索引） |
+| 连通性修复入口（取消竞态 + 裸 `.then` 合规） | 已修（fix `43ab99c`）：`waitForInteraction` 取消竞态 + `subtaskScheduler` 裸 `.then`；RED→GREEN 实录已在 git 历史 |

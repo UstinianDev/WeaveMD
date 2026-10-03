@@ -3,7 +3,7 @@
 > 规范编号：SPEC-AGENT-MEM-01 | 更新：2026-10-01
 > 承载 [agent-memory.md](../agent-memory.md) 的存储与策略实现级行为契约（表结构、迁移、DAO、Policy）；返回索引：[agent-memory.md](../agent-memory.md)
 > 关联需求：[agent-memory-optimize-2.req.md](../../../requirements/agent-memory/agent-memory-optimize-2.req.md)（Q6/Q10、红线 4）、[agent-memory-optimize-3.req.md](../../../requirements/agent-memory/agent-memory-optimize-3.req.md)（Q6/Q8、红线 4）
-> 来源标记：〔plan-2〕= `docs/plan/agent-memory-optimize-2.plan.md` §6、〔plan-3〕= `agent-memory-optimize-3.plan.md` §6；过程证据见 `docs/testing/agent-memory/agent-memory-optimize-{2,3}.tdd.md`
+> 来源标记：〔plan-2〕= `agent-memory-optimize-2.plan.md`（已归档，见 git 历史） §6、〔plan-3〕= `agent-memory-optimize-3.plan.md` §6；过程证据见 `agent-memory-optimize-{2,3}.tdd.md`
 > 溯源声明：来源标注中的 `docs/plan/*` 为过程计划文档，已随计划退役（历史见 git），仅留溯源线索。
 
 ---

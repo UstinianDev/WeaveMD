@@ -134,4 +134,4 @@ Backspace / Enter 等显式操作，规则见第 3 节。
 | 前缀检测（§1 各语法） | `src/render/editor/kernel/markdownSyntax.ts`（正则全含 `U+00A0`）+ `blockDetection.ts` |
 | 测试 | `tests/editor/controllers/controllers.test.ts`（空代码块退格 / 纯空白代码块 / 代码块后空段落受保护 / 空代码块回车退出） |
 
-**测试基线**：全量 `vitest run` **138 文件 / 3226 测试全绿**（2026-09-24 实测，见 `docs/testing/agent-cost-optimize/agent-cost-optimize.tdd.md` §6）；`tsc --noEmit` 0 error。
+**测试基线**：全量 `vitest run` **138 文件 / 3226 测试全绿**（2026-09-24 实测，见 `agent-cost-optimize.tdd.md` §6）；`tsc --noEmit` 0 error。

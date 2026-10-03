@@ -34,7 +34,7 @@
   composer/extensions/（SkillTag/MentionTag/skillSuggestion/mentionSuggestion）+
   settings/{ModelForm,EmbeddingSettings,SearchSettings,...}
 - `README.md` — GitHub 项目主页（功能介绍、下载安装、开发指南）
-- `docs/` — README / SUMMARY / TODO / REQUIREMENTS / CONTRIBUTING + architecture/ modules/ specs/ testing/ requirements/ research/ guide/
+- `docs/` — README / SUMMARY / TODO / REQUIREMENTS / CONTRIBUTING + architecture/ modules/ specs/ plan/ requirements/ research/ guide/
 
 ## 规范
 
@@ -68,7 +68,7 @@
 > `docs/specs/ai-agent/agent-memory.md`（自动记忆）/ `agent-prompt-context.md`（提示词注入）+
 > `docs/modules/11-AI代理面板-Agent.md`（架构文档）
 
-- **后端 remote-only**：Ollama 已移除，`ChatBackend` 收敛为 `'remote'`
+- **后端 remote-only**：`ChatBackend` 只有 `'remote'`（无本地推理后端）
 - 右侧 AI 面板（导航栏「AI」按钮开合），仅 Agent 模式（Chat 已删除）
 - 铁律一：**AI 写入必经确认**——红删绿增预览 → 用户确认 → `updateContent` 入 undo 栈
 - 铁律二：**笔记外发必须用户知情同意**（联网同意已停用——三配置齐全即视为许可）；key 用 safeStorage 加密存 SQLite
@@ -152,11 +152,11 @@
 - [REQUIREMENTS](../docs/REQUIREMENTS.md) — 功能需求文档
 - [CONTRIBUTING](../docs/CONTRIBUTING.md) — 文档编写规范
 - [architecture/](../docs/architecture/) — 按技术层分类（10 篇：前端/编辑器/后端/AI/知识库/数据库/IPC/安全/测试/构建）
-- [modules/](../docs/modules/) — 各模块文档（11 个模块）
+- [modules/](../docs/modules/) — 各模块文档（11 个模块；11-AI代理面板 另带 4 篇分册）
 - [specs/](../docs/specs/) — 功能规格与行为契约，**按模块分文件夹**（editor 10 主 + 7 分册 / ai-agent 6 主 + 3 分册 / knowledge 5 主 / release 1 主 = **22 主 + 10 分册**）
-- [testing/](../docs/testing/) — TDD 测试报告（6 模块 / 25 篇，按模块分文件夹：agent-multi-intent / agent-memory / doc-pipeline / spec-edit / agent-cost-optimize / agent-kb-ux）
-- [requirements/](../docs/requirements/) — devflow 需求文档（当前 6 篇按模块分 4 个子文件夹 + archive 15 篇）
-- `plan/` — 实施计划与状态（**现行 7 篇**：agent-multi-intent 5 篇（plan / p1.plan / status / 2 connectivity）+ agent-kb-ux 2 篇（plan / status）；权威规格在 `specs/`、调研在 `research/`，历史整体退役见 git，原 `plan/archive/` 已不存在）
+- [requirements/](../docs/requirements/) — devflow 需求文档（8 篇按模块分 6 个子文件夹；**保留在库** —— 它是当前代码行为的裁定依据）
+- [testing/](../docs/testing/) — TDD 报告 + [索引](../docs/testing/README.md)（**交付时点快照，门禁数字已过期**；测试意图溯源用，要跑测试看 `tests/` + `e2e/`）
+- `plan/` — 现行任务的过程文档（**现行 5 篇，全部属 ai-core-perf**：bottleneck / plan / status / connectivity / delivery）。**已完成任务的过程文档与测试报告正文一律删除、见 git 历史**（2026-10-04 文档精简）；权威规格在 `specs/`、调研在 `research/`
 
 ### 查阅规则（渐进式披露）
 - 项目是什么、怎么跑 → README.md（根目录）
@@ -177,6 +177,6 @@
 - 超长三级文档的分册 → 主文档头部索引 → docs/{文档名}/NN-主题.md（分册正文与原章节逐字一致）
 - 功能规格与行为契约 → docs/specs/{模块}/（editor / ai-agent / knowledge / release）
 - 外部资料调研 → docs/research/
-- 测试覆盖、验证证据 → docs/testing/
-- 实施计划、优化状态 → **已归档**（devflow 过程产物，见 git 历史；功能规格看 `specs/`）
+- 验证证据 → `tests/` + `e2e/`（活证据）；测试意图溯源 → docs/testing/（快照）；性能对比数据 → docs/plan/ai-core-perf.delivery.md
+- 实施计划、优化状态 → docs/plan/（仅现行任务；已完成任务见 git 历史）
 - 导出/MIME/打包指南 → docs/guide/

@@ -1,13 +1,25 @@
 # Agent Memory Index
 
-- [multi-intent 任务10 边界固化](project-multi-intent-p1-task10-boundary.md) — P1 八任务全完成（87e9c63）；裁定：不建共享常量文件，两套意图枚举禁止合并
-- [multi-intent 任务8 并行调度](project-multi-intent-p1-task8-parallel.md) — 启用信号 subtaskParallel（计划外红线偏离）+ 轮次基址方案保 worker E2E call id；ab-test flaky 第三次记录
-- [multi-intent P1 提交纪律](project-multi-intent-p1-commit-discipline.md) — status/req/plan 三文件永不入库；按计划 §3 白名单 add；任务 6/7/4/9/12/13/8/10 已交付 1bb52b5、4fcd6a2、d2b3168、7d1f8f4、7fa9eb5、1587976、cd61099、87e9c63
-- [multi-intent 任务13 write_mode](project-multi-intent-p1-task13-writemode.md) — computeRoundSkipSet 触发=无交互**或**manual；selector 半派生留 unused warning；ab-test 计时 flaky 非回归
-- [multi-intent 任务12 确认与级联](project-multi-intent-p1-task12-confirm.md) — worker E2E DONE 走 persistAndSend；return await 才落 ERROR catch；自动 serial_after 扩大级联范围（chainReport ③ 已改）
-- [multi-intent 任务9 透传与两坑](project-multi-intent-p1-task9-bridge.md) — agentIntent 透传链；闭包重建 opts 丢参（grep agentTaskWorker）；链测试部分 ctx 判空
-- [multi-intent 报告红线裁定](project-multi-intent-report-redlines.md) — confirmWriteBatch 返回保持 string 走 sink（任务 12 必读）；报告段条件渲染 + 6 处链正文 toBe 锚点；Q7 同对象写合并陷阱
-- [multi-intent 任务4 意图分层口径](project-multi-intent-p1-task4-tiering.md) — 缓存只写 tier2 成功值/shared 只读；protocol==='openai' 门；预取双键；任务 9 改 kbSearch 必读
+> 2026-10-04 清理：只保留**可迁移**的坑、约定与纪律（跨任务复用）；
+> 已交付任务的实现记录已删除（历史见 git）。
+
+## 约定与纪律
 - [文档拆分约定（阈值 400 / 分册零增行）](project-doc-split-convention.md) — 分册只放逐字正文、回链全在主文档；自检走 git show + diff 重建比对
+- [docs 按模块入子文件夹](project-doc-module-folder-reorg.md) — testing/requirements/research 计数口径与旧路径 grep 排除区
 - [共用记忆索引会被整文件覆盖](project-shared-memory-index-clobber.md) — 并行智能体写 MEMORY.md 前先合并 HEAD+工作区，缺失行按磁盘文件补回
-- [docs 按模块入子文件夹（ee6644a）](project-doc-module-folder-reorg.md) — testing「5 模块/24 篇」三处同步；旧路径 grep 必须排除 agent-memory 不碰区（17 处）
+- [devflow 并行子代理纪律](project_devflow_parallel_subagents.md) — 多子代理改同一工作树时，门禁报错须先归属到自己负责的文件
+- [AI renderer 安全渲染](feedback_ai_renderer_security.md) — markdown 气泡必须纯文本渲染，禁止 dangerouslySetInnerHTML
+
+## 测试与验证
+- [全量套件 flaky 与覆盖率口径](project_fullsuite_flaky_perf_tests.md) — cacheMonitor / ab-test 耗时断言并行必红单跑必绿；覆盖率 run 有失败用例时不落报告，需 `--exclude` 单 glob
+- [测试环境六个坑](weavemd-test-env-pitfalls.md) — better-sqlite3 原生模块、coverage.include 传参、coverage 报告需全绿等
+- [E2E 基线既有失败](e2e-baseline-known-failures.md) — 31 failed 是前序任务已裁定的接受态，验收时对齐基线口径而非要求全绿
+- [intentRouter 测试造例坑](project_intentrouter_test_input_pitfall.md) — 必须手工推演关键词子串命中（create 的单字「写」会被「缩写/扩写」误命中）
+
+## 平台与数据
+- [better-sqlite3 拒绝 ADD COLUMN IF NOT EXISTS](fts-server-better-sqlite3-add-column.md) — 幂等加列需运行期 PRAGMA 探测
+- [FTS5 unicode61 中文分词坑](fts5-cjk-unicode61.md) — 连续中文被当成一个 token，Bare CJK match 不命中，需前缀查询或向量兜底
+
+## 架构口径
+- [AI 面板主进程层边界](ai-main-process-layer.md) — 模块边界 / 测试隔离模式 / 安全契约
+- [Prompt 前缀稳定性](ai-prompt-prefix-stability.md) — 工具字母序、系统提示分层、动态上下文入 system-reminder

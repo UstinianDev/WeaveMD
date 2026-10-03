@@ -1,6 +1,6 @@
 # agent-memory-optimize — 需求文档（第一批 / P0）
 
-> 日期：2026-09-28 | 档位：L | 基于：`docs/plan/agent-memory-optimize.direction.md`（已随计划退役，见 git 历史）+ grill-me 三轮对齐 + P0 代码锚点核验
+> 日期：2026-09-28 | 档位：L | 基于：`agent-memory-optimize.direction.md`（已归档，见 git 历史）（已随计划退役，见 git 历史）+ grill-me 三轮对齐 + P0 代码锚点核验
 > 状态：**18 项全部对齐**（Q1~Q15 需求对齐 + Q16~Q18 实施期新增裁定）
 
 ## 一、目标
@@ -84,7 +84,7 @@
 **批 A（语义层，互为因果必须同批）**：P0-1 → P0-2 → P0-3 → **Gate（五门禁全量跑）**
 **批 B（存储与检索层）**：P0-4 → P0-5 → P0-6 → P0-7 → **Gate**
 
-TDD 强度：**L / strict**（RED 实测 → 最小实现 GREEN → 重构 → 覆盖率 ≥80% → checkpoint → 证据报告 `docs/testing/agent-memory/agent-memory-optimize.tdd.md`）。
+TDD 强度：**L / strict**（RED 实测 → 最小实现 GREEN → 重构 → 覆盖率 ≥80% → checkpoint → 证据报告 `agent-memory-optimize.tdd.md`）。
 
 ## 四、不涉及范围
 
@@ -96,7 +96,7 @@ TDD 强度：**L / strict**（RED 实测 → 最小实现 GREEN → 重构 → �
 
 ## 五、红线
 
-1. 不减少历史轮次、不截断工具结果（沿用 `docs/requirements/archive/agent-perf-optimize.req.md:11-17`）。
+1. 不减少历史轮次、不截断工具结果（沿用 `agent-perf-optimize.req.md:11-17`（已归档，见 git 历史））。
 2. 铁律一仅约束**笔记内容写入**，不约束上下文拼装。
 3. 知识库 0.6 拒答、置顶 ×1.5、searchMode 三模式降级行为不变。
 4. 停用渲染侧 `tool_calls` 回写属**删既有能力**，已获 Q7 明确批准。

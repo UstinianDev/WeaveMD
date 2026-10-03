@@ -148,7 +148,7 @@
 
 - **范围**：
   1. 补场景③「压缩触发后指代仍成立」（第一批只交了①②）——触发方式用**注入大历史**而非调低阈值（阈值无测试锁定，调它会污染 A2 的「不动阈值」约束）；
-  2. 七.2 全量门禁五件套 + 证据留存 `docs/testing/`；
+  2. 七.2 全量门禁五件套 + 证据留存 ``（已归档，见 git 历史）；
   3. 七.3 已由 A4 承接（压缩/记忆单测与红线护栏合并交付）。
 - **风险**：L2
 
@@ -158,7 +158,7 @@
 **子批 B**：B3（迁移 + 双路径测试）→ B1 → B2 → B4 → **Gate B**
 **子批 C**：C1 → C2 → C3 → C4 → **Gate C（全量门禁 + E2E）**
 
-TDD 强度：**L / strict**（RED 实测 → 最小实现 GREEN → 重构 → 改动行覆盖 ≥80% → checkpoint → 证据报告 `docs/testing/agent-memory/agent-memory-optimize-2.tdd.md`）。
+TDD 强度：**L / strict**（RED 实测 → 最小实现 GREEN → 重构 → 改动行覆盖 ≥80% → checkpoint → 证据报告 `agent-memory-optimize-2.tdd.md`）。
 
 ## 四、不涉及范围
 
@@ -171,7 +171,7 @@ TDD 强度：**L / strict**（RED 实测 → 最小实现 GREEN → 重构 → �
 
 ## 五、红线
 
-1. 不减少历史轮次、不截断工具结果（`docs/requirements/archive/agent-perf-optimize.req.md:11-17`；守护 `agentContext.test.ts:633/642/663`）。
+1. 不减少历史轮次、不截断工具结果（`agent-perf-optimize.req.md:11-17`（已归档，见 git 历史）；守护 `agentContext.test.ts:633/642/663`）。
 2. 铁律一仅约束**笔记内容写入**；记忆写入不经逐条确认，但需可见可删入口（C3）。
 3. 知识库拒答 0.6 / 置顶 ×1.5 / searchMode 三模式降级行为不变（本批 A4 补行为级护栏，不改 `src/` 行为）。
 4. 迁移可从空库执行、也能从上一版本升级；**历史迁移文件不得擅改**，不 DROP/DELETE/UPDATE。

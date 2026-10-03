@@ -77,5 +77,5 @@
 
 - 29 任务按依赖顺序逐条实现，每条以其「拷问细节」为验收点。
 - 全量质量门禁 5 项全绿（tsc + vitest + eslint 0 error + vite build + playwright）。
-- 新增行为同步 TDD 报告到 `docs/testing/`，进度同步 plan status 文档（已随计划退役，见 git 历史）。
+- 新增行为同步 TDD 报告到 ``（已归档，见 git 历史），进度同步 plan status 文档（已随计划退役，见 git 历史）。
 - 红线：体积 ≤1GB、瘦身不改功能、`allowSend` 不放宽、不删测试、不动已应用历史迁移。

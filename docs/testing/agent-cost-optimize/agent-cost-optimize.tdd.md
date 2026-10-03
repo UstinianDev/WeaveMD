@@ -1,7 +1,7 @@
 # agent-cost-optimize — TDD 证据报告（M / standard）
 
 > 创建：2026-09-23 | 档位：**M** | 强度：standard（RED → GREEN → 重构 → 覆盖率记录 → 本报告）
-> 来源：`docs/plan/agent-cost-optimize.plan.md`（已随计划退役，见 git 历史）/ [需求](../../requirements/archive/agent-cost-optimize.req.md)
+> 来源：`docs/plan/agent-cost-optimize.plan.md`（已随计划退役，见 git 历史）/ 需求（已归档，见 git 历史）
 > 溯源声明：本文来源标注中的 `docs/plan/*` 为过程计划文档，已随计划退役（历史见 git），仅留溯源线索。
 
 ## 1. 测试范围

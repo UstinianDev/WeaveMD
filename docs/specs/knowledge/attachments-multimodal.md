@@ -14,6 +14,7 @@
 > - 解析产物契约、PDF 版面、D 路线、溯源（`structure_json`）归 [document-parsing.md](./document-parsing.md)；
 > - 列级 DDL 细节（D3~D6）、外发闸 `allowSend` 语义、R3 四工具过闸归 [kb-indexing-egress.md](./kb-indexing-egress.md)；
 > - 29 任务清单、Q1~Q6 决策与验收门禁归 [需求文档](../../requirements/doc-pipeline/doc-pipeline.req.md)。
+> 「来源：」中出现的 `docs/plan/*` 均为**已归档的过程文档**（2026-10-04 精简，正文见 git 历史），此处保留仅作溯源。
 
 **来源缩写**（行内 `〔源：xx §yy〕` 按下表展开为相对链接 + 章节）：
 

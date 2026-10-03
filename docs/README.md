@@ -96,7 +96,7 @@ npm run build
 - 模块实现细节 → docs/modules/{模块名}.md
 - 功能规格与行为契约 → docs/specs/{模块}/（editor / ai-agent / knowledge / release）
 - 外部资料调研 → docs/research/
-- 测试证据 → docs/testing/
+- 测试证据 → `tests/` + `e2e/`（活证据）；TDD 报告与索引 → docs/testing/
 - 实施计划 → docs/plan/（现行 7 篇（agent-multi-intent 5 + agent-kb-ux 2）；历史整体退役见 git）
 - 打包发布 → docs/guide/packaging.md
 - **全部文档索引 → [SUMMARY.md](./SUMMARY.md)**

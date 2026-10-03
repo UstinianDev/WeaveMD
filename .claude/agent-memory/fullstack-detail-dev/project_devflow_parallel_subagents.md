@@ -13,4 +13,4 @@ devflow「agent-memory-optimize」等批次按步骤拆给多个子代理**并�
 - `npm run typecheck` 报错时，先按路径判断是否属于自己负责的文件；属于自己 → 必须修；属于并行代理 → 记为「非本步引入」并在报告中说明，不要动它。
 - 同理 `npx vitest run tests/main/ai/` 若出现非自己文件的失败，先用 `git diff --name-only` 归属再下结论。
 - 只跑自己文件的 RED/GREEN 时，用 `git stash push -- <自己的单个文件>` 临时回退源码取证，再 `git stash pop` 恢复（pathspec 限定，不会误伤并行改动）。
-- 相关：[[doc-pipeline-b11-done]]（同一仓库多批并行的既有经验）。
+- 相关：（同一仓库多批并行的既有经验）。

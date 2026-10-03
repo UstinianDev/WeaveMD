@@ -8,7 +8,7 @@
 ## 9. 实施记录
 
 > 按里程碑回写（对照 SPEC-EDIT-FT2 §9 的格式）。实施证据见
-> [docs/testing/spec-edit/spec-edit-ft3.tdd.md](../../../testing/spec-edit/spec-edit-ft3.tdd.md)。
+> spec-edit-ft3.tdd.md。
 
 ### 9.1 阶段 0 内核：Step 0 选区归一化（G1，2026-08-08）
 

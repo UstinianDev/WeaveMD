@@ -182,7 +182,7 @@ Gate E:  D3(六.1, L) → D4(六.2, M) → D5(六.3, M) → 五门禁 + 真库 s
 Gate F:  D6(三.3, L) → 五门禁 + 真库 smoke → Gate F
 ```
 
-TDD 强度：**L / strict**（RED 实测 → 最小实现 GREEN → 改动行覆盖 ≥80% → checkpoint → 证据报告 `docs/testing/agent-memory/agent-memory-optimize-3.tdd.md`）。
+TDD 强度：**L / strict**（RED 实测 → 最小实现 GREEN → 改动行覆盖 ≥80% → checkpoint → 证据报告 `agent-memory-optimize-3.tdd.md`）。
 
 ## 四、不涉及范围
 

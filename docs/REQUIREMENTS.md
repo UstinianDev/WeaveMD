@@ -99,9 +99,9 @@
 
 | 编号    | 需求             | 优先级 | 说明                                                                                                                                                                                                 |
 | ------- | ---------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| AGT-01 | Agent 智能体     | P1     | 辅助创作：工具 + skills + 知识库 + @ 文件 + 块级改写 + 意图识别（Chat 模式已删除，仅 Agent）                                                                                                          |
+| AGT-01 | Agent 智能体     | P1     | 辅助创作：工具 + skills + 知识库 + @ 文件 + 块级改写 + 意图识别（面板仅 Agent 一种模式）                                                                                                          |
 | AGT-02 | 面板 UI          | P1     | 右侧面板 + 顶部导航栏「AI」按钮开合（VS Code 风格）；单面板模式（三视图：home/session/settings）                                                                                                       |
-| AGT-03 | LLM 后端         | P1     | 远程 OpenAI 兼容 API（remote-only，Ollama 已移除）；设置中配置 API Key / baseURL / 模型                                                                                                               |
+| AGT-03 | LLM 后端         | P1     | 远程 OpenAI 兼容 API（remote-only）；设置中配置 API Key / baseURL / 模型                                                                                                               |
 | AGT-05 | 内置 skills      | P2     | 内置 skills-creator 等；SKILL.md 文件式可扩展（`userData/skills/`）；「markdown 创作」阶段 3 由 AI 从 GitHub 自取（优先 `writing-shape` / mattpocock/skills），不适用则内置 skill-creator 制作                                                                                                           |
 | AGT-06 | 内置 MCP         | P2     | 主进程自动拉起 context7/firecrawl MCP server（stdio，首次联网下载）；离线禁用并提示                                                                                                                    |
 | AGT-07 | 依照知识库创作   | P1     | 默认开启、无独立开关 UI；双路召回（语义+关键词）；命中阈值以下拒答不瞎编；每条回答附出处、可跳转原文；置顶文档来源加权                                                                            |

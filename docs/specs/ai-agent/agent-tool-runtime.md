@@ -1,11 +1,12 @@
 # Agent 工具运行时 — 执行、并发与外发闸（Tool Runtime）
 
 > 规范编号：SPEC-AGENT-TOOL | 版本：v1.1（已实施，任务 11 增 §14 确认档位契约）| 状态：生效 | 更新：2026-10-02
-> 关联需求：[agent-perf-optimize.req.md](../../requirements/archive/agent-perf-optimize.req.md)（S1~S5 / 硬性约束）、[doc-pipeline.req.md](../../requirements/doc-pipeline/doc-pipeline.req.md)（六-1 工具与引用 / 八-1 外发闸）、[agent-cost-optimize.req.md](../../requirements/archive/agent-cost-optimize.req.md)（B3 结果预算）、[REQUIREMENTS.md](../../REQUIREMENTS.md) §3.7 / §3.9 / §3.12
+> 关联需求：agent-perf-optimize.req.md（S1~S5 / 硬性约束）、[doc-pipeline.req.md](../../requirements/doc-pipeline/doc-pipeline.req.md)（六-1 工具与引用 / 八-1 外发闸）、agent-cost-optimize.req.md（B3 结果预算）、[REQUIREMENTS.md](../../REQUIREMENTS.md) §3.7 / §3.9 / §3.12
 > 关联模块：[11-AI代理面板-Agent.md](../../modules/11-AI代理面板-Agent.md)
 > 关联架构：[ai-agent.md](../../architecture/ai-agent.md)、[backend.md](../../architecture/backend.md)、[security.md](../../architecture/security.md)
 > 关联规范：[agent-message-storage.md](./agent-message-storage.md)（消息写读契约）
 > 关联测试：[agent-multi-intent.tdd](../../testing/agent-multi-intent/agent-multi-intent.tdd.md)（§13-§15 多意图链路 TDD 证据，分册 `testing/agent-multi-intent/agent-multi-intent.tdd/`）
+> 「来源：」中出现的 `docs/plan/*` 均为**已归档的过程文档**（2026-10-04 精简，正文见 git 历史），此处保留仅作溯源。
 
 > 本文只写长期有效的实现级行为契约。需求动机、验收与红线见关联 req，两边重复的只在 req 保留，本文引用不复述。
 > 来源标注中的 `../../plan/*` 为过程计划文档，已随计划退役（历史见 git），仅留溯源线索；已与现码逐条核对（2026-10-01）。
@@ -18,54 +19,54 @@
 
 ## 2. 流式推测执行 `StreamingToolExecutor`
 
-- 状态机：`queued → executing → completed → yielded`；安全工具（并发安全）在流式接收期间推测并行执行，非安全工具排队串行。（来源：`docs/plan/agent-perf-optimize.plan.md` §2.1、现码 `StreamingToolExecutor.ts:11/39`）
-- 核心 API：`onToolCall(tc, assistantMessage)`（流中注册）、`getCompletedResults()`（Generator 顺序产出已完成结果）、`getRemainingResults()`（AsyncGenerator 等待未完成）、`waitForAll(skipToolNames?)`、`abortAll(reason)`（级联取消）。（来源：`docs/plan/agent-perf-optimize.plan.md` §2.1）
-- **编译时常量开关**：现码为 `STREAMING_TOOL_EXEC_ENABLED`（计划文档写作 `USE_STREAMING_EXEC`，**以现码为准**）；置 `false` 时与旧行为完全一致，原 `executeToolRound` 保留为兜底路径。（来源：`docs/plan/agent-perf-optimize.plan.md` §2.1、现码 `StreamingToolExecutor.ts:32`）
+- 状态机：`queued → executing → completed → yielded`；安全工具（并发安全）在流式接收期间推测并行执行，非安全工具排队串行。（来源：`agent-perf-optimize.plan.md`（已归档，见 git 历史） §2.1、现码 `StreamingToolExecutor.ts:11/39`）
+- 核心 API：`onToolCall(tc, assistantMessage)`（流中注册）、`getCompletedResults()`（Generator 顺序产出已完成结果）、`getRemainingResults()`（AsyncGenerator 等待未完成）、`waitForAll(skipToolNames?)`、`abortAll(reason)`（级联取消）。（来源：`agent-perf-optimize.plan.md`（已归档，见 git 历史） §2.1）
+- **编译时常量开关**：现码为 `STREAMING_TOOL_EXEC_ENABLED`（计划文档写作 `USE_STREAMING_EXEC`，**以现码为准**）；置 `false` 时与旧行为完全一致，原 `executeToolRound` 保留为兜底路径。（来源：`agent-perf-optimize.plan.md`（已归档，见 git 历史） §2.1、现码 `StreamingToolExecutor.ts:32`）
 
 ## 3. 确认工具安全契约（`waitForAll` skip-set）
 
-- **`FORCE_CONFIRM_TOOLS`（`deleteFile` / `deleteLocalFile`）必须由 skip-set 留给调用方的确认流程，禁止在流式路径预执行。** `waitForAll()` 逐个执行 queued 工具，若不跳过确认类工具，其确认对话框分支将成为死代码——属安全回退。（来源：`docs/plan/agent-perf-optimize.connectivity.md` Chain 1）
-- 已按 Option A 落地：`waitForAll(skipToolNames?: Set<string>)` 跳过集合内工具（保持 `queued`），调用方把跳过后剩余的确认工具交给 `processStreamingToolRound` 的 force_confirm 循环。（来源：`docs/plan/agent-perf-optimize.connectivity.md` Chain 1）
+- **`FORCE_CONFIRM_TOOLS`（`deleteFile` / `deleteLocalFile`）必须由 skip-set 留给调用方的确认流程，禁止在流式路径预执行。** `waitForAll()` 逐个执行 queued 工具，若不跳过确认类工具，其确认对话框分支将成为死代码——属安全回退。（来源：`agent-perf-optimize.connectivity.md`（已归档，见 git 历史） Chain 1）
+- 已按 Option A 落地：`waitForAll(skipToolNames?: Set<string>)` 跳过集合内工具（保持 `queued`），调用方把跳过后剩余的确认工具交给 `processStreamingToolRound` 的 force_confirm 循环。（来源：`agent-perf-optimize.connectivity.md`（已归档，见 git 历史） Chain 1）
 - 现码锚点：`StreamingToolExecutor.ts:139`（`waitForAll` 定义）；skip-set 实际取值自
   agent-multi-intent 任务 11 起**由确认矩阵派生** `confirmSkipSet(intent, inChain, toolNames)`
   —— 按本轮实际工具名逐个 `confirmTierFor` 判档（不按 `WRITE_TOOLS` 枚举）：已登记
   `force` 恒入 ∪ 链态 `batch`（非链态与原 `FORCE_CONFIRM_TOOLS` 行为等价），
   **未登记名恒入**（fail-closed → `batch`，连通性报告 §6 补全：流式路径不再绕过
   `checkForceConfirmTools` 直通执行）；延迟工具重发轮 skip-set = 矩阵派生集 ∪ 本轮延迟工具（见 §14）。
-  （来源：`docs/plan/agent-perf-optimize.connectivity.md` Chain 1、agent-multi-intent 任务 11 现码核对）
+  （来源：`agent-perf-optimize.connectivity.md`（已归档，见 git 历史） Chain 1、agent-multi-intent 任务 11 现码核对）
 
 ## 4. 并发安全判定（按调用、fail-closed）
 
-- 执行器分区由静态 `READ_ONLY_TOOLS` / `WRITE_TOOLS` 二分改为**按调用判定** `isToolConcurrencySafe(name, safeParseArgs(args))`，定义集中在 `concurrencyDefs.ts` 全量注册表；`READ_ONLY_TOOLS` 仍作为集合保留于 `agentToolSelector.ts` 供既有调用方使用，不再承担执行分区。（来源：`docs/plan/agent-perf-optimize.plan.md` §2.2、`docs/plan/agent-perf-optimize.connectivity.md` Chain 2）
-- **未登记 / 未知工具默认 `false`（fail-closed 串行）**；`safeParseArgs` 解析失败返回 `{}`，对未登记工具同样落到串行。注册表提供「已登记为串行」与「根本没登记」的可分辨入口，避免新工具漏入表而测不出来。（来源：`docs/plan/agent-perf-optimize.plan.md` §2.2、现码 `concurrencyDefs.ts`）
-- 并发安全（`defaultSafe: true`）仅限只读或 proposal-only 工具：TOP10 高频（`listFiles` / `readFile` / `searchKB` / `editBlocks` / `list_skills` / `get_skill_details` / `analyze_folder` / `check_links` / `get_task_activity` / `readLocalFile`）+ 文档四工具（`searchDocument` / `readPage` / `extractTable` / `analyzeChart`）+ `memory_read`。写工具与 `memory_write`、`ask_question_card` 等显式 `false`。（来源：`docs/plan/agent-perf-optimize.plan.md` §2.2、`docs/plan/doc-pipeline.plan/01-batch-changes.md` B8、现码 `concurrencyDefs.ts`）
+- 执行器分区由静态 `READ_ONLY_TOOLS` / `WRITE_TOOLS` 二分改为**按调用判定** `isToolConcurrencySafe(name, safeParseArgs(args))`，定义集中在 `concurrencyDefs.ts` 全量注册表；`READ_ONLY_TOOLS` 仍作为集合保留于 `agentToolSelector.ts` 供既有调用方使用，不再承担执行分区。（来源：`agent-perf-optimize.plan.md`（已归档，见 git 历史） §2.2、`agent-perf-optimize.connectivity.md`（已归档，见 git 历史） Chain 2）
+- **未登记 / 未知工具默认 `false`（fail-closed 串行）**；`safeParseArgs` 解析失败返回 `{}`，对未登记工具同样落到串行。注册表提供「已登记为串行」与「根本没登记」的可分辨入口，避免新工具漏入表而测不出来。（来源：`agent-perf-optimize.plan.md`（已归档，见 git 历史） §2.2、现码 `concurrencyDefs.ts`）
+- 并发安全（`defaultSafe: true`）仅限只读或 proposal-only 工具：TOP10 高频（`listFiles` / `readFile` / `searchKB` / `editBlocks` / `list_skills` / `get_skill_details` / `analyze_folder` / `check_links` / `get_task_activity` / `readLocalFile`）+ 文档四工具（`searchDocument` / `readPage` / `extractTable` / `analyzeChart`）+ `memory_read`。写工具与 `memory_write`、`ask_question_card` 等显式 `false`。（来源：`agent-perf-optimize.plan.md`（已归档，见 git 历史） §2.2、`docs/plan/doc-pipeline.plan/01-batch-changes.md` B8、现码 `concurrencyDefs.ts`）
 - 只读工具漏入 fail-closed 会退化为串行，是性能陷阱——新增只读工具须显式入表。（来源：`docs/plan/doc-pipeline.plan/01-batch-changes.md` B8）
 
 ## 5. 工具 schema 延迟加载（defer）
 
-- **核心 5 个**始终发完整 JSON Schema：`listFiles` / `readFile` / `searchKB` / `editBlocks` / `ask_question_card`；**其余 25 个**只发名称 stub + `defer_loading: true`（不发 parameters schema）。（来源：`docs/plan/agent-perf-optimize.phase2.plan.md` §S5、现码 `toolRegistry.ts` 头注）
-- 触发路径：LLM 选中延迟工具 → **拦截 → 加载完整 schema → 重发请求**，**重发上限 3 次**防死循环；同一工具只升级一次（`upgradedDeferredTools`）。（来源：`docs/plan/agent-perf-optimize.phase2.plan.md` §S5、现码 `agentLoop.ts:407-500`）
-- **不新增 ToolSearchTool**（工具数少，不需要搜索层），改用拦截重发。（来源：`docs/plan/agent-perf-optimize.phase2.plan.md` §S5）
-- 重发轮须保留已执行的非延迟工具结果：通过 `waitForAll(skipSet)` 收集（skip-set = 确认类 ∪ 本轮延迟工具），已执行结果注入上下文后再重发，不丢弃。（来源：`docs/plan/agent-perf-optimize.phase2.plan.md` §S5、现码 `agentLoop.ts:434-441`）
+- **核心 5 个**始终发完整 JSON Schema：`listFiles` / `readFile` / `searchKB` / `editBlocks` / `ask_question_card`；**其余 25 个**只发名称 stub + `defer_loading: true`（不发 parameters schema）。（来源：`agent-perf-optimize.phase2.plan.md`（已归档，见 git 历史） §S5、现码 `toolRegistry.ts` 头注）
+- 触发路径：LLM 选中延迟工具 → **拦截 → 加载完整 schema → 重发请求**，**重发上限 3 次**防死循环；同一工具只升级一次（`upgradedDeferredTools`）。（来源：`agent-perf-optimize.phase2.plan.md`（已归档，见 git 历史） §S5、现码 `agentLoop.ts:407-500`）
+- **不新增 ToolSearchTool**（工具数少，不需要搜索层），改用拦截重发。（来源：`agent-perf-optimize.phase2.plan.md`（已归档，见 git 历史） §S5）
+- 重发轮须保留已执行的非延迟工具结果：通过 `waitForAll(skipSet)` 收集（skip-set = 确认类 ∪ 本轮延迟工具），已执行结果注入上下文后再重发，不丢弃。（来源：`agent-perf-optimize.phase2.plan.md`（已归档，见 git 历史） §S5、现码 `agentLoop.ts:434-441`）
 - prompt 前缀缓存约定：工具定义按 `function.name` **字母序**排序；defer schema 升级会使其余该轮起已建前缀失效一次，升级后按前缀自动重匹配恢复稳定。（来源：[perf phase2 plan §S5/S7](./agent-prompt-context.md)、`docs/plan/doc-pipeline.plan/01-batch-changes.md` B8）
 
 ## 6. 结果预算（超限落盘，不丢弃）
 
-- 已落地常量（**现状口径**）：`MAX_SINGLE_RESULT_CHARS = 10_000`、`MAX_AGGREGATE_RESULTS_CHARS = 40_000`、`PREVIEW_LENGTH = 500`。（来源：`docs/plan/agent-cost-optimize.plan.md` §2.5 B3、现码 `toolResultStorage.ts:22/25/31`）
-- **设计期数值以现状为准**：`docs/plan/agent-perf-optimize.phase2.plan.md` §S6 的 40K 单结果 / 150K 聚合是设计期取值，已被 cost 批 10K/40K 取代，不得按 40K/150K 实现或校验。
-- 行为契约：超单结果阈值的内容**写入文件而非丢弃**，返回 `PREVIEW_LENGTH` 预览并带恢复路径；聚合超预算时从最大结果开始持久化；同一工具结果在后续所有 API 调用中使用**相同替换内容**（确定性）。（来源：`docs/plan/agent-cost-optimize.plan.md` §2.5 B3、`docs/plan/agent-perf-optimize.phase2.plan.md` §S6）
-- 质量护栏（产物 payload、澄清问题、出处、错误警告等不削减）见 [agent-cost-optimize.req.md](../../requirements/archive/agent-cost-optimize.req.md) §质量护栏，本文不复述。
+- 已落地常量（**现状口径**）：`MAX_SINGLE_RESULT_CHARS = 10_000`、`MAX_AGGREGATE_RESULTS_CHARS = 40_000`、`PREVIEW_LENGTH = 500`。（来源：`agent-cost-optimize.plan.md`（已归档，见 git 历史） §2.5 B3、现码 `toolResultStorage.ts:22/25/31`）
+- **设计期数值以现状为准**：`agent-perf-optimize.phase2.plan.md`（已归档，见 git 历史） §S6 的 40K 单结果 / 150K 聚合是设计期取值，已被 cost 批 10K/40K 取代，不得按 40K/150K 实现或校验。
+- 行为契约：超单结果阈值的内容**写入文件而非丢弃**，返回 `PREVIEW_LENGTH` 预览并带恢复路径；聚合超预算时从最大结果开始持久化；同一工具结果在后续所有 API 调用中使用**相同替换内容**（确定性）。（来源：`agent-cost-optimize.plan.md`（已归档，见 git 历史） §2.5 B3、`agent-perf-optimize.phase2.plan.md`（已归档，见 git 历史） §S6）
+- 质量护栏（产物 payload、澄清问题、出处、错误警告等不削减）见 agent-cost-optimize.req.md §质量护栏，本文不复述。
 
 ## 7. 哈希统一 xxHash64
 
-- `src/shared/utils/hashUtil.ts`：`xxHash64()` 异步（WASM 懒加载）、`xxHash64Sync()` 同步（djb2 降级）。（来源：`docs/plan/agent-perf-optimize.plan.md` §2.4、现码 `hashUtil.ts`）
-- 替换范围 = staleness 三处（`editBlocksHandler` / `previewFileRevision` / `previewPatchFilesHandler`）+ 渲染两处（`rewriteStore` / `DiffSummaryCard`）。（来源：`docs/plan/agent-perf-optimize.plan.md` §2.4、现码核对）
-- **`agentLoopGuard.ts` 的 MD5 明确不动**（死循环检测数据量小，风险 > 收益）。（来源：`docs/plan/agent-perf-optimize.plan.md` §2.4、[perf req 硬性约束](../../requirements/archive/agent-perf-optimize.req.md)）
+- `src/shared/utils/hashUtil.ts`：`xxHash64()` 异步（WASM 懒加载）、`xxHash64Sync()` 同步（djb2 降级）。（来源：`agent-perf-optimize.plan.md`（已归档，见 git 历史） §2.4、现码 `hashUtil.ts`）
+- 替换范围 = staleness 三处（`editBlocksHandler` / `previewFileRevision` / `previewPatchFilesHandler`）+ 渲染两处（`rewriteStore` / `DiffSummaryCard`）。（来源：`agent-perf-optimize.plan.md`（已归档，见 git 历史） §2.4、现码核对）
+- **`agentLoopGuard.ts` 的 MD5 明确不动**（死循环检测数据量小，风险 > 收益）。（来源：`agent-perf-optimize.plan.md`（已归档，见 git 历史） §2.4、perf req 硬性约束）
 
 ## 8. 搜索缓存键与失效
 
-- `getSearchCacheKey` 缓存键**含 `searchMode`**（`fts5` / `vector` / `hybrid` 各自独立缓存）。（来源：`docs/plan/agent-perf-optimize.plan.md` §2.3、现码 `searchCache.ts:116-123`）
-- `invalidateKbSearchCache` 支持**三级失效 `all` / `user` / `chunk`**，维护 `chunkId → cacheKey` 关联索引，chunk 级精确清除关联条目。（来源：`docs/plan/agent-perf-optimize.plan.md` §2.3、现码 `searchCache.ts:84-180`）
+- `getSearchCacheKey` 缓存键**含 `searchMode`**（`fts5` / `vector` / `hybrid` 各自独立缓存）。（来源：`agent-perf-optimize.plan.md`（已归档，见 git 历史） §2.3、现码 `searchCache.ts:116-123`）
+- `invalidateKbSearchCache` 支持**三级失效 `all` / `user` / `chunk`**，维护 `chunkId → cacheKey` 关联索引，chunk 级精确清除关联条目。（来源：`agent-perf-optimize.plan.md`（已归档，见 git 历史） §2.3、现码 `searchCache.ts:84-180`）
 
 ## 9. 文档四工具只读区注册契约
 
@@ -107,7 +108,7 @@
 
 ## 12. 需求侧交叉引用
 
-各优化项的需求动机、验收指标与硬性约束（工具行为不变、上下文不瘦身、`agentLoopGuard` MD5 不替换等）见 [agent-perf-optimize.req.md](../../requirements/archive/agent-perf-optimize.req.md)；工具与引用的任务级验收见 [doc-pipeline.req.md](../../requirements/doc-pipeline/doc-pipeline.req.md) §1 模块六/八；结果预算与质量豁免清单见 [agent-cost-optimize.req.md](../../requirements/archive/agent-cost-optimize.req.md)。本文不重复这些需求级结论。
+各优化项的需求动机、验收指标与硬性约束（工具行为不变、上下文不瘦身、`agentLoopGuard` MD5 不替换等）见 agent-perf-optimize.req.md；工具与引用的任务级验收见 [doc-pipeline.req.md](../../requirements/doc-pipeline/doc-pipeline.req.md) §1 模块六/八；结果预算与质量豁免清单见 agent-cost-optimize.req.md。本文不重复这些需求级结论。
 
 ## 13. 子任务链执行契约（agent-multi-intent 任务 5）
 

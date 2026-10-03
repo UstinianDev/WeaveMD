@@ -1,4 +1,6 @@
-# agent-kb-ux — KB 可见性修复 + 文件树复制路径 + 会话消息楷体
+# agent-kb-ux — KB 可见性修复 + 会话消息楷体
+
+> R4「文件树复制文件地址」交付后经用户裁定整体撤销（见下表），**不在当前功能范围内**。
 
 > 来源：/devflow 2026-10-03 用户输入；档位 **M**（跨主进程/渲染 2~3 模块），TDD standard
 > 关联诊断：KB 目录导入文档 Agent 可见性五步取证（会话内，结论已固化于本需求 §2）
@@ -11,7 +13,7 @@
 | R1 | **KB 文档对 Agent 可见**（目录导入/单文件导入同构问题） | Q1=B：修 A + 修 B |
 | R2 | `useKnowledgeBase` 开关 UI 接线（**已覆盖 @热修 `542eb9f`**：composer 开关删除，改初值 true 无 UI） | Q2=A：Composer 发送区旁勾选，绑定既有 `setUseKnowledgeBase`（`agentStore.ts:1224`）与 i18n 键 `ai.agent.useKnowledgeBase` |
 | R3 | B11 两闸语义对齐 | 导入流程加「允许外发」授权勾选，`consentGranted` 贯通 `indexImportedText`；白名单口径不变（`source_type='attachment' AND consent_granted=1` 扩为含授权后的 import 行或经由同列生效），**铁律二不削弱**；不采用白名单无条件扩（违反铁律二） |
-| R4 | 文件树右键新增「复制文件地址」（**已按用户裁定删除 @`6a88791`**） | 复制**绝对路径**；文件与文件夹节点均显示；clipboard 写入 + 轻提示；既有重命名/删除不动 |
+| ~~R4~~ | ~~文件树右键「复制文件地址」~~ —— **已撤销（`6a88791` 整体 revert，含剪贴板 IPC）；用户裁定为废弃功能，不得恢复** | — |
 | R5 | Agent 会话消息字体楷体 | **仅会话消息区**（消息流容器）换 `EDITOR_FONT_FAMILY`（KaiTi+Consolas）；home/设置/composer/面板容器字体不动 |
 
 ## 2. 诊断结论（已对齐事实，实施依据）

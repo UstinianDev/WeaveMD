@@ -11,4 +11,4 @@ metadata:
 
 **How to apply:** 新增任何 AI 消息渲染时，先确认无 dangerouslySetInnerHTML；若需 markdown 富文本，先加 rehype-react 依赖并用统一管线转 React 元素，不要用 HTML-string innerHTML。
 
-另：**并行智能体 M1 已把 `ai` 加进 `WeaveMDApi`（src/main/preload.ts:79）并实现了 shared/ai.ts**。它改了 `WeaveMDApi` 类型导致 `src/render/utils/weaveMDBridge.ts` 的 `createNoopWeaveMDApi` 必须补 `ai` noop 才能过 typecheck（我已补）。同时 `window.weaveMD.ai` 现在有真实类型，store/组件测试里对 `onStream` 的 mock（`mockImplementation`）会被 TS 收窄为 never——用 `(window.weaveMD.ai.onStream as unknown as { mockImplementation: (fn:(...a:unknown[])=>unknown)=>void }).mockImplementation((cb: unknown)=>{...})` 加显式 `unknown`/cast 规避。相关 [[feedback-dependent-on-parallel-ai-m1]]。
+另：**并行智能体 M1 已把 `ai` 加进 `WeaveMDApi`（src/main/preload.ts:79）并实现了 shared/ai.ts**。它改了 `WeaveMDApi` 类型导致 `src/render/utils/weaveMDBridge.ts` 的 `createNoopWeaveMDApi` 必须补 `ai` noop 才能过 typecheck（我已补）。同时 `window.weaveMD.ai` 现在有真实类型，store/组件测试里对 `onStream` 的 mock（`mockImplementation`）会被 TS 收窄为 never——用 `(window.weaveMD.ai.onStream as unknown as { mockImplementation: (fn:(...a:unknown[])=>unknown)=>void }).mockImplementation((cb: unknown)=>{...})` 加显式 `unknown`/cast 规避。相关 。
