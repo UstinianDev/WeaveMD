@@ -198,8 +198,53 @@ function resolveThreshold(threshold: number | undefined): number {
  * 任一侧无 trigram（文本不足 3 字）返回 0，绝不返回 NaN。
  */
 export function memorySimilarityScore(a: AgentMemoryRow, b: AgentMemoryRow): number {
-  const setA = memoryTextTrigrams(`${a.subject}\n${a.content}`);
-  const setB = memoryTextTrigrams(`${b.subject}\n${b.content}`);
+  return scoreWithTrigrams(newTrigramMemo(), a, b);
+}
+
+// ---------------------------------------------------------------------------
+// trigram 记忆化（性能：MEM-2）
+// ---------------------------------------------------------------------------
+// 打分口径与 `memoryTextTrigrams` 逐字一致，只是把「同一段文本的 Set」在**单次扫描内**
+// 缓存一次。原实现对每对 (a,b) 都重建双方 Set：`findSimilarMergeGroups` 每行对
+// 至多 32 个候选打分（N×32 次重建），组内 `maxPairScore` 又是 O(n²) 次，
+// `isSimilarGroup` 再 O(n²) 次 —— 同一段文本被重建数十次。
+// 缓存生命周期严格限定在一次调用内（Map 是局部变量），不存在跨调用失效问题。
+//
+// **键取文本本身，不取行 id**：id 不是打分函数的输入 —— 同一行内容在不同批次/夹具里
+// 可能共用 id（测试夹具常见），按 id 缓存会把不同文本误判成同一段。按文本缓存既无碰撞，
+// 又能让「近重复记忆」（本功能的主场景）直接命中同一条。
+
+/** 单次扫描的 trigram 记忆表（key = `subject + '\n' + content`）。 */
+type TrigramMemo = Map<string, Set<string>>;
+
+function newTrigramMemo(): TrigramMemo {
+  return new Map();
+}
+
+/** 打分输入文本（与 `memoryTextTrigrams` 的入参同口径，单一口径不漂移）。 */
+function similarityText(row: AgentMemoryRow): string {
+  return `${row.subject}\n${row.content}`;
+}
+
+/** 取该文本的 trigram Set（同一次扫描内只算一次）。 */
+function trigramsOf(memo: TrigramMemo, row: AgentMemoryRow): Set<string> {
+  const key = similarityText(row);
+  let set = memo.get(key);
+  if (set === undefined) {
+    set = memoryTextTrigrams(key);
+    memo.set(key, set);
+  }
+  return set;
+}
+
+/** 记忆化版本的相似度打分（口径与 {@link memorySimilarityScore} 逐字一致）。 */
+function scoreWithTrigrams(
+  memo: TrigramMemo,
+  a: AgentMemoryRow,
+  b: AgentMemoryRow
+): number {
+  const setA = trigramsOf(memo, a);
+  const setB = trigramsOf(memo, b);
   if (setA.size === 0 || setB.size === 0) return 0;
   let inter = 0;
   for (const gram of setA) {
@@ -210,11 +255,11 @@ export function memorySimilarityScore(a: AgentMemoryRow, b: AgentMemoryRow): num
 }
 
 /** 组内两两相似度的最大值（展示口径）。 */
-function maxPairScore(members: AgentMemoryRow[]): number {
+function maxPairScore(members: AgentMemoryRow[], memo: TrigramMemo): number {
   let max = 0;
   for (let i = 0; i < members.length; i += 1) {
     for (let j = i + 1; j < members.length; j += 1) {
-      const score = memorySimilarityScore(members[i], members[j]);
+      const score = scoreWithTrigrams(memo, members[i], members[j]);
       if (score > max) max = score;
     }
   }
@@ -222,7 +267,11 @@ function maxPairScore(members: AgentMemoryRow[]): number {
 }
 
 /** 判断给定行集合是否构成**连通**的相似组（显式采纳/驳回的入参合法性校验）。 */
-function isSimilarGroup(rows: AgentMemoryRow[], threshold: number): boolean {
+function isSimilarGroup(
+  rows: AgentMemoryRow[],
+  threshold: number,
+  memo: TrigramMemo = newTrigramMemo()
+): boolean {
   if (rows.length < 2) return false;
   const n = rows.length;
   const seen = new Array<boolean>(n).fill(false);
@@ -233,7 +282,7 @@ function isSimilarGroup(rows: AgentMemoryRow[], threshold: number): boolean {
     const cur = stack.pop() as number;
     for (let i = 0; i < n; i += 1) {
       if (seen[i]) continue;
-      if (memorySimilarityScore(rows[cur], rows[i]) < threshold) continue;
+      if (scoreWithTrigrams(memo, rows[cur], rows[i]) < threshold) continue;
       seen[i] = true;
       visited += 1;
       stack.push(i);
@@ -313,6 +362,9 @@ export function findSimilarMergeGroups(
   const eligibleById = new Map<number, AgentMemoryRow>();
   for (const row of eligible) eligibleById.set(row.id, row);
 
+  // MEM-2：单次扫描内每行的 trigram Set 只算一次（原实现每对比较都重建双方）
+  const memo = newTrigramMemo();
+
   for (const row of eligible) {
     const candidates = querySimilarMemoryCandidates(
       db,
@@ -327,7 +379,7 @@ export function findSimilarMergeGroups(
       if (candidate.subject === row.subject) continue; // 同 subject 归 mergeConflicts
       const target = eligibleById.get(candidate.id);
       if (!target) continue; // 不在 eligible（被驳回 / 已关闭）
-      if (memorySimilarityScore(row, target) < threshold) continue;
+      if (scoreWithTrigrams(memo, row, target) < threshold) continue;
       union(row.id, target.id);
     }
   }
@@ -347,7 +399,7 @@ export function findSimilarMergeGroups(
     const winner = [...members].sort(compareWinner)[0];
     groups.push({
       kind: members[0].kind,
-      score: maxPairScore(members),
+      score: maxPairScore(members, memo),
       winnerId: winner.id,
       members,
     });
@@ -403,7 +455,6 @@ export function mergeMemoryGroup(
   }
   return { merged, winnerId: winner.id };
 }
-
 /**
  * 三态审核 · **驳回**：给组内全部行打 `merge_skip` 标记，
  * 此后这些行不再参与自动相似合并、也不再出现在建议列表。

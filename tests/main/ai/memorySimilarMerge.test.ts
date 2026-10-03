@@ -202,27 +202,45 @@ function prepare(sql: string) {
     throw new Error(`fakeDb: 不支持的写语句 → ${sql}`);
   };
 
+  /**
+   * agent_memory 基表扫描的显式投影（ai-core-perf MEM-4）：DAO 由 `SELECT *` 改为
+   * 逐列列出，**刻意排除 `vector` BLOB**（1536 维 float32 ≈ 6 KB/行，策略层单次
+   * 调用要扫 4 遍）。此处把新列清单逐字写进正则 —— 未来再改投影仍会立刻变红。
+   */
+  const ACTIVE_COLS =
+    'id\\s*,\\s*user_id\\s*,\\s*kind\\s*,\\s*subject\\s*,\\s*content\\s*,\\s*source\\s*,' +
+    '\\s*conversation_id\\s*,\\s*fingerprint\\s*,\\s*valid_from\\s*,\\s*valid_to\\s*,' +
+    '\\s*written_at\\s*,\\s*access_count';
+
   const all = (...args: unknown[]): FakeRow[] => {
     assertBound(sql, args);
     if (/agent_memory_fts\s+MATCH/i.test(sql)) return ftsCandidates(sql, args);
-    if (/^\s*SELECT\s+id\s*,\s*merge_skip\s+FROM\s+agent_memory\s+WHERE\s+user_id\s*=\s*\?\s*$/i.test(sql)) {
+    if (
+      new RegExp(
+        `^\\s*SELECT\\s+id\\s*,\\s*merge_skip\\s+FROM\\s+agent_memory\\s+WHERE\\s+user_id\\s*=\\s*\\?\\s+AND\\s+merge_skip\\s+IS\\s+NOT\\s+NULL\\s*$`,
+        'i'
+      ).test(sql)
+    ) {
       const userId = args[0];
       return store
         .filter((r) => r.user_id === userId)
         .sort((a, b) => a.id - b.id)
         .map((r) => ({ ...r }));
     }
-    let m = /^\s*SELECT\s+\*\s+FROM\s+agent_memory\s+WHERE\s+user_id\s*=\s*\?\s+AND\s+kind\s*=\s*\?\s+AND\s+valid_to\s+IS\s+NULL\s+ORDER\s+BY\s+id\s+ASC\s*$/i.exec(
-      sql
-    );
+    let m = new RegExp(
+      `^\\s*SELECT\\s+${ACTIVE_COLS}\\s+FROM\\s+agent_memory\\s+WHERE\\s+user_id\\s*=\\s*\\?\\s+AND\\s+kind\\s*=\\s*\\?\\s+AND\\s+valid_to\\s+IS\\s+NULL\\s+ORDER\\s+BY\\s+id\\s+ASC\\s*$`,
+      'i'
+    ).exec(sql);
     if (m) return activeBySql(args);
-    m = /^\s*SELECT\s+\*\s+FROM\s+agent_memory\s+WHERE\s+user_id\s*=\s*\?\s+AND\s+valid_to\s+IS\s+NULL\s+ORDER\s+BY\s+id\s+ASC\s*$/i.exec(
-      sql
-    );
+    m = new RegExp(
+      `^\\s*SELECT\\s+${ACTIVE_COLS}\\s+FROM\\s+agent_memory\\s+WHERE\\s+user_id\\s*=\\s*\\?\\s+AND\\s+valid_to\\s+IS\\s+NULL\\s+ORDER\\s+BY\\s+id\\s+ASC\\s*$`,
+      'i'
+    ).exec(sql);
     if (m) return activeBySql(args);
-    m = /^\s*SELECT\s+\*\s+FROM\s+agent_memory\s+WHERE\s+user_id\s*=\s*\?\s+ORDER\s+BY\s+id\s+ASC\s*$/i.exec(
-      sql
-    );
+    m = new RegExp(
+      `^\\s*SELECT\\s+${ACTIVE_COLS}\\s+FROM\\s+agent_memory\\s+WHERE\\s+user_id\\s*=\\s*\\?\\s+ORDER\\s+BY\\s+id\\s+ASC\\s*$`,
+      'i'
+    ).exec(sql);
     if (m) {
       const userId = args[0];
       return store.filter((r) => r.user_id === userId).sort((a, b) => a.id - b.id);

@@ -160,30 +160,63 @@ function normalizeBandText(s: string): string {
   return normalizeWs(s).replace(/\d+/g, '#');
 }
 
-/** items → 视觉行（y 重叠聚类，行内 x 升序）。 */
+/**
+ * items → 视觉行（y 重叠聚类，行内 x 升序）。
+ *
+ * 性能（DOC-1）：行的 y 区间 `[y0, y1]` **随 push 增量维护**，不再每次比较都
+ * `Math.min(...row.map(r => r.y))` 重算 —— 原写法对每个 item 扫描全部已建行、
+ * 每行内部再 `map` 两次求 min/max（并各分配一个临时数组），一页密集版面
+ * （数千 textItems）下是主进程内的同步热点。
+ * 增量维护与「对该行全部 items 取 min/max」逐字等价（同一集合的同一聚合）。
+ */
 function clusterLines(items: PdfLayoutItem[]): VisualLine[] {
   if (items.length === 0) return [];
   const sorted = [...items].sort((a, b) => a.y - b.y || a.x - b.x);
   const rows: PdfLayoutItem[][] = [];
+  /** 与 rows 同下标的 y 区间缓存（y0 = min(y)，y1 = max(y + height)）。 */
+  const bounds: Array<{ y0: number; y1: number }> = [];
+
   for (const it of sorted) {
-    const placed = rows.find((row) => {
-      const r0 = Math.min(...row.map((r) => r.y));
-      const r1 = Math.max(...row.map((r) => r.y + r.height));
-      const overlap = Math.min(r1, it.y + it.height) - Math.max(r0, it.y);
-      return overlap > Math.min(r1 - r0, it.height) * 0.5;
-    });
-    if (placed) placed.push(it);
-    else rows.push([it]);
+    const itBottom = it.y + it.height;
+    let placedIdx = -1;
+    for (let i = 0; i < rows.length; i += 1) {
+      const b = bounds[i];
+      const overlap = Math.min(b.y1, itBottom) - Math.max(b.y0, it.y);
+      if (overlap > Math.min(b.y1 - b.y0, it.height) * 0.5) {
+        placedIdx = i;
+        break;
+      }
+    }
+    if (placedIdx >= 0) {
+      rows[placedIdx].push(it);
+      const b = bounds[placedIdx];
+      if (it.y < b.y0) b.y0 = it.y;
+      if (itBottom > b.y1) b.y1 = itBottom;
+    } else {
+      rows.push([it]);
+      bounds.push({ y0: it.y, y1: itBottom });
+    }
   }
   return rows.map((row) => toLine([...row].sort((a, b) => a.x - b.x)));
 }
 
 function toLine(items: PdfLayoutItem[]): VisualLine {
-  const x0 = Math.min(...items.map((r) => r.x));
-  const x1 = Math.max(...items.map((r) => r.x + r.width));
-  const y0 = Math.min(...items.map((r) => r.y));
-  const y1 = Math.max(...items.map((r) => r.y + r.height));
-  const dominant = items.reduce((best, cur) => (cur.text.length >= best.text.length ? cur : best));
+  // 显式循环取代 `Math.min(...items.map(...))`：省掉两次临时数组分配，
+  // 也避免超大数组触发实参个数上限（结果与 spread 写法逐字一致）。
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  let y0 = Infinity;
+  let y1 = -Infinity;
+  let dominant = items[0];
+  for (const it of items) {
+    if (it.x < x0) x0 = it.x;
+    const right = it.x + it.width;
+    if (right > x1) x1 = right;
+    if (it.y < y0) y0 = it.y;
+    const bottom = it.y + it.height;
+    if (bottom > y1) y1 = bottom;
+    if (it.text.length >= dominant.text.length) dominant = it;
+  }
   return {
     items,
     x0,

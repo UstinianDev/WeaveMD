@@ -172,6 +172,23 @@ export function deleteMemory(db: BetterSqlite3Database, userId: string, id: numb
 // 读：全部带 user_id = ? 过滤
 // ---------------------------------------------------------------------------
 
+/**
+ * active 行扫描的**显式投影**（性能：B03 精确查询）。
+ *
+ * 只取 `mapRow` / `markAccessed` 实际消费的列，**刻意排除**：
+ * - `vector`（1536 维 float32 BLOB ≈ 6144 B/行）—— `SELECT *` 会把向量一并读出，
+ *   而策略层单次 `runMemoryPolicy` 要扫 4 遍 active 行，200 条即约 5 MB 无效读，
+ *   全部同步发生在 Electron 主进程；
+ * - `embedding_model` / `merge_skip` / `last_read_at`（本路径不消费；
+ *   `merge_skip` 由 `listMergeSkipFlags` 自己的查询读取）。
+ *
+ * 列清单必须与 `mapRow`（至多）+ `markAccessed`（`access_count`）保持一致 ——
+ * 少列会导致对应字段静默变 `undefined`。改 `mapRow` 时同步改这里。
+ */
+const ACTIVE_ROW_COLUMNS =
+  'id, user_id, kind, subject, content, source, conversation_id, fingerprint, ' +
+  'valid_from, valid_to, written_at, access_count';
+
 /** active 行的原始查询（不写库）。策略层扫描走本函数，避免把扫描算成「访问」。 */
 function selectActiveRows(
   db: BetterSqlite3Database,
@@ -179,8 +196,8 @@ function selectActiveRows(
   kind?: AgentMemoryKind
 ): AgentMemoryDbRow[] {
   const sql = kind
-    ? 'SELECT * FROM agent_memory WHERE user_id = ? AND kind = ? AND valid_to IS NULL ORDER BY id ASC'
-    : 'SELECT * FROM agent_memory WHERE user_id = ? AND valid_to IS NULL ORDER BY id ASC';
+    ? `SELECT ${ACTIVE_ROW_COLUMNS} FROM agent_memory WHERE user_id = ? AND kind = ? AND valid_to IS NULL ORDER BY id ASC`
+    : `SELECT ${ACTIVE_ROW_COLUMNS} FROM agent_memory WHERE user_id = ? AND valid_to IS NULL ORDER BY id ASC`;
   return (kind ? db.prepare(sql).all(userId, kind) : db.prepare(sql).all(userId)) as AgentMemoryDbRow[];
 }
 
@@ -273,9 +290,10 @@ export function listMemories(
   userId: string,
   kind?: AgentMemoryKind
 ): AgentMemoryRow[] {
+  // 同 selectActiveRows：显式投影，避开 vector BLOB（C3 列表只需 mapRow 消费的列）
   const sql = kind
-    ? 'SELECT * FROM agent_memory WHERE user_id = ? AND kind = ? ORDER BY id ASC'
-    : 'SELECT * FROM agent_memory WHERE user_id = ? ORDER BY id ASC';
+    ? `SELECT ${ACTIVE_ROW_COLUMNS} FROM agent_memory WHERE user_id = ? AND kind = ? ORDER BY id ASC`
+    : `SELECT ${ACTIVE_ROW_COLUMNS} FROM agent_memory WHERE user_id = ? ORDER BY id ASC`;
   const rows = (
     kind ? db.prepare(sql).all(userId, kind) : db.prepare(sql).all(userId)
   ) as AgentMemoryDbRow[];
@@ -291,7 +309,7 @@ export function getActiveBySubject(
 ): AgentMemoryRow | undefined {
   const row = db
     .prepare(
-      `SELECT * FROM agent_memory
+      `SELECT ${ACTIVE_ROW_COLUMNS} FROM agent_memory
         WHERE user_id = ? AND kind = ? AND subject = ? AND valid_to IS NULL
         ORDER BY id DESC LIMIT 1`
     )
@@ -307,7 +325,7 @@ export function getActiveByFingerprint(
 ): AgentMemoryRow | undefined {
   const row = db
     .prepare(
-      `SELECT * FROM agent_memory
+      `SELECT ${ACTIVE_ROW_COLUMNS} FROM agent_memory
         WHERE user_id = ? AND fingerprint = ? AND valid_to IS NULL
         ORDER BY id DESC LIMIT 1`
     )
@@ -405,7 +423,7 @@ function listActiveByKindSubject(
 ): AgentMemoryRow[] {
   const rows = db
     .prepare(
-      `SELECT * FROM agent_memory
+      `SELECT ${ACTIVE_ROW_COLUMNS} FROM agent_memory
         WHERE user_id = ? AND kind = ? AND subject = ? AND valid_to IS NULL
         ORDER BY id ASC`
     )
@@ -531,6 +549,33 @@ function quoteTrigram(gram: string): string {
   return `"${gram.replace(/"/g, '""')}"`;
 }
 
+// ---------------------------------------------------------------------------
+// MATCH 查询词记忆化（性能：MEM-3）
+// ---------------------------------------------------------------------------
+// `buildMemoryMatchQuery` 是**纯函数**（输入文本 + maxTerms → 查询串），但代价是
+// O(len) 的两次 trigram 切分 + Set 去重。`findSimilarMergeGroups` 对每条 active 行
+// 各调一次 `querySimilarMemoryCandidates` → 每行一次 O(len) 重算；而「近重复记忆」
+// （本功能的主场景）恰恰是多行文本高度重合 → 大量重复入参白算。
+// 纯函数记忆化无一致性问题；容量有界（简单 FIFO 淘汰，避免长驻进程无界增长）。
+
+/** MATCH 查询词缓存容量上限（超出按插入序淘汰最旧）。 */
+const MATCH_QUERY_CACHE_MAX = 256;
+
+const matchQueryCache = new Map<string, string | null>();
+
+function buildMemoryMatchQueryCached(text: string, maxTerms: number): string | null {
+  const key = `${maxTerms}\u0000${text}`;
+  const hit = matchQueryCache.get(key);
+  if (hit !== undefined) return hit;
+  const value = buildMemoryMatchQuery(text, maxTerms);
+  if (matchQueryCache.size >= MATCH_QUERY_CACHE_MAX) {
+    const oldest = matchQueryCache.keys().next().value;
+    if (oldest !== undefined) matchQueryCache.delete(oldest);
+  }
+  matchQueryCache.set(key, value);
+  return value;
+}
+
 /**
  * 跨 subject 相似合并的**候选检索**（防线一）：FTS5 命中 → 回查基表 → 按归属过滤。
  *
@@ -549,7 +594,7 @@ export function querySimilarMemoryCandidates(
   text: string,
   limit: number
 ): AgentMemoryRow[] {
-  const match = buildMemoryMatchQuery(text);
+  const match = buildMemoryMatchQueryCached(text, MEMORY_MATCH_MAX_TERMS);
   if (!match) return [];
   try {
     const rows = db
@@ -572,10 +617,14 @@ export function querySimilarMemoryCandidates(
  * 相似合并**驳回**标记（防线二）：`id → merge_skip`。
  * 只读不写、不计访问；返回值只含真正打过标记的行（未打标记的行不进 Map）。
  * 归属过滤 `user_id = ?` 必带（SECURITY.md）。
+ * 性能：加 `merge_skip IS NOT NULL` 收窄到「确实打过驳回标记」的行 ——
+ * 返回值口径逐字不变（`null` / 空串同样被 TS 侧过滤掉），但免去扫全表行。
  */
 export function listMergeSkipFlags(db: BetterSqlite3Database, userId: string): Map<number, string> {
   const rows = db
-    .prepare('SELECT id, merge_skip FROM agent_memory WHERE user_id = ?')
+    .prepare(
+      'SELECT id, merge_skip FROM agent_memory WHERE user_id = ? AND merge_skip IS NOT NULL'
+    )
     .all(userId) as Array<{ id: number; merge_skip?: string | null }>;
   const out = new Map<number, string>();
   for (const row of rows) {
@@ -718,7 +767,7 @@ function queryMemoryFtsChannel(
   text: string,
   limit: number
 ): AgentMemoryRow[] {
-  const match = buildMemoryMatchQuery(text);
+  const match = buildMemoryMatchQueryCached(text, MEMORY_MATCH_MAX_TERMS);
   if (!match) return [];
   try {
     const rows = (

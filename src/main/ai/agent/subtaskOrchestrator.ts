@@ -950,23 +950,63 @@ interface ArmedInteraction {
  * onInteractionRequired + waitForInteraction（复用 waiting_interaction），
  * 处理完该支再放行其续跑。仅在 deps 具备交互回调时创建（否则分支无交互、
  * 写档按无交互 fail-closed 拒执行，铁律一不削弱）。
+ *
+ * 导出仅作**测试缝**（ai-core-perf INT-1 边界用例直接驱动栅栏三态）；
+ * 生产调用点仅 runParallelChain 内部，无外部使用。
  */
-class BranchInteractionGate {
+export class BranchInteractionGate {
   private readonly states = new Map<string, 'active' | 'parked' | 'done'>();
   private readonly armed = new Map<string, ArmedInteraction>();
   private tail: Promise<void> = Promise.resolve();
   private stopped = false;
   /** 任一支交互等待被 reject（用户取消/任务取消）→ 分支致命收口。 */
   cancelled = false;
+  /**
+   * 栅栏挂起者（性能：INT-1）。原实现是 `while (…) await sleep(2ms)` 忙轮询 ——
+   * 交互等待可能持续数秒到数分钟（等用户点确认），期间每 2ms 唤醒一次主进程事件循环，
+   * 每次还重建 `states.values()` 数组。改为事件驱动：只在状态可能变化的三处
+   * （`enter` / `leave` / `dispose`）唤醒，被唤醒后**重新判定条件**并在不满足时重新挂起，
+   * 与原来的「循环重查」语义一致。
+   */
+  private readonly sleepers = new Set<() => void>();
 
   constructor(private readonly deps: AgentLoopDeps) {}
 
+  /** 安全点栅栏条件：无在飞支处于 `active`（stopped 时一律放行）。 */
+  private boundaryReached(): boolean {
+    if (this.stopped) return true;
+    for (const s of this.states.values()) {
+      if (s === 'active') return false;
+    }
+    return true;
+  }
+
+  /** 唤醒挂起者（条件不满足者会在 `waitForBoundary` 循环里重新挂起）。 */
+  private notify(): void {
+    if (this.sleepers.size === 0) return;
+    const pending = [...this.sleepers];
+    this.sleepers.clear();
+    for (const resolve of pending) resolve();
+  }
+
+  /** 挂起直到栅栏条件成立（等价于原 `while (…) await sleep(2)` 循环）。 */
+  private async waitForBoundary(): Promise<void> {
+    while (!this.boundaryReached()) {
+      await new Promise<void>((resolve) => {
+        this.sleepers.add(resolve);
+      });
+    }
+  }
+
   enter(id: string): void {
     this.states.set(id, 'active');
+    // 新支进场可能让原本满足的条件重新不成立 → 唤醒挂起者重查（对齐原轮询语义）
+    this.notify();
   }
 
   leave(id: string): void {
     this.states.set(id, 'done');
+    this.notify();
   }
 
   /** 分支作用域 deps：emit 仅登记，wait 走栅栏 + 串行队列。 */
@@ -982,10 +1022,8 @@ class BranchInteractionGate {
 
   private async wait(id: string): Promise<Record<string, string>> {
     this.states.set(id, 'parked');
-    // 安全点栅栏：其余在飞支全部到达子任务边界（done）或同为 parked
-    while (!this.stopped && [...this.states.values()].some((s) => s === 'active')) {
-      await new Promise((resolve) => setTimeout(resolve, 2));
-    }
+    this.notify(); // 本支转为 parked 可能让条件成立（唤醒其它等待者）
+    await this.waitForBoundary();
     const prev = this.tail;
     let release!: () => void;
     this.tail = new Promise<void>((resolve) => {
@@ -1017,6 +1055,7 @@ class BranchInteractionGate {
 
   dispose(): void {
     this.stopped = true;
+    this.notify();
   }
 }
 

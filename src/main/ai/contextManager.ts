@@ -7,7 +7,7 @@
 import { streamChatCompletionWithRetry, type ContentImagePart, type ContentPart, type MessageContent } from './llm/llmClient';
 import { streamAnthropicCompletion } from './llm/anthropicClient';
 import { IMAGE_TOKENS_PER_IMAGE } from './costTracker';
-import { estimateTokens } from './utils/tokenEstimator';
+import { estimateTokens, estimateTokensCached } from './utils/tokenEstimator';
 import type { ToolDef } from '@shared/ai';
 
 // Re-export 保持向后兼容（agentLoop 等模块从 contextManager 导入 estimateTokens）
@@ -43,12 +43,19 @@ export function contentToText(content: MessageContent): string {
 /**
  * content → token 估算（图片按 IMAGE_TOKENS_PER_IMAGE 计，供计价/压缩阈值使用）。
  * 纯文本与 estimateTokens 结果一致（回归不变）。
+ *
+ * 性能（DOC-4）：改走 `estimateTokensCached`（LRU + 单条长度上限，见 tokenEstimator）。
+ * 数值口径与 `estimateTokens` **逐字相同**，只是同一段文本不重复做 O(n) 字符扫描。
+ * 本函数的主要调用形态就是对**同一批消息**反复求和的 `ctx.llmMessages.reduce(...)`
+ * （agentLoop / agentContext / subtaskOrchestrator 各有一处，每轮都重算全量），
+ * 命中缓存后从「每轮 O(总字符数)」降到「每轮 O(消息条数)」。
+ * 超长（> 8K 字符）文本不进缓存，避免大工具结果被长驻保留。
  */
 export function estimateContentTokens(content: MessageContent): number {
-  if (typeof content === 'string') return estimateTokens(content);
+  if (typeof content === 'string') return estimateTokensCached(content);
   let tokens = 0;
   for (const p of content) {
-    tokens += p.type === 'text' ? estimateTokens(p.text) : IMAGE_TOKENS_PER_IMAGE;
+    tokens += p.type === 'text' ? estimateTokensCached(p.text) : IMAGE_TOKENS_PER_IMAGE;
   }
   return tokens;
 }

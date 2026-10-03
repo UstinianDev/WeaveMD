@@ -48,8 +48,37 @@ interface CacheEntry {
 
 const tierCache = new Map<string, CacheEntry>();
 
+/**
+ * 超过该长度的输入改用 sha256 作键（避免缓存持有长文本，见下）。
+ * 取值依据：意图分类的实际输入是用户的一句话（数十至数百字），
+ * 512 已远超典型长度，同时把缓存最坏持有量钉在 `200 × 512 字符 ≈ 200 KB`。
+ */
+const CACHE_KEY_INLINE_MAX_CHARS = 512;
+
+/**
+ * 缓存键：
+ * - 短输入（≤ {@link CACHE_KEY_INLINE_MAX_CHARS}）：`{0|1}\0{长度}\0{原文}`
+ * - 长输入：`{0|1}\0h\0{sha256 hex}`
+ *
+ * 性能（INT-2）：原实现**每次调用都做一次 sha256**（同步 CPU，走 Node crypto），
+ * 而这里只是拿键去比 Map —— 输入通常是几十字的短句，哈希开销远超键本身的构造成本。
+ *
+ * **为什么长输入仍走哈希**：缓存以键本身作为 Map 的 key，`CACHE_MAX_ENTRIES = 200`
+ * 意味着「键多长，缓存就持有多少文本」。原文直接作键会让 200 条缓存长驻
+ * `200 × 输入长度` 的文本（用户粘贴长文时可观）；sha256 定长 64 字符，把上界钉死
+ * 在 `200 × 512 ≈ 200 KB` 量级。
+ *
+ * **单射性（关键）**：第 2 个字段在短路径是**十进制长度**、在长路径是字面量 `h`，
+ * 两者字符集不相交 → 两条键空间不可能撞键。仅靠「加个 `#` 前缀」是不够的：
+ * 短路径逐字复制原文，若原文本身以 `#`+hex 开头就会伪造出长路径的键。
+ * 短路径内部也不会自撞：长度由原文唯一决定，`\0` 位置固定，键可唯一解码。
+ */
 function cacheKey(input: string, hasHistory: boolean): string {
-  return createHash('sha256').update(`${hasHistory}|${input}`).digest('hex');
+  const prefix = hasHistory ? '1' : '0';
+  if (input.length <= CACHE_KEY_INLINE_MAX_CHARS) {
+    return `${prefix}\u0000${input.length}\u0000${input}`;
+  }
+  return `${prefix}\u0000h\u0000${createHash('sha256').update(input).digest('hex')}`;
 }
 
 function cacheGet(key: string): IIntent | null {
@@ -206,4 +235,12 @@ export async function prefetchIntentTiered(
 /** 测试专用：清空 tier2 共享缓存。 */
 export function __resetIntentTierCacheForTest(): void {
   tierCache.clear();
+}
+
+/**
+ * 测试专用：暴露缓存键构造函数，用于断言「短路径与长路径键空间不相交」这一
+ * 单射性不变式（键撞了会把不同输入的错误分类结果喂给用户，属正确性问题）。
+ */
+export function __cacheKeyForTest(input: string, hasHistory = false): string {
+  return cacheKey(input, hasHistory);
 }

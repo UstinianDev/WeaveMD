@@ -184,6 +184,32 @@ export function cancelPendingByConversation(
 }
 
 // ---------------------------------------------------------------------------
+// hasPendingTask — 该会话是否存在待处理任务（轻量存在性查询）
+// ---------------------------------------------------------------------------
+
+/**
+ * 该会话是否存在 `status = 'pending'` 的任务。
+ *
+ * 性能（QUE-2）：语义等价于 `getTasksByConversation(id).some(t => t.status === 'pending')`，
+ * 但用 `EXISTS` 让 SQLite 在命中首行时短路，且**不物化整个会话的任务列表**
+ * （长会话可有数百条历史任务，调用方只关心「有没有」）。
+ * `LIMIT 1` 显式兜住某些执行计划下 EXISTS 仍展开子查询的情况。
+ */
+export function hasPendingTask(
+  db: BetterSqlite3Database,
+  conversationId: string
+): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 AS hit FROM agent_task_queue
+        WHERE conversation_id = ? AND status = 'pending'
+        LIMIT 1`
+    )
+    .get(conversationId) as { hit: number } | undefined;
+  return !!row;
+}
+
+// ---------------------------------------------------------------------------
 // supersedeTask — 将任务标记为 'superseded'
 // ---------------------------------------------------------------------------
 

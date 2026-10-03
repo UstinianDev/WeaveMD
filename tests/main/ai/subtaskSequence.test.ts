@@ -54,6 +54,9 @@ const taskDaoMock = vi.hoisted(() => ({
   getTaskById: vi.fn((..._args: unknown[]): unknown => null),
   getTasksByConversation: vi.fn((..._args: unknown[]): unknown => []),
   cancelPendingByConversation: vi.fn(() => 0),
+  // ai-core-perf QUE-2：AgentTaskQueue.hasPendingForConversation 改为委托本函数
+  // （DAO 侧 `EXISTS ... LIMIT 1`），mock 必须同步补上，否则调用点为 undefined。
+  hasPendingTask: vi.fn((..._args: unknown[]): boolean => false),
 }));
 vi.mock('@main/db/agentTaskDao', () => taskDaoMock);
 
@@ -928,6 +931,10 @@ describe('agentTaskQueue — supersede 现语义与 hasPendingForConversation', 
     );
     taskDaoMock.getTasksByConversation.mockImplementation((...args: unknown[]) =>
       tasks.filter((t) => t.conversationId === String(args[1]))
+    );
+    // QUE-2：存在性查询语义与 `getTasksByConversation(...).some(pending)` 等价
+    taskDaoMock.hasPendingTask.mockImplementation((...args: unknown[]) =>
+      tasks.some((t) => t.conversationId === String(args[1]) && t.status === 'pending')
     );
     return new AgentTaskQueue(fakeDb);
   }

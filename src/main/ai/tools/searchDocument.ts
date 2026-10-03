@@ -225,7 +225,11 @@ export async function handleSearchDocument(
   const content = rec.content;
   const lower = content.toLowerCase();
   const needle = query.toLowerCase();
-  const marks = collectHeadingMarks(content);
+  // 性能（DOC-3）：标题索引只在**首个命中**时才构建 —— 原实现无论是否命中都先
+  // O(n) 全量扫描一遍正文（split + 逐行正则 + 每次 push 时 `stack.map` 复制路径）。
+  // 零命中（LLM 常见的「试一下」检索）原本白付一次全文扫描。
+  // 惰性化不改变输出：`marks` 仅在命中循环体内被消费。
+  let marks: HeadingMark[] | null = null;
   const offsets = rec.structure?.pageOffsets;
 
   const matches: Array<{
@@ -236,6 +240,7 @@ export async function handleSearchDocument(
   }> = [];
   let idx = lower.indexOf(needle);
   while (idx >= 0 && matches.length < topK) {
+    if (marks === null) marks = collectHeadingMarks(content);
     const page = pageAt(offsets, idx);
     matches.push({
       offset: idx,

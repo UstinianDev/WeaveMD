@@ -75,6 +75,12 @@ export interface MemoryTaskQueueLike {
     payloadJson?: string;
   }): { id: string };
   getTasksByConversation(conversationId: string): Array<{ id: string; status: string }>;
+  /**
+   * 可选：轻量「是否存在 pending」查询（QUE-2）。名与 `AgentTaskQueue` 上已有的
+   * 同名方法一致 —— 生产传的就是 `AgentTaskQueue` 实例，名字对齐才会真正生效。
+   * 未提供时回退到 `getTasksByConversation(...).some(...)`，既有假队列零改动。
+   */
+  hasPendingForConversation?: (conversationId: string) => boolean;
 }
 
 /** 一轮对话中的一条消息（只取正文，工具结果不进后台提取）。 */
@@ -206,9 +212,11 @@ export function maybeEnqueueMemoryExtraction(
   try {
     // 同会话同时只允许一个 pending：已有 pending 直接跳过，避免堆积
     //（AgentTaskQueue.enqueue 会 supersede 同会话旧 pending，先查后入才能不误伤既有任务）
-    const hasPending = deps.queue
-      .getTasksByConversation(ctx.conversationId)
-      .some((t) => t.status === 'pending');
+    // QUE-2：优先走轻量存在性查询，避免为「有没有 pending」物化整个会话任务列表
+    const hasPending =
+      typeof deps.queue.hasPendingForConversation === 'function'
+        ? deps.queue.hasPendingForConversation(ctx.conversationId)
+        : deps.queue.getTasksByConversation(ctx.conversationId).some((t) => t.status === 'pending');
     if (hasPending) {
       return { enqueued: false, reason: 'pending', turn: state.turn };
     }

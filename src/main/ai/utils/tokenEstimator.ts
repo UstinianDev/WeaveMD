@@ -70,6 +70,14 @@ class LRUCache<K, V> {
 const tokenCache = new LRUCache<string, number>(1000);
 
 /**
+ * 单条可缓存的字符上限（DOC-4 补闸）。
+ * 缓存以**文本本身**作键 → 命中即等于把该字符串长驻内存。大工具结果动辄上百 KB，
+ * 若全部入缓存，1000 条的上限会退化成数百 MB 的隐性保留。
+ * 超过本上限的文本不缓存（仍正常返回估算值，只是每次现算）。
+ */
+const TOKEN_CACHE_MAX_ENTRY_CHARS = 8192;
+
+/**
  * token 估算：无 tokenizer，按字符类型加权。
  * - CJK 字符（含扩展 A/B、兼容、韩文、日文假名）：1 字 ≈ 1~2 token，取 0.75 token/字
  * - Latin/其他：1 token ≈ 4 字符，取 0.25 token/char
@@ -107,8 +115,8 @@ export function estimateTokens(text: string): number {
 export function estimateTokensCached(text: string): number {
   const t = text || '';
 
-  // 短文本不缓存（缓存开销 > 计算开销）
-  if (t.length < 100) {
+  // 短文本不缓存（缓存开销 > 计算开销）；超长文本不缓存（避免长驻内存，见常量注释）
+  if (t.length < 100 || t.length > TOKEN_CACHE_MAX_ENTRY_CHARS) {
     return estimateTokens(t);
   }
 

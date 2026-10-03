@@ -51,6 +51,41 @@ export const FORCE_CONFIRM_TOOLS = new Set(CONFIRM_FORCE_TOOLS);
 // ---------------------------------------------------------------------------
 
 /**
+ * 工具子集记忆化（性能：TOOL-1）。
+ *
+ * 键空间是**封闭且很小**的：`intent.intent`（6 值）× 6 个布尔开关 = 至多 384 种组合，
+ * 且开关全部来自每轮不变的会话上下文。`toolsForIntent` 却在每次
+ * `prepareAgentContext` / 每子任务切换 / 每个并行分支都重跑一遍全量构建。
+ *
+ * 缓存值同样是「函数输出的完整内容」；返回时**浅拷贝一层数组** ——
+ * `agentLoop` 的延迟工具升级会把 `ctx.tools[idx]` **原地替换**成完整 schema
+ * （见 agentLoop.ts 的 stub 升级段），共享同一个数组实例会把这个改写泄给下一次调用。
+ * 元素对象本身只被替换、从不原地改写，故可安全共享。
+ */
+const TOOL_SUBSET_CACHE = new Map<string, readonly ToolDef[]>();
+
+/** 记忆化键：只取真正参与分支的 `intent.intent`（confidence/reason 不参与工具选择）。 */
+function toolSubsetKey(
+  intent: IIntent,
+  useKnowledgeBase: boolean,
+  kbEgressAuthorized: boolean,
+  hasCurrentDocument: boolean,
+  hasInteractionSupport: boolean,
+  hasSearchConfig: boolean,
+  kbAttachmentEgressGranted: boolean
+): string {
+  return [
+    intent.intent,
+    useKnowledgeBase ? 1 : 0,
+    kbEgressAuthorized ? 1 : 0,
+    hasCurrentDocument ? 1 : 0,
+    hasInteractionSupport ? 1 : 0,
+    hasSearchConfig ? 1 : 0,
+    kbAttachmentEgressGranted ? 1 : 0,
+  ].join('|');
+}
+
+/**
  * 按意图决定可用工具子集。
  * - ask_question_card 仅在有交互暂停/恢复回调时提供（避免无回调时 LLM 调用导致卡死）。
  * - searchKB 仅在「启用知识库 + (kbEgressAuthorized 或 勾选授权附件存在)」时提供。
@@ -70,9 +105,28 @@ export function toolsForIntent(
   hasSearchConfig = false,
   kbAttachmentEgressGranted = false
 ): ToolDef[] {
+  const key = toolSubsetKey(
+    intent,
+    useKnowledgeBase,
+    kbEgressAuthorized,
+    !!currentDocument,
+    hasInteractionSupport,
+    hasSearchConfig,
+    kbAttachmentEgressGranted
+  );
+  const cached = TOOL_SUBSET_CACHE.get(key);
+  if (cached) return [...cached];
+
   const kbSearchAllowed = kbEgressAuthorized || kbAttachmentEgressGranted;
   const all = defineCoreTools();
   const names = new Set<string>();
+
+  /** 收敛出口：按名集过滤 → stub 化 → 写入记忆化 → 返回独立数组副本。 */
+  const finish = (): ToolDef[] => {
+    const built = buildToolListForPrompt(all.filter((t) => names.has(t.function.name)));
+    TOOL_SUBSET_CACHE.set(key, built);
+    return [...built];
+  };
 
   // ask_question_card 仅在有暂停/恢复回调时可用（直接 IPC 调用无回调，不提供）
   if (hasInteractionSupport) {
@@ -116,7 +170,7 @@ export function toolsForIntent(
       if (hasInteractionSupport) {
         names.add('ask_question_card');
       }
-      return buildToolListForPrompt(all.filter((t) => names.has(t.function.name)));
+      return finish();
     case 'kbQa':
       if (useKnowledgeBase && kbSearchAllowed) {
         names.add('searchKB');
@@ -164,5 +218,5 @@ export function toolsForIntent(
       break;
   }
 
-  return buildToolListForPrompt(all.filter((t) => names.has(t.function.name)));
+  return finish();
 }

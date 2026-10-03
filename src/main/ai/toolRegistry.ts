@@ -401,9 +401,42 @@ const CORE_TOOLS: ToolDef[] = [
 // S5: 工具延迟加载（defer_loading）—— 辅助函数
 // ---------------------------------------------------------------------------
 
+/**
+ * 字母序排序后的工具表（模块级常量）。
+ * 性能（TOOL-1）：原 `defineCoreTools` 每次调用都 `[...CORE_TOOLS].sort(localeCompare)` ——
+ * `localeCompare` 走 ICU 排序规则，比 `<` 比较慢一个量级，而本函数在每次
+ * `prepareAgentContext` / 每子任务切换 / 每并行分支都要跑一遍。
+ * 定义表是静态常量，排序结果只与常量内容有关 → 预构建一次，调用方拿副本。
+ */
+const CORE_TOOLS_SORTED: readonly ToolDef[] = [...CORE_TOOLS].sort((a, b) =>
+  a.function.name.localeCompare(b.function.name)
+);
+
 /** 预构建的延迟工具名 → 完整 ToolDef 映射（模块级常量，O(1) 查找）。 */
 const deferredSchemaMap = new Map<string, ToolDef>(
   CORE_TOOLS.filter((t) => t.defer_loading).map((t) => [t.function.name, t])
+);
+
+/**
+ * 预构建的轻量 stub 表（模块级常量）。
+ * 性能（TOOL-1）：原 `getToolStub` 每次调用都新建一个对象字面量；`buildToolListForPrompt`
+ * 又对每个延迟工具各调一次 —— 单次 `toolsForIntent` 即分配 25 个 stub 对象。
+ * stub 是纯静态内容（描述取自原 schema），预构建后共享同一份只读对象即可。
+ * 调用方只做替换（`ctx.tools[idx] = fullSchema`）不做原地改写，共享安全。
+ */
+const deferredStubMap = new Map<string, ToolDef>(
+  [...deferredSchemaMap.values()].map((full) => [
+    full.function.name,
+    {
+      type: 'function',
+      function: {
+        name: full.function.name,
+        description: full.function.description,
+        parameters: { type: 'object', properties: {} },
+      },
+      defer_loading: true,
+    } satisfies ToolDef,
+  ])
 );
 
 /** 预构建的延迟工具名集合（模块级常量，O(1) 查找）。 */
@@ -429,19 +462,10 @@ export function getDeferredToolSchema(name: string): ToolDef | undefined {
  * 获取工具的轻量 stub（仅名称 + 描述，不含完整 parameters schema）。
  * stub 在 prompt 中代替完整 schema，减少缓存前缀体积。
  * 非延迟工具返回 undefined（不应为其生成 stub）。
+ * 返回**共享的预构建对象**（只读使用；调用方不得原地改写）。
  */
 export function getToolStub(name: string): ToolDef | undefined {
-  const full = deferredSchemaMap.get(name);
-  if (!full) return undefined;
-  return {
-    type: 'function',
-    function: {
-      name: full.function.name,
-      description: full.function.description,
-      parameters: { type: 'object', properties: {} },
-    },
-    defer_loading: true,
-  };
+  return deferredStubMap.get(name);
 }
 
 /**
@@ -453,18 +477,17 @@ export function getToolStub(name: string): ToolDef | undefined {
 export function buildToolListForPrompt(tools: ToolDef[]): ToolDef[] {
   return tools.map((t) => {
     if (t.defer_loading) {
-      return getToolStub(t.function.name) ?? t;
+      return deferredStubMap.get(t.function.name) ?? t;
     }
     return t;
   });
 }
 
-/** 定义只读核心工具（OpenAI function JSON Schema）。含 editBlocks（仅产改写建议，不落盘）。
- *  返回按 function.name 字母序排序的副本，确保每次缓存前缀一致（S5/S7）。 */
+/**
+ * 定义只读核心工具（OpenAI function JSON Schema）。含 editBlocks（仅产改写建议，不落盘）。
+ * 返回按 function.name 字母序排序的**副本**（确保每次缓存前缀一致，S5/S7；副本隔离调用方改写）。 */
 export function defineCoreTools(): ToolDef[] {
-  return [...CORE_TOOLS].sort((a, b) =>
-    a.function.name.localeCompare(b.function.name)
-  );
+  return [...CORE_TOOLS_SORTED];
 }
 
 // ---------------------------------------------------------------------------
