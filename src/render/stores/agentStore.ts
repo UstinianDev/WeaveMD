@@ -259,11 +259,13 @@ interface AgentStore {
   // —— KB / 压缩动作 ——
   loadKbStatus: () => Promise<void>;
   /**
-   * R3 D2：KB 外发授权探测 —— kb.list 是否存在「已授权的 attachment/import 行」。
-   * 全 try/catch fail-closed（userId 空 / IPC 失败 / data 非数组 / 空数组 → false）。
-   * 仅 KB 开且未整体外发时调用；主进程过滤层仍是唯一强制点。
+   * KB 外发渲染闸（热修三态）：'allow' 放行 / 'prompt' 弹同意层。
+   * 判定：空列表（无文档）→ allow；有已授权 attachment/import 行 → allow；
+   * 有文档但无授权行 → prompt；读取失败（IPC 错 / data 非数组 / 未登录）→ allow。
+   * 主进程 filterKbEgressResults 才是唯一强制点：allowSend=false 时仅放授权行，
+   * 渲染闸只做 UX 提示，失败态放行零泄漏。
    */
-  hasKbEgressGrant: () => Promise<boolean>;
+  checkKbEgressGate: () => Promise<'allow' | 'prompt'>;
   triggerKbImportFile: (input: {
       title: string;
       content: string;
@@ -345,7 +347,7 @@ const RESET_FIELDS: Pick<
   pendingConsent: false,
   streamUnsubscribe: null,
   activeMode: 'agent',
-  useKnowledgeBase: false,
+  useKnowledgeBase: true,
   toolCalls: [],
   intentCard: null,
   kbStatus: null,
@@ -694,12 +696,13 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     const { consent, activeConversationId, useKnowledgeBase, isStreaming } = get();
 
     // 铁律二：仅知识库内容外发需知情同意（联网同意已停用，三配置齐全即视为许可）
-    // R3 D2 闸收窄：KB 开且未整体外发时，若存在「已授权导入/附件行」则放行发送——
-    // 外发收敛由主进程 filterKbEgressResults 强制（consent 主进程从 DB 读，渲染不可伪造）；
-    // 零授权路径与旧行为一致（仍弹 ConsentOverlay）。
+    // 热修三态闸：KB 默认开。有文档但无授权行 → prompt（首次弹既有 ConsentOverlay，
+    // 同意后 allowSend=true 不再弹）；空列表 / 有已授权行 / 列表读取失败（IPC 错）→ 放行。
+    // 放行零泄漏论证：主进程 filterKbEgressResults 在 allowSend=false 时仅放
+    // grantedAttachmentDocIds（无授权行即全滤），渲染闸只是 UX 提示层，不构成外发面。
     if (useKnowledgeBase && !consent?.allowSend) {
-      const granted = await get().hasKbEgressGrant();
-      if (!granted) {
+      const verdict = await get().checkKbEgressGate();
+      if (verdict === 'prompt') {
         set({ pendingConsent: true });
         return;
       }
@@ -1567,21 +1570,26 @@ export const useAgentStore = create<AgentStore>((set, get) => ({
     }
   },
 
-  async hasKbEgressGrant(): Promise<boolean> {
+  async checkKbEgressGate(): Promise<'allow' | 'prompt'> {
     try {
       const userId = useAuthStore.getState().user?.id ?? '';
-      if (!userId) return false;
+      // 未登录读不到列表 = 读取失败 → 放行（渲染闸仅 UX 提示）
+      if (!userId) return 'allow';
       const res = await getKb().list(userId);
-      if (!(res?.success && Array.isArray(res.data))) return false;
+      if (!(res?.success && Array.isArray(res.data))) return 'allow';
       // 探测顺带复用为 kbDocuments 刷新（成功且为数组时）
       set({ kbDocuments: res.data });
+      // 无文档 → 无可外发内容 → 放行
+      if (res.data.length === 0) return 'allow';
       // 谓词：仅已授权的附件/导入行计入；笔记（db/disk）永不计入（D4-A 同口径）
-      return res.data.some(
+      const granted = res.data.some(
         (d) =>
           d.consentGranted === true && (d.sourceType === 'attachment' || d.sourceType === 'import')
       );
+      return granted ? 'allow' : 'prompt';
     } catch {
-      return false;
+      // IPC 抛错 → 放行：主进程 filterKbEgressResults 在 allowSend=false 时全滤，零泄漏
+      return 'allow';
     }
   },
 

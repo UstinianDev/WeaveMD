@@ -515,6 +515,12 @@ describe('agentStore agent 模式', () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    // 热修补 mock：下条用例临时置登录态（未登录读不到 kb.list → 视同读取失败放行），
+    // 跑完即清，防串到本 describe 后续「未登录 → createConversation('', 'agent')」断言
+    useAuthStore.setState({ user: null, token: null, isAuthenticated: false } as never);
+  });
+
   it('sendAgentMessage 联网闸已停用：allowNetwork=false 且不开 KB -> 不触发 pendingConsent', async () => {
     useAgentStore.setState({ config: remoteConfig, consent: noConsent, useKnowledgeBase: false, activeMode: 'agent' });
     await useAgentStore.getState().sendAgentMessage('帮我整理');
@@ -528,6 +534,29 @@ describe('agentStore agent 模式', () => {
       allowSend: false,
       consentUpdatedAt: null,
     };
+    // 热修补 mock（既有断言不弱化）：渲染闸改三态后，须①登录（否则 kb.list 探测不了，
+    // 视同读取失败 → allow）②kb.list 返回「有文档但无授权行」才判 prompt；
+    // 此用例来源 9b1a108（R2 之前），只补 mock 不改断言。
+    useAuthStore.setState({
+      user: { id: 'u1', username: 'tester', createdAt: '', lastLogin: null },
+      token: 'tok',
+      isAuthenticated: true,
+    } as never);
+    (window.weaveMD.kb as unknown as { list: ReturnType<typeof vi.fn> }).list.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          docId: 'd-ungranted',
+          fileId: null,
+          title: 'pending.md',
+          sourceType: 'import',
+          pinned: false,
+          status: 'done',
+          chunkCount: 1,
+          consentGranted: false,
+        },
+      ],
+    });
     useAgentStore.setState({
       config: remoteConfig,
       consent: allowNetworkNoSend,
@@ -683,8 +712,9 @@ describe('agentStore agent 模式', () => {
     await sendPromise;
 
     const s = useAgentStore.getState();
+    // 热修（2026-10-03）：useKnowledgeBase 初值改 true（KB 检索默认开），默认 payload 断言随之翻转
     expect(runAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ mode: 'agent', useKnowledgeBase: false })
+      expect.objectContaining({ mode: 'agent', useKnowledgeBase: true })
     );
     expect(s.isStreaming).toBe(false);
     const assistant = s.messages.find((m) => m.role === 'assistant');
@@ -855,7 +885,8 @@ describe('agentStore agent 模式', () => {
     expect(s.toolCalls).toEqual([]);
     expect(s.intentCard).toBeNull();
     expect(s.kbStatus).toBeNull();
-    expect(s.useKnowledgeBase).toBe(false);
+    // 热修：reset 回到的新默认值 = KB 检索默认开（true）
+    expect(s.useKnowledgeBase).toBe(true);
   });
 });
 
@@ -1371,7 +1402,7 @@ describe('agentStore 相似合并建议 — 剩余分支（catch / 服务端拒�
 });
 
 
-describe('agentStore — R3 渲染闸收窄（hasKbEgressGrant 探测）', () => {
+describe('agentStore — 热修：KB 发送闸三态（checkKbEgressGate）', () => {
   beforeEach(() => {
     resetAgentStore();
     vi.clearAllMocks();
@@ -1384,8 +1415,13 @@ describe('agentStore — R3 渲染闸收窄（hasKbEgressGrant 探测）', () =>
   });
 
 // -----------------------------------------------------------------------
-// R3 D2：渲染闸收窄 —— useKnowledgeBase && !allowSend → hasKbEgressGrant 探测
-// 有授权行放行（主进程过滤层仍强制）；任何失败态一律 fail-closed
+// 热修（2026-10-03）：渲染闸由 fail-closed 二态改三态 checkKbEgressGate
+//   'allow'（放行）| 'prompt'（弹既有 ConsentOverlay，同意后 allowSend=true 不再弹）
+// 判定：空列表（无文档）→ allow；有已授权 attachment/import 行 → allow；
+//       有文档但无授权行 → prompt；
+//       读取失败（success:false / data 非数组 / IPC 抛错 / 未登录）→ allow。
+// 放行零泄漏论证：主进程 filterKbEgressResults 在 allowSend=false 时仅放
+// grantedAttachmentDocIds（无授权即全滤），渲染闸只是 UX 提示层，放行不构成外发。
 // -----------------------------------------------------------------------
 const allowNetworkNoSend: IAIConsent = {
   allowNetwork: true,
@@ -1422,7 +1458,7 @@ function primeAgentFlow(): void {
   });
 }
 
-it('R3 闸：kb.list 返回已授权导入行 -> 放行且 runAgent({useKnowledgeBase:true})', async () => {
+it('有授权行 → allow：放行且 runAgent({useKnowledgeBase:true})', async () => {
   primeAgentFlow();
   (window.weaveMD.kb as unknown as { list: ReturnType<typeof vi.fn> }).list.mockResolvedValue({
     success: true,
@@ -1448,7 +1484,7 @@ it('R3 闸：kb.list 返回已授权导入行 -> 放行且 runAgent({useKnowledg
   ).toHaveBeenCalledWith(expect.objectContaining({ useKnowledgeBase: true }));
 });
 
-it('R3 闸 fail-closed：kb.list success:false -> pendingConsent 且不调 runAgent', async () => {
+it('读取失败 kb.list success:false -> allow（放行；主进程 filterKbEgressResults 全滤零泄漏）', async () => {
   primeAgentFlow();
   (window.weaveMD.kb as unknown as { list: ReturnType<typeof vi.fn> }).list.mockResolvedValue({
     success: false,
@@ -1457,13 +1493,14 @@ it('R3 闸 fail-closed：kb.list success:false -> pendingConsent 且不调 runAg
 
   await useAgentStore.getState().sendAgentMessage('在知识库里找');
 
-  expect(useAgentStore.getState().pendingConsent).toBe(true);
+  // 渲染闸只是 UX 提示层：列表读不到时放行，外发收敛由主进程强制（allowSend=false 全滤）
+  expect(useAgentStore.getState().pendingConsent).toBe(false);
   expect(
     (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent
-  ).not.toHaveBeenCalled();
+  ).toHaveBeenCalled();
 });
 
-it('R3 闸 fail-closed：kb.list data 非数组 -> pendingConsent 且不调 runAgent', async () => {
+it('读取失败 kb.list data 非数组 -> allow（不调用 prompt）', async () => {
   primeAgentFlow();
   (window.weaveMD.kb as unknown as { list: ReturnType<typeof vi.fn> }).list.mockResolvedValue({
     success: true,
@@ -1472,13 +1509,13 @@ it('R3 闸 fail-closed：kb.list data 非数组 -> pendingConsent 且不调 runA
 
   await useAgentStore.getState().sendAgentMessage('在知识库里找');
 
-  expect(useAgentStore.getState().pendingConsent).toBe(true);
+  expect(useAgentStore.getState().pendingConsent).toBe(false);
   expect(
     (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent
-  ).not.toHaveBeenCalled();
+  ).toHaveBeenCalled();
 });
 
-it('R3 闸 fail-closed：kb.list 抛错 -> pendingConsent 且不调 runAgent', async () => {
+it('IPC 抛错 kb.list reject -> allow（渲染闸不阻断，主进程仍是唯一强制点）', async () => {
   primeAgentFlow();
   (window.weaveMD.kb as unknown as { list: ReturnType<typeof vi.fn> }).list.mockRejectedValue(
     new Error('ipc down')
@@ -1486,17 +1523,54 @@ it('R3 闸 fail-closed：kb.list 抛错 -> pendingConsent 且不调 runAgent', a
 
   await useAgentStore.getState().sendAgentMessage('在知识库里找');
 
-  expect(useAgentStore.getState().pendingConsent).toBe(true);
+  expect(useAgentStore.getState().pendingConsent).toBe(false);
   expect(
     (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent
-  ).not.toHaveBeenCalled();
+  ).toHaveBeenCalled();
 });
 
-it('R3 闸 fail-closed：kb.list 空数组（零授权行）-> pendingConsent 且不调 runAgent', async () => {
+it('kb.list 返回 undefined（IPC 空响应）-> allow（三态：读取失败即放行）', async () => {
+  primeAgentFlow();
+  // 不设 mock 实现：vi.fn() 默认返回 undefined，等价 IPC 空响应
+  await useAgentStore.getState().sendAgentMessage('在知识库里找');
+
+  expect(useAgentStore.getState().pendingConsent).toBe(false);
+  expect(
+    (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent
+  ).toHaveBeenCalled();
+});
+
+it('三态：空列表（无文档）-> allow（无可外发内容）', async () => {
   primeAgentFlow();
   (window.weaveMD.kb as unknown as { list: ReturnType<typeof vi.fn> }).list.mockResolvedValue({
     success: true,
     data: [],
+  });
+
+  await useAgentStore.getState().sendAgentMessage('在知识库里找');
+
+  expect(useAgentStore.getState().pendingConsent).toBe(false);
+  expect(
+    (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent
+  ).toHaveBeenCalled();
+});
+
+it('三态：有文档但无授权行 -> prompt 且不调 runAgent', async () => {
+  primeAgentFlow();
+  (window.weaveMD.kb as unknown as { list: ReturnType<typeof vi.fn> }).list.mockResolvedValue({
+    success: true,
+    data: [
+      {
+        docId: 'd-ungranted',
+        fileId: null,
+        title: 'pending.md',
+        sourceType: 'import',
+        pinned: false,
+        status: 'done',
+        chunkCount: 1,
+        consentGranted: false,
+      },
+    ],
   });
 
   await useAgentStore.getState().sendAgentMessage('在知识库里找');
@@ -1507,7 +1581,7 @@ it('R3 闸 fail-closed：kb.list 空数组（零授权行）-> pendingConsent �
   ).not.toHaveBeenCalled();
 });
 
-it('R3 闸：授权探测不放行 db 笔记（sourceType=db 即 consentGranted=true 也不计入）', async () => {
+it('三态：授权探测不放行 db 笔记（有文档但无 attachment/import 授权行 -> prompt）', async () => {
   primeAgentFlow();
   (window.weaveMD.kb as unknown as { list: ReturnType<typeof vi.fn> }).list.mockResolvedValue({
     success: true,

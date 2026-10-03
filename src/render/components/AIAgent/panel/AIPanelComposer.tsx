@@ -127,8 +127,6 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
   const setWriteMode = useAgentStore((s) => s.setWriteMode);
   const uploadKbDefault = useAgentStore((s) => s.uploadKbDefault);
   const setUploadKbDefault = useAgentStore((s) => s.setUploadKbDefault);
-  const useKnowledgeBase = useAgentStore((s) => s.useKnowledgeBase);
-  const setUseKnowledgeBase = useAgentStore((s) => s.setUseKnowledgeBase);
 
   // 配置状态（用于未配置锁）：LLM + Embedding + Search 三重检查
   const config = useAgentStore((s) => s.config);
@@ -684,20 +682,7 @@ const AIPanelComposerInner: React.FC<AIPanelComposerProps> = ({ value, onChange,
           )}
         </div>
 
-        {/* R2：useKnowledgeBase 开关（默认 false，不持久化，刷新回 fail-closed） */}
-        <label
-          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-bg-tertiary border border-border text-[12px] text-text-sub cursor-pointer select-none min-w-[160px]"
-          data-testid="use-kb-toggle"
-          title={t('ai.agent.useKnowledgeBase')}
-        >
-          <input
-            type="checkbox"
-            checked={useKnowledgeBase}
-            onChange={(e) => setUseKnowledgeBase(e.target.checked)}
-            className="w-3.5 h-3.5 accent-[var(--accent)] cursor-pointer"
-          />
-          {t('ai.agent.useKnowledgeBase')}
-        </label>
+        {/* 热修（2026-10-03）：composer KB 开关已删除——KB 检索默认开启（store 初值 true） */}
 
         {/* Spacer */}
         <div className="flex-1" />

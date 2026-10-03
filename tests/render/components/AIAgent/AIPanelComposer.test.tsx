@@ -421,45 +421,5 @@ describe('AIPanelComposer — 加入知识库勾选（B11 Q2）', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// R2：useKnowledgeBase 开关接线（控制条勾选，默认 false fail-closed）
-// ---------------------------------------------------------------------------
-describe('AIPanelComposer — useKnowledgeBase 开关（R2）', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockEditorText = '';
-    (window.weaveMD as unknown as { ai: Record<string, unknown> }).ai.listSkills = vi
-      .fn()
-      .mockResolvedValue({ success: true, data: [] });
-    (window.weaveMD as unknown as { ai: Record<string, unknown> }).ai.listModels = vi
-      .fn()
-      .mockResolvedValue({ success: false });
-  });
-
-  afterEach(() => {
-    cleanup();
-    resetRewriteStore();
-  });
-
-  it('默认渲染且未勾选（fail-closed）', () => {
-    useAgentStore.setState({ ...defaultState, activeMode: 'agent', useKnowledgeBase: false });
-    render(<ControlledComposer />);
-    const checkbox = screen
-      .getByTestId('use-kb-toggle')
-      .querySelector('input') as HTMLInputElement;
-    expect(checkbox).toBeTruthy();
-    expect(checkbox.checked).toBe(false);
-  });
-
-  it('点击勾选 → setUseKnowledgeBase(true)', () => {
-    const setUseKb = vi.fn();
-    vi.spyOn(useAgentStore.getState(), 'setUseKnowledgeBase').mockImplementation(setUseKb);
-    useAgentStore.setState({ ...defaultState, activeMode: 'agent', useKnowledgeBase: false });
-    render(<ControlledComposer />);
-    const checkbox = screen
-      .getByTestId('use-kb-toggle')
-      .querySelector('input') as HTMLInputElement;
-    fireEvent.click(checkbox);
-    expect(setUseKb).toHaveBeenCalledWith(true);
-  });
-});
+// 热修（2026-10-03）：composer KB 开关整块删除（用户反馈勾选麻烦+难看），
+// KB 检索改为 store 默认开启（agentStore useKnowledgeBase 初值 true），此 describe 随之退役。
