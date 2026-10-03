@@ -2,7 +2,7 @@
 
 > 需求与裁定（锁定）：`docs/requirements/agent-kb-ux/agent-kb-ux.req.md`（Q1=B / Q2=A / Q3 都加 / Q4 仅会话消息）
 > 档位 **M**，TDD **standard**（RED→GREEN→精简证据）；行号基准：2026-10-03 实况，HEAD `90ba82d`
-> 证据报告：`docs/testing/agent-kb-ux.tdd.md`（配套，逐需求追加）
+> 证据报告：`docs/testing/agent-kb-ux/agent-kb-ux.tdd.md`（配套，逐需求追加）
 > 门禁：typecheck/test/lint 全绿；改渲染提交跑 `npx playwright test` 与 **31 例失败基线**同数同名零新增
 > 铁律二不削弱；默认值 fail-closed（开关默认 false、授权默认不勾）
 
@@ -118,7 +118,7 @@
 | R3 | — | `shared/ai/kb.ts`、`kbHandlers.ts`、`db/kb.ts`、`agentStore.ts`、`KnowledgeBaseSettings.tsx`、`AIPanelSettings.tsx`、i18n×3、注释×3 + 4 测试 |
 | R4 | `src/render/utils/copyPath.ts`、`tests/utils/copyPath.test.ts` | `ContextMenu.tsx`、`FileTreePanel.tsx`、i18n×3 + `FileTreePanel.test.tsx` |
 | R5 | `tests/styles/agentMessageStreamCss.test.ts` | `globals.css`、`AgentTab.tsx`、`AIMessageBubble.tsx` + `AgentTab.test.tsx` |
-| 文档 | `docs/plan/agent-kb-ux.plan.md`、`docs/testing/agent-kb-ux.tdd.md` | `docs/TODO.md:242`、`docs/specs/knowledge/kb-indexing-egress.md:84-96`、`docs/specs/ai-agent/agent-tool-runtime.md:88-89/:105` |
+| 文档 | `docs/plan/agent-kb-ux.plan.md`、`docs/testing/agent-kb-ux/agent-kb-ux.tdd.md` | `docs/TODO.md:242`、`docs/specs/knowledge/kb-indexing-egress.md:84-96`、`docs/specs/ai-agent/agent-tool-runtime.md:88-89/:105` |
 
 **合计：新建 5（src 1 + 测试 2 + 文档 2）；修改 src 18（含 i18n 3、注释 3）；修改测试 9；文档同步 3~4 → 去重约 34~36 个文件。`src/main/db/index.ts` diff 必须为空（零 DDL）。**
 

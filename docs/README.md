@@ -79,10 +79,10 @@ npm run build
 - [architecture/](./architecture/) — 按技术层分类（10 篇：前端/编辑器/后端/AI/知识库/数据库/IPC/安全/测试/构建）
 - [modules/](./modules/) — 各模块详细文档（11 个模块）
 - [specs/](./specs/) — 功能规格与行为契约，**按模块分文件夹**（editor / ai-agent / knowledge / release；22 篇主文档 + 10 篇分册）
-- [requirements/](./requirements/) — devflow 需求文档（当前 5 篇按模块分 3 个子文件夹 + archive 15 篇）
-- [testing/](./testing/) — TDD 测试报告（5 模块 / 24 篇，按模块分文件夹）
+- [requirements/](./requirements/) — devflow 需求文档（当前 6 篇按模块分 4 个子文件夹 + archive 15 篇）
+- [testing/](./testing/) — TDD 测试报告（6 模块 / 25 篇，按模块分文件夹）
 - [research/](./research/) — 外部资料调研（7 篇，全部按模块归入 `research/doc-pipeline/`：解析 / PDF 多模态 / 存储 / 分块 / 打包 / 工具 6 篇 + Docling 选型 PoC）
-- `plan/` — 实施计划与状态（**现行 agent-multi-intent 5 篇**：plan / p1.plan / status / 2 篇 connectivity；历史整体退役见 git，功能规格见 `specs/`、调研见 `research/`）
+- `plan/` — 实施计划与状态（**现行 7 篇**：agent-multi-intent 5 篇（plan / p1.plan / status / 2 connectivity）+ agent-kb-ux 2 篇；历史整体退役见 git，功能规格见 `specs/`、调研见 `research/`）
 - [guide/packaging](./guide/packaging.md) — 打包与发布指南
 
 ### 查阅规则
@@ -97,6 +97,6 @@ npm run build
 - 功能规格与行为契约 → docs/specs/{模块}/（editor / ai-agent / knowledge / release）
 - 外部资料调研 → docs/research/
 - 测试证据 → docs/testing/
-- 实施计划 → docs/plan/（现行 agent-multi-intent 5 篇；历史整体退役见 git）
+- 实施计划 → docs/plan/（现行 7 篇（agent-multi-intent 5 + agent-kb-ux 2）；历史整体退役见 git）
 - 打包发布 → docs/guide/packaging.md
 - **全部文档索引 → [SUMMARY.md](./SUMMARY.md)**

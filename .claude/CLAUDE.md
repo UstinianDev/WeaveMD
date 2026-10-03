@@ -154,9 +154,9 @@
 - [architecture/](../docs/architecture/) — 按技术层分类（10 篇：前端/编辑器/后端/AI/知识库/数据库/IPC/安全/测试/构建）
 - [modules/](../docs/modules/) — 各模块文档（11 个模块）
 - [specs/](../docs/specs/) — 功能规格与行为契约，**按模块分文件夹**（editor 10 主 + 7 分册 / ai-agent 6 主 + 3 分册 / knowledge 5 主 / release 1 主 = **22 主 + 10 分册**）
-- [testing/](../docs/testing/) — TDD 测试报告（5 模块 / 24 篇，按模块分文件夹：agent-multi-intent / agent-memory / doc-pipeline / spec-edit / agent-cost-optimize）
-- [requirements/](../docs/requirements/) — devflow 需求文档（当前 5 篇按模块分 3 个子文件夹 + archive 15 篇）
-- `plan/` — 实施计划与状态（**现行 agent-multi-intent 5 篇**：`plan` / `p1.plan` / `status` / 2 篇 connectivity；权威规格在 `specs/`、调研在 `research/`，历史整体退役见 git，原 `plan/archive/` 已不存在）
+- [testing/](../docs/testing/) — TDD 测试报告（6 模块 / 25 篇，按模块分文件夹：agent-multi-intent / agent-memory / doc-pipeline / spec-edit / agent-cost-optimize / agent-kb-ux）
+- [requirements/](../docs/requirements/) — devflow 需求文档（当前 6 篇按模块分 4 个子文件夹 + archive 15 篇）
+- `plan/` — 实施计划与状态（**现行 7 篇**：agent-multi-intent 5 篇（plan / p1.plan / status / 2 connectivity）+ agent-kb-ux 2 篇（plan / status）；权威规格在 `specs/`、调研在 `research/`，历史整体退役见 git，原 `plan/archive/` 已不存在）
 
 ### 查阅规则（渐进式披露）
 - 项目是什么、怎么跑 → README.md（根目录）

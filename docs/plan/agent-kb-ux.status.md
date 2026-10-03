@@ -18,7 +18,7 @@
 - **R5 ✅ `f19c70b`**：`.ai-message-stream` CSS + AgentTab:285 挂类 + AIMessageBubble 三处内联普惠体删除（D3）；
   RED 2 例 → GREEN 9/9（CSS 测试首版为测试侧误红已修测试）；test 全量 4835 绿 / lint 0 / playwright 31·104·1 与基线 diff IDENTICAL；
   微偏差：textarea 补 className `[font-family:inherit]`（表单控件不继承字体）。
-- 证据：`docs/testing/agent-kb-ux.tdd.md` 任务 3/4 两章已追加（**工作区未提交，随 docs 提交入库**）。
+- 证据：`docs/testing/agent-kb-ux/agent-kb-ux.tdd.md` 任务 3/4 两章已追加（**工作区未提交，随 docs 提交入库**）。
 
 ## 后续
 1. 派发/执行 R4 → R5（两提交，i18n 同位插键）；

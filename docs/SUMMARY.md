@@ -64,7 +64,7 @@
 
 按任务成套存放，同一任务的四件套同名前缀：`{task}.req.md`（需求）、`{task}.plan.md` / `{task}.status.md`（计划与状态）、`{task}.*.tdd.md`（测试证据），另有 connectivity（连通性）与 compliance（合规）报告。需求与测试报告**按模块归入子文件夹**：`requirements/{模块}/`、`testing/{模块}/`。
 
-| 需求（`requirements/`，当前 5 篇分 3 个模块子文件夹 + archive 15 篇） | 计划与状态（`plan/`，现行 agent-multi-intent 5 篇；**已退役，见 git**） | 测试报告（`testing/`，5 模块 / 24 篇） |
+| 需求（`requirements/`，当前 6 篇分 4 个模块子文件夹 + archive 15 篇） | 计划与状态（`plan/`，现行 7 篇（agent-multi-intent 5 + agent-kb-ux 2）；**已退役，见 git**） | 测试报告（`testing/`，6 模块 / 25 篇） |
 |---|---|---|
 | [doc-pipeline.req](./requirements/doc-pipeline/doc-pipeline.req.md) | **已退役，见 git**；调研见 [docling-poc](./research/doc-pipeline/doc-pipeline-docling-poc.md) | `testing/doc-pipeline/`（b1~b11 + remedial + final，13 篇） |
 | [agent-cost-optimize.req](./requirements/archive/agent-cost-optimize.req.md)（已完成） | **已退役，见 git** | `testing/agent-cost-optimize/agent-cost-optimize.tdd` |
@@ -106,5 +106,5 @@
 - 功能规格与行为契约 → [specs/](./specs/)（按模块分文件夹：editor / ai-agent / knowledge / release）
 - 外部资料调研 → [research/](./research/)
 - 测试覆盖、验证证据 → [testing/](./testing/)
-- 实施计划、优化状态 → `./plan/`（现行 agent-multi-intent 5 篇；历史整体退役见 git）
+- 实施计划、优化状态 → `./plan/`（现行 7 篇（agent-multi-intent 5 + agent-kb-ux 2）；历史整体退役见 git）
 - 导出/MIME/打包指南 → [guide/](./guide/)
