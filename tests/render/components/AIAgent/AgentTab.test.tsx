@@ -180,8 +180,9 @@ describe('AgentTab (消息流展示区)', () => {
     });
     const { container } = render(<AgentTab />);
 
-    // 4 条 assistant 各带 toolCalls → 4 张工作流卡片
-    expect(container.querySelectorAll('.glow-card').length).toBe(4);
+    // agent-history-toolcards：3 条连续空占位行合并为 1 张卡 + 带正文答案行自带 1 卡 = 2 张
+    // （旧断言 4 卡为「每消息一卡」形态，memory-B2 落库后按组合并为新基线）
+    expect(container.querySelectorAll('.glow-card').length).toBe(2);
     // 气泡仅剩「答案」那 1 条（修复前 3 条空气泡 + 1 条答案 = 4）
     expect(container.querySelectorAll('.rounded-2xl.rounded-tl-md').length).toBe(1);
     expect(screen.getByText('最终答案')).toBeInTheDocument();

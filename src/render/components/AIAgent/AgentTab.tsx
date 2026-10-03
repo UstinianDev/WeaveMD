@@ -12,6 +12,7 @@ import { useI18n } from '@render/i18n';
 import { useAgentStore, onStreamDelta, onStreamFlush } from '@render/stores/agentStore';
 import { useAuthStore } from '@render/stores/authStore';
 import AIMessageBubble from './message/AIMessageBubble';
+import { groupToolTurns } from './groupToolTurns';
 import AgentWorkflowCard from './cards/AgentWorkflowCard';
 import EditBlocksPreviewCard from './cards/EditBlocksPreviewCard';
 import PatchPreviewCard from './cards/PatchPreviewCard';
@@ -94,6 +95,13 @@ const MessageList: React.FC<MessageListProps> = React.memo(({ messages, isAgentM
     [sendAgentMessage],
   );
 
+  // 历史工具占位行分组（agent-history-toolcards）：连续 content='' 的工具行
+  // 合并为一张执行卡，修复 memory-B2 单事务落库后「一卡一工具」的渲染回归
+  const turnItems = useMemo(
+    () => groupToolTurns(visibleMessages, isAgentMode),
+    [visibleMessages, isAgentMode]
+  );
+
   return (
     <>
       {hasMoreMessages && (
@@ -107,11 +115,20 @@ const MessageList: React.FC<MessageListProps> = React.memo(({ messages, isAgentM
           </button>
         </div>
       )}
-      {visibleMessages.map(({ message: m, originalIndex: idx }) => {
+      {turnItems.map((item) => {
+        if (item.kind === 'toolGroup') {
+          return (
+            <div key={`tt-${item.id}`} className="px-1 mb-1">
+              <AgentWorkflowCard toolCalls={item.toolCalls} isStreaming={false} />
+            </div>
+          );
+        }
+        const { message: m, originalIndex: idx } = item.entry;
         // Bug 1 修复：从消息自身的 toolCalls 快照渲染（历史轮次独立保留）
         const msgToolCalls = isAgentMode ? (m.toolCalls ?? []) : [];
         const hasToolCalls = msgToolCalls.length > 0;
         // R2：重载态 assistant(content:'') 是工作流占位行，只画卡片，不画空气泡（对齐在线态）
+        // （占位行常规已被 turnItems 合并，此处兜底 content 非空的工具行仍按单消息渲染）
         const isBlankToolTurn = m.role === 'assistant' && hasToolCalls && m.content.trim() === '';
 
         return (
