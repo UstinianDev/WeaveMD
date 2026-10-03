@@ -494,6 +494,21 @@ describe('R3 外发双检矩阵 — allowSend × 本会话/跨会话 × 勾选�
     expect(res.status).toBe('error');
     expect(res.errorDesc).toContain('不属于当前会话');
   });
+
+  it('仅导入授权（D4-A：attachmentEgressAllowed 由已授权导入行推高）+ 跨会话附件 → 仍拒「不属于当前会话」', async () => {
+    // D4-A 扩白名单后 kbAttachmentEgressGranted 可因 import 行为 true → attachmentEgressAllowed=true；
+    // 跨会话边界（③）必须恒拒，扩白名单不放宽会话边界
+    attachMock.getParsedAttachment.mockReturnValue(
+      makePdfAttachment({ conversationId: 'c-other' })
+    );
+    const res = await executeTool(
+      'searchDocument',
+      JSON.stringify({ query: '收入', attachment_id: 'att-pdf' }),
+      makeCtx({ attachmentEgressAllowed: true })
+    );
+    expect(res.status).toBe('error');
+    expect(res.errorDesc).toContain('不属于当前会话');
+  });
 });
 
 // ---------------------------------------------------------------------------

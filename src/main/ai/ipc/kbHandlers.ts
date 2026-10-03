@@ -79,6 +79,8 @@ export function registerKbHandlers(): void {
           {
             ...kbIndexOpts(payload.userId),
             ...(contentOffsets ? { pageOffsets: contentOffsets } : {}),
+            // R3：===true 才写授权（缺省不写 = DB DEFAULT 0 fail-closed，「漏传不撤销」）
+            ...(payload.consentGranted === true ? { consentGranted: true } : {}),
           }
         );
         // 索引完成后触发向量回填（历史 chunk 缺口/模型切换扫描，防抖合并）
@@ -94,7 +96,12 @@ export function registerKbHandlers(): void {
     IPC_CHANNELS.KB_IMPORT_DIR,
     async (_event, payload: KbImportDirRequest) => {
       try {
-        const results: IKbImportResult[] = await importDirAsKb(payload.userId, payload.folderPath);
+        const results: IKbImportResult[] = await importDirAsKb(
+          payload.userId,
+          payload.folderPath,
+          // R3：===true 才透传授权标记（缺省 fail-closed，与附件/文本分支同口径）
+          payload.consentGranted === true ? { consentGranted: true } : undefined
+        );
         return { success: true, data: results };
       } catch (error) {
         return { success: false, message: 'Failed to import folder to knowledge base' };
@@ -305,10 +312,13 @@ function stripExtension(fileName: string): string {
  */
 export async function importDirAsKb(
   userId: string,
-  folderPath: string
+  folderPath: string,
+  opts?: { consentGranted?: boolean }
 ): Promise<IKbImportResult[]> {
   const results: IKbImportResult[] = [];
   if (!folderPath || typeof folderPath !== 'string') return results;
+  // R3：===true 才携带授权标记（缺省不加键 = DB DEFAULT 0，fail-closed 漏传不撤销）
+  const consentFlag = opts?.consentGranted === true ? { consentGranted: true as const } : {};
 
   let entries: fs.Dirent[];
   try {
@@ -332,6 +342,8 @@ export async function importDirAsKb(
         results.push(
           recordImportFailure(userId, title, {
             error: parsed.error ?? parsed.degraded ?? 'no extractable text',
+            // R3：error 行同口径保留授权标记（UI 可见、重试幂等）
+            ...consentFlag,
           })
         );
         continue;
@@ -341,6 +353,8 @@ export async function importDirAsKb(
           ...kbIndexOpts(userId),
           // 二-6②：产物页码偏移贯通 → source_ref 真实页码
           ...(parsed.pageOffsets ? { pageOffsets: parsed.pageOffsets } : {}),
+          // R3：授权标记贯通（缺省不加键）
+          ...consentFlag,
         })
       );
     } catch (err) {
@@ -348,6 +362,7 @@ export async function importDirAsKb(
       results.push(
         recordImportFailure(userId, title, {
           error: err instanceof Error ? err.message : String(err),
+          ...consentFlag,
         })
       );
     }

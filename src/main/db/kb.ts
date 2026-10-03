@@ -200,11 +200,13 @@ export function listKbDocumentsWithChunkCount(userId: string): Array<{
   pinned: boolean;
   status: KbDocumentStatus;
   chunkCount: number;
+  /** R3 D2：勾选授权回读（渲染闸 hasKbEgressGrant 数据源；缺列旧库归一 false）。 */
+  consentGranted: boolean;
 }> {
   const db = getDatabase();
   const rows = db.prepare(`
     SELECT d.id AS docId, d.file_id AS fileId, d.title, d.source_type AS sourceType,
-           d.pinned, d.status, COUNT(c.id) AS chunkCount
+           d.pinned, d.status, d.consent_granted AS consentGranted, COUNT(c.id) AS chunkCount
       FROM kb_documents d
       LEFT JOIN kb_chunks c ON c.document_id = d.id
      WHERE d.user_id = ?
@@ -217,6 +219,7 @@ export function listKbDocumentsWithChunkCount(userId: string): Array<{
     sourceType: string;
     pinned: number;
     status: string;
+    consentGranted: number | null | undefined;
     chunkCount: number;
   }>;
   return rows.map((r) => ({
@@ -226,6 +229,7 @@ export function listKbDocumentsWithChunkCount(userId: string): Array<{
     sourceType: (r.sourceType as KbSourceType) || 'import',
     pinned: !!r.pinned,
     status: (r.status as KbDocumentStatus) || 'pending',
+    consentGranted: r.consentGranted === 1,
     chunkCount: r.chunkCount,
   }));
 }
@@ -239,27 +243,32 @@ export function deleteKbDocumentByFile(userId: string, fileId: string): boolean 
 }
 
 /**
- * B11 八-1②：勾选授权的附件文档 docId 集合（外发过滤白名单）。
- * 仅含 `source_type='attachment' AND consent_granted=1`——笔记（db/import）永不入列。
+ * B11 八-1② → R3 D4-A 扩展：勾选授权文档 docId 集合（外发过滤白名单）。
+ * 仅含 `source_type IN ('attachment','import') AND consent_granted=1`——
+ * 授权导入行（目录/单文件导入勾选「允许外发」）同入列；笔记（db/disk）永不入列。
+ * 数据层是唯一强制点：`filterKbEgressResults` 消费本集合，allowSend 语义不放宽。
  */
 export function getGrantedAttachmentDocIds(userId: string): Set<string> {
   const db = getDatabase();
   const rows = db
     .prepare(
-      'SELECT id FROM kb_documents WHERE user_id = ? AND source_type = ? AND consent_granted = 1'
+      'SELECT id FROM kb_documents WHERE user_id = ? AND source_type IN (?, ?) AND consent_granted = 1'
     )
-    .all(userId, 'attachment') as Array<{ id: string }>;
+    .all(userId, 'attachment', 'import') as Array<{ id: string }>;
   return new Set(rows.map((r) => r.id));
 }
 
-/** B11 八-1②：是否存在勾选授权的附件文档（searchKB 注入判定，fail-closed 默认 false）。 */
+/**
+ * B11 八-1② → R3 D4-A 扩展：是否存在勾选授权的附件或授权导入文档
+ * （searchKB 注入判定，fail-closed 默认 false）。口径与 getGrantedAttachmentDocIds 一致。
+ */
 export function hasGrantedAttachmentDocs(userId: string): boolean {
   const db = getDatabase();
   const row = db
     .prepare(
-      'SELECT 1 AS ok FROM kb_documents WHERE user_id = ? AND source_type = ? AND consent_granted = 1 LIMIT 1'
+      'SELECT 1 AS ok FROM kb_documents WHERE user_id = ? AND source_type IN (?, ?) AND consent_granted = 1 LIMIT 1'
     )
-    .get(userId, 'attachment') as { ok: number } | undefined;
+    .get(userId, 'attachment', 'import') as { ok: number } | undefined;
   return row != null;
 }
 

@@ -13,8 +13,12 @@ interface FakeAgentState {
   kbStatus: { documents: number; embedding: { available: boolean; dims: number | null } } | null;
   kbDocuments: IKbDocumentStatus[];
   loadKbStatus: () => Promise<void>;
-  triggerKbImportFile: (input: { title: string; content: string }) => Promise<boolean>;
-  triggerKbImportDir: (folderPath: string) => Promise<void>;
+  triggerKbImportFile: (input: {
+    title: string;
+    content: string;
+    consentGranted?: boolean;
+  }) => Promise<boolean>;
+  triggerKbImportDir: (folderPath: string, consentGranted?: boolean) => Promise<void>;
   triggerKbDelete: (target: { fileId?: string | null; docId?: string }) => Promise<void>;
 }
 
@@ -47,6 +51,8 @@ function kbDoc(overrides: Partial<IKbDocumentStatus>): IKbDocumentStatus {
     pinned: false,
     status: 'done',
     chunkCount: 3,
+    // R3：渲染闸数据源（D2）必填字段，fixture 默认未授权
+    consentGranted: false,
     ...overrides,
   };
 }
@@ -135,5 +141,127 @@ describe('KnowledgeBaseSettings — 导入结果 error 可见（四-3②）', ()
     storeMock.state.kbDocuments = [];
     render(<KnowledgeBaseSettings />);
     expect(screen.getByText('ai.kb.empty')).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// R3：导入「允许外发」授权勾选（默认不勾 = fail-closed，铁律二）
+// ---------------------------------------------------------------------------
+describe('KnowledgeBaseSettings — 允许外发勾选（R3）', () => {
+  it('勾选默认不勾（fail-closed）', () => {
+    storeMock.state.kbDocuments = [];
+    render(<KnowledgeBaseSettings />);
+    const box = screen
+      .getByTestId('kb-allow-egress')
+      .querySelector('input') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+  });
+
+  it('勾选后单文件导入 → triggerKbImportFile 收到 consentGranted:true', async () => {
+    storeMock.state.kbDocuments = [];
+    (window as unknown as { weaveMD?: unknown }).weaveMD = {
+      dialog: {
+        openFile: vi.fn(async () => ({ success: true, data: { paths: ['/kb/a.md'] } })),
+        openFolder: vi.fn(async () => ({ success: true, data: { path: '/kb' } })),
+      },
+      kb: {
+        parseDocument: vi.fn(async () => ({
+          success: true,
+          data: { text: '内容', fileName: 'a.md', fileType: 'md' },
+        })),
+      },
+    };
+
+    render(<KnowledgeBaseSettings />);
+    const box = screen
+      .getByTestId('kb-allow-egress')
+      .querySelector('input') as HTMLInputElement;
+    fireEvent.click(box);
+    fireEvent.click(screen.getByText('ai.kb.importFile'));
+
+    await vi.waitFor(() =>
+      expect(storeMock.state.triggerKbImportFile).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'a.md', consentGranted: true })
+      )
+    );
+  });
+
+  it('未勾选单文件导入 → triggerKbImportFile 不带 consentGranted 键', async () => {
+    storeMock.state.kbDocuments = [];
+    (window as unknown as { weaveMD?: unknown }).weaveMD = {
+      dialog: {
+        openFile: vi.fn(async () => ({ success: true, data: { paths: ['/kb/b.md'] } })),
+        openFolder: vi.fn(async () => ({ success: true, data: { path: '/kb' } })),
+      },
+      kb: {
+        parseDocument: vi.fn(async () => ({
+          success: true,
+          data: { text: '内容', fileName: 'b.md', fileType: 'md' },
+        })),
+      },
+    };
+
+    render(<KnowledgeBaseSettings />);
+    fireEvent.click(screen.getByText('ai.kb.importFile'));
+
+    await vi.waitFor(() =>
+      expect(storeMock.state.triggerKbImportFile).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'b.md' })
+      )
+    );
+    const input = vi.mocked(storeMock.state.triggerKbImportFile).mock.calls[0][0] as Record<string, unknown>;
+    expect('consentGranted' in input).toBe(false);
+  });
+
+  it('勾选后目录导入 → triggerKbImportDir 收到 (path, true)', async () => {
+    storeMock.state.kbDocuments = [];
+    (window as unknown as { weaveMD?: unknown }).weaveMD = {
+      dialog: {
+        openFile: vi.fn(async () => ({ success: true, data: { paths: ['/kb/a.md'] } })),
+        openFolder: vi.fn(async () => ({ success: true, data: { path: '/kb' } })),
+      },
+      kb: {
+        parseDocument: vi.fn(async () => ({
+          success: true,
+          data: { text: '内容', fileName: 'a.md', fileType: 'md' },
+        })),
+      },
+    };
+
+    render(<KnowledgeBaseSettings />);
+    const box = screen
+      .getByTestId('kb-allow-egress')
+      .querySelector('input') as HTMLInputElement;
+    fireEvent.click(box);
+    fireEvent.click(screen.getByText('ai.kb.importDir'));
+
+    await vi.waitFor(() =>
+      expect(storeMock.state.triggerKbImportDir).toHaveBeenCalledWith('/kb', true)
+    );
+  });
+
+  it('未勾选目录导入 → triggerKbImportDir 仅 (path)（既有 :130 断言同口径）', async () => {
+    storeMock.state.kbDocuments = [];
+    (window as unknown as { weaveMD?: unknown }).weaveMD = {
+      dialog: {
+        openFile: vi.fn(async () => ({ success: true, data: { paths: ['/kb/a.md'] } })),
+        openFolder: vi.fn(async () => ({ success: true, data: { path: '/kb' } })),
+      },
+      kb: {
+        parseDocument: vi.fn(async () => ({
+          success: true,
+          data: { text: '内容', fileName: 'a.md', fileType: 'md' },
+        })),
+      },
+    };
+
+    render(<KnowledgeBaseSettings />);
+    fireEvent.click(screen.getByText('ai.kb.importDir'));
+
+    await vi.waitFor(() =>
+      expect(storeMock.state.triggerKbImportDir).toHaveBeenCalledWith('/kb')
+    );
+    expect(storeMock.state.triggerKbImportDir).not.toHaveBeenCalledWith('/kb', true);
+    expect(storeMock.state.triggerKbImportDir).not.toHaveBeenCalledWith('/kb', false);
   });
 });

@@ -656,7 +656,8 @@ export function prepareAgentContext(
 
   // KB 检索外发授权（B11 八-1②：该计算不放宽——仍恒等于 !allowSend）
   const kbEgressAuthorized = !needsKbSendConsent(config, consent);
-  // B11 八-1②：勾选授权附件存在性（勾选=该文档显式授权；查询失败视为无授权，fail-closed）
+  // B11 八-1②：勾选授权文档存在性（勾选授权附件 + 已授权导入行；查询失败视为无授权，fail-closed）
+  // 注：D4-A 口径——hasGrantedAttachmentDocs 名称保留，SQL 已扩 source_type IN ('attachment','import')
   let kbAttachmentEgressGranted = false;
   if (!kbEgressAuthorized) {
     try {

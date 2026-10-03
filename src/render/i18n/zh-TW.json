@@ -90,6 +90,8 @@
   "ai.kb.delete": "從知識庫移除",
   "ai.kb.docCount": "已索引 {count} 篇",
   "ai.kb.empty": "尚未索引任何文件",
+  "ai.kb.allowEgress": "允許外發",
+  "ai.kb.allowEgressHint": "勾選後，未開啟整體外發時僅已勾選文件可發給 AI",
   "ai.kb.importDir": "匯入資料夾",
   "ai.kb.importFile": "匯入檔案",
   "ai.kb.status.done": "完成",

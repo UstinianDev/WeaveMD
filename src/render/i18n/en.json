@@ -90,6 +90,8 @@
   "ai.kb.delete": "Remove from knowledge base",
   "ai.kb.docCount": "{count} docs indexed",
   "ai.kb.empty": "No documents indexed yet",
+  "ai.kb.allowEgress": "Allow egress",
+  "ai.kb.allowEgressHint": "Only checked documents may be sent to the AI while global egress is off",
   "ai.kb.importDir": "Import folder",
   "ai.kb.importFile": "Import file",
   "ai.kb.status.done": "Done",

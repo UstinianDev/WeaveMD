@@ -36,6 +36,8 @@ const KnowledgeBaseSettings: React.FC = () => {
   const triggerKbDelete = useAgentStore((s) => s.triggerKbDelete);
 
   const [busy, setBusy] = useState(false);
+  // R3：导入「允许外发」授权勾选（默认不勾 = fail-closed，铁律二）
+  const [allowEgress, setAllowEgress] = useState(false);
 
   useEffect(() => {
     void loadKbStatus();
@@ -63,6 +65,8 @@ const KnowledgeBaseSettings: React.FC = () => {
           content: parsed.data.text,
           // 二-6②：页码偏移随单文件导入 → source_ref 真实页码
           ...(parsed.data.pageOffsets ? { pageOffsets: parsed.data.pageOffsets } : {}),
+          // R3：勾选才携带授权标记（缺省不加键 = fail-closed「漏传不撤销」）
+          ...(allowEgress ? { consentGranted: true } : {}),
         });
       }
     } finally {
@@ -78,7 +82,11 @@ const KnowledgeBaseSettings: React.FC = () => {
         data?: { path: string };
       };
       if (result.success && result.data) {
-        await triggerKbImportDir(result.data.path);
+        if (allowEgress) {
+          await triggerKbImportDir(result.data.path, true);
+        } else {
+          await triggerKbImportDir(result.data.path);
+        }
       }
     } finally {
       setBusy(false);
@@ -113,6 +121,21 @@ const KnowledgeBaseSettings: React.FC = () => {
             .join(String(kbStatus?.documents ?? 0))}
         </span>
       </div>
+
+      {/* R3：导入「允许外发」授权勾选（默认不勾，铁律二 fail-closed） */}
+      <label
+        className="flex items-center gap-1.5 text-[12px] text-text-sub cursor-pointer select-none"
+        data-testid="kb-allow-egress"
+      >
+        <input
+          type="checkbox"
+          checked={allowEgress}
+          onChange={(e) => setAllowEgress(e.target.checked)}
+          className="w-3.5 h-3.5 accent-[var(--accent)] cursor-pointer"
+        />
+        {t('ai.kb.allowEgress')}
+      </label>
+      <div className="text-[11px] text-text-muted">{t('ai.kb.allowEgressHint')}</div>
 
       {/* embedding 可用性提示 */}
       <div className="text-[12px] text-text-sub">

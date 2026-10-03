@@ -182,3 +182,50 @@ describe('allowSend 语义无放宽路径（B11 硬规则断言）', () => {
     for (const r of out.results) expect(granted.has(r.docId)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// R3：chat 意图不注入 searchKB（任意组合）+ 过滤矩阵补授权导入行
+// ---------------------------------------------------------------------------
+describe('toolsForIntent — chat 意图任意组合不注入 searchKB（R3）', () => {
+  const chat = { intent: 'chat' as const, confidence: 0.9 };
+
+  function names(useKB: boolean, egress: boolean, granted: boolean): string[] {
+    return toolsForIntent(chat, useKB, egress, undefined, false, false, granted).map(
+      (t) => t.function.name
+    );
+  }
+
+  it('chat + KB 开 + allowSend + 勾选授权 → 不注入', () => {
+    expect(names(true, true, true)).not.toContain('searchKB');
+  });
+
+  it('chat + KB 开 + 无授权 → 不注入', () => {
+    expect(names(true, false, false)).not.toContain('searchKB');
+  });
+
+  it('chat + KB 关 + 勾选授权 → 不注入', () => {
+    expect(names(false, false, true)).not.toContain('searchKB');
+  });
+});
+
+describe('filterKbEgressResults — 授权导入行进白名单（R3 口径）', () => {
+  const grantedImport = hit('doc-import-granted'); // 已授权导入行
+  const note = hit('doc-note'); // db 笔记
+  const grantedIds = new Set(['doc-import-granted']);
+
+  it('allowSend=false + granted 含导入 docId → 该行放行', () => {
+    const out = filterKbEgressResults(envelope([grantedImport, note]), false, grantedIds);
+    expect(out.results.map((r) => r.docId)).toEqual(['doc-import-granted']);
+  });
+
+  it('allowSend=false + 导入行未授权 → 滤除', () => {
+    const out = filterKbEgressResults(envelope([grantedImport]), false, new Set());
+    expect(out.results).toEqual([]);
+    expect(out.best).toBeNull();
+  });
+
+  it('allowSend=true → 导入行原样（不过滤）', () => {
+    const out = filterKbEgressResults(envelope([grantedImport, note]), true, grantedIds);
+    expect(out.results.map((r) => r.docId)).toEqual(['doc-import-granted', 'doc-note']);
+  });
+});

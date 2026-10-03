@@ -1,7 +1,7 @@
 // ============================================
 // WeaveMD — agentStore 测试（TDD strict）
 // ============================================
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildCurrentFileRef,
   needsConsent,
@@ -720,6 +720,7 @@ describe('agentStore agent 模式', () => {
     ).toHaveBeenCalledWith(expect.objectContaining({ useKnowledgeBase: true }));
   });
 
+
   it('sendAgentMessage 建会话成功后 updateConversationSummary 写入首条消息（agent 域）', async () => {
     (window.weaveMD.ai.onStream as unknown as { mockImplementation: (...a: unknown[]) => unknown }).mockImplementation(() => () => {});
     (window.weaveMD.ai as unknown as { createConversation: ReturnType<typeof vi.fn> }).createConversation.mockResolvedValue({
@@ -1367,4 +1368,168 @@ describe('agentStore 相似合并建议 — 剩余分支（catch / 服务端拒�
     expect(similarList).not.toHaveBeenCalled();
     reject.mockRestore();
   });
+});
+
+
+describe('agentStore — R3 渲染闸收窄（hasKbEgressGrant 探测）', () => {
+  beforeEach(() => {
+    resetAgentStore();
+    vi.clearAllMocks();
+    useAuthStore.setState({ user: null, token: null, isAuthenticated: false } as never);
+  });
+
+  afterEach(() => {
+    // primeAgentFlow 设置的登录态不得泄漏到其他 describe
+    useAuthStore.setState({ user: null, token: null, isAuthenticated: false } as never);
+  });
+
+// -----------------------------------------------------------------------
+// R3 D2：渲染闸收窄 —— useKnowledgeBase && !allowSend → hasKbEgressGrant 探测
+// 有授权行放行（主进程过滤层仍强制）；任何失败态一律 fail-closed
+// -----------------------------------------------------------------------
+const allowNetworkNoSend: IAIConsent = {
+  allowNetwork: true,
+  allowSend: false,
+  consentUpdatedAt: null,
+};
+
+/** 组合一个允许 runAgent 走通的最小会话环境。 */
+function primeAgentFlow(): void {
+  (window.weaveMD.ai.onStream as unknown as { mockImplementation: (...a: unknown[]) => unknown }).mockImplementation(() => () => {});
+  (window.weaveMD.ai as unknown as { createConversation: ReturnType<typeof vi.fn> }).createConversation.mockResolvedValue({
+    success: true,
+    data: { id: 'agent-conv-grant', userId: 'u1', mode: 'agent', summary: '', createdAt: '', updatedAt: '' },
+  });
+  (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent.mockResolvedValue({
+    success: true,
+    data: { conversationId: 'agent-conv-grant', assistantId: 'a1', roundsUsed: 1, intent: null },
+  });
+  useAuthStore.setState({
+    user: { id: 'u1', username: 'tester', createdAt: '', lastLogin: null },
+    token: 'tok',
+    isAuthenticated: true,
+  } as never);
+  useAgentStore.setState({
+    config: remoteConfig,
+    modelConfigs: mockModelConfigs,
+    embeddingConfig: mockEmbeddingConfig,
+    embeddingConnectionOk: true,
+    searchConfig: mockSearchConfig,
+    searchConnectionOk: true,
+    consent: allowNetworkNoSend,
+    useKnowledgeBase: true,
+    activeMode: 'agent',
+  });
+}
+
+it('R3 闸：kb.list 返回已授权导入行 -> 放行且 runAgent({useKnowledgeBase:true})', async () => {
+  primeAgentFlow();
+  (window.weaveMD.kb as unknown as { list: ReturnType<typeof vi.fn> }).list.mockResolvedValue({
+    success: true,
+    data: [
+      {
+        docId: 'd1',
+        fileId: null,
+        title: 'imported.md',
+        sourceType: 'import',
+        pinned: false,
+        status: 'done',
+        chunkCount: 2,
+        consentGranted: true,
+      },
+    ],
+  });
+
+  await useAgentStore.getState().sendAgentMessage('在知识库里找授权资料');
+
+  expect(useAgentStore.getState().pendingConsent).toBe(false);
+  expect(
+    (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent
+  ).toHaveBeenCalledWith(expect.objectContaining({ useKnowledgeBase: true }));
+});
+
+it('R3 闸 fail-closed：kb.list success:false -> pendingConsent 且不调 runAgent', async () => {
+  primeAgentFlow();
+  (window.weaveMD.kb as unknown as { list: ReturnType<typeof vi.fn> }).list.mockResolvedValue({
+    success: false,
+    message: 'boom',
+  });
+
+  await useAgentStore.getState().sendAgentMessage('在知识库里找');
+
+  expect(useAgentStore.getState().pendingConsent).toBe(true);
+  expect(
+    (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent
+  ).not.toHaveBeenCalled();
+});
+
+it('R3 闸 fail-closed：kb.list data 非数组 -> pendingConsent 且不调 runAgent', async () => {
+  primeAgentFlow();
+  (window.weaveMD.kb as unknown as { list: ReturnType<typeof vi.fn> }).list.mockResolvedValue({
+    success: true,
+    data: { not: 'an array' },
+  });
+
+  await useAgentStore.getState().sendAgentMessage('在知识库里找');
+
+  expect(useAgentStore.getState().pendingConsent).toBe(true);
+  expect(
+    (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent
+  ).not.toHaveBeenCalled();
+});
+
+it('R3 闸 fail-closed：kb.list 抛错 -> pendingConsent 且不调 runAgent', async () => {
+  primeAgentFlow();
+  (window.weaveMD.kb as unknown as { list: ReturnType<typeof vi.fn> }).list.mockRejectedValue(
+    new Error('ipc down')
+  );
+
+  await useAgentStore.getState().sendAgentMessage('在知识库里找');
+
+  expect(useAgentStore.getState().pendingConsent).toBe(true);
+  expect(
+    (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent
+  ).not.toHaveBeenCalled();
+});
+
+it('R3 闸 fail-closed：kb.list 空数组（零授权行）-> pendingConsent 且不调 runAgent', async () => {
+  primeAgentFlow();
+  (window.weaveMD.kb as unknown as { list: ReturnType<typeof vi.fn> }).list.mockResolvedValue({
+    success: true,
+    data: [],
+  });
+
+  await useAgentStore.getState().sendAgentMessage('在知识库里找');
+
+  expect(useAgentStore.getState().pendingConsent).toBe(true);
+  expect(
+    (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent
+  ).not.toHaveBeenCalled();
+});
+
+it('R3 闸：授权探测不放行 db 笔记（sourceType=db 即 consentGranted=true 也不计入）', async () => {
+  primeAgentFlow();
+  (window.weaveMD.kb as unknown as { list: ReturnType<typeof vi.fn> }).list.mockResolvedValue({
+    success: true,
+    data: [
+      {
+        docId: 'd-note',
+        fileId: 'f1',
+        title: 'note.md',
+        sourceType: 'db',
+        pinned: false,
+        status: 'done',
+        chunkCount: 1,
+        consentGranted: true,
+      },
+    ],
+  });
+
+  await useAgentStore.getState().sendAgentMessage('在知识库里找');
+
+  expect(useAgentStore.getState().pendingConsent).toBe(true);
+  expect(
+    (window.weaveMD.ai as unknown as { runAgent: ReturnType<typeof vi.fn> }).runAgent
+  ).not.toHaveBeenCalled();
+});
 });

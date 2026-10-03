@@ -463,9 +463,10 @@ export async function conditionalRerank(
 /**
  * KB 外发结果过滤（八-1② 硬规则：不放宽 `allowSend` 语义）：
  * - `allowSend=true` → 原样返回（既有行为零回归）；
- * - `allowSend=false` → 仅放行 `grantedAttachmentDocIds`（勾选授权附件，source_type='attachment'
- *   且 consent_granted=1）内的命中；笔记与未授权附件一律滤除，best 同步收敛。
- * 数据层白名单由 `db/kb.getGrantedAttachmentDocIds` 提供（仅含附件授权行，笔记永不入列）。
+ * - `allowSend=false` → 仅放行 `grantedAttachmentDocIds`（勾选授权文档：source_type IN
+ *   ('attachment','import') 且 consent_granted=1——含已授权导入行，agent-kb-ux D4-A）内的命中；
+ *   笔记与未授权文档一律滤除，best 同步收敛。
+ * 数据层白名单由 `db/kb.getGrantedAttachmentDocIds` 提供（仅含授权行，笔记永不入列）。
  * 调用点：`agentTaskWorker.buildAgentDeps` 的 searchKb 闭包（LLM 外发唯一出口）。
  */
 export function filterKbEgressResults<

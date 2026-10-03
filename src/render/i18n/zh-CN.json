@@ -90,6 +90,8 @@
   "ai.kb.delete": "从知识库移除",
   "ai.kb.docCount": "已索引 {count} 篇",
   "ai.kb.empty": "尚未索引任何文档",
+  "ai.kb.allowEgress": "允许外发",
+  "ai.kb.allowEgressHint": "勾选后，未开启整体外发时仅已勾选文档可发给 AI",
   "ai.kb.importDir": "导入文件夹",
   "ai.kb.importFile": "导入文件",
   "ai.kb.status.done": "完成",

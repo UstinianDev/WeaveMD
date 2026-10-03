@@ -780,3 +780,109 @@ describe('importAttachmentsAsKb — 发送链路勾选批量入 KB（B11 八-1�
     expect(kbIndexerMock.indexImportedText).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// R3：目录/文本导入 egress 授权贯通（consentGranted → indexImportedText / recordImportFailure）
+// ---------------------------------------------------------------------------
+describe('importDirAsKb / KB_IMPORT_FILE 文本分支 — consentGranted 贯通（R3）', () => {
+  beforeEach(() => {
+    kbIndexerMock.indexImportedText.mockResolvedValue({
+      docId: 'd1',
+      title: 'note',
+      chunks: 1,
+      status: 'done' as const,
+    });
+  });
+
+  it('importDirAsKb({consentGranted:true}) → indexImportedText opts 携带该键', async () => {
+    setupDir(['a.md']);
+    await importDirAsKb('u1', '/kb', { consentGranted: true });
+
+    expect(kbIndexerMock.indexImportedText).toHaveBeenCalledWith(
+      'u1',
+      'a',
+      'PARSED:a.md',
+      expect.objectContaining({ consentGranted: true })
+    );
+  });
+
+  it('importDirAsKb 缺省 opts → indexImportedText opts 不含 consentGranted 键', async () => {
+    setupDir(['a.md']);
+    await importDirAsKb('u1', '/kb');
+
+    const opts = kbIndexerMock.indexImportedText.mock.calls[0][3] as Record<string, unknown>;
+    expect('consentGranted' in opts).toBe(false);
+  });
+
+  it('importDirAsKb 解析失败行 → recordImportFailure 携带授权标记', async () => {
+    setupDir(['broken.pdf']);
+    parseDocMock.parseDocument.mockResolvedValue(
+      parseResult({ text: '', fileName: 'broken.pdf', error: 'boom' })
+    );
+
+    await importDirAsKb('u1', '/kb', { consentGranted: true });
+
+    expect(kbIndexerMock.recordImportFailure).toHaveBeenCalledWith('u1', 'broken', {
+      error: 'boom',
+      consentGranted: true,
+    });
+  });
+
+  it('KB_IMPORT_DIR payload.consentGranted=true → 透传 importDirAsKb', async () => {
+    setupDir(['a.md']);
+    const res = (await getHandler(IPC_CHANNELS.KB_IMPORT_DIR)(makeEvent(), {
+      userId: 'u1',
+      folderPath: '/kb',
+      consentGranted: true,
+    })) as { success: boolean };
+
+    expect(res.success).toBe(true);
+    expect(kbIndexerMock.indexImportedText).toHaveBeenCalledWith(
+      'u1',
+      'a',
+      'PARSED:a.md',
+      expect.objectContaining({ consentGranted: true })
+    );
+  });
+
+  it('KB_IMPORT_DIR 缺省 consentGranted → 不含键（fail-closed）', async () => {
+    setupDir(['a.md']);
+    const res = (await getHandler(IPC_CHANNELS.KB_IMPORT_DIR)(makeEvent(), {
+      userId: 'u1',
+      folderPath: '/kb',
+    })) as { success: boolean };
+
+    expect(res.success).toBe(true);
+    const opts = kbIndexerMock.indexImportedText.mock.calls[0][3] as Record<string, unknown>;
+    expect('consentGranted' in opts).toBe(false);
+  });
+
+  it('KB_IMPORT_FILE 文本分支 payload.consentGranted=true → opts 携带该键', async () => {
+    const res = (await getHandler(IPC_CHANNELS.KB_IMPORT_FILE)(makeEvent(), {
+      userId: 'u1',
+      title: 'note',
+      content: 'hello world',
+      consentGranted: true,
+    })) as { success: boolean };
+
+    expect(res.success).toBe(true);
+    expect(kbIndexerMock.indexImportedText).toHaveBeenCalledWith(
+      'u1',
+      'note',
+      'hello world',
+      expect.objectContaining({ consentGranted: true })
+    );
+  });
+
+  it('KB_IMPORT_FILE 文本分支缺省 consentGranted → opts 不含键（既有 :365 回归同口径）', async () => {
+    const res = (await getHandler(IPC_CHANNELS.KB_IMPORT_FILE)(makeEvent(), {
+      userId: 'u1',
+      title: 'note',
+      content: 'hello world',
+    })) as { success: boolean };
+
+    expect(res.success).toBe(true);
+    const opts = kbIndexerMock.indexImportedText.mock.calls[0][3] as Record<string, unknown>;
+    expect('consentGranted' in opts).toBe(false);
+  });
+});

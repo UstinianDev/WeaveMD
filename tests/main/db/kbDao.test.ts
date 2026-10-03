@@ -49,14 +49,32 @@ const fakeDbMock = vi.hoisted(() => {
               created_at: 'now',
             };
           }
-          // B11：授权附件存在性查询（hasGrantedAttachmentDocs）
+          // B11/R3：授权文档存在性查询（hasGrantedAttachmentDocs）
+          // 按 WHERE 语义对注入行求值；旧行形状（无 source_type，如 {ok:1}）直接透传
           if (sql.includes('AS ok FROM kb_documents')) {
-            return grantedRow;
+            if (grantedRow === undefined) return undefined;
+            if (!('source_type' in grantedRow)) return grantedRow;
+            const [userId, ...types] = args;
+            const pass =
+              (grantedRow.user_id === undefined || grantedRow.user_id === userId) &&
+              types.includes(grantedRow.source_type) &&
+              grantedRow.consent_granted === 1;
+            return pass ? grantedRow : undefined;
           }
           return undefined;
         },
         all: (...args) => {
           calls.push({ method: 'all', sql, args });
+          // R3 白名单查询（source_type IN + consent_granted = 1）：按 WHERE 语义过滤注入行
+          if (sql.includes('source_type IN') && sql.includes('consent_granted = 1')) {
+            const [userId, ...types] = args;
+            return allRows.filter(
+              (r) =>
+                (r.user_id === undefined || r.user_id === userId) &&
+                types.includes(r.source_type) &&
+                r.consent_granted === 1
+            );
+          }
           return allRows;
         },
         run: (...args) => {
@@ -394,12 +412,17 @@ describe('kb DAO — consent_granted 勾选授权（D5b 写入方 + 过滤白名
     expect(update?.sql).not.toContain('consent_granted');
   });
 
-  it('getGrantedAttachmentDocIds 参数化过滤 user_id + source_type + consent_granted=1', () => {
-    fakeDbMock.setAllRows([{ id: 'd1' }, { id: 'd2' }]);
+  it('getGrantedAttachmentDocIds 参数化过滤 user_id + source_type IN + consent_granted=1（R3 扩含 import）', () => {
+    fakeDbMock.setAllRows([
+      { id: 'd1', user_id: 'u1', source_type: 'attachment', consent_granted: 1 },
+      { id: 'd2', user_id: 'u1', source_type: 'import', consent_granted: 1 },
+    ]);
     const ids = getGrantedAttachmentDocIds('u1');
     const stmt = callOf('all', 'FROM kb_documents');
-    expect(stmt?.sql).toMatch(/WHERE user_id = \? AND source_type = \? AND consent_granted = 1/);
-    expect(stmt?.args).toEqual(['u1', 'attachment']);
+    expect(stmt?.sql).toMatch(
+      /WHERE user_id = \? AND source_type IN \(\?, \?\) AND consent_granted = 1/
+    );
+    expect(stmt?.args).toEqual(['u1', 'attachment', 'import']);
     expect(ids).toEqual(new Set(['d1', 'd2']));
   });
 
@@ -408,6 +431,78 @@ describe('kb DAO — consent_granted 勾选授权（D5b 写入方 + 过滤白名
     expect(hasGrantedAttachmentDocs('u1')).toBe(true);
     fakeDbMock.setGrantedRow(undefined);
     expect(hasGrantedAttachmentDocs('u1')).toBe(false);
+  });
+
+  // -----------------------------------------------------------------------
+  // R3 D4-A：白名单矩阵 —— source_type IN ('attachment','import') 且 consent_granted=1
+  // -----------------------------------------------------------------------
+  it('白名单矩阵：已授权导入行（import + consent=1）进集合', () => {
+    fakeDbMock.setAllRows([
+      { id: 'd-imp', user_id: 'u1', source_type: 'import', consent_granted: 1 },
+    ]);
+    expect(getGrantedAttachmentDocIds('u1')).toEqual(new Set(['d-imp']));
+  });
+
+  it('白名单矩阵：未授权导入行（import + consent=0）滤除', () => {
+    fakeDbMock.setAllRows([
+      { id: 'd-imp0', user_id: 'u1', source_type: 'import', consent_granted: 0 },
+    ]);
+    expect(getGrantedAttachmentDocIds('u1')).toEqual(new Set());
+  });
+
+  it('白名单矩阵：已授权附件行（attachment + consent=1）进集合（既有语义回归）', () => {
+    fakeDbMock.setAllRows([
+      { id: 'd-att', user_id: 'u1', source_type: 'attachment', consent_granted: 1 },
+    ]);
+    expect(getGrantedAttachmentDocIds('u1')).toEqual(new Set(['d-att']));
+  });
+
+  it('白名单矩阵：db 笔记 consent=1 也不进（source_type 不在 IN 列表）', () => {
+    fakeDbMock.setAllRows([
+      { id: 'd-note', user_id: 'u1', source_type: 'db', consent_granted: 1 },
+      { id: 'd-disk', user_id: 'u1', source_type: 'disk', consent_granted: 1 },
+    ]);
+    expect(getGrantedAttachmentDocIds('u1')).toEqual(new Set());
+  });
+
+  it('白名单矩阵 hasGrantedAttachmentDocs：已授权导入行 → true', () => {
+    fakeDbMock.setGrantedRow({
+      ok: 1,
+      user_id: 'u1',
+      source_type: 'import',
+      consent_granted: 1,
+    });
+    expect(hasGrantedAttachmentDocs('u1')).toBe(true);
+  });
+
+  it('白名单矩阵 hasGrantedAttachmentDocs：未授权导入行 → false', () => {
+    fakeDbMock.setGrantedRow({
+      ok: 1,
+      user_id: 'u1',
+      source_type: 'import',
+      consent_granted: 0,
+    });
+    expect(hasGrantedAttachmentDocs('u1')).toBe(false);
+  });
+
+  it('白名单矩阵 hasGrantedAttachmentDocs：db 笔记 consent=1 → false', () => {
+    fakeDbMock.setGrantedRow({
+      ok: 1,
+      user_id: 'u1',
+      source_type: 'db',
+      consent_granted: 1,
+    });
+    expect(hasGrantedAttachmentDocs('u1')).toBe(false);
+  });
+
+  it('白名单矩阵 hasGrantedAttachmentDocs：已授权附件行 → true（既有语义回归）', () => {
+    fakeDbMock.setGrantedRow({
+      ok: 1,
+      user_id: 'u1',
+      source_type: 'attachment',
+      consent_granted: 1,
+    });
+    expect(hasGrantedAttachmentDocs('u1')).toBe(true);
   });
 
   it('回读行缺 consent_granted（D5b 迁移前旧库形态）→ consentGranted 归一 false', () => {

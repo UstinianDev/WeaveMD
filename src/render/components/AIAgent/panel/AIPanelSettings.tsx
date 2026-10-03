@@ -13,8 +13,9 @@ import SearchSettings from '../settings/SearchSettings';
 import SkillsPanel from '../settings/SkillsPanel';
 import McpPanel from '../settings/McpPanel';
 import AgentPersonalityPanel from '../settings/AgentPersonalityPanel';
+import KnowledgeBaseSettings from '../knowledge/KnowledgeBaseSettings';
 
-export type SettingsTab = 'model' | 'embedding' | 'search' | 'skills' | 'mcp' | 'personality';
+export type SettingsTab = 'model' | 'embedding' | 'search' | 'knowledge' | 'skills' | 'mcp' | 'personality';
 
 interface AIPanelSettingsProps {
   /** 返回上一视图（home/session）。 */
@@ -25,6 +26,8 @@ const TABS: { key: SettingsTab; label: string }[] = [
   { key: 'model', label: 'ai.settings.tab.model' },
   { key: 'embedding', label: 'ai.settings.tab.embedding' },
   { key: 'search', label: 'ai.settings.tab.search' },
+  // D1：KnowledgeBaseSettings 挂载点（原会话视图已移除，R3 导入授权勾选需可见）
+  { key: 'knowledge', label: 'ai.agent.kbSettings' },
   { key: 'skills', label: 'ai.settings.tab.skills' },
   { key: 'mcp', label: 'ai.settings.tab.mcp' },
   { key: 'personality', label: 'ai.settings.tab.personality' },
@@ -75,6 +78,7 @@ const AIPanelSettings: React.FC<AIPanelSettingsProps> = ({ onBack }) => {
           {tab === 'model' && <ModelForm />}
           {tab === 'embedding' && <EmbeddingSettings />}
           {tab === 'search' && <SearchSettings />}
+          {tab === 'knowledge' && <KnowledgeBaseSettings />}
           {tab === 'skills' && <SkillsPanel />}
           {tab === 'mcp' && <McpPanel />}
           {tab === 'personality' && <AgentPersonalityPanel />}

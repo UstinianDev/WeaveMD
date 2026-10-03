@@ -187,6 +187,12 @@ export interface IKbDocumentStatus {
   pinned: boolean;
   status: 'pending' | 'importing' | 'done' | 'error';
   chunkCount: number;
+  /**
+   * R3 D2：勾选授权（consent_granted 列回读）——渲染闸 hasKbEgressGrant 的数据源。
+   * true 仅表示该文档被显式授权外发；笔记（db/disk）永不授权。
+   * 缺省（旧数据/主进程未回填）按 false 处理（渲染闸 `=== true` 判定，fail-closed）。
+   */
+  consentGranted?: boolean;
 }
 
 /** KB 导入/重建结果。 */
@@ -304,6 +310,11 @@ export interface KbDeleteResult {
 export interface KbImportDirRequest {
   userId: string;
   folderPath: string;
+  /**
+   * R3：勾选「允许外发」（===true 才写授权，缺省 = 未授权 fail-closed，
+   * 与附件先例 kbHandlers :63 同口径「漏传不撤销」）。
+   */
+  consentGranted?: boolean;
 }
 
 /**
@@ -317,5 +328,10 @@ export type KbImportFileRequest =
       content: string;
       /** B7 二-6②：每页 text 起始偏移（PDF 单文件导入 → source_ref 真实页码）。 */
       pageOffsets?: number[];
+      /**
+       * R3：勾选「允许外发」（===true 才写授权，缺省 = 未授权 fail-closed，
+       * 与附件分支 kbHandlers :63 同口径「漏传不撤销」）。
+       */
+      consentGranted?: boolean;
     }
-  | { userId: string; attachmentId: string };
+  | { userId: string; attachmentId: string; consentGranted?: boolean };

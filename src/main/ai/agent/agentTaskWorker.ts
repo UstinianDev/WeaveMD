@@ -594,7 +594,7 @@ export class AgentTaskWorker {
           // Q21 任务 9：Agent 任务意图透传（同 D1——闭包重建 opts 不丢参，仅诊断字段）
           agentIntent: opts?.agentIntent,
         });
-        // B11 八-1②：allowSend=false → 外发结果过滤到仅勾选授权附件（fail-closed）。
+        // B11 八-1②：allowSend=false → 外发结果过滤到仅勾选授权文档（附件 + 已授权导入行，fail-closed）。
         // 这是 searchKB 结果走向 LLM 的唯一出口（preloader/citation 均继承此闭包）。
         if (consent.allowSend) return res;
         try {
