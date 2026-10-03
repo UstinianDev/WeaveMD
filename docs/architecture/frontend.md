@@ -114,7 +114,7 @@ Zustand v4，关键 store：
 ## CSS 规范
 
 - 颜色引用 CSS 变量：`var(--bg-primary)`, `var(--accent)` 等
-- 字体栈：中文 `Alibaba PuHuiTi 2.0` / `KaiTi`（编辑区），英文 `Consolas`
+- 字体栈：中文 `Alibaba PuHuiTi 2.0` / `KaiTi`（编辑区），英文 `Consolas`；AI 会话消息流（`.ai-message-stream` + `.ai-markdown`）同用编辑区 KaiTi 栈（2026-10-03，code/pre 等宽不变）
 - 工具栏毛玻璃：`backdrop-filter: blur(12px) saturate(180%)`
 - 禁止内联 `style={{}}`（动态值除外）
 - 禁止 Tailwind 默认色（使用自定义色板）

@@ -99,7 +99,7 @@
 
 - **附件照常入 KB**（保住本地检索价值），`allowSend=false` 时在检索出口按 `source_type='attachment'` 过滤，而非不入 KB；入库时记录勾选授权标记供白名单过滤。（来源：`docs/plan/doc-pipeline.plan/01-batch-changes.md` B11、[doc-pipeline req §2 Q1](../../requirements/doc-pipeline/doc-pipeline.req.md)）
 
-### 11.4 已知限制（生产不可达，不得写成承诺）
+### 11.4 已知限制（原「生产不可达」判定，两项均已解除 @agent-kb-ux 2026-10-03）
 
 - ~~`useKnowledgeBase` 硬编码 `false`、零调用方~~ **已解除 @agent-kb-ux（2026-10-03）**：热修后初值 `true`（composer 无 UI、默认开启），`toolsForIntent` 四分支与 11.1 注入矩阵/citation 分支**生产可达**。
 - ~~`allowSend` 无可达 UI 入口~~ **已解除 @agent-kb-ux**：三态发送闸 `checkKbEgressGate`（有文档无授权 → `pendingConsent` → `ConsentOverlay`）生产可达，`filterKbEgressResults` 随之**生产执行**（空库/已授权/读取失败放行，主进程白名单为唯一强制点）。

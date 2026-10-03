@@ -88,9 +88,9 @@
 
 > 来源：`docs/plan/agent-memory-optimize-3.plan.md` §6 D6（「笔记侧零影响核验」行、§1「D6 不碰」行、§4 红线行）；`docs/architecture/knowledge.md` §searchMode 表与 §三参数表；`docs/plan/doc-pipeline.connectivity.md` §2 附注；`docs/plan/doc-pipeline.status/01-batch-records.md` §B8「HyDE 收益复核 / 拒答阈值 0.6 复核」；`docs/testing/doc-pipeline/doc-pipeline-b8.tdd.md` §8.6~§8.7。
 
-## 8. 生产不可达已知限制（R1/R2，状态标注原样保留）
+## 8. 已知限制（原「生产不可达」判定，R1/R2 已解除 @agent-kb-ux，状态标注原样保留）
 
-| ID | 限制（**生产不可达**） | 影响 |
+| ID | 限制（原判定**生产不可达**，R1/R2 已解除） | 影响 |
 |---|---|---|
 | R1 | ~~`useKnowledgeBase` 初值 `false`、零调用方~~ **已解除 @agent-kb-ux（2026-10-03）**：热修后初值 `true`、composer 无 UI（默认开启），`toolsForIntent` 四分支生产可达，`searchKB` 检索/citation/外发闸注入矩阵均触发 | 原「恒不触发」失效 |
 | R2 | ~~`ConsentOverlay` 触发依赖 R1 死链~~ **已解除 @agent-kb-ux**：三态发送闸 `checkKbEgressGate`（空库/已授权/读取失败 → allow；有文档无授权 → prompt）使 `pendingConsent` 生产可达，`filterKbEgressResults` 随 allowSend=false + 授权行路径**生产执行** | 原「生产不执行」失效 |
@@ -122,6 +122,6 @@
 - 超宽表按单元格 emergency split（STC）未实现——无样例需求，记录为可选增强。
 - HyDE 量化 A/B 需真实凭据——**待校准**；拒答阈值附件独立配置——**后续（不阻塞）**（§9）。
 - `chatHandlers`（废弃 Chat 模式）未接 citation 收集；附件页内定位无应用内预览（打开交 OS 默认应用）。
-- R1~R10 是否修复由需求方裁定；R1/R2 维持「不恢复」裁定。
+- R1~R10 是否修复由需求方裁定；R1/R2 已随 agent-kb-ux 解除（2026-10-03，见 §8 解除记录），其余维持原裁定。
 
 > 来源：`docs/plan/doc-pipeline.status/01-batch-records.md` §B5/§B8 遗留；`docs/plan/doc-pipeline.connectivity.md` §0 总览、§2 风险清单。

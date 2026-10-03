@@ -1,6 +1,6 @@
 # WeaveMD 需求文档
 
-> 版本：v3.3 | 最后更新：2026-10-03
+> 版本：v3.4 | 最后更新：2026-10-03
 
 ---
 
@@ -104,7 +104,7 @@
 | AGT-03 | LLM 后端         | P1     | 远程 OpenAI 兼容 API（remote-only，Ollama 已移除）；设置中配置 API Key / baseURL / 模型                                                                                                               |
 | AGT-05 | 内置 skills      | P2     | 内置 skills-creator 等；SKILL.md 文件式可扩展（`userData/skills/`）；「markdown 创作」阶段 3 由 AI 从 GitHub 自取（优先 `writing-shape` / mattpocock/skills），不适用则内置 skill-creator 制作                                                                                                           |
 | AGT-06 | 内置 MCP         | P2     | 主进程自动拉起 context7/firecrawl MCP server（stdio，首次联网下载）；离线禁用并提示                                                                                                                    |
-| AGT-07 | 依照知识库创作   | P1     | 开关；双路召回（语义+关键词）；命中阈值以下拒答不瞎编；每条回答附出处、可跳转原文；置顶文档来源加权                                                                                                    |
+| AGT-07 | 依照知识库创作   | P1     | 默认开启、无独立开关 UI；双路召回（语义+关键词）；命中阈值以下拒答不瞎编；每条回答附出处、可跳转原文；置顶文档来源加权                                                                            |
 | AGT-08 | 拒答阈值         | P2     | 默认 0.6（可设置），低于阈值返回「知识库未找到相关内容」拒答，不生成答案                                                                                                                              |
 | AGT-09 | 出处与跳转       | P2     | 每条回答附「[来源: 文件名 · 块]」，点击打开文档并滚动到对应块                                                                                                                                          |
 | AGT-10 | 混合检索         | P1     | RRF 三路融合（向量 + FTS5 + 标题），k=60；加权策略（当前文件/标题/时效/置顶）；段聚合（单文件 cap + 上下文扩展）                                                                                                              |
@@ -207,6 +207,17 @@
 | MI-02 | 子任务链执行与追踪 | P1 | 同 session 子任务顺序执行（轮次双预算 / 中断安全点 / 失败重试 → waiting_interaction）与依赖图并行调度；全链状态落 `agent_sessions.intent_json` + 链末执行报告 |
 | MI-03 | 确认矩阵与写控制 | P1 | intent × tool 三档确认矩阵（force/batch/none，fail-closed，铁律一不削弱）+ writeMode auto/manual 消费；多写子任务链末汇总确认，拒绝项链末快照回滚 |
 | MI-04 | 拆分与确认交互 | P1 | 拆分确认卡（可增删后确认）、写批次汇总确认卡、低置信子意图追问沿用提问卡片；无交互环境 fail-closed 拒写 |
+
+### 3.14 KB 可见性与交互增强 (P1)
+
+> 来源与裁定：[agent-kb-ux.req](./requirements/agent-kb-ux/agent-kb-ux.req.md)（Q1~Q8，2026-10-03 交付）；TDD 证据 [agent-kb-ux.tdd](./testing/agent-kb-ux/agent-kb-ux.tdd.md)；热修 `542eb9f`（开关默认 true + 三态外发闸）；R4「复制文件地址」已按用户裁定删除 @`6a88791`（req 条目保留作审计线）。
+
+| 编号 | 需求 | 优先级 | 说明 |
+|------|------|--------|------|
+| KX-01 | KB 文档对 Agent 默认可见 | P1 | `useKnowledgeBase` 初值 `true` 且无独立开关 UI（热修 `542eb9f`）；`searchKB` 工具正常下发，Agent 可检索 KB 导入文档；白名单扩 `source_type IN ('attachment','import')`（授权后 import 行可入） |
+| KX-02 | 导入授权勾选 | P1 | 目录/文件导入 UI 提供「允许外发」授权勾选，`consent_granted` 贯通 `indexImportedText` 落库（默认不勾，fail-closed，铁律二不削弱） |
+| KX-03 | 三态外发闸 | P1 | 发送闸 `checkKbEgressGate`：空库/已授权/读取失败 → 放行；有文档无授权 → `pendingConsent` → `ConsentOverlay`；主进程 `filterKbEgressResults` 为唯一强制点 |
+| KX-04 | 会话消息楷体 | P2 | AI 会话消息流（`.ai-message-stream` + `.ai-markdown`）用编辑区 KaiTi 字体栈；home/composer 不动，code/pre 等宽不变 |
 
 ## 4. 非功能需求
 

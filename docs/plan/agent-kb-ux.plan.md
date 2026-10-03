@@ -4,7 +4,7 @@
 > 档位 **M**，TDD **standard**（RED→GREEN→精简证据）；行号基准：2026-10-03 实况，HEAD `90ba82d`
 > 证据报告：`docs/testing/agent-kb-ux/agent-kb-ux.tdd.md`（配套，逐需求追加）
 > 门禁：typecheck/test/lint 全绿；改渲染提交跑 `npx playwright test` 与 **31 例失败基线**同数同名零新增
-> 铁律二不削弱；默认值 fail-closed（开关默认 false、授权默认不勾）
+> 铁律二不削弱；默认值 fail-closed（开关初值经热修 `542eb9f` 改为 true 且无 UI、授权默认不勾）
 
 ## 0. 行号核对（req vs 实况）
 
@@ -45,19 +45,8 @@
 ### R2 + 根因 A — useKnowledgeBase 开关接线（渲染）
 
 > **⚠️ 本节方案已被 2026-10-03 热修覆盖（`542eb9f`）**：用户裁定 composer 勾选麻烦难看 → 删除 UI 开关，
-> `useKnowledgeBase` 初值改 `true`（默认开启），发送闸改三态 `checkKbEgressGate`（空库/已授权/读取失败→allow；
-> 有文档无授权→prompt）。以下原始 R2 方案保留为历史记录，实施状态以 `docs/testing/agent-kb-ux/agent-kb-ux.tdd.md`
-> 「热修」章为准。
-
-**变更清单**
-- 修改 `src/render/components/AIAgent/panel/AIPanelComposer.tsx`：① :128 后加 2 个选择器 `useKnowledgeBase`/`setUseKnowledgeBase`；② 控制条「联网搜索」按钮后、`{/* Spacer */}`(:686) 前插入 `<label data-testid="use-kb-toggle">`（复用 :535-546 附件勾选结构 + `accent-[var(--accent)]`），`checked`/`onChange` 绑 setter，文案 `t('ai.agent.useKnowledgeBase')`，title 同键。最窄 260px，放左侧组；若走查拥挤，回退=紧邻发送按钮左侧（testid 不变）。
-- i18n：**三语已齐备，零改动**；`agentStore.ts` **零代码改动**（:339 默认 / :1224 setter / :1100 传递链 / reset 归位均就绪）。
-
-**实现要点**：只接 UI；开关**不持久化**（刷新回 false，fail-closed）。传递链核实表写入 tdd：`agentStore:1100` → `shared/ai/agent.ts:127` → `agentHandlers.ts:173` → `agentTaskWorker.ts:517/532` → `agentContext.ts:691` → `toolsForIntent` 第2参 → `agentToolSelector.ts:121/134/152/159` → `agentLoop.ts:325`。
-
-**TDD**：RED `AIPanelComposer.test.tsx` +2 例（默认存在且 unchecked；点击 → `setUseKnowledgeBase(true)`，用 `vi.spyOn(getState())`，同 :416 模式）；RED `agentStore.test.ts` +1 例（allowSend=true → `runAgent(objectContaining({useKnowledgeBase:true}))`，对照既有 :687 false 断言；既有 :525 pendingConsent 用例必须继续绿）；组件无先例处记人工验证。
-
-**风险回滚**：控制条拥挤 → 单文件 revert `AIPanelComposer.tsx`，setter 无调用方即等同关闭态；独立提交零牵连。
+> `useKnowledgeBase` 初值改 `true`（默认开启），发送闸改三态 `checkKbEgressGate`（空库/已授权/读取失败→allow；有文档无授权→prompt）。实施状态以 tdd「热修」章为准。
+> **存根**：原方案全文见 git 历史（提交 `9ddf3b3`）。一句话摘要：在 AIPanelComposer 控制条插入 `use-kb-toggle` 勾选绑定 `setUseKnowledgeBase`，不持久化、fail-closed——该 UI 方案已被热修删除。
 
 ### R3 — 导入授权贯通 consentGranted + 两闸对齐（主进程+渲染）
 
@@ -92,20 +81,8 @@
 
 ### R4 — 文件树右键复制文件地址（渲染）
 
-> **❌ 本节已作废（2026-10-03 用户裁定「没必要」）**：功能整体删除（`6a88791` 反向撤销 `ea3b81a` + `3bdb4e8`，
-> 含 copyPath 工具/菜单项/i18n 三键/CLIPBOARD_WRITE_TEXT 桥，-383 行）。以下原始方案保留为历史记录。
-
-
-**变更清单**
-- **新建 `src/render/utils/copyPath.ts`**：`isAbsolutePath(p)`（复用 `agentHandlers.ts:130-132`：`/…`、`\\…`、`^[a-zA-Z]:[\\/]`）；`copyPathToClipboard(path): Promise<'copied'|'failed'>`（空/非绝对→failed；`navigator.clipboard` 缺失/抛错/reject→failed，**不静默**）。
-- 修改 `ContextMenu.tsx`：Props + `onCopyPath`；「重命名」(:59-68) 与分隔线间插按钮（Icon `copy`，`t('sidebar.copyPath')`，**文件夹/文件均显示**——现 `isDirectory` 形参未用）；点击 `onCopyPath(); onClose();`。
-- 修改 `FileTreePanel.tsx`：`copyNotice` state + 1.5s 自清（`CodeBlock.tsx:43-48` 先例，timer ref + unmount 清理）；`handleCopyPath(path)` → success/fail 提示；`:486-501` 传 `onCopyPath={() => handleCopyPath(contextMenu.nodePath)}`；渲染 `<div role="status" data-testid="copy-path-notice" className=…>`（**className 非内联 style**）。复制内容=`node.path`（`fileTreeStore.ts:303` 已归一正斜杠绝对路径）；既有重命名/删除不动。
-- i18n ×3：`sidebar.copyPath`（复制文件地址/複製檔案位址/Copy path）、`sidebar.copyPathDone`（已复制路径/已複製路徑/Path copied）、`sidebar.copyPathFailed`（复制失败/複製失敗/Copy failed）；插 `sidebar.confirmDeleteFolder`(:380) 后，三文件同位。
-- **toast 机制**：全仓无 toast 组件（已 grep：仅系统通知 + `MainPage.tsx:50 restoreNotice` 条 + CodeBlock copied 态）→ 最小可行=FileTreePanel 内联 `role="status"` 提示条，tdd 注明「无既有 toast、未引依赖」。
-
-**TDD**：RED 新建 `tests/utils/copyPath.test.ts`（绝对/相对/空→failed；clipboard 缺失→failed；writeText reject→failed；成功→copied；jsdom 用 `Object.defineProperty(navigator,'clipboard',{…,configurable:true})`）；RED `tests/components/FileTreePanel.test.tsx` 补 3 例（contextMenu 出菜单[文件+文件夹]；点击→`writeText` 收绝对路径 + notice「已复制路径」；reject→「复制失败」）；既有 3 例原样全绿。
-
-**风险回滚**：非绝对路径误复制 → `isAbsolutePath` 前置拒 + 失败提示；`ContextMenu` 新必填 prop typecheck 拦截（仅 1 使用方）。回滚=revert 2 组件 + 删 1 源文件/1 测试/3 键，零状态残留。
+> **❌ 本节已作废（2026-10-03 用户裁定「没必要」）**：功能整体删除（`6a88791` 反向撤销 `ea3b81a` + `3bdb4e8`，含 copyPath 工具/菜单项/i18n 三键/CLIPBOARD_WRITE_TEXT 桥，-383 行）。
+> **存根**：原方案全文见 git 历史（提交 `9ddf3b3`）。一句话摘要：新建 `copyPath.ts` + ContextMenu 菜单项 + FileTreePanel 提示条复制绝对路径——功能已按裁定整体删除，勿恢复。
 
 ### R5 — 会话消息楷体（渲染）
 

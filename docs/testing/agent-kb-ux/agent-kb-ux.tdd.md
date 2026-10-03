@@ -130,7 +130,7 @@ playwright: 31 failed / 104 passed / 1 skipped
 | 1 | 开关后 Agent 可检索 KB 导入文档 | R2 工具下发链 + R3 白名单/注入矩阵（kbDao 4 例 + consent 过滤矩阵） |
 | 2 | 工具下发矩阵 allowSend × 来源 × 意图 | consent.test 注入/过滤矩阵 + ipc.test 两闸回归锁（零改动全绿） |
 | 3 | 导入 UI 授权勾选 + consentGranted 落库 | knowledgeBaseSettings 组件例 + kbHandlers 透传 4 例 |
-| 4 | 复制绝对路径（R4） | 任务 3 章：copyPath 9 例 + FileTreePanel 3 例（菜单/成功/失败），提交 `ea3b81a` |
+| 4 | 复制绝对路径（R4） | 任务 3 章：copyPath 9 例 + FileTreePanel 3 例（菜单/成功/失败），提交 `ea3b81a`（功能已删 `6a88791`，见删除记录章） |
 | 5 | 仅会话消息楷体（R5） | 任务 4 章：CSS 2 例 + AgentTab 容器/无内联回归锁，提交 `f19c70b`；playwright 31·104·1 基线同名 |
 | 6 | 门禁全绿 | R4/R5 各自 typecheck 0 / lint 0 / vitest 全量绿（计时 flaky 单跑复跑归零）+ playwright 基线 diff IDENTICAL |
 

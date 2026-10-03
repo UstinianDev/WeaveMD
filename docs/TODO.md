@@ -7,8 +7,10 @@
 ### agent-kb-ux KB 可见性与交互增强（2026-10-03）
 
 M 级四需求全交付（Q1~Q8 裁定）：**R2** composer `useKnowledgeBase` 开关接线（根因 A——开关无 UI 恒 false 致 searchKB 从不下发，Agent 看不到任何 KB 文档）；**R3** 导入授权勾选贯通 `consent_granted` + D1 设置 knowledge tab 挂载导入 UI + D2 渲染闸收窄（无授权外发行才拦）+ D4 白名单两 SQL 扩 `IN ('attachment','import')`（铁律二不削弱、零 DDL）；**R4** 文件树右键「复制文件地址」（文件+文件夹，绝对路径，失败提示不静默）；**R5** 会话消息区楷体（`.ai-message-stream` 与编辑区同栈，home/composer 不动）。
-提交 `2820f05`/`97c93f5`/`ea3b81a`/`f19c70b`/`9ddf3b3`；**后续：R4 复制文件地址经热修后由用户裁定删除（`6a88791`，连同剪贴板 IPC 整体撤销）**；门禁 typecheck 0 / vitest 4835 全绿（计时 flaky 单跑复核）/ lint 0 / playwright 31·104·1 与基线 IDENTICAL。证据 [agent-kb-ux.tdd](./testing/agent-kb-ux/agent-kb-ux.tdd.md)，需求 [req](./requirements/agent-kb-ux/agent-kb-ux.req.md)。
-热修（2026-10-03，用户反馈 3 项，每项一提交）：**①** 删 composer KB 开关 + `useKnowledgeBase` 默认 `true` + 发送闸改三态 `checkKbEgressGate`（无文档/有授权/读取失败放行，有文档无授权弹同意层；主进程 `filterKbEgressResults` 仍唯一强制）`542eb9f`；**②** 复制文件地址改走主进程 `clipboard:write-text` 桥（打包 Electron `navigator.clipboard` 非安全上下文恒 reject），回落 navigator 不静默 `3bdb4e8`；**③** `.ai-markdown` 改编辑区楷体栈（code/pre 等宽不动）`f0adc44`。门禁 typecheck 0 / vitest 4844 全绿 / lint 0 / playwright 31·104·1 与基线同数同名。
+提交 `2820f05`/`97c93f5`/`ea3b81a`/`f19c70b`/`9ddf3b3`；**后续：R4 复制文件地址经热修后由用户裁定删除（`6a88791`，连同剪贴板 IPC 整体撤销）**；门禁 typecheck 0 / vitest 4835 全绿（计时 flaky 单跑复核）/ lint 0 / playwright 31·104·1 与基线 IDENTICAL。
+热修（2026-10-03，用户反馈 3 项，每项一提交）：**①** 删 composer KB 开关 + `useKnowledgeBase` 默认 `true` + 发送闸改三态 `checkKbEgressGate`（无文档/有授权/读取失败放行，有文档无授权弹同意层；主进程 `filterKbEgressResults` 仍唯一强制）`542eb9f`；**②** 复制文件地址改走主进程 `clipboard:write-text` 桥（打包 Electron `navigator.clipboard` 非安全上下文恒 reject），回落 navigator 不静默 `3bdb4e8`（随后随 R4 删除整体撤销 `6a88791`）；**③** `.ai-markdown` 改编辑区楷体栈（code/pre 等宽不动）`f0adc44`。门禁 typecheck 0 / vitest 4844 全绿 / lint 0 / playwright 31·104·1 与基线同数同名。
+
+> 需求 [req](./requirements/agent-kb-ux/agent-kb-ux.req.md)（汇总入 [REQUIREMENTS](./REQUIREMENTS.md) §3.14）/ 计划 [plan](./plan/agent-kb-ux.plan.md) · [status](./plan/agent-kb-ux.status.md) / TDD 证据 [tdd](./testing/agent-kb-ux/agent-kb-ux.tdd.md)
 
 ### agent-multi-intent 多意图识别与执行（2026-10-01 ~ 2026-10-03）
 
@@ -244,8 +246,7 @@ L 级重型重构，8 阶段全部完成。详见 status 归档文档（已随 p
 
 | 问题 | 影响范围 |
 |------|------|
-| `useKnowledgeBase` 恒 `false`（R1） | KB 注入矩阵、`searchKB` citation 分支在生产 UI 不可达——该开关为 Module 10 移除后的废弃项，**按裁定不恢复**（连通性 R1） |
-| `allowSend` 无可达设置入口（R2） | `filterKbEgressResults` 生产不执行，仅数据层 fail-closed 兜底；`ai.settings.allowSend` 为孤儿 i18n 键 |
+| `allowSend` 无可达设置入口（R2） | **已解除 @agent-kb-ux（2026-10-03，三态闸）**：`checkKbEgressGate` 使 `ConsentOverlay` 生产可达，`filterKbEgressResults` 生产执行（详见 [kb-indexing-egress](./specs/knowledge/kb-indexing-egress.md) §8 R1/R2 解除记录）；`ai.settings.allowSend` 为孤儿 i18n 键（仍无 `t()` 调用方） |
 | Linux AppImage 与 liteparse 排除互斥（R9） | `build.files` 排除 Linux 原生件是 Windows 瘦身手段，执行 Linux 打包前须先移除这两条排除（见 [packaging](./guide/packaging.md)） |
 | `AI_CHAT` 附件/入 KB 链休眠（R10） | 主进程 `ChatReqPayload` 有 `attachments`/`uploadToKb`，preload 类型缺字段，渲染层零调用方（Chat 模式已废弃） |
 | anthropic 主循环不分流 + 丢 `tool` 行 | `protocol=anthropic` 时主循环仍走 OpenAI 形状；`anthropicClient.ts:217-234` / `anthropicCompat.ts:89-105` 静默丢 `tool` 角色与 `tool_calls`（agent-memory **R4**，agent-memory 另立 issue 范围） |

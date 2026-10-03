@@ -1,6 +1,6 @@
 # 安全架构
 
-> 最后更新：2026-10-01（2026-09-09 首版；含 agent-cost-optimize 2026-09-23 的三配置门禁/联网同意闸停用、知识库开关随 Module 10 移除等后续结论）
+> 最后更新：2026-10-03（2026-09-09 首版；含 agent-cost-optimize 2026-09-23 的三配置门禁/联网同意闸停用、agent-kb-ux 2026-10-03 热修「KB 默认开启 + 三态外发闸」等后续结论）
 
 ## 安全层次
 
@@ -65,8 +65,9 @@ db.prepare(`SELECT * FROM users WHERE username = '${username}'`);
 
 - ~~`allowNetwork`：允许联网~~ —— `needsConsent` 恒返回 `false`，DB 列保留作历史数据兼容
 - `allowSend`：允许笔记外发（KB 外发闸，`needsKbSendConsent` / `ConsentOverlay`）
-  —— 注：渲染侧唯一触发点是 `useKnowledgeBase && !allowSend`，而知识库开关已随 Module 10 移除，
-  故该弹层**当前在生产 UI 中不可达**（主进程 KB 工具注入仍按 `kbEgressAuthorized` 生效）
+  —— 注：渲染侧 `useKnowledgeBase` 热修后初值 `true` 且无 UI（`542eb9f`），发送闸为三态 `checkKbEgressGate`
+  （空库/已授权/读取失败 → 放行；有文档无授权 → `pendingConsent` → `ConsentOverlay` 生产可达）；
+  主进程 `filterKbEgressResults` 为**唯一强制点**（对齐 `../specs/ai-agent/agent-tool-runtime.md` §11.4）
 
 ### 文件操作安全
 
