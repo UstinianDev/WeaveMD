@@ -3,7 +3,7 @@
 // ============================================
 // 增强版：支持右键菜单（重命名/删除）、双击切换文件、inline 重命名、搜索过滤。
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { IFile } from '@shared/types';
 import { useI18n } from '@render/i18n';
 import Icon from '@render/components/Common/Icon';
@@ -14,6 +14,7 @@ import { useEditorStore } from '@render/stores/editorStore';
 import { useFileTreeStore, type IFileNode, type IFolderNode } from '@render/stores/fileTreeStore';
 import { touchRecent } from '@render/stores/recentStore';
 import { EDITOR_FONT_FAMILY } from '@render/utils/fontConstants';
+import { copyPathToClipboard } from '@render/utils/copyPath';
 import ContextMenu from './ContextMenu';
 import RenameInput from './RenameInput';
 
@@ -170,6 +171,25 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [pendingSwitch, setPendingSwitch] = useState<{ id: string; name: string; path: string; content?: string } | null>(null);
+  const [copyNotice, setCopyNotice] = useState<'done' | 'failed' | null>(null);
+  const copyNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 复制路径提示 1.5s 自清（unmount 清理 timer，CodeBlock copied 态先例）
+  useEffect(() => {
+    return () => {
+      if (copyNoticeTimer.current) clearTimeout(copyNoticeTimer.current);
+    };
+  }, []);
+
+  const handleCopyPath = useCallback(
+    async (path: string) => {
+      const result = await copyPathToClipboard(path);
+      setCopyNotice(result === 'copied' ? 'done' : 'failed');
+      if (copyNoticeTimer.current) clearTimeout(copyNoticeTimer.current);
+      copyNoticeTimer.current = setTimeout(() => setCopyNotice(null), 1500);
+    },
+    []
+  );
 
   // 搜索过滤
   const matchesSearch = useCallback(
@@ -482,6 +502,19 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
         <div key={folder.id}>{renderNode(folder, 0)}</div>
       ))}
 
+      {/* 复制路径提示条（1.5s 自清；className 走 Tailwind/CSS，非内联 style） */}
+      {copyNotice && (
+        <div
+          role="status"
+          data-testid="copy-path-notice"
+          className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-3 py-1.5 text-sm rounded-lg shadow-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] ${
+            copyNotice === 'done' ? 'text-text-primary' : 'text-red-400'
+          }`}
+        >
+          {copyNotice === 'done' ? t('sidebar.copyPathDone') : t('sidebar.copyPathFailed')}
+        </div>
+      )}
+
       {/* 右键菜单 */}
       {contextMenu && (
         <ContextMenu
@@ -489,6 +522,7 @@ const FileTreePanel: React.FC<FileTreePanelProps> = ({ searchQuery = '' }) => {
           y={contextMenu.y}
           isDirectory={contextMenu.isDirectory}
           onRename={() => setRenamingId(contextMenu.nodeId)}
+          onCopyPath={() => void handleCopyPath(contextMenu.nodePath)}
           onDelete={() =>
             handleContextMenuDelete(
               contextMenu.nodeId,
