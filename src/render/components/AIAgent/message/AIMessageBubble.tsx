@@ -336,9 +336,8 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
                 adjustTextareaHeight();
               }}
               onKeyDown={handleEditKeyDown}
-              className="w-full rounded-2xl rounded-tr-md px-3.5 py-2 text-[15px] leading-relaxed bg-white border-2 border-[var(--accent)] shadow-sm resize-none overflow-hidden focus:outline-none"
+              className="w-full rounded-2xl rounded-tr-md px-3.5 py-2 text-[15px] leading-relaxed bg-white border-2 border-[var(--accent)] shadow-sm resize-none overflow-hidden focus:outline-none [font-family:inherit]"
               style={{
-                fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif",
                 minHeight: '40px',
               }}
             />
@@ -367,7 +366,6 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
           <>
             <div
               className="max-w-[85%] rounded-2xl rounded-tr-md px-3.5 py-2 text-[15px] leading-relaxed bg-[#2563eb] text-white shadow-sm"
-              style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}
             >
               <div className="whitespace-pre-wrap break-words">{content}</div>
               {/* 附件 chips：图片缩略图 + 解析三态（一-4②；旧消息无字段不渲染） */}
@@ -496,7 +494,6 @@ const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
   return (
     <div
       className="group flex flex-col px-3 py-1"
-      style={{ fontFamily: "Consolas, 'Alibaba PuHuiTi 2.0', '阿里巴巴普惠体', sans-serif" }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >

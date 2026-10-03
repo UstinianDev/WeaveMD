@@ -237,6 +237,14 @@ body {
     sans-serif;
 }
 
+/* AI 会话消息流楷体（agent-kb-ux R5）：仅 AgentTab 消息流容器 .ai-message-stream 生效。
+   字体串与 src/render/utils/fontConstants.ts 的 EDITOR_FONT_FAMILY
+   'Consolas, KaiTi, 楷体, STKaiti, system-ui' 逐字一致（CSS 无法 import TS，故字面量重复并双向锚定）。
+   禁止给 .chat-scroll / home / composer 加 font-family（会被三处共用视图误伤）。 */
+.ai-message-stream {
+  font-family: 'Consolas', 'KaiTi', '楷体', 'STKaiti', system-ui;
+}
+
 /* Outline panel scrollbar — wider for easier grabbing */
 .outline-scroll::-webkit-scrollbar {
   width: 10px;

@@ -111,6 +111,20 @@ describe('AgentTab (消息流展示区)', () => {
     expect(screen.getByText('，我来写。')).toBeInTheDocument();
   });
 
+  it('R5: 消息流容器挂 .ai-message-stream 且气泡根无内联 fontFamily', () => {
+    // 回归锁：容器类存在（楷体由 CSS 继承）+ AIMessageBubble 三处内联普惠体已删（D3）
+    useAgentStore.setState({ ...defaultState, messages: [userMsg, assistantMsg] });
+    const { container } = render(<AgentTab />);
+    expect(container.querySelector('.ai-message-stream')).not.toBeNull();
+    const withFont = Array.from(container.querySelectorAll<HTMLElement>('[style]')).filter(
+      (el) => el.style.fontFamily
+    );
+    expect(
+      withFont.map((el) => `${el.tagName}.${el.className}`),
+      '消息流内不得有内联 fontFamily'
+    ).toEqual([]);
+  });
+
   it('渲染工具轨迹 toolCalls', () => {
     // Bug 1 修复：toolCalls 现在附着在消息上，而非全局 store
     const assistantWithTools = { ...assistantMsg, toolCalls: [toolCall] };
