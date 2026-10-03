@@ -92,11 +92,11 @@
 
 | ID | 限制（**生产不可达**） | 影响 |
 |---|---|---|
-| R1 | `useKnowledgeBase` 初值 `false`、`setUseKnowledgeBase` 全仓零调用方（Module 10 移除后的废弃开关，**不恢复**） | `toolsForIntent` 的 kbQa/rewrite/create/tech 四分支恒不触发 → `searchKB` 检索、citation 的 searchKB 分支、**外发闸注入矩阵生产不触发** |
-| R2 | `allowSend` DB 默认 0；唯一 UI `ConsentOverlay` 只在 `pendingConsent` 出现，而触发条件依赖 R1 死链 / `needsConsent` 恒 false；i18n `ai.settings.allowSend` 为孤儿键 | **`filterKbEgressResults` 生产不执行** |
+| R1 | ~~`useKnowledgeBase` 初值 `false`、零调用方~~ **已解除 @agent-kb-ux（2026-10-03）**：热修后初值 `true`、composer 无 UI（默认开启），`toolsForIntent` 四分支生产可达，`searchKB` 检索/citation/外发闸注入矩阵均触发 | 原「恒不触发」失效 |
+| R2 | ~~`ConsentOverlay` 触发依赖 R1 死链~~ **已解除 @agent-kb-ux**：三态发送闸 `checkKbEgressGate`（空库/已授权/读取失败 → allow；有文档无授权 → prompt）使 `pendingConsent` 生产可达，`filterKbEgressResults` 随 allowSend=false + 授权行路径**生产执行** | 原「生产不执行」失效 |
 | R3（附带） | `searchDocument` 不经 `filterKbEgressResults`，与 `searchKB` 闸形成旁路 | **已修复**（遗留修复批次）：`ToolCtx.attachmentEgressAllowed = allowSend ∨ 该文档勾选授权`（**fail-closed**）；`resolveAttachmentTarget` 双检 = **会话边界 + 外发闸**（文档四工具共闸）；**本会话附件豁免、跨会话恒拒**（8 格矩阵）。工具执行侧契约见 `../ai-agent/agent-tool-runtime.md` §11.2 |
 
-处置口径：R1/R2 属废弃开关不可达，维持裁定、修复批次明确不在范围；全仓判定依据为静态 grep，未做运行时插桩。
+处置口径（2026-10-03 更新）：R1/R2 已随 agent-kb-ux 交付解除（历史处置：属废弃开关不可达、修复批次不在范围）；本表保留历史判定与解除记录。全仓判定依据为静态 grep，未做运行时插桩。
 
 > 来源：`docs/plan/doc-pipeline.connectivity.md` §2 R1~R3、§链路 4/链路 5、§4 方法与局限；`docs/plan/doc-pipeline.status.md` §遗留修复批次（R1/R2 不在本批次）；**R3 修复后契约**另见 `docs/plan/doc-pipeline.remedial.diagnosis.md`（四工具共闸 + 8 格矩阵）。
 

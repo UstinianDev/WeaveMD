@@ -44,6 +44,11 @@
 
 ### R2 + 根因 A — useKnowledgeBase 开关接线（渲染）
 
+> **⚠️ 本节方案已被 2026-10-03 热修覆盖（`542eb9f`）**：用户裁定 composer 勾选麻烦难看 → 删除 UI 开关，
+> `useKnowledgeBase` 初值改 `true`（默认开启），发送闸改三态 `checkKbEgressGate`（空库/已授权/读取失败→allow；
+> 有文档无授权→prompt）。以下原始 R2 方案保留为历史记录，实施状态以 `docs/testing/agent-kb-ux/agent-kb-ux.tdd.md`
+> 「热修」章为准。
+
 **变更清单**
 - 修改 `src/render/components/AIAgent/panel/AIPanelComposer.tsx`：① :128 后加 2 个选择器 `useKnowledgeBase`/`setUseKnowledgeBase`；② 控制条「联网搜索」按钮后、`{/* Spacer */}`(:686) 前插入 `<label data-testid="use-kb-toggle">`（复用 :535-546 附件勾选结构 + `accent-[var(--accent)]`），`checked`/`onChange` 绑 setter，文案 `t('ai.agent.useKnowledgeBase')`，title 同键。最窄 260px，放左侧组；若走查拥挤，回退=紧邻发送按钮左侧（testid 不变）。
 - i18n：**三语已齐备，零改动**；`agentStore.ts` **零代码改动**（:339 默认 / :1224 setter / :1100 传递链 / reset 归位均就绪）。

@@ -101,9 +101,9 @@
 
 ### 11.4 已知限制（生产不可达，不得写成承诺）
 
-- **`useKnowledgeBase` 硬编码 `false`、`setUseKnowledgeBase` 全仓零调用方** → `toolsForIntent` 的 kbQa/rewrite/create/tech 四分支恒不注入 `searchKB`，11.1 的注入矩阵与检索 citation 分支**生产不触发**（已标注为 Module 10 移除后的废弃开关，**不恢复**）。（来源：`docs/plan/doc-pipeline.connectivity.md` §2 R1）
-- **`allowSend` 无可达 UI 入口**（DB 默认 0，`ConsentOverlay` 触发条件依赖已死的 KB 开关）→ `filterKbEgressResults` **生产不执行**。（来源：`docs/plan/doc-pipeline.connectivity.md` §2 R2）
-- 即：11.1 目前是**结构正确但生产不执行**的闸；11.2 是附件正文出口的**在用闸**。
+- ~~`useKnowledgeBase` 硬编码 `false`、零调用方~~ **已解除 @agent-kb-ux（2026-10-03）**：热修后初值 `true`（composer 无 UI、默认开启），`toolsForIntent` 四分支与 11.1 注入矩阵/citation 分支**生产可达**。
+- ~~`allowSend` 无可达 UI 入口~~ **已解除 @agent-kb-ux**：三态发送闸 `checkKbEgressGate`（有文档无授权 → `pendingConsent` → `ConsentOverlay`）生产可达，`filterKbEgressResults` 随之**生产执行**（空库/已授权/读取失败放行，主进程白名单为唯一强制点）。
+- 即：11.1 已是**在用闸**（2026-10-03 起）；11.2 仍是附件正文出口的**在用闸**。历史判定见 `../knowledge/kb-indexing-egress.md` R1/R2 解除记录。
 
 ## 12. 需求侧交叉引用
 
