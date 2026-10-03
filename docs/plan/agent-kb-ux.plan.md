@@ -92,6 +92,10 @@
 
 ### R4 — 文件树右键复制文件地址（渲染）
 
+> **❌ 本节已作废（2026-10-03 用户裁定「没必要」）**：功能整体删除（`6a88791` 反向撤销 `ea3b81a` + `3bdb4e8`，
+> 含 copyPath 工具/菜单项/i18n 三键/CLIPBOARD_WRITE_TEXT 桥，-383 行）。以下原始方案保留为历史记录。
+
+
 **变更清单**
 - **新建 `src/render/utils/copyPath.ts`**：`isAbsolutePath(p)`（复用 `agentHandlers.ts:130-132`：`/…`、`\\…`、`^[a-zA-Z]:[\\/]`）；`copyPathToClipboard(path): Promise<'copied'|'failed'>`（空/非绝对→failed；`navigator.clipboard` 缺失/抛错/reject→failed，**不静默**）。
 - 修改 `ContextMenu.tsx`：Props + `onCopyPath`；「重命名」(:59-68) 与分隔线间插按钮（Icon `copy`，`t('sidebar.copyPath')`，**文件夹/文件均显示**——现 `isDirectory` 形参未用）；点击 `onCopyPath(); onClose();`。

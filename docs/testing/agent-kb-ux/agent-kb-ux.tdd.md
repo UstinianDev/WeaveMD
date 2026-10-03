@@ -242,3 +242,14 @@ Test Files  1 passed (1)
 失败名单与 `/tmp/pw-baseline-failed.txt`（31 行）逐行 diff → **IDENTICAL**（同数同名零新增；
 仅行尾 ─ 填充符有无之差，剥除后 diff 为空）。三项热修零新增 E2E 失败。
 
+
+
+## 功能删除记录 — R4 复制文件地址（2026-10-03 用户裁定「没必要了」）
+
+- `git revert --no-commit 3bdb4e8` + `git revert --no-commit ea3b81a` 零冲突合并为单提交 **`6a88791`**
+  （12 files，+2/-383）：删 `src/render/utils/copyPath.ts`、`tests/utils/copyPath.test.ts`、ContextMenu 菜单项与
+  `onCopyPath`、FileTreePanel 提示条、i18n `sidebar.copyPath*` 三键 ×3 文件、`CLIPBOARD_WRITE_TEXT` 常量 +
+  ipc-handlers handler + preload 桥 + weaveMDBridge noop。
+- 门禁实测：typecheck 0 / lint 0 error（108 基线）/ vitest **206 文件 4826 例全绿**（4844-18=已删功能测试）/
+  playwright **31·104·1 与基线相等**。
+- 本报告上方任务 3（R4）章节与热修章保留为历史证据，不回改。
