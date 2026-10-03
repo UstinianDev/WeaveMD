@@ -620,6 +620,19 @@ export function registerAllIpcHandlers(): void {
     return `data:image/png;base64,${buffer.toString('base64')}`;
   });
 
+  // Clipboard — write text via main process
+  // （渲染层 navigator.clipboard 在打包 Electron 非安全上下文恒 reject，复制路径必失败）
+  ipcMain.handle(IPC_CHANNELS.CLIPBOARD_WRITE_TEXT, async (_e, text: string) => {
+    if (typeof text !== 'string' || !text) return false;
+    try {
+      const { clipboard } = await import('electron');
+      clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
   // ========================================
   // Notification — 系统通知（AI 交互提问卡片）
   // ========================================

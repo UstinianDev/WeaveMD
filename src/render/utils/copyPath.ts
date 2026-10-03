@@ -19,11 +19,28 @@ export function isAbsolutePath(p: string): boolean {
 }
 
 /**
- * 将绝对路径写入系统剪贴板。空/非绝对路径、clipboard 缺失或写入抛错
- * 一律返回 'failed'（不静默吞错，由调用方展示失败提示）。
+ * 将绝对路径写入系统剪贴板。空/非绝对路径一律返回 'failed'。
+ * 优先主进程桥 clipboard.writeText（打包 Electron 非安全上下文下
+ * navigator.clipboard 恒 reject → 恒 'failed'，故桥为主路径）；
+ * 桥缺失/抛错/返回 false → 回落 navigator.clipboard；两端均失败 → 'failed'
+ * （不静默吞错，由调用方展示失败提示）。
  */
 export async function copyPathToClipboard(path: string): Promise<CopyPathResult> {
   if (!path || !isAbsolutePath(path)) return 'failed';
+
+  // 1) 主进程剪贴板桥（contextBridge）
+  try {
+    const bridgeWrite = window.weaveMD?.clipboard?.writeText;
+    if (typeof bridgeWrite === 'function') {
+      const ok = await bridgeWrite(path);
+      if (ok === true) return 'copied';
+      // false → 继续回落 navigator
+    }
+  } catch {
+    // 桥不存在/IPC 抛错 → 继续回落 navigator
+  }
+
+  // 2) 回落浏览器剪贴板
   try {
     const clipboard = navigator.clipboard;
     if (!clipboard || typeof clipboard.writeText !== 'function') return 'failed';
