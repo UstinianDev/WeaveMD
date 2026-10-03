@@ -662,8 +662,6 @@ export const createNoopWeaveMDApi = (): WeaveMDApi => ({
   },
   clipboard: {
     readImage: async () => null,
-    // 浏览器模式无主进程剪贴板 → 受控失败，交由调用方回落 navigator.clipboard
-    writeText: async () => false,
   },
   folder: {
     readFolder: async () => createSuccessResult([]),

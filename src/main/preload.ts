@@ -124,8 +124,6 @@ export interface WeaveMDApi {
   };
   clipboard: {
     readImage: () => Promise<string | null>;
-    /** 热修：文本写入走主进程（打包 Electron navigator.clipboard 非安全上下文恒 reject）。 */
-    writeText: (text: string) => Promise<boolean>;
   };
   ai: {
     getConfig: (userId: string) => Promise<IpcResponse<IAIConfig>>;
@@ -395,7 +393,6 @@ const api: WeaveMDApi = {
   },
   clipboard: {
     readImage: () => ipcRenderer.invoke(IPC_CHANNELS.CLIPBOARD_READ_IMAGE),
-    writeText: (text: string) => ipcRenderer.invoke(IPC_CHANNELS.CLIPBOARD_WRITE_TEXT, text),
   },
   ai: {
     getConfig: (userId) => ipcRenderer.invoke(IPC_CHANNELS.AI_GET_CONFIG, userId),

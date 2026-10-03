@@ -1,7 +1,7 @@
 // ============================================
 // WeaveMD — Context Menu (Right-click menu)
 // ============================================
-// 右击文件/文件夹弹出的上下文菜单：复制地址 + 重命名 + 删除。
+// 右击文件/文件夹弹出的上下文菜单：重命名 + 删除。
 
 import React, { useEffect, useRef } from 'react';
 import { useI18n } from '@render/i18n';
@@ -12,8 +12,6 @@ interface ContextMenuProps {
   y: number;
   isDirectory: boolean;
   onRename: () => void;
-  /** 复制文件/文件夹绝对路径（agent-kb-ux R4） */
-  onCopyPath: () => void;
   onDelete: () => void;
   onClose: () => void;
 }
@@ -23,7 +21,6 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   y,
   isDirectory: _isDirectory,
   onRename,
-  onCopyPath,
   onDelete,
   onClose,
 }) => {
@@ -68,17 +65,6 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
       >
         <Icon icon="edit" size={14} className="text-text-muted" />
         <span>{t('sidebar.rename')}</span>
-      </button>
-      {/* 复制文件地址：文件/文件夹均显示，位于重命名与分隔线之间 */}
-      <button
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-text-primary hover:bg-accent/20 transition-colors"
-        onClick={() => {
-          onCopyPath();
-          onClose();
-        }}
-      >
-        <Icon icon="copy" size={14} className="text-text-muted" />
-        <span>{t('sidebar.copyPath')}</span>
       </button>
       <div className="border-t my-0.5" style={{ borderColor: 'var(--border-color)' }} />
       <button

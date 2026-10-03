@@ -82,8 +82,6 @@ export const IPC_CHANNELS = {
 
   // Clipboard
   CLIPBOARD_READ_IMAGE: 'clipboard:read-image',
-  // 热修：文本写入走主进程（打包 Electron 非安全上下文 navigator.clipboard 恒 reject）
-  CLIPBOARD_WRITE_TEXT: 'clipboard:write-text',
 
   // App / Update
   APP_GET_VERSION: 'app:get-version',
