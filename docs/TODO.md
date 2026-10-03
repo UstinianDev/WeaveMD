@@ -4,6 +4,11 @@
 
 ## 已完成
 
+### agent-kb-ux KB 可见性与交互增强（2026-10-03）
+
+M 级四需求全交付（Q1~Q8 裁定）：**R2** composer `useKnowledgeBase` 开关接线（根因 A——开关无 UI 恒 false 致 searchKB 从不下发，Agent 看不到任何 KB 文档）；**R3** 导入授权勾选贯通 `consent_granted` + D1 设置 knowledge tab 挂载导入 UI + D2 渲染闸收窄（无授权外发行才拦）+ D4 白名单两 SQL 扩 `IN ('attachment','import')`（铁律二不削弱、零 DDL）；**R4** 文件树右键「复制文件地址」（文件+文件夹，绝对路径，失败提示不静默）；**R5** 会话消息区楷体（`.ai-message-stream` 与编辑区同栈，home/composer 不动）。
+提交 `2820f05`/`97c93f5`/`ea3b81a`/`f19c70b`/`9ddf3b3`；门禁 typecheck 0 / vitest 4835 全绿（计时 flaky 单跑复核）/ lint 0 / playwright 31·104·1 与基线 IDENTICAL。证据 [agent-kb-ux.tdd](./testing/agent-kb-ux/agent-kb-ux.tdd.md)，需求 [req](./requirements/agent-kb-ux/agent-kb-ux.req.md)。
+
 ### agent-multi-intent 多意图识别与执行（2026-10-01 ~ 2026-10-03）
 
 L 级能力补齐，**13 任务全交付**（P0 5：结构化 Schema / 预检门与拆分 / 置信度追问 / 子任务顺序链 / 确认矩阵；P1 6：intent_json 追踪 / 执行报告 / 三层路由 / KB 意图透传 / 级联确认 / write_mode 消费；P2 2：依赖图并行调度 / 边界固化）+ **2 个连通性修复**（`03d60b3` skip-set fail-closed、`43ab99c` waitForInteraction 取消竞态）。Q1~Q24 裁定全对齐，TDD strict。
