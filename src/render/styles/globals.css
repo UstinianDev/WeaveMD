@@ -2933,15 +2933,15 @@ span.comment-marker {
 /* ============================================ */
 
 .ai-markdown {
+  /* 热修（2026-10-03）：AI 输出改楷体，与 EDITOR_FONT_FAMILY 同序
+     （src/render/utils/fontConstants.ts:7 'Consolas, KaiTi, 楷体, STKaiti, system-ui'）；
+     影响面=AIMessageBubble / MarkdownMessage 两处 AI 输出容器 */
   font-family:
     'Consolas',
-    'Alibaba PuHuiTi 2.0',
-    '阿里巴巴普惠体',
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
+    'KaiTi',
+    '楷体',
+    'STKaiti',
+    system-ui;
 }
 
 .ai-markdown table {

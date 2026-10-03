@@ -48,3 +48,28 @@ describe('agent-kb-ux R5 CSS: .ai-message-stream 消息流楷体', () => {
     expect(cssRules).not.toMatch(/\.chat-scroll[^{}]*\{[^}]*font-family/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 热修（2026-10-03）：AI 输出（.ai-markdown）楷体
+// 根因：.ai-markdown 自带普惠体覆盖容器 KaiTi 继承；改为与 EDITOR_FONT_FAMILY
+// 同序（fontConstants.ts:7 'Consolas, KaiTi, 楷体, STKaiti, system-ui'）
+// ---------------------------------------------------------------------------
+describe('agent-kb-ux 热修 CSS: .ai-markdown 楷体', () => {
+  it('CM3: .ai-markdown 规则含 KaiTi 且不含 PuHuiTi', () => {
+    const b = blockText('.ai-markdown');
+    expect(b).toMatch(/font-family/);
+    expect(b).toContain('KaiTi');
+    expect(b).not.toMatch(/PuHuiTi/i);
+  });
+
+  it('CM4: .ai-markdown code 仍等宽（未被楷体污染，既有规则未动）', () => {
+    const b = blockText('.ai-markdown code');
+    expect(b).toContain("font-family: 'Consolas', monospace;");
+    expect(b).not.toContain('KaiTi');
+  });
+
+  it('CM5: code 规则仍走 --font-code（markdown-preview 段未被热修波及）', () => {
+    const b = blockText('.markdown-preview code');
+    expect(b).toContain('font-family: var(--font-code);');
+  });
+});
